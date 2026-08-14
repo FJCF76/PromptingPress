@@ -3352,6 +3352,17 @@ class SchemaValidationTest extends TestCase
     private const SCHEMA_RENAME_MIGRATION_NOTES = [];
 
     /**
+     * The append-only floor for the prop surface (#598). 126 props across 12 components
+     * as of v1.13.15. NEVER DECREASE THIS. Adding props raises what the baseline holds,
+     * which is fine (the check is >=); retiring one moves it into the notes register, so
+     * the accounted total still never drops.
+     */
+    private const PROP_BASELINE_FLOOR = 126;
+
+    /** Content fingerprint of PINNED_PROP_BASELINE. See baselineFingerprint(). */
+    private const PROP_BASELINE_FINGERPRINT = '7033f12eb731ca20';
+
+    /**
      * Pure drift detector: any baseline prop that no longer exists in the live schema
      * must be covered by a migration note, else it is a violation. Kept as a static
      * helper so the real run and the simulated-rename test share one implementation.
@@ -3360,25 +3371,38 @@ class SchemaValidationTest extends TestCase
      * surface itself — dropping it, rather than passing [] forever, is what makes the
      * note the only reachable escape hatch.
      *
-     * @param array<string,string[]>              $baseline   component => prop names
-     * @param array<string,string[]>              $liveProps  component => prop names
-     * @param array<string,array<string,string>>  $notes      component => [prop => note]
+     * SURFACE-AGNOSTIC (#598). The algorithm only ever compared "declared names per
+     * component" against "pinned names per component", which is exactly the shape of
+     * the STYLE-SLOT surface too. `$kind` is a message label, not a behaviour switch:
+     * both surfaces run this one implementation, so neither can drift into its own
+     * subtly-different notion of what counts as a rename.
+     *
+     * @param array<string,string[]>              $baseline   component => declared names
+     * @param array<string,string[]>              $liveNames  component => declared names
+     * @param array<string,array<string,string>>  $notes      component => [name => note]
+     * @param string                              $kind       'prop' or 'style slot' (label only)
      * @return string[]  Human-readable violations (empty = no drift).
      */
-    private static function detectSchemaRenameDrift(array $baseline, array $liveProps, array $notes): array
+    private static function detectSchemaRenameDrift(array $baseline, array $liveNames, array $notes, string $kind): array
     {
         $violations = [];
-        foreach ($baseline as $component => $props) {
-            $live = $liveProps[$component] ?? [];
-            foreach ($props as $prop) {
-                if (in_array($prop, $live, true)) {
+        foreach ($baseline as $component => $names) {
+            $live = $liveNames[$component] ?? [];
+            foreach ($names as $name) {
+                if (in_array($name, $live, true)) {
                     continue; // still declared — no drift
                 }
-                if (!isset($notes[$component]) || !array_key_exists($prop, $notes[$component])) {
+                if (!isset($notes[$component]) || !array_key_exists($name, $notes[$component])) {
                     $violations[] = sprintf(
-                        'Component "%s" prop "%s" was removed/renamed without a migration note.',
+                        'Component "%s" %s "%s" was removed/renamed without a migration note. '
+                        . 'FIX: add \'%s\' => \'<what replaced it, or that it is gone, naming the ruling issue e.g. #598>\' '
+                        . 'to the %s migration-notes register. Deleting the pinned baseline entry is NOT a fix — '
+                        . 'the baseline is append-only.',
                         $component,
-                        $prop
+                        $kind,
+                        $name,
+                        $name,
+                        $kind
                     );
                 }
             }
@@ -3386,13 +3410,251 @@ class SchemaValidationTest extends TestCase
         return $violations;
     }
 
-    /** Live declared props per component, read from the shipped schemas. */
-    private function liveProps(): array
+    /**
+     * The ADD-PATH counterpart, extracted as a pure helper for the same reason the
+     * remove-path is one (#598): an inline loop over the live schemas can only ever be
+     * exercised by the live schemas, so nothing proves it fires. As a helper, a
+     * simulated unpinned addition can be fed to it directly.
+     *
+     * Two ways a baseline goes stale, both caught here:
+     *   1. a whole component the baseline has never heard of (a NEW slot-bearing
+     *      component, including footer/nav if they ever trade
+     *      `chrome_custom_properties` for real `style_slots`);
+     *   2. a new name on a component the baseline already covers.
+     *
+     * Either one would let a LATER removal of that name slip past the remove-path
+     * guard, because the removed name was never in the baseline to begin with.
+     *
+     * @param array<string,string[]>  $baseline   component => declared names
+     * @param array<string,string[]>  $liveNames  component => declared names
+     * @param string                  $kind       'prop' or 'style slot' (label only)
+     * @return string[]  Human-readable violations (empty = baseline is current).
+     */
+    private static function detectUnpinnedAdditions(array $baseline, array $liveNames, string $kind): array
+    {
+        $violations = [];
+        foreach ($liveNames as $component => $names) {
+            if (!array_key_exists($component, $baseline)) {
+                $violations[] = sprintf(
+                    'Component "%s" is not in the pinned %s baseline — add it.',
+                    $component,
+                    $kind
+                );
+                continue;
+            }
+            foreach ($names as $name) {
+                if (!in_array($name, $baseline[$component], true)) {
+                    $violations[] = sprintf(
+                        'Component "%s" %s "%s" is not pinned in the baseline — append it in this same change.',
+                        $component,
+                        $kind,
+                        $name
+                    );
+                }
+            }
+        }
+        return $violations;
+    }
+
+    /**
+     * H1 (part 2) — a stable fingerprint of a pinned baseline's CONTENTS.
+     *
+     * The count floor below catches a baseline that SHRANK. It cannot catch a
+     * count-preserving SWAP: renaming a name in the schema and editing the same line in
+     * the baseline leaves the total untouched, so a fully undocumented rename ships
+     * green. That is the identical count-blindness this whole issue exists to kill —
+     * `testSlotCountPinsCannotSeeARenameButTheBaselineCan()` names it — and a floor
+     * reproduces it one level up.
+     *
+     * The fingerprint closes it by making the baseline's CONTENT the pinned thing, so
+     * every edit to either literal has to be acknowledged by updating a second, labelled
+     * constant. Names are sorted before hashing, so pure reordering or reformatting does
+     * not trip it; only the actual set of names does.
+     *
+     * Honest about what this is: an author who edits the literal can also edit the
+     * fingerprint. No pinned-literal scheme can prevent that. What it guarantees is that
+     * the author is TOLD, at the moment of the edit, what documentation the change owes —
+     * and that the edit is a visible line in review rather than one name quietly
+     * changing inside a ninety-line block.
+     */
+    private static function baselineFingerprint(array $baseline): string
+    {
+        $canonical = [];
+        foreach ($baseline as $component => $names) {
+            sort($names);
+            $canonical[$component] = $names;
+        }
+        ksort($canonical);
+
+        return substr(hash('sha256', json_encode($canonical)), 0, 16);
+    }
+
+    /**
+     * The remedy text for a changed baseline. Written once so both surfaces say the same
+     * thing, and deliberately phrased so the instruction is what to DOCUMENT — never
+     * "delete the entry", which is the wrong fix the old messages implied by naming the
+     * constant and nothing else.
+     */
+    private static function baselineEditRemedy(string $kind, string $baselineConst, string $fingerprintConst, string $notesConst): string
+    {
+        return sprintf(
+            "%s baseline contents changed (%s).\n"
+            . "  ADDED a %s?    Append it to %s, then update %s.\n"
+            . "  RETIRED a %s?  Record it in %s with a note naming its replacement (or that it is gone) "
+            . "and the issue that ruled it, e.g. 'renamed to X (#598)'. Then update %s.\n"
+            . "  RENAMED one?   That is a retirement plus an addition: do BOTH of the above.\n"
+            . "Silently editing the name in %s is not a fix — a rename that nobody documented is exactly "
+            . "what this guard exists to stop.",
+            ucfirst($kind),
+            $baselineConst,
+            $kind,
+            $baselineConst,
+            $fingerprintConst,
+            $kind,
+            $notesConst,
+            $fingerprintConst,
+            $baselineConst
+        );
+    }
+
+    /**
+     * H2 + H3 — the migration-notes register polices itself (#598, 7A Option B).
+     *
+     * The register is the SOLE escape hatch from the remove-path guard, and an escape
+     * hatch nobody inspects is just a hole. Two ways a note fails to be a documented
+     * breaking change:
+     *
+     *   H2  CONTENT. detectSchemaRenameDrift() clears drift on key existence alone, so
+     *       '', null and 0 silence it exactly as well as real prose. The recorded
+     *       decision requires each entry to name the change AND the issue that ruled it,
+     *       so require a non-empty string carrying an issue reference (#123).
+     *
+     *   H3  STALENESS. A note for a name the schemas STILL declare is accepted silently
+     *       today, which means the guard can be disarmed in advance: one commit adds
+     *       notes for live names (zero failures, reads as documentation), a later commit
+     *       deletes those names and sails through. Pre-authorisation is not
+     *       documentation. A note may only describe a name that is actually gone.
+     *
+     * @param array<string,array<string,mixed>>  $notes      component => [name => note]
+     * @param array<string,string[]>             $liveNames  component => declared names
+     * @param string                             $kind       'prop' or 'style slot' (label only)
+     * @return string[]  Human-readable violations (empty = register is honest).
+     */
+    private static function detectMigrationNoteDefects(array $notes, array $liveNames, string $kind): array
+    {
+        $violations = [];
+        foreach ($notes as $component => $entries) {
+            foreach ($entries as $name => $note) {
+                if (!is_string($note) || trim($note) === '') {
+                    $violations[] = sprintf(
+                        'Migration note for %s "%s.%s" is empty. FIX: write what replaced it (or that it is '
+                        . 'gone) and cite the issue that ruled it, e.g. \'renamed to X (#598)\'.',
+                        $kind,
+                        $component,
+                        $name
+                    );
+                    continue;
+                }
+                if (!preg_match('/#\d+/', $note)) {
+                    $violations[] = sprintf(
+                        'Migration note for %s "%s.%s" does not cite a ruling issue. FIX: add the issue '
+                        . 'reference (e.g. #598) that ruled this breaking change.',
+                        $kind,
+                        $component,
+                        $name
+                    );
+                }
+                if (in_array($name, $liveNames[$component] ?? [], true)) {
+                    $violations[] = sprintf(
+                        '%s "%s.%s" still exists, so its migration note describes a breaking change that has '
+                        . 'not happened. FIX: remove the note. A note may only be written in the SAME change '
+                        . 'that retires the name — pre-authorising a future removal disarms the guard.',
+                        ucfirst($kind),
+                        $component,
+                        $name
+                    );
+                }
+            }
+        }
+        return $violations;
+    }
+
+    /**
+     * H1 — the pinned baseline is APPEND-ONLY (#598, 7A Option B).
+     *
+     * Without this, the guard is defeated by the cheapest possible edit. A rename that
+     * also deletes the old name from the baseline literal leaves nothing missing to
+     * detect, so every check passes and the migration note is never written. The old
+     * failure text even steered an author there by naming the constant.
+     *
+     * The floor is a second, independent record of how many names the baseline is
+     * accountable for. A retired name must MOVE into the notes register (or simply stay
+     * pinned alongside its note); either way the accounted total never drops. Deleting
+     * a line without writing a note drops it, and that fails here.
+     *
+     * The floor is itself a literal someone could edit down — but it is one labelled
+     * number whose entire job is to be a floor, which a reviewer sees, rather than one
+     * line vanishing from a ninety-line literal, which a reviewer does not.
+     *
+     * @param array<string,string[]>             $baseline  component => pinned names
+     * @param array<string,array<string,mixed>>  $notes     component => [name => note]
+     * @param int                                $floor     names this surface must account for
+     * @param string                             $kind      'prop' or 'style slot' (label only)
+     * @return string[]  Human-readable violations (empty = nothing went missing).
+     */
+    private static function detectBaselineShrink(array $baseline, array $notes, int $floor, string $kind): array
+    {
+        $pinned   = array_sum(array_map('count', $baseline));
+        $recorded = array_sum(array_map('count', $notes));
+        $accounted = $pinned + $recorded;
+
+        if ($accounted >= $floor) {
+            return [];
+        }
+
+        return [sprintf(
+            'The pinned %s baseline shrank: %d names are accounted for (%d pinned + %d in migration notes) '
+            . 'but this surface must account for at least %d. A retired name MOVES into the migration-notes '
+            . 'register with a note naming its replacement and ruling issue — deleting the baseline entry is '
+            . 'NOT a valid fix, and lowering the floor is not either.',
+            $kind,
+            $accounted,
+            $pinned,
+            $recorded,
+            $floor
+        )];
+    }
+
+    /**
+     * Every shipped schema, decoded, keyed by component name. The single discovery
+     * point for BOTH surfaces (#598): liveProps() and liveSlots() are projections over
+     * it, so they cannot drift into different ideas of which components exist or of
+     * what a malformed schema means.
+     *
+     * A schema that fails to parse fails LOUDLY here. It used to decode to null and
+     * flow onward as an empty prop list, which reads downstream as "this component
+     * declares nothing" — indistinguishable from a mass removal, and a misdiagnosis
+     * pointed at the wrong fix.
+     */
+    private function liveSchemas(): array
     {
         $out = [];
         foreach (glob($this->themeRoot . '/components/*/schema.json') as $schemaFile) {
             $schema = json_decode(file_get_contents($schemaFile), true);
-            $name   = $schema['component'] ?? basename(dirname($schemaFile));
+            $this->assertNotNull(
+                $schema,
+                basename(dirname($schemaFile)) . '/schema.json is not valid JSON — discovery would silently skip it.'
+            );
+            $out[$schema['component'] ?? basename(dirname($schemaFile))] = $schema;
+        }
+        return $out;
+    }
+
+    /** Live declared props per component, read from the shipped schemas. */
+    private function liveProps(): array
+    {
+        $out = [];
+        foreach ($this->liveSchemas() as $name => $schema) {
             $out[$name] = array_keys($schema['props'] ?? []);
         }
         return $out;
@@ -3410,9 +3672,43 @@ class SchemaValidationTest extends TestCase
         $drift = self::detectSchemaRenameDrift(
             self::PINNED_PROP_BASELINE,
             $this->liveProps(),
-            self::SCHEMA_RENAME_MIGRATION_NOTES
+            self::SCHEMA_RENAME_MIGRATION_NOTES,
+            'prop'
         );
         $this->assertSame([], $drift, implode("\n", $drift));
+    }
+
+    public function testPropMigrationNotesAreWellFormedAndCurrent(): void
+    {
+        // H2 + H3 on the prop surface. Empty today, so this is a contract waiting for
+        // the first real note — but it is the contract that makes the note mean
+        // something when one is finally written.
+        $defects = self::detectMigrationNoteDefects(
+            self::SCHEMA_RENAME_MIGRATION_NOTES,
+            $this->liveProps(),
+            'prop'
+        );
+        $this->assertSame([], $defects, implode("\n", $defects));
+    }
+
+    public function testPropBaselineIsAppendOnly(): void
+    {
+        // H1 on the prop surface: the baseline may grow, never shrink.
+        $shrink = self::detectBaselineShrink(
+            self::PINNED_PROP_BASELINE,
+            self::SCHEMA_RENAME_MIGRATION_NOTES,
+            self::PROP_BASELINE_FLOOR,
+            'prop'
+        );
+        $this->assertSame([], $shrink, implode("\n", $shrink));
+
+        // The floor alone cannot see a count-preserving SWAP, which is the edit that
+        // actually shipped an undocumented rename. The fingerprint can.
+        $this->assertSame(
+            self::PROP_BASELINE_FINGERPRINT,
+            self::baselineFingerprint(self::PINNED_PROP_BASELINE),
+            self::baselineEditRemedy('prop', 'PINNED_PROP_BASELINE', 'PROP_BASELINE_FINGERPRINT', 'SCHEMA_RENAME_MIGRATION_NOTES')
+        );
     }
 
     public function testEveryLiveSchemaPropIsPinnedInBaseline(): void
@@ -3424,20 +3720,30 @@ class SchemaValidationTest extends TestCase
         // change must touch the baseline in the same commit, and a rename then fails on
         // both the remove-path (which needs a migration note — the sole escape hatch
         // since #604, and still the sole one after #606) and here.
-        foreach ($this->liveProps() as $component => $props) {
-            $baseline = self::PINNED_PROP_BASELINE[$component] ?? null;
-            $this->assertNotNull(
-                $baseline,
-                sprintf('Component "%s" is not in PINNED_PROP_BASELINE — add it (SchemaValidationTest).', $component)
-            );
-            foreach ($props as $prop) {
-                $this->assertContains(
-                    $prop,
-                    $baseline,
-                    sprintf('Prop "%s.%s" is not pinned in PINNED_PROP_BASELINE — append it in this same change.', $component, $prop)
-                );
-            }
-        }
+        //
+        // The check itself moved into detectUnpinnedAdditions() in #598 with its
+        // semantics unchanged (unknown component, or unpinned name on a known
+        // component). It was an inline loop over the live schemas, which meant nothing
+        // could prove it fires; testUnpinnedAdditionIsCaught() now does.
+        //
+        // The add-path iterates the LIVE set, so — unlike the remove-path — an empty or
+        // partial discovery would pass it vacuously. Pin the component set first, in
+        // both directions, so a broken glob is a hard failure here rather than a green
+        // check that guards nothing.
+        $live = $this->liveProps();
+        $this->assertNotEmpty($live, 'prop discovery found no components — the add-path guard would pass vacuously.');
+        $this->assertSame(
+            array_keys(self::PINNED_PROP_BASELINE),
+            array_keys($live),
+            'the discovered component set must match PINNED_PROP_BASELINE exactly.'
+        );
+
+        $violations = self::detectUnpinnedAdditions(self::PINNED_PROP_BASELINE, $live, 'prop');
+        $this->assertSame(
+            [],
+            $violations,
+            "PINNED_PROP_BASELINE (SchemaValidationTest) is stale:\n" . implode("\n", $violations)
+        );
     }
 
     public function testSchemaRenameDriftIsCaught(): void
@@ -3450,15 +3756,498 @@ class SchemaValidationTest extends TestCase
         $baseline = ['cta' => ['id', 'headline', 'button_text']];
         $live     = ['cta' => ['id', 'button_text']]; // `headline` removed
 
-        $unnoted = self::detectSchemaRenameDrift($baseline, $live, []);
+        $unnoted = self::detectSchemaRenameDrift($baseline, $live, [], 'prop');
         $this->assertNotEmpty($unnoted, 'a schema rename with no migration note must be flagged');
         $this->assertStringContainsString('headline', $unnoted[0]);
 
         // An explicit migration note in the SAME change clears it. Since #604 this is
         // the ONLY thing that does — the alias-entry branch that used to sit here was
         // removed with the alias surface it depended on.
-        $withNote = self::detectSchemaRenameDrift($baseline, $live, ['cta' => ['headline' => 'migrated by #999']]);
+        $withNote = self::detectSchemaRenameDrift($baseline, $live, ['cta' => ['headline' => 'migrated by #999']], 'prop');
         $this->assertSame([], $withNote, 'a migration note for the renamed prop clears the drift');
+    }
+
+
+    // ── Style-slot rename drift-catcher (#598), on the shared prop/slot engine ──
+    //
+    // The SLOT surface had every kind of pin EXCEPT a rename-catcher. The count pins
+    // (testStyleSlotsExistForV1Components here, and the slot count in css-lint.test.js)
+    // are rename-INVARIANT by construction: a rename removes one name and adds another,
+    // so no total ever moves. Everything else that touches slots — StyleSlotContractTest,
+    // css-lint's per-slot consumption check — globs the LIVE schemas, so it re-derives
+    // its expectations from the very file the rename just edited and stays green.
+    //
+    // Why that mattered: pp_render_style_vars() (lib/wp.php) drops an undeclared slot
+    // name with a bare `continue` — no finding, no warning, no log. A renamed slot means
+    // every stored page that set the old name silently renders unstyled while every
+    // action still returns ok:true. Under the ratified no-alias posture (#570 Addendum
+    // #5, #603/#604) that breakage is ALLOWED — renames are documented breaking changes,
+    // not aliased migrations. This guard is what makes "documented" enforceable.
+    //
+    // Scope, stated plainly: this is a CI tripwire on future schema edits. It does not
+    // repair, resolve, or alias anything at runtime, and it does nothing for pages that
+    // already stored a name a deliberate rename retired. StoredCompositionAliasRenderTest
+    // guards the negative space (the removed alias machinery stays removed).
+
+    /**
+     * The pinned baseline of declared style slots per component AS OF #598 (v1.13.14,
+     * the v1.14.0 gate's final schema state — this issue lands last for exactly that
+     * reason). A FROZEN LITERAL for the same reason PINNED_PROP_BASELINE is one: if it
+     * were re-globbed at runtime, a removal would delete itself from the baseline and
+     * the drift would be invisible.
+     *
+     * 261 slots across the 10 slot-bearing components. footer and nav are absent because
+     * they declare no `style_slots` at all (they carry `chrome_custom_properties`
+     * instead) — and if either ever gains real slots, the add-path guard below fails
+     * until it is pinned here, so their absence is enforced rather than assumed.
+     *
+     * When you intentionally ADD a slot, append it here in the same change.
+     */
+    private const PINNED_SLOT_BASELINE = [
+        'cta'          => [
+            '--cta-padding-top', '--cta-padding-bottom', '--cta-bg', '--cta-heading-color',
+            '--cta-heading-accent-color', '--cta-eyebrow-color', '--cta-eyebrow-bg', '--cta-eyebrow-radius',
+            '--cta-eyebrow-border-width', '--cta-eyebrow-border-color', '--cta-eyebrow-text-transform',
+            '--cta-heading-size', '--cta-body-color', '--cta-body-size', '--cta-inner-gap', '--cta-accent',
+            '--cta-accent-hover', '--cta-button-bg', '--cta-button-border', '--cta-button-color',
+            '--cta-button-hover-bg', '--cta-button-hover-border', '--cta-button-hover-color',
+            '--cta-button-shadow', '--cta-button2-bg', '--cta-button2-border', '--cta-button2-color',
+            '--cta-button2-hover-bg', '--cta-button2-hover-border', '--cta-button2-hover-color',
+            '--cta-button2-shadow', '--cta-border-color', '--cta-border-width', '--cta-radius', '--cta-shadow',
+            '--cta-heading-measure', '--cta-heading-margin-bottom', '--cta-body-measure', '--cta-overlay-bg',
+            '--cta-bg-position',
+        ],
+        'embed'        => [
+            '--embed-padding-top', '--embed-padding-bottom', '--embed-heading-size', '--embed-heading-color',
+            '--embed-heading-measure', '--embed-heading-margin-bottom', '--embed-body-measure',
+            '--embed-body-color',
+        ],
+        'faq'          => [
+            '--faq-padding-top', '--faq-padding-bottom', '--faq-bg', '--faq-item-bg', '--faq-eyebrow-color',
+            '--faq-eyebrow-bg', '--faq-eyebrow-radius', '--faq-eyebrow-border-width', '--faq-eyebrow-border-color',
+            '--faq-eyebrow-text-transform', '--faq-heading-size', '--faq-heading-color', '--faq-heading-measure',
+            '--faq-body-measure', '--faq-heading-accent-color', '--faq-heading-margin-bottom',
+            '--faq-question-color', '--faq-answer-color', '--faq-item-border-color', '--faq-item-radius',
+            '--faq-question-open-color',
+        ],
+        'grid'         => [
+            '--grid-padding-top', '--grid-padding-bottom', '--grid-bg', '--grid-heading-color',
+            '--grid-heading-accent-color', '--grid-eyebrow-color', '--grid-eyebrow-bg', '--grid-eyebrow-radius',
+            '--grid-eyebrow-border-width', '--grid-eyebrow-border-color', '--grid-eyebrow-text-transform',
+            '--grid-subheading-color', '--grid-subheading-margin-bottom', '--grid-heading-margin-bottom',
+            '--grid-heading-size', '--grid-heading-measure', '--grid-gap', '--grid-item-bg',
+            '--grid-item-border-color', '--grid-item-border-width', '--grid-item-radius', '--grid-item-shadow',
+            '--grid-item-bar-color', '--grid-item-bar-height', '--grid-featured-texture-color',
+            '--grid-featured-shadow', '--grid-item-padding', '--grid-item-gap', '--grid-item-text-align',
+            '--grid-item-icon-size', '--grid-item-title-size', '--grid-item-title-color', '--grid-item-text-color',
+            '--grid-item-bullet-color', '--grid-item-link-color', '--grid-item-link-hover-color', '--grid-step-bg',
+            '--grid-step-text-color',
+        ],
+        'hero'         => [
+            '--hero-padding-top', '--hero-padding-bottom', '--hero-bg', '--hero-heading-color',
+            '--hero-heading-accent-color', '--hero-eyebrow-color', '--hero-eyebrow-bg', '--hero-eyebrow-radius',
+            '--hero-eyebrow-border-width', '--hero-eyebrow-border-color', '--hero-eyebrow-text-transform',
+            '--hero-accent', '--hero-accent-hover', '--hero-button-bg', '--hero-button-hover-bg',
+            '--hero-button-border', '--hero-button-hover-border', '--hero-button-color', '--hero-button-shadow',
+            '--hero-button2-bg', '--hero-button2-border', '--hero-button2-color', '--hero-button2-hover-bg',
+            '--hero-button2-hover-border', '--hero-button2-hover-color', '--hero-heading-size',
+            '--hero-heading-measure', '--hero-heading-margin-bottom', '--hero-heading-weight',
+            '--hero-subheading-size', '--hero-subheading-color', '--hero-proof-color', '--hero-content-gap',
+            '--hero-content-width', '--hero-overlay-bg', '--hero-image-radius', '--hero-image-position',
+            '--hero-image-aspect-ratio', '--hero-bg-position', '--hero-border-color', '--hero-border-width',
+            '--hero-radius', '--hero-shadow', '--hero-surface-bg', '--hero-surface-padding',
+            '--hero-surface-border-color', '--hero-surface-border-width', '--hero-surface-radius',
+            '--hero-surface-shadow',
+        ],
+        'logos'        => [
+            '--logos-padding-top', '--logos-padding-bottom', '--logos-heading-size', '--logos-heading-color',
+            '--logos-heading-measure', '--logos-heading-margin-bottom', '--logos-image-size', '--logos-gap',
+        ],
+        'section'      => [
+            '--section-padding-top', '--section-padding-bottom', '--section-bg', '--section-body-color',
+            '--section-body-link-color', '--section-body-link-hover-color', '--section-heading-size',
+            '--section-heading-measure', '--section-heading-color', '--section-heading-accent-color',
+            '--section-eyebrow-color', '--section-eyebrow-bg', '--section-eyebrow-radius',
+            '--section-eyebrow-border-width', '--section-eyebrow-border-color', '--section-eyebrow-text-transform',
+            '--section-subheading-color', '--section-subheading-margin-bottom', '--section-heading-margin-bottom',
+            '--section-body-measure', '--section-body-size', '--section-body-weight', '--section-border-color',
+            '--section-border-width', '--section-radius', '--section-image-radius', '--section-image-position',
+            '--section-image-aspect-ratio', '--section-bg-position', '--section-overlay-bg', '--section-shadow',
+            '--section-panel-bg', '--section-panel-border-color', '--section-panel-border-width',
+            '--section-panel-radius', '--section-panel-padding', '--section-panel-text', '--section-panel-font',
+            '--section-panel-marker-color', '--section-panel-cta-bg', '--section-panel-cta-border',
+            '--section-panel-cta-hover-border', '--section-panel-cta-color', '--section-panel-cta-shadow',
+            '--section-body-marker-color', '--section-separator-color', '--section-inline-items-align',
+        ],
+        'stats'        => [
+            '--stats-padding-top', '--stats-padding-bottom', '--stats-bg', '--stats-heading-size',
+            '--stats-heading-color', '--stats-heading-measure', '--stats-heading-margin-bottom',
+            '--stats-heading-accent-color', '--stats-number-color', '--stats-number-size', '--stats-number-font',
+            '--stats-number-weight', '--stats-label-color', '--stats-bg-position', '--stats-overlay-bg',
+            '--stats-radius', '--stats-max-width',
+        ],
+        'table'        => [
+            '--table-padding-top', '--table-padding-bottom', '--table-heading-size', '--table-heading-color',
+            '--table-heading-measure', '--table-heading-margin-bottom',
+        ],
+        'testimonials' => [
+            '--testimonials-padding-top', '--testimonials-padding-bottom', '--testimonials-bg',
+            '--testimonials-heading-size', '--testimonials-heading-color', '--testimonials-heading-measure',
+            '--testimonials-heading-accent-color', '--testimonials-eyebrow-color', '--testimonials-eyebrow-bg',
+            '--testimonials-eyebrow-radius', '--testimonials-eyebrow-border-width',
+            '--testimonials-eyebrow-border-color', '--testimonials-eyebrow-text-transform',
+            '--testimonials-subheading-color', '--testimonials-subheading-margin-bottom',
+            '--testimonials-heading-margin-bottom', '--testimonials-gap', '--testimonials-item-bg',
+            '--testimonials-item-border-color', '--testimonials-item-border-width', '--testimonials-item-radius',
+            '--testimonials-item-shadow', '--testimonials-item-padding', '--testimonials-quote-color',
+            '--testimonials-quote-mark-color', '--testimonials-author-color', '--testimonials-meta-color',
+        ],
+    ];
+
+    /**
+     * The SOLE escape hatch for a retired style slot — the slot-side twin of
+     * SCHEMA_RENAME_MIGRATION_NOTES. Empty today, by design. A future slot removal or
+     * rename must record `component => [slot => note]` here, in the SAME change, naming
+     * the replacement (or the removal) and the issue that ruled it, or the drift-catcher
+     * below fails CI. Deliberately a note and not an alias: a note is a human writing
+     * down what happens to documents that already store the old name; an alias would
+     * make the problem quietly go away, which #603/#604 removed the machinery for.
+     */
+    private const SLOT_RENAME_MIGRATION_NOTES = [];
+
+    /**
+     * The append-only floor for the style-slot surface (#598). 261 slots across the 10
+     * slot-bearing components as of v1.13.15. NEVER DECREASE THIS — same contract as
+     * PROP_BASELINE_FLOOR, deliberately identical in shape so neither surface can drift
+     * into a weaker notion of what "documented" means.
+     */
+    private const SLOT_BASELINE_FLOOR = 261;
+
+    /** Content fingerprint of PINNED_SLOT_BASELINE. See baselineFingerprint(). */
+    private const SLOT_BASELINE_FINGERPRINT = 'b7c047c306d4d33b';
+
+    /**
+     * Live declared style slots per component, read from the shipped schemas.
+     *
+     * Discovery is a glob over ALL component schemas, not a walk of the pinned set: a
+     * brand-new slot-bearing component has to reach the add-path guard, not slip past it
+     * because the baseline never named it. Components with no `style_slots` are omitted
+     * so the guards speak only about the slot surface.
+     */
+    private function liveSlots(): array
+    {
+        $out = [];
+        foreach ($this->liveSchemas() as $name => $schema) {
+            $slots = array_keys($schema['styling']['style_slots'] ?? []);
+            if ($slots !== []) {
+                $out[$name] = $slots;
+            }
+        }
+        return $out;
+    }
+
+    public function testLiveSchemasHaveNoUnnotedSlotRenameDriftFromBaseline(): void
+    {
+        // The real guard (remove-path): today baseline == live, so there is no drift.
+        // A future slot removal or rename WITHOUT a migration note fails HERE.
+        //
+        // Fail-closed by construction: if the glob ever breaks, liveSlots() returns []
+        // and every baseline slot reads as missing, so a broken discovery is a loud
+        // failure rather than a vacuous pass.
+        $drift = self::detectSchemaRenameDrift(
+            self::PINNED_SLOT_BASELINE,
+            $this->liveSlots(),
+            self::SLOT_RENAME_MIGRATION_NOTES,
+            'style slot'
+        );
+        $this->assertSame([], $drift, implode("\n", $drift));
+    }
+
+    public function testSlotMigrationNotesAreWellFormedAndCurrent(): void
+    {
+        // H2 + H3 on the slot surface — the identical contract, run through the
+        // identical helper. The mirror the issue asked for, held at the stronger level.
+        $defects = self::detectMigrationNoteDefects(
+            self::SLOT_RENAME_MIGRATION_NOTES,
+            $this->liveSlots(),
+            'style slot'
+        );
+        $this->assertSame([], $defects, implode("\n", $defects));
+    }
+
+    public function testSlotBaselineIsAppendOnly(): void
+    {
+        // H1 on the slot surface. This is the guard that makes the migration note the
+        // real escape hatch: without it the cheapest way to a green build is deleting
+        // the baseline line, which documents nothing.
+        $shrink = self::detectBaselineShrink(
+            self::PINNED_SLOT_BASELINE,
+            self::SLOT_RENAME_MIGRATION_NOTES,
+            self::SLOT_BASELINE_FLOOR,
+            'style slot'
+        );
+        $this->assertSame([], $shrink, implode("\n", $shrink));
+
+        // The swap-catcher. Renaming a slot in the schema and editing the matching line
+        // here keeps every count identical; without this the rename ships undocumented.
+        $this->assertSame(
+            self::SLOT_BASELINE_FINGERPRINT,
+            self::baselineFingerprint(self::PINNED_SLOT_BASELINE),
+            self::baselineEditRemedy('style slot', 'PINNED_SLOT_BASELINE', 'SLOT_BASELINE_FINGERPRINT', 'SLOT_RENAME_MIGRATION_NOTES')
+        );
+    }
+
+    public function testEveryLiveSchemaSlotIsPinnedInBaseline(): void
+    {
+        // The add-path: a newly added slot must be appended to PINNED_SLOT_BASELINE in
+        // the same commit. Without this, a slot added today and renamed next month would
+        // never have been in the baseline, so the remove-path guard above would have
+        // nothing to miss and the rename would ship undocumented after all.
+        //
+        // This path iterates the LIVE set, so it has the one weakness the remove-path
+        // does not: with nothing discovered there is nothing to check, and it would pass
+        // green. Pin the component set in both directions first — that turns a broken
+        // glob, a moved schema, or a component that stopped declaring slots into a hard
+        // failure instead of a silently unguarded surface.
+        $live = $this->liveSlots();
+        $this->assertNotEmpty($live, 'slot discovery found no components — the add-path guard would pass vacuously.');
+        $this->assertSame(
+            array_keys(self::PINNED_SLOT_BASELINE),
+            array_keys($live),
+            'the discovered slot-bearing component set must match PINNED_SLOT_BASELINE exactly.'
+        );
+
+        $violations = self::detectUnpinnedAdditions(self::PINNED_SLOT_BASELINE, $live, 'style slot');
+        $this->assertSame(
+            [],
+            $violations,
+            "PINNED_SLOT_BASELINE (SchemaValidationTest) is stale:\n" . implode("\n", $violations)
+        );
+    }
+
+    public function testSlotRenameDriftIsCaught(): void
+    {
+        // The self-test for the headline scenario, and the one the count pins cannot
+        // see: a RENAME, where the slot total does not move at all.
+        $baseline = ['hero' => ['--hero-bg', '--hero-heading-color']];
+        $live     = ['hero' => ['--hero-bg', '--hero-title-color']]; // renamed, count unchanged
+
+        $this->assertCount(
+            count($baseline['hero']),
+            $live['hero'],
+            'the simulated rename must preserve the slot count, or it is not testing the blind spot.'
+        );
+
+        $unnoted = self::detectSchemaRenameDrift($baseline, $live, [], 'style slot');
+        $this->assertNotEmpty($unnoted, 'a slot rename with no migration note must be flagged');
+        $this->assertStringContainsString('--hero-heading-color', $unnoted[0]);
+        // The label is load-bearing, not cosmetic: the message has to tell the author
+        // which surface drifted, or a shared algorithm reports prop drift for slots.
+        $this->assertStringContainsString('style slot', $unnoted[0]);
+        $this->assertStringContainsString('hero', $unnoted[0]);
+
+        // A migration note in the SAME change is the only thing that clears it.
+        $withNote = self::detectSchemaRenameDrift(
+            $baseline,
+            $live,
+            ['hero' => ['--hero-heading-color' => 'renamed to --hero-title-color by #999']],
+            'style slot'
+        );
+        $this->assertSame([], $withNote, 'a migration note for the renamed slot clears the drift');
+    }
+
+    public function testSlotRemovalDriftIsCaught(): void
+    {
+        // A plain removal (no replacement) is the same violation, and the note must be
+        // slot-scoped: a note about a DIFFERENT slot on the same component does not
+        // launder it.
+        $baseline = ['stats' => ['--stats-bg', '--stats-radius']];
+        $live     = ['stats' => ['--stats-bg']];
+
+        $unnoted = self::detectSchemaRenameDrift($baseline, $live, [], 'style slot');
+        $this->assertCount(1, $unnoted);
+        $this->assertStringContainsString('--stats-radius', $unnoted[0]);
+
+        $wrongNote = self::detectSchemaRenameDrift(
+            $baseline,
+            $live,
+            ['stats' => ['--stats-bg' => 'this slot still exists — irrelevant to the removal']],
+            'style slot'
+        );
+        $this->assertCount(1, $wrongNote, 'a note naming some other slot must not clear the removal');
+
+        // Removing a component's slots wholesale is drift for every one of them.
+        $gone = self::detectSchemaRenameDrift($baseline, [], [], 'style slot');
+        $this->assertCount(2, $gone);
+    }
+
+    public function testUnpinnedAdditionIsCaught(): void
+    {
+        // The add-path self-test, covering both surfaces because both now run this one
+        // helper. Without it the add-path guards could only ever be exercised by the
+        // live schemas, which is to say: never proven to fire.
+        $clean = self::detectUnpinnedAdditions(['hero' => ['--hero-bg']], ['hero' => ['--hero-bg']], 'style slot');
+        $this->assertSame([], $clean, 'a live set already pinned in the baseline is not drift');
+
+        // 1. A new name on a component the baseline already covers.
+        $added = self::detectUnpinnedAdditions(
+            ['hero' => ['--hero-bg']],
+            ['hero' => ['--hero-bg', '--hero-glow']],
+            'style slot'
+        );
+        $this->assertCount(1, $added, 'an unpinned slot addition must be flagged');
+        $this->assertStringContainsString('--hero-glow', $added[0]);
+        $this->assertStringContainsString('style slot', $added[0]);
+
+        // 2. A whole component the baseline has never heard of — the footer/nav case,
+        //    if either ever trades chrome_custom_properties for real style slots.
+        $newComponent = self::detectUnpinnedAdditions(
+            ['hero' => ['--hero-bg']],
+            ['hero' => ['--hero-bg'], 'footer' => ['--footer-glow']],
+            'style slot'
+        );
+        $this->assertCount(1, $newComponent, 'a slot-bearing component missing from the baseline must be flagged');
+        $this->assertStringContainsString('footer', $newComponent[0]);
+
+        // 3. Same helper, prop surface — the label is the only difference.
+        $propAdded = self::detectUnpinnedAdditions(['cta' => ['id']], ['cta' => ['id', 'kicker']], 'prop');
+        $this->assertCount(1, $propAdded);
+        $this->assertStringContainsString('prop "kicker"', $propAdded[0]);
+    }
+
+    public function testEmptyOrUncitedMigrationNotesAreRejected(): void
+    {
+        // H2 self-test, both surfaces. Before this guard, every one of these values
+        // cleared drift exactly as well as a real note: the remove-path only ever asked
+        // whether the KEY existed.
+        foreach (['' => 'empty string', '   ' => 'whitespace'] as $blank => $label) {
+            $defects = self::detectMigrationNoteDefects(
+                ['hero' => ['--hero-bg' => $blank]],
+                ['hero' => []],
+                'style slot'
+            );
+            $this->assertNotEmpty($defects, "a {$label} note must be rejected");
+            $this->assertStringContainsString('is empty', $defects[0]);
+        }
+
+        foreach ([null, 0, false, []] as $nonString) {
+            $this->assertNotEmpty(
+                self::detectMigrationNoteDefects(['hero' => ['--hero-bg' => $nonString]], ['hero' => []], 'style slot'),
+                'a non-string note must be rejected'
+            );
+        }
+
+        // Prose with no issue reference is not a ruling — the recorded decision requires
+        // the note to name the issue that authorised the break.
+        $uncited = self::detectMigrationNoteDefects(
+            ['cta' => ['eyebrow' => 'we renamed this ages ago']],
+            ['cta' => []],
+            'prop'
+        );
+        $this->assertNotEmpty($uncited, 'a note with no issue reference must be rejected');
+        $this->assertStringContainsString('does not cite a ruling issue', $uncited[0]);
+
+        // A well-formed note on a genuinely retired name is clean, on both surfaces.
+        $this->assertSame(
+            [],
+            self::detectMigrationNoteDefects(
+                ['cta' => ['eyebrow' => 'renamed to kicker (#598)']],
+                ['cta' => ['id', 'kicker']],
+                'prop'
+            )
+        );
+        $this->assertSame(
+            [],
+            self::detectMigrationNoteDefects(
+                ['hero' => ['--hero-bg' => 'removed, superseded by --hero-surface-bg (#598)']],
+                ['hero' => ['--hero-surface-bg']],
+                'style slot'
+            )
+        );
+    }
+
+    public function testMigrationNoteForAStillLiveNameIsRejected(): void
+    {
+        // H3 self-test, both surfaces: the two-commit disarm. Commit 1 pre-notes names
+        // that still exist (previously silent, and it reads as documentation in review);
+        // commit 2 deletes them and the remove-path finds a note waiting. Rejecting the
+        // pre-authorisation is what collapses that sequence back into one honest commit.
+        $slotDefects = self::detectMigrationNoteDefects(
+            ['hero' => ['--hero-bg' => 'planning to drop this (#598)']],
+            ['hero' => ['--hero-bg', '--hero-radius']], // still declared
+            'style slot'
+        );
+        $this->assertNotEmpty($slotDefects, 'a note for a still-declared slot must be rejected');
+        $this->assertStringContainsString('still exists', $slotDefects[0]);
+        $this->assertStringContainsString('pre-authorising', $slotDefects[0]);
+
+        $propDefects = self::detectMigrationNoteDefects(
+            ['cta' => ['eyebrow' => 'planning to drop this (#598)']],
+            ['cta' => ['id', 'eyebrow']],
+            'prop'
+        );
+        $this->assertNotEmpty($propDefects, 'a note for a still-declared prop must be rejected');
+        $this->assertStringContainsString('still exists', $propDefects[0]);
+    }
+
+    public function testBaselineShrinkWithoutANoteIsRejected(): void
+    {
+        // H1 self-test, both surfaces. This is the hole that let a fully undocumented
+        // rename ship green: delete the old name from the schema AND from the baseline,
+        // and nothing is missing to detect.
+        $shrunk = self::detectBaselineShrink(['hero' => ['--hero-bg']], [], 2, 'style slot');
+        $this->assertNotEmpty($shrunk, 'a baseline below its floor must be rejected');
+        $this->assertStringContainsString('shrank', $shrunk[0]);
+        // The message must point at the note, never at the baseline line.
+        $this->assertStringContainsString('MOVES into the migration-notes register', $shrunk[0]);
+        $this->assertStringContainsString('NOT a valid fix', $shrunk[0]);
+
+        // Moving the retired name into the notes register keeps the total accounted for.
+        $this->assertSame(
+            [],
+            self::detectBaselineShrink(
+                ['hero' => ['--hero-bg']],
+                ['hero' => ['--hero-glow' => 'removed (#598)']],
+                2,
+                'style slot'
+            ),
+            'a name that moved from the baseline into the notes register still counts'
+        );
+
+        // Keeping it pinned AND noting it is equally valid, and growth is always fine.
+        $this->assertSame([], self::detectBaselineShrink(['cta' => ['id', 'title', 'body']], [], 2, 'prop'));
+
+        // The floors the real guards run against are the live totals, so a silently
+        // dropped duplicate key in either literal falls below its floor.
+        $this->assertSame(
+            self::PROP_BASELINE_FLOOR,
+            array_sum(array_map('count', self::PINNED_PROP_BASELINE)),
+            'PROP_BASELINE_FLOOR must equal what PINNED_PROP_BASELINE actually holds today.'
+        );
+        $this->assertSame(
+            self::SLOT_BASELINE_FLOOR,
+            array_sum(array_map('count', self::PINNED_SLOT_BASELINE)),
+            'SLOT_BASELINE_FLOOR must equal what PINNED_SLOT_BASELINE actually holds today.'
+        );
+    }
+
+    public function testSlotCountPinsCannotSeeARenameButTheBaselineCan(): void
+    {
+        // Pins the PREMISE this issue rests on, so a future reader does not "simplify"
+        // the baseline away on the theory that the count pins already cover it. Both
+        // checks run against the same simulated rename; only one of them notices.
+        $baseline = ['grid' => ['--grid-bg', '--grid-gap']];
+        $renamed  = ['grid' => ['--grid-bg', '--grid-item-gap']];
+
+        $this->assertSame(
+            count($baseline['grid']),
+            count($renamed['grid']),
+            'count-based pins see nothing here — that is the blind spot.'
+        );
+        $this->assertNotEmpty(
+            self::detectSchemaRenameDrift($baseline, $renamed, [], 'style slot'),
+            'the baseline guard must catch what the count pins structurally cannot.'
+        );
     }
 
     // ── Generic schema-typed prop enforcement (issue 507) ───────────────────
