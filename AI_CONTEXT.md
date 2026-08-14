@@ -384,8 +384,8 @@ Text roles: --text-kicker-color, --text-kicker-size, --text-kicker-weight, --tex
             --text-meta-size, --text-meta-color
 ```
 
-> Source of truth: the `:root` block in `assets/css/base.css`, parsed by `pp_design_tokens()`.
-> Every token above is overridable via `update_design_token`. Regenerate this list from `base.css` rather than editing it by hand — `--breakpoint-*` live in a comment and are **not** overridable.
+> Source of truth: the **first** `:root` block in `assets/css/base.css`, parsed by `pp_design_tokens()`.
+> Every token above is overridable via `update_design_token`. Regenerate this list from `base.css` rather than editing it by hand — `--breakpoint-*` live in a comment and are **not** overridable. Neither are the theme-internal properties declared in the LATER `:root` blocks (`--pp-band-padding`, `--pp-band-padding-adjacent-top`, `--pp-band-heading-size`): the parser never reaches them, so `update_design_token` rejects them as `unknown_token`. Slots fall back to them; nothing can author them.
 
 **Token families:** Changing a base token (`--color-accent` or `--color-text`) auto-derives related tokens (hover, strong, border-accent, surface-accent, on-inverted + on-inverted-hover, on-overlay + on-overlay-hover, text-secondary) when they have no existing override. Existing overrides are always preserved — a base change never touches them (#386). Because a preserved override keeps winning in the rendered CSS, a base change can succeed (`ok:true`) yet not be visible where that override applies. To surface this, the apply returns a `stale_warnings` entry for any preserved derived override that DIVERGES from the value the new base would derive (equal-to-derivable overrides are coherent and not flagged), and the same condition is reported at INSPECT as a `masked_derived_override` token smell. `pp_masked_derived_overrides()` is the one shared engine behind both surfaces.
 

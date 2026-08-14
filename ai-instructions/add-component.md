@@ -355,8 +355,10 @@ Open `/assets/css/components.css` and add a labeled section at the bottom:
      with the others (section, grid, cta, stats, faq, testimonials). Route its
      vertical padding through the component's own slot, falling back to the
      shared --pp-band-padding, so it agrees with every other band by default and
-     a site-wide rhythm retune (--pp-band-padding) moves it too — never paste a
-     bare rhythm literal (issue 431). */
+     a release-level rhythm retune moves it too — never paste a bare rhythm
+     literal (issue 431). That retune means editing --pp-band-padding in base.css:
+     it is NOT a design token and update_design_token rejects it, so there is no
+     site-wide authoring write for it (issue 616). */
   padding-top: var(--mycomponent-padding-top, var(--pp-band-padding));
   padding-bottom: var(--mycomponent-padding-bottom, var(--pp-band-padding));
 }
@@ -366,7 +368,10 @@ Open `/assets/css/components.css` and add a labeled section at the bottom:
      title (issue 436). Route its font-size through the component's own size slot,
      falling back to the shared --pp-band-heading-size, so it never collapses to
      body size on mobile and reads as a peer of adjacent band titles. Never fall
-     back to `inherit` (that silently discards the scale) or a bare literal. */
+     back to `inherit` (that silently discards the scale) or a bare literal.
+     Like --pp-band-padding, this one is theme-internal: not a design token, and
+     update_design_token rejects it, so retuning the scale is a theme-source
+     change and the per-band slot is the only authoring surface (issue 616). */
   font-size: var(--mycomponent-heading-size, var(--pp-band-heading-size));
   margin-bottom: var(--space-md);
 }
@@ -378,12 +383,15 @@ Open `/assets/css/components.css` and add a labeled section at the bottom:
 
 **Rule:** No raw hex values and no raw rhythm literals — use CSS variables:
 each component's own authorable slots (`--mycomponent-padding-*`) falling back to
-`base.css` tokens. Band-level components take their default vertical rhythm from
+a `base.css` property. Band-level components take their default vertical rhythm from
 `--pp-band-padding` (never a per-component literal), so all sections share one
 spacing model. Band titles do the same on the typography axis: their `font-size`
 falls back to `--pp-band-heading-size` (never `inherit`, never a per-component
 literal), so every band heading shares one responsive scale and never collapses
-to body size on mobile.
+to body size on mobile. Both of those shared properties are theme-internal, not
+design tokens — the registry is the FIRST `:root` block of `base.css`, and they are
+declared in a later one — so a slot may fall back to them but nothing may advertise
+them as authorable.
 
 ---
 
@@ -464,10 +472,17 @@ Add a row to the Component index table in `AI_CONTEXT.md`:
       a state (e.g. a second button) is a per-button counterpart, not a positional twin. A control shipped without its twin
       is a future flip bug: an author sets the resting value, and the state reverts to
       the product default under the pointer.
-- [ ] `styling.tokens` lists only global design tokens THIS component's own rules
-      consume (a curated read surface, not an exhaustive inventory — shared rhythm and
-      measure props are documented on the slots that route them). `SchemaValidationTest`'s whole-theme scan proves a token is consumed
-      somewhere; the css-lint ownership pin proves *this* component can reach it. A
+- [ ] `styling.tokens` lists only REGISTERED design tokens (properties in the first
+      `:root` block of `base.css` — the set `update_design_token` accepts) that THIS
+      component's own rules consume. The array is hand-curated and never claims to be
+      complete, so adding a token is optional; putting a non-token in it is not allowed.
+      In particular the shared band props (`--pp-band-padding`, `--pp-band-heading-size`)
+      are declared in a second `:root` block the registry does not read, so they are NOT
+      design tokens and must never appear here — they are documented on the per-band
+      slots that route them, which are their only authoring surface.
+      The css-lint `#438` whole-theme scan proves a listed token is consumed
+      somewhere; the css-lint `#581` ownership pin proves *this* component can reach it;
+      the `SchemaTruthfulnessTest` `#616` registry pin proves it is a token at all. A
       token consumed only by another component's block is a false advertisement.
       Template-owned chrome keeps its `--header-*` / `--footer-*` inline custom
       properties in `chrome_custom_properties`, not in `tokens` — those come from site

@@ -4,6 +4,35 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.13.14] — 2026-08-14 — `styling.tokens` is documented as the curated subset it is, and nine schemas stop promising a write that fails (#616)
+
+**Nine band schemas told an authoring agent that one `update_design_token` write on `--pp-band-heading-size` retunes every band heading at once. That write returns `unknown_token`.** `pp_design_tokens()` parses the FIRST `:root` block of `base.css` and stops there; the shared band rhythm and heading scale are declared in a later block, deliberately, so they are not design tokens and no action in the write path reaches them. An agent following those descriptions got an error and no site-wide retune. The nine now state what is true: the shared scale is not a token, nothing can retune it site-wide, and setting the slot changes that one band.
+
+**The array `styling.tokens` was never the gap the issue thought it was.** #616 asked whether the array should be exhaustive and proposed the two band props as the first entries. It cannot take them — listing a non-token would advertise a write path that does not exist — and exhaustive is not a small change either: measured across the twelve schemas, the arrays name 2-7 tokens each while those components' own rules read 9-26 registered ones, so completeness means roughly 149 more entries, dominated by `--color-*` and `--space-*`. There is also no principle that would admit one and exclude another: `--overlay-bg` is listed by the four components that read it and is reached only as a slot fallback, and `--measure-heading` is reached in exactly the same way and is listed by nobody. So the array stays curated, and the docs now say so precisely instead of hedging: two guarantees hold (every entry is a registered design token, and the listing component can reach it), completeness is not one of them, and absence proves nothing.
+
+**No declaration changed.** No schema key was added or removed, no slot renamed, no accepted value or type altered, and no `styling.tokens` array was touched. The diff is documentation, ten slot `description` strings, and two new pins.
+
+### Fixed
+
+- Nine `--<component>-heading-size` descriptions (`section`, `grid`, `cta`, `faq`, `stats`, `table`, `testimonials`, `logos`, `embed`) drop the `update_design_token` instruction that the action rejects, and keep the leave-it-unset guidance with the reason that is actually true.
+- `components/hero/schema.json` `--hero-heading-size` loses the same class of claim in its softer form ("a site-wide type retune belongs in the design tokens"): no registered token controls heading size, and hero's clamp is not reachable by any action.
+
+### Docs
+
+- `ai-instructions/style-component.md` states the two guarantees `styling.tokens` makes, says plainly that completeness is not one of them, gives the `--overlay-bg` / `--measure-heading` pair as the worked example of why absence proves nothing, and points at `style_slots` and the token registry as the surfaces that answer "what can I set" and "what can I retune".
+- `ai-instructions/add-component.md` makes the checklist item a rule with a reason: only registered tokens may be listed, the shared band props may never appear, and the three pins that enforce it are named correctly (the whole-theme scan and the ownership pin are css-lint's, not `SchemaValidationTest`'s). The Step 5 CSS comments say that routing a fallback through a theme-internal property is right while advertising it as authorable is not.
+- `ai-instructions/retheme.md` names the one exception to "the entire visual output flows through the design tokens", so a retheme does not go looking for a band-rhythm token that is not there.
+- `AI_CONTEXT.md` says FIRST `:root` block, and names the internal properties in the later blocks that `update_design_token` rejects.
+
+### Tests
+
+- `tests/SchemaTruthfulnessTest.php` pins the one guarantee: every `styling.tokens` entry is a member of `pp_design_tokens()`. A detection proof asserts the registry read still tells the two `:root` blocks apart, so the scan cannot pass by reading everything or nothing.
+- A second pin rejects any schema string that names a property beside `update_design_token` which that action would refuse. It is deliberately word-order, sentence, and case blind, per-component rather than a global union (so one schema cannot legalise a name for the other eleven), and it matches theme-internal properties with or without their leading dashes. The internal set is derived by subtracting the registry from every `:root` block, so a future internal property is covered the day it is declared. The docblock records what the pin does NOT catch, including the claim made without the name.
+- Both pins carry fail-closed floors, and the second one counts strings walked rather than action mentions — a floor must prove the walk still runs, not require the schemas to keep advertising an action.
+- The class now resets the `pp_design_tokens()` cache on both edges. Other test files repoint the template dir without invalidating, so without it these pins passed or failed on file order.
+
+---
+
 ## [v1.13.13] — 2026-08-14 — the `patchable: false` prop opt-out is retired: the docs told authors to declare a key the build rejected (#629)
 
 **A recipe told component authors to write `"patchable": false` in `schema.json` to keep a prop out of isolated patching, and a schema that followed that instruction failed CI.** The key was real in `lib/operate.php`, which read it in two places, but it was never on the closed prop definition key set, so the shared definition validator reported `unknown prop definition key patchable` on it. Two shipped surfaces disagreed about the same word. Rather than widen the key set to make the instruction true, this removes the mechanism and makes the docs true: declaring a scalar prop makes it patchable, full stop, and there is no per-prop opt-out.

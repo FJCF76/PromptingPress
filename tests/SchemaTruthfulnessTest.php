@@ -12,7 +12,9 @@
  *   A-16  the `id` surface is exactly the ten section-level components;
  *   A-18  the two new twin slots are AUTHORABLE (Section 14.1) and REACHABLE, and every
  *         completed pair cross-references its counterpart;
- *   A-28  the two inert emissions are gone and their live counterparts are untouched.
+ *   A-28  the two inert emissions are gone and their live counterparts are untouched;
+ *   #616  `styling.tokens` names only REGISTERED design tokens, and no schema points
+ *         update_design_token at a property that action rejects.
  *
  * Deliberately NOT here: a mechanical `default == CSS-fallback` equivalence check.
  * tests/StyleSlotContractTest.php:26-31 records that it was considered and declined,
@@ -33,6 +35,15 @@ class SchemaTruthfulnessTest extends TestCase
     {
         parent::setUp();
         $this->themeRoot = dirname(__DIR__);
+        // The #616 pins read pp_design_tokens(), whose process-static cache is NOT keyed on
+        // the theme root (lib/wp.php) — which is exactly why it leaks. Several other test
+        // files repoint _pp_test_template_dir at a fixture theme without invalidating on the
+        // way out, so without this reset these pins would read whatever registry ran last and
+        // pass or fail on file ORDER. Symmetric with
+        // tearDown() (the ApplyTest convention): clean on both edges, so this class neither
+        // inherits another file's registry nor exports its own.
+        unset($GLOBALS['_pp_test_template_dir']);
+        pp_invalidate_design_tokens_cache();
         $GLOBALS['_pp_test_store'] = [
             'post_meta'  => [],
             'posts'      => [],
@@ -40,6 +51,13 @@ class SchemaTruthfulnessTest extends TestCase
             'next_id'    => 100,
             'custom_css' => '',
         ];
+    }
+
+    protected function tearDown(): void
+    {
+        unset($GLOBALS['_pp_test_template_dir']);
+        pp_invalidate_design_tokens_cache();
+        parent::tearDown();
     }
 
     /** @return array<string, array<string, mixed>> */
@@ -177,8 +195,11 @@ class SchemaTruthfulnessTest extends TestCase
         $this->assertSame(
             [],
             $missing,
-            'Every heading size/colour slot must say when NOT to use it, naming the one '
-            . 'update_design_token write that retunes the whole site at once.'
+            'Every heading size/colour slot must say when NOT to use it. For a COLOUR slot '
+            . 'that means naming the one update_design_token write that retunes the whole '
+            . 'site at once. For a SIZE slot there is no such write — the shared scale is a '
+            . 'fixed theme constant, not a registered token (#616) — so say that instead; '
+            . 'naming it beside the action fails testNoSchemaSendsAnAgentToUpdateANonExistentDesignToken.'
         );
     }
 
@@ -388,6 +409,373 @@ class SchemaTruthfulnessTest extends TestCase
             . '.hero, and only hero.php emits the attribute. Any other component listing '
             . 'them advertises a styling surface it cannot reach.'
         );
+    }
+
+    // ── #616: the one guarantee `styling.tokens` makes ──────────────────────
+
+    /**
+     * `styling.tokens` is hand-curated and NOT exhaustive (measured at #616: the arrays
+     * name 2-7 tokens per component while those components' own rules read 9-26 registered
+     * ones). Exactly one property of the array is a guarantee, and this pins it: every
+     * entry is a REGISTERED design token — a member of pp_design_tokens(), which is the
+     * same set update_design_token accepts.
+     *
+     * #616 proposed `--pp-band-padding` / `--pp-band-heading-size` as the first additions.
+     * The array cannot take them, because they are not tokens:
+     *
+     *   assets/css/base.css
+     *     :root { … --overlay-bg … --measure-heading … }      ← pp_design_tokens() reads this
+     *     :root { --pp-band-padding; --pp-band-heading-size } ← and never reaches this one
+     *              │                                            (preg_match, first block only)
+     *              └─→ update_design_token → WP_Error unknown_token
+     *
+     * Listing them would advertise a write path that does not exist. That is the same
+     * ruling A-12 above already made for the chrome custom properties; this pin makes it
+     * mechanical instead of remembered, so the tempting fix fails closed.
+     */
+    public function testEveryListedTokenIsARegisteredDesignToken(): void
+    {
+        $registry = pp_design_tokens();
+        $this->assertNotEmpty($registry, 'the design-token registry read returned nothing');
+
+        $checked   = 0;
+        $offenders = [];
+        foreach ($this->allSchemas() as $component => $schema) {
+            foreach (($schema['styling']['tokens'] ?? []) as $token) {
+                $checked++;
+                if (!array_key_exists($token, $registry)) {
+                    $offenders[] = "{$component} lists {$token}";
+                }
+            }
+        }
+
+        // Fail-closed floor: without it a broken glob would pass this vacuously.
+        // Measured at #616: 40 entries across 12 schemas.
+        $this->assertGreaterThanOrEqual(30, $checked, 'schema token discovery collapsed');
+
+        $this->assertSame(
+            [],
+            $offenders,
+            'styling.tokens may only name REGISTERED design tokens (the first :root block '
+            . 'of base.css — what update_design_token accepts). A custom property outside '
+            . 'that registry, such as the shared band props --pp-band-padding / '
+            . '--pp-band-heading-size, is not a design token: document it on the per-band '
+            . 'slot that routes it, which is its only authoring surface.'
+        );
+    }
+
+    /**
+     * Detection proof for the pin above: the registry read must be able to tell the two
+     * :root blocks apart. If pp_design_tokens() ever returned everything (or nothing),
+     * the scan would go green over exactly the falsehood it exists to catch.
+     */
+    public function testTheTokenRegistryDistinguishesTheTwoRootBlocks(): void
+    {
+        $registry = pp_design_tokens();
+
+        foreach (['--overlay-bg', '--measure-heading', '--measure-centered'] as $token) {
+            $this->assertArrayHasKey($token, $registry, "{$token} is a registered design token");
+        }
+        foreach (['--pp-band-padding', '--pp-band-padding-adjacent-top', '--pp-band-heading-size'] as $prop) {
+            $this->assertArrayNotHasKey(
+                $prop,
+                $registry,
+                "{$prop} is declared in the second :root block and is deliberately NOT a "
+                . 'design token; if it becomes one, that is a write-path decision, not a '
+                . 'silent parser change.'
+            );
+        }
+    }
+
+    /**
+     * No schema may send an agent to update_design_token with a name that action rejects.
+     *
+     * The #616 defect: nine `--<comp>-heading-size` descriptions read "retuning every band
+     * heading at once is ONE update_design_token write on --pp-band-heading-size", and that
+     * write returns unknown_token (lib/apply.php, validate closure). The sibling claims in
+     * the same files are true — --color-text and --space-sm ARE registered — so the rule is
+     * not "never mention the action".
+     *
+     * Two rules, both derived, no hand-maintained list anywhere:
+     *
+     *   1. In a string that mentions the action, every `--custom-property` named must be one
+     *      THIS component can reach — a REGISTERED design token, one of its OWN declared
+     *      style slots, or one of its OWN declared chrome custom properties. Per-component
+     *      on purpose: a global union would let one schema declaring a slot named
+     *      `--pp-band-heading-size` re-legalise the false sentence for all twelve.
+     *   2. In a string that mentions the action, no INTERNAL property may be named at all,
+     *      with or without its leading dashes. The internal set is derived by subtracting
+     *      the registry from every `:root` block in base.css, which today yields exactly
+     *      --pp-band-padding, --pp-band-padding-adjacent-top and --pp-band-heading-size.
+     *      Rule 1 alone matched only the dashed spelling, so "one update_design_token write
+     *      on pp-band-heading-size" restored the falsehood in agent-readable prose and
+     *      passed.
+     *
+     * Deliberately word-order blind, sentence blind and case blind. Earlier drafts read only
+     * text AFTER the action name and split on sentences; both narrowings were escapable by
+     * ordinary house phrasing ("the shared --pp-band-heading-size scale retunes site-wide
+     * with one update_design_token write" put the name first; an "e.g." split the name into
+     * a different sentence). Scanning the whole string has no such seam.
+     *
+     * What this pin does NOT do, stated plainly so nobody trusts it further than it goes:
+     *
+     *   - It catches a NAME, not a CLAIM. "ONE update_design_token write, not one slot write
+     *     per band" with the name deleted keeps the falsehood and passes. Detecting that is
+     *     prose comprehension, not a pin — which is why the failure message below tells an
+     *     author to state the reachable truth, never to delete the name and keep the promise.
+     *   - It allows a component's OWN slot or chrome property beside the action, which is
+     *     also wrong advice (update_design_token rejects both). The allowance is load-bearing:
+     *     five live descriptions legitimately name one in a string that also names the action,
+     *     so separating "named as the target" from "named as context" would need intent
+     *     parsing.
+     *   - It does not cover ai-instructions/*.md, and nothing else does either. That is
+     *     deliberate, not an oversight: a schema description is agent-facing guidance about
+     *     what to WRITE, so it must not offer a write that fails, while the prose docs are
+     *     where a non-authorable internal like --pp-band-heading-size gets EXPLAINED.
+     *
+     * Scans every string in every schema, so a description that moves between prop, slot or
+     * recipe metadata stays covered.
+     */
+    public function testNoSchemaSendsAnAgentToUpdateANonExistentDesignToken(): void
+    {
+        $internal = $this->propertiesDeclaredButNotRegistered();
+
+        $scanned   = 0;
+        $offenders = [];
+        foreach ($this->allSchemas() as $component => $schema) {
+            $reachable = $this->namesThisComponentCanReach($schema);
+            foreach ($this->everyString($schema) as $text) {
+                $scanned++;
+                foreach ($this->propertiesNamedWithTheAction($text) as $name) {
+                    if (!isset($reachable[$name])) {
+                        $offenders[] = "{$component} points an agent at update_design_token {$name}";
+                    }
+                }
+                foreach ($this->internalPropertiesNamedWithTheAction($text, $internal) as $name) {
+                    $offenders[] = "{$component} points an agent at update_design_token {$name}";
+                }
+            }
+        }
+
+        // Fail-closed floor on STRINGS WALKED, not on action mentions: measured 1834 strings
+        // across the twelve schemas at #616, of which 13 mention the action after this change
+        // (22 before it). Counting the mentions instead would quietly require the schemas to
+        // keep advertising the action — a floor must prove the walk still runs, never
+        // constrain what the prose is allowed to say.
+        $this->assertGreaterThanOrEqual(1000, $scanned, 'the schema string walk collapsed');
+
+        $this->assertSame(
+            [],
+            array_unique($offenders),
+            'A schema names a property beside update_design_token that the action rejects as '
+            . 'unknown_token, so an agent following the description gets an error. Name the '
+            . 'surface that actually exists: a registered design token for a site-wide retune, '
+            . 'or this component\'s own slot for a one-band change. Do NOT fix this by deleting '
+            . 'the name and keeping the promise — that leaves the same false claim with nothing '
+            . 'to catch it. A property no action can write (--pp-band-padding, '
+            . '--pp-band-heading-size) is explained in ai-instructions/, not offered here.'
+        );
+    }
+
+    /**
+     * Detection proof for the scan above. Both narrowings that an earlier draft shipped are
+     * pinned here as rows, so a "tidy-up" that reintroduces either fails on this table
+     * instead of passing silently over the live schemas.
+     */
+    public function testTheUpdateDesignTokenScanIsWordOrderAndSentenceBlind(): void
+    {
+        $this->assertSame(
+            ['--color-text'],
+            $this->propertiesNamedWithTheAction(
+                'Retuning every band at once is ONE update_design_token write on --color-text, '
+                . 'not one slot write per band.'
+            )
+        );
+        $this->assertSame(
+            ['--pp-band-heading-size'],
+            $this->propertiesNamedWithTheAction(
+                'The shared --pp-band-heading-size scale retunes every band at once with a '
+                . 'single update_design_token write.'
+            ),
+            'a name written BEFORE the action must still be caught'
+        );
+        $this->assertSame(
+            ['--pp-band-heading-size'],
+            $this->propertiesNamedWithTheAction(
+                'Retune every band heading with update_design_token, e.g. '
+                . '--pp-band-heading-size, rather than one slot write per band.'
+            ),
+            'an abbreviation must not split the name away from the action'
+        );
+        $this->assertSame(
+            ['--pp-band-heading-size'],
+            $this->propertiesNamedWithTheAction(
+                'Retune it with Update_Design_Token on --pp-band-heading-size.'
+            ),
+            'the action name is matched case-insensitively'
+        );
+        $this->assertSame(
+            [],
+            $this->propertiesNamedWithTheAction(
+                'Hero is EXEMPT from the shared --pp-band-heading-size scale; leave this unset.'
+            ),
+            'naming a non-authorable property WITHOUT offering a write is how a slot states an '
+            . 'exemption, and must stay legal'
+        );
+        $this->assertSame(
+            [],
+            $this->propertiesNamedWithTheAction('No mention of the action here: --color-bg.')
+        );
+
+        // Rule 2: the dashes are not what makes it an instruction.
+        $internal = ['--pp-band-heading-size' => true, '--pp-band-padding' => true];
+        $this->assertSame(
+            ['--pp-band-heading-size'],
+            $this->internalPropertiesNamedWithTheAction(
+                'Retune every band with ONE update_design_token write on pp-band-heading-size.',
+                $internal
+            ),
+            'dropping the leading dashes must not hide the instruction'
+        );
+        $this->assertSame(
+            [],
+            $this->internalPropertiesNamedWithTheAction(
+                'Hero is EXEMPT from the shared --pp-band-heading-size scale; leave this unset.',
+                $internal
+            ),
+            'rule 2 fires on the ACTION, not on the name alone'
+        );
+        $this->assertSame(
+            [],
+            $this->internalPropertiesNamedWithTheAction(
+                'Retune the label with update_design_token on --color-text.',
+                $internal
+            ),
+            'a true instruction naming a registered token must stay legal'
+        );
+    }
+
+    /**
+     * Every custom property named in a string that mentions update_design_token.
+     *
+     * @return string[]
+     */
+    private function propertiesNamedWithTheAction(string $text): array
+    {
+        if (stripos($text, 'update_design_token') === false) {
+            return [];
+        }
+        preg_match_all('/(--[a-z0-9-]+)/i', $text, $m);
+        return $m[1];
+    }
+
+    /**
+     * Internal properties named beside the action, matched WITHOUT requiring the leading
+     * dashes — "a write on pp-band-heading-size" is the same false instruction as
+     * "--pp-band-heading-size" to an agent reading the description.
+     *
+     * @param array<string, true> $internal
+     * @return string[]
+     */
+    private function internalPropertiesNamedWithTheAction(string $text, array $internal): array
+    {
+        if (stripos($text, 'update_design_token') === false) {
+            return [];
+        }
+        $found = [];
+        foreach (array_keys($internal) as $property) {
+            $bare = ltrim($property, '-');
+            if (preg_match('/(?<![a-z0-9-])(?:--)?' . preg_quote($bare, '/') . '(?![a-z0-9-])/i', $text)) {
+                $found[] = $property;
+            }
+        }
+        return $found;
+    }
+
+    /**
+     * The names THIS component can write: the registry plus its own declared slots and chrome
+     * properties. Derived from the live registry and the component's own schema, so it can
+     * never drift into a hand-maintained allowlist — and scoped per component, so one schema
+     * cannot legalise a name for the other eleven.
+     *
+     * @param array<string, mixed> $schema
+     * @return array<string, true>
+     */
+    private function namesThisComponentCanReach(array $schema): array
+    {
+        $registry = pp_design_tokens();
+        $this->assertNotEmpty($registry, 'the design-token registry read returned nothing');
+
+        $reachable = [];
+        foreach (array_keys($registry) as $token) {
+            $reachable[$token] = true;
+        }
+        foreach (array_keys($schema['styling']['style_slots'] ?? []) as $slot) {
+            $reachable[$slot] = true;
+        }
+        foreach (($schema['styling']['chrome_custom_properties'] ?? []) as $property) {
+            $reachable[$property] = true;
+        }
+        return $reachable;
+    }
+
+    /**
+     * Properties declared in base.css but absent from the registry: the theme's INTERNAL,
+     * non-authorable custom properties. Derived by subtracting the first `:root` block (what
+     * pp_design_tokens() reads, and exactly what update_design_token accepts) from every
+     * `:root` block in the file. Today: --pp-band-padding, --pp-band-padding-adjacent-top,
+     * --pp-band-heading-size. A future internal property is covered the day it is declared.
+     *
+     * @return array<string, true>
+     */
+    private function propertiesDeclaredButNotRegistered(): array
+    {
+        $css = file_get_contents($this->themeRoot . '/assets/css/base.css');
+        $this->assertNotEmpty($css, 'base.css read returned nothing');
+
+        preg_match_all('/:root\s*\{([^}]*)\}/s', $css, $blocks);
+        $this->assertGreaterThanOrEqual(2, count($blocks[1]), 'base.css :root block scan collapsed');
+
+        $declared = [];
+        foreach ($blocks[1] as $block) {
+            preg_match_all('/(--[\w-]+)\s*:/', $block, $m);
+            foreach ($m[1] as $property) {
+                $declared[$property] = true;
+            }
+        }
+
+        $internal = array_diff_key($declared, pp_design_tokens());
+        $this->assertNotEmpty(
+            $internal,
+            'base.css declares no internal property outside the registry — either the second '
+            . ':root block moved or the registry parser widened; both change what '
+            . 'update_design_token accepts and must be a deliberate decision.'
+        );
+        return $internal;
+    }
+
+    /**
+     * Every string value anywhere in a schema, so the scans above cannot be dodged by
+     * moving prose from one metadata key to another.
+     *
+     * @param mixed $node
+     * @return string[]
+     */
+    private function everyString($node): array
+    {
+        if (is_string($node)) {
+            return [$node];
+        }
+        if (!is_array($node)) {
+            return [];
+        }
+        $out = [];
+        foreach ($node as $child) {
+            foreach ($this->everyString($child) as $string) {
+                $out[] = $string;
+            }
+        }
+        return $out;
     }
 
     // ── A-16: the `id` surface is exactly ten components ────────────────────
