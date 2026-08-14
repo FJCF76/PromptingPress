@@ -4,6 +4,29 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.13.11] — 2026-08-14 — schema: the steps connector two slots claimed to reach paints nowhere, so nothing claims it any more (#601)
+
+**Five shipped surfaces promised authors a visual the theme cannot render.** The `steps` grid layout documents a connector line between its number badges, and two style slots were documented as reaching it — `--grid-gap` for its length, `--grid-item-border-color` for its colour. The rule exists in `components.css` and computes a real box. It never paints. The pseudo-element is `position: absolute; left: 100%` and its containing block is the card, which sets `overflow: hidden`, so every grid card clips its own connector away at every viewport. Nothing anywhere restores `overflow: visible`.
+
+The claims are gone, from all of them: both slot descriptions, the `layout` prop description, the component README's Steps-layout prose, `AI_CONTEXT.md`, and `ai-instructions/composition.md`. An agent reading any of those now learns what the layout actually does — numbered cards with a badge above each title — instead of composing toward a line that cannot appear. `--grid-gap` keeps its real job and gains the scope statement it lacked: it is read on the list, so it sets the spacing of the whole card row and is not settable per card.
+
+This was a regression, and its own fix named it. `#177` restored the connector after an unscoped override had clipped it, then deleted the `.grid--steps .grid__item { overflow: visible }` reset that had been protecting it, leaving the generic card clip to eat the replacement rule the same commit introduced. The `#56` guard pins where those rules are declared, not whether they paint, so it stayed green through all of it. Whether the connector comes back or the dead rule goes is a rendered-output decision, tracked separately in #670; this release only stops the documentation from claiming an outcome the CSS does not produce.
+
+Nothing renders differently. No CSS changed, and a grid rendered through the real component path is byte-identical before and after, as is the declared slot surface.
+
+### Fixed
+
+- `components/grid/schema.json` drops the connector "DUAL JOB" claim from `--grid-gap` and the connector-colouring claim from `--grid-item-border-color`, and stops describing `layout: steps` as having "visual connectors at desktop" (#601). `--grid-gap`'s description now states its scope: read on `.grid__list`, grid-level only, not settable per card.
+- `AI_CONTEXT.md` and `ai-instructions/composition.md` describe the `steps` layout by what it renders — a filled circular number badge above each card title — with no connector promise.
+- `components/grid/README.md` rewrites its Steps-layout section the same way, and its stated-defaults row for the connector now records the clip, the rendered evidence for it, and the six surfaces that must be rewritten together if #670 ever makes the connector paint.
+
+### Tests
+
+- `tests/SchemaTruthfulnessTest.php` adds a two-sided pin. One side asserts the three CSS facts that make the connector unpaintable, read across every stylesheet a page loads: a grid card clips, no rule that can reach a card hands the clip back, and the card is positioned so it is the pseudo-element's containing block. The other side asserts that no slot description, schema prose, authoring doc, or README section claims the connector is reachable. It fails in both directions on purpose, so the CSS and the claims can only move together.
+- `tests/StatedReasonsTest.php` re-points the grid connector row's needle at the corrected reason rather than dropping the row, keeping the disclosure guarded.
+
+---
+
 ## [v1.13.10] — 2026-08-14 — tests: the preview-error card's alternatives test now fails when alternatives break (#627)
 
 **One of the two tests guarding the rejected-slot card could not fail.** It asked whether the rendered card contained an element with the class `pp-ai-preview-error-alternatives` and asserted that it did not. No code path has emitted that class since the alternatives moved into the technical-details disclosure, so the assertion was true by construction: alternatives rendering could break completely and the test would stay green. The stylesheet still carried a rule for that class, styling nothing.
