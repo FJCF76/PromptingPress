@@ -2043,12 +2043,16 @@ class OperateTest extends TestCase
      * silently widened the coverage gap). We inject a synthetic prop into a
      * component's schema on disk, invalidate the schema cache, and prove the
      * derived field set picks it up automatically and a patch round-trips through
-     * the real surface. Also proves the `patchable: false` opt-out is honored.
+     * the real surface.
+     *
+     * The opt-out half this test used to carry moved to its own inversion test
+     * when #629 retired `patchable: false` — see
+     * testARetiredPatchableDeclarationNoLongerExcludesAProp(). One test, one contract.
      */
     public function testDriftCatcherNewSchemaPropIsAutomaticallyPatchable(): void
     {
-        // Rewrite the embed schema in the mirrored temp theme, adding two new
-        // props: one plain scalar (must become patchable) and one opted out.
+        // Rewrite the embed schema in the mirrored temp theme, adding one new
+        // plain scalar prop that must become patchable with zero registry edits.
         $schemaPath = $this->tempDir . '/components/embed/schema.json';
         $schema = json_decode(file_get_contents($schemaPath), true);
         $schema['props']['synthetic_tagline'] = [
@@ -2057,20 +2061,12 @@ class OperateTest extends TestCase
             'default'     => '',
             'description' => 'Synthetic prop added by the #509 drift-catcher test.',
         ];
-        $schema['props']['synthetic_locked'] = [
-            'type'        => 'string',
-            'required'    => false,
-            'default'     => '',
-            'patchable'   => false,
-            'description' => 'Synthetic opted-out prop; must NOT be patchable in isolation.',
-        ];
         file_put_contents($schemaPath, json_encode($schema));
         $GLOBALS['_pp_registered_components_invalidate'] = true;
 
-        // Derivation: new scalar prop is present; opted-out prop is absent.
+        // Derivation: the new scalar prop is present.
         $fields = $this->fieldMap('embed');
         $this->assertSame('string', $fields['synthetic_tagline'] ?? null, 'new scalar schema prop must derive with zero registry edits');
-        $this->assertArrayNotHasKey('synthetic_locked', $fields, 'patchable:false opt-out must exclude the prop');
 
         // End-to-end: the new prop patches through the real update_component path.
         $post_id = wp_insert_post(['post_type' => 'page', 'post_title' => 'Drift Embed', 'post_status' => 'publish']);
@@ -2081,15 +2077,85 @@ class OperateTest extends TestCase
         $ok = pp_patch_composition($post_id, 'embed.synthetic_tagline', 'New tagline');
         $this->assertTrue($ok['ok'], 'a brand-new schema prop must be patchable with zero code change');
         $this->assertSame('New tagline', pp_get_composition($post_id)[0]['props']['synthetic_tagline']);
+    }
 
-        // The opted-out prop is rejected as not editable, even though it is a
-        // declared scalar string — the opt-out is enforced end-to-end.
+    /**
+     * THE RUNTIME SURFACE of the `patchable` retirement (#629), inverted from the
+     * pin it replaces. #509 shipped a `"patchable": false` opt-out here and told
+     * authors to use it (AI_IMPLEMENTATION_RECIPES Recipe B/D). It was a legal
+     * declaration then; when #575 closed the prop definition key set in v1.12.4
+     * it left `patchable` off, so from that release a schema following those docs
+     * failed CI on pp_schema_definition_errors() while the docs went on
+     * instructing it. No schema in this repo ever declared it; #629 deleted the
+     * readers instead of widening the key set.
+     *
+     * Why a synthetic schema rather than a deletion. The definition key set is a
+     * repo-CI invariant, NOT a runtime gate (pp_slot_definition_keys' docblock,
+     * lib/admin.php), so a schema carrying an unknown key still LOADS at runtime —
+     * the key is simply unread. That is exactly the state this test drives: a
+     * declaration that used to remove a prop from the patch surface is now inert.
+     * Asserting on a locally built array would be a tautology that stays green
+     * with the opt-out restored; this fails if either reader comes back.
+     *
+     * BOTH DELETED READERS are covered, including the `items`-array one, which
+     * never had a test while the mechanism was live (it opted a whole nested
+     * surface out and nothing pinned it). A third caller of the shared helper,
+     * _pp_pick_nested_match_field(), inherits the change: an item sub-prop that
+     * declared the retired key is now eligible as a match handle. That is a
+     * selector-readability heuristic conferring no write authority, and with no
+     * shipped schema declaring the key it has no observable effect, so it is
+     * noted here rather than pinned.
+     *
+     * The SCHEMA surface of the retirement — that the declaration itself is an
+     * unknown definition key — is a separate test in SchemaValidationTest.
+     */
+    public function testARetiredPatchableDeclarationNoLongerExcludesAProp(): void
+    {
+        // FORM 1 — top-level scalar prop. Exactly the shape Recipe B documented.
+        $embedPath = $this->tempDir . '/components/embed/schema.json';
+        $embed = json_decode(file_get_contents($embedPath), true);
+        $embed['props']['synthetic_locked'] = [
+            'type'        => 'string',
+            'required'    => false,
+            'default'     => '',
+            'patchable'   => false,
+            'description' => 'Carries a RETIRED patchable:false declaration; must patch anyway.',
+        ];
+        file_put_contents($embedPath, json_encode($embed));
+
+        // FORM 2 — the `items` array opting its whole nested surface out. faq's
+        // items carries question/answer, so items[].question is the observable.
+        $faqPath = $this->tempDir . '/components/faq/schema.json';
+        $faq = json_decode(file_get_contents($faqPath), true);
+        $faq['props']['items']['patchable'] = false;
+        file_put_contents($faqPath, json_encode($faq));
+
+        $GLOBALS['_pp_registered_components_invalidate'] = true;
+
+        // THE INVERSION, derivation half. Both were excluded before #629.
+        $embedFields = $this->fieldMap('embed');
+        $this->assertSame(
+            'string',
+            $embedFields['synthetic_locked'] ?? null,
+            'a retired patchable:false declaration must not exclude a scalar prop (#629)'
+        );
+        $faqFields = $this->fieldMap('faq');
+        $this->assertSame(
+            'string',
+            $faqFields['items[].question'] ?? null,
+            'a retired patchable:false on an items array must not suppress its nested fields (#629)'
+        );
+
+        // THE INVERSION, end-to-end half: the previously locked prop now patches
+        // through the REAL pp_patch_composition surface and persists, rather than
+        // reporting field_not_editable.
+        $post_id = wp_insert_post(['post_type' => 'page', 'post_title' => 'Retired Optout', 'post_status' => 'publish']);
         update_post_meta($post_id, '_pp_composition', json_encode([
             ['component' => 'embed', 'props' => ['id' => 'pp-embed001', 'content' => '[shortcode]', 'synthetic_locked' => 'x']],
         ]));
-        $locked = pp_patch_composition($post_id, 'embed.synthetic_locked', 'y');
-        $this->assertInstanceOf(WP_Error::class, $locked);
-        $this->assertSame('field_not_editable', $locked->get_error_code());
+        $patched = pp_patch_composition($post_id, 'embed.synthetic_locked', 'y');
+        $this->assertTrue($patched['ok'], 'the retired opt-out must no longer report field_not_editable');
+        $this->assertSame('y', pp_get_composition($post_id)[0]['props']['synthetic_locked']);
     }
 
     /**

@@ -4,6 +4,35 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.13.13] — 2026-08-14 — the `patchable: false` prop opt-out is retired: the docs told authors to declare a key the build rejected (#629)
+
+**A recipe told component authors to write `"patchable": false` in `schema.json` to keep a prop out of isolated patching, and a schema that followed that instruction failed CI.** The key was real in `lib/operate.php`, which read it in two places, but it was never on the closed prop definition key set, so the shared definition validator reported `unknown prop definition key patchable` on it. Two shipped surfaces disagreed about the same word. Rather than widen the key set to make the instruction true, this removes the mechanism and makes the docs true: declaring a scalar prop makes it patchable, full stop, and there is no per-prop opt-out.
+
+The mechanism shipped in v1.8.2 and was a legal declaration then. #575 closed the prop definition key set in v1.12.4 without it, which is when the contradiction opened, and the docs went on instructing it for the rest of that line. No schema in this repo ever declared the key in either window, so the derived field set for every shipped component is byte-identical before and after. `pp_prop_definition_keys()` is untouched: `patchable` stays unknown by omission, not by removal, so the declarable definition surface does not change.
+
+This is the same call as the `aliases` retirement in #606, on different grounds. `aliases` was a declared key that #603/#604/#605 emptied before #606 deleted it; this one was documented, briefly declarable, and never used.
+
+**The one behavior change, stated plainly.** The definition key set is a repo-CI invariant, not a runtime gate, so a hand-edited `schema.json` on a live install has always loaded unvalidated. If such a schema still carries `patchable: false`, that prop becomes patchable in isolation after this release. That is not a permission boundary: capabilities are enforced before any action runs, the written value still routes through the shared validator's type and `link_url` rules, `pp_patch_composition()` has no web surface at all, and the prop was always writable through a whole-component update anyway.
+
+**Superseded by this entry:** the v1.8.2 (#509) entry below announces the opt-out as a feature and tells authors to use it, in its lede, its Added list, its Docs bullet, and its Tests bullet. Those lines are left exactly as written, per the same convention #606 followed for #575 and #576 — they describe what shipped at the time and are not rewritten. This entry is the correction.
+
+### Fixed
+
+- `lib/operate.php` drops both readers of the retired key (#629): the opt-out arm of `pp_component_scalar_type()`, and the re-check in the `items`-array branch of `pp_get_component_fields()` that opted a whole nested surface out. The header contract block and two docblocks that described the opt-out now state that no per-prop opt-out exists, and what a future exclusion would actually require.
+- `lib/admin.php` records on `pp_schema_definition_errors()` why `patchable` is unknown here, next to the `aliases` note: it was never added to the key set rather than removed from it, so a schema following the old docs failed on this engine while those docs still instructed it.
+
+### Docs
+
+- `docs/AI_IMPLEMENTATION_RECIPES.md` Recipe B step 4 and Recipe D step 4 stop instructing the key. Recipe B states the retirement with its history and names the runtime consequence for a hand-edited schema; Recipe D points at it rather than restating it.
+
+### Tests
+
+- `tests/OperateTest.php` inverts the pin instead of deleting it: a surviving `patchable: false` declaration no longer excludes a prop, proven on BOTH forms the deleted readers handled — a top-level scalar prop and an `items` array — with the previously locked prop round-tripping end to end through the real `pp_patch_composition()` surface. The `items` form had no test at all while the mechanism was live. The #509 drift-catcher keeps its own contract and hands the opt-out half to this test.
+- `tests/SchemaValidationTest.php` pins the schema surface: `patchable` is absent from `pp_prop_definition_keys()` and rejected as an unknown key on a top-level prop and on a nested `items.<sub>` field, for `true` as well as `false`, since the key is unknown rather than a boolean with one legal value. A slot assertion is deliberately omitted — `patchable` was never a candidate slot key, so asserting it there would pin pre-existing behavior rather than this retirement.
+- The bidirectional derivation invariant loses its opt-out exemption arm, so a scalar prop is now required to be derived unconditionally.
+
+---
+
 ## [v1.13.12] — 2026-08-14 — schema: enum `values` members are bounded at authoring time, because the catalog renders them inside quotes (#630)
 
 **The AI catalog advertises every enum as a quoted set, and nothing checked what went inside the quotes.** `pp_schema_definition_errors()` — the one shared validator for a component's slot and prop definition objects — bounded every quoted string it knew about except the one the catalog renders most: `values`. A member carrying a double quote forges the value set an agent parses; a member carrying a newline forges a whole catalog line. The guard now rejects both at authoring time, in CI, which is where the sibling fields have been guarded since #575.

@@ -1996,8 +1996,8 @@ function _pp_parse_bracket_match(string $str) {
 // there is no hand-maintained registry (issue #509 retired the old
 // pp_register_component_fields() list, which covered only 6 of 10 components
 // with partial fields and silently lagged every schema change). A prop is
-// patchable when its schema `type` is a scalar (string / number / enum) and it
-// does not opt out; array/object props are structural, not single-value edits.
+// patchable when its schema `type` is a scalar (string / number / enum);
+// array/object props are structural, not single-value edits.
 // This inherits the shared validator's type + `format: "link_url"` enforcement
 // (issues #506/#507): the patch routes through the update_component action, so
 // the schema's declared type/format is what actually validates the written
@@ -2007,17 +2007,25 @@ function _pp_parse_bracket_match(string $str) {
 //                              (string|number|enum)          consumed by
 //                                                            inspect + patch
 //
-// Opt-out: a prop MAY set `"patchable": false` in its schema to exclude itself
-// from isolated patching (for a prop that genuinely must not be edited alone).
-// The inventory is expected empty; the mechanism exists so future props can
-// opt out with zero code change (pinned by a drift-catcher test, #509).
+// There is NO per-prop opt-out. #509 (v1.8.2) shipped a `"patchable": false`
+// escape hatch here and documented it in AI_IMPLEMENTATION_RECIPES; it was a
+// legal declaration then. #575 (v1.12.4) later closed the prop definition key
+// set (pp_prop_definition_keys, lib/admin.php) WITHOUT it, so from that release
+// a schema following those docs failed CI on an unknown definition key while
+// the docs went on instructing it. No schema in this repo ever declared it, in
+// either window. #629 resolved the contradiction by deleting the readers rather
+// than widening the key set — the same CALL as the `aliases` retirement in #606,
+// on different grounds (`aliases` was a declared key emptied by #603/#604/#605;
+// this one was documented, legal for a while, and never used). A prop that must
+// never be edited in isolation would need the key added to that set plus a
+// bounded boolean check in pp_schema_definition_errors(); nothing needs that.
 
 /**
  * The scalar prop `type` values that are patchable in isolation via the
- * semantic patch surface. A prop with one of these declared types (and no
- * `patchable: false` opt-out) is exposed as an editable field; array/object
- * props are structural and are not patched as a single scalar value (their
- * scalar item sub-props are patched via the items[].field selector).
+ * semantic patch surface. A prop with one of these declared types is exposed
+ * as an editable field; array/object props are structural and are not patched
+ * as a single scalar value (their scalar item sub-props are patched via the
+ * items[].field selector).
  *
  * @return string[]
  */
@@ -2027,18 +2035,16 @@ function pp_patchable_scalar_types(): array {
 
 /**
  * Returns the patchable scalar `type` of a schema prop definition, or null when
- * the prop is not a patchable scalar (array/object, unknown type, malformed def,
- * or an explicit `patchable: false` opt-out).
+ * the prop is not a patchable scalar (array/object, unknown type, malformed def).
+ * The declared `type` is the ONLY input: the `patchable: false` opt-out this
+ * function used to honour is retired (#629), so a definition still carrying that
+ * key derives from its type like any other.
  *
  * @param mixed $prop_def  A single prop definition from a component schema.
  * @return string|null  The scalar type ('string'|'number'|'enum'), or null.
  */
 function pp_component_scalar_type($prop_def): ?string {
     if (!is_array($prop_def)) {
-        return null;
-    }
-    // Explicit schema-level opt-out (issue #509). Expected inventory: empty.
-    if (array_key_exists('patchable', $prop_def) && $prop_def['patchable'] === false) {
         return null;
     }
     $type = $prop_def['type'] ?? null;
@@ -2084,13 +2090,11 @@ function pp_get_component_fields(string $component_type): array {
         // items[].<field>. Gated on the prop name so it aligns with the selector
         // grammar; a named sub-schema (associative field defs) confirms it is an
         // object-item array (body_items / a bare string array carries no such map).
-        // An `items` array carrying its own `patchable: false` opts its whole
-        // nested surface out (mirrors the scalar opt-out — "opt out with zero code
-        // change"): pp_component_scalar_type() already returned null for it above,
-        // so re-check the opt-out here before expanding sub-fields.
+        // The `patchable: false` re-check that used to sit here — opting a whole
+        // nested surface out — went with the retired opt-out (#629); an `items`
+        // array expands its scalar sub-props on shape alone.
         if ($prop_name === 'items'
             && is_array($prop_def)
-            && !(array_key_exists('patchable', $prop_def) && $prop_def['patchable'] === false)
             && ($prop_def['type'] ?? null) === 'array'
             && !empty($prop_def['items'])
             && is_array($prop_def['items'])
