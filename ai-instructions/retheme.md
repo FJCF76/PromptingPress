@@ -431,6 +431,8 @@ The output should be empty. If it returns matches, replace each with the corresp
 
 The entire visual output of the site flows through the design tokens and the apply/action model. Editing files directly is unnecessary for a retheme — use `update_design_token` for global tokens, `enqueue_font` for fonts, and `style_component` for per-instance visual overrides.
 
+One documented exception, so you do not go looking for a token that is not there: the shared band rhythm and band-heading scale (`--pp-band-padding`, `--pp-band-heading-size`) are theme-internal properties declared outside the token registry, so `update_design_token` rejects them as `unknown_token`. They have no site-wide authoring surface. To change a band's vertical rhythm or heading size for a site, set that band's own `--<component>-padding-top` / `--<component>-padding-bottom` / `--<component>-heading-size` slot with `style_component`, one band at a time.
+
 ---
 
 ## Programmatic path (use this to retheme a site)

@@ -22,10 +22,29 @@ Setting a slot **replaces every branch at once**, at every layout and viewport �
 picked from the desktop number alone can be wrong at 375px. A parenthesised default such
 as `(premium bevel)` means a built-in treatment with no single literal worth quoting.
 
-`styling.tokens` lists global design tokens that component's own rules consume. It is a
-curated read surface into the design system, NOT an exhaustive inventory: shared rhythm
-and measure props (`--pp-band-padding`, `--pp-band-heading-size`, `--measure-*`) are
-documented on the slots that route them rather than repeated in this array. The template-owned chrome pair (`nav`, `footer`) additionally lists
+`styling.tokens` names SOME of the global design tokens that component's own rules consume.
+Two things about it are guaranteed, and both are test-enforced: every entry is a **registered
+design token** (a property in the first `:root` block of `base.css`, which is the same set
+`update_design_token` accepts), and every entry is **reachable by the component that lists it**
+(a rule that component can match actually reads it). Completeness is NOT guaranteed. The array
+is hand-curated and deliberately partial: a band's own rules read several times more registered
+tokens than its array names, and a token can be missing for no reason beyond nobody having added
+it. `--overlay-bg` is listed by the four components that read it (`cta`, `section`, `stats`,
+`hero`), and it is reached only as a slot fallback (`var(--cta-overlay-bg, var(--overlay-bg))`);
+`--measure-heading` is reached in exactly the same way and is not listed by anyone.
+**So never read absence from this array as "this component does not consume that token."** For
+what you can actually set on one band, read its `style_slots` — each slot's `default` names the
+token it routes. For what you can retune site-wide, read the design-token list in the catalog.
+
+The shared band rhythm and heading scale are a different thing from a missing entry:
+`--pp-band-padding` and `--pp-band-heading-size` are not design tokens at all, so no array could
+list them. They are declared in a separate `:root` block that the token registry does not read,
+so `update_design_token` rejects them as an `unknown_token`, and no action in the write path
+reaches them — retuning them site-wide is a theme-source change, not something you can author.
+The per-band `--<comp>-padding-top` / `--<comp>-padding-bottom` / `--<comp>-heading-size` slots
+are your only surface for them, and each one moves that band alone.
+
+The template-owned chrome pair (`nav`, `footer`) additionally lists
 `chrome_custom_properties`: those are the `--header-*` / `--footer-*` inline custom
 properties the chrome renders from **site options**, which are a different thing from
 design tokens and are set with `update_site_option`, never as style slots.
