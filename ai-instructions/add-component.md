@@ -114,7 +114,7 @@ never stored anywhere else.
 | Key | Surface | What it declares |
 |---|---|---|
 | `type` / `default` / `description` | slot + prop | required on every definition |
-| `values` | slot + prop | the bounded value set for an `enum` |
+| `values` | slot + prop | the bounded value set for an `enum` — a non-empty list of non-empty, single-line strings, no double quotes (below) |
 | `item_eligible` | slot | the slot is item-scoped (a grid card, a section panel row) — enforced at **write and at render**, so a container-scoped slot never reaches the item element even from a non-validating write |
 | `applies_when` | slot + prop | machine-readable conditionality (below) |
 | `conditionality_note` | slot + prop | the bounded prose escape hatch (below) |
@@ -144,6 +144,16 @@ precisely so the machine-readable grammar never has to grow to swallow them:
 ruling, and breakpoint families are *defaults*, not authored conditions.) If the
 grammar ever needs to grow, that growth lands in this contract **before** anything
 populates it.
+
+**Shape contract for `values`:** a non-empty JSON **list** of non-empty strings,
+each on one line (no newlines, no tabs), none containing a double quote. The
+runtime AI catalog renders the set inside double quotes (`layout?:
+"cards"|"steps"`), so a member carrying a quote advertises a value set nothing
+accepts, and one carrying a newline forges a whole catalog line.
+`SchemaValidationTest` rejects both at authoring time. The quote half is the rule
+the `applies_when` subjects and `in` members already follow; the single-line half
+matches `conditionality_note`. Unlike `in`, `values` takes strings only — write
+`"2"`, not `2`.
 
 **Phrasing contract for `conditionality_note`:** write it as a condition clause
 that completes the sentence "applies when ...", on a single line, under 400
@@ -435,7 +445,9 @@ Add a row to the Component index table in `AI_CONTEXT.md`:
       and the `#545` css-lint pin both fail until this is done.
 - [ ] `AI_CONTEXT.md` component index updated
 - [ ] Every slot/prop definition object uses only the keys in the definition-object
-      contract (Step 3); `SchemaValidationTest` rejects anything else
+      contract (Step 3); `SchemaValidationTest` rejects anything else — and the fields
+      it renders into the AI catalog also satisfy their shape contracts (`values`,
+      `conditionality_note`, `applies_when`, `role`)
 - [ ] Every slot's `default` states the **effective** default — what actually renders
       with the slot unset, in the component's default configuration, at desktop (>=768px,
       the theme's desktop tier). Not the CSS fallback literal, and never a value that

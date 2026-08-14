@@ -4,6 +4,30 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.13.12] — 2026-08-14 — schema: enum `values` members are bounded at authoring time, because the catalog renders them inside quotes (#630)
+
+**The AI catalog advertises every enum as a quoted set, and nothing checked what went inside the quotes.** `pp_schema_definition_errors()` — the one shared validator for a component's slot and prop definition objects — bounded every quoted string it knew about except the one the catalog renders most: `values`. A member carrying a double quote forges the value set an agent parses; a member carrying a newline forges a whole catalog line. The guard now rejects both at authoring time, in CI, which is where the sibling fields have been guarded since #575.
+
+`values` was the last unguarded case, and it became the only one when #606 retired `aliases` and promoted `values` to *the* accepted set. The rule the deleted alias validator carried applies unchanged: bound the shape at authoring time, not in the emitter. The check is triggered by the key's PRESENCE, not by `type: "enum"`, so the field is bounded wherever it is declared and a `values` on a non-enum tomorrow is not an unguarded corner. Each violation kind is reported once, so one CI run tells the author everything wrong with the field.
+
+Nothing renders differently and no schema changed. All 31 shipped `values` declarations are already non-empty lists of non-empty, single-line, quote-free strings, so the emitted catalog and the editor sidebar are byte-identical before and after, and the declared surface is untouched.
+
+**Known gap, stated rather than implied.** The guard rejects `"`, `\r`, `\n` and `\t` — the set the issue recorded. It does not reject a backslash, so a member ending in one still emits as `layout?: "cards\"|"steps"`, which a consumer applying string-escape semantics can misread. Nor does it reject the catalog's delimiter characters. Whether `values` should become a positive pattern rather than a growing list of banned constructs is one design call on the whole axis, tracked in #674 with the other verified cases, instead of a per-character trickle here.
+
+### Fixed
+
+- `lib/admin.php` adds a `values` leg to `pp_schema_definition_errors()` (#630): a non-empty list of non-empty strings, none containing a double quote, none spanning lines. A malformed container reports once and skips the member loop, so `values: "cards"` never iterates a string. The function's docblock diagram gains the new leg.
+- `ai-instructions/add-component.md` states the shape contract on the `values` row and in a phrasing paragraph beside `conditionality_note`'s, and its Step-3 checklist now covers the shape of the catalog-rendered fields, not only the key set.
+- `docs/AI_IMPLEMENTATION_RECIPES.md` invariant 5 records that the definition-object engine bounds declared VALUE shapes as well as failing on unknown keys.
+
+### Tests
+
+- `tests/SchemaValidationTest.php` pins the guard branch by branch: thirteen rejected declarations, each asserting WHICH rule it breaks rather than merely that something was reported, run against both the prop and the slot surface. The accept side pins the shipped shape, proves a malformed container yields exactly one error rather than a cascade, and proves two simultaneous violations are both named.
+- A dedicated test pins the presence-not-type invariant. Without it, narrowing the guard to `type === 'enum'` left the whole suite green, so the design decision the code documents was unenforced prose.
+- The non-vacuity proof forges a member on every shipped declaration that carries `values` and asserts the engine rejects it, across all three surfaces the closed-contract sweep walks — style slots, props, and nested `items.<sub>` fields — with the count pinned at the current inventory of 31 so a lost declaration fails loudly instead of shrinking the proof.
+
+---
+
 ## [v1.13.11] — 2026-08-14 — schema: the steps connector two slots claimed to reach paints nowhere, so nothing claims it any more (#601)
 
 **Five shipped surfaces promised authors a visual the theme cannot render.** The `steps` grid layout documents a connector line between its number badges, and two style slots were documented as reaching it — `--grid-gap` for its length, `--grid-item-border-color` for its colour. The rule exists in `components.css` and computes a real box. It never paints. The pseudo-element is `position: absolute; left: 100%` and its containing block is the card, which sets `overflow: hidden`, so every grid card clips its own connector away at every viewport. Nothing anywhere restores `overflow: visible`.
