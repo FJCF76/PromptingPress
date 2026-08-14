@@ -250,7 +250,7 @@ A body-less trust strip (no `body`, centred by the band padding):
 
 ### grid.layout: "steps"
 
-Renders numbered process cards. Use for How-It-Works or sequential flows. Cards get a filled circular number badge and a subtle connector line between badges at desktop (1024px+).
+Renders numbered process cards. Use for How-It-Works or sequential flows. Each card carries a filled circular number badge above its title, and the numbering is what makes the row read as a sequence.
 
 - Set `layout: "steps"` on the grid (the default `layout` is `cards`)
 - Include a `number` field on each item (`"1"`, `"01"`, `"Step 1"`, etc.)
