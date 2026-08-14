@@ -591,6 +591,304 @@ class SchemaTruthfulnessTest extends TestCase
         );
     }
 
+    // ── #601: the steps connector is clipped, so nothing may claim it is reachable ──
+
+    /**
+     * The stylesheets a front-end page actually loads, in cascade order.
+     *
+     * functions.php:96-119 enqueues exactly these three (`pp-base`, `pp-components`,
+     * `pp-utilities`), and the admin preview at lib/admin.php:2934 links the same three,
+     * so a rule in ANY of them reaches a grid card. Scanning components.css alone would
+     * let an `overflow` reset land in base.css or utilities.css and un-clip the connector
+     * with this pin still green. pp-admin-editor.css / pp-ai-chat.css are admin chrome
+     * and never style a rendered card, so they stay out.
+     */
+    private const FRONT_END_STYLESHEETS = [
+        '/assets/css/base.css',
+        '/assets/css/components.css',
+        '/assets/css/utilities.css',
+    ];
+
+    /**
+     * Innermost CSS rules as [source, selector, body] triples, comments stripped.
+     *
+     * Media context is deliberately dropped: a rule inside `@media` parses as its own
+     * triple, which is what these pins want — a clip does not care which breakpoint the
+     * clipped rule lives at, and neither does an escape from it.
+     *
+     * @return array<int, array{0:string,1:string,2:string}>
+     */
+    private function frontEndCssRules(): array
+    {
+        $rules = [];
+        foreach (self::FRONT_END_STYLESHEETS as $sheet) {
+            $css      = file_get_contents($this->themeRoot . $sheet);
+            $stripped = preg_replace('#/\*.*?\*/#s', '', $css);
+            preg_match_all('/([^{}]+)\{([^{}]*)\}/', $stripped, $m, PREG_SET_ORDER);
+            foreach ($m as $r) {
+                foreach (explode(',', $r[1]) as $single) {
+                    $selector = trim(preg_replace('/\s+/', ' ', $single));
+                    if ($selector === '' || str_starts_with($selector, '@')) {
+                        continue;
+                    }
+                    $rules[] = [$sheet, $selector, $r[2]];
+                }
+            }
+        }
+        $this->assertNotEmpty($rules, 'no front-end CSS rules parsed');
+        return $rules;
+    }
+
+    /**
+     * The last compound of a selector — the element the rule actually styles.
+     *
+     * Parenthesised groups are masked before the split so a combinator INSIDE a functional
+     * pseudo-class cannot be mistaken for the real one: `.grid__list:has(> .grid__item) > li`
+     * has subject `li`, not `.grid__item)`. The mask is restored on the way out, so the
+     * returned subject is still the literal source text.
+     */
+    private function selectorSubject(string $selector): string
+    {
+        $masked = preg_replace_callback(
+            '/\(([^()]*)\)/',
+            static fn ($m) => '(' . str_repeat('\u{00b7}', mb_strlen($m[1])) . ')',
+            trim($selector)
+        );
+        $offset = 0;
+        foreach (preg_split('/\s*[ >+~]\s*/', $masked, -1, PREG_SPLIT_OFFSET_CAPTURE) as $part) {
+            $offset = $part[1];
+        }
+        return trim(mb_substr(trim($selector), $offset));
+    }
+
+    /**
+     * Could this rule style a grid CARD element itself (not a descendant, not a pseudo)?
+     *
+     * Three shapes qualify, and the last two are why this is not a simple `.grid__item`
+     * match: the card is an `<li>`, so `.grid__list > li { overflow: visible }` un-clips it
+     * without ever naming the class, and a universal reset reaches it too.
+     *
+     * Deliberately SELECTOR-shaped, not cascade-shaped. A bare `li` / `*` escape might in
+     * fact lose the cascade to `.grid__item { overflow: hidden }` and clip anyway, so this
+     * predicate over-includes on purpose: it fails closed and asks a human to re-derive the
+     * clip, which is the safe direction for a pin whose whole job is to notice that the
+     * connector became paintable. `subjectNamesAGridCard()` is the strict half, used where
+     * the argument needs the rule to be about the card and not merely able to reach it.
+     */
+    private function subjectCanBeAGridCard(string $selector): bool
+    {
+        $subject = $this->selectorSubject($selector);
+        if (str_contains($subject, '::')) {
+            return false; // a pseudo-element box, not the card
+        }
+        // Strip pseudo-classes so `.grid__item:hover` / `li:first-child` still match.
+        $bare = preg_replace('/:[a-z-]+(\([^)]*\))?/i', '', $subject);
+        if (preg_match('/\.grid__item(?![-\w])/', $bare)) {
+            return true;
+        }
+        return $bare === 'li' || $bare === '*';
+    }
+
+    /** The strict half: the rule's subject NAMES the card class. */
+    private function subjectNamesAGridCard(string $selector): bool
+    {
+        $subject = $this->selectorSubject($selector);
+        return !str_contains($subject, '::') && (bool) preg_match('/\.grid__item(?![-\w])/', $subject);
+    }
+
+    /**
+     * #601 — the steps connector renders NOWHERE, and the schema said twice that it did.
+     *
+     * `.grid--steps .grid__item:not(:last-child)::after` is `position: absolute; left: 100%`,
+     * and its containing block is the card itself (`.grid--steps .grid__item` and
+     * `main > .grid .grid__item` are both `position: relative`). The card sets
+     * `overflow: hidden`, so it clips its own connector away at every viewport. The box
+     * still COMPUTES — verified by rendered A/B against the shipped stylesheets: at an
+     * identical clip region there is no segment with `overflow: hidden` and a visible 1px
+     * segment with a prototype-only `overflow: visible`, and `getComputedStyle(li, '::after')`
+     * reports `width: 32px` unset, `64px` under a grid-level `--grid-gap: 4rem`. A second,
+     * independent pass swept 18 rendered contexts (900-1920px, the muted / inverted / uniform
+     * / icon variants, 2-4 items, hover, wrapped titles, with and without the composed-page
+     * `<main>` wrapper, and both slots written at grid and card level) and measured ZERO
+     * differing pixels against a build with the connector suppressed, with two positive
+     * controls proving the probe was sensitive. Computing is not painting, so `--grid-gap`
+     * and `--grid-item-border-color` reach nothing on the steps layout. Both slots used to
+     * advertise that reach ("DUAL JOB"), which is the reported-success-without-effect class
+     * this whole gate exists to remove.
+     *
+     * Provenance: d78a194 (#177) deleted the rescue override carrying `overflow: hidden` AND
+     * the canonical `.grid--steps .grid__item { overflow: visible }` reset, while introducing
+     * the line rule the reset had been protecting. The #56 guard in tests/js/css-lint.test.ts
+     * pins declaration-site LOCATION only, so it stayed green through the regression.
+     *
+     * This pin is deliberately two-sided, and BOTH sides are load-bearing:
+     *   - the three CSS facts that make the connector unpaintable (the card clips, nothing
+     *     hands the clip back, and the card is the pseudo-element's containing block), so a
+     *     source reader cannot re-derive a capability from the rule text alone;
+     *   - the ABSENCE of any reachability claim on the surfaces an authoring agent reads.
+     * If #670 changes the CSS in either direction — unclipping the connector or deleting the
+     * rule — this test fails on purpose. It does not prescribe which way to go, and it is not
+     * asking for the old text back: it asks that the CSS and the claim surfaces be decided
+     * together in one change.
+     */
+    public function testNothingClaimsTheStepsConnectorIsReachableWhileTheCardClipsIt(): void
+    {
+        $rules = $this->frontEndCssRules();
+
+        // ── side 1: the CSS facts that make the connector unpaintable ──────────────
+        $clips          = [];
+        $connectorRules = [];
+        $escapes        = [];
+        $positioned     = [];
+        foreach ($rules as [$sheet, $selector, $body]) {
+            // Any ::after painted on the card itself, however the rule spells the card.
+            $subject = $this->selectorSubject($selector);
+            if (str_ends_with($subject, '::after') && preg_match('/\.grid__item(?![-\w])/', $subject)) {
+                $connectorRules[] = [$selector, $body];
+            }
+
+            if (!$this->subjectCanBeAGridCard($selector)) {
+                continue;
+            }
+            // `overflow: visible` (or any non-clipping value) hands the connector its escape.
+            // Resolved PER RULE, not per declaration, because the axes interact: when one of
+            // overflow-x / overflow-y is `visible` and the other is not, the `visible` one
+            // computes to `auto` — which still clips. So a rule that mentions ANY clipping
+            // value clips, and only an all-`visible` rule is a real escape.
+            preg_match_all('/(?<![-\w])overflow(?:-[xy])?\s*:\s*([^;}]+)/i', $body, $decls);
+            if ($decls[1] !== []) {
+                $values = array_map('trim', $decls[1]);
+                $joined = implode(' / ', $values);
+                if (preg_match('/hidden|clip|auto|scroll/i', $joined)) {
+                    if ($this->subjectNamesAGridCard($selector)) {
+                        $clips[] = $sheet . ': ' . $selector;
+                    }
+                } else {
+                    $escapes[] = $sheet . ': ' . $selector . ' { overflow: ' . $joined . ' }'
+                        . ($this->subjectNamesAGridCard($selector) ? '' : '  [reaches the card without naming it]');
+                }
+            }
+            // The clip only reaches an absolutely positioned pseudo-element when the card is
+            // its containing block, which needs a positioned card.
+            if (
+                $this->subjectNamesAGridCard($selector)
+                && preg_match('/(?<![-\w])position\s*:\s*(relative|absolute|sticky|fixed)/i', $body)
+            ) {
+                $positioned[] = $selector;
+            }
+        }
+
+        $this->assertNotEmpty(
+            $clips,
+            'No rule clips a grid card any more. That is exactly what would let the '
+            . 'steps connector paint for the first time — see #670. If this is intentional, '
+            . 'the connector now renders and the slot descriptions, components/grid/README.md, '
+            . 'AI_CONTEXT.md and ai-instructions/composition.md all have to be revisited in '
+            . 'this same change, in whichever direction #670 settled.'
+        );
+        $this->assertSame(
+            [],
+            $escapes,
+            'A rule that can style a grid card declares a non-clipping overflow. The steps '
+            . 'connector is `position: absolute; left: 100%` inside the card, so this is the '
+            . 'switch that makes it paint — see #670. This check is selector-shaped, not '
+            . 'cascade-shaped: an entry marked [reaches the card without naming it] may still '
+            . 'lose to `.grid__item { overflow: hidden }` on specificity, in which case the '
+            . 'connector stays clipped and this pin needs its predicate narrowed rather than '
+            . 'the claim surfaces rewritten. Re-derive the cascade before believing either.'
+        );
+        $this->assertNotEmpty(
+            $positioned,
+            'No rule positions the grid card any more. A `position: static` card is not the '
+            . 'containing block of its own absolutely positioned ::after, so the card\'s '
+            . '`overflow: hidden` stops clipping the connector and it paints — see #670. This '
+            . 'is the half of the clip argument that the overflow pins alone do not cover.'
+        );
+
+        $this->assertCount(
+            1,
+            $connectorRules,
+            'The set of ::after rules painted on a grid card changed. The connector is '
+            . 'currently a dead rule (clipped by the card), and every claim surface is written '
+            . 'on the premise that it paints nothing. If #670 resolved by deleting, rebuilding '
+            . 'or adding to it, update those surfaces in the same change.'
+        );
+        $this->assertMatchesRegularExpression(
+            '/(?<![-\w])(?:left|right)\s*:\s*100%/',
+            $connectorRules[0][1],
+            'The connector sits outside the card box at `left: 100%`, which is WHY the card\'s '
+            . 'own `overflow: hidden` erases it. A connector positioned INSIDE the card would '
+            . 'paint, and every claim surface would need rewriting — see #670.'
+        );
+
+        // ── side 2: no surface an authoring agent reads claims the connector is reachable ──
+        //
+        // Two needles per surface. The literal one catches the exact wording #601 removed; the
+        // shape one catches the same promise reworded (a "line/rule/segment drawn between the
+        // badges"), which the literal needle alone let straight back in. Both stay anchored on
+        // "badge" so AI_CONTEXT.md's unrelated WP 7.0 AI "connectors" prose cannot trip them.
+        $shapedClaim = '/(?:connector|line|rule|segment)[^.\n]{0,80}(?:between|from|joining|linking|connecting)[^.\n]{0,40}(?:badge|step)'
+            . '|(?:badge|step)[^.\n]{0,60}(?:connector|connected by|joined by|linked by)'
+            . '|connectors? at desktop/i';
+
+        // EVERY slot, not only the two that carried the claim — it could reappear on any of
+        // them, and a slot-scoped check is as cheap over 37 as over 2.
+        foreach ($this->slots('grid') as $slot => $def) {
+            $description = $def['description'] ?? '';
+            $this->assertStringNotContainsStringIgnoringCase(
+                'connector',
+                $description,
+                "Slot {$slot} claims it reaches the steps connector. The connector computes a "
+                . 'value the card then clips away, so the claim promises an author a visual '
+                . 'that cannot render (#601). If #670 made the connector paint, say so there '
+                . 'AND here.'
+            );
+            $this->assertDoesNotMatchRegularExpression($shapedClaim, $description, "Slot {$slot} (reworded claim).");
+        }
+
+        $gridSchema = $this->allSchemas()['grid'];
+        $claimBearingSchemaProse = [
+            'layout prop'      => $gridSchema['props']['layout']['description'] ?? '',
+            'items[].style'    => $gridSchema['props']['items']['items']['style']['description'] ?? '',
+        ];
+        foreach ($claimBearingSchemaProse as $where => $prose) {
+            $this->assertStringNotContainsStringIgnoringCase('connector', $prose, "grid schema {$where}");
+            $this->assertDoesNotMatchRegularExpression($shapedClaim, $prose, "grid schema {$where} (reworded claim).");
+        }
+
+        // Whole-document scan, NOT line-scoped-to-"steps": the sentence that carried this
+        // claim in composition.md lives under a `### grid.layout: "steps"` heading and does
+        // not contain the word itself, so a proximity filter reads green over the exact
+        // wording being removed here (caught by mutating the doc back and watching it pass).
+        foreach (['/ai-instructions/composition.md', '/AI_CONTEXT.md'] as $doc) {
+            $this->assertDoesNotMatchRegularExpression(
+                $shapedClaim,
+                file_get_contents($this->themeRoot . $doc),
+                "{$doc} still promises a connector line on the steps layout; it renders "
+                . 'nowhere (#601). The dead rule is recorded in components/grid/README.md '
+                . 'and #670, deliberately not on an authoring surface.'
+            );
+        }
+
+        // components/grid/README.md is scanned SECTION-scoped, not whole-file: its stated-
+        // defaults table deliberately keeps a connector row (that row is where the dead rule
+        // is recorded), so a whole-file needle would fail on the intended text. The authoring
+        // prose above it must still stay clean, or the removed claim comes back on the very
+        // surface it was removed from.
+        $readme  = file_get_contents($this->themeRoot . '/components/grid/README.md');
+        $start   = strpos($readme, '## Steps layout');
+        $this->assertNotFalse($start, 'components/grid/README.md lost its `## Steps layout` section.');
+        $end     = strpos($readme, "\n## ", $start + 1);
+        $section = substr($readme, $start, $end === false ? null : $end - $start);
+        $this->assertDoesNotMatchRegularExpression(
+            $shapedClaim,
+            $section,
+            'The README Steps-layout prose promises a connector again; it renders nowhere '
+            . '(#601). The dead rule belongs in the stated-defaults table below it, which is '
+            . 'where the clip and #670 are recorded.'
+        );
+    }
+
     /**
      * The card-scoped list in ai-instructions/composition.md is a THIRD copy of the
      * item_eligible set (schema flag, schema items[].style description, this doc), and
