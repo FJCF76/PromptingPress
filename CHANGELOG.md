@@ -4,6 +4,48 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.14.1] — 2026-08-16 — One way to name a page: `--post_id=<id>` is canonical on every page-addressed CLI command (#685)
+
+**Three commands took a page as a bare positional argument, and five others took `--post_id=`. Agents pattern-matched the majority and guessed wrong.** `wp pp operate inspect-composition`, `wp pp operate patch`, and `wp pp operate composition-history` now take `--post_id=<id>` like everything else on the `wp pp` surface. The positional form is gone, and so is slug resolution: a flag named `--post_id` that quietly accepted `about-us` was a dishonest name, the same principle that keeps attachment inputs named `*_id` and never `*_url`. Page IDs come from `wp pp operate inspect`'s page map in one read.
+
+An external three-stage evaluation found the cold agent's only addressing error was typing `--post_id=` at the positional command — it had learned the dominant local convention rather than WP-CLI's global positional idiom. The refusal language of the system already spoke flags (every preflight breadcrumb composes a literal `--post_id=N`), and `screenshot capture` can never go positional because it addresses pages by `--capture-url` too. Flag-everywhere was the only shape the whole surface could actually hold.
+
+Rejecting the old form is not a silent parse error. Each of the three commands refuses a positional argument before dispatch with a breadcrumb that names the flag form and, when the token is a usable ID, composes the exact command to run instead.
+
+**What breaks, stated plainly.**
+
+- **The positional page argument is gone on all three commands.** `wp pp operate inspect-composition <page>`, `wp pp operate patch <page> …`, and `wp pp operate composition-history <page>` no longer run. `--post_id=<id>` is required on each.
+- **Slug and URL addressing is gone in the same release.** `about-us`, `/about-us/`, and full permalinks no longer resolve on these commands. Only a numeric WordPress post ID works. If slug addressing is ever wanted again it returns under an honest name, as its own decision.
+- **There is no alias, no deprecation window, and no release in which both shapes work.** Scripts and agent prompts must be updated at upgrade time; the old form never runs with a warning.
+- **`--post_id` is strict, and refuses inputs the old positional accepted.** Only a positive base-10 integer whose decimal form survives a round trip through `(int)`. Previously `is_numeric()` accepted `1.5`, `1e3`, `-1`, `" 19"` and truncated them into a *different* post than you typed; those are refused by name now. So are over-large values (PHP saturates them to `PHP_INT_MAX`) and zero-padded ids like `00019` — that last one is the least obvious break for an existing script.
+- **The `=` is required.** `--post_id 19` is refused, because WP-CLI parses a space-separated flag as a valueless flag plus a positional.
+- **Failure is loud and writes nothing.** Refusals exit non-zero before dispatch, so a mutating `patch` call in the old shape fails ahead of the run-token and PREFLIGHT gates. No state moves, no run is consumed.
+- **Migration is one substitution:** `wp pp operate X <id>` → `wp pp operate X --post_id=<id>`. Slug-based callers look the id up in `wp pp operate inspect`'s `pages[]` (it mints a new run token, so don't adopt it mid-run).
+- **Not affected:** `wp pp operate inspect` (site-scoped, `--post_id` optional), `wp pp action execute`, `wp pp apply preflight`, `wp pp check page`, `wp pp validate page`. Their addressing is unchanged.
+
+### Fixed
+
+- `wp pp operate inspect-composition`, `wp pp operate patch`, and `wp pp operate composition-history` take `--post_id=<id>`; the `<page>` positional is removed from all three synopses.
+- Slug/URL resolution is removed from the CLI addressing path. `url_to_postid(home_url($page))` was the only caller of either function in `lib/cli.php` and both are gone, pinned at the source so neither returns.
+- A positional argument is refused with a breadcrumb naming the flag form, not WP-CLI's generic "Too many positional arguments". The refusal is registered on `before_run_command` because WP-CLI validates the synopsis before the command callable and before any `before_invoke` hook, so no in-command check can reach it. WP-CLI's own refusal remains underneath as the fail-closed backstop.
+- A stray positional on a command that already carries `--post_id` reports an unexpected argument instead of a page-addressing lecture, and never composes an address out of the stray token.
+- `--post_id` values are validated as positive base-10 integers rather than cast, closing the silent-truncation class the old `is_numeric()` fork allowed.
+
+### Docs
+
+- `README.md`, `AI_CONTEXT.md`, `docs/reference-apply-cli.md`, `docs/howto-apply-and-rollback.md`, `ai-instructions/operating-loop.md`, `ai-instructions/website-building.md`, `ai-instructions/style-component.md`, and the shared boilerplate line in all ten `components/*/README.md` use the flag form. No shipped doc shows an agent a command the CLI now refuses.
+- The `style_component` action description (`lib/actions.php`) names `inspect-composition --post_id=<id>`, so the runtime action registry agrees with the CLI.
+- Historical `CHANGELOG.md` entries and `readme.txt`'s changelog rollup are deliberately unchanged. They state what shipped at a given tag; rewriting them would falsify release history.
+
+### Tests
+
+- `tests/CliGateTest.php` pins both new decisions as pure predicates — every accept and refuse branch, the arg vectors that must NOT trip the pre-dispatch guard (`wp help`, `operate inspect`, other namespaces, empty argv), the conflicting-address precedence, and both thin wrappers failing closed with the predicate's message verbatim. The subcommand data provider is derived from the shipped constant, so a fourth page-addressed command cannot leave these pins covering three.
+- `tests/InvariantTest.php` pins the removal at the source: no `url_to_postid(`/`home_url(` in `lib/cli.php`, no `<page>` positional in any synopsis, and no positional form in the PHP self-documentation. Its regex carries a must-catch/must-not-catch self-check so it cannot be loosened into a no-op.
+- `tests/js/docs-lint.test.js` walks `docs/`, `ai-instructions/`, `components/*/README.md` and the root docs rather than a curated allowlist, so a doc added later is linted the moment it lands. It also asserts discovery actually reaches the known agent-facing docs, so a globbing bug cannot make the guard vacuous.
+- `tests/e2e/actions.spec.ts` proves the parts a stub cannot: that all three commands dispatch on `--post_id` against a real WP-CLI, and that the pre-dispatch refusal beats WP-CLI's own synopsis check on all three.
+
+---
+
 ## [v1.14.0] — 2026-08-16 — diagnostic truth and write-path depth: every signal the authoring surface emits is true, at every level it reaches (rollup)
 
 **v1.14.0 is the rollup release of the Diagnostic Truth & Write-Path Depth gate — fifteen working versions (1.13.1–1.13.15) verified as one line.** The write path is now as strict one level down as it is at the top: nested `items[]` fields enforce their declared scalar types (a non-scalar `image_id` is rejected by name instead of casting to attachment ID 1, with matching read-side guards on all five image-consuming renderers — #614) and their declared enum sets (accept-at-write/coerce-at-render is over — #600), and the locators in those rejections report the item that actually failed instead of fabricating index 0 for a non-list array (#634). What the diagnostics report is now exhaustive and authoritative: restore and rollback findings name every problem in a band rather than the first one (#621), the chat's friendly error describes the slot set the validator actually resolved — recipe expansion included — instead of re-reading the composition and guessing (#626), a rejection that names a usable next step is labeled fixable instead of impossible (#625), and the dead stylesheet rule and vacuously-green test that shadowed that surface are gone, replaced by pins that fail when the rendering actually breaks (#627). The catalog and docs stopped advertising things that are not true: the steps-layout connector claims that no CSS has painted since v1.0-era — struck from every surface that made them (#601); enum `values` members are shape-guarded at authoring time before they reach the quoted catalog line (#630); the `patchable: false` opt-out the docs instructed — which has been undeclarable under the closed schema contract and used by nothing — is retired outright rather than resurrected (#629); and the shared band rhythm and measure surface is documented as the curated, enforced contract it actually is, replacing nine schema descriptions that instructed a token write the action rejects (#616). The gate closes with the style-slot surface gaining the prop surface's rename drift-catcher, hardened on both surfaces until the documentation trail is mandatory: a slot or prop rename, removal, or unpinned addition fails CI unless the same change records a migration note citing its ruling issue, the pinned baselines are append-only under a count floor and content fingerprint, and a note can no longer be empty, uncited, or written in advance to pre-authorize a future deletion (#598). The composition editor's form-sync path was hardened across three releases early in the line: robust field lookup for names carrying selector-significant characters, correct round-tripping of numeric and boolean values with deterministic field resolution for nested rows, and pending edits that settle before saves, view switches, and row operations (1.13.1–1.13.3).
