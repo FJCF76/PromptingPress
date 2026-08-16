@@ -173,11 +173,37 @@ test.describe('Mobile nav disclosure (issue 426)', () => {
     await expect(toggle).toBeVisible();
     await toggle.click();
     await expect(page.locator('#pp-nav-menu')).toBeVisible();
+    // One-shot on purpose (see the note below): the click handler runs in the same
+    // task as the click, so this must already be true — a retry here would hand a
+    // 5s grace period to a state that has to settle in 0ms.
     expect(await toggle.getAttribute('aria-expanded')).toBe('true');
 
     await page.setViewportSize({ width: 1280, height: 900 });
     // Back on desktop: no lingering open state, hamburger hidden again.
+    //
+    // FLAKE FIXED (#696, 2026-08-17). These two were one-shot
+    // `expect(await toggle.getAttribute(...))` reads and the second one failed roughly
+    // 1 run in 2 with Received "true" — red on the 2026-08-16 nightly, green on a
+    // local rerun of the identical commit. Two DIFFERENT mechanisms settle this state:
+    // the hamburger hides by pure CSS (the `@media (min-width: 768px)` rule in
+    // components.css), which a forced style recalc satisfies immediately, while
+    // aria-expanded is cleared by JS — assets/js/main.js resets the open menu from a
+    // `matchMedia('(min-width: 768px)')` CHANGE listener, and Chromium dispatches
+    // MediaQueryList change events in the rendering lifecycle, which can lag that
+    // recalc. So `toBeHidden()` could go green a frame before the listener had run,
+    // and the non-retrying read that followed sampled the stale attribute.
+    //
+    // Web-first assertions retry, which is the correct wait condition for a value two
+    // independent mechanisms converge on. No product change is warranted: the toggle
+    // is `display: none` at >=768px, so it is out of the accessibility tree entirely
+    // and the sub-frame attribute state is unobservable to assistive tech — it was
+    // only ever visible to a DOM-attribute read.
+    //
+    // The other aria-expanded reads in this file deliberately stay one-shot: each
+    // follows a click or keypress whose handler runs in the same task as the event, so
+    // a single mechanism settles the attribute and there is nothing to converge with.
+    // Only a viewport resize splits the work across CSS and a matchMedia listener.
     await expect(page.locator('.nav__toggle')).toBeHidden();
-    expect(await toggle.getAttribute('aria-expanded')).toBe('false');
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false');
   });
 });
