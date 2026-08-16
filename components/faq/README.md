@@ -62,7 +62,7 @@ emitted if no complete items exist. See `pp_render_faq_schema()` in `lib/wp.php`
 21 per-instance style slots, declared in `schema.json` under `styling.style_slots`
 and set with the `style_component` action. This table is the map — read each slot's
 `type`, effective `default`, `applies_when` condition and full description from the
-schema itself, or with `wp pp operate inspect-composition <page>`.
+schema itself, or with `wp pp operate inspect-composition --post_id=<id>`.
 
 `◦` = conditional (`applies_when`): setting it outside that configuration is accepted
 and stored but paints nothing, and `wp pp check page` reports a non-blocking

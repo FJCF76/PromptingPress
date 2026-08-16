@@ -7,7 +7,7 @@ Use the `style_component` action to change the visual appearance of a specific c
 ## Step 1 -- Inspect available style slots
 
 ```bash
-wp pp operate inspect-composition <page_id_or_slug>
+wp pp operate inspect-composition --post_id=<id>
 ```
 
 The output shows each component's available `style_slots` (name, type, default, current value) and `available_recipes` (named shorthand).
@@ -94,7 +94,7 @@ wp pp action execute style_component --run-id=<uuid> --params='{
 ## Step 3 -- Verify
 
 ```bash
-wp pp operate inspect-composition <page_id_or_slug>
+wp pp operate inspect-composition --post_id=<id>
 ```
 
 Check that `current` values reflect your changes and the `active_recipe` shows correctly.
@@ -756,7 +756,7 @@ want plain body text rather than inventing a role name. `meta`/`kicker` set a pr
 explicit `--grid-item-text-color` slot overrides it at all breakpoints (the role's
 size/weight/spacing still apply).
 
-**Verify all three:** re-run `wp pp operate inspect-composition <page_id>` and load
+**Verify all three:** re-run `wp pp operate inspect-composition --post_id=<id>` and load
 the page. The CTA section carries the `--cta-shadow` / `--cta-radius` inline custom
 properties and a `.btn--outline` button; the grid card text carries `.text-kicker`.
 

@@ -125,7 +125,7 @@ The cycle above rolls back **design tokens**. Page **compositions** (the compone
 
 ```bash
 # See what's on the ring (read-only, no run token)
-wp pp operate composition-history 42
+wp pp operate composition-history --post_id=42
 
 # Preview the restore (read-only)
 wp pp action preview restore_composition --params='{"post_id":42,"steps_back":1}'

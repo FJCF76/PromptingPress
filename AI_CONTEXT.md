@@ -425,7 +425,7 @@ wp pp action execute style_component --run-id=<uuid> --params='{"post_id":19,"co
 wp pp action execute style_component --run-id=<uuid> --params='{"post_id":19,"component_id":"pp-a1b2c3d4","recipe":"dark-spacious","style":{"--hero-heading-size":"clamp(3rem, 6vw, 5rem)"}}'
 
 # Inspect available slots and recipes per component
-wp pp operate inspect-composition 19
+wp pp operate inspect-composition --post_id=19
 ```
 
 **Helpers in lib/wp.php:**
@@ -556,9 +556,9 @@ wp pp validate site                                   # full site validation bat
 wp pp validate page --post_id=42                      # rendered-HTML validation (issue 77) — same service that gates the AI chat's success message; optional --component-index=N; exits non-zero on failure
 
 # Semantic composition operator
-wp pp operate inspect-composition <page>              # editable targets with selectors and current values
-wp pp operate patch <page> --target=hero.subheading --value="New" --preview  # field-level diff, no write (no run-id)
-wp pp operate patch <page> --target=hero.subheading --value="New" --run-id=<uuid>  # mutates: needs INSPECT + a covering PREFLIGHT
+wp pp operate inspect-composition --post_id=42        # editable targets with selectors and current values
+wp pp operate patch --post_id=42 --target=hero.subheading --value="New" --preview  # field-level diff, no write (no run-id)
+wp pp operate patch --post_id=42 --target=hero.subheading --value="New" --run-id=<uuid>  # mutates: needs INSPECT + a covering PREFLIGHT
 
 # Component ID targeting (alternative to index)
 wp pp action execute update_component --run-id=<uuid> --params='{"post_id":19,"component_id":"pp-a1b2c3d4","props":{"subheading":"Via ID"}}'
