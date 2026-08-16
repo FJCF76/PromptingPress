@@ -78,8 +78,11 @@ const PP_CLI_PAGE_ADDRESSED_OPERATE_SUBCOMMANDS = [
 function _pp_cli_post_id_arg_error(array $assoc_args): ?string {
     $raw = $assoc_args['post_id'] ?? null;
 
-    // `--post_id` with no value arrives as bool true from WP-CLI's parser.
-    if ($raw === null || $raw === true || $raw === '') {
+    // WP-CLI's parser yields TWO valueless shapes: bare `--post_id` is bool true,
+    // and the negated `--no-post_id` is bool false (Configurator::extract_assoc).
+    // Neither addresses a page, and WP-CLI's required-option check passes both
+    // through (isset(false) is true), so both land here.
+    if ($raw === null || is_bool($raw) || $raw === '') {
         return '--post_id is required. Pages are addressed by numeric WordPress post ID, e.g. `--post_id=42`. ' . ucfirst(PP_CLI_PAGE_MAP_HINT);
     }
 
@@ -150,8 +153,10 @@ function _pp_cli_positional_page_arg_error(array $args, array $assoc_args = []):
     $command = 'wp pp operate ' . $subcommand;
 
     // The page is already addressed, so the stray token is not a page address —
-    // do not lecture about --post_id or compose an address out of it.
-    if (isset($assoc_args['post_id']) && $assoc_args['post_id'] !== true) {
+    // do not lecture about --post_id or compose an address out of it. Both
+    // valueless shapes (bare `--post_id` = true, `--no-post_id` = false) address
+    // nothing, so they stay on the addressing path where the breadcrumb helps.
+    if (isset($assoc_args['post_id']) && !is_bool($assoc_args['post_id'])) {
         return '`' . $command . '` got an unexpected positional argument ("' . $extra . '"). '
             . 'This command takes flags only; the page is already addressed by --post_id.';
     }

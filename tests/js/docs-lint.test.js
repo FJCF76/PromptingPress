@@ -246,7 +246,9 @@ describe('docs lint: page-addressed operate commands use the --post_id flag form
     // month ship a positional example without ever meeting this guard.
     const ROOT = path.resolve(__dirname, '../..');
     // Historical records — see the file header. Their examples were true at their tag.
-    const HISTORICAL = new Set(['CHANGELOG.md', 'readme.txt']);
+    // readme.txt is handled separately below: only its `== Changelog ==` rollup is
+    // historical, and the live prose above it is a shipped, publicly rendered doc.
+    const HISTORICAL = new Set(['CHANGELOG.md']);
     const mdIn = (dir) =>
         fs.existsSync(path.join(ROOT, dir))
             ? fs.readdirSync(path.join(ROOT, dir))
@@ -268,6 +270,17 @@ describe('docs lint: page-addressed operate commands use the --post_id flag form
     test.each(LIVE_DOC_FILES)('%s addresses pages with --post_id', (file) => {
         const hits = read(file).match(new RegExp(POSITIONAL_PAGE_ARG, 'g')) || [];
         expect(hits).toEqual([]);
+    });
+
+    // readme.txt is not .md, so the walk above never sees it, but its Description
+    // and Features prose is live doc that WordPress.org renders. Lint everything
+    // above the `== Changelog ==` marker; the rollup below it is release history.
+    test('readme.txt live prose addresses pages with --post_id', () => {
+        const readme = read('readme.txt');
+        const marker = readme.indexOf('== Changelog ==');
+        const live = marker === -1 ? readme : readme.slice(0, marker);
+        expect(marker).toBeGreaterThan(-1);
+        expect(live.match(new RegExp(POSITIONAL_PAGE_ARG, 'g')) || []).toEqual([]);
     });
 
     // Discovery must actually reach the docs an agent reads. A globbing bug that

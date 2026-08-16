@@ -805,18 +805,25 @@ class CliGateTest extends TestCase
         $this->assertStringContainsString('unexpected positional argument ("19")', $conflict);
         $this->assertStringNotContainsString('--post_id=19', $conflict, 'the positional never overrides the typed flag');
 
-        // But a BARE --post_id (WP-CLI parses `--post_id 19` as post_id=true plus
-        // a positional) is still the addressing case, not the stray-token case.
-        $bare = _pp_cli_positional_page_arg_error(
-            ['pp', 'operate', 'patch', '19'],
-            ['post_id' => true]
-        );
-        $this->assertStringContainsString('--post_id=19', $bare);
+        // Both VALUELESS shapes address nothing, so they stay on the addressing
+        // path where the composed breadcrumb is the useful answer: bare
+        // `--post_id 19` parses to post_id=true plus a positional, and
+        // `--no-post_id 19` parses to post_id=false plus a positional.
+        foreach ([true, false] as $valueless) {
+            $bare = _pp_cli_positional_page_arg_error(
+                ['pp', 'operate', 'patch', '19'],
+                ['post_id' => $valueless]
+            );
+            $this->assertStringContainsString('takes no positional page argument', $bare);
+            $this->assertStringContainsString('--post_id=19', $bare, 'valueless --post_id still gets the breadcrumb');
+        }
     }
 
     public function testMissingPostIdIsRefusedWithTheFlagFormBreadcrumb(): void
     {
-        foreach ([[], ['post_id' => true], ['post_id' => '']] as $assoc) {
+        // `false` is the `--no-post_id` shape; WP-CLI's required-option check
+        // passes it through because isset(false) is true.
+        foreach ([[], ['post_id' => true], ['post_id' => false], ['post_id' => '']] as $assoc) {
             $error = _pp_cli_post_id_arg_error($assoc);
             $this->assertNotNull($error, 'missing --post_id refused: ' . json_encode($assoc));
             $this->assertStringContainsString('--post_id is required', $error);

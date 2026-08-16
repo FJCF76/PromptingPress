@@ -284,17 +284,43 @@ class InvariantTest extends TestCase
      */
     public function testPhpSelfDocumentationUsesTheFlagFormOnly(): void
     {
-        foreach (['/lib/cli.php', '/lib/actions.php'] as $relative) {
-            $source = file_get_contents($this->themeRoot . $relative);
+        $sources = $this->agentFacingPhpSources();
+
+        // Discovery must not be vacuous: an empty or broken glob would make every
+        // assertion below pass without reading anything.
+        $this->assertContains($this->themeRoot . '/lib/cli.php', $sources);
+        $this->assertContains($this->themeRoot . '/lib/actions.php', $sources);
+        $this->assertGreaterThan(5, count($sources), 'PHP self-documentation discovery found almost nothing');
+
+        foreach ($sources as $path) {
+            $source = file_get_contents($path);
             $this->assertNotFalse($source);
 
             $this->assertDoesNotMatchRegularExpression(
                 self::POSITIONAL_PAGE_ARG_PATTERN,
                 $source,
-                $relative . ' documents a positional page argument on a page-addressed '
+                $path . ' documents a positional page argument on a page-addressed '
                 . 'operate command — #685 made --post_id=<id> canonical.'
             );
         }
+    }
+
+    /**
+     * Discovered, never hand-listed — the same reason the markdown twin in
+     * tests/js/docs-lint.test.js globs: a two-file allowlist lets a positional
+     * example reappear in lib/operate.php, lib/ai-context.php (which composes the
+     * chat's system prompt), or a template and never meet this guard.
+     *
+     * @return string[]
+     */
+    private function agentFacingPhpSources(): array
+    {
+        $paths = array_merge(
+            glob($this->themeRoot . '/lib/*.php') ?: [],
+            glob($this->themeRoot . '/templates/*.php') ?: []
+        );
+        sort($paths);
+        return $paths;
     }
 
     // ── Operating-loop playbooks must source the run token ────────────────
