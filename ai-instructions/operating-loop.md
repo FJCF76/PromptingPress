@@ -203,6 +203,8 @@ Three playbooks are available. Each one customizes the loop for a specific opera
 | `wp pp screenshot capture --post_id=<id> --playbook=<name>` | SCREENSHOT | — | Capture both viewports |
 | `wp pp screenshot capture --capture-url=<url> --width=<px>` | SCREENSHOT | — | Capture single URL |
 | `wp pp screenshot doctor [--no-probe]` | SCREENSHOT | — | Diagnose capture readiness — tri-state available/unavailable/broken (probes by default) |
+| `wp pp schema` | any | — | Read-only: every registered component and whether it is composable (`nav`/`footer` are template-owned chrome) |
+| `wp pp schema <component>` | any | — | Read-only: one component's declared props, style slots (each with its `applies_when` and a rendered condition phrase) and recipes — the schema contract without filesystem access (#688) |
 | `wp pp readiness status` | any | — | Read-only: current findings grouped by class (integrity/configuration/capability) with per-finding next actions (#496) |
 | `wp pp readiness rebaseline` | any | — | Re-baseline the deployment manifest against the installed release (resolves integrity drift) |
 | `wp pp readiness acknowledge <finding-key> [--note=<text>]` | any | — | Record a configuration finding as intentional (reversible) |

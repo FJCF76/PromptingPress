@@ -415,7 +415,7 @@ Then set both fields on the component:
 { "component": "hero", "props": { "layout": "split", "image_url": "https://yoursite.com/wp-content/uploads/2026/07/logo.png", "image_id": 123, "image_alt": "Client logo" } }
 ```
 
-Always verify against `components/{name}/schema.json` before writing — the source of truth.
+Always verify against `components/{name}/schema.json` before writing — the source of truth. Without filesystem access to the theme, `wp pp schema {name}` reads the prop, style-slot and recipe declarations over the CLI (the rest of `styling` still needs the file); `wp pp schema` lists every registered component and whether it is composable.
 
 ---
 

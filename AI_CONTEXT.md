@@ -54,7 +54,7 @@ auto-loader picks up any component at `/components/{name}/{name}.php` — no reg
 | `AI_CONTEXT.md` | Orientation, file map, component index | Start here |
 | `AI_RULES.md` | Hard invariants, coding rules | Overrides everything else |
 | `ai-instructions/*.md` | Task-specific workflows | Executable procedures |
-| `components/{name}/schema.json` | Prop contracts (types, required) | Supersedes prose in any other file |
+| `components/{name}/schema.json` | Prop contracts (types, required) | Supersedes prose in any other file. Readable without filesystem access via `wp pp schema {name}` (#688) — props, style slots and recipes only |
 
 **Never:**
 - Add hooks or filters to template or component files (only in `functions.php`)
@@ -87,7 +87,7 @@ site-customization permission.
 | /lib/wp.php              | WP function wrappers (read + write) | Only to add pp_* functions   |
 | /lib/actions.php         | Typed action model (20 actions) | Add actions following the contract |
 | /lib/apply.php           | Apply layer (file + option mutations) | Add applies following the contract |
-| /lib/cli.php             | WP-CLI `wp pp action` + `wp pp apply` + `wp pp operate` + `wp pp check` + `wp pp validate` + `wp pp integrity` + `wp pp screenshot` + `wp pp target` + `wp pp sync` | Yes |
+| /lib/cli.php             | WP-CLI `wp pp action` + `wp pp apply` + `wp pp operate` + `wp pp schema` + `wp pp check` + `wp pp validate` + `wp pp integrity` + `wp pp screenshot` + `wp pp target` + `wp pp sync` | Yes |
 | /lib/guardrails.php      | CSS conflict detection, surface classification, theme integrity | Extend for new checks |
 | /lib/operate.php         | Operating loop: inspect, preflight, run tokens | Extend for new checks |
 | /lib/setup.php           | Theme activation bootstrap, homepage provisioning, integrity hooks | Only to add idempotent setup |
@@ -142,7 +142,7 @@ renders the header or footer twice, and the write is rejected with the error cod
 - **`theme`** (color/tone preset, `default` | `muted` | `inverted`) is used by the section-level components that carry a background tone: `section`, `stats`, `logos`, `embed`, `grid`, `cta`, `testimonials`, `faq`. `muted` is a light tinted surface band (`--color-surface`) with framing borders; for a genuinely **dark** band use `inverted`. The three values above are the WHOLE accepted set: anything else is rejected at write with `invalid_prop_value`, and a value stored before the vocabulary freeze renders as `default` (#605). Note that a `muted` band still emits the legacy `<root>--dark` CSS class — that is an output name, not a value you can write.
 - `hero` has no `theme` prop — its color comes entirely from style slots (`--hero-bg`, etc.).
 - Components with a single structure (`stats`, `logos`, `embed`) expose only `theme`, not `layout`.
-- `style_component` / recipes / style slots remain the final visual authority over any `theme` or default CSS — **when the slot applies**. Many slots only render in a particular configuration (a hero's `--hero-surface-*` needs `layout: "split"` plus `proof`; testimonials' card slots need `layout: "grid"`), and the schema declares that condition in `applies_when`. The runtime component catalog appends `applies when ...` to those slots; setting one whose condition is unmet is accepted and stored but paints nothing, and `wp pp check page` reports it as a non-blocking `inert_slot` smell. Check the condition before styling — see `ai-instructions/style-component.md`.
+- `style_component` / recipes / style slots remain the final visual authority over any `theme` or default CSS — **when the slot applies**. Many slots only render in a particular configuration (a hero's `--hero-surface-*` needs `layout: "split"` plus `proof`; testimonials' card slots need `layout: "grid"`), and the schema declares that condition in `applies_when`. The runtime component catalog appends `applies when ...` to those slots; setting one whose condition is unmet is accepted and stored but paints nothing, and `wp pp check page` reports it as a non-blocking `inert_slot` smell. Check the condition before styling — see `ai-instructions/style-component.md`. Over the CLI, `wp pp schema <component>` (#688) prints the same conditions in the same words: each prop and slot carries the raw `applies_when` declaration and the raw `conditionality_note` plus an `applies_when_rendered` phrase built by the catalog's own formatter — the two ANDed together, exactly as the catalog conjoins them — so an agent with no filesystem access to the theme can read typed props, style slots with their conditions, and recipes with their slot expansions without opening `schema.json`. It is read-only and needs no run token. Scope: props, style slots and recipes only. The other `styling` declarations (`root_class`, `variant_classes`, `tokens`, and the `chrome_custom_properties` that ARE nav's and footer's entire styling surface) are not in the report and still need `schema.json` or `ai-instructions/style-component.md`.
 
 If a future component needs both structure and color control, give it both `layout` and `theme` — never reuse one key for two meanings.
 
@@ -284,6 +284,8 @@ All functions are prefixed `pp_`. Templates and components use only these wrappe
 | `pp_get_style_slots($component_name)` | Returns style_slots from component's schema.json. Returns `[]` for unknown components |
 | `pp_get_style_recipes($component_name)` | Returns recipes from component's schema.json. Returns `[]` for unknown components |
 | `pp_render_style_vars($style, $component_name)` | Validates style slots against schema, returns CSS custom property string for inline style attribute |
+| `pp_component_schema_index()` | Every registered component with a `composable` flag; backs bare `wp pp schema` (#688) |
+| `pp_component_schema_report($component)` | One component's declared props, style slots (with a rendered condition phrase) and recipes, verbatim from the schema. Returns array\|WP_Error naming the available components. Backs `wp pp schema <component>` (#688) |
 | `pp_token_families()` | Returns token family definitions: base token to derived tokens with mix ratios |
 | `pp_derive_family_tokens($base_token, $value)` | Derives related tokens from a base token value (e.g., accent to hover/strong/border/surface) |
 | `pp_masked_derived_overrides($base_token, $value)` | Shared #386 divergence engine: returns `stale_warnings` entries for existing derived-family overrides that diverge from the value the base would derive (masking the base change). Coherent overrides (equal to the derivable value) are not reported; mere presence is not staleness. Reused by the `update_design_token` apply result and the INSPECT smell |
@@ -426,6 +428,9 @@ wp pp action execute style_component --run-id=<uuid> --params='{"post_id":19,"co
 
 # Inspect available slots and recipes per component
 wp pp operate inspect-composition --post_id=19
+
+# Read a component's declared slots and recipes without a page (or a filesystem)
+wp pp schema hero
 ```
 
 **Helpers in lib/wp.php:**
@@ -549,6 +554,8 @@ These are the keys every action returns, not the complete set for every action. 
 wp pp action list                                    # all actions with scope and params
 wp pp action preview <name> --params='{"key":"val"}'  # validate + diff, never writes (no run-id)
 wp pp action execute <name> --run-id=<uuid> --params='{"key":"val"}'  # mutates: needs INSPECT + a covering PREFLIGHT
+wp pp schema                                          # every registered component + whether it is composable
+wp pp schema hero                                     # one component's props, style slots, applies_when and recipes (read-only, no run-id)
 wp pp check conflicts                                 # Custom CSS conflict detection
 wp pp check page --post_id=42                         # composition validity + styling + smells (raw composition data, not rendered HTML)
 wp pp check surface lib/wp.php                        # surface classification (safe/extension/core)

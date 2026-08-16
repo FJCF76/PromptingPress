@@ -2134,6 +2134,322 @@ function pp_get_registered_component_fields(): array {
     return $map;
 }
 
+// ── Component Schema Report (#688) ───────────────────────────────────────
+
+/**
+ * Renders one declaration's CONDITION into the catalog's phrasing (#688).
+ *
+ * ONE VOCABULARY, NOT TWO. The clause wording comes from
+ * pp_ai_format_applies_when_clause() (lib/ai-context.php) — the same function the
+ * runtime AI catalog and the guardrails advisory use — so an agent reading
+ * `wp pp schema hero` and an agent reading the chat catalog see the SAME condition in
+ * the SAME words. This helper adds no grammar of its own; it only assembles.
+ *
+ * ONE CONDITION, HOWEVER IT IS EXPRESSED. A declaration may carry `applies_when` (the
+ * clauses the bounded grammar can express) and `conditionality_note` (the three classes
+ * it deliberately cannot — disjunction, composed-page context, interaction state), and
+ * when it carries both they are a CONJUNCTION. Nineteen shipped slots and nine props do
+ * carry both. Rendering the clauses ALONE would emit a strictly LOOSER condition that
+ * reads as complete — hero's `--hero-image-radius` would report `layout = "split"` while
+ * the real condition also needs an image column — which is the same "shorter condition
+ * that reads as complete" failure the all-or-nothing rule below exists to prevent. So the
+ * note is conjoined here exactly as pp_ai_definition_suffix() (lib/ai-context.php)
+ * conjoins it, trailing period trimmed, clauses first.
+ *
+ * That two-line composition is the ONE thing duplicated from the catalog emitter, and it
+ * is duplicated on purpose rather than hidden behind a shared helper: the catalog emits
+ * prose with `role:` bits interleaved, so there is nothing to reuse without parsing prose
+ * back apart. It is held in place mechanically instead —
+ * CliSchemaCommandTest::testAppliesWhenRenderedUsesTheRuntimeCatalogVocabulary asserts,
+ * for EVERY declared condition in the shipped twelve, that pp_ai_definition_suffix()
+ * contains the exact phrase this function produced. The two cannot drift silently.
+ *
+ * ALL-OR-NOTHING for the clauses, deliberately. Clauses in an `applies_when` array are
+ * ANDed (pp_applies_when_clause_errors, lib/admin.php), so the condition holds only when
+ * EVERY clause does. pp_ai_format_applies_when_clause() renders '' for a clause the
+ * grammar engine rejects, and joining just the survivors would understate the condition,
+ * so one unrenderable clause nulls the whole rendered string. The raw `applies_when`
+ * array and `conditionality_note` still ship verbatim beside it, so nothing is hidden.
+ *
+ * (The shipped twelve cannot reach the null branch — SchemaValidationTest holds the
+ * closed grammar over every declared clause in CI. It is reachable on a hand-edited
+ * schema on a live install, which is exactly where an invented condition would do
+ * the most damage.)
+ *
+ * Guarded with function_exists so a partial include (lib/operate.php without
+ * lib/ai-context.php) degrades to "no rendering" rather than fataling — the same
+ * defensive shape pp_ai_format_applies_when_clause() itself carries.
+ *
+ * @param  array $definition  A prop or style-slot definition object from schema.json.
+ * @return string|null        The ANDed condition phrase, or null when nothing renders.
+ */
+function _pp_schema_report_applies_when(array $definition): ?string {
+    $conditions = [];
+
+    $clauses = array_key_exists('applies_when', $definition) ? $definition['applies_when'] : null;
+
+    // A DECLARED but unreadable `applies_when` voids everything, including the note.
+    // This is the same all-or-nothing rule as the unrenderable-clause branch below, and
+    // it has to fire here or the fallthrough would render the note ALONE — publishing a
+    // strictly looser condition that reads as complete, which is the one outcome this
+    // whole function exists to prevent. A hand-edited `"applies_when": "layout = split"`
+    // is exactly how that happens.
+    if ($clauses !== null && !is_array($clauses)) {
+        return null;
+    }
+
+    if (is_array($clauses) && $clauses !== []) {
+        if (!function_exists('pp_ai_format_applies_when_clause')) {
+            return null;
+        }
+        foreach ($clauses as $clause) {
+            $phrase = pp_ai_format_applies_when_clause($clause);
+            if ($phrase === '') {
+                return null; // One unrenderable clause voids the conjunction.
+            }
+            $conditions[] = $phrase;
+        }
+    }
+
+    $note = $definition['conditionality_note'] ?? null;
+    if (is_string($note) && trim($note) !== '') {
+        // rtrim of the trailing period mirrors pp_ai_definition_suffix(). A note that is
+        // NOTHING BUT punctuation trims to '' and must not be appended: it would emit a
+        // dangling "clause AND " (a truncated condition) or a bare "" (a third state the
+        // contract does not define). Nothing declared, nothing rendered.
+        $trimmed = rtrim(trim($note), '.');
+        if ($trimmed !== '') {
+            $conditions[] = $trimmed;
+        }
+    }
+
+    return $conditions ? implode(' AND ', $conditions) : null;
+}
+
+/**
+ * Promotes a keyed schema map into the list-of-objects the CLI envelope uses (#688).
+ *
+ * schema.json declares props, style slots and recipes as OBJECTS keyed by name.
+ * `inspect-composition` (below) already established the CLI shape for the same data:
+ * a LIST whose entries carry the key promoted to a named field. This does that promotion
+ * and NOTHING else — the declaration's own keys and values pass through untouched, in
+ * declaration order.
+ *
+ * "Untouched" is the whole contract. The report must not inject a default the schema
+ * did not declare, must not drop a key it does not recognise, and must not reorder.
+ * A projection that hand-picks keys is a SECOND VIEW of the schema, and a second view
+ * is what drifts (#223's root-cause class). Because this copies whatever is declared,
+ * a schema key added tomorrow reaches the CLI the day it is added, with no edit here.
+ * CliSchemaCommandTest measures that BOTH ways: verbatim equality against the shipped
+ * twelve, plus a fixture declaring a key that is in neither closed registry — because the
+ * shipped twelve declare only registry keys, they alone cannot tell "copies the
+ * declaration" apart from "copies the keys we happen to know".
+ *
+ * SCOPE OF THE VERBATIM PROMISE, stated so nobody reads more into it than is true: it
+ * covers the ENTRY level — one prop, one slot, one recipe. The report's TOP level is a
+ * curated envelope, bounded by what #688 asked for (props, style slots with their
+ * conditions, recipes), and a new top-level or `styling.*` key needs an edit in
+ * pp_component_schema_report() below. That is a deliberate scope line, not an oversight;
+ * the excluded declarations are named there.
+ *
+ * @param  mixed  $map      Keyed definitions from schema.json (name => definition).
+ *                          Non-array input (a hand-edited schema putting a scalar where
+ *                          the map belongs) yields an empty list rather than a fatal.
+ * @param  string $key_name The field the map key is promoted into ('name' or 'slot').
+ * @param  bool   $render   Whether to append the derived `applies_when_rendered` field.
+ * @return array[]          List of definition objects, declaration order preserved.
+ */
+function _pp_schema_report_entries($map, string $key_name, bool $render): array {
+    // `props: "nope"` in a hand-edited schema.json reaches here as a string; an `array`
+    // parameter type would make the whole report fatal on it, so it degrades to an empty
+    // list instead.
+    //
+    // The equivalent shapes under `styling` are NOT defended here and cannot be: a scalar
+    // `styling.style_slots` / `styling.recipes` throws inside pp_get_style_slots() /
+    // pp_get_style_recipes() (lib/wp.php), whose `: array` return types reject the value
+    // before it ever reaches this function. That is a pre-existing defect on the shared
+    // accessors — the render path, the AI catalog and the guardrails all reach it too —
+    // and #688 deliberately does not fix it here; widening one caller's guard would leave
+    // the other four. Tracked separately.
+    if (!is_array($map)) {
+        return [];
+    }
+
+    $entries = [];
+
+    foreach ($map as $name => $definition) {
+        if (!is_array($definition)) {
+            // A malformed declaration is REPORTED, not swallowed: the operator sees the
+            // name and the raw value rather than a silently shorter list. Flagged and
+            // shape-compatible, so a consumer branches on `malformed` rather than on a
+            // missing key, and cannot confuse this with a declaration whose schema key
+            // happens to be spelled `declaration`.
+            $entry = [
+                $key_name     => (string) $name,
+                'malformed'   => true,
+                'declaration' => $definition,
+            ];
+            if ($render) {
+                $entry['applies_when_rendered'] = null;
+            }
+            $entries[] = $entry;
+            continue;
+        }
+
+        // Union, not array_merge: the promoted identity key must survive, and `+` keeps
+        // the LEFT operand on a key collision while appending the declaration in its own
+        // order. CliSchemaCommandTest pins that the closed registries never claim these
+        // names, so a SHIPPED schema cannot collide.
+        //
+        // A hand-edited one can, and silently losing a declared value on an agent-facing
+        // contract is not acceptable even there — `props: [{"name": "title", …}]`, the
+        // list-shaped mistake, lands here as key "0" with a declared `name` that the
+        // union would swallow without trace. So the collision is DISCLOSED: the promoted
+        // and derived fields still win (they are the only things that address and
+        // describe the entry), and `shadowed_keys` names what they displaced. Absent when
+        // nothing collides, which is every entry in the shipped twelve.
+        $reserved = $render ? [$key_name, 'applies_when_rendered'] : [$key_name];
+        $shadowed = array_keys(array_intersect_key($definition, array_flip($reserved)));
+
+        $entry = [$key_name => (string) $name] + $definition;
+        if ($render) {
+            $entry['applies_when_rendered'] = _pp_schema_report_applies_when($definition);
+        }
+        if ($shadowed) {
+            $entry['shadowed_keys'] = $shadowed;
+        }
+        $entries[] = $entry;
+    }
+
+    return $entries;
+}
+
+/**
+ * The component index behind bare `wp pp schema` (#688).
+ *
+ * Lists every REGISTERED component — all twelve — because this command reports what a
+ * component DECLARES, and `nav`/`footer` declare props like any other. What it does not
+ * do is let that list read as an invitation: each entry carries `composable`, so the
+ * registered ⊋ composable distinction (lib/admin.php) travels with the name instead of
+ * being something an agent has to already know. Advertising chrome as composable is
+ * literally how #223 happened; advertising it as chrome is how an agent learns why
+ * `wp pp schema nav` is readable and `nav` in a composition is not.
+ *
+ * @return array[]  One entry per registered component, in loader (scandir) order.
+ */
+function pp_component_schema_index(): array {
+    $index = [];
+
+    foreach (array_keys(pp_get_registered_components()) as $name) {
+        $index[] = [
+            'component'  => $name,
+            'composable' => !pp_is_template_owned_component($name),
+        ];
+    }
+
+    return $index;
+}
+
+/**
+ * The full schema report behind `wp pp schema <component>` (#688).
+ *
+ * WHY THIS EXISTS. The schema is the most-consulted contract in the system and, until
+ * this command, the only one with no sanctioned read surface: an SSH-only or chat-context
+ * agent had to open `components/<name>/schema.json` off disk to learn a slot name. It now
+ * asks.
+ *
+ *     components/<name>/schema.json
+ *              │
+ *              ▼
+ *     pp_get_registered_components()          ← THE loader. There is no second parser.
+ *              │
+ *              ├── ['props']                 ─┐
+ *              ├── pp_get_style_slots()       ├─► _pp_schema_report_entries()   (verbatim)
+ *              └── pp_get_style_recipes()    ─┘            │
+ *                                                          └─► _pp_schema_report_applies_when()
+ *     pp_is_template_owned_component()                              │
+ *              │   (independent lookup, lib/admin.php)              └─► pp_ai_format_applies_when_clause()
+ *              ▼
+ *     { component, description, composable, [content_requirement],
+ *       props[], style_slots[], recipes[] }
+ *
+ * The two accessors are raw passthroughs of `styling.style_slots` / `styling.recipes`
+ * (lib/wp.php) — they normalise nothing — which is what lets this report promise that its
+ * data IS the shipped schema's data, not a rendering of it. `applies_when_rendered` is the
+ * single derived field, and it is derived by the catalog's own formatter.
+ *
+ * WHAT IT DELIBERATELY DOES NOT EMIT, named so the omission is a decision and not a
+ * silence. #688 scoped this surface to props, style slots with their conditions, and
+ * recipes. The other declarations in `styling` — `root_class`, `variant_classes`,
+ * `tokens`, and `chrome_custom_properties` — plus the top-level `safe_to_edit` /
+ * `do_not_touch` file-maintenance notes stay out. One consequence is worth knowing before
+ * reading a report: `nav` and `footer` declare NO style slots and NO recipes at all, so
+ * their reports show empty lists while their real styling surface is
+ * `chrome_custom_properties` (`--header-bg`, `--header-text`, `--header-link-color`) —
+ * still readable only in `schema.json` or ai-instructions/style-component.md. Widening
+ * this envelope is a scope decision for a follow-up, not something to do in passing.
+ *
+ * READ-ONLY, NO RUN TOKEN. Same class as `inspect-composition`: it reads declarations off
+ * disk, touches no post, mints nothing, and is safe to call at any point in a run.
+ *
+ * NAMES ARE NOT CANONICALISED, matching the rest of the pipeline (#603-#606): `Hero` is
+ * not `hero`. The refusal names every available component, so a case or spelling miss is
+ * one line from being fixed rather than a guessing game.
+ *
+ * @param  string $component  Component name, exactly as the directory is spelled.
+ * @return array|WP_Error     The report, or WP_Error naming the available components.
+ */
+function pp_component_schema_report(string $component): array|WP_Error {
+    $components = pp_get_registered_components();
+
+    if (!isset($components[$component])) {
+        $available = array_keys($components);
+        return new WP_Error(
+            'unknown_component',
+            sprintf(
+                'Unknown component "%s". Available: %s. Names are case-sensitive and are never canonicalised.',
+                $component,
+                $available ? implode(', ', $available) : '(none registered)'
+            )
+        );
+    }
+
+    $schema = $components[$component];
+
+    // `component` comes from the LOADER KEY, not from `schema.component`. The key is the
+    // directory the renderer resolves (`components/<key>/<key>.php`), so it is the name
+    // that actually addresses this component — and it is still present when the schema
+    // failed to decode and every declared field is gone.
+    $report = [
+        'component'   => $component,
+        'description' => $schema['description'] ?? null,
+        'composable'  => !pp_is_template_owned_component($component),
+    ];
+
+    // The loader answers [] for a schema.json it could not read or decode, and a report
+    // built from [] is a perfectly valid-LOOKING document saying "no props, no slots, no
+    // recipes". That is worse than an error: an agent would read a real component as
+    // having no contract and act on it. Every registered component declares SOMETHING
+    // (the directory only registers when `<name>.php` exists), so an empty decode is
+    // always a broken file, and it is marked as one.
+    if ($schema === []) {
+        $report['malformed'] = true;
+    }
+
+    // Emitted only when declared, so its absence is not mistaken for "declared empty".
+    // Today only `section` carries one (#488): the schema-level statement that a band
+    // with every prop optional still needs SOME content.
+    if (isset($schema['content_requirement'])) {
+        $report['content_requirement'] = $schema['content_requirement'];
+    }
+
+    $report['props']       = _pp_schema_report_entries($schema['props'] ?? [], 'name', true);
+    $report['style_slots'] = _pp_schema_report_entries(pp_get_style_slots($component), 'slot', true);
+    $report['recipes']     = _pp_schema_report_entries(pp_get_style_recipes($component), 'name', false);
+
+    return $report;
+}
+
 // ── Inspect Composition ──────────────────────────────────────────────────
 
 /**
