@@ -562,6 +562,85 @@ wp pp readiness unacknowledge nav_readiness:footer:no_menu
 
 ---
 
+## `wp pp schema` — the component contract (#688)
+
+The schema is the contract every composition write is judged against, and until #688 the only way to read it was to open `components/<name>/schema.json` off disk. An agent working over SSH, or through the chat, could not. This command family is that read surface.
+
+Read-only. No `--run-id`, no `--post_id`, no capability beyond WP-CLI's. It touches no page and mints no run token, so it is safe at any point in a run. Registration: `WP_CLI::add_command('pp schema', 'PP_Schema_Command')` (`lib/cli.php`).
+
+### `wp pp schema`
+
+Lists every **registered** component and whether it is composable.
+
+```bash
+wp pp schema
+```
+
+```json
+{
+  "components": [
+    { "component": "cta", "composable": true },
+    { "component": "footer", "composable": false },
+    { "component": "nav", "composable": false }
+  ]
+}
+```
+
+Twelve entries, in loader (`scandir`) order. `composable: false` marks site chrome the page template renders itself (`nav`, `footer`): readable here, but rejected at write time with `template_owned_component` if placed in a composition.
+
+### `wp pp schema <component>`
+
+Prints one component's declared contract.
+
+```bash
+wp pp schema hero
+```
+
+| Field | Type | Notes |
+|---|---|---|
+| `component` | string | The directory name, which is what addresses the component |
+| `description` | string\|null | `null` when the schema declares none |
+| `composable` | bool | False for `nav` and `footer` |
+| `content_requirement` | object | **Present only when declared.** Today only `section` (#488) |
+| `malformed` | bool | **Present only when** `schema.json` could not be decoded, so an empty report is never mistaken for an empty contract |
+| `props` | array | One object per declared prop, in declaration order |
+| `style_slots` | array | One object per declared style slot, in declaration order |
+| `recipes` | array | One object per declared recipe, in declaration order |
+
+Each entry carries **the schema's own keys and values, verbatim** — nothing injected, nothing dropped, order preserved — plus the map key promoted to `name` (props, recipes) or `slot` (style slots). So a prop object is exactly its `schema.json` declaration with `name` added:
+
+```json
+{
+  "slot": "--hero-surface-bg",
+  "type": "gradient",
+  "default": "soft surface gradient",
+  "description": "Background of the inner proof/artifact surface panel …",
+  "applies_when": [
+    { "prop": "layout", "equals": "split" },
+    { "prop": "proof", "present": true }
+  ],
+  "applies_when_rendered": "layout = \"split\" AND proof is set"
+}
+```
+
+**`applies_when_rendered` is the one derived field.** It is the whole condition, phrased by the runtime AI catalog's own formatter (`pp_ai_format_applies_when_clause()`), so the CLI and the chat catalog describe a slot in the same words. It conjoins the `applies_when` clauses **and** any `conditionality_note` with ` AND `, because a declaration carrying both means both. It is `null` — never a partial phrase — when nothing is declared, or when any declared clause is unreadable: a shorter condition that reads as complete would send an agent to style a slot that paints nothing.
+
+Two more entry-level fields appear only on damaged input: `malformed: true` with a raw `declaration` when a definition is not an object, and `shadowed_keys` naming any declared key the promoted or derived fields displaced.
+
+### Unknown component
+
+Names are matched exactly and are never canonicalised (`Hero` is not `hero`), matching the rest of the pipeline (#603–#606). The refusal names every available component, so a miss is one line from a fix. Exits **1**, prints nothing to stdout.
+
+```
+Error: Unknown component "Hero". Available: cta, embed, faq, footer, grid, hero, logos, nav, section, stats, table, testimonials. Names are case-sensitive and are never canonicalised.
+```
+
+### Scope
+
+`props`, `style_slots` and `recipes`. The remaining `styling` declarations — `root_class`, `variant_classes`, `tokens`, and the `chrome_custom_properties` that are `nav`'s and `footer`'s **entire** styling surface — are not emitted, and still need `schema.json` or [`ai-instructions/style-component.md`](../ai-instructions/style-component.md).
+
+---
+
 ## Related
 
 - 🔒 Why a mutation can't land before the gate: [operating-loop-safety.md](operating-loop-safety.md) (explanation)
