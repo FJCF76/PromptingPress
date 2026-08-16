@@ -42,6 +42,9 @@ if (!class_exists('WP_CLI')) {
         public static array $successes = [];
         public static function error($message, $exit = true): void { throw new WpCliExitException((string) $message); }
         public static function add_command($name, $handler, $args = []): void {}
+        // #685 registers a before_run_command hook at load time; the stub only
+        // needs to accept it — the hook's decision is pinned directly instead.
+        public static function add_hook($when, $callback): void {}
         public static function line($message = ''): void { self::$lines[] = (string) $message; }
         public static function warning($message = ''): void { self::$warnings[] = (string) $message; }
         public static function success($message = ''): void { self::$successes[] = (string) $message; }

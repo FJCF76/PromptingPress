@@ -2563,7 +2563,7 @@ pp_register_action('unpublish_page', [
 pp_register_action('style_component', [
     'scope'       => 'section',
     'mutates_composition' => true,
-    'description' => 'Updates a component instance\'s per-instance style overrides via shallow merge. Optionally accepts a recipe name that expands into slot values (explicit style overrides recipe slots). Use wp pp operate inspect-composition to see available slots and recipes.',
+    'description' => 'Updates a component instance\'s per-instance style overrides via shallow merge. Optionally accepts a recipe name that expands into slot values (explicit style overrides recipe slots). Use wp pp operate inspect-composition --post_id=<id> to see available slots and recipes.',
     'semantics'   => 'Patch. Recipe expands first, then explicit style values override. null removes a slot. Validates against schema.json style_slots for the target component type.',
     'params'      => [
         'post_id'          => ['type' => 'int',    'required' => true],

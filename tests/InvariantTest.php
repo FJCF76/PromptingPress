@@ -194,6 +194,109 @@ class InvariantTest extends TestCase
         $this->addToAssertionCount(1);
     }
 
+    // ── #685: --post_id is the only CLI page address ──────────────────────
+
+    /**
+     * Slug/URL resolution is gone from the CLI addressing path (#685).
+     *
+     * `--post_id` accepting a slug would be a dishonest name (the same principle
+     * as the `*_id`-never-`*_url` naming rule), so the fork that ran a non-numeric
+     * page argument through `url_to_postid(home_url($page))` was removed with the
+     * positional form, not kept behind the flag. This pins the removal at the
+     * source: lib/cli.php had no other caller of either function, so a reappearance
+     * is a reappearance of page-address resolution.
+     */
+    public function testCliAddressingPathHasNoSlugOrUrlResolution(): void
+    {
+        $source = file_get_contents($this->themeRoot . '/lib/cli.php');
+        $this->assertNotFalse($source);
+
+        foreach (['url_to_postid(', 'home_url('] as $needle) {
+            $this->assertStringNotContainsString(
+                $needle,
+                $source,
+                'lib/cli.php calls ' . $needle . ') — #685 removed slug/URL page resolution '
+                . 'from the CLI addressing path. Pages are addressed by --post_id=<id> only.'
+            );
+        }
+    }
+
+    /**
+     * The three page-addressed `operate` subcommands declare no positional
+     * argument in their WP-CLI synopsis (#685). A `<page>` back in an OPTIONS
+     * block would re-document the removed shape in `wp help` output and let
+     * WP-CLI's synopsis validator accept it again.
+     */
+    public function testPageAddressedOperateCommandsDeclareNoPositionalArgument(): void
+    {
+        $source = file_get_contents($this->themeRoot . '/lib/cli.php');
+        $this->assertNotFalse($source);
+
+        $this->assertDoesNotMatchRegularExpression(
+            '/^\s*\* <page>/m',
+            $source,
+            'lib/cli.php declares a <page> positional in a WP-CLI synopsis — '
+            . '#685 made --post_id=<id> the canonical page address.'
+        );
+    }
+
+    /**
+     * Horizontal whitespace only. `\s` would span newlines and pair a docblock
+     * line ending in `wp pp operate patch` with the leading `*` of the NEXT
+     * line, failing the invariant on prose that is perfectly fine. The markdown
+     * twin in tests/js/docs-lint.test.js carries the same `[ \t]+` for the same
+     * reason — the two halves of one guard must not disagree.
+     */
+    private const POSITIONAL_PAGE_ARG_PATTERN =
+        '/wp pp operate (?:inspect-composition|patch|composition-history)[ \t]+(?!--)\S/';
+
+    /**
+     * The PHP guard is not decoration: if the pattern is ever loosened into a
+     * no-op, the assertions above pass vacuously. Mirrors the JS twin's
+     * must-catch / must-not-catch self-check.
+     */
+    public function testPositionalPageArgPatternIsNotDecoration(): void
+    {
+        foreach ([
+            'wp pp operate inspect-composition 74',
+            'wp pp operate patch 19 --target=hero.subheading',
+            'wp pp operate composition-history about-us',
+            'wp pp operate inspect-composition <page>',
+        ] as $mustCatch) {
+            $this->assertMatchesRegularExpression(self::POSITIONAL_PAGE_ARG_PATTERN, $mustCatch);
+        }
+
+        foreach ([
+            'wp pp operate inspect-composition --post_id=74',
+            'wp pp operate patch --post_id=19 --target=hero.subheading',
+            'wp pp operate composition-history --post_id=<id>',
+            'wp pp operate inspect 42',
+            "     *     wp pp operate patch\n     * : next docblock line",
+        ] as $mustNotCatch) {
+            $this->assertDoesNotMatchRegularExpression(self::POSITIONAL_PAGE_ARG_PATTERN, $mustNotCatch);
+        }
+    }
+
+    /**
+     * PHP self-documentation (docblock EXAMPLES and the action-registry
+     * descriptions an agent reads) must never show the removed positional form.
+     * The markdown half of this guard lives in tests/js/docs-lint.test.js.
+     */
+    public function testPhpSelfDocumentationUsesTheFlagFormOnly(): void
+    {
+        foreach (['/lib/cli.php', '/lib/actions.php'] as $relative) {
+            $source = file_get_contents($this->themeRoot . $relative);
+            $this->assertNotFalse($source);
+
+            $this->assertDoesNotMatchRegularExpression(
+                self::POSITIONAL_PAGE_ARG_PATTERN,
+                $source,
+                $relative . ' documents a positional page argument on a page-addressed '
+                . 'operate command — #685 made --post_id=<id> canonical.'
+            );
+        }
+    }
+
     // ── Operating-loop playbooks must source the run token ────────────────
 
     /**
