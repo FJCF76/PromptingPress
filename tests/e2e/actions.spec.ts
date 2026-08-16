@@ -238,7 +238,7 @@ test.describe('Preflight-before-mutation gate (#96)', () => {
   // WP-CLI. Unit pins cover the decision; only a live run proves the
   // before_run_command hook wins the race against WP-CLI's own synopsis check,
   // whose generic "Too many positional arguments" never names the flag form.
-  test('a positional page argument is refused with the --post_id breadcrumb', () => {
+  test('a positional page argument is refused with the --post_id breadcrumb @smoke', () => {
     const runId = ppOperateInspect();
     ppPreflight(runId);
     const created = ppAction('create_page', {
@@ -264,7 +264,7 @@ test.describe('Preflight-before-mutation gate (#96)', () => {
   // this one; these two are otherwise only pinned against the WP_CLI stub, which
   // never parses a docblock. A malformed OPTIONS line (the ": " continuation trap
   // that InvariantTest guards) would ship green without this.
-  test('all three page-addressed commands dispatch on --post_id', () => {
+  test('all three page-addressed commands dispatch on --post_id @smoke', () => {
     const runId = ppOperateInspect();
     ppPreflight(runId);
     const created = ppAction('create_page', {
