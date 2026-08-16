@@ -54,7 +54,7 @@ auto-loader picks up any component at `/components/{name}/{name}.php` — no reg
 | `AI_CONTEXT.md` | Orientation, file map, component index | Start here |
 | `AI_RULES.md` | Hard invariants, coding rules | Overrides everything else |
 | `ai-instructions/*.md` | Task-specific workflows | Executable procedures |
-| `components/{name}/schema.json` | Prop contracts (types, required) | Supersedes prose in any other file |
+| `components/{name}/schema.json` | Prop contracts (types, required) | Supersedes prose in any other file. Readable without filesystem access via `wp pp schema {name}` (#688) — props, style slots and recipes only |
 
 **Never:**
 - Add hooks or filters to template or component files (only in `functions.php`)
@@ -284,6 +284,8 @@ All functions are prefixed `pp_`. Templates and components use only these wrappe
 | `pp_get_style_slots($component_name)` | Returns style_slots from component's schema.json. Returns `[]` for unknown components |
 | `pp_get_style_recipes($component_name)` | Returns recipes from component's schema.json. Returns `[]` for unknown components |
 | `pp_render_style_vars($style, $component_name)` | Validates style slots against schema, returns CSS custom property string for inline style attribute |
+| `pp_component_schema_index()` | Every registered component with a `composable` flag; backs bare `wp pp schema` (#688) |
+| `pp_component_schema_report($component)` | One component's declared props, style slots (with a rendered condition phrase) and recipes, verbatim from the schema. Returns array\|WP_Error naming the available components. Backs `wp pp schema <component>` (#688) |
 | `pp_token_families()` | Returns token family definitions: base token to derived tokens with mix ratios |
 | `pp_derive_family_tokens($base_token, $value)` | Derives related tokens from a base token value (e.g., accent to hover/strong/border/surface) |
 | `pp_masked_derived_overrides($base_token, $value)` | Shared #386 divergence engine: returns `stale_warnings` entries for existing derived-family overrides that diverge from the value the base would derive (masking the base change). Coherent overrides (equal to the derivable value) are not reported; mere presence is not staleness. Reused by the `update_design_token` apply result and the INSPECT smell |
@@ -426,6 +428,9 @@ wp pp action execute style_component --run-id=<uuid> --params='{"post_id":19,"co
 
 # Inspect available slots and recipes per component
 wp pp operate inspect-composition --post_id=19
+
+# Read a component's declared slots and recipes without a page (or a filesystem)
+wp pp schema hero
 ```
 
 **Helpers in lib/wp.php:**
