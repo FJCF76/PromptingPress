@@ -4,6 +4,41 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.14.2] — 2026-08-16 — The schema answers when you ask it: `wp pp schema <component>` (#688)
+
+**The schema is the contract every composition write is judged against, and it was the one contract with no sanctioned read surface.** An agent that wanted to know whether `hero` has an `eyebrow` prop, what `--hero-surface-bg` costs, or which slots only paint under a particular layout had exactly one option: open `components/<name>/schema.json` off the filesystem. Both agents in an external evaluation did that, including the one that had read the full documented contract first. Over SSH, or from the chat, there was nothing to read. `wp pp schema hero` now prints typed props, style slots with their conditions, and recipes with their slot expansions, as JSON, read-only, with no run token. `wp pp schema` with no argument lists all twelve components and says which are composable.
+
+The output is the shipped `schema.json`'s data, not a rendering of it. Every prop, slot and recipe carries its declared keys and values verbatim, in declaration order, with the map key promoted to `name` or `slot` — the shape `inspect-composition` already established. Nothing is injected, nothing is dropped, and a schema key added tomorrow reaches the CLI the day it is declared, because the projection copies whatever is there rather than a list of keys it recognises. That is the whole design: a second surface with its own idea of the schema is what drifts, and this one reads through the single canonical loader with no second parser and no restated rules.
+
+One field is derived. `applies_when_rendered` states the condition under which a declaration does anything, phrased by the runtime AI catalog's own formatter, so the CLI and the chat describe a slot in the same words. It conjoins the machine-readable `applies_when` clauses **and** any prose `conditionality_note`, because a declaration carrying both means both — nineteen shipped slots do. It is `null`, never a partial phrase, when any declared clause is unreadable: a shorter condition that reads as complete is worse than no condition, because it sends an agent to style a slot that paints nothing.
+
+**Scope, stated so the omission is a decision and not a silence.** The report covers props, style slots and recipes. The other `styling` declarations — `root_class`, `variant_classes`, `tokens`, and the `chrome_custom_properties` that are `nav`'s and `footer`'s *entire* styling surface — are not emitted and still need `schema.json`. Widening that envelope is #694.
+
+### Added
+
+- `wp pp schema` lists every registered component with a `composable` flag. All twelve are listed, because the command reports what a component *declares* and `nav`/`footer` declare props like anything else; the flag carries the registered-superset-of-composable distinction with the name, so the list cannot read as an invitation to compose site chrome (#223).
+- `wp pp schema <component>` returns `component`, `description`, `composable`, the declared `content_requirement` when there is one, and `props` / `style_slots` / `recipes` as lists of the declarations themselves.
+- `pp_component_schema_index()` and `pp_component_schema_report()` (`lib/operate.php`) read through `pp_get_registered_components()` and the existing `pp_get_style_slots()` / `pp_get_style_recipes()` accessors. No new parser, no new validator, no new view of the schema.
+- Component names are matched exactly and never canonicalised, matching the rest of the pipeline (#603–#606). The refusal names all twelve available components, so a case miss is one line from a fix.
+- Read-only and run-token-free, the same class as `inspect-composition`: no page is touched and no run is minted, so it is safe at any point in an operating run. A component name is not a page address, so the #685 page-addressing hook is untouched and unwidened.
+
+### Fixed
+
+- Damaged input is reported rather than swallowed or fatal. A `schema.json` that cannot be decoded yields a report marked `malformed` instead of a valid-looking document claiming the component has no contract; a non-object declaration keeps its name and raw value under a `malformed` flag; a non-map `props` container degrades to an empty list instead of a `TypeError`; and a declaration whose key collides with a promoted or derived field names the displacement in `shadowed_keys` rather than losing it silently.
+
+### Docs
+
+- `AI_CONTEXT.md`, `AI_RULES.md`, `README.md` and `ai-instructions/operating-loop.md` list the new command; the three inventories that had drifted apart now agree.
+- `docs/reference-apply-cli.md` gains a full reference section: both invocations, the field table, the derived-field contract, the exact refusal text, and the scope boundary.
+- `ai-instructions/style-component.md` and `ai-instructions/composition.md` point at the CLI as the no-filesystem path to the same declarations they already told agents to verify against.
+
+### Tests
+
+- `tests/CliSchemaCommandTest.php` (40 tests, 893 assertions). The load-bearing half is the drift guards: for all twelve shipped schemas, each report entry stripped of its promoted key and derived field must be `===` the declaration — not a subset, equal — plus a fixture declaring keys in neither closed registry, because the shipped twelve declare only registry keys and so cannot tell "copies the declaration" apart from "copies the keys we know".
+- Catalog parity is asserted with `assertStringEndsWith` against `pp_ai_definition_suffix()`, the emitter that writes the chat catalog line. Containment would have passed on a renderer that dropped the prose half of a condition; both that regression and the removal of the unreadable-clause guard were confirmed to fail these pins.
+
+---
+
 ## [v1.14.1] — 2026-08-16 — One way to name a page: `--post_id=<id>` is canonical on every page-addressed CLI command (#685)
 
 **Three commands took a page as a bare positional argument, and five others took `--post_id=`. Agents pattern-matched the majority and guessed wrong.** `wp pp operate inspect-composition`, `wp pp operate patch`, and `wp pp operate composition-history` now take `--post_id=<id>` like everything else on the `wp pp` surface. The positional form is gone, and so is slug resolution: a flag named `--post_id` that quietly accepted `about-us` was a dishonest name, the same principle that keeps attachment inputs named `*_id` and never `*_url`. Page IDs come from `wp pp operate inspect`'s page map in one read.

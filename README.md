@@ -13,7 +13,7 @@
 [![JavaScript](https://img.shields.io/badge/JavaScript-Vanilla-F7DF1E?style=flat-square&logo=javascript&logoColor=black)](https://developer.mozilla.org/en-US/docs/Web/JavaScript)
 [![Vitest](https://img.shields.io/badge/Vitest-Tests-6E9F18?style=flat-square&logo=vitest&logoColor=white)](https://vitest.dev)
 [![Tests](https://img.shields.io/badge/Tests-passing-22C55E?style=flat-square)](tests/)
-[![Version](https://img.shields.io/badge/version-1.14.1-6366F1?style=flat-square)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.14.2-6366F1?style=flat-square)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/License-GPL--2.0-blue?style=flat-square)](LICENSE)
 
 </div>
@@ -318,7 +318,7 @@ No theme files were edited. No WordPress internals were called. No visual builde
 /lib/actions.php           Typed action model (20 actions)
 /lib/apply.php             Apply layer (file + option mutations, backup/rollback)
 /lib/operate.php           Operating loop: inspect, preflight, run tokens
-/lib/cli.php               WP-CLI commands (wp pp action · apply · operate · check · validate · integrity · screenshot · target · sync)
+/lib/cli.php               WP-CLI commands (wp pp action · apply · operate · schema · check · validate · integrity · screenshot · target · sync)
 /lib/admin.php             Composition editor (accordion + CodeMirror + preview)
 /lib/ai-chat.php           AI chat admin page + AJAX handlers
 /lib/ai-context.php        AI system prompt assembly (site state, media, tokens)
@@ -378,6 +378,9 @@ wp pp action list
 
 # Create a new page
 wp pp action execute create_page --params='{"title":"About Us"}'
+
+# Read a component's contract: props, style slots, conditions, recipes
+wp pp schema hero
 
 # Inspect what's editable
 wp pp operate inspect-composition --post_id=74
