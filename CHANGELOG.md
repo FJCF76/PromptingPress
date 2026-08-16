@@ -4,6 +4,29 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.14.3] — 2026-08-17 — The nightly suite tells the truth again: three E2E failures triaged (#696)
+
+**The full end-to-end suite had been red for 25 consecutive nights, and one of the three failures was a test that had never passed on any machine, ever.** Nothing shipped broken — every failure was in the test, not the product — but a suite that is always red is a suite nobody reads, and two releases went out under it. All three are now resolved with the reason recorded in the file, and a full local run is green: 352 passed, 0 failed.
+
+The headline failure is the instructive one. A pin added with the `body_items` trust strip asserted that six items render on ONE line at a 1280px viewport. They never did. The row is a sibling of `.section__content` inside `.section__body`, which caps at `var(--section-body-measure, 40rem)` — 640px on the default text-only layout, a prose measure that has been there since #302 and does not widen with the viewport. Six items of that length need about 878px, so the row has always wrapped at every desktop width. The test went red on the first nightly that ran it and stayed red; it never ran before merge because pull-request CI runs only the `@smoke` subset and this pin was not tagged. The expectation is now corrected against what the component actually does, and the comment above it carries the citation, including the limit of the claim: under the `centered` layout the measure is 56rem, where six items WOULD fit.
+
+The second failure was a guard doing its job. A schema-derived set-equality check noticed that `--grid-item-border-color` and `--testimonials-item-border-color`, both added by #576, had never been added to the rendered #332 cascade-immunity pins. The array was updated for that release's renames and not for its additions. Both slots are covered now. The third was a genuine flake, failing about one run in two: the mobile nav's hamburger hides through a pure CSS media query while `aria-expanded` is cleared by a `matchMedia` change listener, so a non-retrying read could sample the attribute before the listener ran.
+
+**What this means for anyone reading a red nightly.** It is signal again. The one thing this release does not fix is the reason a permanently-failing pin could merge and sit unnoticed for 25 nights: the merge gate never runs a non-`@smoke` test. That is filed as #697, with the disclosure gap that misled the original pin's author filed as #698. No product code changed in this release.
+
+### Fixed
+
+- `tests/e2e/style-render.spec.ts` — the `#475` `body_items` wrap pin asserted a single-line desktop row that the 40rem section body measure has never permitted. It now pins the behaviour that exists: a three-item strip on one line at 1280, the identical measure and identical line counts at 1600 (the assertion that isolates "the measure governs this, not the viewport"), block-centring at desktop, and more lines as the measure narrows. The desktop centring assertion is new — the two tests that pinned that geometry both stop at 768px, so a rule scoped to a wider breakpoint could have left-pinned every desktop trust strip with all line counts still green.
+- `tests/e2e/style-render.spec.ts` — `--grid-item-border-color` and `--testimonials-item-border-color` added to the `#332` border-trigger coverage set, which the schema-derived guard had been failing on since #576 introduced them.
+- `tests/e2e/nav-mobile.spec.ts` — the resize-reset `aria-expanded` read is now a retrying web-first assertion, which is the correct wait condition for a value that CSS and a `matchMedia` listener converge on through different mechanisms. The click-driven reads in the same file stay one-shot on purpose: their handler runs in the same task as the event, so a retry there would grant a grace period to a state that must settle immediately.
+
+### Tests
+
+- Full local Playwright suite green: 352 passed, 1 deliberate pre-existing skip, 0 failed. Every measured figure quoted in the corrected pin's comment was taken from a live render, not estimated.
+- No `@smoke` tag was added or removed. None of the three affected tests is `@smoke`-tagged, before or after, so pull-request CI coverage is unchanged.
+
+---
+
 ## [v1.14.2] — 2026-08-16 — The schema answers when you ask it: `wp pp schema <component>` (#688)
 
 **The schema is the contract every composition write is judged against, and it was the one contract with no sanctioned read surface.** An agent that wanted to know whether `hero` has an `eyebrow` prop, what `--hero-surface-bg` costs, or which slots only paint under a particular layout had exactly one option: open `components/<name>/schema.json` off the filesystem. Both agents in an external evaluation did that, including the one that had read the full documented contract first. Over SSH, or from the chat, there was nothing to read. `wp pp schema hero` now prints typed props, style slots with their conditions, and recipes with their slot expansions, as JSON, read-only, with no run token. `wp pp schema` with no argument lists all twelve components and says which are composable.
