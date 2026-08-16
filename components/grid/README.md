@@ -132,7 +132,7 @@ Cards in this component must represent real content objects. If you're placing i
 38 per-instance style slots, declared in `schema.json` under `styling.style_slots`
 and set with the `style_component` action. This table is the map — read each slot's
 `type`, effective `default`, `applies_when` condition and full description from the
-schema itself, or with `wp pp operate inspect-composition <page>`.
+schema itself, or with `wp pp operate inspect-composition --post_id=<id>`.
 
 `▪` = item-eligible (also settable per card in `items[].style`) · `◦` = conditional
 (`applies_when`): setting it outside that configuration is accepted and stored but

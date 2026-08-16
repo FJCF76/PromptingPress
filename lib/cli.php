@@ -11,6 +11,182 @@ if (!class_exists('WP_CLI') || !class_exists('WP_CLI_Command')) {
 }
 
 /**
+ * Shared tail for every #685 page-addressing refusal. ucfirst()'d at the call
+ * sites where it starts a sentence.
+ *
+ * The side effect is named on purpose: `operate inspect` mints a run token, so
+ * an agent that is mid-run and mistypes `--post_id` must not adopt the new id
+ * and silently lose its existing PREFLIGHT coverage.
+ */
+const PP_CLI_PAGE_MAP_HINT = 'run `wp pp operate inspect` for the page map (it mints a new run token).';
+
+/**
+ * The page-addressed `wp pp operate` subcommands (#685).
+ *
+ * Every command here addresses exactly one page and takes `--post_id=<id>`.
+ *
+ * The pre-dispatch positional guard below and CliGateTest's data provider both
+ * READ this constant. Two more guards spell the triple out as regex alternations
+ * and cannot read it — POSITIONAL_PAGE_ARG_PATTERN in tests/InvariantTest.php and
+ * POSITIONAL_PAGE_ARG in tests/js/docs-lint.test.js. A fourth page-addressed
+ * subcommand has to be added in all three places.
+ */
+const PP_CLI_PAGE_ADDRESSED_OPERATE_SUBCOMMANDS = [
+    'inspect-composition',
+    'patch',
+    'composition-history',
+];
+
+/**
+ * Pure decision for the `--post_id` addressing gate (#685).
+ *
+ * Pages are addressed by numeric WordPress post ID and nothing else: no slugs,
+ * no URLs, no positional form. WordPress URL-to-post resolution used to sit behind a
+ * `is_numeric()` fork here, which made `--post_id` a dishonest name the moment
+ * it accepted a slug (same principle as the `*_id`-never-`*_url` naming rule).
+ *
+ * Accepts ONLY a positive base-10 integer whose decimal form survives a round
+ * trip through `(int)`. `is_numeric()` would let `1.5`, `1e3`, ` 19` and `-1`
+ * through and then silently `(int)`-truncate them into a different post than the
+ * operator typed. `ctype_digit()` alone is not enough either: PHP SATURATES an
+ * over-large numeric string, so `--post_id=999999999999999999999999` would cast
+ * to PHP_INT_MAX, and it canonicalizes `00019` to `19`. The round-trip
+ * comparison rejects both — the accepted string is exactly the ID being used.
+ *
+ * Scope: this strict rule is deliberately applied to the three page-addressed
+ * `operate` subcommands only — #685 converted those and ruled that nothing else
+ * rides along. The other `--post_id` consumers (`apply preflight`, `check page`,
+ * `validate page`, `operate inspect`, `screenshot capture`) keep the older loose
+ * `(int)` cast. That is a consistency gap, not a hole: strict is a superset of
+ * loose, so any value a loose command canonicalizes is REJECTED outright here
+ * rather than silently accepted. Do not read this helper as install-wide.
+ *
+ * Which branch is live: because `--post_id=<id>` is a REQUIRED synopsis option,
+ * WP-CLI's own parameter check reports an absent or valueless `--post_id` first
+ * (quoting this OPTIONS description, breadcrumb included), so the missing branch
+ * here is defense in depth — the same shape `check page` and `validate page`
+ * already carry. The non-numeric branch is the one WP-CLI cannot make: it has no
+ * opinion about what `--post_id=about-us` means, and that is exactly the input
+ * the removed slug path used to swallow.
+ *
+ * Split out of the command bodies so both refusal branches are assertable
+ * without WP_CLI::error()'s exit, matching _pp_cli_preflight_coverage_error().
+ *
+ * @param array $assoc_args The command's associative arguments.
+ * @return string|null  The user-facing refusal, or null to accept.
+ */
+function _pp_cli_post_id_arg_error(array $assoc_args): ?string {
+    $raw = $assoc_args['post_id'] ?? null;
+
+    // WP-CLI's parser yields TWO valueless shapes: bare `--post_id` is bool true,
+    // and the negated `--no-post_id` is bool false (Configurator::extract_assoc).
+    // Neither addresses a page, and WP-CLI's required-option check passes both
+    // through (isset(false) is true), so both land here.
+    if ($raw === null || is_bool($raw) || $raw === '') {
+        return '--post_id is required. Pages are addressed by numeric WordPress post ID, e.g. `--post_id=42`. ' . ucfirst(PP_CLI_PAGE_MAP_HINT);
+    }
+
+    $raw = (string) $raw;
+    if (!ctype_digit($raw) || (int) $raw < 1 || (string) (int) $raw !== $raw) {
+        return 'Invalid --post_id "' . $raw . '". Pages are addressed by numeric WordPress post ID only — slugs and URLs are not resolved. Use `--post_id=42`; ' . PP_CLI_PAGE_MAP_HINT;
+    }
+
+    return null;
+}
+
+/**
+ * Applies the `--post_id` addressing gate and returns the resolved post ID.
+ *
+ * @param array $assoc_args The command's associative arguments.
+ * @return int The validated post ID.
+ */
+function _pp_cli_require_post_id_arg(array $assoc_args): int {
+    $error = _pp_cli_post_id_arg_error($assoc_args);
+    if ($error !== null) {
+        WP_CLI::error($error);
+    }
+    return (int) $assoc_args['post_id'];
+}
+
+/**
+ * Pure decision for the positional-page-argument refusal (#685).
+ *
+ * WHY THIS RUNS BEFORE DISPATCH. Once `<page>` leaves a command's docblock
+ * synopsis, WP-CLI's own `Subcommand::validate_args()` rejects the leftover
+ * token with `Too many positional arguments: 19` — a message that never names
+ * the flag form — and it does so BEFORE the command callable and before any
+ * `before_invoke:` hook. `before_run_command` (the first statement of
+ * `WP_CLI\Runner::run_command()`) is the only hook that fires early enough to
+ * replace that message with a breadcrumb, so the refusal is registered there
+ * rather than inside the three command bodies. WP-CLI's generic refusal stays
+ * underneath as the fail-closed backstop: if this hook never fires, a positional
+ * is still rejected, just less helpfully.
+ *
+ * `$args` here carries only the command path plus POSITIONAL tokens —
+ * `WP_CLI\Configurator::extract_assoc()` has already split `--flag` and
+ * `--flag=value` into $assoc_args — so `wp pp operate patch --post_id=19` has no
+ * index 3 and cannot trip this guard. The space form `--post_id 19` DOES trip
+ * it (WP-CLI parses that as `post_id => true` plus a positional `19`), which is
+ * the right outcome: the breadcrumb names the `=` form the operator meant.
+ *
+ * @param array $args       The raw WP-CLI argument vector (command path + positionals).
+ * @param array $assoc_args The parsed flags, used only to tell "you addressed the
+ *                          page positionally" apart from "you already addressed it
+ *                          with --post_id and left a stray token behind".
+ * @return string|null  The user-facing refusal, or null to accept.
+ */
+function _pp_cli_positional_page_arg_error(array $args, array $assoc_args = []): ?string {
+    if (($args[0] ?? null) !== 'pp' || ($args[1] ?? null) !== 'operate') {
+        return null;
+    }
+
+    $subcommand = $args[2] ?? null;
+    if (!in_array($subcommand, PP_CLI_PAGE_ADDRESSED_OPERATE_SUBCOMMANDS, true)) {
+        return null;
+    }
+
+    if (!isset($args[3])) {
+        return null;
+    }
+
+    $extra   = (string) $args[3];
+    $command = 'wp pp operate ' . $subcommand;
+
+    // The page is already addressed, so the stray token is not a page address —
+    // do not lecture about --post_id or compose an address out of it. Both
+    // valueless shapes (bare `--post_id` = true, `--no-post_id` = false) address
+    // nothing, so they stay on the addressing path where the breadcrumb helps.
+    if (isset($assoc_args['post_id']) && !is_bool($assoc_args['post_id'])) {
+        return '`' . $command . '` got an unexpected positional argument ("' . $extra . '"). '
+            . 'This command takes flags only; the page is already addressed by --post_id.';
+    }
+
+    $message = '`' . $command . '` takes no positional page argument (got "' . $extra . '"). '
+        . 'Address the page with the flag form: `' . $command . ' --post_id=N`.';
+
+    if (ctype_digit($extra) && (int) $extra >= 1 && (string) (int) $extra === $extra) {
+        return $message . ' For this call, run `' . $command . ' --post_id=' . $extra . '`.';
+    }
+
+    return $message . ' Slugs and URLs are not resolved; ' . PP_CLI_PAGE_MAP_HINT;
+}
+
+/**
+ * Refuses a positional page argument before WP-CLI's generic synopsis check.
+ *
+ * @param array $args       The raw WP-CLI argument vector.
+ * @param array $assoc_args The parsed flags.
+ */
+function _pp_cli_reject_positional_page_arg(array $args, array $assoc_args = []): void {
+    $error = _pp_cli_positional_page_arg_error($args, $assoc_args);
+    if ($error !== null) {
+        WP_CLI::error($error);
+    }
+}
+
+WP_CLI::add_hook('before_run_command', '_pp_cli_reject_positional_page_arg');
+
+/**
  * Reports a preflight whose checks passed but whose state could not be
  * recorded (#227). Every post-check failure exit in `apply preflight` goes
  * through here so the single emit path keeps the JSON contract fail-closed:
@@ -1571,26 +1747,17 @@ class PP_Operate_Command extends WP_CLI_Command {
      *
      * ## OPTIONS
      *
-     * <page>
-     * : Post ID or slug of the page to inspect.
+     * --post_id=<id>
+     * : WordPress page post ID. Run `wp pp operate inspect` for the page map (it mints a new run token).
      *
      * ## EXAMPLES
      *
-     *     wp pp operate inspect-composition 19
-     *     wp pp operate inspect-composition about-us
+     *     wp pp operate inspect-composition --post_id=19
      *
      * @subcommand inspect-composition
      */
     public function inspect_composition($args, $assoc_args) {
-        $page = $args[0] ?? null;
-        if (!$page) {
-            WP_CLI::error('Page argument is required.');
-        }
-
-        $post_id = is_numeric($page) ? (int) $page : url_to_postid(home_url($page));
-        if (!$post_id) {
-            WP_CLI::error(sprintf('Could not resolve page "%s".', $page));
-        }
+        $post_id = _pp_cli_require_post_id_arg($assoc_args);
 
         $result = pp_inspect_composition($post_id);
         if (is_wp_error($result)) {
@@ -1609,8 +1776,8 @@ class PP_Operate_Command extends WP_CLI_Command {
      *
      * ## OPTIONS
      *
-     * <page>
-     * : Post ID or slug of the page to patch.
+     * --post_id=<id>
+     * : WordPress page post ID. Run `wp pp operate inspect` for the page map (it mints a new run token).
      *
      * --target=<selector>
      * : Semantic selector (e.g. hero.subheading, section[title="About"].body).
@@ -1626,23 +1793,15 @@ class PP_Operate_Command extends WP_CLI_Command {
      *
      * ## EXAMPLES
      *
-     *     wp pp operate patch 19 --target=hero.subheading --value="New Subtitle" --preview
-     *     wp pp operate patch 19 --target=hero.subheading --value="New Subtitle" --run-id=<uuid>
+     *     wp pp operate patch --post_id=19 --target=hero.subheading --value="New Subtitle" --preview
+     *     wp pp operate patch --post_id=19 --target=hero.subheading --value="New Subtitle" --run-id=<uuid>
      *
      */
     public function patch($args, $assoc_args) {
         // Docblock constraint: each OPTIONS description must stay on ONE
         // ": " line. WP-CLI folds continuation ": " lines into the generated
         // synopsis and warns "invalid synopsis part: <word>" on every run.
-        $page = $args[0] ?? null;
-        if (!$page) {
-            WP_CLI::error('Page argument is required.');
-        }
-
-        $post_id = is_numeric($page) ? (int) $page : url_to_postid(home_url($page));
-        if (!$post_id) {
-            WP_CLI::error(sprintf('Could not resolve page "%s".', $page));
-        }
+        $post_id = _pp_cli_require_post_id_arg($assoc_args);
 
         $selector = $assoc_args['target'] ?? '';
         $value    = $assoc_args['value'] ?? '';
@@ -1717,26 +1876,17 @@ class PP_Operate_Command extends WP_CLI_Command {
      *
      * ## OPTIONS
      *
-     * <page>
-     * : Post ID or slug of the page.
+     * --post_id=<id>
+     * : WordPress page post ID. Run `wp pp operate inspect` for the page map (it mints a new run token).
      *
      * ## EXAMPLES
      *
-     *     wp pp operate composition-history 19
-     *     wp pp operate composition-history about-us
+     *     wp pp operate composition-history --post_id=19
      *
      * @subcommand composition-history
      */
     public function composition_history($args, $assoc_args) {
-        $page = $args[0] ?? null;
-        if (!$page) {
-            WP_CLI::error('Page argument is required.');
-        }
-
-        $post_id = is_numeric($page) ? (int) $page : url_to_postid(home_url($page));
-        if (!$post_id) {
-            WP_CLI::error(sprintf('Could not resolve page "%s".', $page));
-        }
+        $post_id = _pp_cli_require_post_id_arg($assoc_args);
 
         $history = pp_get_composition_history($post_id);
         $count   = count($history);

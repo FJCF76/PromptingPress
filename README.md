@@ -13,7 +13,7 @@
 [![JavaScript](https://img.shields.io/badge/JavaScript-Vanilla-F7DF1E?style=flat-square&logo=javascript&logoColor=black)](https://developer.mozilla.org/en-US/docs/Web/JavaScript)
 [![Vitest](https://img.shields.io/badge/Vitest-Tests-6E9F18?style=flat-square&logo=vitest&logoColor=white)](https://vitest.dev)
 [![Tests](https://img.shields.io/badge/Tests-passing-22C55E?style=flat-square)](tests/)
-[![Version](https://img.shields.io/badge/version-1.14.0-6366F1?style=flat-square)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.14.1-6366F1?style=flat-square)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/License-GPL--2.0-blue?style=flat-square)](LICENSE)
 
 </div>
@@ -287,7 +287,7 @@ the HANDOFF report.
    → learns: 12 components, schema contracts, action layer, composition format
 
 2. Agent inspects the page
-   $ wp pp operate inspect-composition 74
+   $ wp pp operate inspect-composition --post_id=74
    → sees: hero at [0], section at [1], cta at [2] — with every editable field listed
 
 3. Agent chooses the grid component (from schema: items[] with title, text, image_url)
@@ -380,10 +380,10 @@ wp pp action list
 wp pp action execute create_page --params='{"title":"About Us"}'
 
 # Inspect what's editable
-wp pp operate inspect-composition 74
+wp pp operate inspect-composition --post_id=74
 
 # Patch a single field by name
-wp pp operate patch 74 --target=hero.subheading --value="New Headline" --preview
+wp pp operate patch --post_id=74 --target=hero.subheading --value="New Headline" --preview
 
 # Retheme — preview a color change
 wp pp apply preview update_design_token \

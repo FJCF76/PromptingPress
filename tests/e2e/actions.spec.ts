@@ -229,9 +229,64 @@ test.describe('Preflight-before-mutation gate (#96)', () => {
     pageId = (created.target as any).post_id;
 
     const err = wpCliExpectFail(
-      `wp pp operate patch ${pageId} --target=hero.subheading --value="after" --run-id=${runId}`,
+      `wp pp operate patch --post_id=${pageId} --target=hero.subheading --value="after" --run-id=${runId}`,
     );
     expect(err).toContain('no completed PREFLIGHT covering post ' + pageId);
+  });
+
+  // #685 — the ONE assertion that proves dispatcher ordering against a real
+  // WP-CLI. Unit pins cover the decision; only a live run proves the
+  // before_run_command hook wins the race against WP-CLI's own synopsis check,
+  // whose generic "Too many positional arguments" never names the flag form.
+  test('a positional page argument is refused with the --post_id breadcrumb @smoke', () => {
+    const runId = ppOperateInspect();
+    ppPreflight(runId);
+    const created = ppAction('create_page', {
+      title: 'Positional Refusal Page',
+      composition: [{ component: 'hero', props: { title: 'Seed', subheading: 'before' } }],
+    }, runId);
+    pageId = (created.target as any).post_id;
+
+    for (const cmd of [
+      `wp pp operate inspect-composition ${pageId}`,
+      `wp pp operate composition-history ${pageId}`,
+      `wp pp operate patch ${pageId} --target=hero.subheading --value="after" --preview`,
+    ]) {
+      const err = wpCliExpectFail(cmd);
+      expect(err).toContain('takes no positional page argument');
+      expect(err).toContain(`--post_id=${pageId}`);
+      expect(err).not.toContain('Too many positional arguments');
+    }
+  });
+
+  // #685 — the flag form must actually DISPATCH on all three commands, not just
+  // be refused correctly. `patch --post_id` is proven live by the tests around
+  // this one; these two are otherwise only pinned against the WP_CLI stub, which
+  // never parses a docblock. A malformed OPTIONS line (the ": " continuation trap
+  // that InvariantTest guards) would ship green without this.
+  test('all three page-addressed commands dispatch on --post_id @smoke', () => {
+    const runId = ppOperateInspect();
+    ppPreflight(runId);
+    const created = ppAction('create_page', {
+      title: 'Flag Form Page',
+      composition: [{ component: 'hero', props: { id: 'flag-form-hero', title: 'Seed', subheading: 'before' } }],
+    }, runId);
+    pageId = (created.target as any).post_id;
+
+    const inspected = wpCli(`wp pp operate inspect-composition --post_id=${pageId}`);
+    expect(inspected).toContain('flag-form-hero');
+
+    const history = parseCliJson(
+      wpCli(`wp pp operate composition-history --post_id=${pageId}`),
+      'composition-history',
+    );
+    expect(history.post_id).toBe(pageId);
+
+    // WP-CLI emits "invalid synopsis part" as a warning, not a failure, so a
+    // malformed OPTIONS line would otherwise pass unnoticed on every run.
+    for (const out of [inspected, JSON.stringify(history)]) {
+      expect(out).not.toContain('invalid synopsis part');
+    }
   });
 
   test('operate patch --preview is read-only and needs no run-id', () => {
@@ -244,7 +299,7 @@ test.describe('Preflight-before-mutation gate (#96)', () => {
     pageId = (created.target as any).post_id;
 
     // No run-id, no preflight — preview must still work.
-    const raw = wpCli(`wp pp operate patch ${pageId} --target=hero.subheading --value="after" --preview`);
+    const raw = wpCli(`wp pp operate patch --post_id=${pageId} --target=hero.subheading --value="after" --preview`);
     const result = parseCliJson(raw, 'patch preview');
     expect(result.ok).toBe(true);
   });
@@ -540,7 +595,7 @@ test.describe('Preflight composition freshness (#113)', () => {
     ppAction('update_component', { post_id: pageId, component_index: 0, props: { subheading: 'b' } }, runB);
 
     const err = wpCliExpectFail(
-      `wp pp operate patch ${pageId} --target=hero.subheading --value="a" --run-id=${runA}`,
+      `wp pp operate patch --post_id=${pageId} --target=hero.subheading --value="a" --run-id=${runA}`,
     );
     expect(err).toContain('Stale preflight for post ' + pageId);
   });
@@ -555,7 +610,7 @@ test.describe('Preflight composition freshness (#113)', () => {
     ppAction('update_component', { post_id: pageId, component_index: 0, props: { subheading: 'b' } }, runB);
 
     // Preview needs no run-id and must still work despite the marker having moved.
-    const raw = wpCli(`wp pp operate patch ${pageId} --target=hero.subheading --value="preview-only" --preview`);
+    const raw = wpCli(`wp pp operate patch --post_id=${pageId} --target=hero.subheading --value="preview-only" --preview`);
     const result = parseCliJson(raw, 'patch preview');
     expect(result.ok).toBe(true);
   });

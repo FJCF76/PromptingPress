@@ -57,6 +57,9 @@ if (!class_exists('WP_CLI')) {
         public static array $successes = [];
         public static function error($message, $exit = true): void { throw new WpCliExitException((string) $message); }
         public static function add_command($name, $handler, $args = []): void {}
+        // #685 registers a before_run_command hook at load time; the stub only
+        // needs to accept it — the hook's decision is pinned directly instead.
+        public static function add_hook($when, $callback): void {}
         public static function line($message = ''): void { self::$lines[] = (string) $message; }
         public static function warning($message = ''): void { self::$warnings[] = (string) $message; }
         public static function success($message = ''): void { self::$successes[] = (string) $message; }
@@ -656,5 +659,302 @@ class CliGateTest extends TestCase
         sort($numericKeys);
         sort($missingKeys);
         $this->assertSame($numericKeys, $missingKeys, 'both validation failures share the envelope shape');
+    }
+
+    // ── #685: --post_id is the canonical page address ───────────────────────
+    //
+    // Two decisions, two pure predicates, both pinned here without WP_CLI::error()'s
+    // exit — same shape as the #390 gate predicates above:
+    //
+    //   raw argv ──> _pp_cli_positional_page_arg_error()  (pre-dispatch, before_run_command)
+    //                     │ null
+    //                     v
+    //   assoc_args ─> _pp_cli_post_id_arg_error()         (in-command)
+    //                     │ null
+    //                     v
+    //                 (int) --post_id ──> pp_inspect_composition() / pp_patch_composition() / history
+    //
+    // The dispatcher-ordering half (that the pre-dispatch refusal beats WP-CLI's own
+    // "Too many positional arguments") is not assertable against a stub — it is pinned
+    // live in tests/e2e/actions.spec.ts.
+
+    /**
+     * Derived from the shipped constant, never hand-listed: adding a fourth
+     * page-addressed subcommand must not leave these pins covering only three.
+     *
+     * @return array<string, array{0: string}>
+     */
+    public static function pageAddressedSubcommands(): array
+    {
+        $subcommands = PP_CLI_PAGE_ADDRESSED_OPERATE_SUBCOMMANDS;
+        return array_combine(
+            $subcommands,
+            array_map(static fn (string $s): array => [$s], $subcommands)
+        );
+    }
+
+    public function testTheSubcommandProviderIsNotEmpty(): void
+    {
+        // A constant renamed out from under the provider would make every
+        // @dataProvider pin above silently vanish instead of failing.
+        $this->assertGreaterThanOrEqual(3, count(self::pageAddressedSubcommands()));
+    }
+
+    /**
+     * @dataProvider pageAddressedSubcommands
+     */
+    public function testPositionalPageArgumentIsRefusedWithTheFlagForm(string $subcommand): void
+    {
+        $error = _pp_cli_positional_page_arg_error(['pp', 'operate', $subcommand, '19']);
+        $this->assertNotNull($error, 'a positional page argument is refused');
+        $this->assertStringContainsString('takes no positional page argument', $error);
+        $this->assertStringContainsString('wp pp operate ' . $subcommand . ' --post_id=N', $error, 'names the flag form');
+        // Breadcrumb style (_pp_cli_positional_page_arg_error, matching
+        // _pp_cli_preflight_coverage_error): compose the exact next command.
+        $this->assertStringContainsString('wp pp operate ' . $subcommand . ' --post_id=19', $error);
+    }
+
+    public function testPositionalSlugRefusalSaysSlugsAreNotResolved(): void
+    {
+        // The removed url_to_postid path: a slug must not read as "almost worked".
+        $error = _pp_cli_positional_page_arg_error(['pp', 'operate', 'patch', 'about-us']);
+        $this->assertNotNull($error);
+        $this->assertStringContainsString('Slugs and URLs are not resolved', $error);
+        $this->assertStringContainsString('wp pp operate inspect', $error, 'points at the page map');
+        $this->assertStringNotContainsString('--post_id=about-us', $error, 'never composes a non-numeric breadcrumb');
+    }
+
+    public function testSpaceSeparatedPostIdIsRefusedWithTheEqualsForm(): void
+    {
+        // WP-CLI parses `--post_id 19` as post_id=true PLUS a positional `19`
+        // (Configurator::extract_assoc), so this lands on the positional guard.
+        // The breadcrumb must name the `=` form the operator meant.
+        $error = _pp_cli_positional_page_arg_error(['pp', 'operate', 'patch', '19']);
+        $this->assertNotNull($error);
+        $this->assertStringContainsString('--post_id=19', $error);
+    }
+
+    /** @return array<string, array{0: array<int, string>}> */
+    public static function argVectorsThatMustNotTripTheGuard(): array
+    {
+        return [
+            'flag form has no positional'   => [['pp', 'operate', 'patch']],
+            'site-scoped inspect'           => [['pp', 'operate', 'inspect']],
+            'inspect with a positional'     => [['pp', 'operate', 'inspect', '19']],
+            'a different pp namespace'      => [['pp', 'check', 'page', '19']],
+            'a foreign top-level command'   => [['post', 'operate', 'patch', '19']],
+            'help for the command'          => [['help', 'pp', 'operate', 'patch']],
+            'bare command path'             => [['pp', 'operate']],
+            'empty argv'                    => [[]],
+        ];
+    }
+
+    /**
+     * @dataProvider argVectorsThatMustNotTripTheGuard
+     * @param array<int, string> $args
+     */
+    public function testGuardIgnoresEverythingButPageAddressedOperateSubcommands(array $args): void
+    {
+        $this->assertNull(
+            _pp_cli_positional_page_arg_error($args),
+            'guard must not fire on: ' . json_encode($args)
+        );
+    }
+
+    public function testPositionalGuardWrapperFailsClosedWithTheSameMessage(): void
+    {
+        $expected = _pp_cli_positional_page_arg_error(['pp', 'operate', 'patch', '19']);
+        try {
+            _pp_cli_reject_positional_page_arg(['pp', 'operate', 'patch', '19'], []);
+            $this->fail('the wrapper should have refused');
+        } catch (WpCliExitException $e) {
+            $this->assertSame($expected, $e->getMessage(), 'wrapper emits the predicate message verbatim');
+        }
+        // And the accepting branch must not exit.
+        _pp_cli_reject_positional_page_arg(['pp', 'operate', 'patch'], ['post_id' => '19']);
+        $this->addToAssertionCount(1);
+    }
+
+    /**
+     * Defense in depth: with `--post_id=<id>` required in the synopsis, WP-CLI's own
+     * parameter check reports an absent/valueless flag first (verified live against
+     * wp-env: "missing --post_id parameter"). This branch is what a programmatic
+     * caller or a future optional-synopsis change would hit, and it must still name
+     * the canonical shape rather than fall through to a bare (int) cast of null.
+     */
+    public function testStrayPositionalWithPostIdAlreadySetDoesNotLectureAboutAddressing(): void
+    {
+        // `wp pp operate patch --post_id=19 junk --target=...` — the page IS
+        // addressed, so the stray token is not a page address. Composing
+        // "--post_id=junk" or preaching the flag form here would misdirect triage.
+        $error = _pp_cli_positional_page_arg_error(
+            ['pp', 'operate', 'patch', 'junk'],
+            ['post_id' => '19', 'target' => 'hero.subheading']
+        );
+        $this->assertNotNull($error, 'a stray positional is still refused');
+        $this->assertStringContainsString('unexpected positional argument ("junk")', $error);
+        $this->assertStringNotContainsString('--post_id=junk', $error, 'never composes an address from the stray token');
+        $this->assertStringNotContainsString('takes no positional page argument', $error, 'not the addressing lecture');
+
+        // Conflicting addresses: the EXPLICIT flag wins. The breadcrumb must not
+        // compose `--post_id=19` from the positional when the operator typed 20.
+        $conflict = _pp_cli_positional_page_arg_error(
+            ['pp', 'operate', 'patch', '19'],
+            ['post_id' => '20']
+        );
+        $this->assertStringContainsString('unexpected positional argument ("19")', $conflict);
+        $this->assertStringNotContainsString('--post_id=19', $conflict, 'the positional never overrides the typed flag');
+
+        // Both VALUELESS shapes address nothing, so they stay on the addressing
+        // path where the composed breadcrumb is the useful answer: bare
+        // `--post_id 19` parses to post_id=true plus a positional, and
+        // `--no-post_id 19` parses to post_id=false plus a positional.
+        foreach ([true, false] as $valueless) {
+            $bare = _pp_cli_positional_page_arg_error(
+                ['pp', 'operate', 'patch', '19'],
+                ['post_id' => $valueless]
+            );
+            $this->assertStringContainsString('takes no positional page argument', $bare);
+            $this->assertStringContainsString('--post_id=19', $bare, 'valueless --post_id still gets the breadcrumb');
+        }
+    }
+
+    public function testMissingPostIdIsRefusedWithTheFlagFormBreadcrumb(): void
+    {
+        // `false` is the `--no-post_id` shape; WP-CLI's required-option check
+        // passes it through because isset(false) is true.
+        foreach ([[], ['post_id' => true], ['post_id' => false], ['post_id' => '']] as $assoc) {
+            $error = _pp_cli_post_id_arg_error($assoc);
+            $this->assertNotNull($error, 'missing --post_id refused: ' . json_encode($assoc));
+            $this->assertStringContainsString('--post_id is required', $error);
+            $this->assertStringContainsString('--post_id=42', $error, 'shows the shape');
+            $this->assertStringContainsString('wp pp operate inspect', $error, 'points at the page map');
+        }
+    }
+
+    /** @return array<string, array{0: string}> */
+    public static function nonNumericPostIdValues(): array
+    {
+        return [
+            'a slug'            => ['about-us'],
+            'a path'            => ['/about-us/'],
+            'a full URL'        => ['https://example.com/about-us/'],
+            'zero'              => ['0'],
+            'padded zero'       => ['000'],
+            'negative'          => ['-1'],
+            'a float'           => ['1.5'],
+            'scientific'        => ['1e3'],
+            'leading space'     => [' 19'],
+            'numeric prefix'    => ['19abc'],
+            // ctype_digit() alone accepts both of these. PHP then SATURATES the
+            // over-large one to PHP_INT_MAX and canonicalizes the padded one —
+            // the exact silent-coercion class this gate exists to stop.
+            'overflows int'     => ['999999999999999999999999'],
+            'PHP_INT_MAX + 1'   => ['9223372036854775808'],
+            'leading zeros'     => ['00019'],
+        ];
+    }
+
+    /**
+     * @dataProvider nonNumericPostIdValues
+     */
+    public function testNonNumericPostIdIsRefusedRatherThanTruncated(string $value): void
+    {
+        // is_numeric() would have accepted 1.5 / 1e3 / -1 / " 19" and then
+        // (int)-truncated them into a DIFFERENT post than the operator typed.
+        $error = _pp_cli_post_id_arg_error(['post_id' => $value]);
+        $this->assertNotNull($error, 'refused: ' . $value);
+        $this->assertStringContainsString('Invalid --post_id "' . $value . '"', $error);
+        $this->assertStringContainsString('slugs and URLs are not resolved', $error);
+    }
+
+    public function testNumericPostIdIsAccepted(): void
+    {
+        $this->assertNull(_pp_cli_post_id_arg_error(['post_id' => '19']));
+        $this->assertNull(_pp_cli_post_id_arg_error(['post_id' => 19]));
+        $this->assertNull(_pp_cli_post_id_arg_error(['post_id' => '1']));
+    }
+
+    public function testRequirePostIdWrapperFailsClosedAndReturnsTheId(): void
+    {
+        try {
+            _pp_cli_require_post_id_arg([]);
+            $this->fail('the wrapper should have refused a missing --post_id');
+        } catch (WpCliExitException $e) {
+            $this->assertSame(_pp_cli_post_id_arg_error([]), $e->getMessage());
+        }
+        $this->assertSame(19, _pp_cli_require_post_id_arg(['post_id' => '19']), 'returns an int, not a string');
+    }
+
+    /**
+     * @dataProvider pageAddressedSubcommands
+     */
+    public function testEachPageAddressedCommandRefusesAMissingPostId(string $subcommand): void
+    {
+        $method = str_replace('-', '_', $subcommand);
+        $command = new PP_Operate_Command();
+        try {
+            $command->$method([], []);
+            $this->fail($subcommand . ' should have refused a missing --post_id');
+        } catch (WpCliExitException $e) {
+            $this->assertStringContainsString('--post_id is required', $e->getMessage());
+        }
+    }
+
+    public function testCompositionHistoryAddressedByPostIdReachesTheHandler(): void
+    {
+        // Proves the flag form is actually wired through to the read path: the
+        // envelope reports the post it was addressed with.
+        WP_CLI::$lines = [];
+        (new PP_Operate_Command())->composition_history([], ['post_id' => '501']);
+        $this->assertCount(1, WP_CLI::$lines);
+        $decoded = json_decode(WP_CLI::$lines[0], true);
+        $this->assertIsArray($decoded);
+        $this->assertSame(501, $decoded['post_id'], 'the --post_id value reached the handler');
+    }
+
+    /**
+     * Threading pin for the other two commands. Without this, a handler that
+     * dropped the resolved id (passed 0, or re-read a now-absent $args[0]) would
+     * still satisfy every refusal test in this file — the refusal tests only
+     * prove the gate fires, never that the accepted value is the one used.
+     *
+     * Both report through a WP_Error rather than a JSON envelope for an id that
+     * does not resolve, so the assertion is that the message names THIS post.
+     */
+    public function testInspectCompositionAndPatchThreadTheAcceptedPostId(): void
+    {
+        $command = new PP_Operate_Command();
+
+        // inspect-composition: seed a real page and prove the emitted targets are
+        // THAT page's, not an empty list from a dropped id.
+        $GLOBALS['_pp_test_store']['posts'][501] = [
+            'post_type' => 'page', 'post_title' => 'Threading', 'post_status' => 'publish',
+        ];
+        update_post_meta(501, '_pp_composition', json_encode([
+            ['component' => 'hero', 'props' => ['id' => 'threading-hero', 'title' => 'Seed', 'subheading' => 'before']],
+        ]));
+
+        WP_CLI::$lines = [];
+        $command->inspect_composition([], ['post_id' => '501']);
+        $this->assertCount(1, WP_CLI::$lines);
+        $this->assertStringContainsString(
+            'threading-hero',
+            WP_CLI::$lines[0],
+            'inspect-composition inspected the page named by --post_id, not an empty/zero id'
+        );
+
+        // patch: an id that resolves to nothing must be reported AS THAT ID.
+        WP_CLI::$lines = [];
+        $emitted = '';
+        try {
+            $command->patch([], ['post_id' => '424242', 'target' => 'hero.subheading', 'value' => 'x', 'preview' => true]);
+            $this->fail('patch should have reported the unresolvable post');
+        } catch (WpCliExitException | WpCliHaltException $e) {
+            // Either exit shape is fine (stderr error or stdout envelope + halt);
+            // the id in whichever channel carried it is what this pins.
+            $emitted = $e->getMessage() . ' ' . implode(' ', WP_CLI::$lines);
+        }
+        $this->assertStringContainsString('424242', $emitted, 'patch used the --post_id value');
     }
 }

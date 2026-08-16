@@ -221,3 +221,101 @@ describe('docs lint: the guard itself is not decoration', () => {
         expect(COUNT_CLAIM.test(s)).toBe(false);
     });
 });
+
+/**
+ * #685 — `--post_id=<id>` is the canonical page address on every page-addressed
+ * `wp pp operate` command. The positional form and slug resolution were removed
+ * in the same release, so a doc still showing `wp pp operate patch 74 ...`
+ * documents a command the CLI now refuses.
+ *
+ * CHANGELOG.md and readme.txt's "== Changelog ==" rollup are deliberately NOT
+ * linted, for the same reason the count guards skip them: they state what
+ * shipped at a given tag, and rewriting them would falsify release history.
+ *
+ * The PHP half of this guard (lib/cli.php docblocks, lib/actions.php action
+ * descriptions) lives in tests/InvariantTest.php.
+ */
+describe('docs lint: page-addressed operate commands use the --post_id flag form (#685)', () => {
+    // `wp pp operate <sub>` followed by whitespace and a token that is not a
+    // flag. `<id>`-style placeholders inside the flag (`--post_id=<id>`) are
+    // matched by the negative lookahead on `--`, so only a bare positional hits.
+    const POSITIONAL_PAGE_ARG =
+        /wp pp operate (?:inspect-composition|patch|composition-history)[ \t]+(?!--)\S/;
+
+    // Discovered, never hand-listed: a curated allowlist lets a doc added next
+    // month ship a positional example without ever meeting this guard.
+    const ROOT = path.resolve(__dirname, '../..');
+    // Historical records — see the file header. Their examples were true at their tag.
+    // readme.txt is handled separately below: only its `== Changelog ==` rollup is
+    // historical, and the live prose above it is a shipped, publicly rendered doc.
+    const HISTORICAL = new Set(['CHANGELOG.md']);
+    const mdIn = (dir) =>
+        fs.existsSync(path.join(ROOT, dir))
+            ? fs.readdirSync(path.join(ROOT, dir))
+                .filter((f) => f.endsWith('.md'))
+                .map((f) => (dir ? `${dir}/${f}` : f))
+            : [];
+    const componentReadmes = fs.existsSync(path.join(ROOT, 'components'))
+        ? fs.readdirSync(path.join(ROOT, 'components'), { withFileTypes: true })
+            .filter((d) => d.isDirectory() && fs.existsSync(path.join(ROOT, 'components', d.name, 'README.md')))
+            .map((d) => `components/${d.name}/README.md`)
+        : [];
+    const LIVE_DOC_FILES = [
+        ...mdIn('').filter((f) => !HISTORICAL.has(f)),
+        ...mdIn('docs'),
+        ...mdIn('ai-instructions'),
+        ...componentReadmes,
+    ];
+
+    test.each(LIVE_DOC_FILES)('%s addresses pages with --post_id', (file) => {
+        const hits = read(file).match(new RegExp(POSITIONAL_PAGE_ARG, 'g')) || [];
+        expect(hits).toEqual([]);
+    });
+
+    // readme.txt is not .md, so the walk above never sees it, but its Description
+    // and Features prose is live doc that WordPress.org renders. Lint everything
+    // above the `== Changelog ==` marker; the rollup below it is release history.
+    test('readme.txt live prose addresses pages with --post_id', () => {
+        const readme = read('readme.txt');
+        const marker = readme.indexOf('== Changelog ==');
+        const live = marker === -1 ? readme : readme.slice(0, marker);
+        expect(marker).toBeGreaterThan(-1);
+        expect(live.match(new RegExp(POSITIONAL_PAGE_ARG, 'g')) || []).toEqual([]);
+    });
+
+    // Discovery must actually reach the docs an agent reads. A globbing bug that
+    // returned [] would make every per-file assertion above vacuously pass.
+    test('discovery reaches the known agent-facing docs', () => {
+        for (const expected of [
+            'README.md',
+            'AI_CONTEXT.md',
+            'docs/reference-apply-cli.md',
+            'ai-instructions/operating-loop.md',
+            'components/hero/README.md',
+        ]) {
+            expect(LIVE_DOC_FILES).toContain(expected);
+        }
+        expect(LIVE_DOC_FILES).not.toContain('CHANGELOG.md');
+        expect(LIVE_DOC_FILES.length).toBeGreaterThan(15);
+    });
+
+    // If this stops matching, the regex has been loosened into a no-op.
+    test('the guard is not decoration', () => {
+        const MUST_CATCH = [
+            'wp pp operate inspect-composition 74',
+            'wp pp operate inspect-composition about-us',
+            'wp pp operate patch 19 --target=hero.subheading --value="New"',
+            'wp pp operate composition-history 42',
+            'wp pp operate inspect-composition <page>',
+        ];
+        const MUST_NOT_CATCH = [
+            'wp pp operate inspect-composition --post_id=74',
+            'wp pp operate patch --post_id=19 --target=hero.subheading --value="New"',
+            'wp pp operate composition-history --post_id=<id>',
+            'wp pp operate inspect --post_id=42',
+            'wp pp operate inspect 42',
+        ];
+        for (const s of MUST_CATCH) expect(s).toMatch(POSITIONAL_PAGE_ARG);
+        for (const s of MUST_NOT_CATCH) expect(s).not.toMatch(POSITIONAL_PAGE_ARG);
+    });
+});

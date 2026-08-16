@@ -2424,7 +2424,7 @@ class OperateTest extends TestCase
 
     public function testPatchCompositionThreadsCasBaseline(): void
     {
-        // The operate patch path (wp pp operate <page> --target=... --value=...) routes
+        // The operate patch path (wp pp operate patch --post_id=<id> --target=... --value=...) routes
         // through the update_component action. When the caller supplies the freshness
         // baseline, a stale one must conflict and a current one must apply (#13).
         $post_id = wp_insert_post(['post_type' => 'page', 'post_title' => 'Patch CAS', 'post_status' => 'publish']);
