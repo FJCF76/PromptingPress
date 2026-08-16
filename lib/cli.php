@@ -698,6 +698,90 @@ class PP_Target_Command extends WP_CLI_Command {
 
 WP_CLI::add_command('pp target', 'PP_Target_Command');
 
+// ── Schema CLI (#688) ───────────────────────────────────────────────────────
+
+/**
+ * Reads a component's declared contract out loud.
+ *
+ * Addressing note (#685): the page-addressing gate registered above refuses a
+ * POSITIONAL argument on the three page-addressed `wp pp operate` subcommands and
+ * nothing else — _pp_cli_positional_page_arg_error() returns null unless
+ * $args[1] === 'operate'. `wp pp schema hero` addresses a COMPONENT, not a page, so
+ * its positional is untouched by that hook and neither the hook nor its scope
+ * constant needs widening. A component name is not an address that `--post_id`
+ * could ever express.
+ */
+class PP_Schema_Command extends WP_CLI_Command {
+
+    /**
+     * Outputs a component's props, style slots, applies_when conditions and recipes as JSON.
+     *
+     * Read-only and run-token-free — the same class as `wp pp operate inspect-composition`.
+     * It reads declarations off disk, touches no page, and mints nothing, so it is safe to
+     * call at any point in an operating run.
+     *
+     * With no argument it lists every registered component and whether each one is
+     * composable (`nav` and `footer` are site chrome the page template renders itself, so
+     * they are readable here but may not appear in a composition).
+     *
+     * Each prop and slot carries its declared keys verbatim plus one derived field,
+     * `applies_when_rendered`: the whole condition — `applies_when` clauses and any
+     * `conditionality_note`, ANDed — in the same words the runtime AI catalog uses.
+     *
+     * Scope: props, style slots and recipes. The remaining `styling` declarations
+     * (`root_class`, `variant_classes`, `tokens`, `chrome_custom_properties`) are not
+     * emitted; see pp_component_schema_report() in lib/operate.php.
+     *
+     * ## OPTIONS
+     *
+     * [<component>]
+     * : Component name, exactly as spelled (case-sensitive, never canonicalised). Omit to list all registered components.
+     *
+     * ## EXAMPLES
+     *
+     *     wp pp schema
+     *     wp pp schema hero
+     *     wp pp schema section
+     *
+     */
+    public function __invoke($args, $assoc_args) {
+        // Docblock constraint (tests/InvariantTest.php): each OPTIONS description
+        // must stay on ONE ": " line or WP-CLI folds the continuation into the
+        // synopsis and warns "invalid synopsis part" on every run.
+        //
+        // ONE decision about the argument, taken once: an ABSENT positional means
+        // "list everything", and anything present — including an empty string — is a
+        // component name the builder judges. Collapsing `""` into "absent" here would
+        // give the two layers different answers for the same input, and `wp pp schema ""`
+        // is a typo, not an omission. The builder's refusal names all twelve, which is
+        // more useful than silently printing the index.
+        if (!isset($args[0])) {
+            WP_CLI::line(json_encode(
+                ['components' => pp_component_schema_index()],
+                JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE
+            ));
+            return;
+        }
+
+        $report = pp_component_schema_report((string) $args[0]);
+        if (is_wp_error($report)) {
+            WP_CLI::error($report->get_error_message());
+        }
+
+        // JSON_UNESCAPED_UNICODE matches the other report emitters in this file. Schema
+        // descriptions and conditionality notes are full of em dashes and typographic
+        // quotes, and without this flag every one of them arrives as a numeric \u escape.
+        // A surface whose whole point is being read as prose by an agent that cannot open
+        // schema.json should hand it the characters, not their codepoints.
+        WP_CLI::line(json_encode(
+            $report,
+            JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE
+        ));
+    }
+}
+
+WP_CLI::add_command('pp schema', 'PP_Schema_Command');
+
 // ── Apply CLI ───────────────────────────────────────────────────────────────
 
 class PP_Apply_Command extends WP_CLI_Command {
