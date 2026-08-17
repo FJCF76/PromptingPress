@@ -741,6 +741,29 @@ function _pp_item_index_label(int|string $index): string {
 }
 
 /**
+ * Whether an `items[]` entry has the shape a field-bearing rule may read (#643).
+ *
+ * "Object" here is the JSON sense: a decoded JSON object is an associative array, and a
+ * decoded JSON list is a PHP list. The empty array counts as an object because `{}` and
+ * `[]` decode identically and the emptier reading is the one that lets the required-field
+ * rule speak (an entry with nothing in it is a missing-fields problem, not a shape one).
+ *
+ * SHARED BY THE TWO RULES THAT ASK IT, which is the point. `item_type: "object"` uses it to
+ * REJECT a populated list; the #643 unknown-field rule uses it to STAY SILENT on one,
+ * because a list is a shape defect owned by that first rule and reporting `has no field
+ * "0"` alongside it names positions instead of the defect (#621's misleading-repair-loop
+ * class). Those two answers only stay consistent if they come from one definition — the
+ * same reason _pp_schema_scalar_value_is_valid() and _pp_schema_enum_value_is_valid() are
+ * shared across depths rather than copied.
+ *
+ * @param  mixed $entry  One entry of an items[] array, as stored or submitted.
+ * @return bool          True for a JSON object (including the empty one), false otherwise.
+ */
+function _pp_entry_is_object_shape($entry): bool {
+    return is_array($entry) && ($entry === [] || !pp_is_list($entry));
+}
+
+/**
  * Validates a style-slot override map against a component's declared style slots.
  *
  * The single shared gate for BOTH grid-level component style (`item['style']`) and
@@ -1260,6 +1283,15 @@ function _pp_item_finding_claimed(array $sink, ...$segments): bool {
  * megabytes of findings that nothing reads. A null budget means unbounded, which is what
  * the reporting callers (#233 restore, #236 rollback, the read-only CLI) use.
  *
+ * SINCE #643 THE UNBOUNDED CASE IS NO LONGER SCHEMA-BOUNDED. Every other rule emits at
+ * most one finding per DECLARED prop, style slot or item field, so the schema caps the
+ * list; the nested unknown-FIELD rule emits one per key the AUTHOR supplied, which nothing
+ * caps. The write path is unaffected (budget 1), but the reporting callers above read AGED
+ * STORED data that earlier versions accepted silently, so their worst case now scales with
+ * the stored document rather than with the catalog. Realistically that is a handful of
+ * camelCase strays per band; capping the reporting surfaces per entry, if it ever matters,
+ * is a change to those callers and not to this gate.
+ *
  * @param  array $sink         ['claimed' => array, 'budget' => int|null], by reference.
  *                             `claimed` is reset per item; `budget` spans the composition.
  * @param  mixed ...$segments  Locator parts for _pp_finding_location().
@@ -1349,7 +1381,13 @@ const PP_UNDECLARED_KEY_MAX_LENGTH = 64;
  * The count in the "and N more" tail is the TRUE total, so a truncated list never reads
  * as a complete one.
  *
- * @param  string[] $keys  Output of _pp_undeclared_prop_keys().
+ * TWO CALLERS, one bounding discipline: the missing-required-prop hint passes the whole
+ * output of _pp_undeclared_prop_keys() (top-level prop keys, #622), and the #643 nested
+ * unknown-field rule passes a single-element array holding one items[] FIELD key. Both are
+ * caller-or-stored data; neither may be echoed raw. Keep any change safe for a one-key list.
+ *
+ * @param  string[] $keys  Undeclared key names — the output of _pp_undeclared_prop_keys(),
+ *                          or a single items[] field key (#643).
  * @return string          Comma-separated, bounded list. Empty string when $keys is empty.
  */
 function _pp_render_undeclared_prop_keys(array $keys): string {
@@ -2003,9 +2041,9 @@ function pp_validate_composition_errors(array $items, ?int $limit = null): array
                     // entries, so it stays out of this check.
                     if (($prop_def['item_type'] ?? null) === 'object' && is_array($value)) {
                         foreach ($value as $entry_index => $entry) {
-                            $is_object_shape = is_array($entry)
-                                && ($entry === [] || !pp_is_list($entry));
-                            if (!$is_object_shape) {
+                            // Shared with #643's unknown-field rule since that rule has to
+                            // STAY SILENT on exactly the shape this one REJECTS.
+                            if (!_pp_entry_is_object_shape($entry)) {
                                 // Per ENTRY since #621 — the message names the entry, so
                                 // a grid whose cards 0 and 2 are both scalars names both.
                                 if (_pp_claim_item_finding($sink, 'prop', $prop_name, $entry_index)) {
@@ -2056,11 +2094,14 @@ function pp_validate_composition_errors(array $items, ?int $limit = null): array
             }
         }
 
-        // NESTED item-field contracts (issue #579 A-27, extended by #614 and #600).
+        // NESTED item-field contracts (issue #579 A-27, extended by #614, #600 and #643).
         // The families above walk TOP-LEVEL props only, so FOUR schema annotations
         // one level down were DECLARED and enforced by NOTHING. Rules 1 and 2 came
         // with #579; RULE 3 is #614 and RULE 4 is #600, and both are marked inline
-        // where they sit, between them.
+        // where they sit, between them. RULE 5 (#643) is the one rule here that is
+        // NOT a declaration going unenforced: it walks the other direction — the
+        // entry's OWN keys against the declared set — and closes the last silent
+        // no-op at this depth, a key the schema never declared at all.
         //
         //   1. `required: true` on an items[] field — declared on SEVEN fields today:
         //      logos.items[].image_url / image_alt, stats.items[].number / label,
@@ -2090,15 +2131,22 @@ function pp_validate_composition_errors(array $items, ?int $limit = null): array
         //      grid.items[].text_role, the only nested enum in the shipped schemas
         //      today. Same rule the top-level block above applies, sharing the same
         //      predicate; see the RULE 4 comment inline below.
+        //   5. a key the field map does NOT declare (#643) — the #147 top-level
+        //      `unknown_prop` gate's semantics one level down. See the RULE 5 comment
+        //      inline below for the defect it closes and for its two guards.
         //
         // Enforced HERE, in the shared validator — no second validator, no
         // per-component branch. Walked at the SAME one-items-level depth as the #154
         // media-URL and #507 link_url families.
         //
-        // ALL FOUR RULES READ A FIELD MAP, never the JSON-Schema-ish scalar `items`
+        // ALL FIVE RULES READ A FIELD MAP, never the JSON-Schema-ish scalar `items`
         // form (`bullets.items => {"type": "string"}`) — the is_array($field_def)
         // guard below is what separates them, so an `items` declaration that is a
         // value grammar rather than a map of fields is untouched by every rule here.
+        // Rules 1-4 apply that guard per field as they iterate the declarations;
+        // rule 5 iterates the ENTRY instead, so it reads the same predicate applied
+        // to the whole map ($declared_fields, hoisted below) — one definition of
+        // "is this a field map?", never two.
         //
         // `required` semantics MIRROR the top-level rule exactly: the key being ABSENT
         // is the violation. A present-but-empty string is not treated as missing,
@@ -2120,6 +2168,62 @@ function pp_validate_composition_errors(array $items, ?int $limit = null): array
                 if (!is_array($entries)) {
                     continue; // absent / scalar — the type pass above owns that error
                 }
+                // THE EFFECTIVE DECLARED-FIELD SET, hoisted per prop for RULE 5 (#643).
+                // Rules 1-4 iterate the DECLARATIONS, so each can ask `is_array($field_def)`
+                // one field at a time — the guard that separates a FIELD MAP from the
+                // JSON-Schema-ish scalar form. Rule 5 iterates the ENTRY's own keys instead,
+                // so it needs the whole set up front: both to decide whether this `items` is
+                // a field map at all, and to name the available fields in its message.
+                //
+                // THE PREDICATE IS TIGHTER THAN `is_array` ALONE, and deliberately so. A
+                // field definition is a JSON OBJECT (`{"type": "string", ...}`); the
+                // array-valued keys a definition may otherwise carry are all JSON LISTS —
+                // `values` (enum members), `applies_when` (clauses), and an array `default`
+                // are the three in the closed definition-key set (pp_prop_definition_keys()).
+                // Under a bare `is_array` test a future scalar-form declaration such as
+                // `{"type": "string", "values": ["a","b"], "strict": true}` would read as a
+                // field map holding one field named `values`, and rule 5 would then report
+                // every REAL key of every entry as undeclared against `Available fields:
+                // values` — confidently wrong, and worse than silence. Rules 1-4 survive
+                // that shape by accident (they index `$field_def['required']` / `['type']`
+                // on a list, get null, and no-op), so the loose predicate only becomes
+                // consequential once a rule reads the map as a whole. No shipped schema hits
+                // this today, and none can: every top-level array prop that declares an
+                // `items` key declares a real field map, and the array props that do not
+                // (`section.body_items`, `table.headers`, `table.rows`) carry no `items` key
+                // at all, so the outer `!isset($prop_def['items'])` guard dropped them long
+                // before here. The value grammar exists one level DOWN instead
+                // (`grid.items[].bullets`), where it is a nested field and never reaches
+                // $prop_def. So this fence guards a shape no schema has yet — which is the
+                // cheap moment to build it, not after one lands on it.
+                //
+                // Hoisted for the same reason #621 hoisted $available and $undeclared_hint
+                // above — one build per prop, not one per entry.
+                // THE MAP ITSELF IS TESTED BEFORE ITS MEMBERS ARE, and the two tests are
+                // deliberately NOT the same predicate — they answer different questions,
+                // and the empty array is exactly where they diverge.
+                //
+                //   the MAP: is it a JSON object?  _pp_entry_is_object_shape(), which
+                //     admits `{}`. The JSON-Schema LIST form (`"items": [{"type":
+                //     "string"}]`) is not an object, and without this outer test it
+                //     survives as `[0 => {...}]` — non-empty, so the guard below would not
+                //     fire — and every real key of every entry gets rejected against a
+                //     phantom field named `0`.
+                //
+                //   a MEMBER: is it a field DEFINITION? A definition is a NON-EMPTY object,
+                //     because the array-valued schema keywords a declaration may carry are
+                //     lists — `values`, `applies_when`, and an array `default`, which is
+                //     `[]`. Reusing the map's predicate here would readmit `default: []` as
+                //     a field named `default`; the test above proves it, so keep them apart.
+                $declared_fields = _pp_entry_is_object_shape($prop_def['items'])
+                    ? array_filter(
+                        $prop_def['items'],
+                        static function ($field_def) {
+                            return is_array($field_def) && !pp_is_list($field_def);
+                        }
+                    )
+                    : [];
+                $available_fields = implode(', ', array_keys($declared_fields));
                 foreach ($entries as $entry_index => $entry) {
                     if (!is_array($entry)) {
                         continue; // non-object entry — item_type: "object" owns that error
@@ -2136,6 +2240,12 @@ function pp_validate_composition_errors(array $items, ?int $limit = null): array
                     if (_pp_item_finding_claimed($sink, 'prop', $prop_name, $entry_index)) {
                         continue;
                     }
+                    // Built at most once per ENTRY, on first use — the same shape and the
+                    // same reason as the top-level hint #621 hoisted above: the hint depends
+                    // on the ENTRY, not on which required field is missing, and one entry can
+                    // trip several required fields at once (a logos card missing both
+                    // image_url and image_alt names both). See RULE 1 below for what it is.
+                    $undeclared_field_hint = null;
                     foreach ($prop_def['items'] as $field_name => $field_def) {
                         // The `items` key carries two shapes across the shipped
                         // schemas: a FIELD MAP (grid.items => {title: {...}, ...})
@@ -2149,6 +2259,49 @@ function pp_validate_composition_errors(array $items, ?int $limit = null): array
                         if (!empty($field_def['required'])
                             && !array_key_exists($field_name, $entry)
                         ) {
+                            // NAME THE UNDECLARED FIELDS THE ENTRY DOES CARRY (#643,
+                            // mirroring #622 one level down). RULE 5 below rejects an
+                            // undeclared field, but it runs AFTER this loop and
+                            // pp_validate_composition() is first-error-wins, so on the write
+                            // path a RENAMED required field reported only the canonical name
+                            // that is missing and never the key sitting next to it. That is a
+                            // guaranteed two-round repair: round one says "add image_url",
+                            // the author adds it and keeps `imageUrl`, round two then says
+                            // "has no field imageUrl". The asymmetry was sharper than it
+                            // looks — a misspelled OPTIONAL field surfaces immediately
+                            // through RULE 5, so the gate lost its voice on exactly the
+                            // REQUIRED fields, which are the ones that matter most.
+                            //
+                            // Same helper, same message grammar and same "Available X:" tail
+                            // as the top-level hint, so the two depths cannot drift: the key
+                            // list is bounded by _pp_render_undeclared_prop_keys() (#622/#633)
+                            // because it is caller data, and the available list is
+                            // schema-derived and printed plainly.
+                            //
+                            // Gated on the SAME two carve-outs as RULE 5. Without a field map
+                            // there is nothing to call undeclared, and on a populated JSON
+                            // list the hint would name positions ("0", "1") instead of a
+                            // field — the misleading-repair-loop class this clause exists to
+                            // prevent, not to reproduce.
+                            if ($undeclared_field_hint === null) {
+                                $undeclared_field_hint = '';
+                                if ($declared_fields !== [] && _pp_entry_is_object_shape($entry)) {
+                                    $undeclared = [];
+                                    foreach ($entry as $entry_key => $ignored) {
+                                        if (!array_key_exists($entry_key, $declared_fields)) {
+                                            $undeclared[] = (string) $entry_key;
+                                        }
+                                    }
+                                    if ($undeclared !== []) {
+                                        $undeclared_field_hint = sprintf(
+                                            ' This item also carries field(s) "%s" entries do not declare: %s. Available fields: %s.',
+                                            $prop_name,
+                                            _pp_render_undeclared_prop_keys($undeclared),
+                                            $available_fields
+                                        );
+                                    }
+                                }
+                            }
                             // Per FIELD since #621: a logos entry missing both
                             // image_url and image_alt names both, and the sibling
                             // entries are still walked.
@@ -2161,7 +2314,7 @@ function pp_validate_composition_errors(array $items, ?int $limit = null): array
                                         $prop_name,
                                         _pp_item_index_label($entry_index),
                                         $field_name
-                                    )
+                                    ) . $undeclared_field_hint
                                 );
                             }
                             continue;
@@ -2302,6 +2455,122 @@ function pp_validate_composition_errors(array $items, ?int $limit = null): array
                                     continue 2; // next FIELD of this entry
                                 }
                             }
+                        }
+                    }
+                    // RULE 5 — the entry's own UNDECLARED fields (#643).
+                    // Rules 1-4 walk the DECLARATIONS, so they can only ever judge a field
+                    // the schema names. Nothing walked the other direction, and the gap was
+                    // the nearest neighbour to the defect #614 closed: #614 stops
+                    // `image_id: {attachment_id: 42}` from resolving the wrong attachment,
+                    // but `imageId: 42` — camelCase, the shape a model reaching for JS
+                    // conventions produces — still validated, persisted, returned ok:true
+                    // and rendered nothing. One keystroke away, same trust class.
+                    //
+                    // This is the #147 TOP-LEVEL gate's semantics, one level down, in the
+                    // same shared validator (no second surface): an undeclared key is
+                    // rejected with `unknown_prop` and the message names what IS available.
+                    // Its rationale transfers verbatim — "an unknown key persists, the
+                    // action reports ok:true, and the renderer silently ignores it".
+                    //
+                    // TWO GUARDS, both load-bearing:
+                    //
+                    //   $declared_fields === []   this prop's `items` is a VALUE grammar,
+                    //                             not a field map, so there is no field
+                    //                             contract for an entry to be measured
+                    //                             against and nothing here can be
+                    //                             "undeclared". NO SHIPPED SCHEMA REACHES
+                    //                             THIS BRANCH — the props a reader will
+                    //                             think of are excluded earlier and for a
+                    //                             different reason: `section.body_items`,
+                    //                             `table.headers` and `table.rows` declare
+                    //                             no `items` key at all and are dropped by
+                    //                             the `!isset($prop_def['items'])` guard at
+                    //                             the top of this block, and
+                    //                             `grid.items[].bullets` is a nested FIELD
+                    //                             that is never bound to $prop_def. The
+                    //                             guard is forward-looking, and the hoist
+                    //                             comment above says what it is looking at.
+                    //
+                    //   a populated LIST entry    a SHAPE defect, and the rule that owns an
+                    //                             entry's shape is `item_type: "object"`
+                    //                             above — which claims the entry, so this
+                    //                             pass never sees one on an annotated prop.
+                    //                             `section.panel_items` is deliberately
+                    //                             UNannotated (it accepts mixed
+                    //                             string+object entries), so a list entry
+                    //                             there is owned by nothing and does reach
+                    //                             here: without this guard it would report
+                    //                             `has no field "0"` and `has no field "1"`
+                    //                             — two findings naming positions instead
+                    //                             of the real defect, the exact
+                    //                             misleading-repair-loop class #621
+                    //                             documents at the entry-shape guard above.
+                    //                             _pp_entry_is_object_shape() is SHARED with
+                    //                             that rule, so "is this an object?" has one
+                    //                             definition rather than two copies.
+                    //
+                    // REFLECTION IS DELIBERATELY STRICTER THAN #147's, not merely equal to
+                    // it. The KEY is caller/stored data, so it goes through the bounded
+                    // renderer #622/#633 built for exactly that (control/format characters
+                    // stripped, 64-char cap, `(unprintable key)` for a non-UTF-8 key). The
+                    // top-level gate still echoes its `$prop_name` RAW — that asymmetry is a
+                    // known gap in the WIDER surface, not a standard to level down to, so
+                    // harmonizing the two means bounding #147, never unbounding this. The
+                    // AVAILABLE list is schema-derived and is emitted plainly, matching the
+                    // top-level gate; it needs no `(none)` fallback because the empty case
+                    // is the first guard above. The LOCATOR stays _pp_item_index_label()
+                    // (#634): rendered whole, never cast, bounding deferred to #647/#649 so
+                    // the whole family stays uniform until that lane lands.
+                    //
+                    // ORDER IS DELIBERATE. It runs AFTER the declared-field loop so a
+                    // missing required field still wins first-error document order, exactly
+                    // as the top-level gate runs after the required-prop loop. Since #621
+                    // the claim set makes that ordering load-bearing: moving this pass
+                    // ABOVE the loop would change which message an operator sees, and is a
+                    // behavior change, not a refactor.
+                    //
+                    // Depth accounting, numbered from each `continue`'s own innermost
+                    // enclosing loop, the way RULE 3 does it above. This key loop and the
+                    // field loop are SIBLINGS — both direct children of `foreach ($entries)`:
+                    //   both guards below   bare `continue` in foreach ($entries …) => next ENTRY
+                    //   the report loop     bare `continue` in foreach ($entry …)   => next KEY
+                    // Reports are exhaustive per key, one finding per undeclared key (#621).
+                    //
+                    // Same accepted cost as every rule in this block: whole-composition
+                    // validation means a stored undeclared key blocks edits to unrelated
+                    // bands on that page until the item is repaired through the ordinary
+                    // authoring surface. That is the v1.13.0 no-compat posture, not a
+                    // regression — `wp pp check page` / `wp pp validate site` still REPORT
+                    // it (#622) and restore_composition still restores and reports rather
+                    // than blocking (#233).
+                    // Guard order is cost-ordered: the SCHEMA-side test is a comparison
+                    // against an already-built set, the ENTRY-side one allocates two
+                    // temporary arrays inside pp_is_list() (array_keys + range). Asking the
+                    // free question first means a prop with no field map never pays for the
+                    // shape test at all, on every entry of every band of every write and
+                    // every `wp pp validate site` traversal.
+                    if ($declared_fields === []) {
+                        continue; // not a field map — nothing here can be "undeclared"
+                    }
+                    if (!_pp_entry_is_object_shape($entry)) {
+                        continue; // a populated list is a SHAPE defect, not an unknown key
+                    }
+                    foreach ($entry as $entry_key => $ignored) {
+                        if (array_key_exists($entry_key, $declared_fields)) {
+                            continue;
+                        }
+                        if (_pp_claim_item_finding($sink, 'prop', $prop_name, $entry_index, $entry_key)) {
+                            $errors[] = _pp_composition_item_error($i,
+                                'unknown_prop',
+                                sprintf(
+                                    'Component "%s" prop "%s" item %s has no field "%s". Available fields: %s',
+                                    $name,
+                                    $prop_name,
+                                    _pp_item_index_label($entry_index),
+                                    _pp_render_undeclared_prop_keys([(string) $entry_key]),
+                                    $available_fields
+                                )
+                            );
                         }
                     }
                 }

@@ -204,6 +204,95 @@ class AiContextTest extends TestCase
             'section must advertise its content requirement to the AI catalog.');
     }
 
+    /**
+     * The catalog advertises the accepted ENTRY FIELDS of every array prop that declares a
+     * field map (#643). Until #643 an undeclared items[] field was silently accepted, so a
+     * model guessing `imageId` got ok:true and a blank render. It is now a HARD REJECT on
+     * every write verb, and this catalog is the only place the chat model can learn the
+     * real names: the runtime has no file or tool surface, and a rejected step's message is
+     * shown to the operator without re-entering the model's conversation. Advertising the
+     * closed set is therefore part of enforcing it, not decoration.
+     *
+     * Asserted against the REAL shipped schemas so the catalog cannot drift from the gate.
+     */
+    public function testCatalogAdvertisesTheAcceptedItemFieldsOfEveryFieldMap(): void
+    {
+        $read = static function (string $component): array {
+            return json_decode(
+                file_get_contents(dirname(__DIR__) . "/components/{$component}/schema.json"),
+                true
+            );
+        };
+
+        // Required fields carry no marker; optional ones carry `?`, same grammar the
+        // top-level prop list already uses.
+        $this->assertStringContainsString(
+            '[entry fields: image_url, image_alt, image_id?, label? — no other field is accepted]',
+            pp_ai_condense_schema($read('logos')),
+            'logos entries must advertise their closed field set, required-ness included'
+        );
+        $this->assertStringContainsString(
+            '[entry fields: question, answer — no other field is accepted]',
+            pp_ai_condense_schema($read('faq'))
+        );
+        // panel_items is a field map too, but its entries may ALSO be a plain string —
+        // the primary documented form — which is why it declares no `item_type`. The
+        // closed-set clause is therefore qualified rather than absolute: telling the model
+        // strings are illegal makes it wrap each line as {label: "..."}, which validates,
+        // reports ok:true, and renders a paired row with an empty value span instead of a
+        // bullet. The catalog may not claim more than the gate enforces.
+        $this->assertStringContainsString(
+            '[entry fields, for an OBJECT entry: label?, value?, style?'
+                . ' — no other field is accepted; a plain string entry is also allowed]',
+            pp_ai_condense_schema($read('section')),
+            'panel_items must not be advertised as objects-only'
+        );
+        // Every shipped field map is covered, so a new one cannot ship unadvertised.
+        foreach (['grid', 'stats', 'testimonials'] as $component) {
+            $this->assertStringContainsString(
+                '[entry fields:',
+                pp_ai_condense_schema($read($component)),
+                "{$component}.items is a field map and must advertise its fields"
+            );
+        }
+    }
+
+    /**
+     * An array prop whose `items` is a VALUE grammar (or which declares no `items` at all)
+     * advertises no field list — there is no field contract to advertise, and inventing one
+     * would tell the model a closed set exists where the validator enforces none. `table`
+     * declares `headers` and `rows` with no `items` key; this is the negative half of the
+     * pin above and the reason the catalog derives its list from the validator's own
+     * is-a-field-map predicate rather than from `isset($prop_def['items'])`.
+     */
+    public function testCatalogAdvertisesNoEntryFieldsForAValueGrammarArray(): void
+    {
+        $table = json_decode(
+            file_get_contents(dirname(__DIR__) . '/components/table/schema.json'),
+            true
+        );
+        $this->assertStringNotContainsString('[entry fields:', pp_ai_condense_schema($table));
+
+        // A synthetic value grammar carrying an array-valued schema KEYWORD must not read
+        // as a field map named after the keyword — the same trap RULE 5's discriminator
+        // fences in lib/admin.php.
+        $synthetic = ['props' => ['bag' => [
+            'type' => 'array', 'required' => false,
+            'items' => ['type' => 'object', 'default' => [], 'values' => ['a', 'b']],
+        ]]];
+        $this->assertStringNotContainsString('[entry fields:', pp_ai_condense_schema($synthetic),
+            '`default` and `values` are schema keywords, never advertisable entry fields');
+
+        // The JSON-Schema LIST form is not a field map either. Without the map-level shape
+        // test it survives as [0 => {...}] and the catalog advertises a phantom field `0`.
+        $listForm = ['props' => ['things' => [
+            'type' => 'array', 'required' => false,
+            'items' => [['type' => 'string']],
+        ]]];
+        $this->assertStringNotContainsString('[entry fields:', pp_ai_condense_schema($listForm),
+            'a JSON-Schema list-form `items` declares no field map');
+    }
+
     // ── Param Formatting ──────────────────────────────────────────────────
 
     public function testFormatParamsProducesCompactString(): void

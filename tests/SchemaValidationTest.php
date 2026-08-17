@@ -1150,6 +1150,110 @@ class SchemaValidationTest extends TestCase
     }
 
     /**
+     * RULE 5's field-map discriminator is not fooled by an array-valued schema KEYWORD
+     * (#643). A field definition is a JSON object; the array-valued keys a definition may
+     * otherwise carry — `values`, `applies_when`, an array `default` — are all JSON lists,
+     * so the predicate excludes lists rather than testing `is_array` alone. Mutation-checked
+     * in a scratch copy: reverting to a bare `is_array` test fails the first assertion below.
+     *
+     * No shipped schema can reach this shape (every top-level array prop with an `items`
+     * key declares a real field map), which is exactly why it needs a synthetic component:
+     * asserting the discriminator against the twelve shipped schemas would prove nothing
+     * about the case that breaks it. Under a bare `is_array` test the `hits` prop below
+     * reads as a field map holding one field named `values`, and every real entry key gets
+     * reported as undeclared against `Available fields: values` — confidently wrong output,
+     * which is worse than the silence this rule replaced.
+     */
+    public function testAnArrayValuedSchemaKeywordIsNotMistakenForADeclaredItemField(): void
+    {
+        $root = sys_get_temp_dir() . '/pp-fieldmap-fixture-' . uniqid('', true);
+        mkdir($root . '/components/keyband', 0777, true);
+        file_put_contents($root . '/components/keyband/keyband.php', '<?php // fixture');
+        file_put_contents($root . '/components/keyband/schema.json', json_encode([
+            'component' => 'keyband',
+            'props'     => [
+                // A scalar VALUE grammar carrying an array-valued sibling keyword. This is
+                // the shape the discriminator has to refuse to read as a field map.
+                // A VALUE GRAMMAR carrying an array-valued schema keyword, over entries
+                // that are objects: "each entry is a free-form object, with no field
+                // contract". This is the exact shape that separates the two predicates —
+                // under a bare `is_array` test `default => []` reads as a declared field
+                // named `default`, and every real key of every entry is then reported as
+                // undeclared against `Available fields: default`.
+                'bag' => [
+                    'type' => 'array', 'required' => false,
+                    'description' => 'Synthetic free-form object array with an array default.',
+                    'items' => ['type' => 'object', 'default' => [], 'values' => ['a', 'b']],
+                ],
+                // The JSON-Schema LIST form: a one-element list of definitions rather
+                // than a map of named fields.
+                'listform' => [
+                    'type' => 'array', 'required' => false,
+                    'description' => 'Synthetic JSON-Schema list-form items declaration.',
+                    'items' => [['type' => 'string']],
+                ],
+                // A real field map on the same component, so the test also proves the
+                // discriminator still ADMITS the shape it is supposed to judge.
+                'rows' => [
+                    'type' => 'array', 'required' => false, 'item_type' => 'object',
+                    'description' => 'Synthetic object-item array with a real field map.',
+                    'items' => [
+                        'label' => ['type' => 'string', 'required' => false, 'description' => 'Row label.'],
+                    ],
+                ],
+            ],
+        ]));
+
+        $previousRoot = $GLOBALS['_pp_test_template_dir'] ?? null;
+        $GLOBALS['_pp_test_template_dir'] = $root;
+        $GLOBALS['_pp_registered_components_invalidate'] = true;
+
+        try {
+            // The value-grammar prop declares no field contract, so nothing inside its
+            // OBJECT entries can be "undeclared". Verified load-bearing: revert the
+            // predicate to a bare is_array() test and this assertion fails with
+            // `has no field "anything". Available fields: default`.
+            $this->assertTrue(\pp_validate_composition([
+                ['component' => 'keyband', 'props' => ['bag' => [['anything' => 1, 'goes' => 2]]]],
+            ]), 'an array-valued schema keyword is not a declared field');
+
+            // The real field map on the same component still rejects an undeclared field,
+            // so the tighter predicate did not disarm the rule.
+            $rejected = \pp_validate_composition([
+                ['component' => 'keyband', 'props' => ['rows' => [['label' => 'One', 'labl' => 'typo']]]],
+            ]);
+            $this->assertInstanceOf(\WP_Error::class, $rejected);
+            $this->assertSame('unknown_prop', $rejected->get_error_code());
+            $this->assertStringContainsString(
+                'prop "rows" item 0 has no field "labl". Available fields: label',
+                $rejected->get_error_message(),
+                'the available list names declared FIELDS only, never a schema keyword'
+            );
+            // THE JSON-SCHEMA LIST FORM is not a field map either, and the map-level
+            // shape test is what says so. Without it the declaration survives as
+            // [0 => {...}] — non-empty, so the carve-out does not fire — and every REAL
+            // key of every entry is rejected against a phantom field named `0`, which is
+            // the same confidently-wrong output the keyword case produces.
+            $this->assertTrue(\pp_validate_composition([
+                ['component' => 'keyband', 'props' => ['listform' => [['name' => 'a', 'url' => 'b']]]],
+            ]), 'a JSON-Schema list-form `items` declares no field map');
+
+        } finally {
+            if ($previousRoot === null) {
+                unset($GLOBALS['_pp_test_template_dir']);
+            } else {
+                $GLOBALS['_pp_test_template_dir'] = $previousRoot;
+            }
+            $GLOBALS['_pp_registered_components_invalidate'] = true;
+            @unlink($root . '/components/keyband/schema.json');
+            @unlink($root . '/components/keyband/keyband.php');
+            @rmdir($root . '/components/keyband');
+            @rmdir($root . '/components');
+            @rmdir($root);
+        }
+    }
+
+    /**
      * restore_composition never blocks, for the new rejections too (ruling 2). A
      * snapshot carrying an out-of-set enum restores verbatim and reports the
      * violation as a finding through the shared engine.
@@ -2343,6 +2447,13 @@ class SchemaValidationTest extends TestCase
                 ]]],
                 'invalid_prop_value',
             ],
+            // #643 RULE 5 undeclared nested field
+            'undeclared nested item field' => [
+                ['component' => 'logos', 'props' => ['items' => [
+                    ['image_url' => '/a.png', 'image_alt' => 'A', 'imageId' => 42],
+                ]]],
+                'unknown_prop',
+            ],
         ];
     }
 
@@ -2380,6 +2491,310 @@ class SchemaValidationTest extends TestCase
         $this->assertStringContainsString('item 0 is missing required field "image_url"', $messages[0]);
         $this->assertStringContainsString('item 0 is missing required field "image_alt"', $messages[1]);
         $this->assertStringContainsString('item 2 field "image_url" must be a string', $messages[2]);
+    }
+
+    // ── RULE 5: undeclared nested item fields (#643) ─────────────────────────
+    //
+    // The #147 top-level `unknown_prop` gate, one level down. Rules 1-4 walk the
+    // DECLARATIONS and so can only judge a field the schema names; nothing walked the
+    // other direction, which left a misspelled item field persisting behind ok:true —
+    // the last silent no-op at this depth and the nearest neighbour to the defect #614
+    // closed.
+
+    public function testAnUndeclaredNestedItemFieldIsRejected(): void
+    {
+        // THE REPORTED DEFECT, inverted (#643). `imageId: 42` is camelCase — the shape a
+        // model reaching for JS conventions produces, one keystroke from the declared
+        // `image_id`. Before this rule it validated, persisted, returned ok:true and
+        // rendered nothing, while #614 was already stopping the far rarer
+        // `image_id: {attachment_id: 42}` right beside it.
+        $result = pp_validate_composition([
+            ['component' => 'logos', 'props' => ['items' => [
+                ['image_url' => '/a.png', 'image_alt' => 'A', 'imageId' => 42],
+            ]]],
+        ]);
+
+        $this->assertInstanceOf(\WP_Error::class, $result);
+        $this->assertSame('unknown_prop', $result->get_error_code(), 'the top-level gate\'s code, not a new one');
+        $this->assertSame(
+            'Component "logos" prop "items" item 0 has no field "imageId". '
+                . 'Available fields: image_url, image_alt, image_id, label',
+            $result->get_error_message(),
+            'the message names the offending key AND the available fields, like the top-level gate'
+        );
+    }
+
+    public function testAnUndeclaredNestedFieldNamesTheItemByItsHonestKey(): void
+    {
+        // #634's locator ruling holds at this rule too: an items[] object decodes to a
+        // string-keyed array, and the key is RENDERED, never cast. Casting would say
+        // "item 0", and there is no item 0 — the operator would be sent to repair an
+        // element that does not exist.
+        $result = pp_validate_composition([
+            ['component' => 'logos', 'props' => ['items' => [
+                'aa' => ['image_url' => '/a.png', 'image_alt' => 'A', 'imageId' => 42],
+            ]]],
+        ]);
+
+        $this->assertInstanceOf(\WP_Error::class, $result);
+        $this->assertStringContainsString('item aa has no field "imageId"', $result->get_error_message());
+    }
+
+    public function testEveryUndeclaredFieldOfOneEntryIsNamed(): void
+    {
+        // Exhaustive per KEY, like the top-level gate since #621: an entry carrying three
+        // misspellings reports three findings, so one repair pass fixes the card. The
+        // declared fields beside them produce nothing.
+        $errors = pp_validate_composition_errors([
+            ['component' => 'grid', 'props' => ['items' => [
+                ['title' => 'Fine', 'txet' => 'a', 'linkUrl' => '/b', 'imageAlt' => 'c'],
+            ]]],
+        ]);
+
+        $this->assertSame(['unknown_prop', 'unknown_prop', 'unknown_prop'], array_map(
+            static fn ($e) => $e->get_error_code(),
+            $errors
+        ));
+        $messages = array_map(static fn ($e) => $e->get_error_message(), $errors);
+        $this->assertStringContainsString('has no field "txet"', $messages[0]);
+        $this->assertStringContainsString('has no field "linkUrl"', $messages[1]);
+        $this->assertStringContainsString('has no field "imageAlt"', $messages[2]);
+    }
+
+    /**
+     * Every declared field of every field-map prop still authors cleanly. The rule is a
+     * REJECTION of what the schema does not name, never a narrowing of what it does —
+     * so the full declared surface of each shipped field map is exercised at once.
+     *
+     * @dataProvider fullyDeclaredItemsProvider
+     */
+    public function testAFullyDeclaredItemsEntryIsAccepted(array $composition): void
+    {
+        $this->assertTrue(pp_validate_composition($composition));
+    }
+
+    public static function fullyDeclaredItemsProvider(): array
+    {
+        return [
+            'grid — all eleven declared fields' => [[
+                ['component' => 'grid', 'props' => ['items' => [[
+                    'number' => '1', 'title' => 'T', 'text' => 'x', 'text_role' => 'mono',
+                    'bullets' => ['a'], 'image_url' => '/a.png', 'image_alt' => 'A',
+                    'image_id' => 3, 'link_url' => '/x', 'link_text' => 'go',
+                    'style' => ['--grid-item-bg' => '#fff'],
+                ]]]],
+            ]],
+            'logos — all four' => [[
+                ['component' => 'logos', 'props' => ['items' => [[
+                    'image_url' => '/a.png', 'image_alt' => 'A', 'image_id' => 7, 'label' => 'Acme',
+                ]]]],
+            ]],
+            'testimonials — all seven' => [[
+                ['component' => 'testimonials', 'props' => ['items' => [[
+                    'quote' => 'Q', 'author' => 'A', 'role' => 'R', 'company' => 'C',
+                    'image_url' => '/a.png', 'image_alt' => 'A', 'image_id' => 1,
+                ]]]],
+            ]],
+            'stats — all two' => [[
+                ['component' => 'stats', 'props' => ['items' => [['number' => '9', 'label' => 'L']]]],
+            ]],
+            'faq — all two' => [[
+                ['component' => 'faq', 'props' => ['items' => [['question' => 'Q?', 'answer' => 'A.']]]],
+            ]],
+            'section.panel_items — all three' => [[
+                ['component' => 'section', 'props' => [
+                    'title' => 'T', 'body' => 'B',
+                    'panel_items' => [['label' => 'L', 'value' => 'V', 'style' => []]],
+                ]],
+            ]],
+        ];
+    }
+
+    /**
+     * Array props with NO field contract are untouched by the unknown-field rule (#643).
+     *
+     * These three are excluded by the outer `isset($prop_def['items'])` guard rather than by
+     * the field-map discriminator — they declare no `items` at all — and `grid.items[].bullets`
+     * is a nested field whose own `items` is a value grammar, one level below anything this
+     * rule reads. Named honestly: the discriminator's own branch is unreachable with the
+     * shipped schemas and is pinned separately, with a synthetic component, in
+     * testAnArrayValuedSchemaKeywordIsNotMistakenForADeclaredItemField().
+     *
+     * @dataProvider noFieldContractItemsProvider
+     */
+    public function testArrayPropsWithNoFieldContractAreUntouchedByTheUnknownFieldRule(array $composition): void
+    {
+        $this->assertTrue(pp_validate_composition($composition));
+    }
+
+    public static function noFieldContractItemsProvider(): array
+    {
+        return [
+            // A value-grammar `items` NESTED inside a field map — bullets is a field, so it
+            // is never bound to $prop_def and its entries are never walked for unknown keys.
+            'nested bullets array' => [[
+                ['component' => 'grid', 'props' => ['items' => [['title' => 'T', 'bullets' => ['a', 'b']]]]],
+            ]],
+            // Top-level array props that declare no `items` key at all.
+            'section.body_items' => [[
+                ['component' => 'section', 'props' => ['title' => 'T', 'body_items' => ['a', 'b']]],
+            ]],
+            'table.headers and table.rows' => [[
+                ['component' => 'table', 'props' => ['headers' => ['A', 'B'], 'rows' => [['1', '2']]]],
+            ]],
+        ];
+    }
+
+    public function testAPopulatedListEntryIsAShapeDefectAndNotAnUnknownKeyDefect(): void
+    {
+        // section.panel_items is DELIBERATELY not annotated `item_type: "object"` — it
+        // accepts mixed string+object entries — so no rule claims a JSON LIST entry there.
+        // Rule 5 must not fill that vacuum: reporting `has no field "0"` and
+        // `has no field "1"` would name positions instead of the real defect, which is the
+        // misleading-repair-loop class #621 documents at the entry-shape guard (adding keys
+        // to a list still fails the shape rule). The list guard uses the object rule's own
+        // predicate, so "is this an object?" has exactly one answer.
+        $errors = pp_validate_composition_errors([
+            ['component' => 'section', 'props' => [
+                'title' => 'T', 'body' => 'B', 'panel_items' => [['L', 'V']],
+            ]],
+        ]);
+
+        $this->assertSame([], $errors, 'a list entry under an unannotated prop gains no unknown-field findings');
+    }
+
+    public function testAnAnnotatedListEntryStillReportsOnlyItsShape(): void
+    {
+        // The other half: where `item_type: "object"` DOES own the entry, it claims the
+        // location first and rule 5 never sees it — one finding for one defect, not three.
+        $errors = pp_validate_composition_errors([
+            ['component' => 'logos', 'props' => ['items' => [['/a.png', 'Alt']]]],
+        ]);
+
+        $this->assertCount(1, $errors);
+        $this->assertStringContainsString('item 0 must be an object', $errors[0]->get_error_message());
+    }
+
+    public function testAStringEntryUnderPanelItemsIsUntouched(): void
+    {
+        // panel_items' plain-string entry form is the shipped grammar, and the entry loop's
+        // is_array() guard is what keeps rule 5 off it.
+        $this->assertTrue(pp_validate_composition([
+            ['component' => 'section', 'props' => [
+                'title' => 'T', 'body' => 'B', 'panel_items' => ['plain line', ['label' => 'L', 'value' => 'V']],
+            ]],
+        ]));
+    }
+
+    /**
+     * THE REFLECTED KEY IS BOUNDED. An undeclared field name comes from stored or
+     * caller-supplied data and travels out through the CLI, the action envelope, the
+     * dashboard editor and the AI chat, so it routes through the renderer #622/#633 built
+     * for exactly that rather than being echoed raw. Pinned as EXACT output because the
+     * whole point is what an operator sees.
+     *
+     * @dataProvider hostileItemKeyProvider
+     */
+    public function testAnUndeclaredNestedFieldNameIsRenderedBounded(string $key, string $expected): void
+    {
+        $result = pp_validate_composition([
+            ['component' => 'logos', 'props' => ['items' => [
+                ['image_url' => '/a.png', 'image_alt' => 'A', $key => 1],
+            ]]],
+        ]);
+
+        $this->assertInstanceOf(\WP_Error::class, $result);
+        $this->assertStringContainsString(
+            sprintf('has no field "%s"', $expected),
+            $result->get_error_message()
+        );
+    }
+
+    public static function hostileItemKeyProvider(): array
+    {
+        return [
+            'control characters are stripped' => ["ba\x07d", 'bad'],
+            'a bidi override is stripped'     => ["ok\u{202E}ay", 'okay'],
+            'an over-long key is capped'      => [str_repeat('z', 80), str_repeat('z', 64) . '...'],
+            'a wholly unprintable key'        => ["\x01\x02", '(unprintable key)'],
+        ];
+    }
+
+    public function testTheMissingRequiredHintBoundsTheKeysItReflects(): void
+    {
+        // The hint reflects CALLER data, so it goes through the same bounded renderer the
+        // unknown-field rule uses (#622/#633) rather than being echoed raw. Pinned because
+        // the hint travels the same way every other message here does — CLI, action
+        // envelope, dashboard editor, AI chat.
+        $result = pp_validate_composition([
+            ['component' => 'logos', 'props' => ['items' => [
+                ['image_alt' => 'A', "ba\x07d" => 1, str_repeat('z', 80) => 2],
+            ]]],
+        ]);
+
+        $this->assertInstanceOf(\WP_Error::class, $result);
+        $message = $result->get_error_message();
+        $this->assertStringContainsString('is missing required field "image_url"', $message);
+        $this->assertStringContainsString('bad', $message, 'the control character is stripped');
+        $this->assertStringNotContainsString("\x07", $message, 'no raw control byte reaches the message');
+        $this->assertStringContainsString(str_repeat('z', 64) . '...', $message, 'the over-long key is capped');
+    }
+
+    /**
+     * The hint carries RULE 5's shape carve-out too: on a populated JSON list it would name
+     * positions ("0", "1") rather than fields, which is the misleading-repair-loop class
+     * (#621) the clause exists to prevent, not to reproduce.
+     *
+     * Needs a synthetic component to reach: every shipped field map that declares a
+     * REQUIRED field also declares `item_type: "object"`, so the object rule claims a list
+     * entry before the required loop ever sees it. This one declares a required field and
+     * no item_type, which is the combination that reaches the branch.
+     */
+    public function testTheMissingRequiredHintIsSilentOnAListEntry(): void
+    {
+        $root = sys_get_temp_dir() . '/pp-hintshape-fixture-' . uniqid('', true);
+        mkdir($root . '/components/hintband', 0777, true);
+        file_put_contents($root . '/components/hintband/hintband.php', '<?php // fixture');
+        file_put_contents($root . '/components/hintband/schema.json', json_encode([
+            'component' => 'hintband',
+            'props'     => [
+                'rows' => [
+                    'type' => 'array', 'required' => false,
+                    'description' => 'Synthetic field map with a required field and no item_type.',
+                    'items' => [
+                        'label' => ['type' => 'string', 'required' => true, 'description' => 'Required.'],
+                    ],
+                ],
+            ],
+        ]));
+
+        $previousRoot = $GLOBALS['_pp_test_template_dir'] ?? null;
+        $GLOBALS['_pp_test_template_dir'] = $root;
+        $GLOBALS['_pp_registered_components_invalidate'] = true;
+
+        try {
+            $result = \pp_validate_composition([
+                ['component' => 'hintband', 'props' => ['rows' => [['one', 'two']]]],
+            ]);
+
+            $this->assertInstanceOf(\WP_Error::class, $result);
+            $message = $result->get_error_message();
+            $this->assertStringContainsString('is missing required field "label"', $message);
+            $this->assertStringNotContainsString('also carries field(s)', $message,
+                'a list entry has positions, not undeclared fields — the hint must stay silent');
+        } finally {
+            if ($previousRoot === null) {
+                unset($GLOBALS['_pp_test_template_dir']);
+            } else {
+                $GLOBALS['_pp_test_template_dir'] = $previousRoot;
+            }
+            $GLOBALS['_pp_registered_components_invalidate'] = true;
+            @unlink($root . '/components/hintband/schema.json');
+            @unlink($root . '/components/hintband/hintband.php');
+            @rmdir($root . '/components/hintband');
+            @rmdir($root . '/components');
+            @rmdir($root);
+        }
     }
 
     public function testANonScalarNestedLinkIsReportedOnceByTheTypeRule(): void
@@ -2496,6 +2911,71 @@ class SchemaValidationTest extends TestCase
             pp_validate_composition_errors($composition)[0]->get_error_message(),
             $result->get_error_message()
         );
+    }
+
+    public function testTheBudgetBoundsTheUndeclaredItemFieldRuleToo(): void
+    {
+        // RULE 5 (#643) is the ONE report site in this engine whose fan-out is the count of
+        // AUTHOR-SUPPLIED keys rather than the schema's declaration set or the entry count:
+        // rules 1-4 can emit at most one finding per DECLARED field, a number the schema
+        // caps, while an undeclared key is anything a caller can type. That makes it the
+        // report site the budget matters most for, so it gets its own pin rather than
+        // riding on the entries-based one above. Without the claim gate the write path
+        // would build one WP_Error per key of a hostile composition.
+        $entry = ['image_url' => '/a.png', 'image_alt' => 'A'];
+        for ($i = 0; $i < 400; $i++) {
+            $entry["not_a_field_{$i}"] = 'x';
+        }
+        $composition = [['component' => 'logos', 'props' => ['items' => [$entry]]]];
+
+        $all      = pp_validate_composition_errors($composition);
+        $budgeted = pp_validate_composition_errors($composition, 1);
+
+        $this->assertCount(400, $all, 'the reporting path names every undeclared key');
+        $this->assertCount(1, $budgeted, 'the write path builds one finding, not 400');
+        $this->assertSame('unknown_prop', $budgeted[0]->get_error_code());
+        $this->assertSame($all[0]->get_error_message(), $budgeted[0]->get_error_message(),
+            'the budgeted write path returns exactly the error the unbudgeted one returns first');
+    }
+
+    public function testASkippedItemsEntryDoesNotSuppressAnUndeclaredFieldInALaterOne(): void
+    {
+        // The shape guard advances to the NEXT ENTRY; it must not end the prop. Pinned
+        // because a `break` there would read as a harmless tidy-up and would silently drop
+        // a real finding on the write path. section.panel_items is the reachable case: it
+        // is deliberately unannotated, so a JSON-list entry there is claimed by no rule and
+        // actually reaches the guard instead of being short-circuited earlier.
+        $errors = pp_validate_composition_errors([
+            ['component' => 'section', 'props' => [
+                'title' => 'T', 'body' => 'B',
+                'panel_items' => [
+                    ['L', 'V'],                                  // list entry: skipped, silently
+                    ['label' => 'ok', 'vlaue' => 'typo'],        // must still be reported
+                ],
+            ]],
+        ]);
+
+        $this->assertCount(1, $errors);
+        $this->assertSame('unknown_prop', $errors[0]->get_error_code());
+        $this->assertStringContainsString('item 1 has no field "vlaue"', $errors[0]->get_error_message());
+    }
+
+    public function testUndeclaredFieldsAreNamedAcrossSiblingEntries(): void
+    {
+        // Cross-ENTRY exhaustiveness, the companion to the within-entry pin: two bad cards
+        // in one strip are two findings, so one repair pass fixes the band (#621).
+        $errors = pp_validate_composition_errors([
+            ['component' => 'logos', 'props' => ['items' => [
+                ['image_url' => '/a.png', 'image_alt' => 'A', 'imageId' => 1],
+                ['image_url' => '/b.png', 'image_alt' => 'B'],
+                ['image_url' => '/c.png', 'image_alt' => 'C', 'imageAlt' => 'dupe'],
+            ]]],
+        ]);
+
+        $messages = array_map(static fn ($e) => $e->get_error_message(), $errors);
+        $this->assertCount(2, $errors, 'the clean middle card contributes nothing');
+        $this->assertStringContainsString('item 0 has no field "imageId"', $messages[0]);
+        $this->assertStringContainsString('item 2 has no field "imageAlt"', $messages[1]);
     }
 
     public function testABudgetNeverHidesACrossItemCollisionThatIsTheOnlyError(): void
