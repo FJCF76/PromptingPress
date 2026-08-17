@@ -536,14 +536,66 @@ test.describe('Safe-surface rendered proof', () => {
   });
 
   // #475: the row is a flex-wrap row — its responsive behavior is wrapping to
-  // additional centered rows at narrow widths, with no mobile-specific rule. Prove
-  // the SAME markup lays out on one line at 1280 and wraps to more than one line at
-  // 375 (distinct top offsets = distinct flex lines).
-  test('#475 body_items row wraps at narrow width, single row at desktop', async ({
+  // additional rows as the space it is given shrinks, with no mobile-specific rule.
+  //
+  // EXPECTATION CORRECTED (#696, 2026-08-17). The previous version of this test
+  // asserted `lineCount() === 1` at 1280 for a SIX-item fixture, on the premise that
+  // VIEWPORT width governs how many items fit on a line. That premise is false, and
+  // was false when it was written: the row is a sibling of .section__content inside
+  // .section__body (components/section/section.php), and on the DEFAULT `text-only`
+  // layout .section__body carries `max-width: var(--section-body-measure, 40rem)` =
+  // 640px (assets/css/components.css, the outer-cap routing added by issue 302, which
+  // PREDATES #475). So the space the row gets is the section's PROSE MEASURE, not the
+  // viewport — identical at 1280, 1400 and 1600 — and six items of that length need
+  // ~878px (measured), which cannot fit 640px at any desktop width.
+  //
+  //     All five bars share one scale (~46px per character):
+  //
+  //     viewport 1280         ────────────────────────────  1280px
+  //     .container content    ────────────────────────       1120px (72rem - 2x16 pad)
+  //     .section__body        ──────────────                  640px <- the cap (issue 302)
+  //     six-item row needs    ───────────────────             ~878px => 2 lines, always
+  //     three-item row needs  ──────────                      ~445px => 1 line
+  //
+  // SCOPE OF THAT CLAIM, stated precisely so this comment cannot be read as a law
+  // about the component: 640px is the DEFAULT text-only measure. `.section--centered
+  // .section__body` resolves to var(--measure-centered) = 56rem = 896px at higher
+  // specificity, and --section-body-measure is an authorable slot — so under the
+  // centered layout, or with the slot widened, six items of this length WOULD fit one
+  // line at desktop. The old expectation was wrong for the fixture it shipped with
+  // (default layout + six LONG items), not because no desktop width can ever fit six.
+  //
+  // It never passed anywhere: the full suite runs only on the nightly schedule (PR CI
+  // runs the @smoke subset and this test is not @smoke-tagged), and the first nightly
+  // after #475 landed — 2026-07-23, run 29989316461 — went red on this exact test and
+  // stayed red for 25 consecutive nights.
+  //
+  // The PRODUCT is right and unchanged. Wrapping is the recorded, designed behavior:
+  // components/section/schema.json describes --section-inline-items-align as the
+  // "per-line alignment of the body_items row WHEN IT WRAPS", #489 exists solely to
+  // clip separators on wrapped lines, #510 solely to centre them, and the schema
+  // permits 8 items x 80 chars, which no 640px measure could hold on one line.
+  // What #475 actually asked for was "a centered single-row band of 4-6 SHORT items";
+  // the old fixture used six LONG ones. Both cases are pinned below.
+  test('#475 body_items row line count is governed by the section body measure, not by viewport width alone', async ({
     page,
   }) => {
     pageId = createPage('E2E Section Inline Items Wrap');
     setComposition(pageId, [
+      // A — #475's actual reported case: short items that FIT the 640px body measure.
+      // Measured need ~445px (diagnostic, not asserted), so ~44% headroom at desktop
+      // and ~55% over the 288px measure a 320px viewport leaves.
+      {
+        component: 'section',
+        props: {
+          id: 'pp-sec-fits',
+          body: '<p>Body.</p>',
+          body_items: ['No credit card required', 'Thirty day guarantee', 'Ships worldwide'],
+        },
+      },
+      // B — the original six-item fixture, kept for continuity with #475. Measured
+      // need ~878px (diagnostic, not asserted): it exceeds the body measure, so it
+      // wraps at EVERY width, and wraps further as the measure shrinks.
       {
         component: 'section',
         props: {
@@ -561,21 +613,93 @@ test.describe('Safe-surface rendered proof', () => {
       },
     ]);
 
-    const lineCount = () =>
-      page.locator('#pp-sec-wrap .section__inline-item').evaluateAll((els) => {
+    // Distinct rounded top offsets = distinct flex lines.
+    const lineCount = (id: string) =>
+      page.locator(`#${id} .section__inline-item`).evaluateAll((els) => {
         const tops = new Set(els.map((el) => Math.round(el.getBoundingClientRect().top)));
         return tops.size;
       });
 
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto(`/?page_id=${pageId}`);
+    await expect(page.locator('#pp-sec-fits .section__inline-item')).toHaveCount(3, { timeout: 10000 });
     await expect(page.locator('#pp-sec-wrap .section__inline-item')).toHaveCount(6, { timeout: 10000 });
-    expect(await lineCount()).toBe(1); // all six on one line at desktop
 
+    // The cap that decides every line count below, asserted as COMPUTED CSS rather
+    // than a rendered width. If this ever moves, the expectations below must be
+    // re-derived rather than patched — that is the mistake #696 cleaned up. Resolved
+    // against the root font size instead of a hardcoded "640px": the value is 40rem,
+    // and this file already resolves rems that way (see the #470 body-size pin).
+    const measure = async () =>
+      page
+        .locator('#pp-sec-wrap .section__body')
+        .first()
+        .evaluate((el) => {
+          const rootPx = parseFloat(getComputedStyle(document.documentElement).fontSize);
+          return { maxWidth: getComputedStyle(el).maxWidth, expected: `${40 * rootPx}px` };
+        });
+    const cap = await measure();
+    expect(cap.maxWidth, 'section body measure (40rem, issue 302) governs the row width').toBe(
+      cap.expected,
+    );
+
+    // Short items fit the measure: one line at desktop — #475's reported case.
+    expect(await lineCount('pp-sec-fits')).toBe(1);
+    // Long items exceed the measure: they wrap at desktop too. Left as an inequality
+    // on purpose. An exact count here would look stronger and buy nothing: breaking
+    // the #489 per-item negative-margin cancellation adds only --space-sm + --space-xs
+    // (12px) per item, which still packs this row into 2 lines against the 640px cap,
+    // and that cancellation is already pinned to 0.5px by the @smoke #489 test below.
+    // The load-bearing assertion is the 1600 comparison that follows.
+    const wrapAtDesktop = await lineCount('pp-sec-wrap');
+    expect(wrapAtDesktop).toBeGreaterThan(1);
+
+    // The row stays block-centred under its measure at desktop. #475's requirement is
+    // a CENTERED strip, and the two tests that pin that geometry (#489 and #510) both
+    // loop [768, 375, 320] — so without this, a rule scoped to a >=1024px media query
+    // could left-pin every desktop trust strip with all line counts still green.
+    const centring = await page.locator('#pp-sec-fits .section__inline-items').evaluate((ul) => {
+      const r = ul.getBoundingClientRect();
+      const p = ul.parentElement as HTMLElement;
+      const pr = p.getBoundingClientRect();
+      const pcs = getComputedStyle(p);
+      return {
+        ulCenter: (r.left + r.right) / 2,
+        parentCenter:
+          (pr.left + parseFloat(pcs.paddingLeft) + pr.right - parseFloat(pcs.paddingRight)) / 2,
+      };
+    });
+    expect(Math.abs(centring.ulCenter - centring.parentCenter)).toBeLessThanOrEqual(1.5);
+
+    // SAME measure, DIFFERENT viewport. This is the assertion that would have caught
+    // the original mistake at authoring time: .container maxes out at --max-width
+    // (72rem) so .section__body is still capped at 640px here, and both row line
+    // counts must be byte-identical to 1280 even though the viewport grew 320px. Every
+    // other width below moves the measure AND the viewport together, so this step is
+    // the only one that isolates "the viewport is not what governs this".
+    await page.setViewportSize({ width: 1600, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+    await expect(page.locator('#pp-sec-wrap .section__inline-item')).toHaveCount(6, { timeout: 10000 });
+    const capWide = await measure();
+    expect(capWide.maxWidth, 'the measure does not widen with the viewport').toBe(
+      capWide.expected,
+    );
+    expect(await lineCount('pp-sec-fits')).toBe(1);
+    expect(await lineCount('pp-sec-wrap')).toBe(wrapAtDesktop);
+
+    // Narrower viewport = narrower measure = more lines, with no mobile-specific rule.
     await page.setViewportSize({ width: 375, height: 900 });
     await page.goto(`/?page_id=${pageId}`);
     await expect(page.locator('#pp-sec-wrap .section__inline-item')).toHaveCount(6, { timeout: 10000 });
-    expect(await lineCount()).toBeGreaterThan(1); // wraps to multiple centered rows at mobile
+    expect(await lineCount('pp-sec-wrap')).toBeGreaterThan(wrapAtDesktop);
+
+    // Even the short row wraps once the measure gets narrow enough — same markup,
+    // same rule. Asserted at 320 (the narrowest width this file exercises) so the
+    // margin is structural rather than font-metric-dependent.
+    await page.setViewportSize({ width: 320, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+    await expect(page.locator('#pp-sec-fits .section__inline-item')).toHaveCount(3, { timeout: 10000 });
+    expect(await lineCount('pp-sec-fits')).toBeGreaterThan(1);
   });
 
   // #489: before this fix the separator was a `li + li::before` glyph, so a
@@ -2748,10 +2872,26 @@ test.describe('Safe-surface rendered proof', () => {
    * (a new slot name embedding a trigger substring) is pinned statically in
    * StyleSlotContractTest::testBorderTriggerSlotsHaveCascadeImmunity.
    */
-  // All 13 trigger slots, grouped by the component root that carries them inline.
-  // Setting a component's FULL trigger set at once is the acceptance criterion:
-  // "setting any of the 13 slots (including to 0) produces exactly the border the slot
-  // specifies — no injected 3px border on the root."
+  // Every trigger slot the schemas declare, grouped by the component root that carries
+  // them inline. Setting a component's FULL trigger set at once is the acceptance
+  // criterion: "setting any of the slots (including to 0) produces exactly the border
+  // the slot specifies — no injected 3px border on the root." The count was 13 at
+  // issue 332 and is 27 today; the set-equality guard below is what keeps this array
+  // honest as the slot surface grows, so never hardcode the number here.
+  //
+  // COVERAGE RESTORED (#696, 2026-08-17): --grid-item-border-color and
+  // --testimonials-item-border-color were missing. #576 ("apply the canonical slot and
+  // prop vocabulary across all ten components") renamed --grid-card-border-width ->
+  // --grid-item-border-width and --testimonials-card-border-width ->
+  // --testimonials-item-border-width AND newly ADDED the two colour slots; this array
+  // was updated for the renames only. That is exactly the drift the guard below exists
+  // to catch, and it caught it — the array was stale, the guard was right.
+  //
+  // On the VALUES: what trips WP core's `:where([style*=border-color])` is the slot
+  // NAME appearing in the root's inline style attribute, not the colour it resolves
+  // to, and the rendered pin asserts computed border WIDTHS on the root. So
+  // 'transparent' covers the trigger exactly as a visible colour would; it is chosen
+  // to match each case's existing sibling eyebrow-border-color entry.
   const BORDER_TRIGGER_CASES: {
     component: string;
     props: Record<string, unknown>;
@@ -2762,6 +2902,7 @@ test.describe('Safe-surface rendered proof', () => {
       props: { id: 'pp-grid01', items: [{ title: 'One', text: 'First' }] },
       slots: {
         '--grid-item-border-width': '0px',
+        '--grid-item-border-color': 'transparent',
         '--grid-eyebrow-border-width': '0px',
         '--grid-eyebrow-border-color': 'transparent',
       },
@@ -2780,6 +2921,7 @@ test.describe('Safe-surface rendered proof', () => {
       props: { id: 'pp-tst01', items: [{ quote: 'It works.', author: 'A' }] },
       slots: {
         '--testimonials-item-border-width': '0px',
+        '--testimonials-item-border-color': 'transparent',
         '--testimonials-eyebrow-border-width': '0px',
         '--testimonials-eyebrow-border-color': 'transparent',
       },
@@ -2822,8 +2964,9 @@ test.describe('Safe-surface rendered proof', () => {
 
   // Guard the guard. Derived from schema.json, NOT compared to a hardcoded count: a
   // count check can only fail if someone edits this same array, so it could not notice
-  // a 14th border-trigger slot appearing in a schema — exactly the drift it exists to
-  // catch (testing-specialist finding). Set-equality against the schemas can.
+  // a NEW border-trigger slot appearing in a schema — exactly the drift it exists to
+  // catch (testing-specialist finding). Set-equality against the schemas can, and did:
+  // it is what caught the two slots #576 added and this array never picked up (#696).
   test('#332 the rendered pins cover every border-trigger slot in schema.json', () => {
     // Same per-side-aware pattern as StyleSlotContractTest::WP_CORE_BORDER_TRIGGER_REGEX.
     const TRIGGER = /border(?:-(?:top|right|bottom|left))?-(?:width|color)/;
