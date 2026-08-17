@@ -400,7 +400,287 @@ class InvariantTest extends TestCase
         return $cases;
     }
 
+    // ── #700: composer.lock is tracked, so CI installs from the lock ──────
+
+    /**
+     * CI ran `composer install` with NO lock file, so every run re-resolved the
+     * whole dependency graph and re-downloaded every zipball from codeload. A
+     * transient 429/504 there took main red with ZERO tests executed — twice in
+     * two days (Composer 504 on 2026-08-16, codeload 429 on 2026-08-17), each
+     * time with nothing in the run to indicate the merged code was fine.
+     *
+     * The fix is that `composer.lock` is tracked and `.gitignore` no longer
+     * ignores it. This pins both halves, and the ORDER matters: git ignore
+     * rules do not affect an already-tracked file, so the regression that
+     * actually restores lockless installs is `git rm --cached composer.lock`
+     * (which leaves the file on disk). The tracking assertion is therefore the
+     * load-bearing one; the ignore assertion stops the rule creeping back in
+     * and un-tracking the file on some later fresh checkout.
+     *
+     * Determinism is all this buys on its own. The network resilience lives in
+     * the Actions cache in .github/workflows/ai-ready-check.yml.
+     */
+    public function testComposerLockIsCommittedAndNotIgnored(): void
+    {
+        $lockPath = $this->themeRoot . '/composer.lock';
+
+        // Ask GIT, not the filesystem. `assertFileExists()` here would be
+        // vacuous: `composer install` WRITES a composer.lock when none exists,
+        // and CI runs `composer install` before `composer test`, so the file is
+        // always on disk by the time this test runs — the exact regression
+        // ("the lock is not committed") could never turn the suite red.
+        if (is_dir($this->themeRoot . '/.git')) {
+            $root = escapeshellarg($this->themeRoot);
+
+            exec("git -C {$root} ls-files --error-unmatch composer.lock 2>&1", $out, $trackedStatus);
+            $this->assertSame(
+                0,
+                $trackedStatus,
+                'composer.lock must be TRACKED by git so CI installs from the lock instead of '
+                . 're-resolving dependencies over the network on every run (#700).'
+            );
+
+            // --no-index is load-bearing, not a flourish. `git check-ignore`
+            // consults the INDEX by default, and git never treats a TRACKED
+            // path as ignored — so without this flag the command returns
+            // "not ignored" for composer.lock no matter what .gitignore says,
+            // and this assertion could never go red. Verified: in a repo with
+            // composer.lock both force-added and listed in .gitignore, plain
+            // check-ignore exits 1 while --no-index exits 0.
+            //
+            // With the flag it is the authoritative check: it evaluates every
+            // glob shape against every ignore source (.gitignore, a nested
+            // .gitignore, .git/info/exclude, core.excludesFile), which no
+            // rule-string comparison can reach.
+            // Exit codes: 0 = a rule matches, 1 = no rule matches.
+            exec("git -C {$root} check-ignore -q --no-index composer.lock", $ignoreOut, $ignoredStatus);
+            $this->assertSame(
+                1,
+                $ignoredStatus,
+                'No git ignore rule may match composer.lock — CI installs from the committed lock (#700).'
+            );
+        }
+
+        // Positive shape: a real lock, not an empty placeholder that would
+        // satisfy a bare existence check while leaving CI resolving from scratch.
+        $this->assertFileExists($lockPath, 'composer.lock must be present (#700).');
+        $lock = json_decode((string) file_get_contents($lockPath), true);
+        $this->assertIsArray($lock, 'composer.lock must be valid JSON.');
+        $this->assertArrayHasKey('content-hash', $lock, 'composer.lock must carry a content-hash.');
+
+        $locked = array_column($lock['packages-dev'] ?? [], 'version', 'name');
+        $this->assertArrayHasKey(
+            'phpunit/phpunit',
+            $locked,
+            'composer.lock must lock the dev dependencies the test suite runs on.'
+        );
+
+        // The maintainer's ratified constraint for #700: no machine-local state
+        // in the committed lock. A `config.platform` override would pin CI's
+        // resolution to whatever PHP the lock happened to be generated on.
+        $this->assertSame(
+            [],
+            $lock['platform-overrides'] ?? [],
+            'composer.lock must not carry platform overrides — that is machine-local state (#700).'
+        );
+
+        // Belt-and-braces on the --no-index check-ignore assertion above, which
+        // is the authority but reports only "something ignores it". This one
+        // names the offending .gitignore rule verbatim — the difference between
+        // a one-minute fix and a hunt — and still runs when .git is absent (a
+        // packaged export). It matches by GLOB, not by an allowlist of literal
+        // strings, so an equivalent rule written a different way
+        // ('**/composer.lock', 'compos*.lock', '*.lock') is caught too.
+        $gitignore = (string) file_get_contents($this->themeRoot . '/.gitignore');
+        foreach (preg_split('/\R/', $gitignore) as $line) {
+            $rule = trim($line);
+            if ($rule === '' || str_starts_with($rule, '#') || str_starts_with($rule, '!')) {
+                continue; // blank, comment, or a negation (which un-ignores)
+            }
+
+            // Normalize the rule to the form fnmatch() can test against the
+            // bare filename: drop anchoring and directory-recursion prefixes
+            // and any trailing slash.
+            $pattern = rtrim($rule, '/');
+            $pattern = preg_replace('#^(\*\*/|/)+#', '', $pattern) ?? $pattern;
+
+            $this->assertFalse(
+                $pattern !== '' && fnmatch($pattern, 'composer.lock'),
+                "'.gitignore' must not ignore composer.lock (found rule: '{$rule}'). "
+                . 'CI installs from the committed lock (#700).'
+            );
+        }
+    }
+
+    /**
+     * #700 path B: the bounded retry around `wp-env start` is the only thing
+     * standing between a transient codeload 429 and a red main, and CI is the
+     * only place it ever runs. Reverting the step to a bare `npm run env:start`,
+     * or fumbling a bound (`-le 3` leaves 90s of dead sleep after the final
+     * failure; a misplaced `exit 0` passes the job with wp-env down), would
+     * otherwise ship green.
+     *
+     * This executes the step's ACTUAL shell block from the workflow file
+     * against stubbed `npm` and `sleep` binaries, so it pins behaviour rather
+     * than text: exit codes and attempt counts for recover-on-2 and exhaust-3.
+     */
+    public function testWpEnvStartRetryIsBoundedAndFailsClosed(): void
+    {
+        $script = $this->extractRunBlock(
+            $this->themeRoot . '/.github/workflows/e2e.yml',
+            'Start wp-env'
+        );
+        $this->assertStringContainsString(
+            'npm run env:start',
+            (string) $script,
+            'The retry must still invoke the real wp-env start script.'
+        );
+
+        $base = sys_get_temp_dir() . '/pp700-' . bin2hex(random_bytes(4));
+        mkdir($base . '/bin', 0777, true);
+
+        try {
+            // `sleep` collapses so the 30s/60s backoff does not slow the suite.
+            file_put_contents($base . '/bin/sleep', "#!/bin/sh\nexit 0\n");
+            file_put_contents(
+                $base . '/bin/npm',
+                "#!/bin/sh\n"
+                . "n=$(cat \"\$PP_COUNT\" 2>/dev/null || echo 0); n=\$((n+1)); echo \$n > \"\$PP_COUNT\"\n"
+                . "[ \"\$n\" -ge \"\$PP_SUCCEED_ON\" ] && exit 0\nexit 1\n"
+            );
+            chmod($base . '/bin/sleep', 0755);
+            chmod($base . '/bin/npm', 0755);
+            file_put_contents($base . '/step.sh', $script);
+
+            // `bash -e` mirrors the GitHub Actions default shell.
+            $run = function (int $succeedOn) use ($base): array {
+                file_put_contents($base . '/count', '0');
+                $env = 'PATH=' . escapeshellarg($base . '/bin') . ':$PATH '
+                    . 'PP_COUNT=' . escapeshellarg($base . '/count') . ' '
+                    . 'PP_SUCCEED_ON=' . $succeedOn . ' ';
+                $out = [];
+                exec($env . 'bash -e ' . escapeshellarg($base . '/step.sh') . ' 2>&1', $out, $code);
+                return [$code, (int) trim((string) file_get_contents($base . '/count'))];
+            };
+
+            [$code, $attempts] = $run(1);
+            $this->assertSame(0, $code, 'A first-attempt success must exit 0.');
+            $this->assertSame(1, $attempts, 'A first-attempt success must not retry.');
+
+            [$code, $attempts] = $run(2);
+            $this->assertSame(0, $code, 'A transient first-attempt failure must be retried and succeed.');
+            $this->assertSame(2, $attempts, 'Success on attempt 2 must stop the loop immediately.');
+
+            [$code, $attempts] = $run(99);
+            $this->assertSame(1, $code, 'A sustained failure must fail the step, never pass silently.');
+            $this->assertSame(3, $attempts, 'The retry must be bounded at exactly 3 attempts.');
+        } finally {
+            foreach ([$base . '/bin/*', $base . '/*'] as $glob) {
+                foreach (glob($glob) ?: [] as $path) {
+                    if (is_file($path)) {
+                        unlink($path);
+                    }
+                }
+            }
+            @rmdir($base . '/bin');
+            @rmdir($base);
+        }
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────
+
+    /**
+     * Pull the `run: |` script out of a named workflow step, by line structure
+     * rather than by one multiline regex.
+     *
+     * A regex terminating on the next `- name:` silently OVER-CAPTURES: a step
+     * may have no `name` at all (e2e.yml's own `- uses: actions/checkout@v4`
+     * is one), so a name-less step landing after the target would be swallowed
+     * into the returned script and then executed by the caller. That yields a
+     * test asserting exit codes for a script it did not mean to run. Terminate
+     * on the next sequence item at the SAME indent instead, which is what
+     * actually ends a step, and derive the dedent from the block's own
+     * indentation so a re-indent (matrix, reusable workflow) does not break it.
+     */
+    private function extractRunBlock(string $workflowPath, string $stepNamePrefix): string
+    {
+        $lines = preg_split('/\R/', (string) file_get_contents($workflowPath)) ?: [];
+
+        $start = null;
+        $indent = '';
+        foreach ($lines as $i => $line) {
+            if (preg_match('/^(\s*)- name: ' . preg_quote($stepNamePrefix, '/') . '/', $line, $m)) {
+                $start  = $i;
+                $indent = $m[1];
+                break;
+            }
+        }
+        $this->assertNotNull(
+            $start,
+            "{$workflowPath} must keep a step named '{$stepNamePrefix}' (#700)."
+        );
+
+        // Walk to the end of this step: the next list item at the same indent.
+        $body = [];
+        for ($i = $start + 1; $i < count($lines); $i++) {
+            if (preg_match('/^' . preg_quote($indent, '/') . '- /', $lines[$i])) {
+                break;
+            }
+            $body[] = $lines[$i];
+        }
+
+        // Find `run: |` among this step's keys, then take its block scalar.
+        $runAt = null;
+        foreach ($body as $i => $line) {
+            if (preg_match('/^\s+run: \|\s*$/', $line)) {
+                $runAt = $i;
+                break;
+            }
+        }
+        $this->assertNotNull(
+            $runAt,
+            "The '{$stepNamePrefix}' step must keep a `run: |` block (#700)."
+        );
+
+        $block = [];
+        for ($i = $runAt + 1; $i < count($body); $i++) {
+            if (trim($body[$i]) === '') {
+                $block[] = '';
+                continue;
+            }
+            // A line at or left of the `run:` key's indent ends the scalar.
+            if (!preg_match('/^\s+/', $body[$i], $ws)
+                || strlen($ws[0]) <= strlen((string) preg_replace('/\S.*$/', '', $body[$runAt]))) {
+                break;
+            }
+            $block[] = $body[$i];
+        }
+
+        // Dedent by the block's own minimum indentation.
+        $min = PHP_INT_MAX;
+        foreach ($block as $line) {
+            if ($line !== '') {
+                preg_match('/^ */', $line, $ws);
+                $min = min($min, strlen($ws[0]));
+            }
+        }
+        $min = $min === PHP_INT_MAX ? 0 : $min;
+
+        $script = implode("\n", array_map(
+            static fn (string $l): string => $l === '' ? '' : substr($l, $min),
+            $block
+        ));
+
+        // Over-capture tripwire: if the walk ever swallows a neighbouring step,
+        // fail loudly here instead of silently executing it.
+        $this->assertDoesNotMatchRegularExpression(
+            '/^\s*- (name|uses):/m',
+            $script,
+            "Extracted more than the '{$stepNamePrefix}' run block — the step walk over-captured (#700)."
+        );
+
+        return $script;
+    }
 
     private function phpFilesIn(string $dir): array
     {

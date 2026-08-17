@@ -97,6 +97,52 @@ jobs:
           php-version: '8.3'
           tools: composer
 
+      # Dependency-network hardening (issue #700). Two transient codeload
+      # failures (504 on 2026-08-16, 429 on 2026-08-17) took main red HERE with
+      # zero tests executed, so the run carried no signal about the merged code.
+      #
+      # Two separate mechanisms, doing two different jobs:
+      #   composer.lock (TRACKED) -> DETERMINISM. The graph is installed, not
+      #     re-resolved. On its own this does NOT stop a codeload 429: an
+      #     install still downloads every zipball.
+      #   the cache below          -> NETWORK RESILIENCE. On a hit, the install
+      #     fetches nothing from codeload. Verified locally: with a warm cache
+      #     and the network proxied to a dead port, `composer install` restores
+      #     all 30 packages; with a cold cache it cannot complete.
+      # Both cache inputs are read back from the PHP that setup-php actually
+      # installed, so the key cannot drift from the runtime the way a second
+      # hardcoded '8.3' would on a version bump.
+      - name: Resolve Composer cache directory
+        id: composer-cache
+        run: |
+          echo "dir=$(composer config cache-files-dir)" >> "$GITHUB_OUTPUT"
+          echo "php=$(php -r 'echo PHP_MAJOR_VERSION . "." . PHP_MINOR_VERSION;')" >> "$GITHUB_OUTPUT"
+
+      # The OS and PHP segments are namespacing, not a validity requirement —
+      # Composer's files-cache entries are content-addressed (package name +
+      # version + dist reference), so they are not PHP-version specific. That
+      # same content-addressing is why restore-keys is safe: a stale archive is
+      # a MISS, never a substitution of the wrong package. restore-keys earns
+      # its place by giving a partial hit when the lock changes, so only the
+      # packages that actually moved are re-downloaded — without it, every lock
+      # edit means a fully cold download and full exposure to the exact 429
+      # this issue exists to fix. Actions cache reads are branch-scoped, so a
+      # PR branch cannot plant an entry that a later main-branch run restores.
+      #
+      # Debugging note: cache entries are IMMUTABLE — once a key exists it is
+      # never rewritten. A run that fails does not save (that is what
+      # actions/cache/save + always() exists for), so an entry under a given
+      # lock hash comes from a run whose install completed. If an entry is ever
+      # suspect, do not expect a re-run to replace it: change composer.lock or
+      # delete the entry from the repo's Actions cache list.
+      - name: Cache Composer downloads
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.composer-cache.outputs.dir }}
+          key: ${{ runner.os }}-php${{ steps.composer-cache.outputs.php }}-composer-${{ hashFiles('composer.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-php${{ steps.composer-cache.outputs.php }}-composer-
+
       - name: Install PHP dependencies
         run: composer install --no-interaction --prefer-dist
 

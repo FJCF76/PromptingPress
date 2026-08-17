@@ -36,6 +36,14 @@ jobs:
           php-version: '8.3'
           tools: composer
 
+      # Deliberately NO Composer cache here (#700), so the coverage boundary is
+      # visible from this side too. This job installs from the tracked
+      # composer.lock, so it is deterministic, but it re-downloads the zipballs
+      # on every release and the #700 codeload failure mode survives here. That
+      # is accepted: this job runs once per release, and a cache-free install
+      # means the shipped ZIP is always built from freshly fetched,
+      # ref-pinned archives. The cached path is the `tests` job in
+      # ai-ready-check.yml, which runs on every push and PR.
       - name: Install PHP dependencies
         run: composer install --no-interaction --prefer-dist
 
