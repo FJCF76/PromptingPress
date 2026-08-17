@@ -6,8 +6,12 @@
 .DS_Store
 
 # PHP dependencies
+# composer.lock is intentionally TRACKED (#700). It pins resolution, so installs
+# are deterministic and the dependency graph is not re-resolved on every run.
+# The NETWORK resilience comes from the Actions cache in ai-ready-check.yml — a
+# lock alone still downloads every zipball from codeload on a cache miss.
+# Do not re-add composer.lock here.
 vendor/
-composer.lock
 composer.phar
 
 # PHP test artifacts

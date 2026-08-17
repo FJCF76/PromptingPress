@@ -47,8 +47,57 @@ jobs:
       - name: Install Playwright browser
         run: npx playwright install --with-deps chromium
 
+      # Dependency-network mitigation (issue #700). `wp-env start` builds its OWN
+      # container images, and that build curls the Composer installer from
+      # getcomposer.org and then runs `composer global require --dev
+      # phpunit/phpunit` inside the tests-cli image (wp-env's GENERATED
+      # Dockerfile — @wordpress/env lib/runtime/docker/init-config.js:271). No
+      # repo manifest governs any of it, and wp-env's generated compose services
+      # carry no `cache_from` (lib/runtime/docker/build-docker-compose-config.js),
+      # so there is no supported hook for a buildx/layer cache. A bounded retry is
+      # therefore the narrow mitigation: the observed failures (codeload 429 on
+      # 2026-08-17, Composer 504 on 2026-08-16) are transient, and backoff is the
+      # correct response to a 429.
+      #
+      # Why no explicit `env:stop` between attempts — two mechanisms, both in
+      # @wordpress/env:
+      #   1. lib/commands/start.js:79-88 catches a failed start and calls
+      #      runtime.stop() best-effort, swallowing its own cleanup errors.
+      #   2. lib/runtime/docker/index.js:148 calls stop() again at the top of the
+      #      next start, because setCache() at :288 is only reached on success,
+      #      so `shouldConfigureWp` is still true and the rebuild is forced.
+      #
+      # RESIDUAL RISKS, accepted:
+      #   - the first attempt of every run still reaches the network, and a
+      #     sustained (non-transient) outage still fails the job;
+      #   - if Docker itself is wedged, mechanism 2's stop() can also fail — the
+      #     retry then fails loudly on cleanup rather than running against a
+      #     partially-started environment;
+      #   - on a genuinely deterministic failure the job costs two extra failed
+      #     start attempts plus the backoff before it reports.
+      # The original error always stays visible in the grouped log; the retry
+      # never hides it. Behaviour is pinned by
+      # tests/InvariantTest.php::testWpEnvStartRetryIsBoundedAndFailsClosed.
       - name: Start wp-env (WordPress 7.0)
-        run: npm run env:start
+        run: |
+          attempts=3
+          for attempt in $(seq 1 "${attempts}"); do
+            echo "::group::wp-env start (attempt ${attempt}/${attempts})"
+            if npm run env:start; then
+              echo "::endgroup::"
+              echo "wp-env started on attempt ${attempt}."
+              exit 0
+            fi
+            echo "::endgroup::"
+            echo "wp-env start FAILED on attempt ${attempt}/${attempts}."
+            if [ "${attempt}" -lt "${attempts}" ]; then
+              backoff=$(( attempt * 30 ))
+              echo "Retrying in ${backoff}s."
+              sleep "${backoff}"
+            fi
+          done
+          echo "wp-env failed to start after ${attempts} attempts. The original error is in the grouped logs above."
+          exit 1
 
       # A fresh CI env installs WP at the pinned 7.0 with a matching DB, so this is
       # normally a no-op. It is kept as a defensive step + documentation: bumping
