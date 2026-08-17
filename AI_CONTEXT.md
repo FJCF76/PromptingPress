@@ -656,7 +656,7 @@ Sending a message with no page selected is blocked client-side (no `page_id: nul
 Assembled by `pp_ai_system_prompt()`:
 - Site identity (name, tagline, URL)
 - Page inventory (titles, statuses, IDs)
-- Component catalog (names + prop schemas with enum values, style slots, and recipes)
+- Component catalog (names + prop schemas with enum values, the accepted entry fields of each array prop that declares a field map, style slots, and recipes)
 - Action signatures (names, scopes, param types)
 - Apply signatures (names, domains, param types)
 - Design token inventory (current effective values and types for every token)

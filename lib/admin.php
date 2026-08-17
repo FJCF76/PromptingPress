@@ -2536,10 +2536,14 @@ function pp_validate_composition_errors(array $items, ?int $limit = null): array
                     //   the report loop     bare `continue` in foreach ($entry …)   => next KEY
                     // Reports are exhaustive per key, one finding per undeclared key (#621).
                     //
-                    // Same accepted cost as every rule in this block: whole-composition
-                    // validation means a stored undeclared key blocks edits to unrelated
-                    // bands on that page until the item is repaired through the ordinary
-                    // authoring surface. That is the v1.13.0 no-compat posture, not a
+                    // Same accepted cost as every rule in this block, stated precisely:
+                    // the THREE actions that validate the whole composition — create_page,
+                    // update_composition, update_component — refuse a page carrying a stored
+                    // undeclared key, including edits to bands that have nothing to do with
+                    // it, until the item is repaired through the ordinary authoring surface.
+                    // add_component validates only the item it adds, and remove_component /
+                    // reorder_components / style_component validate no props, so those four
+                    // still succeed on a stale page (AI_CONTEXT.md documents that unevenness). That is the v1.13.0 no-compat posture, not a
                     // regression — `wp pp check page` / `wp pp validate site` still REPORT
                     // it (#622) and restore_composition still restores and reports rather
                     // than blocking (#233).
