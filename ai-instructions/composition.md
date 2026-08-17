@@ -46,13 +46,13 @@ See `AI_CONTEXT.md` → Component index for the current list. As of last update:
 | hero    | title                                   | title_accent, eyebrow, subheading, button_text, button_url, button2_text, button2_url, button_variant, button2_variant, layout, image_url, image_id, image_alt, spacing, width, split_ratio, vertical_align, proof |
 | section | one of: body / body_items / panel content | body, title, title_accent, eyebrow, subheading, title_align, layout, theme, image_url, image_id, image_alt, background_image, body_marker, body_items, panel_heading, panel_body, panel_items, panel_items_marker, panel_cta_text, panel_cta_url, panel_cta_variant |
 | faq     | items[] {question, answer}              | title, title_accent, eyebrow, theme, id                 |
-| grid    | items[] {title, text, ...}              | title, title_accent, eyebrow, subheading, title_align, layout, card_emphasis, theme, columns, image_treatment |
+| grid    | items[] (fields: number, title, text, text_role, bullets[], image_url, image_alt, image_id, link_url, link_text, style — none individually required) | title, title_accent, eyebrow, subheading, title_align, layout, card_emphasis, theme, columns, image_treatment |
 | table   | headers[], rows[][]                     | title, caption, id                                      |
 | cta     | button_text, button_url                 | title, title_accent, eyebrow, body, button2_text, button2_url, button2_variant, layout, theme, background_image, button_variant |
 | stats   | items[] {number, label}                 | title, title_accent, theme, background_image            |
 | logos   | items[] {image_url, image_alt, image_id?, label?} | title, theme                                  |
 | embed   | content                                 | title, theme                                            |
-| testimonials | items[] {quote}                    | title, title_accent, eyebrow, subheading, title_align, layout, theme |
+| testimonials | items[] {quote (req); optional author, role, company, image_url, image_alt, image_id} | title, title_accent, eyebrow, subheading, title_align, layout, theme |
 
 ## Text content model: which props accept HTML
 
@@ -480,6 +480,7 @@ Before writing, verify:
 3. The JSON is a valid array (not an object, not null)
 4. Prop types match the schema (`string`, `boolean`, `array`, `enum`)
 5. Every prop key is declared in the component's `schema.json` `props` — an undeclared key is rejected on save with `unknown_prop` (the write does not persist). Do not invent prop names; if a capability has no matching prop, it is not expressible.
+6. Every field INSIDE an `items[]` entry is declared in that prop's `items` field map — an undeclared field is rejected on save with `unknown_prop` as well (#643), naming the item and the fields the entry accepts. The two depths answer alike: `imageId` is refused where `image_id` is declared, rather than persisting behind `ok:true` and rendering nothing.
 
 Invalid compositions are rejected on save by the PHP layer — the DB retains the last valid value.
 
