@@ -971,6 +971,292 @@ class ActionsTest extends TestCase
         $this->assertSame('terminal', $composition[0]['props']['items'][0]['text_role'], 'storage is never rewritten behind the author');
     }
 
+    // ── Undeclared nested items[] fields, through the REAL write surface (#643) ──
+    //
+    // Section 14.1 authoring-path proofs. pp_update_composition() and raw meta writes both
+    // bypass the action layer, so the authoring CONTRACT for the new nested unknown-key
+    // gate is exercised here through pp_execute_action on all three write verbs: a
+    // misspelled item field is rejected and persists nothing, the declared spelling is
+    // accepted and persists, and the whole-composition blast radius (and the way out of
+    // it) is pinned rather than described.
+
+    public function testUpdateComponentRejectsAnUndeclaredNestedItemField(): void
+    {
+        // THE REPORTED DEFECT, inverted (#643). `imageId` is one keystroke from the
+        // declared `image_id`. Before this rule the action returned ok:true, stored the
+        // key, and rendered nothing from it — reported success without effect, on the
+        // field #614 had just finished hardening against a rarer mistake.
+        $id = pp_create_page('Logo strip with a misspelled field', 'draft');
+        pp_update_composition($id, [['component' => 'logos', 'props' => [
+            'items' => [['image_url' => '/a.png', 'image_alt' => 'Acme']],
+        ]]]);
+
+        $result = pp_execute_action('update_component', [
+            'post_id'         => $id,
+            'component_index' => 0,
+            'props'           => ['items' => [
+                ['image_url' => '/a.png', 'image_alt' => 'Acme', 'imageId' => 42],
+            ]],
+        ]);
+
+        $this->assertFalse($result['ok'], 'an undeclared item field is rejected since #643');
+        $this->assertSame('unknown_prop', $result['error_code']);
+        $this->assertStringContainsString('item 0 has no field "imageId"', $result['error']);
+        $this->assertStringContainsString('Available fields: image_url, image_alt, image_id, label', $result['error']);
+
+        // Nothing persisted: the whole action is refused, not partially applied.
+        $items = pp_get_composition($id)[0]['props']['items'];
+        $this->assertArrayNotHasKey('imageId', $items[0], 'the rejected key must not reach storage');
+        $this->assertSame('Acme', $items[0]['image_alt'], 'the stored item is untouched');
+    }
+
+    public function testCreatePageRejectsAnUndeclaredNestedItemField(): void
+    {
+        // The create verb runs the same shared validator — there is no second surface
+        // where an unknown item field is still accepted (#223 root-cause class).
+        $result = pp_execute_action('create_page', [
+            'title'       => 'Cards with a typo',
+            'composition' => [['component' => 'grid', 'props' => [
+                'items' => [['title' => 'Deploy', 'txet' => 'a typo for text']],
+            ]]],
+        ]);
+
+        $this->assertFalse($result['ok'], 'create_page validates through the same gate');
+        $this->assertSame('unknown_prop', $result['error_code']);
+        $this->assertStringContainsString('has no field "txet"', $result['error']);
+    }
+
+    public function testUpdateCompositionRejectsAnUndeclaredNestedItemField(): void
+    {
+        // The third write verb, and the one an agent reaches for when rewriting a whole
+        // page: a single misspelled field in one card refuses the entire composition.
+        $id = pp_create_page('Whole-composition rewrite', 'draft');
+
+        $result = pp_execute_action('update_composition', [
+            'post_id'     => $id,
+            'composition' => [
+                ['component' => 'section',      'props' => ['title' => 'Intro', 'body' => 'Copy.']],
+                ['component' => 'testimonials', 'props' => ['items' => [
+                    ['quote' => 'It works.', 'auther' => 'Ada'],
+                ]]],
+            ],
+        ]);
+
+        $this->assertFalse($result['ok']);
+        $this->assertSame('unknown_prop', $result['error_code']);
+        $this->assertStringContainsString('prop "items" item 0 has no field "auther"', $result['error']);
+        $this->assertStringContainsString('Available fields: quote, author, role, company', $result['error']);
+    }
+
+    public function testARenamedRequiredFieldIsRepairableInOneRound(): void
+    {
+        // ORDERING plus its consequence, both pinned. RULE 5 runs AFTER the declared-field
+        // loop so a missing required field keeps first-error document order, exactly as the
+        // top-level `unknown_prop` gate runs after the required-prop loop (#147/#621, and
+        // the claim set makes that ordering load-bearing).
+        //
+        // That ordering means the write path — first-error-wins — would otherwise report
+        // only the canonical name that is MISSING and never the key sitting next to it,
+        // which is a guaranteed two-round repair: add image_url, keep imageUrl, get
+        // rejected again. #622 closed exactly this at the top level with an undeclared-keys
+        // hint on the missing-required message; #643 mirrors it here, same helper and same
+        // grammar, so ONE message carries the whole repair.
+        $id = pp_create_page('Renamed field', 'draft');
+
+        $result = pp_execute_action('update_composition', [
+            'post_id'     => $id,
+            'composition' => [['component' => 'logos', 'props' => ['items' => [
+                ['imageUrl' => '/a.png', 'imageAlt' => 'Acme'],
+            ]]]],
+        ]);
+
+        $this->assertFalse($result['ok']);
+        $this->assertSame('invalid_composition', $result['error_code']);
+        $this->assertSame(
+            'Component "logos" prop "items" item 0 is missing required field "image_url".'
+                . ' This item also carries field(s) "items" entries do not declare: imageUrl, imageAlt.'
+                . ' Available fields: image_url, image_alt, image_id, label.',
+            $result['error'],
+            'one message must name what is missing AND what is sitting under the wrong name'
+        );
+
+        // Repairing to the canonical names in ONE pass now succeeds — the round trip the
+        // hint exists to remove.
+        $repair = pp_execute_action('update_composition', [
+            'post_id'     => $id,
+            'composition' => [['component' => 'logos', 'props' => ['items' => [
+                ['image_url' => '/a.png', 'image_alt' => 'Acme'],
+            ]]]],
+        ]);
+        $this->assertTrue($repair['ok'], $repair['error'] ?? 'the named repair must be sufficient');
+    }
+
+    public function testTheMissingRequiredHintReadsAlikeAtBothDepths(): void
+    {
+        // PARITY, asserted rather than described. #643's whole premise is that the nested
+        // rules mirror the top-level ones; a hint that drifted in wording would be the
+        // asymmetry the #614/#600/#634 arc exists to remove. Both messages are built from
+        // _pp_render_undeclared_prop_keys() and both close with an `Available ...:` tail.
+        $topLevel = pp_validate_composition([
+            ['component' => 'cta', 'props' => ['title' => 'A', 'cta_text' => 'Go']],
+        ]);
+        $nested = pp_validate_composition([
+            ['component' => 'logos', 'props' => ['items' => [['imageUrl' => '/a.png']]]],
+        ]);
+
+        $this->assertInstanceOf(\WP_Error::class, $topLevel);
+        $this->assertInstanceOf(\WP_Error::class, $nested);
+        $this->assertSame('invalid_composition', $topLevel->get_error_code());
+        $this->assertSame('invalid_composition', $nested->get_error_code());
+
+        foreach ([$topLevel->get_error_message(), $nested->get_error_message()] as $message) {
+            $this->assertStringContainsString('is missing required ', $message);
+            $this->assertStringContainsString(' This item also carries ', $message);
+            $this->assertStringContainsString(' does not declare: ', str_replace(
+                ' entries do not declare: ', ' does not declare: ', $message
+            ), 'both depths name the undeclared keys in the same clause');
+            $this->assertMatchesRegularExpression('/ Available (props|fields): .+\.$/', $message);
+        }
+    }
+
+    public function testTheDeclaredSpellingStillAuthorsCleanlyThroughTheActionLayer(): void
+    {
+        // The other half of every strictness rule: the advertised field names must still
+        // author cleanly on the surface the docs point an agent at. `image_id` is the
+        // declared spelling `imageId` was reaching for.
+        $result = pp_execute_action('create_page', [
+            'title'       => 'Logo strip',
+            'composition' => [['component' => 'logos', 'props' => [
+                'items' => [
+                    ['image_url' => '/a.png', 'image_alt' => 'Acme', 'image_id' => 42, 'label' => 'Acme'],
+                    ['image_url' => '/b.png', 'image_alt' => 'Globex'],
+                ],
+            ]]],
+        ]);
+
+        $this->assertTrue($result['ok'], 'the declared field must be accepted: ' . ($result['error'] ?? ''));
+        $items = pp_get_composition((int) $result['target']['post_id'])[0]['props']['items'];
+        $this->assertSame(42, $items[0]['image_id']);
+        $this->assertArrayNotHasKey('image_id', $items[1], 'an omitted optional field stays omitted');
+    }
+
+    public function testAStoredUndeclaredNestedFieldBlocksAnEditToADifferentBand(): void
+    {
+        // THE ACCEPTED STALE-DATA COST, stated as a test rather than as a footnote. Every
+        // read-modify-write action validates the WHOLE composition, so a page that already
+        // stores an undeclared item key in band 0 cannot be edited at band 1 until band 0
+        // is repaired. That is the v1.13.0 no-compat posture working as intended — the
+        // alternatives are an alias or a silent strip, and both are barred. This is the
+        // shape aged sites will meet after #643.
+        $id = pp_create_page('Aged logo strip', 'draft');
+        pp_update_composition($id, [
+            ['component' => 'logos',   'props' => ['items' => [
+                ['image_url' => '/a.png', 'image_alt' => 'Acme', 'imageId' => 42],
+            ]]],
+            ['component' => 'section', 'props' => ['title' => 'Other band', 'body' => 'C']],
+        ]);
+
+        $result = pp_execute_action('update_component', [
+            'post_id'         => $id,
+            'component_index' => 1,
+            'props'           => ['title' => 'Edited'],
+        ]);
+
+        $this->assertFalse($result['ok'], 'the stale nested key must block the whole-composition validation');
+        $this->assertStringContainsString('imageId', $result['error']);
+
+        // Nothing was written: the stale band is untouched and the edit did not land.
+        $composition = pp_get_composition($id);
+        $this->assertSame('Other band', $composition[1]['props']['title']);
+        $this->assertSame(42, $composition[0]['props']['items'][0]['imageId'], 'storage is never rewritten behind the author');
+    }
+
+    public function testRepairingTheStoredUndeclaredNestedFieldUnblocksTheWholeComposition(): void
+    {
+        // THE WAY OUT, which is what keeps the cost above a ruling rather than a bug: the
+        // intended breakage must be escapable through the ordinary authoring surface, with
+        // no migration and no tool the docs do not already describe.
+        $id = pp_create_page('Repairable logo strip', 'draft');
+        pp_update_composition($id, [
+            ['component' => 'logos',   'props' => ['items' => [
+                ['image_url' => '/a.png', 'image_alt' => 'Acme', 'imageId' => 42],
+            ]]],
+            ['component' => 'section', 'props' => ['title' => 'Other band', 'body' => 'C']],
+        ]);
+
+        $blocked = pp_execute_action('update_component', [
+            'post_id' => $id, 'component_index' => 1, 'props' => ['title' => 'Edited'],
+        ]);
+        $this->assertFalse($blocked['ok'], 'precondition: the stale band blocks the sibling edit');
+
+        // Repair the band that actually holds the undeclared key. A prop shallow-merge
+        // replaces the items array wholesale, exactly as the docs tell an agent.
+        $repair = pp_execute_action('update_component', [
+            'post_id'         => $id,
+            'component_index' => 0,
+            'props'           => ['items' => [
+                ['image_url' => '/a.png', 'image_alt' => 'Acme', 'image_id' => 42],
+            ]],
+        ]);
+        $this->assertTrue($repair['ok'], $repair['error'] ?? 'repairing the band must be possible');
+
+        $retry = pp_execute_action('update_component', [
+            'post_id' => $id, 'component_index' => 1, 'props' => ['title' => 'Edited'],
+        ]);
+        $this->assertTrue($retry['ok'], $retry['error'] ?? 'repairing the band unblocks the page');
+        $this->assertSame('Edited', pp_get_composition($id)[1]['props']['title']);
+    }
+
+    public function testRestoreReportsAnUndeclaredNestedFieldWithoutBlocking(): void
+    {
+        // #643 is a validation rule landing after #233's restore policy, so it must prove
+        // the shared engine reports it on restore WITHOUT blocking undo — no restore-
+        // specific rule path, and no strip. This is the durability guarantee that makes
+        // the stale-data cost above survivable: the snapshot comes back verbatim.
+        $post_id = pp_create_page('Undeclared nested field snapshot');
+        pp_update_composition($post_id, [
+            ['component' => 'logos', 'props' => ['items' => [
+                ['image_url' => '/a.png', 'image_alt' => 'Acme', 'imageId' => 42],
+            ]]],
+        ]);
+        pp_update_composition($post_id, [
+            ['component' => 'logos', 'props' => ['items' => [
+                ['image_url' => '/a.png', 'image_alt' => 'Acme'],
+            ]]],
+        ]);
+
+        $result = pp_execute_action('restore_composition', ['post_id' => $post_id, 'steps_back' => 1]);
+
+        $this->assertTrue($result['ok'], $result['error'] ?? 'restore failed');
+        $this->assertSame(42, pp_get_composition($post_id)[0]['props']['items'][0]['imageId'],
+            'the snapshot is restored verbatim — the undeclared key is preserved, not stripped');
+
+        $errors = array_values(array_filter(
+            $result['findings'],
+            static function ($f) { return $f['severity'] === 'error'; }
+        ));
+        $this->assertContains('unknown_prop', array_column($errors, 'type'));
+    }
+
+    public function testRestorePreviewSurfacesTheUndeclaredNestedFieldFinding(): void
+    {
+        // Preview is where an operator learns, before committing, that the version they
+        // are about to restore will refuse its next edit.
+        $post_id = pp_create_page('Undeclared nested field preview');
+        pp_update_composition($post_id, [
+            ['component' => 'grid', 'props' => ['items' => [['title' => 'Deploy', 'txet' => 'typo']]]],
+        ]);
+        pp_update_composition($post_id, [
+            ['component' => 'grid', 'props' => ['items' => [['title' => 'Deploy']]]],
+        ]);
+
+        $preview = pp_preview_action('restore_composition', ['post_id' => $post_id, 'steps_back' => 1]);
+
+        $this->assertArrayNotHasKey('txet', pp_get_composition($post_id)[0]['props']['items'][0],
+            'preview did not write');
+        $this->assertContains('unknown_prop', array_column($preview['findings'], 'type'));
+    }
+
     public function testRepairingTheStoredNestedTextRoleUnblocksTheWholeComposition(): void
     {
         // THE WAY OUT, which is what keeps the cost above a ruling rather than a bug:

@@ -236,6 +236,7 @@ function pp_ai_system_prompt(): string {
     $parts[] = '';
     $parts[] = '### Component prop rules';
     $parts[] = 'Only props declared in a component\'s schema (the props listed for it above) are accepted. `add_component`, `update_component`, `update_composition`, and `create_page` reject a composition whose component carries a prop key not in that component\'s schema with `unknown_prop` — the write does not persist and reports the error, so an unknown key is never silently dropped. This mirrors the style-slot rule: before proposing `add_component`/`update_component`, confirm every prop key you set exists on the target component\'s schema. If a capability the user wants has no corresponding prop, say so plainly instead of inventing a prop name.';
+    $parts[] = '**The same rule applies INSIDE an `items[]` entry (#643).** A field a component\'s `items` map does not declare is rejected with `unknown_prop` too, naming the item and the fields that component\'s entries do accept — so `imageId` is refused where `image_id` is declared, instead of persisting behind `ok:true` and rendering nothing. Item field names are `snake_case` like prop names; do not camelCase them and do not invent them. An array prop whose entries are objects carries its accepted set in the catalog above as `[entry fields: ...]`, with `?` marking an optional field; an array prop with no such list takes plain scalar entries (`section.body_items`, `table.headers`, `table.rows`). Where the list is shown it is the whole contract for an OBJECT entry, so compose entries from it and never from a field name you inferred — and note `section.panel_items`, whose entries may be either such an object or a plain string.';
     $parts[] = '';
 
     // Image selection rules
@@ -416,11 +417,59 @@ function pp_ai_condense_schema(array $schema): string {
         if ($suffix !== '') {
             $suffix = ' (' . ltrim($suffix, '; ') . ')';
         }
+        // Entry field map for an array prop (#643). Until #643 an undeclared field inside
+        // an items[] entry was silently accepted, so a model that guessed `imageId` got
+        // ok:true and a blank render — bad, but self-limiting. Now that guess is a HARD
+        // REJECT on create_page / update_composition / add_component / update_component,
+        // and this catalog was the only place the model could have learned the real names:
+        // it rendered every array prop as bare `items: array`, the chat runtime has no file
+        // or tool surface to go read a schema with, and a rejected step's message (which
+        // does name the fields) is shown to the operator without re-entering the model's
+        // conversation. A rule the primary consumer cannot see is a rule it cannot follow,
+        // so the accepted grammar and the advertised grammar ship together.
+        //
+        // DERIVED FROM THE VALIDATOR'S OWN PREDICATE (_pp_entry_is_object_shape, the same
+        // is-a-field-map test lib/admin.php applies at both levels), so the catalog cannot
+        // advertise a field set the gate does not enforce, or omit one it does. A
+        // value-grammar `items` yields no field map and prints nothing extra, as before.
+        //
+        // THE CLOSED-SET CLAUSE IS GATED ON `item_type: "object"`, and that is not a
+        // detail. `section.panel_items` is the one shipped field map whose entries may ALSO
+        // be a PLAIN STRING — the primary documented form, rendered as a bulleted list item
+        // — which is exactly why it declares no `item_type` and why RULE 5 skips a
+        // non-array entry there. Printing "no other field is accepted" for it would be
+        // false in the direction that costs output: a model believing strings are illegal
+        // wraps each line as `{label: "..."}`, which validates, reports ok:true, and
+        // renders a two-part paired row with an empty value span instead of a bullet. The
+        // gate says nothing about string entries, so neither may the catalog.
+        $entry_fields = '';
+        if ($type === 'array'
+            && isset($prop_def['items'])
+            && _pp_entry_is_object_shape($prop_def['items'])
+        ) {
+            $field_names = [];
+            foreach ($prop_def['items'] as $field_name => $field_def) {
+                // A field DEFINITION is a non-empty object. The map-level test above admits
+                // `{}`; this one must not, or an array `default` (`[]`) reads as a field
+                // named `default`. Mirrors lib/admin.php's hoist exactly — see the comment
+                // there for why the two levels use different predicates.
+                if (!is_array($field_def) || pp_is_list($field_def)) {
+                    continue; // a schema keyword (values/applies_when/default), not a field
+                }
+                $field_names[] = $field_name . (empty($field_def['required']) ? '?' : '');
+            }
+            if ($field_names !== []) {
+                $entry_fields = ($prop_def['item_type'] ?? null) === 'object'
+                    ? ' [entry fields: ' . implode(', ', $field_names) . ' — no other field is accepted]'
+                    : ' [entry fields, for an OBJECT entry: ' . implode(', ', $field_names)
+                        . ' — no other field is accepted; a plain string entry is also allowed]';
+            }
+        }
         if ($type === 'enum' && !empty($prop_def['values']) && is_array($prop_def['values'])) {
             $enum_str = '"' . implode('"|"', $prop_def['values']) . '"';
             $parts[] = "{$prop_name}{$marker}: {$enum_str}{$suffix}";
         } else {
-            $parts[] = "{$prop_name}{$marker}: {$type}{$suffix}";
+            $parts[] = "{$prop_name}{$marker}: {$type}{$suffix}{$entry_fields}";
         }
     }
 
