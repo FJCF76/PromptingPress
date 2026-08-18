@@ -705,13 +705,17 @@ function _pp_action_validation_error_envelope(string $name, WP_Error $validation
  * Returns the canonical result shape.
  *
  * The canonical keys are the MINIMUM every action returns, not an exhaustive list: an
- * action may add its own. restore_composition adds `findings` (#233). Read the shape as
- * "at least these keys", and key on what you need rather than the exact key set.
+ * action may add its own. restore_composition adds its own `findings` (#233). Read the
+ * shape as "at least these keys", and key on what you need rather than the exact key set.
  *
  * @return array  Canonical result: ['ok', 'action', 'scope', 'target', 'changes', 'error',
  *                'error_code'], plus any action-specific keys. A REJECTED envelope also
  *                carries 'index' (#642): the composition offset of the band that blocked
- *                the write, or null when no single band owns the rejection.
+ *                the write, or null when no single band owns the rejection. An ACCEPTED
+ *                envelope from a composition-mutating action or create_page additionally
+ *                carries 'composition_version' (#404) and 'findings' (#687) — what current
+ *                rules say about the composition that was just stored, advisories
+ *                (inert_slot) included, bounded at PP_WRITE_FINDINGS_BUDGET and report-only.
  */
 function pp_execute_action(string $name, array $params): array {
     $validation = pp_validate_action($name, $params);
@@ -743,21 +747,87 @@ function pp_execute_action(string $name, array $params): array {
         }
     }
 
-    // Post-write composition version on the success envelope (#404). The chat UI refreshes
-    // its per-page CAS baseline from this instead of a second read, and the batch executor
-    // chains it into the next mutating step on the same page. Attached for composition-
-    // mutating actions and create_page (whose new page needs a baseline to join the map);
-    // resolve the post_id from params, falling back to a created page's result target.
+    // Post-write composition version AND composition findings on the success envelope
+    // (#404, #687). Both are attached for the same set — composition-mutating actions plus
+    // create_page (whose new page needs a baseline to join the CAS map) — but they do NOT
+    // resolve the page the same way. See the note below the two candidate ids.
     if (($result['ok'] ?? false)
         && (pp_action_is_composition_mutating($name) || $name === 'create_page')) {
-        $version_post_id = null;
-        if (isset($params['post_id']) && is_numeric($params['post_id'])) {
-            $version_post_id = (int) $params['post_id'];
-        } elseif (isset($result['target']['post_id']) && is_numeric($result['target']['post_id'])) {
-            $version_post_id = (int) $result['target']['post_id'];
-        }
+        $param_post_id = (isset($params['post_id']) && is_numeric($params['post_id']))
+            ? (int) $params['post_id']
+            : null;
+        $target_post_id = (isset($result['target']['post_id']) && is_numeric($result['target']['post_id']))
+            ? (int) $result['target']['post_id']
+            : null;
+
+        // THE TWO KEYS RESOLVE THE PAGE DIFFERENTLY, deliberately, and the difference is
+        // only visible on create_page. The seven composition-mutating actions DECLARE
+        // post_id as a required param and echo that same id into their target, so both
+        // orders agree for them. create_page does not take a post_id at all — the page it
+        // wrote is the one it just created, which only its TARGET knows.
+        //
+        // `composition_version` keeps its original params-first order (#404), untouched.
+        // It is wrong on a create_page call carrying a stray, undeclared `post_id`:
+        // pp_validate_action() does not reject undeclared params, so the version reported
+        // is the OTHER page's. That is a pre-existing #404 defect with its own issue; it is
+        // not this change's to alter, and silently flipping it here would move a CAS
+        // baseline as a side effect of a findings change.
+        $version_post_id = $param_post_id ?? $target_post_id;
         if ($version_post_id !== null) {
+            // The chat UI refreshes its per-page CAS baseline from this instead of a
+            // second read, and the batch executor chains it into the next mutating step
+            // on the same page.
             $result['composition_version'] = pp_get_composition_marker($version_post_id)['version'];
+        }
+
+        // `findings` resolves TARGET FIRST, because it must describe the page THIS WRITE
+        // LANDED ON or it is worse than absent. Under the params-first order a create_page
+        // call with a stray post_id returned a clean new page's envelope carrying the
+        // diagnostics of an entirely different page — an envelope naming the wrong page is
+        // the exact failure class #687 exists to close, so this key does not inherit it.
+        $written_post_id = $target_post_id ?? $param_post_id;
+        if ($written_post_id !== null) {
+            // ACCEPTED WRITES REPORT WHAT THEY WROTE (#687, D1 clause 4). A composition
+            // write could validate, store, return ok:true and paint nothing: the trap that
+            // motivated this is `--hero-overlay-bg` on a `split`-layout hero, a slot that
+            // renders only under `layout: "cover"`. The #580 inert_slot advisory has always
+            // named it, but only on surfaces an agent had to opt into (`wp pp check page`,
+            // INSPECT, restore's findings) — so an agent that did not run one of those
+            // truthfully reported success on a no-op. Now every accepted composition write
+            // carries the same report in the same envelope, on the same command.
+            //
+            // REPORT-ONLY, and that is the whole contract. Findings never block, never
+            // alter, and never re-order an accepted write: this runs AFTER the write has
+            // landed, reads what was stored, and only appends a key. Rejections are
+            // untouched — they never reach this branch, and the write-rejection path keeps
+            // #621's budget of 1. Stored bytes are byte-identical to before this change.
+            //
+            // OVER THE STORED COMPOSITION, not the array the action assembled. Re-reading
+            // is what makes the report describe the page as it now exists (including the
+            // props.id pp_update_composition() injects — every composable component's
+            // schema declares `id`, pinned by
+            // SchemaValidationTest::testEveryComposableComponentDeclaresIdSoInjectedIdNeverFalseRejects,
+            // so the round-trip adds no finding of its own). It costs one object-cached
+            // meta read plus a decode; the write immediately above primed that cache.
+            //
+            // AND IT CANNOT TAKE THE WRITE DOWN (D1 Addendum #2). _pp_write_findings_for()
+            // gates on the stored size BEFORE invoking either engine, so a composition too
+            // large to diagnose within memory_limit yields one findings_skipped entry
+            // instead of an OOM fatal on a write that has already landed.
+            //
+            // ERRORS INCLUDED, not just advisories. The item-scoped actions
+            // (style_component, add_component) validate only what they touch, so they
+            // legitimately accept a write onto a page whose OTHER bands current rules
+            // reject. Reporting only the advisories there would hide the louder problem.
+            //
+            // NOT AN OVERWRITE. restore_composition sets its own `findings` (#233) before
+            // returning, deliberately UNBOUNDED — bounding the restore/rollback surfaces is
+            // #654's axis, not this one — so an existing key is left exactly as the action
+            // built it. This is a key test, not a truthiness test: an action that reports a
+            // clean composition sets an empty array, and that must not be re-derived.
+            if (!array_key_exists('findings', $result)) {
+                $result['findings'] = _pp_write_findings_for($written_post_id);
+            }
         }
     }
 
@@ -1369,6 +1439,11 @@ function _pp_action_result(string $name, string $scope, array $target, array $ch
         // this write", so it exists only where a write WAS blocked; the ratified
         // vocabulary scopes it to rejected envelopes. #13's uniform shape still holds
         // for the keys #13 defined — read `index` only after checking ok === false.
+        //
+        // NO `findings` here either, and for a different reason: this builder is shared
+        // with the token/menu/page-lifecycle actions, where a composition report means
+        // nothing. pp_execute_action() attaches it after the write, for the composition
+        // surface only (#687).
     ];
 }
 
@@ -2095,11 +2170,22 @@ pp_register_action('remove_component', [
 /**
  * Reports what CURRENT validation rules say about a composition, without blocking it (#233).
  *
- * For mutation surfaces that legitimately write a composition the action layer's write-time
- * validation would reject. Today that is restore_composition alone: undo is wired to it
- * (assets/js/pp-ai-chat.js), so a restore that current rules refuse would make undo fail
- * exactly when a user most needs it. Instead the write proceeds and the caller is told what
- * is wrong with what it just restored.
+ * Built for the mutation surfaces that legitimately write a composition the action layer's
+ * write-time validation would reject. The original one was restore_composition: undo is
+ * wired to it (assets/js/pp-ai-chat.js), so a restore that current rules refuse would make
+ * undo fail exactly when a user most needs it. Instead the write proceeds and the caller is
+ * told what is wrong with what it just restored.
+ *
+ * FOUR CALLERS TODAY, and the reason has widened past "writes that would be rejected":
+ *   restore_composition (#233)                    the original, unbounded
+ *   the run-scoped rollback (#236, operate.php)   same contract, unbounded
+ *   the read-only CLI diagnostics (cli.php)       `check page` / `validate site`
+ *   every ACCEPTED composition write (#687)       bounded, via _pp_bounded_findings()
+ * The last one is not a "would be rejected" surface. It exists because a write can be
+ * fully legal and still paint nothing (a #580 inert_slot), and because the item-scoped
+ * actions validate only what they touch, so they legitimately accept a write onto a page
+ * whose OTHER bands current rules reject. Every rule that lands in the two engines below
+ * is inherited by all four for free — that is the point of there being one of these.
  *
  * Reads the two shared engines rather than deriving a third view of the rules — a second
  * surface with its own idea of what is legal is the root cause of #223. Every future rule
@@ -2148,6 +2234,206 @@ function _pp_composition_findings(array $items): array {
     }
 
     return $findings;
+}
+
+/**
+ * Most findings an accepted-write envelope carries before truncation (#687, D1 clause 3).
+ *
+ * The ratified per-report budget. Deliberately far above any page an operator authors —
+ * the realistic 6-band composition this gate measured produces 6 — so a truncated report
+ * means the composition is pathological, not that the budget is tight.
+ */
+const PP_WRITE_FINDINGS_BUDGET = 100;
+
+/**
+ * Largest stored composition, in bytes of JSON, that an accepted write will diagnose
+ * (#687, D1 Addendum #2).
+ *
+ * THIS IS AN AVAILABILITY GATE, NOT A BUDGET, and the two are unrelated mechanisms.
+ * PP_WRITE_FINDINGS_BUDGET bounds a report that was already built. This bounds whether the
+ * report is built AT ALL, and it has to, because the count budget cannot help here: both
+ * engines run to completion and materialise every finding BEFORE _pp_bounded_findings()
+ * ever sees the array.
+ *
+ * WHAT GOES WRONG WITHOUT IT. The engines are invoked AFTER pp_update_composition() has
+ * written the meta, bumped the version and pushed the history ring. Measured on this repo,
+ * the transient findings array costs roughly 28 MB per MB of stored composition (40,000
+ * broken bands = 1.55 MB stored produced a 44 MB peak). On a page big enough that exhausts
+ * memory_limit — and an OOM is a fatal, not an exception, so it cannot be caught and
+ * degraded. The write has already landed at that point, so the caller gets no envelope for
+ * a change that happened: WP-CLI never records the touched post (a run-scoped restore goes
+ * blind) and the chat never refreshes its CAS baseline (every later write false-conflicts).
+ * The page becomes uneditable through the action layer — the exact repair loop the
+ * diagnostic exists to enable. Report-only must never be able to take down the write it is
+ * reporting on.
+ *
+ * WHY 1 MiB. At the threshold the projected peak is ~28 MB, comfortably under a 128 MB
+ * memory_limit with room for the rest of the request. Realistic pages are ~200x smaller:
+ * the six-band composition this gate measured stores about 5 KB. So the gate is unreachable
+ * for anything an operator authors, and a page that trips it is one an operator needs
+ * `wp pp check page` for anyway.
+ *
+ * NO FILTER, NO OPTION, NO OVERRIDE. A tunable here would be a config surface for a safety
+ * limit, and a site that tuned it up would reintroduce the fatal on the one path that must
+ * not have one. The number moves by a ruling, not by configuration.
+ */
+const PP_WRITE_FINDINGS_MAX_STORED_BYTES = 1048576;
+
+/**
+ * Bounds a findings report, closing a truncated one with a single honest tail (#687).
+ *
+ * WHY A POST-HOC SLICE AND NOT AN ENGINE LIMIT. pp_validate_composition_errors() takes a
+ * `$limit` that feeds _pp_claim_item_finding()'s budget, but that gate does NOT bound the
+ * whole report: the four structural band rules (missing `component` key, non-scalar
+ * `component`, unknown component, template-owned chrome — lib/admin.php:1597-1648) emit
+ * BEFORE any claim, the cross-item duplicate_component_id emits after the loop, and
+ * pp_validate_composition_smells() has no budget at all. Passing a limit would therefore
+ * cap only SOME rules while the engine kept emitting others, and — worse — the engine
+ * would stop counting, so the "N more" tail could no longer state the TRUE total. Slicing
+ * the assembled report is the only way to bound what the envelope CARRIES regardless of
+ * which rule produced each finding, and to keep the total exact.
+ *
+ * THIS IS A COUNT BOUND, AND ONLY A COUNT BOUND. Say it precisely, because two other
+ * things it does NOT bound are easy to assume:
+ *
+ *   NOT engine work. Both engines run to completion before this is called, so a
+ *   pathological composition costs exactly what it did before to VALIDATE — including the
+ *   O(N²) band-locator rescan recorded in #715. What is bounded is everything DOWNSTREAM:
+ *   the array retained on the envelope, the JSON the CLI prints, the payload the chat AJAX
+ *   ships, and the per-finding rendering a consumer does. Bounding the engines themselves
+ *   is a change to the engines, not to this helper.
+ *
+ *   NOT bytes, and NOT only for raw-written data. A finding MESSAGE can reflect stored
+ *   bytes uncapped (`Unknown component: "%s"`, the style-slot "has no style slot" family),
+ *   and one message is worse than uncapped-per-value: `duplicate_component_id` enumerates
+ *   EVERY colliding index in a SINGLE entry, so its length grows with the band count and
+ *   no per-entry budget can contain it. 100 entries is therefore not 100 bounded strings.
+ *
+ *   Do not assume this needs a hostile raw meta write. It is reachable through plain,
+ *   fully validated action-layer calls: `add_component` validates only the item it adds,
+ *   so N add_component calls carrying the same authored `props.id` are ALL accepted and
+ *   leave a page whose every later accepted write carries an O(N) duplicate-id message
+ *   (measured: 120 add_component calls -> a 632-byte error message plus its 658-byte
+ *   advisory twin in an 11.5 KB envelope; 20,000 bands -> ~129 KB in one entry).
+ *   WriteEnvelopeFindingsTest pins that reachability so this note cannot rot back into
+ *   the comfortable version.
+ *
+ *   Capping what a MESSAGE reflects is still not this helper's axis — it is the uniform
+ *   bounding #647/#649 owns, it applies equally to `wp pp check page` and restore's
+ *   report, and the #687 addendum records it as a separate ruling.
+ *
+ * The tail is the "and N more" contract _pp_render_undeclared_prop_keys() already uses
+ * (lib/admin.php:1492): the count it names is the TRUE total, so a truncated report never
+ * reads as a complete one. It is severity `warning` because that is the honest severity
+ * for an advisory about the REPORT rather than a rule any composition broke, and because
+ * every generic findings consumer branches on that value — the CLI splits `=== 'error'`
+ * from everything else (_pp_cli_page_diagnostics, lib/cli.php:1347) and the chat picks a
+ * per-item class from it (ppChatFindingClass). A made-up severity would not FAIL closed,
+ * it would drift: the CLI would file it under smells anyway while the chat styled it as
+ * something nobody defined.
+ *
+ * `index` is null: the truncation belongs to no band, the same honest "no single band
+ * owns this" the cross-item rules use (#622).
+ *
+ * ORDERING CONSEQUENCE, stated because it is a real limit and not a bug: findings arrive
+ * errors-then-smells (see _pp_composition_findings), so a composition with more than
+ * PP_WRITE_FINDINGS_BUDGET error-severity findings truncates before its advisories —
+ * including inert_slot. The ratified budget is a flat per-report cap, not a per-severity
+ * quota, and interleaving would change what the CLI diagnostics and restore already
+ * render. A page in that state is telling the operator something louder than an advisory.
+ *
+ * The pointer at the complete report names the ACTUAL page when the caller knows it, so
+ * the tail is a command an operator can paste rather than one they have to fill in. The
+ * post id is optional because the helper is shared: a future caller aggregating several
+ * pages (the restore/rollback surfaces, #654) has no single page to name.
+ *
+ * @param  array    $findings  A _pp_composition_findings() report.
+ * @param  int|null $post_id   The page the report describes, when one page owns it.
+ * @param  int      $budget    Maximum findings to carry before the truncation tail.
+ *                             Clamped at 0: a negative budget would slice from the END of
+ *                             the report and print a nonsense count.
+ * @return array[]             At most $budget findings, plus one findings_truncated entry
+ *                             when (and only when) the report was longer than $budget.
+ */
+function _pp_bounded_findings(array $findings, ?int $post_id = null, int $budget = PP_WRITE_FINDINGS_BUDGET): array {
+    $budget = max(0, $budget);
+    $total  = count($findings);
+    if ($total <= $budget) {
+        return $findings;
+    }
+
+    $bounded   = array_slice($findings, 0, $budget);
+    $bounded[] = [
+        'type'     => 'findings_truncated', // sibling species: see _pp_write_findings_for()
+        'severity' => 'warning',
+        'message'  => sprintf(
+            'Showing %d of %d findings and %d more were omitted. Run `%s` for the complete report.',
+            $budget,
+            $total,
+            $total - $budget,
+            $post_id === null
+                ? 'wp pp check page --post_id=<id>'
+                : 'wp pp check page --post_id=' . $post_id
+        ),
+        'index'    => null,
+    ];
+
+    return $bounded;
+}
+
+/**
+ * The `findings` report for one accepted composition write (#687, D1 Addendum #2).
+ *
+ * The whole write-path report in one place: read the stored composition once, decide
+ * whether it is safe to diagnose, then either diagnose-and-bound it or return the single
+ * honest entry saying why it was not diagnosed.
+ *
+ *   stored meta ──► size gate ──┬── over ──► [ findings_skipped ]   engines NEVER run
+ *                               │
+ *                               └── under ─► errors + smells ──► _pp_bounded_findings()
+ *
+ * THE GATE SITS BEFORE THE ENGINES, deliberately, and that ordering is the entire point —
+ * see PP_WRITE_FINDINGS_MAX_STORED_BYTES. Gating after them would measure the allocation
+ * that already blew up. Nothing between the gate and the engines may grow to depend on the
+ * report having been built.
+ *
+ * The skip entry is the same species as `findings_truncated`: ONE entry, honest about what
+ * it is not telling you, carrying the exact next command. It is a present finding rather
+ * than an empty array on purpose — an empty array is documented (AI_CONTEXT.md,
+ * ai-instructions/operating-loop.md) as "the write did what you asked", and a skipped
+ * report knows nothing of the sort. A skip must never read as a clean bill of health.
+ *
+ * SIZE IS MEASURED ON THE STORED BYTES whenever the row holds JSON, which is the normal
+ * case: one strlen on a string the write immediately above just put in the object cache.
+ * The re-encode fallback covers only the defensive branch where a caller persisted an
+ * already-decoded array (pp_get_composition_result(), lib/wp.php) — and a corrupt row that
+ * decodes to nothing measures as the empty composition it reports as, which is correct.
+ *
+ * @param  int $post_id  The page this write landed on.
+ * @return array[]       A bounded findings report, or exactly one findings_skipped entry.
+ */
+function _pp_write_findings_for(int $post_id): array {
+    $stored      = pp_get_composition_result($post_id);
+    $composition = $stored['composition'];
+    $bytes       = is_string($stored['raw'])
+        ? strlen($stored['raw'])
+        : strlen((string) wp_json_encode($composition));
+
+    if ($bytes > PP_WRITE_FINDINGS_MAX_STORED_BYTES) {
+        return [[
+            'type'     => 'findings_skipped',
+            'severity' => 'warning',
+            'message'  => sprintf(
+                'Composition diagnostics were skipped for this write: the page stores %d bytes of composition JSON, over the %d-byte limit for reporting on a write. Nothing here says the composition is healthy. Run `wp pp check page --post_id=%d` for the full report.',
+                $bytes,
+                PP_WRITE_FINDINGS_MAX_STORED_BYTES,
+                $post_id
+            ),
+            'index'    => null,
+        ]];
+    }
+
+    return _pp_bounded_findings(_pp_composition_findings($composition), $post_id);
 }
 
 /**
@@ -2267,11 +2553,16 @@ pp_register_action('restore_composition', [
             return _pp_action_error('restore_composition', 'page', $result->get_error_message(), $result->get_error_code());
         }
         // Restore is never blocked by current validation rules, so it must never report a
-        // bare ok:true for a composition those rules reject. `findings` is deliberately a
-        // restore-only key: the shared _pp_action_result() envelope stays as-is (findings
-        // are meaningless for the token actions that share it). It is NOT named `validation`
-        // — the AJAX handler (lib/ai-chat.php) already occupies that key with
+        // bare ok:true for a composition those rules reject. It is NOT named `validation` —
+        // the AJAX handler (lib/ai-chat.php) already occupies that key with
         // pp_post_apply_validate() output.
+        //
+        // SINCE #687 `findings` IS NO LONGER RESTORE-ONLY: pp_execute_action() attaches it
+        // to every accepted composition write. This line still matters, and setting it HERE
+        // is what makes it matter — the dispatcher skips a result that already carries the
+        // key, so restore's report stays UNBOUNDED while the write path's is capped at
+        // PP_WRITE_FINDINGS_BUDGET. Bounding the restore/rollback surfaces is #654's axis;
+        // deleting this line would silently adopt the write-path cap here.
         //
         // Findings describe $target, the array this call wrote. pp_update_composition() takes
         // it by value and injects props.id into its own copy, so $target stays id-free; no
