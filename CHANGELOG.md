@@ -4,6 +4,21 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.15.1] — 2026-08-18 — The README reads front-door first
+
+**The root README buried its Quick start 340 lines deep, behind the full conceptual tour.** A newcomer deciding whether to install had to scroll past the operating model, the action-layer walkthrough and the architecture map before finding the requirements and the install steps — the reverse of how a reader actually approaches a project page.
+
+### Changed
+
+- `README.md` restructured to the conventional shape: intro → table of contents → comparison → **Quick start** (requirements, install, AI chat setup, first CLI session) → concepts → architecture → tests → documentation map → status. Section content is unchanged — this is ordering, navigation, and two additions.
+
+### Added
+
+- The starter-homepage screenshot (`screenshot.png`, shipped since v1.7.4) is now shown at the top of the README instead of existing only as the theme thumbnail.
+- A Documentation section mapping each audience to its entry point: `AI_CONTEXT.md` for operating agents, the CLI reference, the how-to guides and playbooks, per-component contracts (or `wp pp schema <component>`), and the changelog/releases split.
+
+---
+
 ## [v1.15.0] — 2026-08-18 — diagnostic reach and operator addressability: every diagnostic arrives where the work happens, and everything an agent addresses has one canonical name (rollup)
 
 **v1.15.0 is the rollup release of the Diagnostic Reach & Operator Addressability gate — nine working versions (1.14.1–1.14.9) verified as one line.** v1.14.0 made every signal truthful; this line makes the signals arrive. The write that causes a problem now reports it in its own envelope: every accepted composition-mutating write carries a `findings` key built by the same shared engines the read-only diagnostics use, inert-slot advisories included, bounded at 100 entries with a truthful truncation tail and guarded by a 1 MiB availability gate so report-only can never take down the write it reports on (#687). A rejected write names the band that blocked it, as a first-class `index` beside `error_code` and in the message itself, so two bands with the same defect finally produce two different rejections (#642). The locators inside those messages stopped lying about object-shaped data: a band-level key renders as `Item key "aa"` or not at all — never a fabricated `Item 0` that contradicts its own payload — and a nested numeric object key renders `item key "0"` so a reordered map names the broken entry instead of the healthy one, with every band-level rendering derived from one function so one composition cannot produce three spellings of "which band?" (#650, #652). A misspelled `items[]` field is rejected by name instead of persisting behind `ok: true`, with the missing-required message carrying the same undeclared-keys hint the top level has had since #622 (#643). A stored non-scalar `image_url` or `image_alt` degrades the image instead of fataling the whole public page, at all seven typed call sites (#641). Addressability got one canonical shape: every page-addressed CLI command takes `--post_id=<id>` — positional arguments and slug resolution are gone, refused with a breadcrumb that states the flag form (#685) — and the schema contract agents previously read off disk is now a first-class command, `wp pp schema <component>`, serving props, style slots, `applies_when` conditions and recipes verbatim from the shipped schema (#688). The line also repaired its own instruments: the three nightly E2E failures red since July were triaged as test defects and fixed with citations — one had never passed anywhere and merged red through an untagged gap (#696) — and CI stopped resolving PHP dependencies from the live network on every run, with `composer.lock` committed byte-identical to the last green resolution and a bounded retry around wp-env's own container build (#700).
