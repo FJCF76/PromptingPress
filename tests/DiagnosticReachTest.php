@@ -831,7 +831,9 @@ class DiagnosticReachTest extends TestCase
         ]);
 
         $this->assertFalse($result['ok']);
-        $this->assertStringContainsString('Component "grid" item aa has no style slot', $result['error']);
+        // Band 0 named by the write path since #642; the nested locator this test owns
+        // is still the honest "item aa", never the fabricated "item 0".
+        $this->assertStringContainsString('Component 0 ("grid") item aa has no style slot', $result['error']);
         $this->assertStringNotContainsString('item 0', $result['error']);
     }
 

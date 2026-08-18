@@ -2256,12 +2256,14 @@ class SchemaValidationTest extends TestCase
     {
         // The other half of the contract, asserted on the exact message bytes: an
         // exhaustive report must not change one character of what a rejected write says.
+        // (Since #642 the write path names the BAND — `Component 0 ("cta")` — which is
+        // the one documented difference between this string and the collected finding's.)
         $result = pp_validate_composition($this->propAndSlotComposition());
 
         $this->assertInstanceOf(\WP_Error::class, $result);
         $this->assertSame('unknown_prop', $result->get_error_code());
         $this->assertSame(
-            'Component "cta" has no prop "text". Available props: id, title, title_accent, eyebrow, body, '
+            'Component 0 ("cta") has no prop "text". Available props: id, title, title_accent, eyebrow, body, '
             . 'button_text, button_url, button2_text, button2_url, button2_variant, layout, theme, '
             . 'background_image, button_variant',
             $result->get_error_message()
@@ -2517,7 +2519,7 @@ class SchemaValidationTest extends TestCase
         $this->assertInstanceOf(\WP_Error::class, $result);
         $this->assertSame('unknown_prop', $result->get_error_code(), 'the top-level gate\'s code, not a new one');
         $this->assertSame(
-            'Component "logos" prop "items" item 0 has no field "imageId". '
+            'Component 0 ("logos") prop "items" item 0 has no field "imageId". '
                 . 'Available fields: image_url, image_alt, image_id, label',
             $result->get_error_message(),
             'the message names the offending key AND the available fields, like the top-level gate'
@@ -2905,11 +2907,24 @@ class SchemaValidationTest extends TestCase
     {
         $composition = $this->manyFindingsComposition();
         $result      = pp_validate_composition($composition);
+        $unbudgeted  = pp_validate_composition_errors($composition)[0];
 
+        // Same VIOLATION — same rule, same band. The budget cannot change which one is
+        // selected; only the write path's band naming (#642) separates the two strings,
+        // and the offset both carry is the same one.
         $this->assertInstanceOf(\WP_Error::class, $result);
+        $this->assertSame($unbudgeted->get_error_code(), $result->get_error_code());
         $this->assertSame(
-            pp_validate_composition_errors($composition)[0]->get_error_message(),
+            pp_composition_error_index($unbudgeted),
+            pp_composition_error_index($result)
+        );
+        $this->assertSame(
+            'Component 0 ("logos") prop "items" item 0 is missing required field "image_url".',
             $result->get_error_message()
+        );
+        $this->assertSame(
+            'Component "logos" prop "items" item 0 is missing required field "image_url".',
+            $unbudgeted->get_error_message()
         );
     }
 
@@ -3086,14 +3101,24 @@ class SchemaValidationTest extends TestCase
     public function testFirstCollectedErrorIsExactlyWhatValidateReturns(): void
     {
         // The contract, stated as an invariant rather than a coincidence: whatever
-        // pp_validate_composition() returns IS errors[0] — same code, same message.
+        // pp_validate_composition() returns IS errors[0] — same rule, same band. Since
+        // #642 the write form additionally NAMES that band, because a rejected write has
+        // no second field to render a locator into the way every reporting surface does.
         $composition = $this->multiErrorComposition();
 
         $first  = pp_validate_composition($composition);
         $errors = pp_validate_composition_errors($composition);
 
         $this->assertSame($errors[0]->get_error_code(), $first->get_error_code());
-        $this->assertSame($errors[0]->get_error_message(), $first->get_error_message());
+        $this->assertSame(
+            pp_composition_error_index($errors[0]),
+            pp_composition_error_index($first)
+        );
+        $this->assertSame(
+            'Component 0: ' . $errors[0]->get_error_message(),
+            $first->get_error_message(),
+            'the chrome message names the component in its own words, so the band is prefixed'
+        );
     }
 
     // ── Duplicate authored component ids (issue 238) ────────────────────────────

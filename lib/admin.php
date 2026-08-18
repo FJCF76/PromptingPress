@@ -1170,12 +1170,14 @@ function _pp_link_url_error_message(string $component, string $prop_name, int|st
  * finding, so the read-only diagnostics could not say which band was dead while the
  * sibling smells could.
  *
- * The offset rides as WP_Error DATA, not as a message prefix: the messages are the
- * write path's public rejection strings (returned verbatim by pp_validate_composition()
- * to create_page / update_composition / update_component / the editor save), and
- * rewording them is a separate, wider change. Data is inert for every existing
- * consumer — the action layer reads only get_error_code() / get_error_message() —
- * and `_pp_composition_findings()` reads it to fill the finding's `index`.
+ * The offset rides as WP_Error DATA, not as a message prefix, and the two surfaces that
+ * read it render it differently. `_pp_composition_findings()` copies it into the
+ * finding's `index`, which every reporting surface prints beside the message. The WRITE
+ * path has no such field in a human message, so pp_validate_composition() renders the
+ * band INTO the message it returns (#642, _pp_band_named_composition_error()) and the
+ * action envelope carries the offset beside `error_code`. The messages built here stay
+ * band-free: they are what the reporting surfaces show, and adding a band would print
+ * the locator twice there.
  *
  * Cross-item rules (duplicate_component_id) do NOT use this helper: they belong to
  * no single offset and already name every colliding index in the message.
@@ -1467,8 +1469,12 @@ function _pp_render_undeclared_prop_keys(array $keys): string {
  *
  * errors[0] IS UNCHANGED. Rule order is untouched, a claim can never suppress an item's
  * FIRST finding, and everything exhaustiveness adds is APPENDED after the error that was
- * already there — so pp_validate_composition(), which returns errors[0], rejects every
- * write with exactly the code and message it always did.
+ * already there — so pp_validate_composition() rejects every write on exactly the rule,
+ * the value and the band it always did. What it returns is no longer errors[0] itself:
+ * since #642 it re-renders that error's MESSAGE to name the band (the write path has no
+ * second field to print a locator into, the way every reporting surface does). Same
+ * code, same stamped offset, same verdict; see _pp_band_named_composition_error(), and
+ * testFirstCollectedErrorIsExactlyWhatValidateReturns() for the pinned difference.
  *
  * Every per-item error carries its composition offset as WP_Error data (#622); read it
  * with pp_composition_error_index(). Cross-item errors (duplicate_component_id) carry
@@ -2765,6 +2771,112 @@ function pp_validate_composition_errors(array $items, ?int $limit = null): array
 }
 
 /**
+ * Names the offending BAND in a write-path rejection message (#642).
+ *
+ * Every rule inside pp_validate_composition_errors() names the component TYPE
+ * ("Component \"logos\" prop ..."), never WHICH band on the page it is. Because every
+ * composition-mutating action validates the WHOLE composition, a page with two `logos`
+ * bands that both store a bad value produced two BYTE-IDENTICAL rejections: an agent
+ * that "fixed" its own payload got the same string back, forever, because the blocking
+ * value sat in a band it never touched. The offset was computed all along — #622 stamps
+ * it as WP_Error data — and then discarded one layer up.
+ *
+ * WHY THIS RENDERS AT THE WRITE BOUNDARY RATHER THAN AT MESSAGE-BUILD TIME. The same
+ * WP_Error message is read by two surfaces with different locator conventions. The
+ * REPORTING surfaces (`wp pp check page`, `validate site`, restore/rollback findings)
+ * carry the offset as a SEPARATE field and render it themselves — `_pp_cli_finding_line()`
+ * prints "[type] index 1: <message>" — so naming the band inside the message too would
+ * print the locator twice there. The WRITE surface has no second field to render into a
+ * human message. So the band is added HERE, on the one path that needs it, and the
+ * findings vocabulary that #650/#652/#687 decide stays exactly where it was.
+ *
+ * THE MESSAGE IS REWRITTEN, NEVER RE-DERIVED. The component name comes from the very
+ * item the stamped offset points at (the foreach key IS the array key, so this reads the
+ * band that failed, sparse and out-of-order keys included), and the leading label is
+ * swapped only when it matches that name EXACTLY. A rule whose message does not open
+ * with the label is prefixed instead, so a reworded rule can lose its parenthesised form
+ * but never its band. testWriteRejectionsNameTheirBand() in tests/WriteRejectionLocatorTest.php
+ * walks one case per rule family and is the tripwire for that coupling: reword a message
+ * and the test tells you the locator moved.
+ *
+ *   message opens with                     rendered as
+ *   Component "logos" prop "items" ...     Component 1 ("logos") prop "items" ...
+ *   Item 1 is missing the "component" ...  (unchanged — it already names the band)
+ *   Unknown component: "nope".             Component 1: Unknown component: "nope".
+ *   "nav" is site chrome ...               Component 1: "nav" is site chrome ...
+ *
+ * The two prefixed families already name the component in their own text, so the
+ * parenthesised form would stutter ("Component 1 (\"nav\"): \"nav\" is site chrome");
+ * they get the offset, which is the part that was missing.
+ *
+ * An error with no offset (duplicate_component_id, which belongs to no single band and
+ * already names every colliding index) is returned untouched — the honest-locator
+ * contract: a locator is real or absent, never fabricated.
+ *
+ * @param  WP_Error $error  The first-error-wins rejection.
+ * @param  array    $items  The composition it was validated against.
+ * @return WP_Error         Same code and data; message names the band when one owns it.
+ */
+function _pp_band_named_composition_error(WP_Error $error, array $items): WP_Error {
+    $index = pp_composition_error_index($error);
+    if ($index === null) {
+        return $error;
+    }
+
+    $message = $error->get_error_message();
+    $name    = (isset($items[$index]['component']) && is_scalar($items[$index]['component']))
+        ? (string) $items[$index]['component']
+        : null;
+
+    // Cheap gate before the copy. An unvalidated composition can carry a megabyte-long
+    // `component` value, and this path exists to survive exactly that data, so the
+    // families whose message cannot start with the label (site chrome, unknown
+    // component) are ruled out on a fixed 11-byte prefix rather than by building a full
+    // copy of the name to lose a comparison with.
+    $label = ($name !== null && str_starts_with($message, 'Component "'))
+        ? sprintf('Component "%s"', $name)
+        : null;
+    if ($label !== null && str_starts_with($message, $label)) {
+        $message = sprintf('Component %d ("%s")', $index, $name) . substr($message, strlen($label));
+    } elseif (!str_starts_with($message, sprintf('Item %d ', $index))) {
+        // Not the structural family, which spells its own "Item N" prefix for exactly
+        // this offset (a non-int key never reaches here — it stamps no offset at all).
+        $message = sprintf('Component %d: %s', $index, $message);
+    }
+
+    // A NEW WP_Error, because WP_Error has no message setter. The original DATA rides
+    // along untouched rather than being re-stamped as ['index' => N]: a producer may
+    // have attached context of its own (the rejected-slot context #626 stamps is the
+    // live example), and a rendering step has no business dropping it.
+    return new WP_Error($error->get_error_code(), $message, $error->get_error_data());
+}
+
+/**
+ * Drops the composition offset from a rejection built against a SYNTHETIC array (#642).
+ *
+ * add_component validates `[$new_item]` — a one-item array that is not the page's
+ * composition — so the offset 0 inside it names the caller's own payload, not band 0 of
+ * the page. Reporting it would send an agent to repair an unrelated stored band, the
+ * fabricated-locator failure this issue exists to end. The message is unchanged: it
+ * describes the payload the caller just submitted, which needs no band to be actionable.
+ *
+ * @param  WP_Error $error
+ * @return WP_Error  Same code and message, no offset.
+ */
+function _pp_unlocated_composition_error(WP_Error $error): WP_Error {
+    if (pp_composition_error_index($error) === null) {
+        return $error;
+    }
+    // Only the offset is cleared. Everything else a producer stamped rides along, for
+    // the same reason the band renderer above carries data forward.
+    $data          = $error->get_error_data();
+    $data          = is_array($data) ? $data : [];
+    $data['index'] = null;
+
+    return new WP_Error($error->get_error_code(), $error->get_error_message(), $data);
+}
+
+/**
  * Validates a decoded composition array against the component registry.
  *
  * First-error-wins: returns the first violation in document order, exactly as it always
@@ -2780,13 +2892,46 @@ function pp_validate_composition_errors(array $items, ?int $limit = null): array
  * or without the budget: rule order is untouched and a budget can only suppress findings
  * AFTER the first one.
  *
+ * The returned MESSAGE names the band (#642) — see _pp_band_named_composition_error().
+ * Which rule fires, with which code, on which value is untouched: this function accepts
+ * and rejects exactly what it always did, and only the wording of a rejection changed.
+ *
+ * Validate ONE item that is not part of a page's composition with
+ * pp_validate_composition_item() instead — same rules, no band locator.
+ *
  * @param  array            $items  Decoded composition array.
  * @return true|WP_Error
  */
 function pp_validate_composition(array $items) {
     $errors = pp_validate_composition_errors($items, 1);
 
-    return $errors === [] ? true : $errors[0];
+    return $errors === []
+        ? true
+        : _pp_band_named_composition_error($errors[0], $items);
+}
+
+/**
+ * Validates ONE composition item that is not (yet) part of a page (#642).
+ *
+ * add_component judges only the item it adds, so it wraps that item in a one-element
+ * array and runs the shared engine over it — no second validator, same rules. But that
+ * array is SYNTHETIC: its offset 0 is not the page's band 0, and reporting it would send
+ * an agent to repair a stored band that has nothing to do with the rejection. So the
+ * locator is dropped rather than fabricated, and this function says so by name instead
+ * of asking every caller of pp_validate_composition() to read a boolean.
+ *
+ * The message is unchanged either way: it describes the payload the caller just
+ * submitted, which needs no band to be actionable.
+ *
+ * @param  array $item  One composition item, as submitted.
+ * @return true|WP_Error
+ */
+function pp_validate_composition_item(array $item) {
+    $result = pp_validate_composition_errors([$item], 1);
+
+    return $result === []
+        ? true
+        : _pp_unlocated_composition_error($result[0]);
 }
 
 // ── Composition Page Discriminator ───────────────────────────────────────────
