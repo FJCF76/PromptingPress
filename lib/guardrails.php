@@ -687,8 +687,9 @@ function pp_validate_composition_smells(array $composition): array {
         // renderer resolves the attachment.
         // Predicate mirrors the renderer's degradation test in hero.php: no image
         // (empty url, matching the renderer's truthy gate) AND no resolvable image_id
-        // ((int) cast, matching hero.php:24 so a non-numeric id is "no media" in both
-        // places) AND no proof. Kept in lock-step so the warning fires exactly when
+        // ((int) cast, matching hero.php's `$image_id` guard so a non-numeric id is "no
+        // media" in both places) AND no proof. Kept in lock-step so the warning fires
+        // exactly when
         // the renderer degrades.
         if (
             $component === 'hero'

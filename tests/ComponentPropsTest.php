@@ -2852,6 +2852,394 @@ class ComponentPropsTest extends TestCase
         $this->assertArrayHasKey('image_id', $schema['props']['items']['items']);
     }
 
+    // ── #641: a stored non-scalar image_url/image_alt must not fatal the page ─
+    //
+    // The image_id guards above (#584/#614) stop a bad stored value from resolving the
+    // WRONG image. This is the sharper half of the same family: image_url and image_alt
+    // are read with no cast and handed to TYPED parameters, so a stored ARRAY does not
+    // degrade — it raises an uncatchable TypeError. templates/composition.php:25 calls
+    // pp_get_component() with no try/catch, so ONE malformed stored value takes the
+    // WHOLE PUBLIC PAGE down with a 500.
+    //
+    // WHAT THE GUARD IS, AND WHY IT IS NOT is_string(). PHP runs COERCIVE here (no
+    // declare(strict_types)), so only NON-SCALARS ever fataled: a stored `42` coerced at
+    // the boundary and painted `<img src="42">`. The write path is scalar-permissive to
+    // match — create_page accepts `image_url: 42` and stores it raw with NO finding
+    // (#707) — so an is_string() guard would silently drop a value the front door had
+    // just accepted. Worse, because pp_render_responsive_image() resolves $attachment_id
+    // BEFORE falling back to $url, is_string() would also discard a perfectly good
+    // image_id attachment on four of the five components. The pins below are split to
+    // hold both halves apart:
+    //
+    //   NON-SCALAR  -> "" -> no image.  CHANGED: this is the fatal, now degraded.
+    //   SCALAR      -> (string) cast.   UNCHANGED: byte-identical to before the guard.
+    //
+    // Ratified at gate 7A. Scope is the NAMED typed call: both raw-value arguments of
+    // pp_render_responsive_image(). The same defect through OTHER typed helpers is
+    // tracked separately (#705 background_image, #706 title/title_accent, #708) and is
+    // deliberately not fixed here — the admitting criterion was same-typed-call, not
+    // same-file.
+    //
+    // Reachability is the image_id argument exactly: the write path rejects a non-scalar
+    // at both depths, but the validator gates WRITES. restore_composition reports
+    // without blocking (#233), a composition authored before the rule still carries the
+    // value, and a raw _pp_composition meta write is not gated at all. The end-to-end
+    // pin on real stored bytes lives in tests/StoredImageUrlRenderGuardTest.php; these
+    // hold the per-component shape.
+
+    /**
+     * The shapes that actually FATALED, and now degrade. Every one is a non-scalar and
+     * NON-EMPTY, so it is truthy and genuinely opens the gate that reaches the typed
+     * call — an empty array is falsy and never got there, so it is a control (below),
+     * not a case.
+     */
+    public static function fatalNonScalars(): array
+    {
+        return [
+            'import_media envelope' => [['attachment_id' => 42, 'url' => '/a.png']],
+            'list'                  => [['/a.png', '/b.png']],
+            'nested map'            => [['src' => ['url' => '/a.png']]],
+        ];
+    }
+
+    /**
+     * @dataProvider fatalNonScalars
+     */
+    public function testLogosStoredNonScalarImageUrlSkipsTheItemInsteadOfFataling($bad): void
+    {
+        // A SECOND, good item is in the band on purpose: the contract is that one
+        // malformed item degrades to nothing while the rest of the page renders. Without
+        // the guard this render throws and the assertions never run.
+        $html = $this->render('logos', [
+            'title' => 'Trusted by',
+            'items' => [
+                ['image_url' => $bad, 'image_alt' => 'Broken'],
+                ['image_url' => 'https://example.com/good.png', 'image_alt' => 'Good'],
+            ],
+        ]);
+        $this->assertStringNotContainsString('Broken', $html, 'the malformed item renders nothing');
+        $this->assertStringContainsString(
+            '<img src="https://example.com/good.png" alt="Good" class="logos__image" loading="lazy">',
+            $html,
+            'the sibling item is untouched'
+        );
+        $this->assertStringContainsString('Trusted by', $html, 'the band still renders');
+        $this->assertSame(1, substr_count($html, '<img '), 'one image, not two');
+    }
+
+    /**
+     * @dataProvider fatalNonScalars
+     */
+    public function testGridStoredNonScalarImageUrlRendersTheCardWithoutAnImage($bad): void
+    {
+        $html = $this->render('grid', $this->gridProps([
+            'items' => [['title' => 'Card title', 'text' => 'Card text', 'image_url' => $bad]],
+        ]));
+        $this->assertStringNotContainsString('<img ', $html, 'no image element');
+        $this->assertStringNotContainsString('grid__item-image-wrap', $html, 'no image wrap');
+        $this->assertStringContainsString('Card title', $html, 'the card body still renders');
+        $this->assertStringContainsString('Card text', $html, 'the card body still renders');
+    }
+
+    /**
+     * @dataProvider fatalNonScalars
+     */
+    public function testTestimonialsStoredNonScalarImageUrlRendersTheQuoteWithoutAnAvatar($bad): void
+    {
+        $html = $this->render('testimonials', $this->testimonialsProps([
+            'items' => [['quote' => 'It shipped on time.', 'author' => 'Jane Doe', 'image_url' => $bad]],
+        ]));
+        $this->assertStringNotContainsString('<img ', $html, 'no avatar element');
+        $this->assertStringNotContainsString('testimonials__avatar', $html, 'no avatar');
+        $this->assertStringContainsString('It shipped on time.', $html, 'the quote renders');
+        $this->assertStringContainsString('Jane Doe', $html, 'the attribution renders');
+    }
+
+    /**
+     * @dataProvider fatalNonScalars
+     */
+    public function testHeroSplitStoredNonScalarImageUrlDegradesToLeft($bad): void
+    {
+        // Hero is the one that changes LAYOUT, by the shipped #440 rule: with no media
+        // and no proof the second column has nothing to show, so "split" renders as
+        // "left". Render-time only — the stored `layout` prop is not rewritten. No
+        // image_id here, because a resolvable one is media in its own right (pinned
+        // separately below).
+        $html = $this->render('hero', $this->heroProps([
+            'layout' => 'split', 'image_url' => $bad,
+        ]));
+        $this->assertStringNotContainsString('<img ', $html, 'no image element');
+        $this->assertStringNotContainsString('hero--split', $html, 'degrades');
+        $this->assertStringContainsString('hero--left', $html, 'degrades to left');
+        $this->assertStringContainsString('>T<', $html, 'the title still renders');
+    }
+
+    /**
+     * The SECOND typed helper this one prop reaches: the cover layout hands image_url to
+     * pp_esc_image_src(), also `string $url`. Guarding at the READ covers it with no
+     * second edit, because everything below reads the guarded local.
+     *
+     * @dataProvider fatalNonScalars
+     */
+    public function testHeroCoverStoredNonScalarImageUrlRendersWithoutABackgroundImage($bad): void
+    {
+        $html = $this->render('hero', $this->heroProps([
+            'layout' => 'cover', 'image_url' => $bad,
+        ]));
+        $this->assertStringNotContainsString('background-image', $html, 'no background image');
+        $this->assertStringContainsString('hero--cover', $html, 'the cover band still renders');
+        $this->assertStringContainsString('hero__overlay', $html, 'the overlay still paints');
+    }
+
+    /**
+     * section already falls back to text-only when there is no image URL. An array
+     * defeated that gate by being truthy, so the band kept its image layout and hit the
+     * typed call. With the guard the EXISTING fallback fires.
+     *
+     * @dataProvider fatalNonScalars
+     */
+    public function testSectionStoredNonScalarImageUrlDegradesToTextOnly($bad): void
+    {
+        foreach (['image-left', 'image-right'] as $layout) {
+            $html = $this->render('section', $this->sectionProps([
+                'layout' => $layout, 'image_url' => $bad,
+            ]));
+            $this->assertStringNotContainsString('<img ', $html, "section {$layout}: no image element");
+            $this->assertStringNotContainsString('section__image-wrap', $html, "section {$layout}: no image wrap");
+            $this->assertStringContainsString('<p>Body</p>', $html, "section {$layout}: the body still renders");
+        }
+    }
+
+    /**
+     * image_alt is argument #2 of the SAME call and fataled identically. Guarding only
+     * the URL would have left the same 500 reachable one argument over in one statement,
+     * which is why gate 7A admitted it: the recorded defect is the CALL, not the arg.
+     *
+     * Unlike image_url, image_alt's reachability is the clean one — the write path DOES
+     * reject a non-scalar image_alt and the findings engine DOES report it — so this is
+     * purely stored data (restore/#233, pre-rule, raw meta).
+     *
+     * @dataProvider fatalNonScalars
+     */
+    public function testStoredNonScalarImageAltRendersAnEmptyAltInsteadOfFataling($bad): void
+    {
+        $html = $this->render('logos', [
+            'items' => [['image_url' => 'https://example.com/logo.png', 'image_alt' => $bad]],
+        ]);
+        // The image still renders — a broken ALT is not a reason to drop the image.
+        $this->assertStringContainsString(
+            '<img src="https://example.com/logo.png" alt="" class="logos__image" loading="lazy">',
+            $html,
+            'the image renders with an empty alt'
+        );
+
+        foreach ([
+            ['grid',         $this->gridProps(['items' => [['title' => 'C', 'image_url' => 'https://example.com/c.jpg', 'image_alt' => $bad]]]), 'grid__item-image'],
+            ['testimonials', $this->testimonialsProps(['items' => [['quote' => 'Q', 'image_url' => 'https://example.com/f.jpg', 'image_alt' => $bad]]]), 'testimonials__avatar'],
+            ['hero',         $this->heroProps(['layout' => 'split', 'image_url' => 'https://example.com/h.jpg', 'image_alt' => $bad]), 'hero__image'],
+            ['section',      $this->sectionProps(['layout' => 'image-left', 'image_url' => 'https://example.com/s.jpg', 'image_alt' => $bad]), 'section__image'],
+        ] as [$component, $props, $class]) {
+            $out = $this->render($component, $props);
+            $this->assertStringContainsString('alt=""', $out, "{$component}: empty alt");
+            $this->assertStringContainsString('class="' . $class . '"', $out, "{$component}: the image still renders");
+        }
+    }
+
+    // ── The UNCHANGED half: a non-string SCALAR still coerces, exactly as before ──
+
+    /**
+     * THE REGRESSION PIN, and the reason the guard is is_scalar and not is_string.
+     *
+     * create_page ACCEPTS `image_url: 42` and stores it raw, reporting nothing (#707).
+     * pp_render_responsive_image() resolves $attachment_id BEFORE falling back to $url,
+     * so such a page renders its image_id attachment correctly today. An is_string()
+     * guard would blank $image_url, the truthiness gate would close, and FOUR of the
+     * five components would silently drop a real, resolvable image — no error, no
+     * finding, no log line. This pin fails the moment that predicate narrows.
+     */
+    public function testAScalarImageUrlStillResolvesItsImageIdAttachment(): void
+    {
+        $this->seedAttachment(77, 'https://example.com/uploads/REAL.jpg');
+
+        foreach ([42, true, 3.14] as $scalar) {
+            $label = var_export($scalar, true);
+
+            $logos = $this->render('logos', [
+                'items' => [['image_url' => $scalar, 'image_alt' => 'L', 'image_id' => 77]],
+            ]);
+            $this->assertStringContainsString('REAL.jpg', $logos, "logos {$label}");
+
+            $grid = $this->render('grid', $this->gridProps([
+                'items' => [['title' => 'C', 'image_url' => $scalar, 'image_id' => 77]],
+            ]));
+            $this->assertStringContainsString('REAL.jpg', $grid, "grid {$label}");
+
+            $testimonials = $this->render('testimonials', $this->testimonialsProps([
+                'items' => [['quote' => 'Q', 'image_url' => $scalar, 'image_id' => 77]],
+            ]));
+            $this->assertStringContainsString('REAL.jpg', $testimonials, "testimonials {$label}");
+
+            $section = $this->render('section', $this->sectionProps([
+                'layout' => 'image-left', 'image_url' => $scalar, 'image_id' => 77,
+            ]));
+            $this->assertStringContainsString('REAL.jpg', $section, "section {$label}");
+
+            $hero = $this->render('hero', $this->heroProps([
+                'layout' => 'split', 'image_url' => $scalar, 'image_id' => 77,
+            ]));
+            $this->assertStringContainsString('REAL.jpg', $hero, "hero {$label}");
+        }
+    }
+
+    /**
+     * And with no image_id, a scalar still coerces to its string form and paints the
+     * same (broken, but VISIBLE and diagnosable) <img> it painted before the guard.
+     * "No image" would be strictly less diagnosable than "broken image" here.
+     */
+    public function testAScalarImageUrlStillCoercesToItsStringForm(): void
+    {
+        // Pairs, not a keyed map: a float array key would be truncated to an int.
+        foreach ([[42, '42'], [3.14, '3.14']] as [$scalar, $expected]) {
+            $html = $this->render('logos', [
+                'items' => [['image_url' => $scalar, 'image_alt' => 'L']],
+            ]);
+            $this->assertStringContainsString(
+                '<img src="' . $expected . '" alt="L" class="logos__image" loading="lazy">',
+                $html,
+                "image_url {$expected} coerces exactly as it did before the guard"
+            );
+        }
+
+        // true casts to "1" — the same string the typed parameter coerced it to before.
+        $boolean = $this->render('logos', [
+            'items' => [['image_url' => true, 'image_alt' => 'L']],
+        ]);
+        $this->assertStringContainsString('<img src="1" alt="L" class="logos__image" loading="lazy">', $boolean);
+
+        // A scalar ALT coerces too, rather than being blanked.
+        $alt = $this->render('logos', [
+            'items' => [['image_url' => 'https://example.com/logo.png', 'image_alt' => 42]],
+        ]);
+        $this->assertStringContainsString('alt="42"', $alt);
+    }
+
+    /**
+     * Falsy CONTROLS, not fix cases. None of these ever reached the typed call (the
+     * truthiness gates closed first), so they render identically with and without the
+     * guard. Pinned so the guard is not blamed for — or credited with — behavior that
+     * predates it.
+     */
+    public function testFalsyImageUrlsKeepTheirPreExistingMeaning(): void
+    {
+        foreach ([[], false, null, '', '0'] as $falsy) {
+            $label = json_encode($falsy);
+
+            $logos = $this->render('logos', [
+                'items' => [['image_url' => $falsy, 'image_alt' => 'L']],
+            ]);
+            $this->assertStringNotContainsString('<img ', $logos, "logos {$label}");
+
+            $section = $this->render('section', $this->sectionProps([
+                'layout' => 'image-left', 'image_url' => $falsy,
+            ]));
+            $this->assertStringNotContainsString('section__image-wrap', $section, "section {$label}");
+        }
+    }
+
+    /**
+     * The #584 contract that must SURVIVE the guard: on the item renderers image_id is a
+     * COMPANION to a URL, never a replacement, so a NON-SCALAR image_url degrades the
+     * whole image rather than silently swapping in the attachment. Hero is the
+     * deliberate exception ($has_split_media counts a resolvable id as media on its
+     * own), asserted alongside so the difference is recorded rather than discovered.
+     *
+     * Contrast with testAScalarImageUrlStillResolvesItsImageIdAttachment: a SCALAR keeps
+     * the gate open and the attachment renders. That asymmetry is the point of the
+     * predicate.
+     */
+    public function testANonScalarImageUrlDoesNotPromoteImageIdIntoASubstitute(): void
+    {
+        $this->seedAttachment(42, 'https://example.com/uploads/card.jpg');
+        $bad = ['attachment_id' => 42];
+
+        $logos = $this->render('logos', [
+            'items' => [['image_url' => $bad, 'image_alt' => 'A', 'image_id' => 42]],
+        ]);
+        $this->assertStringNotContainsString('card.jpg', $logos, 'logos: no image at all');
+
+        $grid = $this->render('grid', $this->gridProps([
+            'items' => [['title' => 'Card', 'image_url' => $bad, 'image_id' => 42]],
+        ]));
+        $this->assertStringNotContainsString('card.jpg', $grid, 'grid: no image at all');
+
+        $testimonials = $this->render('testimonials', $this->testimonialsProps([
+            'items' => [['quote' => 'Q', 'image_url' => $bad, 'image_id' => 42]],
+        ]));
+        $this->assertStringNotContainsString('card.jpg', $testimonials, 'testimonials: no image at all');
+
+        $section = $this->render('section', $this->sectionProps([
+            'layout' => 'image-left', 'image_url' => $bad, 'image_id' => 42,
+        ]));
+        $this->assertStringNotContainsString('card.jpg', $section, 'section: the text-only fallback wins');
+
+        $hero = $this->render('hero', $this->heroProps([
+            'layout' => 'split', 'image_url' => $bad, 'image_id' => 42,
+        ]));
+        $this->assertStringContainsString('card.jpg', $hero, 'hero: a resolvable image_id is media on its own');
+        $this->assertStringContainsString('hero--split', $hero, 'hero: so the split layout stands');
+    }
+
+    public function testAValidStringImageUrlIsUntouchedByTheGuard(): void
+    {
+        // The accept side. The guard must be a no-op on every real composition, so these
+        // are byte-exact rather than "contains an img".
+        $logos = $this->render('logos', [
+            'items' => [['image_url' => 'https://example.com/logo.png', 'image_alt' => 'Logo']],
+        ]);
+        $this->assertStringContainsString(
+            '<img src="https://example.com/logo.png" alt="Logo" class="logos__image" loading="lazy">',
+            $logos
+        );
+
+        $grid = $this->render('grid', $this->gridProps([
+            'items' => [['title' => 'Card', 'image_url' => 'https://example.com/card.jpg', 'image_alt' => 'Card banner']],
+        ]));
+        $this->assertStringContainsString(
+            '<img src="https://example.com/card.jpg" alt="Card banner" class="grid__item-image" loading="lazy">',
+            $grid
+        );
+
+        $testimonials = $this->render('testimonials', $this->testimonialsProps([
+            'items' => [['quote' => 'Q', 'image_url' => 'https://example.com/face.jpg', 'image_alt' => 'Face']],
+        ]));
+        $this->assertStringContainsString(
+            '<img src="https://example.com/face.jpg" alt="Face" class="testimonials__avatar" loading="lazy">',
+            $testimonials
+        );
+
+        $hero = $this->render('hero', $this->heroProps([
+            'layout' => 'split', 'image_url' => 'https://example.com/hero.jpg', 'image_alt' => 'Hero',
+        ]));
+        $this->assertStringContainsString(
+            '<img src="https://example.com/hero.jpg" alt="Hero" class="hero__image" loading="eager">',
+            $hero
+        );
+        $this->assertStringContainsString('hero--split', $hero, 'and the split layout is kept');
+
+        $cover = $this->render('hero', $this->heroProps([
+            'layout' => 'cover', 'image_url' => 'https://example.com/bg.jpg',
+        ]));
+        $this->assertStringContainsString('background-image:url(https://example.com/bg.jpg)', $cover);
+
+        $section = $this->render('section', $this->sectionProps([
+            'layout' => 'image-left', 'image_url' => 'https://example.com/side.jpg', 'image_alt' => 'Side',
+        ]));
+        $this->assertStringContainsString(
+            '<img src="https://example.com/side.jpg" alt="Side" class="section__image" loading="lazy">',
+            $section
+        );
+    }
+
     // ── Image focal point + aspect ratio style slots (#108) ──────────────────
 
     public function testHeroCoverBgPositionOverrideRenders(): void

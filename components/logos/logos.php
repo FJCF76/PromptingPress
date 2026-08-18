@@ -30,8 +30,47 @@ $style_attr = $slot_style ? ' style="' . $slot_style . ';"' : '';
         <?php if (!empty($items)) : ?>
             <ul class="logos__list" role="list">
                 <?php foreach ($items as $item) :
-                    $image_url = $item['image_url'] ?? '';
-                    $image_alt = $item['image_alt'] ?? '';
+                    // ── #641: the raw-value guard for pp_render_responsive_image() ──────
+                    //
+                    // THE CANONICAL EXPLANATION LIVES HERE. hero, section, grid and
+                    // testimonials carry the same two-line guard with a pointer back to this
+                    // block; keep the reasoning in one place so a correction lands once.
+                    //
+                    // BOTH of the helper's raw-value arguments are typed:
+                    //   pp_render_responsive_image(string $url, string $alt, ...)
+                    // A non-empty array is TRUTHY, so the `if ($image_url)` gate below PASSES
+                    // on one and the typed call raises a TypeError. templates/composition.php
+                    // calls pp_get_component() with no try/catch, so ONE malformed stored
+                    // value returns a whole-page 500 instead of a band missing an image.
+                    // Guarding only $url would leave the identical fatal one argument over in
+                    // the same statement, so both are guarded (gate 7A: the admitting
+                    // criterion is the same TYPED CALL, not the same file — the sibling props
+                    // that reach OTHER typed helpers are #705/#706/#708, deliberately not
+                    // here).
+                    //
+                    // is_scalar, NOT is_string, and the difference is load-bearing. PHP runs
+                    // COERCIVE here (no declare(strict_types)), so only NON-SCALARS ever
+                    // fataled — a stored int/float/bool already coerced at the boundary and
+                    // painted. The write path is scalar-permissive to match: create_page
+                    // accepts `image_url: 42` and stores it raw with no finding (#707). So
+                    // is_string() would silently DROP a value the front door had just
+                    // accepted — and because the helper resolves $attachment_id before it
+                    // falls back to $url, it would also discard a perfectly good image_id
+                    // attachment on this component. The (string) cast keeps every scalar
+                    // rendering byte-for-byte as it does today; the only shapes whose output
+                    // changes are the ones that used to fatal, and they change to "no image",
+                    // which is what an empty value has always meant here.
+                    //
+                    // STORED data is the point. The write path rejects non-scalars, but it
+                    // gates WRITES, not storage: restore_composition reports without blocking
+                    // (#233), a composition authored before the rule still carries the value,
+                    // and a raw _pp_composition meta write is not gated at all. A stricter
+                    // front door does not repair a page that already stores the bad value.
+                    // Nothing here rewrites the store — the value is read, not migrated.
+                    $raw_image_url = $item['image_url'] ?? '';
+                    $image_url     = is_scalar($raw_image_url) ? (string) $raw_image_url : '';
+                    $raw_image_alt = $item['image_alt'] ?? '';
+                    $image_alt     = is_scalar($raw_image_alt) ? (string) $raw_image_alt : '';
                     // #614: `(int)` is not a rejection. `(int) ['attachment_id' => 42]`
                     // and `(int) true` both evaluate to 1, so a bare cast resolved
                     // attachment ID 1 — usually the site's FIRST upload — and threw the
