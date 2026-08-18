@@ -1028,7 +1028,9 @@ class WriteRenderGrammarTest extends TestCase
 
     public static function rejectionMessageShapes(): array
     {
-        $prefix = 'Component "logos" prop "items" item 0 field "image_id" must be a number; got ';
+        // Band-named because this runs the WRITE path (#642); the value rendering this
+        // provider owns is the "; got X" tail, which is identical on both surfaces.
+        $prefix = 'Component 0 ("logos") prop "items" item 0 field "image_id" must be a number; got ';
         return [
             'container degrades to its type' => [['attachment_id' => 42], $prefix . 'array.'],
             'scalar is quoted'               => ['abc', $prefix . '"abc".'],

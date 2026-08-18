@@ -651,17 +651,6 @@ function pp_preview_action(string $name, array $params) {
 }
 
 /**
- * Executes an action: validates first, then executes.
- * Returns the canonical result shape.
- *
- * The canonical keys are the MINIMUM every action returns, not an exhaustive list: an
- * action may add its own. restore_composition adds `findings` (#233). Read the shape as
- * "at least these keys", and key on what you need rather than the exact key set.
- *
- * @return array  Canonical result: ['ok', 'action', 'scope', 'target', 'changes', 'error',
- *                'error_code'], plus any action-specific keys.
- */
-/**
  * Builds the canonical ok:false envelope for a validate-stage rejection from a
  * WP_Error already in hand — WITHOUT re-running pp_validate_action. Shared by
  * pp_execute_action() and the WP-CLI `action execute` early-validation gate
@@ -674,7 +663,7 @@ function pp_preview_action(string $name, array $params) {
  * @param string   $name       The action name (may be unregistered).
  * @param WP_Error $validation  The rejection to render.
  * @return array   Canonical ok:false envelope: ['ok', 'action', 'scope', 'target',
- *                 'changes', 'error', 'error_code'].
+ *                 'changes', 'error', 'error_code', 'index'].
  */
 function _pp_action_validation_error_envelope(string $name, WP_Error $validation): array {
     $action = pp_get_action($name);
@@ -691,9 +680,39 @@ function _pp_action_validation_error_envelope(string $name, WP_Error $validation
         // string-match the message for template_owned_component / duplicate_component_id
         // / invalid_composition (missing-required) / unknown_prop (#312).
         'error_code' => $validation->get_error_code(),
+        // Which BAND blocked the write (#642). Every composition-mutating action
+        // validates the WHOLE composition, so the blocking band is routinely one the
+        // caller never named — without this an agent re-submits a payload it already
+        // "fixed" and gets the identical string back. Integer composition offset, or
+        // null when no single band owns the rejection: a cross-item rule, a param-shape
+        // error, a precondition, or a rejection on a band the CALLER named itself
+        // (style_component's own validator, index_out_of_bounds — the offset is the
+        // caller's own param there, not something it has to be told).
+        //
+        // THIS FIELD IS THE AUTHORITATIVE LOCATOR. The message names the same band in
+        // words and both are rendered from the one offset the validator stamped, so
+        // they cannot drift apart — but a message also REFLECTS author-supplied bytes
+        // (a component name, a prop key), and an author who writes `Component 9 ("x")`
+        // into one of those can put a second band-shaped phrase in the sentence. Read
+        // this field, not the prose, when the answer has to be machine-trustworthy.
+        // (Bounding what a message reflects is #647/#649's axis, not this field's.)
+        'index'      => pp_composition_error_index($validation),
     ];
 }
 
+/**
+ * Executes an action: validates first, then executes.
+ * Returns the canonical result shape.
+ *
+ * The canonical keys are the MINIMUM every action returns, not an exhaustive list: an
+ * action may add its own. restore_composition adds `findings` (#233). Read the shape as
+ * "at least these keys", and key on what you need rather than the exact key set.
+ *
+ * @return array  Canonical result: ['ok', 'action', 'scope', 'target', 'changes', 'error',
+ *                'error_code'], plus any action-specific keys. A REJECTED envelope also
+ *                carries 'index' (#642): the composition offset of the band that blocked
+ *                the write, or null when no single band owns the rejection.
+ */
 function pp_execute_action(string $name, array $params): array {
     $validation = pp_validate_action($name, $params);
     if (is_wp_error($validation)) {
@@ -1257,6 +1276,10 @@ function pp_ai_execute_batch(array $steps, array $baselines = []): array {
                 'target'  => [],
                 'changes' => [],
                 'error'   => $result->get_error_message(),
+                // A rejected envelope carries the band locator (#642) wherever it is
+                // built. Null here: a step that returns a bare WP_Error carries no
+                // composition offset to report.
+                'index'   => null,
             ];
         }
 
@@ -1342,6 +1365,10 @@ function _pp_action_result(string $name, string $scope, array $target, array $ch
         'changes'    => $changes,
         'error'      => null,
         'error_code' => '', // uniform shape with _pp_action_error (#13); no error on success.
+        // NO `index` here, deliberately (#642). The locator answers "which band blocked
+        // this write", so it exists only where a write WAS blocked; the ratified
+        // vocabulary scopes it to rejected envelopes. #13's uniform shape still holds
+        // for the keys #13 defined — read `index` only after checking ok === false.
     ];
 }
 
@@ -1358,6 +1385,16 @@ function _pp_action_error(string $name, string $scope, string $error, string $er
         // editor can prompt a reload instead of surfacing a generic failure. Empty when the
         // error has no structured code (most validation failures carry only a message).
         'error_code' => $error_code,
+        // Composition offset of the band that owns the rejection (#642), beside
+        // error_code so a rejected envelope has one locator shape wherever it is built.
+        // ALWAYS null here: this builder renders EXECUTE-stage failures, and every
+        // execute-stage failure is a writer error — pp_update_composition() is a
+        // non-validating writer, so what fails here is the CAS baseline, the lock, or
+        // the post row, none of which belongs to a band. Composition rules run at the
+        // validate stage, where _pp_action_validation_error_envelope() reports the real
+        // offset. If a future execute-stage rejection ever DOES belong to one band, this
+        // must carry that offset rather than keep claiming none.
+        'index'      => null,
     ];
 }
 
@@ -1932,8 +1969,11 @@ pp_register_action('add_component', [
         if (!empty($params['style'])) {
             $new_item['style'] = $params['style'];
         }
-        // Validate the single new component
-        $valid = pp_validate_composition([$new_item]);
+        // Validate the single new component. The _item() entry point is the one that
+        // carries no band locator (#642): the item is not on the page yet, so no offset
+        // in this call names a real band. Nothing is lost — this action judges only the
+        // item it adds, so the rejection always belongs to the payload just submitted.
+        $valid = pp_validate_composition_item($new_item);
         if (is_wp_error($valid)) {
             return $valid;
         }

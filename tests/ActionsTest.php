@@ -1073,7 +1073,7 @@ class ActionsTest extends TestCase
         $this->assertFalse($result['ok']);
         $this->assertSame('invalid_composition', $result['error_code']);
         $this->assertSame(
-            'Component "logos" prop "items" item 0 is missing required field "image_url".'
+            'Component 0 ("logos") prop "items" item 0 is missing required field "image_url".'
                 . ' This item also carries field(s) "items" entries do not declare: imageUrl, imageAlt.'
                 . ' Available fields: image_url, image_alt, image_id, label.',
             $result['error'],
