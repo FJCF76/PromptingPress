@@ -13,12 +13,14 @@
 [![JavaScript](https://img.shields.io/badge/JavaScript-Vanilla-F7DF1E?style=flat-square&logo=javascript&logoColor=black)](https://developer.mozilla.org/en-US/docs/Web/JavaScript)
 [![Vitest](https://img.shields.io/badge/Vitest-Tests-6E9F18?style=flat-square&logo=vitest&logoColor=white)](https://vitest.dev)
 [![Tests](https://img.shields.io/badge/Tests-passing-22C55E?style=flat-square)](tests/)
-[![Version](https://img.shields.io/badge/version-1.15.0-6366F1?style=flat-square)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.15.1-6366F1?style=flat-square)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/License-GPL--2.0-blue?style=flat-square)](LICENSE)
 
 </div>
 
 ---
+
+<p align="center"><img src="screenshot.png" alt="The PromptingPress starter homepage: a branded six-band composition rendered by the theme" width="720"></p>
 
 ## ⚡ Fast, structured WordPress without builder bloat
 
@@ -36,6 +38,16 @@ PromptingPress goes the other direction:
 
 ---
 
+## 📖 Contents
+
+- [Why PromptingPress](#-fast-structured-wordpress-without-builder-bloat) · [Comparison](#-the-old-way-vs-promptingpress)
+- [**Quick start**](#-quick-start) — requirements, install, AI chat setup, first CLI session
+- [How AI works with it](#-how-ai-works-with-promptingpress) · [The operating model](#-the-operating-model) · [Example workflow](#-example-workflow)
+- [Architecture](#%EF%B8%8F-architecture) · [Architectural rules](#-architectural-rules) · [Tests](#-tests)
+- [Documentation](#-documentation) · [Project status](#-project-status) · [License](#license)
+
+---
+
 ## 🔄 The old way vs. PromptingPress
 
 | | Traditional WordPress theme | PromptingPress |
@@ -48,6 +60,68 @@ PromptingPress goes the other direction:
 | 📄 **Component contracts** | Ad hoc theme files, no contracts on what a component accepts | Every component has `schema.json` with typed props, required fields, and validation |
 
 > **When page structure is explicit and every edit path is validated, AI stops guessing and starts operating — and the frontend stays lean.**
+
+---
+
+## 🚀 Quick start
+
+### Requirements
+
+- WordPress 7.0+
+- PHP 8.0+
+- No build step — vanilla PHP, CSS, and JS
+
+### Installation
+
+1. Download the latest release ZIP from [GitHub Releases](https://github.com/FJCF76/PromptingPress/releases/latest)
+2. In WordPress admin: **Appearance → Themes → Add New → Upload Theme**
+3. Upload the ZIP file and activate PromptingPress
+
+On activation, PromptingPress creates a Home page with the Composition template and assigns it as the static front page.
+
+> ℹ️ **WP-Cron dependency:** "Add New Page" creates a hidden `auto-draft` placeholder that WordPress cleans up (`wp_delete_auto_drafts()`) roughly 7 days later — but only when WP-Cron actually fires, which is driven by site traffic. On an install with `DISABLE_WP_CRON` set, or very low traffic (plausible for an internal admin tool), abandoned auto-drafts can accumulate silently. They stay hidden from the Pages list, so this is harmless housekeeping, not data risk. If it matters for your install, hit `wp-cron.php` from a real system cron. This mirrors WordPress core's own new-post flow.
+
+<details>
+<summary><strong>Developer install (clone the repo)</strong></summary>
+
+```bash
+cd wp-content/themes/
+git clone https://github.com/FJCF76/PromptingPress.git promptingpress
+```
+
+This gives you the full repo with tests, dev tooling, and git history. Useful for contributing, inspecting source, or running the test suite locally.
+
+</details>
+
+### AI chat setup
+
+Configure an LLM provider in Settings > Connectors (WordPress 7.0 Connectors API — Anthropic, Google, or OpenAI). Then open PromptingPress > AI Chat.
+
+### 🔧 First CLI session
+
+```bash
+# See what's available
+wp pp action list
+
+# Create a new page
+wp pp action execute create_page --params='{"title":"About Us"}'
+
+# Read a component's contract: props, style slots, conditions, recipes
+wp pp schema hero
+
+# Inspect what's editable
+wp pp operate inspect-composition --post_id=74
+
+# Patch a single field by name
+wp pp operate patch --post_id=74 --target=hero.subheading --value="New Headline" --preview
+
+# Retheme — preview a color change
+wp pp apply preview update_design_token \
+  --params='{"token":"--color-accent","value":"#b45309"}'
+
+# Check theme file integrity after deployment
+wp pp integrity check
+```
 
 ---
 
@@ -336,68 +410,6 @@ AI_RULES.md                Hard coding invariants
 
 ---
 
-## 🚀 Quick start
-
-### Requirements
-
-- WordPress 7.0+
-- PHP 8.0+
-- No build step — vanilla PHP, CSS, and JS
-
-### Installation
-
-1. Download the latest release ZIP from [GitHub Releases](https://github.com/FJCF76/PromptingPress/releases/latest)
-2. In WordPress admin: **Appearance → Themes → Add New → Upload Theme**
-3. Upload the ZIP file and activate PromptingPress
-
-On activation, PromptingPress creates a Home page with the Composition template and assigns it as the static front page.
-
-> ℹ️ **WP-Cron dependency:** "Add New Page" creates a hidden `auto-draft` placeholder that WordPress cleans up (`wp_delete_auto_drafts()`) roughly 7 days later — but only when WP-Cron actually fires, which is driven by site traffic. On an install with `DISABLE_WP_CRON` set, or very low traffic (plausible for an internal admin tool), abandoned auto-drafts can accumulate silently. They stay hidden from the Pages list, so this is harmless housekeeping, not data risk. If it matters for your install, hit `wp-cron.php` from a real system cron. This mirrors WordPress core's own new-post flow.
-
-<details>
-<summary><strong>Developer install (clone the repo)</strong></summary>
-
-```bash
-cd wp-content/themes/
-git clone https://github.com/FJCF76/PromptingPress.git promptingpress
-```
-
-This gives you the full repo with tests, dev tooling, and git history. Useful for contributing, inspecting source, or running the test suite locally.
-
-</details>
-
-### AI chat setup
-
-Configure an LLM provider in Settings > Connectors (WordPress 7.0 Connectors API — Anthropic, Google, or OpenAI). Then open PromptingPress > AI Chat.
-
-### 🔧 First CLI session
-
-```bash
-# See what's available
-wp pp action list
-
-# Create a new page
-wp pp action execute create_page --params='{"title":"About Us"}'
-
-# Read a component's contract: props, style slots, conditions, recipes
-wp pp schema hero
-
-# Inspect what's editable
-wp pp operate inspect-composition --post_id=74
-
-# Patch a single field by name
-wp pp operate patch --post_id=74 --target=hero.subheading --value="New Headline" --preview
-
-# Retheme — preview a color change
-wp pp apply preview update_design_token \
-  --params='{"token":"--color-accent","value":"#b45309"}'
-
-# Check theme file integrity after deployment
-wp pp integrity check
-```
-
----
-
 ## 📏 Architectural rules
 
 Enforced by `AI_RULES.md` and verified by automated tests:
@@ -433,6 +445,18 @@ npm run env:stop
 ```
 
 **Continuous integration** — `composer test` + `npm test` run on every push to `main` and gate every release before the ZIP is built, so a failing test can't reach a published theme. End-to-end runs in CI too: a `@smoke` subset on every pull request and on push to `main` (non-blocking until branch protection marks it a required check), plus a nightly full suite on WordPress 7.0.
+
+---
+
+## 📚 Documentation
+
+| For | Start here |
+|---|---|
+| **AI agents operating a site** | [`AI_CONTEXT.md`](AI_CONTEXT.md) — the complete operating contract — and [`AI_RULES.md`](AI_RULES.md) |
+| **CLI reference** | [`docs/reference-apply-cli.md`](docs/reference-apply-cli.md) — every command, envelope, and refusal |
+| **Step-by-step guides** | [`docs/howto-apply-and-rollback.md`](docs/howto-apply-and-rollback.md) and the [`ai-instructions/`](ai-instructions/) playbooks (create a page, revise a section, style a component, validate a site) |
+| **Component contracts** | each [`components/<name>/`](components/) folder: `schema.json` (typed contract) + `README.md` (usage) — or run `wp pp schema <component>` |
+| **What changed** | [`CHANGELOG.md`](CHANGELOG.md) (engineering record) and [Releases](https://github.com/FJCF76/PromptingPress/releases) (user-facing notes with upgrade steps) |
 
 ---
 
