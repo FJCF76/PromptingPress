@@ -71,8 +71,23 @@ $style_attr = $slot_style ? ' style="' . $slot_style . ';"' : '';
                     $author    = $item['author']    ?? '';
                     $role      = $item['role']      ?? '';
                     $company   = $item['company']   ?? '';
-                    $image_url = $item['image_url'] ?? '';
-                    $image_alt = $item['image_alt'] ?? '';
+                    // #641: guard BOTH raw-value arguments of pp_render_responsive_image()
+                    // (`string $url`, `string $alt`) before they reach it. A non-empty array
+                    // is truthy, so both the `$author || $meta || $image_url` attribution
+                    // gate and the `if ($image_url)` avatar gate below pass on one, and the
+                    // typed call raises a TypeError that no caller catches — the whole PUBLIC
+                    // PAGE 500s. is_scalar + (string), NOT is_string: only non-scalars ever
+                    // fataled (coercive mode), and the write path stores a scalar image_url
+                    // raw (#707), so is_string() would silently drop an accepted value AND
+                    // its resolvable image_id attachment with it. Full reasoning in
+                    // components/logos/logos.php. Same STORED-data reachability as the
+                    // image_id guard below (#233 restore, pre-rule compositions, raw meta).
+                    // Here a guarded-away image means the quote and its attribution still
+                    // render, just with no avatar, as an empty image_url already does.
+                    $raw_image_url = $item['image_url'] ?? '';
+                    $image_url = is_scalar($raw_image_url) ? (string) $raw_image_url : '';
+                    $raw_image_alt = $item['image_alt'] ?? '';
+                    $image_alt = is_scalar($raw_image_alt) ? (string) $raw_image_alt : '';
                     // Responsive avatar (issue 584): the attachment-ID companion the
                     // hero, section and logos images already carry.
                     // is_numeric() BEFORE the (int) cast, deliberately. `(int)` is not a
@@ -108,7 +123,7 @@ $style_attr = $slot_style ? ' style="' . $slot_style . ';"' : '';
                             <figcaption class="testimonials__attribution">
                                 <?php if ($image_url) : ?>
                                     <?php // Responsive avatar (issue 584), the same helper
-                                          // logos.php:40, hero.php:148 and section.php:283
+                                          // logos.php, hero.php and section.php
                                           // already call. A resolvable image_id renders
                                           // through wp_get_attachment_image() with real
                                           // srcset/sizes; unset or unresolvable, the helper

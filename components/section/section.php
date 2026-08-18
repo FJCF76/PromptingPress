@@ -15,8 +15,22 @@ $eyebrow          = $props['eyebrow']          ?? '';
 $subheading       = $props['subheading']       ?? '';
 $title_align    = $props['title_align']    ?? 'start';
 $body             = $props['body']             ?? '';
-$image_url        = $props['image_url']        ?? '';
-$image_alt        = $props['image_alt']        ?? '';
+// #641: guard BOTH raw-value arguments of pp_render_responsive_image() (`string $url`,
+// `string $alt`) before they reach it. A non-empty array is truthy, so the `!$image_url`
+// layout fallback below does NOT fire on one, the band keeps its image layout, and the
+// typed call raises a TypeError that no caller catches — the whole PUBLIC PAGE 500s.
+// is_scalar + (string), NOT is_string: only non-scalars ever fataled (coercive mode),
+// and the write path stores a scalar image_url raw (#707), so is_string() would silently
+// drop an accepted value AND its resolvable image_id attachment with it. Full reasoning
+// in components/logos/logos.php. Same STORED-data reachability as the image_id guard
+// below (#233 restore, pre-rule compositions, raw meta). Here a guarded-away image_url
+// makes the EXISTING image-layout fallback fire, so the band renders text-only — exactly
+// what an empty image_url already does. NOTE this guard covers image_url only:
+// `background_image` below reaches pp_esc_image_src() unguarded and is tracked as #705.
+$raw_image_url    = $props['image_url']        ?? '';
+$image_url        = is_scalar($raw_image_url) ? (string) $raw_image_url : '';
+$raw_image_alt    = $props['image_alt']        ?? '';
+$image_alt        = is_scalar($raw_image_alt) ? (string) $raw_image_alt : '';
 // is_numeric() BEFORE the (int) cast (#614, extended to the top-level readers at
 // gate 7A). `(int) ['attachment_id' => 42]` and `(int) true` both evaluate to 1, so
 // a bare cast resolves attachment ID 1 — usually the site's first upload — and

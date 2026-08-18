@@ -19,8 +19,27 @@ $button2_url  = $props['button2_url']  ?? '#';
 $button_variant  = $props['button_variant']  ?? 'primary';
 $button2_variant = $props['button2_variant'] ?? 'outline';
 $layout    = $props['layout']    ?? 'centered';
-$image_url = $props['image_url'] ?? '';
-$image_alt = $props['image_alt'] ?? '';
+// #641: guard BOTH raw-value arguments of pp_render_responsive_image() (`string $url`,
+// `string $alt`) before they reach it. A non-empty array is truthy, so every image gate
+// below passes on one and the typed call raises a TypeError that no caller catches — the
+// whole PUBLIC PAGE 500s. is_scalar + (string), NOT is_string: only non-scalars ever
+// fataled (coercive mode), and the write path stores a scalar image_url raw (#707), so
+// is_string() would silently drop an accepted value. Full reasoning in
+// components/logos/logos.php. Same STORED-data reachability as the image_id guard below
+// (#233 restore, pre-rule compositions, raw meta).
+//
+// Hero is the one that reaches TWO typed helpers on this single prop: the split layout's
+// pp_render_responsive_image() and the cover layout's pp_esc_image_src() background-image.
+// Guarding at the READ covers both, because everything below reads $image_url and never
+// the raw prop again. A guarded-away image_url means a cover hero paints its overlay with
+// no background image, and a split hero falls to the "left" layout by the SHIPPED #440
+// rule below — but ONLY when it also has no resolvable image_id and no proof, because
+// $has_split_media counts an attachment as media in its own right. Render-time only: the
+// stored `layout` prop is not rewritten.
+$raw_image_url = $props['image_url'] ?? '';
+$image_url = is_scalar($raw_image_url) ? (string) $raw_image_url : '';
+$raw_image_alt = $props['image_alt'] ?? '';
+$image_alt = is_scalar($raw_image_alt) ? (string) $raw_image_alt : '';
 // is_numeric() BEFORE the (int) cast (#614, extended to the top-level readers at
 // gate 7A). `(int)` is not a rejection: `(int) ['attachment_id' => 42]` and
 // `(int) true` both evaluate to 1, so a bare cast resolves attachment ID 1 —
