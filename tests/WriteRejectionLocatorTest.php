@@ -351,11 +351,19 @@ class WriteRejectionLocatorTest extends TestCase
     /**
      * A composition stored as a JSON OBJECT decodes to string keys. There is no integer
      * offset to report, so the write reports none — the honest-null contract
-     * pp_composition_error_index() has enforced since #622. Whether the "Item 0" the
-     * structural message spells is itself honest is #650's question, deliberately
-     * untouched here.
+     * pp_composition_error_index() has enforced since #622.
+     *
+     * #650 ANSWERED THE OTHER HALF. This test used to assert `Item 0`, and that string was
+     * the defect: `(int) "aa"` is 0, there is no band 0, and the SAME WP_Error honestly
+     * carried `index: null` while its own message named a band that does not exist. Message
+     * and payload must agree; a locator is real or absent, never fabricated. The message now
+     * names the real key, so an operator repairs the band that is actually broken.
+     *
+     * The payload stays null on purpose: `index` is typed as an integer composition offset
+     * (#622), and a string key is not one. Carrying the locator in the words and not in the
+     * field is the honest reading, and it is what #650's recorded expectation asks for.
      */
-    public function testANonIntegerCompositionKeyReportsNoBand(): void
+    public function testANonIntegerCompositionKeyNamesTheRealKeyAndReportsNoBand(): void
     {
         $this->seedPage(200, [$this->healthyLogosBand()]);
 
@@ -365,14 +373,162 @@ class WriteRejectionLocatorTest extends TestCase
         ]);
 
         $this->assertFalse($result['ok']);
+        $this->assertNull($result['index'], 'a string key is not an integer offset');
+        $this->assertSame('Item key "aa" is missing the "component" key.', $result['error']);
+        $this->assertStringNotContainsString('Item 0', $result['error'],
+            'the fabricated band 0 is what #650 removed');
+    }
+
+    /**
+     * THE #650 REPRO THAT SURVIVES A NUMERIC KEY. `{"1": ..., "0": ...}` decodes to real
+     * integer keys, so the payload CAN carry an honest offset — but the message used to
+     * render it with `%d`, which reads as a POSITION. Iteration position 0 holds the "1"
+     * band, so an operator counting bands from the top repairs the wrong one. Naming it as
+     * a key is what makes the message and the payload say the same thing: `$items[0]` is a
+     * key lookup, and it resolves to the band the message names.
+     */
+    public function testANumericObjectCompositionNamesItsKeysAsKeys(): void
+    {
+        $this->seedPage(200, [$this->healthyLogosBand()]);
+
+        $result = pp_execute_action('update_composition', [
+            'post_id'     => 200,
+            'composition' => [1 => ['props' => []], 0 => ['props' => []]],
+        ]);
+
+        $this->assertFalse($result['ok']);
+        $this->assertSame(1, $result['index'], 'first-error-wins: the "1" band is walked first');
+        $this->assertSame('Item key "1" is missing the "component" key.', $result['error']);
+        // The #642 band prefix must NOT also fire here: the message already names its band,
+        // and the gate reads that label from the same renderer that wrote it.
+        $this->assertStringNotContainsString('Component 1:', $result['error'],
+            'the no-stutter gate must recognise the object-shaped band label too');
+    }
+
+    /**
+     * #650 names TWO structural sites, and this is the second one. The missing-component rule
+     * above is pinned three ways; the non-scalar-component rule beside it was asserted only on
+     * LIST-shaped compositions, which is the shape that did not move — so half the issue would
+     * have shipped verified only against the case it does not change.
+     */
+    public function testANonScalarComponentOnAnObjectKeyedBandNamesTheRealKey(): void
+    {
+        $this->seedPage(200, [$this->healthyLogosBand()]);
+
+        $result = pp_execute_action('update_composition', [
+            'post_id'     => 200,
+            'composition' => ['aa' => ['component' => ['not', 'scalar'], 'props' => []]],
+        ]);
+
+        $this->assertFalse($result['ok']);
         $this->assertNull($result['index']);
-        $this->assertSame('Item 0 is missing the "component" key.', $result['error'],
-            'unchanged: with no offset there is nothing honest to add');
+        $this->assertSame('Item key "aa" has a non-scalar "component" key.', $result['error']);
+        $this->assertStringNotContainsString('Item 0', $result['error']);
+    }
+
+    /**
+     * THE #642 WRITE-BOUNDARY PREFIX, converged by the #687 addendum.
+     *
+     * `[1 => bad, 0 => healthy]` is not a list. The bad band is stored under key 1 and is
+     * the FIRST one iterated, so the old `Component 1` sent a reader to the second band —
+     * which is the healthy one. Exactly the lie #650 removed from the structural family,
+     * in the message family an agent actually hits on a rejected write.
+     */
+    public function testTheWriteBoundaryPrefixNamesAnObjectCompositionKeyAsAKey(): void
+    {
+        $this->seedPage(200, [$this->healthyLogosBand()]);
+
+        $result = pp_execute_action('update_composition', [
+            'post_id'     => 200,
+            'composition' => [1 => $this->badLogosBand('ccc'), 0 => $this->healthyLogosBand()],
+        ]);
+
+        $this->assertFalse($result['ok']);
+        $this->assertSame(1, $result['index']);
+        $this->assertStringStartsWith('Component key "1" ("logos")', $result['error']);
+        $this->assertStringNotContainsString('Component 1 ', $result['error']);
+    }
+
+    /**
+     * The cross-item duplicate-id rule names SEVERAL bands in one breath, so it is the one
+     * message where a key read as a position is hardest to notice. Its `index` stays null —
+     * it belongs to no single band, and that contract is unchanged — but the keys it lists
+     * now say what they are.
+     */
+    public function testDuplicateComponentIdNamesObjectKeysAsKeys(): void
+    {
+        $dupe = static fn () => [
+            'component' => 'logos',
+            'props'     => ['id' => 'dup', 'items' => [['image_url' => '/a.png', 'image_alt' => 'A']]],
+        ];
+        $this->seedPage(200, [$dupe()]);
+
+        $result = pp_execute_action('update_composition', [
+            'post_id' => 200, 'composition' => [1 => $dupe(), 0 => $dupe()],
+        ]);
+
+        $this->assertFalse($result['ok']);
+        $this->assertSame('duplicate_component_id', $result['error_code']);
+        $this->assertNull($result['index'], 'cross-item: no single band owns it');
+        $this->assertStringStartsWith('Duplicate component id "dup" on items key "1", key "0".', $result['error']);
+    }
+
+    /**
+     * BYTE-IDENTICAL PIN for both newly converged families. A list-shaped composition is
+     * what every shipped example authors, so neither the #642 prefix nor the duplicate-id
+     * key list may have moved one byte.
+     */
+    public function testListShapedCompositionsKeepBothConvergedFamiliesVerbatim(): void
+    {
+        $dupe = static fn () => [
+            'component' => 'logos',
+            'props'     => ['id' => 'dup', 'items' => [['image_url' => '/a.png', 'image_alt' => 'A']]],
+        ];
+        $this->seedPage(200, [$dupe(), $dupe()]);
+
+        $collision = pp_execute_action('update_composition', [
+            'post_id' => 200, 'composition' => [$dupe(), $dupe()],
+        ]);
+        $this->assertStringStartsWith('Duplicate component id "dup" on items 0, 1.', $collision['error']);
+
+        $this->seedPage(201, [$this->healthyLogosBand()]);
+        $rejected = pp_execute_action('update_composition', [
+            'post_id'     => 201,
+            'composition' => [$this->healthyLogosBand(), $this->badLogosBand('ccc')],
+        ]);
+        $this->assertStringStartsWith('Component 1 ("logos")', $rejected['error']);
+    }
+
+    /**
+     * THE BYTE-IDENTICAL PIN for the band family. Every shipped example authors a
+     * composition as a JSON list, so this is the shape essentially every real rejection
+     * has. It must not have moved one byte in #650/#652.
+     */
+    public function testAListShapedCompositionKeepsItsIntegerBandLabelVerbatim(): void
+    {
+        $this->seedPage(200, [$this->healthyLogosBand()]);
+
+        $result = pp_execute_action('update_composition', [
+            'post_id'     => 200,
+            'composition' => [$this->healthyLogosBand(), ['props' => []]],
+        ]);
+
+        $this->assertFalse($result['ok']);
+        $this->assertSame(1, $result['index']);
+        $this->assertSame('Item 1 is missing the "component" key.', $result['error']);
     }
 
     /**
      * The stamped offset is the composition ARRAY KEY, not a running count, so a sparse
      * or out-of-order map names the key the operator can address.
+     *
+     * SINCE #650/#652 THE MESSAGE SAYS SO OUT LOUD, and that is this test's own thesis
+     * finally reaching the words. `[3 => band]` is a single band at iteration position 0,
+     * so the old `Component 3` was true as a key and false as a position — a reader counts
+     * to a fourth band that does not exist. This fixture was always the object-shape seam
+     * for the #642 prefix (its acceptance fixtures are list-shaped and unmoved); the
+     * `key "3"` form is what makes the prefix agree with the `index` beside it, which has
+     * been a key lookup since #622.
      */
     public function testASparseNumericKeyNamesThatKey(): void
     {
@@ -385,7 +541,9 @@ class WriteRejectionLocatorTest extends TestCase
 
         $this->assertFalse($result['ok']);
         $this->assertSame(3, $result['index']);
-        $this->assertStringStartsWith('Component 3 ("logos")', $result['error']);
+        $this->assertStringStartsWith('Component key "3" ("logos")', $result['error']);
+        $this->assertStringNotContainsString('Component 3 ', $result['error'],
+            'a bare 3 reads as the fourth band; there is one band, stored under key 3');
     }
 
     /**

@@ -711,8 +711,12 @@ function pp_normalize_composition(array $items): array {
  * Renders an `items[]` array KEY as the item locator inside a validation message (#634).
  *
  * The single renderer for the "item N" fragment every nested rule in
- * pp_validate_composition_errors() emits, and for the two message builders those rules
- * delegate to (_pp_link_url_error_message, _pp_validate_style_slot_map). Before #634 the
+ * pp_validate_composition_errors() emits, for the two message builders those rules
+ * delegate to (_pp_link_url_error_message, _pp_validate_style_slot_map), and — since
+ * #650 — for the BAND locator one level up, which reaches it through
+ * _pp_band_index_label(). That last consumer is why the table below says "container
+ * array" rather than "items array": the same rule answers "which item?" and "which
+ * band?", so the two depths cannot drift into different conventions. Before #634 the
  * SAME function reported the position two ways: six rules rendered the key honestly while
  * the link-URL and per-item-style paths hard-cast it, so a composition whose `items`
  * decoded to a JSON OBJECT rather than a list — `{"aa": {...}}`, reachable from
@@ -721,24 +725,95 @@ function pp_normalize_composition(array $items): array {
  * sent the operator to repair an element that does not exist, which is worse than
  * carrying no locator at all.
  *
- *   items array           key passed here      rendered locator
- *   ["a", "b"]            int 1                "1"      (list position)
- *   {"aa": {...}}         string "aa"          "aa"     (was "0" before #634)
- *   {"5": {...}}          int 5 (PHP folds     "5"
- *                         numeric-string keys)
+ * THE CONTAINER IS THE DISCRIMINATOR, NOT THE KEY (#652). Rendering the key honestly was
+ * only half the locator: PHP folds a numeric-STRING object key to an integer at decode,
+ * so `{"1": ..., "0": ...}` and `["a", "b"]` hand this function the identical argument
+ * and it cannot tell a list POSITION from an object KEY by looking at one. When the two
+ * disagree the locator names a real key that points at the wrong element — an operator
+ * told `item 0` counts to the FIRST card and repairs the one that is fine, while the bad
+ * entry sits under key "0" in second place. So the caller passes the CONTAINER and
+ * pp_is_list() answers the question the key cannot:
+ *
+ *   container array          key passed here    container   rendered locator
+ *   ["a", "b"]               int 1              list        `1`          (list position)
+ *   {"aa": {...}}            string "aa"        object      `key "aa"`
+ *   {"5": {...}}             int 5 (folded)     object      `key "5"`
+ *   {"1": .., "0": ..}       int 0 (folded)     object      `key "0"`    (#652's repro)
+ *   (no container in scope)  either             null        the bare key
+ *
+ * A LIST CONTAINER IS BYTE-IDENTICAL to every version since #634 — that is deliberate and
+ * pinned. Every shipped example, every doc snippet and every existing test authors `items`
+ * as a JSON list, so the overwhelmingly common message must not move; only the shape that
+ * was already lying changes.
+ *
+ * THE LIMIT, STATED SO IT IS NOT DISCOVERED LATER: an ORDERED numeric object survives
+ * decode as a PHP list. `json_decode('{"0":"a","1":"b"}', true)` is `["a","b"]` — the
+ * keys ARE 0..n-1 in order, so pp_is_list() says list and this renders `0`, not
+ * `key "0"`. The object/list distinction is destroyed before any PHP here can see it,
+ * and no amount of inspection recovers it. That case is also the harmless one: key and
+ * position agree, so the locator addresses the right element either way. What this
+ * function can fix is exactly the case where they DISAGREE, and it fixes all of it.
  *
  * Typed `int|string` because a PHP array key is exactly that — the callers all read a
  * `foreach` key, so the `gettype()` arm the inline copies carried was unreachable. The
  * signature states the assumption instead of branching on it. The key is rendered WHOLE:
  * no truncation, no control-character strip, exactly what the six sibling rules always
  * did. Bounding what a message reflects is #647/#649's business and stays uniform across
- * the family until then.
+ * the family until then — including the quoting grammar of the `key "..."` form, so a key
+ * containing a double quote renders ambiguously here on purpose rather than inventing a
+ * one-off escape this family's other members would not share.
  *
- * @param  int|string $index  An `items[]` array key (list position or object key).
- * @return string             The locator fragment, never a fabricated position.
+ * TWO DIFFERENT GUARDS, because there are two different ways to lose the discriminator.
+ * A FORGOTTEN argument is caught by the SIGNATURE: `$container` is required and
+ * non-defaulted, so omitting it is an ArgumentCountError at the call, not a silent
+ * fallback to list semantics. A DELIBERATE `null` is caught by the source tripwire in
+ * tests/DiagnosticReachTest.php, which forbids a literal null argument anywhere in this
+ * file — every rule here has its container in scope, so passing null would only ever be a
+ * shortcut back to the #634 defect. The null ARM still exists for callers outside this
+ * file and for the direct unit tests, which legitimately have no container.
+ *
+ * @param  int|string $index      An `items[]` key, or a composition key when called
+ *                                through _pp_band_index_label().
+ * @param  array|null $container  The array that key came from, or null when the caller
+ *                                genuinely has no view of it.
+ * @return string                 The locator fragment, never a fabricated position.
  */
-function _pp_item_index_label(int|string $index): string {
-    return (string) $index;
+function _pp_item_index_label(int|string $index, ?array $container): string {
+    return ($container !== null && !pp_is_list($container))
+        ? sprintf('key "%s"', $index)
+        : (string) $index;
+}
+
+/**
+ * Renders a COMPOSITION offset as the band locator inside a structural message (#650).
+ *
+ * One level up from _pp_item_index_label(), and deliberately built ON it so the two
+ * depths cannot answer "which one?" differently. The two structural rules in
+ * pp_validate_composition_errors() — a band with no `component` key, and one whose
+ * `component` is non-scalar — used to hard-format the composition key with `%d`. A
+ * composition stored as a JSON OBJECT decodes to string keys, so `{"aa": {...}}` reported
+ * `Item 0`: `(int) "aa"` is 0, and there is no band 0. The SAME WP_Error disagreed with
+ * itself, because _pp_composition_item_error() records `is_int($index) ? $index : null`
+ * and honestly carried `index: null` while its own message named a band. Message and
+ * payload must agree; a locator is real or absent, never fabricated.
+ *
+ *   composition            rendered band locator
+ *   [band, band]           `Item 0`, `Item 1`      (list positions — byte-identical)
+ *   {"aa": {...}}          `Item key "aa"`         (was the fabricated `Item 0`)
+ *   {"1": .., "0": ..}     `Item key "1"`, `Item key "0"`
+ *
+ * ALSO THE GATE. _pp_band_named_composition_error() (#642) has to recognise a message
+ * that already spells its own band so it does not print the locator twice, and it used to
+ * do that by re-spelling `sprintf('Item %d ', $index)` independently. Two spellings of one
+ * label is how the divergence this issue closes got in; the gate now compares against THIS
+ * function's output, so rewording the label cannot silently defeat the no-stutter branch.
+ *
+ * @param  int|string $index  A composition array key.
+ * @param  array      $items  The composition it came from.
+ * @return string             `Item <locator>`, ready to prefix a structural message.
+ */
+function _pp_band_index_label(int|string $index, array $items): string {
+    return sprintf('Item %s', _pp_item_index_label($index, $items));
 }
 
 /**
@@ -792,16 +867,29 @@ function _pp_entry_is_object_shape($entry): bool {
  * @param  int|string|null $item_index       The items[] KEY when validating a per-item
  *                                            override (a list position or an object key,
  *                                            #634), or null for grid-level component style.
+ * @param  array|null      $item_container   The array $item_index came from, so the locator
+ *                                            can tell a list position from an object key
+ *                                            (#652). Null means the caller has no view of
+ *                                            it and the bare key is rendered. DEFAULTED
+ *                                            ONLY BECAUSE $item_index above it is optional
+ *                                            and PHP cannot require a parameter after an
+ *                                            optional one — the default is a silent-drift
+ *                                            hazard, not a convenience: a per-item call
+ *                                            that omits it renders an object key as a
+ *                                            position. The source tripwire in
+ *                                            tests/DiagnosticReachTest.php fails any
+ *                                            per-item call here that leaves it off.
  * @return WP_Error|null                     A WP_Error on the first bad slot/value, else null.
  */
-function _pp_validate_style_slot_map(array $style, array $available_slots, string $component_name, int|string|null $item_index = null): ?WP_Error {
-    // The key is rendered, never cast (#634): a string-keyed entry names itself rather
-    // than collapsing to the non-existent item 0. Everything below still keys off
-    // `!== null`, so a string key is an item exactly like an integer one and the #323
-    // per-item scope gate applies to it unchanged.
+function _pp_validate_style_slot_map(array $style, array $available_slots, string $component_name, int|string|null $item_index = null, ?array $item_container = null): ?WP_Error {
+    // The key is rendered, never cast (#634), and read against its container so a list
+    // position and an object key are distinguishable (#652): a string-keyed entry names
+    // itself rather than collapsing to the non-existent item 0. Everything below still
+    // keys off `!== null`, so a string key is an item exactly like an integer one and the
+    // #323 per-item scope gate applies to it unchanged.
     $where = $item_index === null
         ? sprintf('Component "%s"', $component_name)
-        : sprintf('Component "%s" item %s', $component_name, _pp_item_index_label($item_index));
+        : sprintf('Component "%s" item %s', $component_name, _pp_item_index_label($item_index, $item_container));
 
     // Card-scoped subset for per-item validation (issue 323). A slot opts into
     // per-item use via item_eligible in its style_slots definition. Enforce the
@@ -1140,12 +1228,20 @@ function _pp_link_url_is_valid($value): bool {
  *                                     (a list position or an object key, #634), else null.
  * @param string|null     $field      Item field name (e.g. "link_url") when nested, else null.
  * @param mixed           $value      The rejected value.
+ * @param array|null      $item_container  The array $item_index came from, so the locator can
+ *                                          tell a list position from an object key (#652).
+ *                                          REQUIRED, not defaulted: a default would let a new
+ *                                          nested call site omit it, compile, pass every
+ *                                          list-shaped test and silently render an object key
+ *                                          as a position again. Pass null only on the
+ *                                          top-level arm, where there is no items[] key at all.
  */
-function _pp_link_url_error_message(string $component, string $prop_name, int|string|null $item_index, ?string $field, $value): string {
-    // Rendered, never cast (#634) — see _pp_item_index_label().
+function _pp_link_url_error_message(string $component, string $prop_name, int|string|null $item_index, ?string $field, $value, ?array $item_container): string {
+    // Rendered, never cast (#634), and read against its container (#652) — see
+    // _pp_item_index_label().
     $where = ($item_index === null)
         ? sprintf('prop "%s"', $prop_name)
-        : sprintf('prop "%s" item %s field "%s"', $prop_name, _pp_item_index_label($item_index), (string) $field);
+        : sprintf('prop "%s" item %s field "%s"', $prop_name, _pp_item_index_label($item_index, $item_container), (string) $field);
     // The value is always a string here (_pp_link_url_is_valid returns false only
     // for strings), but cast defensively. Strip control characters and cap the
     // length so a pathological URL cannot bloat the error envelope or corrupt logs.
@@ -1501,7 +1597,7 @@ function pp_validate_composition_errors(array $items, ?int $limit = null): array
         if (!isset($item['component'])) {
             $errors[] = _pp_composition_item_error($i,
                 'invalid_composition',
-                sprintf('Item %d is missing the "component" key.', $i)
+                sprintf('%s is missing the "component" key.', _pp_band_index_label($i, $items))
             );
             continue;
         }
@@ -1513,7 +1609,7 @@ function pp_validate_composition_errors(array $items, ?int $limit = null): array
         if (!is_scalar($item['component'])) {
             $errors[] = _pp_composition_item_error($i,
                 'invalid_composition',
-                sprintf('Item %d has a non-scalar "component" key.', $i)
+                sprintf('%s has a non-scalar "component" key.', _pp_band_index_label($i, $items))
             );
             continue;
         }
@@ -2060,7 +2156,7 @@ function pp_validate_composition_errors(array $items, ?int $limit = null): array
                                             'Component "%s" prop "%s" item %s must be an object; got %s.',
                                             $name,
                                             $prop_name,
-                                            _pp_item_index_label($entry_index),
+                                            _pp_item_index_label($entry_index, $value),
                                             gettype($entry)
                                         )
                                     );
@@ -2088,7 +2184,7 @@ function pp_validate_composition_errors(array $items, ?int $limit = null): array
                                             'Component "%s" prop "%s" item %s must be an array; got %s.',
                                             $name,
                                             $prop_name,
-                                            _pp_item_index_label($entry_index),
+                                            _pp_item_index_label($entry_index, $value),
                                             gettype($entry)
                                         )
                                     );
@@ -2319,7 +2415,7 @@ function pp_validate_composition_errors(array $items, ?int $limit = null): array
                                         'Component "%s" prop "%s" item %s is missing required field "%s".',
                                         $name,
                                         $prop_name,
-                                        _pp_item_index_label($entry_index),
+                                        _pp_item_index_label($entry_index, $entries),
                                         $field_name
                                     ) . $undeclared_field_hint
                                 );
@@ -2363,7 +2459,7 @@ function pp_validate_composition_errors(array $items, ?int $limit = null): array
                                         'Component "%s" prop "%s" item %s field "%s" must be a %s; got %s.',
                                         $name,
                                         $prop_name,
-                                        _pp_item_index_label($entry_index),
+                                        _pp_item_index_label($entry_index, $entries),
                                         $field_name,
                                         $field_type,
                                         _pp_schema_value_for_message($entry[$field_name])
@@ -2425,7 +2521,7 @@ function pp_validate_composition_errors(array $items, ?int $limit = null): array
                                         'Component "%s" prop "%s" item %s field "%s" must be one of: %s; got %s.',
                                         $name,
                                         $prop_name,
-                                        _pp_item_index_label($entry_index),
+                                        _pp_item_index_label($entry_index, $entries),
                                         $field_name,
                                         implode(', ', $field_def['values']),
                                         _pp_schema_value_for_message($entry[$field_name])
@@ -2453,7 +2549,7 @@ function pp_validate_composition_errors(array $items, ?int $limit = null): array
                                                 'Component "%s" prop "%s" item %s field "%s" items must be strings; got %s.',
                                                 $name,
                                                 $prop_name,
-                                                _pp_item_index_label($entry_index),
+                                                _pp_item_index_label($entry_index, $entries),
                                                 $field_name,
                                                 gettype($bullet)
                                             )
@@ -2577,7 +2673,7 @@ function pp_validate_composition_errors(array $items, ?int $limit = null): array
                                     'Component "%s" prop "%s" item %s has no field "%s". Available fields: %s',
                                     $name,
                                     $prop_name,
-                                    _pp_item_index_label($entry_index),
+                                    _pp_item_index_label($entry_index, $entries),
                                     _pp_render_undeclared_prop_keys([(string) $entry_key]),
                                     $available_fields
                                 )
@@ -2615,7 +2711,8 @@ function pp_validate_composition_errors(array $items, ?int $limit = null): array
                     if (_pp_claim_item_finding($sink, 'prop', $prop_name)) {
                         $errors[] = _pp_composition_item_error($i,
                             'invalid_prop_value',
-                            _pp_link_url_error_message($name, $prop_name, null, null, $item['props'][$prop_name])
+                            // No items[] key on this arm, so no container to judge one against.
+                            _pp_link_url_error_message($name, $prop_name, null, null, $item['props'][$prop_name], null)
                         );
                     }
                     continue;
@@ -2650,7 +2747,7 @@ function pp_validate_composition_errors(array $items, ?int $limit = null): array
                                     if (_pp_claim_item_finding($sink, 'prop', $prop_name, $entry_index, $field)) {
                                         $errors[] = _pp_composition_item_error($i,
                                             'invalid_prop_value',
-                                            _pp_link_url_error_message($name, $prop_name, $entry_index, $field, $entry[$field])
+                                            _pp_link_url_error_message($name, $prop_name, $entry_index, $field, $entry[$field], $item['props'][$prop_name])
                                         );
                                     }
                                     continue;
@@ -2715,7 +2812,8 @@ function pp_validate_composition_errors(array $items, ?int $limit = null): array
                         $element['style'],
                         $available_slots,
                         $name,
-                        $elem_index
+                        $elem_index,
+                        $prop_value
                     );
                     if (is_wp_error($style_error)) {
                         // Same restamp as the component-level style map above (#622):
@@ -2763,7 +2861,17 @@ function pp_validate_composition_errors(array $items, ?int $limit = null): array
             sprintf(
                 'Duplicate component id "%s" on items %s. Component ids must be unique within a composition so update/remove/style can target one component.',
                 $dupe['id'],
-                implode(', ', $dupe['indices'])
+                // The colliding COMPOSITION keys, rendered through the one shared renderer
+                // like every other locator (#650/#652, per the #687 addendum). These are
+                // foreach keys from pp_find_duplicate_component_ids(), so on an object-shaped
+                // composition they were bare numbers that read as positions — the same
+                // ambiguity, in the one message that names several bands at once. This error
+                // still carries NO `index`: it belongs to no single band, and the honest-
+                // locator contract is unchanged by naming its keys more precisely.
+                implode(', ', array_map(
+                    static fn ($key) => _pp_item_index_label($key, $items),
+                    $dupe['indices']
+                ))
             )
         );
     }
@@ -2789,7 +2897,11 @@ function pp_validate_composition_errors(array $items, ?int $limit = null): array
  * prints "[type] index 1: <message>" — so naming the band inside the message too would
  * print the locator twice there. The WRITE surface has no second field to render into a
  * human message. So the band is added HERE, on the one path that needs it, and the
- * findings vocabulary that #650/#652/#687 decide stays exactly where it was.
+ * findings vocabulary #687 ratified stays where it was built — one level down, in
+ * _pp_band_index_label() and _pp_item_index_label(). Since #650/#652 this function READS
+ * that vocabulary rather than re-spelling it: the no-stutter gate below compares against
+ * _pp_band_index_label()'s own output, so an object-shaped composition whose band label is
+ * `Item key "1"` is recognised as already-banded exactly like a list's `Item 1`.
  *
  * THE MESSAGE IS REWRITTEN, NEVER RE-DERIVED. The component name comes from the very
  * item the stamped offset points at (the foreach key IS the array key, so this reads the
@@ -2837,12 +2949,23 @@ function _pp_band_named_composition_error(WP_Error $error, array $items): WP_Err
     $label = ($name !== null && str_starts_with($message, 'Component "'))
         ? sprintf('Component "%s"', $name)
         : null;
+    // ONE renderer for the key form, at every depth and in every noun (#650/#652, per the
+    // #687 addendum). This prefix used to spell `%d` independently, so an object-shaped
+    // composition printed `Component 1` for the band stored under KEY 1 — which is the FIRST
+    // band a reader counts to, not the second. Same lie as the `Item 0` this issue removed,
+    // one message family over; naming it `Component key "1"` is what makes the prefix agree
+    // with the `index` payload beside it, which is a key lookup and always was.
+    $locator = _pp_item_index_label($index, $items);
     if ($label !== null && str_starts_with($message, $label)) {
-        $message = sprintf('Component %d ("%s")', $index, $name) . substr($message, strlen($label));
-    } elseif (!str_starts_with($message, sprintf('Item %d ', $index))) {
-        // Not the structural family, which spells its own "Item N" prefix for exactly
-        // this offset (a non-int key never reaches here — it stamps no offset at all).
-        $message = sprintf('Component %d: %s', $index, $message);
+        $message = sprintf('Component %s ("%s")', $locator, $name) . substr($message, strlen($label));
+    } elseif (!str_starts_with($message, _pp_band_index_label($index, $items) . ' ')) {
+        // Not the structural family, which spells its own band prefix for exactly this
+        // offset (a non-int key never reaches here — it stamps no offset at all). The
+        // prefix is read from _pp_band_index_label(), the same function that WRITES it
+        // in pp_validate_composition_errors(), so the two cannot drift into disagreeing
+        // about the label's spelling — which is how the fabricated `Item 0` #650 closed
+        // survived a rewording once already.
+        $message = sprintf('Component %s: %s', $locator, $message);
     }
 
     // A NEW WP_Error, because WP_Error has no message setter. The original DATA rides

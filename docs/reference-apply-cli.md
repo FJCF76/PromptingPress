@@ -240,11 +240,32 @@ Two nested shapes are deliberately still uncovered, named here rather than left 
 
 Like every rule here, both checks run in the shared `pp_validate_composition()` and are reported (never blocked) by `restore_composition` (#233).
 
-**Reading the `item N` locator (#634).** Every message in this nested family names the offending entry by its **stored `items` key**, not by a counted position. For the ordinary case they are the same thing: an `items` array authored as a JSON list gives `item 0`, `item 1`, `item 2`, exactly as the examples above show. They differ when `items` was stored as a JSON *object* rather than a list — a shape a raw `update_post_meta()` write, a history-ring snapshot, or an author sending `{"aa": {...}}` can produce, and one these read-only diagnostics exist to be pointed at:
+**Reading the `item N` locator (#634, #652).** Every message in this nested family names the offending entry by its **stored `items` key**, not by a counted position. For the ordinary case they are the same thing: an `items` array authored as a JSON list gives `item 0`, `item 1`, `item 2`, exactly as the examples above show, and that spelling has never changed. They differ when `items` was stored as a JSON *object* rather than a list — a shape a raw `update_post_meta()` write, a history-ring snapshot, or an author sending `{"aa": {...}}` can produce, and one these read-only diagnostics exist to be pointed at. An object key says so:
 
-> `Component "grid" prop "items" item aa field "link_url" is not a usable link URL: ... [invalid_prop_value]`
+> `Component "grid" prop "items" item key "aa" field "link_url" is not a usable link URL: ... [invalid_prop_value]`
 
-Two of these locators used to cast the key to an integer, so a `"aa"`-keyed entry reported `item 0` and sent the operator to repair an element that does not exist. All eight now render the key through one shared helper, so every nested rule answers "which item?" the same way. Repair the entry under the named key; if the whole `items` value is an object where a list belongs, rewrite it as a list.
+Two of these locators used to cast the key to an integer, so a `"aa"`-keyed entry reported `item 0` and sent the operator to repair an element that does not exist. All nine now render the key through one shared helper, so every nested rule answers "which item?" the same way.
+
+The `key "N"` form exists for the case that reads correctly and means the wrong thing. PHP folds a numeric *string* object key to an integer when the composition is decoded, so `{"1": ..., "0": ...}` hands the validator the same keys a two-element list would. The entry under key `"0"` is second in iteration order, so a bare `item 0` sent an operator to the **first** card — the healthy one — and a repair-and-resubmit loop returned the identical message forever. Naming it `item key "0"` is what distinguishes "the entry stored under key 0" from "the first entry":
+
+> `Component "grid" prop "items" item key "0" field "link_url" is not a usable link URL: ... [invalid_prop_value]`
+
+The discriminator is the **container**, not the key: a list renders `item N`, anything else renders `item key "N"`. One case is deliberately not distinguishable, and it is the harmless one — an *ordered* numeric object (`{"0": ..., "1": ...}`) decodes to a genuine PHP list, so nothing downstream can tell it from an authored list and it renders `item 0`. Key and position agree there, so both readings address the same element.
+
+Repair the entry under the named key; if the whole `items` value is an object where a list belongs, rewrite it as a list.
+
+**Reading the band locator (#650, and the #687 addendum).** The same rule one level up. A composition authored as a JSON list names its bands `Item 0` / `Component 1`, exactly as before — that is the shape every shipped example uses and none of it moved. A composition stored as an *object* names the key. All four band-level messages answer "which band?" the same way:
+
+| | list-shaped composition | object-shaped composition |
+|---|---|---|
+| missing `component` key | `Item 1 is missing the "component" key.` | `Item key "1" is missing the "component" key.` |
+| non-scalar `component` | `Item 1 has a non-scalar "component" key.` | `Item key "aa" has a non-scalar "component" key.` |
+| write rejection prefix | `Component 1 ("logos") prop ...` | `Component key "1" ("logos") prop ...` |
+| duplicate id | `... on items 0, 1.` | `... on items key "1", key "0".` |
+
+The first two used to report `Item 0` for *every* string-keyed band, while the same rejection's `index` field honestly carried `null` — message and payload contradicted each other, and the message was the wrong one. The other two printed a bare number that read as a position: on `{"1": bad, "0": healthy}` the bad band is stored under key `1` and is the **first** one iterated, so `Component 1` sent you to the healthy band next door.
+
+A locator is real or absent, never fabricated. Two consequences worth knowing: `index` carries only an **integer** offset or `null`, so a string-keyed band puts the locator in the words and not in the field; and `index` is an array **key**, so address it as `composition[index]` rather than by counting bands. `duplicate_component_id` still carries no `index` at all — it belongs to no single band and names every colliding key in its message.
 
 **Output** — the preflight result:
 

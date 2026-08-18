@@ -4,6 +4,35 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.14.8] — 2026-08-18 — A locator never names an element that isn't the broken one (#650, #652)
+
+**A composition stored as a JSON object made every locator lie, in two different ways, and the write path could produce that shape itself.** `pp_validate_composition_errors()` hard-formatted the composition key with `%d`, so `{"aa": {...}}` reported `Item 0` — and there is no band 0. The same `WP_Error` honestly carried `index: null`, so one rejection contradicted itself. One level down the failure was subtler and worse: PHP folds a numeric-string object key to an integer at decode, so `{"1": healthy, "0": broken}` reported `item 0`, which is true as a key and false as a position. An operator or the chat AI counts to the first card, repairs the one that is fine, resubmits, and gets the identical message back.
+
+The discriminator is now the CONTAINER, not the key. `_pp_item_index_label()` takes the array a key came from and asks `pp_is_list()`: a list renders `item 0` exactly as it always has, anything else renders `item key "0"`. That byte-identical guarantee for list-shaped data is the load-bearing half — every shipped example, doc snippet and existing test authors `items` as a JSON list, and none of them moved. Only the shape that was already lying changed.
+
+The same vocabulary reaches every band-level locator rather than half of them, so one composition cannot produce three spellings of "which band?": the two structural messages (`Item key "aa"`), the #642 write-rejection prefix (`Component key "1" ("logos")`), and `duplicate_component_id`'s key list (`on items key "1", key "0"`). All of them render the key through one function, and the #642 no-stutter gate now reads its expected prefix from that same function instead of re-spelling it — so a reworded label cannot silently defeat it. `duplicate_component_id` still carries no `index`: it belongs to no single band, and that contract is unchanged.
+
+One case is deliberately not distinguishable, and it is the harmless one. An *ordered* numeric object (`{"0": a, "1": b}`) decodes to a genuine PHP list, so nothing downstream can tell it from an authored list. Key and position agree there, so both readings address the same element.
+
+### Fixed
+
+- Band-level structural messages render the real composition key or no locator, never a fabricated `Item 0` (#650). Message text and `index` payload can no longer contradict each other.
+- Nested `items[]` locators distinguish a list position from a numeric object key (#652), so a reordered map names the broken entry instead of the healthy one.
+- The #642 write-rejection prefix and `duplicate_component_id`'s key list adopt the same form on object-shaped compositions, closing a three-way split in one message family.
+
+### Docs
+
+- `docs/reference-apply-cli.md` gains a table of all four band-level locators in both shapes, and states the ordered-numeric-object limit rather than leaving it to be discovered.
+- `AI_CONTEXT.md` records that `index` is an array KEY — address it as `composition[index]` rather than by counting bands.
+- `ai-instructions/composition.md` names the two item-locator forms where it describes nested-enum rejections.
+
+### Tests
+
+- Byte-identical pins for list-shaped compositions and list-shaped `items`, verified against v1.14.7's actual output rather than asserted.
+- One object-container case per nested rule. Five of the seven had none, and dropping a rule's container left the whole suite green.
+- The #634 source tripwire is comment-blind (tokenised, so the file may keep explaining its own history), guards containers by ALLOWLIST rather than by banning a literal `null`, and gains a band-level pairing invariant — an open-coded `sprintf('Item %s', $i)` used to pass everything.
+- `_pp_link_url_error_message()`'s container is required, so omitting it fails loudly; `_pp_validate_style_slot_map()` cannot follow (PHP forbids a required parameter after an optional one) and is pinned by reflection instead.
+
 ## [v1.14.7] — 2026-08-18 — A rejected write names the band that blocked it (#642)
 
 **Two bad `logos` bands used to produce byte-identical rejections, so an agent could repair its own payload forever and never move.** Every composition-mutating action validates the WHOLE composition, and the rejection named only the component TYPE. Submit `update_component` on band 1 with a payload carrying no `image_id` at all and you were told item 0 had a bad one — because the blocking value sat in band 0, which you never touched. Fix the payload, resubmit, get the same string back. The offset was computed the whole time: `_pp_composition_item_error()` has stamped it into the `WP_Error` since #622, and the write path threw it away one layer up.
