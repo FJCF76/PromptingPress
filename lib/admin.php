@@ -5,7 +5,8 @@
  * Responsibilities:
  * - pp_get_registered_components()  scan components/ directory
  * - pp_template_owned_components()  components the base template renders itself
- * - pp_validate_composition()       validate a composition array
+ * - pp_validate_composition()       validate a composition array (names the blocking band)
+ * - pp_validate_composition_item()  validate ONE item not yet on a page (no band locator)
  * - register_post_meta              declare _pp_composition meta
  * - add_meta_boxes                  "Edit Composition →" link on page edit screen
  * - wp_ajax_pp_save_composition     AJAX save handler
