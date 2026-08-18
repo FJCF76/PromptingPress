@@ -687,15 +687,26 @@ class DiagnosticReachTest extends TestCase
     // carries the composition offset, and a cross-item rule reports none rather than a
     // fabricated 0. #634 is the same rule one level down, inside the message TEXT.
     //
-    //   items value          key seen by the rule    locator, before -> after
-    //   ["a", "b"]           int 1                   "1"    -> "1"    (unchanged)
-    //   {"aa": {...}}        string "aa"             "0"    -> "aa"
-    //   {"zz": {...}} style  string "zz"             "0"    -> "zz"
+    //   items value          key seen by the rule    locator: #633 -> #634 -> #652
+    //   ["a", "b"]           int 1                   "1"  -> "1"  -> "1"        (never moved)
+    //   {"aa": {...}}        string "aa"             "0"  -> "aa" -> key "aa"
+    //   {"zz": {...}} style  string "zz"             "0"  -> "zz" -> key "zz"
+    //   {"1": .., "0": ..}   int 0 (PHP folds)       "0"  -> "0"  -> key "0"
     //
-    // Two of the eight nested-locator sites hard-cast the key ((int) "aa" === 0) while
-    // six rendered it honestly, so ONE function answered "which item?" two ways. There
+    // Two of the eight nested-locator sites that existed AT #634 hard-cast the key
+    // ((int) "aa" === 0) while six rendered it honestly, so ONE function answered "which
+    // item?" two ways. (That 2+6 is #634-era history; #643 has since added a ninth site,
+    // which is the count the drift-catcher asserts against today.) There
     // is no item 0 in a string-keyed map: the message sent the operator to repair an
     // element that does not exist, which is worse than carrying no locator at all.
+    //
+    // #634 fixed the FABRICATION and stopped there, deliberately: rendering the key alone
+    // still cannot tell a list POSITION from a numeric object KEY, because PHP folds
+    // `{"1": ...}` to the integer 1 at decode. #652 added the container as the
+    // discriminator, so the two now read differently in the one case where they mean
+    // different elements. A list container is byte-identical at every site — that is the
+    // load-bearing constraint, and testAListShapedItemsArrayStillReportsItsIntegerPosition
+    // AtBothSites plus the LIST arms of the provider below are what hold it.
 
     /** An `items` map that is a JSON object rather than a list, keyed 'aa'. */
     private function stringKeyedGrid(array $itemFields): array
@@ -711,7 +722,7 @@ class DiagnosticReachTest extends TestCase
 
         $this->assertCount(1, $errors);
         $message = $errors[0]->get_error_message();
-        $this->assertStringContainsString('item aa field "link_url"', $message);
+        $this->assertStringContainsString('item key "aa" field "link_url"', $message);
         $this->assertStringNotContainsString('item 0', $message, '(int) "aa" is 0, and there is no item 0');
     }
 
@@ -723,7 +734,7 @@ class DiagnosticReachTest extends TestCase
 
         $this->assertCount(1, $errors);
         $message = $errors[0]->get_error_message();
-        $this->assertStringContainsString('Component "grid" item aa has no style slot', $message);
+        $this->assertStringContainsString('Component "grid" item key "aa" has no style slot', $message);
         $this->assertStringNotContainsString('item 0', $message);
     }
 
@@ -743,7 +754,7 @@ class DiagnosticReachTest extends TestCase
         $this->assertCount(1, $errors);
         $this->assertSame('invalid_style_slot', $errors[0]->get_error_code());
         $this->assertStringContainsString(
-            'Component "grid" item aa style slot "--grid-gap" is container-scoped',
+            'Component "grid" item key "aa" style slot "--grid-gap" is container-scoped',
             $errors[0]->get_error_message()
         );
     }
@@ -789,7 +800,7 @@ class DiagnosticReachTest extends TestCase
 
         $this->assertCount(3, $errors, 'one error per band');
         foreach ($errors as $i => $error) {
-            $this->assertStringContainsString('item aa', $error->get_error_message(), "band {$i} names the stored key");
+            $this->assertStringContainsString('item key "aa"', $error->get_error_message(), "band {$i} names the stored key");
             $this->assertStringNotContainsString('item 0', $error->get_error_message());
         }
     }
@@ -814,13 +825,118 @@ class DiagnosticReachTest extends TestCase
 
         $this->assertFalse($result['ok']);
         $this->assertSame('invalid_prop_value', $result['error_code']);
-        $this->assertStringContainsString('item aa field "link_url"', $result['error']);
+        $this->assertStringContainsString('item key "aa" field "link_url"', $result['error']);
         $this->assertStringNotContainsString('item 0', $result['error']);
         $this->assertSame(
             wp_json_encode($before),
             $GLOBALS['_pp_test_store']['post_meta'][320]['_pp_composition'],
             'a rejected write stores nothing'
         );
+    }
+
+    /**
+     * THE #652 REPRO, through the real write surface. `items` is a JSON object whose keys
+     * run {"1", "0"}: PHP folds both to integers at decode, so iteration POSITION 0 holds
+     * the entry keyed "1" — the healthy one — while the dead link sits at position 1 under
+     * key "0". The old locator said `item 0` and was true only as a key; an operator or a
+     * chat AI reading it counts to the first card and repairs the card that is fine, then
+     * re-submits and is rejected by the identical message. Naming it `item key "0"` is what
+     * stops that loop.
+     *
+     * Section 14.1: authored through pp_execute_action(), not a raw _pp_composition write —
+     * #652's body records that an object-shaped items map survives pp_execute_action params
+     * intact, and this is the pin for that claim.
+     */
+    public function testAReorderedNumericObjectItemsMapNamesTheBadEntryNotTheHealthyOne(): void
+    {
+        $this->seedPage(330, [['component' => 'hero', 'props' => ['title' => 'Hi']]]);
+
+        $result = pp_execute_action('update_composition', [
+            'post_id'     => 330,
+            'composition' => [['component' => 'grid', 'props' => ['items' => [
+                '1' => ['title' => 'Fine', 'link_url' => '/ok'],
+                '0' => ['title' => 'Bad',  'link_url' => 'javascript:alert(1)'],
+            ]]]],
+        ]);
+
+        $this->assertFalse($result['ok']);
+        $this->assertSame('invalid_prop_value', $result['error_code']);
+        $this->assertStringContainsString('item key "0" field "link_url"', $result['error'],
+            'the locator must name the stored KEY of the dead card, flagged as a key');
+        // The exact failure the issue reports: `item 0` reads as "the first card", and the
+        // first card is the healthy one.
+        $this->assertStringNotContainsString('item 0 field', $result['error']);
+    }
+
+    /**
+     * EVERY nested rule, against an object-shaped container — not just the two the
+     * `stringKeyedGrid` fixture happened to reach.
+     *
+     * Why this exists: the sibling tests above cover the link-URL rule, the per-item style
+     * rule, the missing-required-field rule and the undeclared-field rule, and it is easy to
+     * read that as "the nested family is covered". It is not the same claim. Each rule threads
+     * its OWN container argument (`$value` for the shape rules, `$entries` for the field
+     * rules), so a rule whose container was dropped or wired to the wrong variable renders an
+     * object key as a position again while every existing test stays green — the #652 defect,
+     * reintroduced one rule at a time. One row per rule is what makes the container wiring
+     * asserted rather than assumed.
+     *
+     * @dataProvider objectKeyedNestedRuleProvider
+     */
+    public function testEveryNestedRuleNamesAnObjectKeyAsAKey(array $props, string $component, string $expected): void
+    {
+        $errors = pp_validate_composition_errors([['component' => $component, 'props' => $props]]);
+
+        $this->assertNotSame([], $errors, 'the fixture must actually trip the rule it is pinning');
+        $message = $errors[0]->get_error_message();
+        $this->assertStringContainsString($expected, $message);
+        // The whole point: position 0 is what a bare key would have claimed.
+        $this->assertStringNotContainsString('item 0 ', $message);
+    }
+
+    public static function objectKeyedNestedRuleProvider(): array
+    {
+        return [
+            // item_type: "object" — a scalar where an entry object belongs.
+            'entry must be an object' => [
+                ['items' => ['aa' => 'not-an-object']], 'grid', 'item key "aa" must be an object',
+            ],
+            // item_type: "array" — a scalar row where a row array belongs.
+            'entry must be an array' => [
+                ['headers' => ['H'], 'rows' => ['aa' => 'not-a-row']], 'table', 'item key "aa" must be an array',
+            ],
+            // RULE 3 — the field's own declared scalar type.
+            'nested field type' => [
+                ['items' => ['aa' => ['title' => 'T', 'text' => 'x', 'image_id' => ['nope']]]], 'grid',
+                'item key "aa" field "image_id"',
+            ],
+            // RULE 4 — nested enum membership.
+            'nested enum value' => [
+                ['items' => ['aa' => ['title' => 'T', 'text' => 'x', 'text_role' => 'terminal']]], 'grid',
+                'item key "aa" field "text_role"',
+            ],
+            // Nested array-of-strings field.
+            'nested bullets entries' => [
+                ['items' => ['aa' => ['title' => 'T', 'text' => 'x', 'bullets' => [123]]]], 'grid',
+                'item key "aa" field "bullets"',
+            ],
+        ];
+    }
+
+    /**
+     * A single-entry map keyed {"5"}. The element is at position 0 and the locator says 5,
+     * which is right as a key and wrong as a position — so it says which one it means.
+     */
+    public function testASparseNumericObjectItemsMapNamesTheKeyAsAKey(): void
+    {
+        $errors = pp_validate_composition_errors([
+            ['component' => 'grid', 'props' => ['items' => [
+                '5' => ['title' => 'Bad', 'link_url' => 'javascript:alert(1)'],
+            ]]],
+        ]);
+
+        $this->assertCount(1, $errors);
+        $this->assertStringContainsString('item key "5" field "link_url"', $errors[0]->get_error_message());
     }
 
     public function testTheCreatePagePathReportsTheHonestItemLocatorForAPerItemStyle(): void
@@ -832,8 +948,8 @@ class DiagnosticReachTest extends TestCase
 
         $this->assertFalse($result['ok']);
         // Band 0 named by the write path since #642; the nested locator this test owns
-        // is still the honest "item aa", never the fabricated "item 0".
-        $this->assertStringContainsString('Component 0 ("grid") item aa has no style slot', $result['error']);
+        // is still the honest `item key "aa"`, never the fabricated `item 0`.
+        $this->assertStringContainsString('Component 0 ("grid") item key "aa" has no style slot', $result['error']);
         $this->assertStringNotContainsString('item 0', $result['error']);
     }
 
@@ -851,44 +967,119 @@ class DiagnosticReachTest extends TestCase
 
         $this->assertSame([], WP_CLI::$successes);
         $joined = implode("\n", array_merge(WP_CLI::$warnings, WP_CLI::$lines));
-        $this->assertStringContainsString('item aa field "link_url"', $joined);
+        $this->assertStringContainsString('item key "aa" field "link_url"', $joined);
         $this->assertStringNotContainsString('item 0', $joined);
     }
 
     /**
-     * The renderer itself, both arms of its union type. PHP folds a numeric-STRING array
-     * key ("5") to the integer 5 on the way in, so the string arm is only observable
-     * through a genuinely non-numeric key — which is why the behavioral tests above are
-     * keyed 'aa' and this one asserts the two arms directly.
+     * The renderer itself: both arms of its union type AND both arms of its container
+     * discriminator. PHP folds a numeric-STRING array key ("5") to the integer 5 on the
+     * way in, so the string arm is only observable through a genuinely non-numeric key —
+     * which is why the behavioral tests above are keyed 'aa' and this one asserts the
+     * arms directly.
+     *
+     * The LIST rows are the byte-identical pin. Every shipped example, doc snippet and
+     * sibling test authors `items` as a JSON list, so if #652's container discriminator
+     * ever leaks into that shape, these rows fail before any of the message-level tests do.
      *
      * @dataProvider itemIndexLabelProvider
      */
-    public function testTheItemIndexLabelRendersBothArrayKeyTypes($index, string $expected): void
+    public function testTheItemIndexLabelRendersBothArrayKeyTypes($index, ?array $container, string $expected): void
     {
-        $this->assertSame($expected, _pp_item_index_label($index));
+        $this->assertSame($expected, _pp_item_index_label($index, $container));
     }
 
     public static function itemIndexLabelProvider(): array
     {
+        $list   = ['a', 'b'];                 // pp_is_list() === true
+        $object = ['aa' => 'a', 'bb' => 'b']; // pp_is_list() === false
+
         return [
-            'first list position'  => [0, '0'],
-            'later list position'  => [7, '7'],
-            'object key'           => ['aa', 'aa'],
-            'numeric-string key'   => ['5', '5'],
+            // ── LIST container: byte-identical to every version since #634 ──────────
+            'first list position'      => [0, $list, '0'],
+            'later list position'      => [7, $list, '7'],
+
+            // ── OBJECT container: the key is named AS a key (#652) ──────────────────
+            'object key'               => ['aa', $object, 'key "aa"'],
+            // The #652 repro in miniature. PHP folded this key to int 0 at decode, so the
+            // renderer sees the same argument a list position 0 would give it; only the
+            // container tells them apart. Without this row the whole issue is untested.
+            'numeric object key'       => [0, ['1' => 'a', '0' => 'b'], 'key "0"'],
+            'sparse numeric object'    => [5, ['5' => 'a'], 'key "5"'],
+
+            // ── NO container in scope: the bare key, as before ──────────────────────
+            // The two message-builder delegates default here when a caller genuinely has
+            // no view of the container (the grid-level style path passes no index at all,
+            // and the direct unit callers below pass none).
+            'object key, no container' => ['aa', null, 'aa'],
+            'numeric-string key'       => ['5', null, '5'],
+
             // The degenerate key `{"": {...}}`. The locator renders EMPTY rather than
             // inventing a position for it — "no locator at all" is one of the two answers
             // the issue names as acceptable, and it is what the six sibling rules already
             // produce for the same key. Pinned so the empty render is a recorded choice
-            // rather than something nobody looked at.
-            'empty object key'     => ['', ''],
+            // rather than something nobody looked at. Inside an object container it
+            // becomes `key ""`, which is ugly and honest: there IS a key, and it is empty.
+            'empty object key'         => ['', null, ''],
+            'empty key in object'      => ['', ['' => 'a', 'x' => 'b'], 'key ""'],
+
+            // Hostile keys. The key is rendered WHOLE — no strip, no truncation, no
+            // escape — because bounding what a message reflects is #647/#649's axis and
+            // must stay uniform across this family rather than being decided one surface
+            // at a time. `key "a"b"` IS ambiguous to a reader; that is a recorded,
+            // deliberate limitation routed to #647/#649, not an oversight.
+            'key containing a quote'   => ['a"b', ['a"b' => 1, 'z' => 2], 'key "a"b"'],
+            'key with control chars'   => ["a\tb", ["a\tb" => 1, 'z' => 2], "key \"a\tb\""],
         ];
     }
 
     /**
-     * THE DRIFT-CATCHER. Eight sites render this fragment and #614/#600 each added one;
-     * #621/#643/#644 will add more. The behavioral pins above prove the eight that exist
-     * today, but only a source check stops a NINTH rule from re-introducing the cast that
-     * started this, or from open-coding the old inline copy beside the shared renderer.
+     * ORDERED numeric object keys are UNRECOVERABLE, and that is a documented limit rather
+     * than a gap in the fix. `json_decode('{"0":"a","1":"b"}', true)` returns a PHP LIST —
+     * the keys really are 0..n-1 in order — so nothing downstream can tell it from an
+     * authored list, and this renders the list form. Harmless by construction: when key
+     * and position agree, both readings address the same element. #652 is only about the
+     * case where they DISAGREE.
+     */
+    public function testAnOrderedNumericObjectIsIndistinguishableFromAListAndSaysSo(): void
+    {
+        $decoded = json_decode('{"0":"a","1":"b"}', true);
+
+        $this->assertTrue(pp_is_list($decoded), 'PHP destroys the distinction at decode');
+        $this->assertSame('1', _pp_item_index_label(1, $decoded), 'so the list form is the only honest answer');
+    }
+
+    /**
+     * lib/admin.php with every comment removed, for the source tripwires below.
+     *
+     * The file explains its own defects in prose — a docblock that quotes the retired
+     * `sprintf('Item %d ', $index)` spelling is documentation working correctly, not the
+     * defect returning. Stripping comments lets the guards assert on what the parser will
+     * actually execute, which is the only thing they were ever meant to police.
+     */
+    private static function adminSourceWithoutComments(): string
+    {
+        $code = '';
+        foreach (token_get_all(file_get_contents(dirname(__DIR__) . '/lib/admin.php')) as $token) {
+            if (is_array($token)) {
+                if ($token[0] === T_COMMENT || $token[0] === T_DOC_COMMENT) {
+                    continue;
+                }
+                $code .= $token[1];
+                continue;
+            }
+            $code .= $token;
+        }
+
+        return $code;
+    }
+
+    /**
+     * THE DRIFT-CATCHER. Nine sites render this fragment and #614/#600/#643 each added one;
+     * #644 and the rest of the #687 cluster will add more. The behavioral pins above prove
+     * the nine that exist today, but only a source check stops a TENTH rule from
+     * re-introducing the cast that started this, or from open-coding the old inline copy
+     * beside the shared renderer.
      *
      * The load-bearing assertion is the PAIRING, not the name blocklist. A guard that only
      * greps for `(int) $entry_index` / `(int) $elem_index` is evadable by a new rule whose
@@ -897,21 +1088,47 @@ class DiagnosticReachTest extends TestCase
      * reintroducing exactly this defect. So: every `item %s` locator in the file must be
      * matched by one call to the shared renderer, and no call may be handed a cast.
      *
-     * SCOPE, stated so the guard is not read as covering more than it does: the lowercase
-     * `item %s` family is the nested items[] locator #634 owns. The capital-I `Item %d`
-     * messages ~500 lines above name the COMPOSITION offset (which band), a different
-     * locator with its own open defect and its own issue. This test deliberately does not
-     * assert on them.
+     * SINCE #652 THE GUARD ALSO WATCHES THE CONTAINER ARGUMENT, because the fix created a
+     * second way to drift that the first guard cannot see. `$container` is nullable, so a
+     * new rule that passes `null` — or that omits nothing because the delegates default —
+     * compiles, passes every behavioral test written against LIST fixtures, and silently
+     * renders a numeric object key as a position again. A missing-argument check alone
+     * does not catch it; a literal-null check does.
+     *
+     * SCOPE, stated so the guard is not read as covering more than it does. Two locator
+     * families live in this file and they are counted separately: the lowercase `item %s`
+     * fragment (the nested items[] locator, #634/#652) and the capital-I band locator
+     * ~1,700 lines up (which composition offset, #650). Since #650 the band family also
+     * routes through the shared renderer — via _pp_band_index_label() — so the pairing
+     * arithmetic below accounts for exactly those extra calls rather than pretending the
+     * band level does not exist, which is what the pre-#650 version of this test did.
      */
     public function testEveryItemIndexLocatorRoutesThroughTheSharedLabel(): void
     {
         // Asserted on booleans and counts, not on the 140 KB haystack: a string assertion
         // that fails here dumps the whole file into the report and buries its own message.
-        $source = file_get_contents(dirname(__DIR__) . '/lib/admin.php');
+        //
+        // COMMENTS ARE STRIPPED FIRST. Every assertion below is about CODE, and this file
+        // documents its own history in prose — the docblocks legitimately quote the old
+        // `sprintf('Item %d ', $index)` spelling to explain why it is gone. A raw
+        // str_contains() cannot tell the explanation from the defect, so it fails on the
+        // very comment that records the fix. Tokenising is also strictly stronger for the
+        // pairing counts: a format string mentioned in a comment can no longer inflate them.
+        $source = self::adminSourceWithoutComments();
+
+        // The BAND-level families route through the shared renderer too, and there are three
+        // of them since the #687 addendum: the structural `Item` label (via
+        // _pp_band_index_label), the #642 write-boundary `Component` prefix, and the
+        // duplicate-id key list. The first two pass `($index, $items)`; the third maps over
+        // its colliding keys and so passes `($key, $items)`. Counted explicitly rather than
+        // lumped in, because the pairing arithmetic below only describes the nested family.
+        $band_label_calls = substr_count($source, '_pp_item_index_label($index, $items)')
+            + substr_count($source, '_pp_item_index_label($key, $items)');
+        $this->assertSame(3, $band_label_calls, 'three band-level renderings, each exactly one renderer call');
 
         $this->assertSame(
             substr_count($source, 'item %s'),
-            substr_count($source, '_pp_item_index_label($'),
+            substr_count($source, '_pp_item_index_label($') - $band_label_calls,
             'every nested item locator must be fed by the shared renderer — one call per locator'
         );
         $this->assertSame(
@@ -919,6 +1136,45 @@ class DiagnosticReachTest extends TestCase
             preg_match_all('/_pp_item_index_label\(\s*\((?:int|string|float|bool)\)/', $source),
             'the renderer takes the raw array key; casting on the way in is the #634 defect wearing a hat'
         );
+        // #652: the container is what tells a list position from an object key, so the guard
+        // is an ALLOWLIST of container expressions, not a blocklist of bad ones. A blocklist
+        // that greps for a literal `, null)` is trivially evadable — `$no_container = null;`
+        // one line up, or the house-style `$item['props'][$p] ?? null`, both slip through it
+        // while throwing the discriminator away exactly as a literal null would. Requiring
+        // every call to name one of the four known containers means a new rule must either
+        // reuse a reviewed container or edit this list, which is the point: a new container
+        // is a decision someone should look at, not something that compiles quietly.
+        preg_match_all('/_pp_item_index_label\(\s*\$\w+\s*,\s*([^),]*(?:\[[^\]]*\][^),]*)*)\)/', $source, $containers);
+        $allowed = ['$items', '$value', '$entries', '$item_container'];
+        foreach ($containers[1] as $container) {
+            $this->assertContains(
+                trim($container),
+                $allowed,
+                'unreviewed container argument — a null or a fallback here re-fabricates positions for object keys'
+            );
+        }
+        $this->assertGreaterThanOrEqual(10, count($containers[1]), 'the regex must actually be matching the calls');
+        // Same escape hatch one level out, at the two message-builder delegates. Asserted
+        // on the SIGNATURES via reflection rather than on the spelling of a call, because a
+        // regex pinned to `_pp_link_url_error_message($name, $prop_name, $entry_index, ...)`
+        // stops matching the moment someone renames a local at the call site — it would then
+        // pass vacuously forever while the drift it guards is present, which is the same
+        // evade-by-renaming weakness this docblock criticises in the cast blocklist.
+        $link_container = (new ReflectionFunction('_pp_link_url_error_message'))->getParameters()[5];
+        $this->assertSame('item_container', $link_container->getName());
+        $this->assertFalse(
+            $link_container->isDefaultValueAvailable(),
+            'no default: a nested call that omits the container must fail loudly, not render a position'
+        );
+
+        // The style delegate CANNOT take the same treatment: its $item_index is optional, and
+        // PHP cannot require a parameter after an optional one. The default is therefore a
+        // known hazard rather than a convenience, and this pins that the hazard is confined to
+        // exactly that one parameter for exactly that one reason.
+        $style_params = (new ReflectionFunction('_pp_validate_style_slot_map'))->getParameters();
+        $this->assertSame('item_container', $style_params[4]->getName());
+        $this->assertTrue($style_params[3]->isDefaultValueAvailable(), 'the reason the next one must default too');
+        $this->assertNull($style_params[4]->getDefaultValue(), 'and the default must be the honest "no view", never a list');
         $this->assertFalse(str_contains($source, '(int) $entry_index'), 'a cast fabricates item 0 for a string key');
         $this->assertFalse(str_contains($source, '(int) $elem_index'), 'same cast on the per-item style path');
         $this->assertFalse(
@@ -926,7 +1182,42 @@ class DiagnosticReachTest extends TestCase
             'the inline copies are the shared renderer now — a new copy is how the two conventions came back'
         );
         $this->assertFalse(str_contains($source, 'item %d'), 'no nested locator formats the key as an integer');
-        $this->assertGreaterThanOrEqual(8, substr_count($source, 'item %s'), 'the eight known locators are still there');
+        // #650: the band family used to spell its own `Item %d`, which is how it fabricated
+        // band 0 for a string-keyed composition while its own payload said null.
+        $this->assertFalse(str_contains($source, 'Item %d'), 'the band locator formats its key through the shared renderer, not %d');
+        // Symmetric ban for the #642 write-boundary prefix, converged by the #687 addendum.
+        // `Component %d` is how that family printed a key as a position; a `%d` here means
+        // someone re-spelled the locator instead of routing it through the renderer.
+        $this->assertFalse(str_contains($source, 'Component %d'), 'the write-boundary band prefix renders its key through the shared renderer, not %d');
+        // ...and the band family gets the SAME pairing invariant the nested one has, for the
+        // same reason. Banning only `Item %d` would let a new band rule open-code
+        // sprintf('Item %s', $i): capital-I, so it never counts toward the lowercase pairing
+        // arithmetic above, and not `%d`, so the ban misses it — a second spelling of the one
+        // label, which is precisely how #650 happened. Exactly one `Item %s` may exist, inside
+        // _pp_band_index_label(), and every band message must route through that.
+        $this->assertSame(
+            1,
+            substr_count($source, 'Item %s'),
+            'only _pp_band_index_label() may spell the band label — a second spelling is the #650 defect returning'
+        );
+        $this->assertGreaterThanOrEqual(9, substr_count($source, 'item %s'), 'the nine known nested locators are still there');
+    }
+
+    /**
+     * The #642 write-boundary gate reads the band label from the SAME function that writes
+     * it, so the two cannot drift into disagreeing about its spelling. Before #650 the gate
+     * re-spelled `sprintf('Item %d ', $index)` independently; rewording the label would have
+     * silently defeated the no-stutter branch and printed the locator twice.
+     */
+    public function testTheWriteBoundaryGateReadsTheBandLabelFromTheSharedRenderer(): void
+    {
+        $source = self::adminSourceWithoutComments();
+
+        $this->assertStringContainsString(
+            "str_starts_with(\$message, _pp_band_index_label(\$index, \$items) . ' ')",
+            $source,
+            'the no-stutter gate must compare against the renderer output, never a second spelling'
+        );
     }
 
     /**

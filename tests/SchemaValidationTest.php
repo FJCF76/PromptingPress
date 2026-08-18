@@ -2539,7 +2539,7 @@ class SchemaValidationTest extends TestCase
         ]);
 
         $this->assertInstanceOf(\WP_Error::class, $result);
-        $this->assertStringContainsString('item aa has no field "imageId"', $result->get_error_message());
+        $this->assertStringContainsString('item key "aa" has no field "imageId"', $result->get_error_message());
     }
 
     public function testEveryUndeclaredFieldOfOneEntryIsNamed(): void
