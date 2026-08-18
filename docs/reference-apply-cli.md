@@ -195,7 +195,7 @@ Before this, two same-type bands produced byte-identical rejections, so an agent
   "message": "Composition diagnostics were skipped for this write: the page stores 1141031 bytes of composition JSON, over the 1048576-byte limit for reporting on a write. Nothing here says the composition is healthy. Run `wp pp check page --post_id=42` for the full report." }
 ```
 
-Read it as "not measured", never as "clean" — an empty `findings` list means the write was diagnosed and found nothing, and this is the opposite claim. `wp pp check page` has no such limit and will report the page in full. The threshold is a fixed constant with no filter or option: a realistic six-band composition stores about 5 KB, so this is unreachable for anything you author by hand.
+Read it as "not measured", never as "clean" — an empty `findings` list means the write was diagnosed and found nothing, and this is the opposite claim. `wp pp check page` has no such limit and will report the page in full. The threshold is a fixed constant with no filter or option. A realistic six-band composition stores about 5 KB, so ordinary pages sit orders of magnitude under it.
 
 The same rolled-back-batch caveat as `index` applies, for the same reason. A batch step's `findings` are built when that step succeeds, before a LATER step's failure rolls the whole batch back — so a failed batch returns per-step reports, and `index` values inside them, describing compositions that no longer exist. Re-read the page after a rolled-back batch rather than acting on them.
 

@@ -146,6 +146,8 @@ Empty array means the restored page is clean. Otherwise each entry has a `severi
 
 `wp pp action preview restore_composition` returns the same findings and writes nothing, so you can see this before you commit to the restore.
 
+**`findings` is not restore-only any more (#687).** Every accepted composition-mutating write carries the same key describing what it just stored — plus `create_page` and `operate patch` — so you get the same report from an ordinary `style_component` or `update_component` without asking for it. Restore's copy differs in two deliberate ways: it is **unbounded** (the write path caps at 100 entries plus a `findings_truncated` tail) and it is **never skipped** (the write path stops reporting above 1 MiB of stored composition and says so with `findings_skipped`). Restore reports every finding its engines produce, because the whole point of #233 is that you are told exactly what an old snapshot brought back.
+
 **Undo every page a run changed** (the composition counterpart of `wp pp apply restore`):
 
 ```bash
