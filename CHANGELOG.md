@@ -4,6 +4,40 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.14.9] — 2026-08-18 — An accepted write now tells you what it wrote (#687)
+
+**A composition write could validate, store, return `ok: true` and paint nothing.** The demonstrating case is `--hero-overlay-bg` on a `split`-layout hero: that slot renders only under `layout: "cover"`, so the value is stored, the version bumps, the envelope says success, and nothing on the page ever reads it. The `inert_slot` advisory that names this has existed since #580 — but only on surfaces an agent had to opt into (`wp pp check page`, INSPECT, restore's `findings`). An agent that ran none of them truthfully reported success on a no-op, which is the most corrosive failure class for AI-led maintenance: it presents as success, so nothing prompts recovery.
+
+Every accepted composition-mutating write now carries a `findings` key describing the composition it just stored — `style_component`, `update_component`, `add_component`, `remove_component`, `reorder_components`, `update_composition`, plus `create_page` and `operate patch`. Same two shared engines the read-only diagnostics use, so nothing here is a second opinion and every future rule is inherited for free; the difference is that you no longer have to ask. Error-severity findings ride along with the advisories, because the item-scoped actions validate only what they touch and so legitimately accept a write onto a page whose OTHER bands current rules reject — reporting only the advisories there would hide the louder problem.
+
+It is report-only, and that is the whole contract. Findings are computed after the write has landed, on success only, from the stored bytes: they never block, alter or reorder anything, rejections are untouched and still return exactly one message, and the stored composition is byte-identical to what the same call stored before. The report is bounded at 100 entries closed by one `findings_truncated` entry stating the true total, and `restore_composition` keeps its own deliberately unbounded report (#233) rather than inheriting the write path's cap.
+
+One guard exists so report-only can never take down the write it reports on. Diagnosing costs roughly 28 MB of transient memory per stored MB, and it runs after the write has persisted — so on a large enough page it could exhaust `memory_limit` and kill the response to a change that already happened, leaving no envelope, no touched-post record and no refreshed CAS baseline. Above 1 MiB of stored composition JSON the engines are therefore not run at all and the envelope carries one `findings_skipped` entry naming the size, the limit and the `wp pp check page` command instead. A skip is never a clean bill of health; an empty list still is.
+
+### Added
+
+- `findings` on every accepted composition-mutating write envelope, plus `create_page` and `operate patch` (#687). Entries are the same `type` / `severity` / `message` / `index` shape every other findings surface uses, so no consumer needs a special case.
+- `PP_WRITE_FINDINGS_BUDGET` (100 entries) with a `findings_truncated` tail that states the TRUE total and names the page to run `wp pp check page --post_id=N` against.
+- `PP_WRITE_FINDINGS_MAX_STORED_BYTES` (1 MiB) with a `findings_skipped` entry, gating the engines BEFORE they run so an oversized composition degrades instead of fataling after its write landed (D1 Addendum #2). No filter, no option — the threshold moves by a ruling.
+
+### Fixed
+
+- The report describes the page the write actually landed on. `create_page` declares no `post_id`, and undeclared params are not rejected, so resolving from params first made a stray `post_id` return a brand-new page's envelope carrying an entirely different page's diagnostics. `findings` now resolves from the result target first.
+
+### Docs
+
+- `AI_CONTEXT.md` and `docs/reference-apply-cli.md` document the key, the report-only contract, both bounds, and where it does and does not surface (the chat ships it but does not render it yet; the dashboard editor drops it; a rolled-back batch leaves per-step reports describing compositions that no longer exist).
+- `ai-instructions/style-component.md` now tells an author their own write reports an inert slot, instead of pointing at `wp pp check page`.
+- `ai-instructions/operating-loop.md` makes reading `findings` part of the EDIT step's required output.
+- `docs/AI_IMPLEMENTATION_RECIPES.md` records that a new rule in either shared engine now also reaches every accepted write, so a new smell's message has to be worth reading on a successful one.
+- The count bound is documented as a count bound: `duplicate_component_id` names every colliding index in ONE entry, and repeated same-`id` `add_component` calls reach that state through ordinary validated writes.
+
+### Tests
+
+- `tests/WriteEnvelopeFindingsTest.php` — 42 tests covering the pp-eval trap end to end, all eight surfaces, the non-composition and rejection boundaries, report-only byte-identity, both bounds at their edges, the availability gate on both sides, the restore seam, and the batch, CLI and chat consumers.
+
+---
+
 ## [v1.14.8] — 2026-08-18 — A locator never names an element that isn't the broken one (#650, #652)
 
 **A composition stored as a JSON object made every locator lie, in two different ways, and the write path could produce that shape itself.** `pp_validate_composition_errors()` hard-formatted the composition key with `%d`, so `{"aa": {...}}` reported `Item 0` — and there is no band 0. The same `WP_Error` honestly carried `index: null`, so one rejection contradicted itself. One level down the failure was subtler and worse: PHP folds a numeric-string object key to an integer at decode, so `{"1": healthy, "0": broken}` reported `item 0`, which is true as a key and false as a position. An operator or the chat AI counts to the first card, repairs the one that is fine, resubmits, and gets the identical message back.
