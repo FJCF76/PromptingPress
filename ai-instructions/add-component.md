@@ -167,9 +167,11 @@ condition.
 conditionality census — 160 declarations today, which is what the schemas state, not a
 claim that every code-real condition has been found — and the *same* field drives a
 write-time advisory:
-when a composition sets a slot whose condition is unmet, `wp pp check page` and the
-restore findings report a non-blocking **`inert_slot`** smell naming the slot and
-every unmet clause. There is deliberately no second condition table — declare the
+when a composition sets a slot whose condition is unmet, a non-blocking **`inert_slot`**
+smell names the slot and every unmet clause. Since #687 that advisory rides the
+ACCEPTED WRITE's own envelope (`findings`), as well as `wp pp check page` and the
+restore findings — so an author learns the slot is dead from the write that set it,
+without opting into a diagnostic. There is deliberately no second condition table — declare the
 condition once, on the definition, and both the before-the-write catalog line and
 the after-the-write warning follow. Two consequences when you author a condition:
 
