@@ -10491,6 +10491,11 @@ test.describe('#583 stressed-state rendered coverage (table, embed, logos)', () 
     // survives; driving the CTA slot must leave this band exactly where it was.
     // Skipped for cta, which legitimately OWNS --cta-heading-measure — the leak was five
     // foreign bands reading it, never cta reading its own slot.
+    //
+    // NOT-APPLICABLE(cta owns --cta-heading-measure, so "does not follow the cta slot"
+    // is not a property it can have; the other five heading variants all run). This is a
+    // parametrised inapplicable case, NOT a quarantine: nothing here is excluded from the
+    // gate pending a fix, so it carries no owner. See #697.
     // eslint-disable-next-line playwright/no-skipped-test
     (heading.name === 'cta' ? test.skip : test)(
       `#578 ${heading.name} heading no longer follows the cta measure slot @smoke`,

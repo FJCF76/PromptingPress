@@ -3535,8 +3535,9 @@ class SchemaValidationTest extends TestCase
      * that saving a drifted composition is REFUSED, because drift now implies
      * invalidity. If this invariant ever breaks, a valid-but-drifting composition
      * becomes constructible again and Test 9's premise is wrong — so this fails
-     * in `composer test` (a required CI check) rather than hiding in the E2E
-     * suite, which does not run on pull requests.
+     * in `composer test` (a required CI check) rather than relying on the E2E
+     * suite, which is slower and needs Docker. (Since #697 the E2E suite does run
+     * on pull requests; this pin stays because it is the faster signal.)
      */
     public function testEveryComposableComponentRejectsTheBareNoPropsShape(): void
     {

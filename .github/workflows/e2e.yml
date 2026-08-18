@@ -1,22 +1,52 @@
 name: E2E (WordPress 7.0)
 
-# E2E runs the @smoke subset (fast, high-signal: action-layer round-trip, editor
-# load, publish -> front-end render) on every pull request and on push to main,
-# and the full suite nightly / on manual dispatch.
-#   - pull_request -> @smoke subset. Reports a check on EVERY PR so it can be a
-#                     required status check (issue 82). Intentionally NO
-#                     paths-ignore here: a required check that is skipped on a
-#                     docs-only PR leaves the PR blocked on a check that never
-#                     reports, so @smoke must always run and report on a PR.
-#   - push to main -> @smoke subset. Post-merge standing watcher on the mainline
-#                     commit (paths-ignore keeps docs-only pushes from re-running).
-#   - nightly cron -> full suite.
-#   - manual       -> full suite via workflow_dispatch.
+# E2E runs the FULL Playwright suite on EVERY trigger. There is deliberately no
+# @smoke-only gate: a test that cannot block a merge is a test that can go red and
+# stay red, which is exactly what happened for 25 consecutive nightlies (#697).
+# Before this change the merge gate ran 211 of 352 tests, so 141 tests — including
+# every test in ai-chat.spec.ts and token-concurrency.spec.ts — never ran on a PR.
+#   - pull_request -> FULL suite. This is the merge gate. Reports a check on EVERY
+#                     PR so it can be a required status check (issue 82).
+#                     Intentionally NO paths-ignore here: a required check that is
+#                     skipped on a docs-only PR leaves the PR blocked on a check
+#                     that never reports, so it must always run and report on a PR.
+#   - push to main -> FULL suite. Post-merge standing watcher: the merge commit is
+#                     the first place two independently-green branches actually
+#                     meet (paths-ignore keeps docs-only pushes from re-running).
+#   - nightly cron -> FULL suite. KEEP THIS TRIGGER. It is not made redundant by
+#                     the two above, because it is the only run that fires when NO
+#                     code changed. That makes it the one that attributes a new
+#                     red to ENVIRONMENT drift (a wp-env image rebuild, a
+#                     WordPress 7.0 point release, a transitive npm dependency)
+#                     rather than to a code regression.
+#   - manual       -> FULL suite via workflow_dispatch.
 #
-# Making @smoke a REQUIRED check is a manual repo-admin step (branch protection on
-# main requiring "E2E (WordPress 7.0) / e2e" + "ai-ready-check"); the fine-grained
-# PAT cannot set branch protection. See issue 82. Promotion bar: once @smoke holds
-# green for 2 weeks with zero flakes.
+# Cost, measured 2026-08-18 (run 32188773768 @smoke vs run 32110581111 full suite):
+# fixed setup ~2.6 min either way; test execution 1086s (@smoke) vs 1821s (full).
+# Gating on the full suite costs ~+12 min on a PR, ~21 -> ~33 min. Accepted:
+# the alternative is 141 tests that no gate ever runs.
+#
+# Sharding across two runners was rejected, and would probably have been faster:
+# estimated ~18 min wall (2.6 min setup + half of 1821s). That number is a
+# derivation, not a measurement — no sharded run exists to cite, unlike the four
+# figures above. Two reasons it was still rejected. First, each shard pays its own
+# `wp-env start`, which doubles the dependency-network exposure the retry below
+# exists to contain (#700). Second, tests/e2e/playwright.config.ts pins
+# `fullyParallel: false` and `workers: 1`, so specs run in one deterministic order
+# today; sharding changes which specs are co-resident and in what order, and this
+# suite has never been proven order-independent. Revisit if that changes.
+#
+# Making the check REQUIRED is a manual repo-admin step (branch protection on main
+# requiring "E2E (WordPress 7.0) / e2e" + "ai-ready-check"); the fine-grained PAT
+# cannot set branch protection. No open issue tracks it — #82 covered adding the
+# pull_request trigger and is closed — so TODOS.md carries it. Until branch
+# protection is set, this workflow makes a red test VISIBLE on a PR but cannot
+# itself make it unmergeable.
+#
+# The "suite is never narrowed" invariant is enforced by
+# tests/InvariantTest.php::testE2eGateRunsTheEntireSuiteOnPullRequests and its two
+# companions, so neither this file nor the Playwright config can quietly regrow a
+# filter.
 
 on:
   pull_request:
@@ -106,13 +136,12 @@ jobs:
       - name: Ensure DB matches core
         run: npx wp-env run cli wp core update-db
 
-      - name: Run E2E (@smoke on pull_request/push, full suite nightly/manual)
+      # No event branching and no --grep: every trigger runs every test. Any
+      # narrowing added here would re-open the #697 blind spot, so
+      # tests/InvariantTest.php asserts on this exact run block.
+      - name: Run E2E (full suite)
         run: |
-          if [ "${{ github.event_name }}" = "schedule" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            npm run test:e2e
-          else
-            npm run test:e2e -- --grep @smoke
-          fi
+          npm run test:e2e
 
       - name: Upload Playwright artifacts on failure
         if: failure()
