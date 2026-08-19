@@ -261,20 +261,86 @@ if (!function_exists('wp_reset_postdata')) {
     function wp_reset_postdata(): void {}
 }
 
+/**
+ * Escaping stubs — first parameter UNTYPED, matching WordPress core (#709).
+ *
+ * These four used to declare `string $text`. Core declares all four untyped and
+ * the theme runs COERCIVE (no `declare(strict_types)` in components/, lib/,
+ * templates/ or functions.php), so the typed stubs were STRICTER than production:
+ * they raised a TypeError on shapes a real site renders. That made the harness a
+ * false-fatal generator for exactly the stored-shape render probes #705/#706/#708
+ * depend on. Note the divergence ran BOTH ways — a typed `string` parameter also
+ * hid nothing, but a naive "just cast it" widening would have hidden the two
+ * fatals that ARE real (esc_url and wp_kses_post on an array).
+ *
+ * What is modelled is core's OBSERVABLE coercion/fatal boundary, measured on real
+ * WordPress — NOT core's byte-level sanitization (see "not modelled" below):
+ *
+ *   input               esc_html / esc_attr      esc_url              wp_kses_post
+ *   ------------------  -----------------------  -------------------  --------------------
+ *   string / int /      coerced, returned        coerced, returned    coerced, returned
+ *     float / bool
+ *   null                ''                       '' (+deprecation)    '' (+deprecation)
+ *   array (any)         'Array' (+warning)       FATAL TypeError      FATAL TypeError
+ *   object, no          FATAL Error              FATAL TypeError      FATAL TypeError
+ *     __toString
+ *   object w/           coerced via __toString   coerced              coerced
+ *     __toString
+ *
+ * (The null deprecations are PHP 8.1+; on 8.0 the same calls are silent.)
+ *
+ * Read the esc_html/esc_attr array row as "does not fatal", NOT as "renders fine". Core
+ * emits an E_WARNING there, and on a WP_DEBUG_DISPLAY site that warning is printed into
+ * the response body next to the literal string 'Array'. phpunit.xml sets
+ * failOnWarning="false", so PHPUnit will not fail on it either — a stored-shape probe
+ * that only checks for a fatal will call that shape clean.
+ *
+ * So esc_html/esc_attr never fatal on an array, while esc_url and wp_kses_post
+ * always do. The stubs below reproduce each column with the SAME PHP construct
+ * core reaches (the `(string)` cast in wp_check_invalid_utf8(), ltrim() in
+ * esc_url(), preg_replace()/str_contains() in the wp_kses() chain) rather than
+ * hand-rolled type checks, so the failure class and message match production.
+ *
+ * NOT modelled, and pre-existing: these stubs are type-faithful, not byte-faithful.
+ * esc_html/esc_attr double-encode existing entities (core passes
+ * $double_encode = false), esc_url does no scheme completion and no protocol
+ * filtering, and wp_kses_post does not sanitize at all. Do not read a PHPUnit
+ * assertion about escaped BYTES as a statement about production.
+ *
+ * tests/EscapingStubContractTest.php is the authoritative record: it pins this
+ * matrix, and its docblock carries the measurement provenance and the
+ * one-fresh-process-per-case trap that a re-measurement has to avoid.
+ */
+
 if (!function_exists('esc_html')) {
-    function esc_html(string $text): string {
-        return htmlspecialchars($text, ENT_QUOTES, 'UTF-8');
+    function esc_html($text): string {
+        // Core: wp_check_invalid_utf8() opens with `$text = (string) $text;`.
+        // The cast is what makes an array 'Array' (warning, no fatal) and an
+        // object without __toString a fatal Error.
+        return htmlspecialchars((string) $text, ENT_QUOTES, 'UTF-8');
     }
 }
 
 if (!function_exists('esc_attr')) {
-    function esc_attr(string $text): string {
-        return htmlspecialchars($text, ENT_QUOTES, 'UTF-8');
+    function esc_attr($text): string {
+        // Same core path as esc_html() — wp_check_invalid_utf8() then _wp_specialchars().
+        return htmlspecialchars((string) $text, ENT_QUOTES, 'UTF-8');
     }
 }
 
 if (!function_exists('esc_url')) {
-    function esc_url(string $url): string {
+    function esc_url($url): string {
+        // The early return mirrors core's shape (core returns $url untouched before
+        // reaching any string builtin). It is behaviourally redundant here — ltrim('')
+        // and filter_var('') both yield '' — so it is kept for the mirror, not the result.
+        if ('' === $url) {
+            return '';
+        }
+        // ltrim() is core's first string builtin. Being an internal function it accepts
+        // scalars and null in coercive mode but raises a TypeError for an array or
+        // object, so a stored array in a link prop really does 500 a public page.
+        $url = ltrim($url);
+
         return filter_var($url, FILTER_SANITIZE_URL) ?: '';
     }
 }
@@ -294,7 +360,36 @@ if (!function_exists('wp_allowed_protocols')) {
 }
 
 if (!function_exists('wp_kses_post')) {
-    function wp_kses_post(string $content): string {
+    // Untyped RETURN as well as untyped parameter, matching core (which declares
+    // neither). Every non-throwing input still yields a string; the type is omitted
+    // rather than declared because preg_replace() can in principle return null, and a
+    // declared `: string` would convert that into a return-type TypeError the real
+    // function would not raise.
+    function wp_kses_post($content) {
+        // Core's wp_kses() chain reaches two builtins before any sanitization
+        // decision, and BOTH reject shapes a typed `string` parameter would have
+        // rejected with a different (misleading) message:
+        //   wp_kses_no_null()             -> preg_replace(): array|string only, so
+        //                                    an object without __toString fatals here;
+        //   pre_kses -> filter_block_content() -> str_contains(): string only, so an
+        //                                    array (which preg_replace() accepts as a
+        //                                    subject and returns as an array) fatals here.
+        // The pre_kses leg depends on core's default-filters wiring, so a site that
+        // removed that filter would fatal later in the chain instead. Default WP is
+        // what this models.
+        // Reproduce both with the same builtins so the TypeError a probe sees is the
+        // one a visitor's 500 would carry. Scalars and null coerce, as in core.
+        $content = preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F]/', '', $content);
+
+        // NOT dead code, and NOT safe to delete: this call is here for its SIDE EFFECT,
+        // which is PHP's own type enforcement. It mirrors core's block-content path so an
+        // array fatals exactly as it does in production. Do not wrap it in a conditional —
+        // the throw is the behaviour being modelled.
+        str_contains($content, '<!-- wp:');
+
+        // Deliberately pass-through beyond that: this stub models wp_kses_post()'s
+        // TYPE contract, not its sanitization. The allowlist behaviour is modelled by
+        // the wp_kses() stub below, and the real security boundary is pinned in E2E.
         return $content;
     }
 }
