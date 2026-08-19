@@ -8,8 +8,117 @@
  */
 
 $id           = $props['id']           ?? '';
-$title        = $props['title']       ?? 'Default Title';
-$title_accent = $props['title_accent'] ?? '';
+// ── #706: the raw-value guard for pp_render_heading_with_accent() ───────────
+//
+// THE CANONICAL EXPLANATION FOR title/title_accent LIVES HERE. grid, section, cta,
+// stats, faq and testimonials carry the same four-line guard with a pointer back to
+// this block; keep the reasoning in one place so a correction lands once. It is the
+// same idiom components/logos/logos.php documents for image_url (#641) and
+// components/cta/cta.php for background_image (#705), ratified as the family
+// standard at gate D-B.
+//
+// BOTH of the helper's text arguments are typed:
+//   pp_render_heading_with_accent(string $title, string $accent, string $accent_class)
+// and BOTH fatal. Measured on current main, one render per component: a stored array
+// `title` raises "Argument #1 ($title) must be of type string, array given" on ALL
+// SEVEN components, and a stored array `title_accent` alongside a perfectly good title
+// raises the same on Argument #2, again on all seven. (The filed issue claimed
+// argument #2 for hero only; it is every one of them, which is why both props are
+// guarded everywhere rather than just here.) templates/composition.php:16-26 calls
+// pp_get_component() with no try/catch, so ONE malformed stored value returns a
+// whole-page 500 instead of a band missing its heading. `title` is on nearly every
+// band, so this is the widest blast radius in the theme.
+//
+// WHY THE GUARD IS AT THE READ AND NOT INSIDE THE HELPER. Widening the helper's
+// signature to accept mixed looks like the smaller diff — one file instead of seven —
+// and it is the wrong fix. The truthiness gates (`if ($title)`, and the header gates
+// that read `$title || $eyebrow || $subheading`) sit UPSTREAM of the call in six of
+// the seven components. A stored array is TRUTHY, so a mixed-typed helper would let
+// those gates open and emit an empty `<h2>` inside a header wrapper that exists only
+// to hold it. Guarding at the read closes the gates instead, which is what D-B asks
+// for: the band renders WITHOUT its heading. Relaxing a shared typed boundary to
+// absorb bad data is also the opposite of what D-B prescribes — guard BEFORE the call.
+//
+// HERO IS THE ONE COMPONENT WITH NO GATE, and its degradation is therefore different
+// from its six siblings — stated plainly here because this is the canonical block and
+// the difference is easy to miss. The call at the `<h1>` below is UNCONDITIONAL, so a
+// guarded-away title emits `<h1 class="hero__title"></h1>`: the element, empty. That
+// is not a new shape. A stored empty-string title emits exactly those bytes today and
+// always has (measured), so the guard makes a non-scalar render identically to a case
+// that has shipped since the component existed. Adding an `if ($title)` gate here to
+// suppress the empty `<h1>` was considered and deliberately REJECTED: it would change
+// rendering for well-formed stored data (an intentionally empty title would stop
+// emitting the h1), and D-B requires zero rendering change for well-formed data. The
+// honest cost, so nobody discovers it later: corrupt stored data still leaves an empty
+// page heading in the accessibility tree. A degraded h1 is a much smaller harm than a
+// 500, but it is a real one, and closing it means changing hero's markup contract —
+// which needs its own ruling, not a rider on this guard.
+//
+// THE ELSE-BRANCH IS '', NOT THE DEFAULT ABOVE, and that distinction is unique to this
+// prop pair (all three of #705's sites defaulted to ''). `?? 'Default Title'` fires
+// only when the key is ABSENT. A stored non-scalar is PRESENT, so it must fall to '',
+// never to the placeholder — degrading a corrupt title into the words "Default Title"
+// (or, in faq, "Frequently Asked Questions") would paint invented content onto a
+// visitor's page. Degrade means render less, never make something up.
+//
+// is_scalar, NOT is_string. PHP runs COERCIVE here (no declare(strict_types)), so only
+// NON-SCALARS ever fataled: a stored `42` coerced at the typed boundary and rendered
+// the heading "42", and the write path accepts and stores a scalar title raw (#707).
+// is_string() would silently drop a value the front door had just admitted. Precisely
+// scoped, because "only non-scalars fataled" is slightly too broad as usually stated:
+// coercive mode would ALSO have accepted a __toString object, which this guard blanks.
+// That is unreachable rather than merely unlikely, and it takes two facts to say so.
+// Both composition readers decode with json_decode($raw, true), which yields arrays and
+// never objects: pp_composition() (lib/wp.php:225), which is the one
+// templates/composition.php actually calls, and pp_get_composition() (lib/wp.php:411)
+// by way of pp_get_composition_result() (lib/wp.php:359). And pp_get_component()
+// (lib/components.php:19) takes $props as a plain array parameter with NO filter hook,
+// so a plugin cannot inject one either. An ARRAY is the only non-scalar these props can
+// actually hold on any production path.
+//
+// "ZERO RENDERING CHANGE FOR WELL-FORMED DATA" IS TRUE BUT NOT SELF-EVIDENT, because
+// the guard moves WHERE the coercion happens: from inside the typed call to before the
+// truthiness gates. So the question is not whether the cast changes the string (it
+// cannot) but whether it changes any gate. Measured across 42, 3.14, true, false, 0,
+// '0', '': every one agrees, because PHP's '0' is itself falsy. The single exception is
+// FLOAT NEGATIVE ZERO: -0.0 is falsy, but (string) -0.0 is '-0', which is truthy (only
+// '' and '0' are falsy strings), so it opens gates it used to leave shut and paints a
+// heading reading "-0". HERO IS IMMUNE — no gate, so it already renders '-0' today.
+// The six gated components flip.
+//
+// That exception is REAL BUT BARELY REACHABLE, and what decides it is the stored JSON
+// TEXT, not the PHP value that was written:
+//
+//   json_encode(-0.0)            -> the text `-0`   -> json_decode gives INT 0   -> falsy, NO flip
+//   stored text `-0.0` (literal) -> json_decode gives FLOAT -0                   -> truthy, FLIP
+//
+// PHP's json_encode never emits the decimal-point form, so every writer that re-encodes
+// round-trips it to int 0 and renders nothing, exactly as before. Only stored bytes
+// already holding the literal text `-0.0` (a raw _pp_composition meta write, a
+// hand-edited row) reach the flip. Left alone deliberately, matching #705: '-0' is
+// inert once escaped, and special-casing it would mean inspecting and rewriting the
+// stored value, which is exactly what D-B forbids. Both channels are pinned in
+// tests/StoredTitleRenderGuardTest.php.
+//
+// STORED data is the point. The write path rejects a non-scalar title, but it gates
+// WRITES, not storage: a composition authored before the type rules landed still
+// carries the value, restore_composition restores and REPORTS without ever blocking
+// (#233), and a raw _pp_composition meta write is not gated at all. Nothing here
+// rewrites the store — the value is read, not migrated, and _pp_composition_findings()
+// still reports it to the operator.
+//
+// SCOPE is this prop pair into this one helper. The same defect class through other
+// surfaces stays filed and untouched: #708 (count() on a scalar items,
+// pp_render_style_vars on a non-array style), #730 (core's esc_url/wp_kses_post, which
+// DO fatal in production), #733 (lib/ai-context.php's mb_strlen/basename on the same
+// raw title), and #707 (what the write path accepts). NOTE what that means for the
+// page-level claim: pp_render_style_vars() runs BEFORE the heading in these templates,
+// so a band carrying both a non-array `__pp_style` and a bad title still fatals via
+// #708, upstream of this guard. This closes one door on that corridor, not the corridor.
+$raw_title        = $props['title']        ?? 'Default Title';
+$title            = is_scalar($raw_title) ? (string) $raw_title : '';
+$raw_title_accent = $props['title_accent'] ?? '';
+$title_accent     = is_scalar($raw_title_accent) ? (string) $raw_title_accent : '';
 $eyebrow   = $props['eyebrow']  ?? '';
 $subheading  = $props['subheading'] ?? '';
 $button_text  = $props['button_text'] ?? '';

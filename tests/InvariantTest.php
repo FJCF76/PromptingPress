@@ -1220,4 +1220,156 @@ class InvariantTest extends TestCase
             . ' the #705 guard (add it, then update this list)'
         );
     }
+
+    // ── #706: every heading-helper call site uses guarded locals ──────────
+
+    /**
+     * The #705 drift catcher's sibling, for `title` / `title_accent`.
+     *
+     * DELIBERATELY KEYED ON THE CALL, NOT ON THE PROP READ, and that is the difference
+     * that matters. #705 could key on `$props['background_image']` because only the
+     * three components that reach pp_esc_image_src() read it at all. `title` is not
+     * like that: logos, table and embed ALSO read `$props['title']` and pass it to
+     * esc_html(), which does not fatal — it renders the literal string `Array` plus an
+     * E_WARNING. A checker keyed on the prop read would demand a guard on those three
+     * and quietly widen #706 past its ruling. So the admitting criterion here is the
+     * one #641 stated for this family: the same TYPED CALL, not the same prop and not
+     * the same file. A component that calls pp_render_heading_with_accent() must feed
+     * it guarded locals; a component that merely reads a title is none of this test's
+     * business.
+     *
+     * Narrow on purpose in the other direction too: it does not police other props
+     * (their issues own those), and it does not care which components exist, so a new
+     * guarded heading band passes without touching this test.
+     */
+    public function testEveryHeadingHelperCallSiteUsesScalarGuardedLocals(): void
+    {
+        $callers = [];
+
+        foreach ($this->phpFilesIn($this->themeRoot . '/components') as $file) {
+            $raw = file_get_contents($file);
+            if (!str_contains($raw, 'pp_render_heading_with_accent(')) {
+                continue;
+            }
+            $callers[] = basename(dirname($file));
+            $name = basename($file);
+
+            // EVERY assertion below runs against COMMENT-STRIPPED source, not just the
+            // call-site scan. The guard blocks this method polices are long prose that
+            // quotes the very identifiers being matched, so a regex over raw source can
+            // be satisfied by a sentence rather than by code — and the substr_count
+            // checks can be spuriously FAILED by one, which is the worse direction: a
+            // red test with a misleading message. Stripping via token_get_all() is exact
+            // rather than heuristic, and it keeps the checker honest the other way too:
+            // a call commented OUT is correctly not a call.
+            $content = $this->stripPhpComments($raw);
+
+            // Both props are read only into their raw locals...
+            $this->assertMatchesRegularExpression(
+                '/\$raw_title\s*=\s*\$props\[\'title\'\]/',
+                $content,
+                $name . ' reads title into something other than $raw_title (#706). The guard'
+                . ' idiom expects the raw read to land in that local so the guarded value is'
+                . ' the one every gate below sees.'
+            );
+            $this->assertMatchesRegularExpression(
+                '/\$raw_title_accent\s*=\s*\$props\[\'title_accent\'\]/',
+                $content,
+                $name . ' reads title_accent into something other than $raw_title_accent (#706).'
+            );
+
+            // ...and the values the template uses come from the guards.
+            $this->assertMatchesRegularExpression(
+                '/\$title\s*=\s*is_scalar\(\$raw_title\)\s*\?\s*\(string\)\s*\$raw_title\s*:\s*\'\'/',
+                $content,
+                $name . ' calls pp_render_heading_with_accent() but does not assign $title through'
+                . ' the is_scalar guard (#706). A raw read reaches `string $title` and a stored'
+                . ' array 500s the whole public page.'
+            );
+            $this->assertMatchesRegularExpression(
+                '/\$title_accent\s*=\s*is_scalar\(\$raw_title_accent\)\s*\?\s*\(string\)\s*\$raw_title_accent\s*:\s*\'\'/',
+                $content,
+                $name . ' calls pp_render_heading_with_accent() but does not assign $title_accent'
+                . ' through the is_scalar guard (#706). Argument #2 is typed too, and it fatals'
+                . ' on its own even when the title is perfectly good.'
+            );
+
+            // The else-branch must be '' and never the component's own `??` default:
+            // hero and faq default to non-empty strings, and degrading a corrupt stored
+            // title into 'Default Title' would paint invented content onto a live page.
+            $this->assertStringNotContainsString(
+                ': $raw_title',
+                str_replace(
+                    ['(string) $raw_title_accent', '(string) $raw_title'],
+                    '',
+                    $content
+                ),
+                $name . ' degrades title to something other than the empty string (#706).'
+            );
+
+            // Exactly one read of each prop, so a second raw read cannot hide below the guard.
+            $this->assertSame(
+                1,
+                substr_count($content, "\$props['title']"),
+                $name . ' reads title more than once (#706). Every gate must read the guarded'
+                . ' local, not the raw prop.'
+            );
+            $this->assertSame(
+                1,
+                substr_count($content, "\$props['title_accent']"),
+                $name . ' reads title_accent more than once (#706).'
+            );
+
+            // EVERY call passes the guarded locals, asserted as an ALLOWLIST rather than as
+            // a blocklist of known-bad spellings. A "does not contain
+            // pp_render_heading_with_accent($raw_title" check is trivially bypassed by an
+            // alias ($x = $raw_title; …($x, …)) or by a second call added later with a
+            // different variable, and either one reintroduces the production 500 while the
+            // guard above still reads correctly. Matching the exact argument pair closes
+            // the whole shape: the only accepted spelling is the guarded one.
+            preg_match_all('/pp_render_heading_with_accent\(([^)]*)\)/', $content, $calls);
+            $this->assertNotEmpty($calls[1], $name . ' matched no heading-helper call (#706 checker drift).');
+            foreach ($calls[1] as $args) {
+                $this->assertMatchesRegularExpression(
+                    '/^\s*\$title\s*,\s*\$title_accent\s*,/',
+                    $args,
+                    $name . ' calls pp_render_heading_with_accent() with something other than the'
+                    . ' guarded ($title, $title_accent) pair (#706): "' . trim($args) . '". Any other'
+                    . ' spelling can carry a raw stored value into the typed parameters and 500 the'
+                    . ' whole public page.'
+                );
+            }
+        }
+
+        // Non-vacuity: if this ever finds nothing, every assertion above is silently passing.
+        sort($callers);
+        $this->assertSame(
+            ['cta', 'faq', 'grid', 'hero', 'section', 'stats', 'testimonials'],
+            $callers,
+            'the set of components calling pp_render_heading_with_accent() changed — a new'
+            . ' caller must carry the #706 guard (add it, then update this list)'
+        );
+    }
+
+    /**
+     * Returns $source with every comment token removed, so a source-level checker can tell
+     * a real call from a mention in prose. Uses PHP's own tokenizer rather than a regex,
+     * because the guard blocks this file polices are long comment blocks that quote the
+     * very identifiers being searched for.
+     */
+    private function stripPhpComments(string $source): string
+    {
+        $out = '';
+        foreach (token_get_all($source) as $token) {
+            if (is_array($token)) {
+                if ($token[0] === T_COMMENT || $token[0] === T_DOC_COMMENT) {
+                    continue;
+                }
+                $out .= $token[1];
+                continue;
+            }
+            $out .= $token;
+        }
+        return $out;
+    }
 }

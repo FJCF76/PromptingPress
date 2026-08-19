@@ -2084,6 +2084,197 @@ class ComponentPropsTest extends TestCase
         $this->assertStringContainsString('<span class="stats__heading-accent">Fast</span> Results', $html);
     }
 
+    // ── #706: the title/title_accent guard, at the renderer level ────────────
+    //
+    // The stored-bytes half lives in tests/StoredTitleRenderGuardTest.php, which proves a
+    // malformed value can REACH these components through real post meta. What belongs
+    // HERE is the per-component and per-value sweep: every one of the seven components
+    // that calls pp_render_heading_with_accent(), and every scalar the (string) cast can
+    // produce. Split that way so a single component regressing names itself, instead of
+    // failing inside one large stored-composition assertion.
+    //
+    // Asserted AFFIRMATIVELY, never by absence of a fatal: phpunit.xml sets
+    // failOnWarning="false" and esc_html() renders a stored array as the literal string
+    // `Array` plus an E_WARNING, so "nothing threw" would also pass against an
+    // implementation that printed `Array` as the heading.
+
+    /**
+     * Each GATED heading call site, paired with the props it needs to render and the BEM
+     * class its heading carries.
+     *
+     * hero is deliberately ABSENT: its call is unconditional, so it degrades to an empty
+     * `<h1>` rather than to no heading, and it is pinned by its own
+     * testANonScalarHeroTitleDegradesToAnEmptyHeading() below.
+     *
+     * section appears THREE times, once per layout branch, because it reaches the helper
+     * from three independently editable places — `text-only`/`centered` share one, and
+     * `text-panel` and `image-left`/`image-right` each have their own. One guarded read
+     * feeds all three TODAY, which is exactly why a single fixture is not enough: a
+     * regression that reassigns the raw value inside one branch leaves the other two
+     * green. Rendering each branch means the failing one names itself.
+     */
+    public static function headingComponents(): array
+    {
+        return [
+            'grid'                 => ['grid',         ['items' => [['title' => 'Item', 'text' => 'Text']]],   'grid__heading'],
+            'section text-only'    => ['section',      ['body' => '<p>Body</p>', 'layout' => 'text-only'],      'section__title'],
+            'section centered'     => ['section',      ['body' => '<p>Body</p>', 'layout' => 'centered'],       'section__title'],
+            'section text-panel'   => ['section',      ['body' => '<p>Body</p>', 'layout' => 'text-panel', 'panel_heading' => 'Panel'], 'section__title'],
+            'section image-left'   => ['section',      ['body' => '<p>Body</p>', 'layout' => 'image-left',  'image_url' => 'https://example.com/a.jpg'], 'section__title'],
+            'section image-right'  => ['section',      ['body' => '<p>Body</p>', 'layout' => 'image-right', 'image_url' => 'https://example.com/b.jpg'], 'section__title'],
+            'cta'                  => ['cta',          ['button_text' => 'Go', 'button_url' => '#'],           'cta__title'],
+            'stats'                => ['stats',        ['items' => [['number' => '40+', 'label' => 'Years']]], 'stats__heading'],
+            'faq'                  => ['faq',          ['items' => [['question' => 'Q?', 'answer' => 'A.']]],  'faq__heading'],
+            'testimonials'         => ['testimonials', ['items' => [['quote' => 'Great product.']]],           'testimonials__heading'],
+        ];
+    }
+
+    /**
+     * A non-scalar title degrades to NO HEADING in each of the six gated components.
+     *
+     * @dataProvider headingComponents
+     */
+    public function testANonScalarTitleRendersNoHeading(string $component, array $props, string $headingClass): void
+    {
+        $html = $this->render($component, array_merge($props, ['title' => ['en' => 'Our services']]));
+
+        $this->assertStringNotContainsString($headingClass, $html, "{$component}: the heading is skipped entirely");
+        $this->assertStringNotContainsString('Array', $html, "{$component}: degraded, never coerced into the page");
+    }
+
+    /**
+     * A non-scalar title_accent degrades to NO ACCENT while the good title still renders.
+     * Argument #2 of the helper is typed too, and it fatals on its own — the filed issue
+     * reported this for hero alone; it is all seven.
+     *
+     * @dataProvider headingComponents
+     */
+    public function testANonScalarTitleAccentStillRendersThePlainTitle(string $component, array $props, string $headingClass): void
+    {
+        $html = $this->render($component, array_merge($props, [
+            'title'        => 'Our services',
+            'title_accent' => ['en' => 'Our'],
+        ]));
+
+        $this->assertStringContainsString($headingClass, $html, "{$component}: the heading still renders");
+        $this->assertStringContainsString('Our services', $html, "{$component}: with its full title");
+        $this->assertStringNotContainsString($headingClass . '-accent', $html, "{$component}: and no accent span");
+        $this->assertStringNotContainsString('Array', $html, "{$component}: degraded, never coerced into the page");
+    }
+
+    /**
+     * hero is the ONE ungated call site, so its degradation differs and is pinned on its
+     * own. The `<h1>` renders unconditionally, so a guarded-away title leaves the element
+     * behind, empty — which is exactly what a stored empty-string title has always
+     * produced. Recorded, not endorsed: corrupt data still leaves an empty page heading in
+     * the accessibility tree. Closing that means changing hero's markup contract, which
+     * needs its own ruling rather than a rider on this guard (see components/hero/hero.php).
+     */
+    public function testANonScalarHeroTitleDegradesToAnEmptyHeading(): void
+    {
+        $html = $this->render('hero', ['title' => ['en' => 'Welcome']]);
+
+        $this->assertStringContainsString('<h1 class="hero__title"></h1>', $html, 'the element survives, empty');
+        $this->assertStringNotContainsString('Array', $html, 'degraded, never coerced into the page');
+        $this->assertStringNotContainsString('hero__title-accent', $html);
+    }
+
+    /**
+     * THE PREDICATE PIN, and the reason it is is_scalar and not is_string.
+     *
+     * PHP runs coercive here, so a non-string SCALAR title never fataled — it coerced at
+     * the typed boundary and rendered. The write path is scalar-permissive to match
+     * (create_page accepts a scalar title and stores it raw, #707), so an is_string()
+     * guard would silently drop a heading the front door had just admitted. This table is
+     * the whole cast surface, measured rather than assumed, and it fails the moment the
+     * predicate narrows.
+     *
+     * It is also where "zero rendering change for well-formed data" is actually earned.
+     * The guard moves WHERE coercion happens — from inside the typed call to before the
+     * `if ($title)` gate — so the question is not whether the cast changes the string (it
+     * cannot) but whether it changes the GATE. Every row below agrees with the pre-guard
+     * behaviour, because PHP's '0' is itself falsy. The single exception is float negative
+     * zero, which has its own test below.
+     */
+    public static function scalarTitles(): array
+    {
+        return [
+            'int'            => [42,    '42'],
+            'float'          => [3.14,  '3.14'],
+            'true'           => [true,  '1'],
+            'numeric string' => ['7',   '7'],
+            // Falsy scalars: the gate stays shut, exactly as before the guard.
+            'false'          => [false, null],
+            'zero int'       => [0,     null],
+            'zero string'    => ['0',   null],
+            'empty string'   => ['',    null],
+        ];
+    }
+
+    /**
+     * @dataProvider scalarTitles
+     */
+    public function testScalarTitlesRenderExactlyAsTheyDidBeforeTheGuard($stored, ?string $expected): void
+    {
+        $html = $this->render('stats', ['title' => $stored, 'items' => [['number' => '1', 'label' => 'L']]]);
+
+        if ($expected === null) {
+            $this->assertStringNotContainsString('stats__heading', $html, 'a falsy scalar renders no heading');
+            return;
+        }
+        $this->assertStringContainsString('<h2 class="stats__heading">' . $expected . '</h2>', $html);
+    }
+
+    /**
+     * FLOAT NEGATIVE ZERO is the one scalar where the cast flips a truthiness gate:
+     * -0.0 is falsy, but (string) -0.0 is '-0', and only '' and '0' are falsy strings. So
+     * a gated component starts rendering a heading reading "-0" where it previously
+     * rendered none.
+     *
+     * Left alone deliberately, matching the landed #705 decision: '-0' is inert once
+     * escaped, and special-casing it would mean inspecting and rewriting the stored value,
+     * which is exactly what the D-B ruling forbids. Pinned so the change is recorded
+     * rather than discovered. Whether stored bytes can actually DELIVER a float -0.0 is a
+     * separate, channel-dependent question, measured in
+     * StoredTitleRenderGuardTest::testNegativeZeroFlipsTheGateOnlyThroughARawMetaWrite.
+     *
+     * hero is asserted alongside because it is IMMUNE — no gate, so it rendered '-0'
+     * before the guard and renders '-0' after. The flip belongs to the gate, not the cast.
+     */
+    public function testNegativeZeroIsTheOneScalarThatFlipsTheHeadingGate(): void
+    {
+        $gated = $this->render('stats', ['title' => -0.0, 'items' => [['number' => '1', 'label' => 'L']]]);
+        $this->assertStringContainsString('<h2 class="stats__heading">-0</h2>', $gated, 'the gated component now renders a heading it used to skip');
+
+        $ungated = $this->render('hero', ['title' => -0.0]);
+        $this->assertStringContainsString('<h1 class="hero__title">-0</h1>', $ungated, 'hero is unaffected: it always coerced and rendered');
+    }
+
+    /**
+     * THE HEADER WRAPPERS GO TOO, which is the consequence of guarding at the READ rather
+     * than at the call. In grid, section and testimonials `$title` also feeds the
+     * `__header` wrapper gate, and the read sits upstream of it — so a band whose only
+     * header content was a malformed title emits no wrapper at all, instead of an empty
+     * one framing a heading that is not there.
+     *
+     * This is the assertion that would fail if someone "simplified" the fix by widening
+     * pp_render_heading_with_accent() to accept mixed: a stored array is TRUTHY, so the
+     * wrapper gate would open and the band would emit an empty heading inside it.
+     */
+    public function testGuardingAtTheReadAlsoClosesTheHeaderWrapperGates(): void
+    {
+        $cases = [
+            'grid'         => [['items' => [['title' => 'Item', 'text' => 'Text']]],   'grid__header'],
+            'testimonials' => [['items' => [['quote' => 'Great product.']]],           'testimonials__header'],
+            'section'      => [['body' => '<p>Body</p>'],                              'section__header'],
+        ];
+
+        foreach ($cases as $component => [$props, $wrapperClass]) {
+            $html = $this->render($component, array_merge($props, ['title' => ['en' => 'Our services']]));
+            $this->assertStringNotContainsString($wrapperClass, $html, "{$component}: no header wrapper for a heading that is not there");
+        }
+    }
+
     public function testAllSixComponentsDeclareTitleAccentSlot(): void
     {
         $expected = [
@@ -2888,9 +3079,10 @@ class ComponentPropsTest extends TestCase
     //
     // Ratified at gate 7A. Scope is the NAMED typed call: both raw-value arguments of
     // pp_render_responsive_image(). The same defect through OTHER typed helpers is
-    // tracked separately (#705 background_image, #706 title/title_accent, #708) and is
-    // deliberately not fixed here — the admitting criterion was same-typed-call, not
-    // same-file.
+    // tracked separately and is deliberately not fixed here — the admitting criterion was
+    // same-typed-call, not same-file. Of those, #705 (background_image) and #706
+    // (title/title_accent) have since LANDED with their own guards and pins; #708 remains
+    // open.
     //
     // Reachability is the image_id argument exactly: the write path rejects a non-scalar
     // at both depths, but the validator gates WRITES. restore_composition reports
@@ -3499,9 +3691,9 @@ class ComponentPropsTest extends TestCase
     //   SCALAR      -> (string) cast.        UNCHANGED: as it rendered before the guard.
     //
     // Ratified at gate D-B as the family standard. Scope is this prop's three read sites.
-    // The same defect through OTHER surfaces is tracked separately (#706 title/
-    // title_accent, #708 grid count()/pp_render_style_vars, #730 esc_url/wp_kses_post)
-    // and is deliberately not fixed here.
+    // The same defect through OTHER surfaces is tracked separately and is deliberately not
+    // fixed here: #706 (title/title_accent) has since LANDED with its own guards and pins;
+    // #708 (grid count()/pp_render_style_vars) and #730 (esc_url/wp_kses_post) remain open.
     //
     // Reachability is #641's exactly: the write path rejects a non-scalar, but the
     // validator gates WRITES. restore_composition reports without blocking (#233), a
