@@ -116,7 +116,8 @@ class NestedButtonSlotIsolationTest extends TestCase
             . 'unreachable and this whole isolation rule dead code.');
     }
 
-    /** hero.proof is the hero's second unescaped surface (hero.php:138,144). Same scope note. */
+    /** hero.proof is the hero's second unescaped surface (the two wp_kses_post($proof_markup)
+     * renders in components/hero/hero.php). Same scope note. */
     public function testHeroProofCanCarryAnAuthorWrittenButton(): void
     {
         $html = $this->render('hero', [

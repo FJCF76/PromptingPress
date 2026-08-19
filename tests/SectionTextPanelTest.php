@@ -765,8 +765,11 @@ class SectionTextPanelTest extends TestCase
      * #551's load-bearing structural claim: `.section__panel-cta` is the ONLY anchor the
      * panel can contain. That is what makes the compound `a:not(.section__panel-cta)`
      * carve-out equivalent to a panel-wide one, and it is only true because every other
-     * panel field is escaped text — panel_heading/panel_body/panel_items all go through
-     * esc_html (section.php:239,242,263), so none of them can emit markup.
+     * panel field is escaped text — the `.section__panel-heading`, `.section__panel-body`
+     * and `.section__panel-item` renders in components/section/section.php all go through
+     * esc_html(), so none of them can emit markup. (Named by their BEM classes rather than
+     * by line number: the numbers this comment used to carry were displaced by the #706
+     * guard block and would decay again on the next edit.)
      *
      * If a future change gives any panel field a wp_kses_post treatment (rich text with
      * links), this fails — and the carve-out must widen to the panel before that ships,

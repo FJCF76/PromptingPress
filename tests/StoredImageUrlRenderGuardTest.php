@@ -42,9 +42,10 @@
  * arguments of pp_render_responsive_image(), and the pp_esc_image_src() branch that the
  * same guarded local feeds. The identical defect through OTHER typed helpers is filed
  * and deliberately NOT fixed here: #705 (background_image -> pp_esc_image_src on
- * cta/stats/section), #706 (title/title_accent -> pp_render_heading_with_accent), #708
- * (count() on a scalar items, pp_render_style_vars on a non-array style). The admitting
- * criterion was same-typed-call, not same-file and not same-family.
+ * cta/stats/section) and #706 (title/title_accent -> pp_render_heading_with_accent), both
+ * since LANDED with their own guard-test files; #708 (count() on a scalar items,
+ * pp_render_style_vars on a non-array style), still open. The admitting criterion was
+ * same-typed-call, not same-file and not same-family.
  *
  * WHY STORED DATA IS THE POINT. The write path rejects non-scalars at both depths
  * (asserted below, so a future change cannot relax it and call this issue fixed). But

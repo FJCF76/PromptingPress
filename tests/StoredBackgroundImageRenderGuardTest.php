@@ -67,9 +67,10 @@
  * and not covered by #706/#708/#730 either.
  *
  * The same defect class through OTHER surfaces is filed and deliberately
- * NOT fixed here: #706 (title/title_accent into pp_render_heading_with_accent), #708
- * (count() on a scalar items, pp_render_style_vars on a non-array style), #730 (core's
- * esc_url/wp_kses_post, which DO fatal in production). Never try/catch a wp_kses_post
+ * NOT fixed here: #706 (title/title_accent into pp_render_heading_with_accent), since
+ * LANDED with its own guard test, tests/StoredTitleRenderGuardTest.php; #708 (count() on
+ * a scalar items, pp_render_style_vars on a non-array style) and #730 (core's
+ * esc_url/wp_kses_post, which DO fatal in production), both still open. Never try/catch a wp_kses_post
  * TypeError to degrade: the throw escapes between core's remove_filter('pre_kses', …)
  * and the matching re-add, so swallowing it de-registers block-attribute KSES for the
  * rest of the request. Guard BEFORE the call, which is what this file pins.
