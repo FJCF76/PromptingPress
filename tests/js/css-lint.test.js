@@ -4915,9 +4915,9 @@ describe('CSS lint: global button hover tier (#539)', () => {
  * `.section--has-bg-image a` and `.pp-section--inverted a` are ON-BAND roles — they exist
  * because the band is a dark surface. But the selector is band-WIDE, and `.section__panel`
  * is a self-contained LIGHT surface (--color-surface, #f4f7fb) sitting on that dark band.
- * The section renderer emits exactly ONE anchor inside it (section.php:270,
- * `.section__panel-cta`), so the band role painted a transparent panel button's label onto
- * the light panel:
+ * The section renderer emits exactly ONE anchor inside it (`.section__panel-cta` in
+ * components/section/section.php), so the band role painted a transparent panel button's
+ * label onto the light panel:
  *
  *     .btn--outline / .btn--ghost / .btn--secondary      [0,1,0]
  *     .section--has-bg-image a                           [0,1,1]  <- outranked them
@@ -5012,8 +5012,9 @@ describe('CSS lint: band link ink is carved out of the light panel CTA (#551)', 
 
     // Compounds that are band-ONLY containers. `.section__content` / `.section__body` /
     // `.section__header` and friends live in the text column, a SIBLING of
-    // `.section__panel` (section.php:231-236 vs 237), so an anchor scoped under one of
-    // them cannot reach the panel CTA and correctly needs no carve-out.
+    // `.section__panel` (both are children of the same row wrapper in
+    // components/section/section.php), so an anchor scoped under one of them cannot reach
+    // the panel CTA and correctly needs no carve-out.
     //
     // This list is deliberately an ALLOWLIST, so the scan fails CLOSED: an unknown
     // intervening compound (`.container`, `.section__grid`, `.section__panel` itself)

@@ -9,8 +9,26 @@
  */
 
 $id               = $props['id']               ?? '';
-$title            = $props['title']            ?? '';
-$title_accent     = $props['title_accent']     ?? '';
+// #706: guard BOTH raw-value text arguments of pp_render_heading_with_accent()
+// (`string $title`, `string $accent`) before they reach the calls below. A non-empty
+// array is truthy, so the `if ($title)` gate passes on one and the typed call raises a
+// TypeError that no caller catches — the whole PUBLIC PAGE 500s. Argument #2 fatals the
+// same way on its own, so both props are guarded, not just the title. Guarded at the
+// READ because the gates that decide whether the heading renders at all sit upstream of
+// the calls, so a guarded-away value renders the band with no heading rather than an
+// empty one. is_scalar + (string), NOT is_string: only non-scalars ever fataled
+// (coercive mode), and the write path stores a scalar title raw (#707), so is_string()
+// would silently drop an accepted value. Full reasoning in components/hero/hero.php.
+// Local specifics: section reaches the helper from THREE layout branches (one per
+// layout), each behind its own `section__header` gate. One read upstream of all three
+// is why this is a single guard and not three — measured: every layout value fatals
+// today, and every one degrades after. Distinct from the image_url guard below, which
+// makes the image-layout fallback fire; a malformed title costs only the header, so the
+// band keeps its layout and its body.
+$raw_title        = $props['title']            ?? '';
+$title            = is_scalar($raw_title) ? (string) $raw_title : '';
+$raw_title_accent = $props['title_accent']     ?? '';
+$title_accent     = is_scalar($raw_title_accent) ? (string) $raw_title_accent : '';
 $eyebrow          = $props['eyebrow']          ?? '';
 $subheading       = $props['subheading']       ?? '';
 $title_align    = $props['title_align']    ?? 'start';

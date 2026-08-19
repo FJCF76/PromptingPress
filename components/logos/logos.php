@@ -46,10 +46,14 @@ $style_attr = $slot_style ? ' style="' . $slot_style . ';"' : '';
                     // the same statement, so both are guarded (gate 7A: the admitting
                     // criterion is the same TYPED CALL, not the same file — the sibling props
                     // that reach OTHER typed helpers are #705/#706/#708, deliberately not
-                    // here). Of those, #705 (background_image into pp_esc_image_src) has
-                    // since LANDED and carries its own canonical block in
-                    // components/cta/cta.php; #706 and #708 are still open, as is #730
-                    // (core's esc_url/wp_kses_post, which also fatal in production).
+                    // here). Of those, #705 (background_image into pp_esc_image_src) and
+                    // #706 (title/title_accent into pp_render_heading_with_accent) have
+                    // since LANDED and carry their own canonical blocks in
+                    // components/cta/cta.php and components/hero/hero.php respectively;
+                    // #708 is still open, as is #730 (core's esc_url/wp_kses_post, which
+                    // also fatal in production). NOTE this file reads `title` too, and it
+                    // is deliberately NOT guarded: logos passes it to esc_html(), which
+                    // does not fatal, so it never met #706's admitting criterion.
                     //
                     // is_scalar, NOT is_string, and the difference is load-bearing. PHP runs
                     // COERCIVE here (no declare(strict_types)), so only NON-SCALARS ever

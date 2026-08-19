@@ -4576,7 +4576,8 @@ test.describe('#333 chrome site options render', () => {
             { label: 'Support and maintenance retainer', value: 'Optional' },
             { label: 'Docs', value: 'https://example.com/a-very-long-unbreakable-documentation-path' },
             // Half-rows: the renderer emits BOTH spans even when one side is empty
-            // (section.php:259-261), so an empty span is still a flex item and still
+            // (the panel-items loop in components/section/section.php), so an empty
+            // span is still a flex item and still
             // takes the column gap. Supported shapes, so their stacked geometry is
             // pinned too.
             { label: 'Notes' },

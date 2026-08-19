@@ -9,8 +9,27 @@
  */
 
 $id               = $props['id']               ?? '';
-$title            = $props['title']            ?? '';
-$title_accent     = $props['title_accent']     ?? '';
+// #706: guard BOTH raw-value text arguments of pp_render_heading_with_accent()
+// (`string $title`, `string $accent`) before they reach the call below. A non-empty
+// array is truthy, so the `if ($title)` gate passes on one and the typed call raises a
+// TypeError that no caller catches — the whole PUBLIC PAGE 500s. Argument #2 fatals the
+// same way on its own, so both props are guarded, not just the title. Guarded at the
+// READ because the gates that decide whether the heading renders at all sit upstream of
+// the call, so a guarded-away value renders the band with no heading rather than an
+// empty one. is_scalar + (string), NOT is_string: only non-scalars ever fataled
+// (coercive mode), and the write path stores a scalar title raw (#707), so is_string()
+// would silently drop an accepted value. Full reasoning in components/hero/hero.php.
+// Local specifics: `$title` also drives the `$eyebrow || $title || $body` text-block
+// gate below (named by its shape, not its line — this very guard block displaces line
+// numbers, which is how five stale citations elsewhere in the repo got repointed in
+// the same change), so a CTA whose only text was a malformed title
+// collapses to the standalone-button pattern (issue 294) — an intentional, already
+// designed state, not a new one. The background_image guard below is #705's, a
+// different prop into a different typed helper; both now sit in this file.
+$raw_title        = $props['title']            ?? '';
+$title            = is_scalar($raw_title) ? (string) $raw_title : '';
+$raw_title_accent = $props['title_accent']     ?? '';
+$title_accent     = is_scalar($raw_title_accent) ? (string) $raw_title_accent : '';
 $eyebrow          = $props['eyebrow']          ?? '';
 $body             = $props['body']             ?? '';
 $button_text      = $props['button_text']      ?? 'Get Started';

@@ -9,8 +9,25 @@
  */
 
 $id           = $props['id']           ?? '';
-$title        = $props['title']        ?? 'Frequently Asked Questions';
-$title_accent = $props['title_accent'] ?? '';
+// #706: guard BOTH raw-value text arguments of pp_render_heading_with_accent()
+// (`string $title`, `string $accent`) before they reach the call below. A non-empty
+// array is truthy, so the `if ($title)` gate passes on one and the typed call raises a
+// TypeError that no caller catches — the whole PUBLIC PAGE 500s. Argument #2 fatals the
+// same way on its own, so both props are guarded, not just the title. Guarded at the
+// READ because the gate that decides whether the heading renders at all sits upstream of
+// the call, so a guarded-away value renders the band with no heading rather than an
+// empty one. is_scalar + (string), NOT is_string: only non-scalars ever fataled
+// (coercive mode), and the write path stores a scalar title raw (#707), so is_string()
+// would silently drop an accepted value. Full reasoning in components/hero/hero.php.
+// Local specifics: faq is the OTHER component with a non-empty `??` default, so note
+// what the else-branch is doing — it is '' and NOT 'Frequently Asked Questions'. The
+// default fires only when the key is ABSENT; a stored non-scalar is PRESENT, and
+// degrading it into that placeholder would paint invented content onto a visitor's page.
+// The questions and answers below still render, as does their JSON-LD schema.
+$raw_title        = $props['title']        ?? 'Frequently Asked Questions';
+$title            = is_scalar($raw_title) ? (string) $raw_title : '';
+$raw_title_accent = $props['title_accent'] ?? '';
+$title_accent     = is_scalar($raw_title_accent) ? (string) $raw_title_accent : '';
 $eyebrow      = $props['eyebrow']      ?? '';
 $theme        = $props['theme']        ?? 'default';
 $items = $props['items'] ?? [];
