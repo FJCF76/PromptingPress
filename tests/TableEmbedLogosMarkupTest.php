@@ -140,8 +140,9 @@ class TableEmbedLogosMarkupTest extends TestCase
         $this->assertStringContainsString('<div class="embed__content">', $html);
         // The content must actually reach the wrapper — an empty `.embed__content` is a
         // broken band, not a passing one. This pins that the template still ECHOES
-        // $content; it cannot pin sanitisation, because do_shortcode() and
-        // wp_kses_post() are identity stubs under this harness (tests/bootstrap.php).
+        // $content; it cannot pin sanitisation, because do_shortcode() is an identity
+        // stub under this harness and wp_kses_post() applies no allowlist (since #709 it
+        // models core's TYPE contract only — tests/bootstrap.php).
         $this->assertStringContainsString('<p>Embedded body copy.</p>', $html);
     }
 
@@ -240,7 +241,8 @@ class TableEmbedLogosMarkupTest extends TestCase
      *
      * What this can and cannot prove under this harness: `esc_html()` is a real
      * htmlspecialchars in tests/bootstrap.php, so the escaped half is genuinely
-     * exercised. `wp_kses_post()` is an IDENTITY stub there, so this cannot prove the
+     * exercised. `wp_kses_post()` applies no allowlist there (since #709 it models core's
+     * TYPE contract and strips control characters, nothing more), so this cannot prove the
      * allowlist filters anything — only that the cell is NOT routed through esc_html.
      * That is the half that catches a swapped route in either direction; the real
      * sanitizer proof belongs to WordPress core and to the E2E suite that renders on a

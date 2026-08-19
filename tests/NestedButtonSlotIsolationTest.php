@@ -90,8 +90,10 @@ class NestedButtonSlotIsolationTest extends TestCase
     // ── 1. The surfaces that can actually hold an author-written .btn ────────────────
 
     /**
-     * SCOPE OF THESE TWO TESTS. tests/bootstrap.php stubs wp_kses_post() as an identity
-     * passthrough, so they cannot prove what WordPress core's post allowlist permits. What they
+     * SCOPE OF THESE TWO TESTS. tests/bootstrap.php stubs wp_kses_post() as a passthrough
+     * for markup (since #709 it strips control characters and reproduces core's type
+     * contract, but it still applies no allowlist), so they cannot prove what WordPress
+     * core's post allowlist permits. What they
      * DO prove is the half that lives in this repo and can regress here: the renderer passes
      * these props through UNESCAPED, so author markup survives as markup. Switch either prop to
      * esc_html() and both go red. The real-WP proof that `class` survives the allowlist is the
