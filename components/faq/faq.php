@@ -30,6 +30,15 @@ $raw_title_accent = $props['title_accent'] ?? '';
 $title_accent     = is_scalar($raw_title_accent) ? (string) $raw_title_accent : '';
 $eyebrow      = $props['eyebrow']      ?? '';
 $theme        = $props['theme']        ?? 'default';
+// NOT guarded by #708, and that is deliberate rather than an oversight. #708 guards
+// `items` in grid, where it reaches count(); here it reaches a DIFFERENT typed call,
+// pp_render_faq_schema(array $items) at the bottom of this file, and the family's
+// admitting criterion is the same typed call, not the same prop. So a stored non-array
+// `items` STILL 500s the whole public page from this component — and on falsy shapes
+// ('', 0, false) that grid survives, because that call sits OUTSIDE the `!empty($items)`
+// gate below. Filed as #739 with the measured shapes; fix it there, not by widening a
+// ruling scoped to two named boundaries. The style guard this file did receive (above)
+// covers `__pp_style` only.
 $items = $props['items'] ?? [];
 
 // Tone variant. Clamp to the known set so an unknown value renders as the
@@ -40,7 +49,17 @@ $items = $props['items'] ?? [];
 $theme_class = pp_theme_class($theme, 'faq');
 
 // Style slot overrides (per-instance visual customization).
-$slot_style = pp_render_style_vars($props['__pp_style'] ?? [], 'faq');
+// #708: guard the raw `__pp_style` map before it reaches the typed
+// pp_render_style_vars(array $style, ...). A stored non-array raises a TypeError that
+// no caller catches, so the whole PUBLIC PAGE 500s. It arrives as `__pp_style` stored
+// INSIDE props: all four top-level `style` promotions are already is_array guarded, so
+// this read is the only reachable boundary and the only place a guard can help.
+// is_array, NOT is_scalar — an array IS the contract at this parameter. Degrades to no
+// inline custom properties and no `style` attribute at all, byte-identical to a band
+// that stored no style. Full reasoning in components/grid/grid.php.
+$raw_style = $props['__pp_style'] ?? null;
+$style     = is_array($raw_style) ? $raw_style : [];
+$slot_style = pp_render_style_vars($style, 'faq');
 $style_attr = $slot_style ? ' style="' . $slot_style . ';"' : '';
 ?>
 <section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="faq<?php echo esc_attr($theme_class); ?>" data-pp-component="faq"<?php echo $style_attr; ?>>

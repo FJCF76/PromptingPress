@@ -2079,9 +2079,26 @@ class StyleSlotContractTest extends TestCase
             // echoed onto an immune element — comparing the two counts is what stops a new
             // surface from slipping past the line scan below (Codex outside-voice finding:
             // a regex over echo lines alone is bypassable).
-            $generated += preg_match_all('/pp_render_style_vars\s*\(/', $source);
+            //
+            // COUNTED ON COMMENT-STRIPPED SOURCE (#708). Ten component templates now carry a
+            // guard block that NAMES the helper in prose ("...before it reaches the typed
+            // pp_render_style_vars(array $style, ...)"), and a raw-source regex counts each
+            // of those sentences as a call. That inflated `generated` from 12 to 25 and
+            // tripped the fail-closed check below with a message describing a surface leak
+            // that does not exist. Stripping via PHP's own tokenizer is exact rather than
+            // heuristic, and it keeps the checker honest in the other direction too: a call
+            // commented OUT is correctly not a call. Same fix, same reason, as the #706
+            // catcher in tests/InvariantTest.php.
+            $generated += preg_match_all('/pp_render_style_vars\s*\(/', $this->stripPhpComments($source));
 
-            foreach (file($template) as $i => $line) {
+            // SAME stripped source as the $generated count above. Both halves of the
+            // `emitted >= generated` comparison must see identical input: an inflated
+            // $emitted is the SILENT-failure direction, so a comment quoting an echo line
+            // (`echo $hero_style_attr;`) inside one of the ten verbose guard blocks would
+            // mask a genuinely missing emit surface — the exact bug this check exists to
+            // catch. stripPhpComments() preserves newlines, so `$i + 1` is still the real
+            // line number in the failure message below.
+            foreach (explode("\n", $this->stripPhpComments($source)) as $i => $line) {
                 // Match both the long `echo $x_style_attr;` form and the short-echo
                 // `<?=` form, plus any variable whose name carries style+attr.
                 // (No literal PHP close tag in this comment — it would end PHP mode.)
@@ -2132,6 +2149,35 @@ class StyleSlotContractTest extends TestCase
             . 'attribute(s) were found. A slot surface is being emitted by a path this guard '
             . 'cannot see — extend the scan (issue 332).'
         );
+    }
+
+    /**
+     * Returns $source with every comment token removed, so a source-level checker can tell
+     * a real call from a mention in prose. Uses PHP's own tokenizer rather than a regex,
+     * because the guard blocks these templates carry are long comment blocks that quote the
+     * very identifiers being counted. Mirrors the helper of the same name in
+     * tests/InvariantTest.php.
+     */
+    private function stripPhpComments(string $source): string
+    {
+        $out = '';
+        foreach (token_get_all($source) as $token) {
+            if (is_array($token)) {
+                if ($token[0] === T_COMMENT || $token[0] === T_DOC_COMMENT) {
+                    // Replaced by its own newlines, not dropped outright, so line numbers
+                    // survive the strip. A caller that reports `file.php:N` in a failure
+                    // message would otherwise cite a line that drifts further out of true
+                    // with every comment above it — and this file polices templates whose
+                    // guard blocks run to forty comment lines each.
+                    $out .= str_repeat("\n", substr_count($token[1], "\n"));
+                    continue;
+                }
+                $out .= $token[1];
+                continue;
+            }
+            $out .= $token;
+        }
+        return $out;
     }
 
     /**

@@ -186,7 +186,17 @@ $theme_class = pp_theme_class($theme, 'pp-section');
 $bg_image_class = $background_image ? ' section--has-bg-image' : '';
 
 // Style slot overrides (per-instance visual customization).
-$slot_style = pp_render_style_vars($props['__pp_style'] ?? [], 'section');
+// #708: guard the raw `__pp_style` map before it reaches the typed
+// pp_render_style_vars(array $style, ...). A stored non-array raises a TypeError that
+// no caller catches, so the whole PUBLIC PAGE 500s. It arrives as `__pp_style` stored
+// INSIDE props: all four top-level `style` promotions are already is_array guarded, so
+// this read is the only reachable boundary and the only place a guard can help.
+// is_array, NOT is_scalar — an array IS the contract at this parameter. Degrades to no
+// inline custom properties and no `style` attribute at all, byte-identical to a band
+// that stored no style. Full reasoning in components/grid/grid.php.
+$raw_style = $props['__pp_style'] ?? null;
+$style     = is_array($raw_style) ? $raw_style : [];
+$slot_style = pp_render_style_vars($style, 'section');
 
 $inline_styles = [];
 if ($slot_style) {
@@ -230,7 +240,16 @@ if (!empty($body_items)) {
     // falls through to the unchanged left-packed default. justify-content itself is
     // driven by the slot's own custom property in CSS; the modifier only carries
     // what a raw keyword cannot (the ::before→::after separator switch + margin).
-    $inline_items_align = $props['__pp_style']['--section-inline-items-align'] ?? '';
+    // #708: reads the GUARDED local, not `$props['__pp_style']` again. This offset
+    // read never fataled on its own — `??` uses isset() semantics, and isset() on a
+    // non-numeric string offset is false, so a stored string `__pp_style` already
+    // yielded '' here and fell through to the left-packed default. It is folded onto
+    // the guarded local anyway so this prop is read exactly once in the file, which
+    // is what stops a future edit from reintroducing a raw read below the guard (and
+    // is what the drift catcher in tests/InvariantTest.php enforces). Identical for
+    // every well-formed style map: $style IS $props['__pp_style'] whenever that is an
+    // array, and [] otherwise, where this offset resolves to '' exactly as before.
+    $inline_items_align = $style['--section-inline-items-align'] ?? '';
     $inline_items_class = 'section__inline-items'
         . ($has_body_copy ? '' : ' section__inline-items--flush-top')
         . ($inline_items_align === 'center' ? ' section__inline-items--center' : '');

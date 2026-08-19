@@ -1351,6 +1351,197 @@ class InvariantTest extends TestCase
         );
     }
 
+    // ── #708: every style-vars call site and every count() uses guarded locals ──
+
+    /**
+     * The third drift catcher in this family, for the `__pp_style` map into the typed
+     * pp_render_style_vars(array $style, ...).
+     *
+     * KEYED ON THE CALL, like #706's and for the same reason: the admitting criterion this
+     * family uses is the same TYPED CALL, not the same prop and not the same file. Keying
+     * on `$props['__pp_style']` would be nearly equivalent today, but it would also demand
+     * a guard from any future component that merely reads the map for something that
+     * cannot fatal, and quietly widen #708 past its ruling.
+     *
+     * Two argument shapes are legal, and the allowlist below admits exactly those:
+     *   - component scope: pp_render_style_vars($style, 'name')       — the #708 guard
+     *   - item scope:      pp_render_style_vars($item_style, 'grid', true)
+     *                      pp_render_style_vars($row_style, 'section', true)
+     * The item-scope locals are guarded at their own reads (`is_array($item['style'] ?? …)`),
+     * predate this issue, and never fataled — but they are asserted here rather than
+     * exempted, so dropping one of those guards fails this test instead of production.
+     */
+    public function testEveryStyleVarsCallSiteUsesArrayGuardedLocals(): void
+    {
+        $callers = [];
+
+        foreach ($this->phpFilesIn($this->themeRoot . '/components') as $file) {
+            // Comment-stripped BEFORE the entry gate, not after. The reason
+            // stripPhpComments() documents applies to the gate itself: these guard blocks
+            // are long prose quoting the very identifiers being matched, so gating on raw
+            // source would admit a file that merely NAMES the helper in a comment — and
+            // this repo writes exactly such comments — which would then hard-fail every
+            // assertion below and corrupt the non-vacuity list. Gate and assertions must
+            // see the same input.
+            $content = $this->stripPhpComments(file_get_contents($file));
+            if (!str_contains($content, 'pp_render_style_vars(')) {
+                continue;
+            }
+            $callers[] = basename(dirname($file));
+            $name = basename($file);
+
+            // The component-level map is read only into the raw local...
+            $this->assertMatchesRegularExpression(
+                '/\$raw_style\s*=\s*\$props\[\'__pp_style\'\]\s*\?\?\s*null/',
+                $content,
+                $name . ' reads __pp_style into something other than $raw_style (#708). The guard'
+                . ' idiom expects the raw read to land in that local so the guarded value is the'
+                . ' one every consumer below sees.'
+            );
+
+            // ...and the value the template uses comes from the is_array guard.
+            $this->assertMatchesRegularExpression(
+                '/\$style\s*=\s*is_array\(\$raw_style\)\s*\?\s*\$raw_style\s*:\s*\[\]/',
+                $content,
+                $name . ' calls pp_render_style_vars() but does not assign $style through the'
+                . ' is_array guard (#708). A raw read reaches `array $style` and a stored'
+                . ' non-array 500s the whole public page.'
+            );
+
+            // Exactly one read of the prop, so a second raw read cannot hide below the
+            // guard. grid and section each had TWO before this issue (a second typed call
+            // and an offset read); both were folded onto the guarded local.
+            // Quote-INSENSITIVE, because a literal substring count is bypassed by the
+            // other quote style: $props["__pp_style"] leaves the single-quoted count at
+            // exactly 1 and slips a second raw read below the guard — the same alias-class
+            // bypass the count()/sizeof() catcher already had to close. Fail-loud in both
+            // directions: a file spelling it only with double quotes counts 0 and fails.
+            $this->assertSame(
+                1,
+                preg_match_all('/\$props\[\s*[\'"]__pp_style[\'"]\s*\]/', $content),
+                $name . ' reads __pp_style more than once (#708). Every consumer must read the'
+                . ' guarded local, not the raw prop.'
+            );
+
+            // EVERY call passes a guarded local, asserted as an ALLOWLIST rather than as a
+            // blocklist of known-bad spellings. A "does not contain
+            // pp_render_style_vars($props[" check is trivially bypassed by an alias
+            // ($x = $props['__pp_style']; …($x, …)) or by a second call added later, and
+            // either one reintroduces the production 500 while the guard above still reads
+            // correctly.
+            preg_match_all('/pp_render_style_vars\(([^)]*)\)/', $content, $calls);
+            $this->assertNotEmpty($calls[1], $name . ' matched no style-vars call (#708 checker drift).');
+            foreach ($calls[1] as $args) {
+                $this->assertMatchesRegularExpression(
+                    '/^\s*(\$style|\$item_style|\$row_style)\s*,/',
+                    $args,
+                    $name . ' calls pp_render_style_vars() with something other than a guarded'
+                    . ' local (#708): "' . trim($args) . '". Any other spelling can carry a raw'
+                    . ' stored value into the typed parameter and 500 the whole public page.'
+                );
+            }
+        }
+
+        // The second typed boundary on the SAME read. It fatals identically and is
+        // unreachable today only because the style-vars call above throws first — an
+        // ordering accident, not a guarantee.
+        $grid = $this->stripPhpComments(file_get_contents($this->themeRoot . '/components/grid/grid.php'));
+        preg_match_all('/pp_grid_link_align_decl\(([^)]*)\)/', $grid, $align);
+        $this->assertNotEmpty($align[1], 'grid.php matched no pp_grid_link_align_decl call (#708 checker drift).');
+        foreach ($align[1] as $args) {
+            $this->assertMatchesRegularExpression(
+                '/^\s*(\$style|\$item_style)\s*$/',
+                $args,
+                'grid.php calls pp_grid_link_align_decl() with something other than a guarded'
+                . ' local (#708): "' . trim($args) . '". It is typed `array $style` too.'
+            );
+        }
+
+        // Non-vacuity: if this ever finds nothing, every assertion above is silently passing.
+        sort($callers);
+        $this->assertSame(
+            ['cta', 'embed', 'faq', 'grid', 'hero', 'logos', 'section', 'stats', 'table', 'testimonials'],
+            $callers,
+            'the set of components calling pp_render_style_vars() changed — a new caller must'
+            . ' carry the #708 guard (add it, then update this list)'
+        );
+    }
+
+    /**
+     * The count() half of #708. count() is typed by PHP itself
+     * (Countable|array $value), so a stored scalar prop reaching it 500s the page exactly
+     * as a theme helper's typed parameter does.
+     *
+     * Keyed on the CALL again, and deliberately covering ALL of components/ rather than
+     * grid alone: grid is the only caller today, and the whole point is to fail when a
+     * second component starts counting a stored prop without guarding the read first.
+     *
+     * MATCHES `sizeof(` TOO. It is PHP's exact alias for count() and fatals identically,
+     * so a checker keyed on the `count(` spelling alone is bypassed by one synonym —
+     * verified during review by adding a throwaway component calling
+     * `sizeof($props['items'] ?? [])`, which passed both new catchers before this pattern
+     * was widened. The non-vacuity list below only rescues the case where GRID switches
+     * spelling (grid would drop out of the list); a brand-new caller never enters it.
+     *
+     * NOT a general "every count() in the theme" checker: the allowlist below names the
+     * one guarded local that exists today, so any new caller fails loudly and a human
+     * decides whether it needs the guard. That is the intended failure mode — a checker
+     * that silently accepted new spellings would be the bug.
+     */
+    public function testEveryCountCallInAComponentTakesAnArrayGuardedLocal(): void
+    {
+        $callers = [];
+
+        foreach ($this->phpFilesIn($this->themeRoot . '/components') as $file) {
+            $content = $this->stripPhpComments(file_get_contents($file));
+            preg_match_all('/(?<![a-z_>$])(?:count|sizeof)\s*\(([^)]*)\)/i', $content, $calls);
+            if ($calls[1] === []) {
+                continue;
+            }
+            $callers[] = basename(dirname($file));
+            $name = basename($file);
+
+            foreach ($calls[1] as $args) {
+                $this->assertMatchesRegularExpression(
+                    '/^\s*\$items\s*$/',
+                    $args,
+                    $name . ' calls count()/sizeof() with something other than the guarded'
+                    . ' $items local (#708): "' . trim($args) . '". If this is a NEW stored prop,'
+                    . ' guard it at the read with the is_array idiom and then widen this'
+                    . ' allowlist — a raw stored prop reaching count() 500s the whole public'
+                    . ' page. If it is a local that never holds stored data, widen the allowlist'
+                    . ' with a note saying so.'
+                );
+            }
+
+            $this->assertMatchesRegularExpression(
+                '/\$raw_items\s*=\s*\$props\[\'items\'\]/',
+                $content,
+                $name . ' reads items into something other than $raw_items (#708).'
+            );
+            $this->assertMatchesRegularExpression(
+                '/\$items\s*=\s*is_array\(\$raw_items\)\s*\?\s*\$raw_items\s*:\s*\[\]/',
+                $content,
+                $name . ' calls count() on items but does not assign $items through the is_array'
+                . ' guard (#708). is_array and NOT is_scalar: count() accepts array|Countable,'
+                . ' so every scalar fatals and an array IS the contract at this boundary.'
+            );
+            $this->assertSame(
+                1,
+                substr_count($content, "\$props['items']"),
+                $name . ' reads items more than once (#708). Every gate must read the guarded local.'
+            );
+        }
+
+        sort($callers);
+        $this->assertSame(
+            ['grid'],
+            $callers,
+            'the set of components calling count() changed — a new caller must guard the stored'
+            . ' prop it counts (add the guard, then update this list)'
+        );
+    }
+
     /**
      * Returns $source with every comment token removed, so a source-level checker can tell
      * a real call from a mention in prose. Uses PHP's own tokenizer rather than a regex,
@@ -1363,6 +1554,12 @@ class InvariantTest extends TestCase
         foreach (token_get_all($source) as $token) {
             if (is_array($token)) {
                 if ($token[0] === T_COMMENT || $token[0] === T_DOC_COMMENT) {
+                    // Replaced by its own newlines, not dropped outright, so line numbers
+                    // survive the strip. A caller that reports `file.php:N` in a failure
+                    // message would otherwise cite a line that drifts further out of true
+                    // with every comment above it — and this file polices templates whose
+                    // guard blocks run to forty comment lines each.
+                    $out .= str_repeat("\n", substr_count($token[1], "\n"));
                     continue;
                 }
                 $out .= $token[1];

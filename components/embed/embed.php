@@ -22,7 +22,17 @@ $theme = $props['theme'] ?? 'default';
 // theme coercion lives in pp_theme_class(); `muted` emits the legacy `--dark` class (#570 DG-4).
 $theme_class = pp_theme_class($theme, 'embed');
 
-$slot_style = pp_render_style_vars($props['__pp_style'] ?? [], 'embed');
+// #708: guard the raw `__pp_style` map before it reaches the typed
+// pp_render_style_vars(array $style, ...). A stored non-array raises a TypeError that
+// no caller catches, so the whole PUBLIC PAGE 500s. It arrives as `__pp_style` stored
+// INSIDE props: all four top-level `style` promotions are already is_array guarded, so
+// this read is the only reachable boundary and the only place a guard can help.
+// is_array, NOT is_scalar — an array IS the contract at this parameter. Degrades to no
+// inline custom properties and no `style` attribute at all, byte-identical to a band
+// that stored no style. Full reasoning in components/grid/grid.php.
+$raw_style = $props['__pp_style'] ?? null;
+$style     = is_array($raw_style) ? $raw_style : [];
+$slot_style = pp_render_style_vars($style, 'embed');
 $style_attr = $slot_style ? ' style="' . $slot_style . ';"' : '';
 ?>
 <section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="embed<?php echo esc_attr($theme_class); ?>" data-pp-component="embed"<?php echo $style_attr; ?>>
