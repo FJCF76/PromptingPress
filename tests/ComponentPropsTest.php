@@ -3081,8 +3081,9 @@ class ComponentPropsTest extends TestCase
     // pp_render_responsive_image(). The same defect through OTHER typed helpers is
     // tracked separately and is deliberately not fixed here — the admitting criterion was
     // same-typed-call, not same-file. Of those, #705 (background_image) and #706
-    // (title/title_accent) have since LANDED with their own guards and pins; #708 remains
-    // open.
+    // (title/title_accent) have since LANDED with their own guards and pins, and so has
+    // #708 (the __pp_style map into pp_render_style_vars, and grid's count($items)) —
+    // see tests/StoredStyleAndItemsRenderGuardTest.php. #730 remains open.
     //
     // Reachability is the image_id argument exactly: the write path rejects a non-scalar
     // at both depths, but the validator gates WRITES. restore_composition reports
@@ -3693,7 +3694,8 @@ class ComponentPropsTest extends TestCase
     // Ratified at gate D-B as the family standard. Scope is this prop's three read sites.
     // The same defect through OTHER surfaces is tracked separately and is deliberately not
     // fixed here: #706 (title/title_accent) has since LANDED with its own guards and pins;
-    // #708 (grid count()/pp_render_style_vars) and #730 (esc_url/wp_kses_post) remain open.
+    // #708 (grid count()/pp_render_style_vars) has since LANDED too — see
+    // tests/StoredStyleAndItemsRenderGuardTest.php; #730 (esc_url/wp_kses_post) remains open.
     //
     // Reachability is #641's exactly: the write path rejects a non-scalar, but the
     // validator gates WRITES. restore_composition reports without blocking (#233), a

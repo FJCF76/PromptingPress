@@ -66,11 +66,12 @@
  * fatal the surface an operator would use to DIAGNOSE it. Filed as #733; not fixed here,
  * and not covered by #706/#708/#730 either.
  *
- * The same defect class through OTHER surfaces is filed and deliberately
- * NOT fixed here: #706 (title/title_accent into pp_render_heading_with_accent), since
- * LANDED with its own guard test, tests/StoredTitleRenderGuardTest.php; #708 (count() on
- * a scalar items, pp_render_style_vars on a non-array style) and #730 (core's
- * esc_url/wp_kses_post, which DO fatal in production), both still open. Never try/catch a wp_kses_post
+ * The same defect class through OTHER surfaces is deliberately NOT fixed here. Two have
+ * since LANDED with their own guard tests: #706 (title/title_accent into
+ * pp_render_heading_with_accent), in tests/StoredTitleRenderGuardTest.php, and #708
+ * (count() on a scalar items, pp_render_style_vars on a non-array style), in
+ * tests/StoredStyleAndItemsRenderGuardTest.php. #730 (core's esc_url/wp_kses_post, which
+ * DO fatal in production) is still open. Never try/catch a wp_kses_post
  * TypeError to degrade: the throw escapes between core's remove_filter('pre_kses', …)
  * and the matching re-add, so swallowing it de-registers block-attribute KSES for the
  * rest of the request. Guard BEFORE the call, which is what this file pins.
@@ -88,12 +89,14 @@
  *
  * WHAT THIS DOES NOT PROMISE. "A background-image band can no longer 500" would be too
  * strong, and the ordering is the reason. In all three templates the
- * pp_render_style_vars() slot call runs BEFORE the background gate, so a band carrying
- * both a non-array `__pp_style` and a non-scalar `background_image` still fatals — via
- * #708, upstream of this guard, which never gets to matter. Same for a band whose
- * `title` is a stored array (#706) or whose `button_url`/`body` is (#730). What this
- * issue closes is precisely one door of several on the same corridor; the family is only
- * shut when its siblings land.
+ * pp_render_style_vars() slot call runs BEFORE the background gate, so when this file
+ * landed, a band carrying both a non-array `__pp_style` and a non-scalar
+ * `background_image` still fataled — via #708, upstream of this guard, which never got
+ * to matter. #706 and #708 have both since LANDED, so a band carrying all three corrupt
+ * props now degrades instead of 500ing; that combined case is pinned in
+ * tests/StoredStyleAndItemsRenderGuardTest.php. The corridor is still not fully shut —
+ * a band whose `button_url` or `body` is a stored array fatals through core's escapers
+ * (#730), and #730, #733, #736, #738, #739 and #740 are the full open set on it.
  *
  * ASSERTED AFFIRMATIVELY, NEVER BY ABSENCE OF A FATAL. phpunit.xml sets
  * failOnWarning="false", and esc_html/esc_attr render a stored array as the literal

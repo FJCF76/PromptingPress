@@ -94,8 +94,9 @@
  * Filed separately rather than smuggled in here. The source-level drift catcher in
  * InvariantTest is keyed on the CALL for exactly this reason.
  *
- * The same defect class through OTHER surfaces is filed and deliberately NOT fixed here:
- * #708 (count() on a scalar items, pp_render_style_vars on a non-array style), #730
+ * The same defect class through OTHER surfaces is deliberately NOT fixed here. #708
+ * (count() on a scalar items, pp_render_style_vars on a non-array style) has since
+ * LANDED — see tests/StoredStyleAndItemsRenderGuardTest.php. Still filed and open: #730
  * (core's esc_url/wp_kses_post, which DO fatal in production), #733 (lib/ai-context.php's
  * mb_strlen()/basename() on this same raw title, the AI page-context index — so a
  * composition this guard makes safe to VIEW can still fatal the surface an operator
@@ -117,11 +118,15 @@
  *
  * WHAT THIS DOES NOT PROMISE. "A band with a heading can no longer 500" would be too
  * strong, and the ordering is the reason. pp_render_style_vars() runs BEFORE the heading
- * in these templates, so a band carrying both a non-array `__pp_style` and a bad title
- * still fatals — via #708, upstream of this guard, which never gets to matter. Every
- * fixture below therefore carries NO `style` key, so what these assertions measure is
- * this guard and not the corridor around it. What this issue closes is precisely one
- * door of several; the family is only shut when its siblings land.
+ * in these templates, so when this file landed, a band carrying both a non-array
+ * `__pp_style` and a bad title still fataled — via #708, upstream of this guard, which
+ * never got to matter. #708 has since LANDED and shut that door; the combined case is
+ * pinned in tests/StoredStyleAndItemsRenderGuardTest.php rather than here, because every
+ * fixture below still deliberately carries NO `style` key so that what THESE assertions
+ * measure is this guard and not the corridor around it. The corridor is still not fully
+ * closed: #730, #733, #736, #738, #739 and #740 remain open on it. Note for the seven components
+ * swept here in particular: a faq band still 500s on a stored scalar `items` via #739,
+ * and a grid card's array `link_url` still 500s via #730.
  *
  * ASSERTED AFFIRMATIVELY, NEVER BY ABSENCE OF A FATAL. phpunit.xml sets
  * failOnWarning="false", and esc_html/esc_attr render a stored array as the literal
@@ -210,8 +215,11 @@ class StoredTitleRenderGuardTest extends TestCase
     /**
      * One band per component that calls the heading helper, each carrying whatever else it
      * needs to render, with `title` / `title_accent` left for the caller to inject. Every
-     * band deliberately carries NO `style` key — a non-array `__pp_style` fatals upstream
-     * of this guard (#708), and a fixture that tripped it would prove nothing about #706.
+     * band deliberately carries NO `style` key — a non-array `__pp_style` fataled upstream
+     * of this guard until #708 landed, and a fixture carrying two corrupt shapes proves
+     * nothing about either. Kept style-free now that #708 has landed, for the same reason:
+     * axis isolation is what makes these assertions mean #706 and only #706. The combined
+     * case lives in tests/StoredStyleAndItemsRenderGuardTest.php.
      *
      * @param mixed $title
      * @param mixed $accent
