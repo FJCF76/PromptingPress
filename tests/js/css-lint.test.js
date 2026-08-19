@@ -4392,9 +4392,11 @@ describe('CSS lint: dark-band focus ring routes through the AA accent roles (#54
 
     /*
      * SEMANTIC PRECEDENCE, not formatting. ONE root can carry an inverted class AND a
-     * bg-image class: components/cta/cta.php:75 concatenates `pp_theme_class($theme,'cta')`
-     * and `cta--has-bg-image` independently (section.php:186 does the same, which is why
-     * section bands would have had the identical dependency had they been routed). The two
+     * bg-image class: the section root in components/cta/cta.php concatenates
+     * `pp_theme_class($theme,'cta')` and `$bg_image_class` independently (the section root
+     * in section.php does the same, which is why section bands would have had the
+     * identical dependency had they been routed). Named by construct, not by line: both
+     * files carry long guard blocks that shift these roots on every fix. The two
      * blocks then match at [0,3,0] and only source order decides. The OVERLAY role must
      * win: on-inverted is only 2.21:1 over the worst-case scrim, so the combined band would
      * otherwise get a ring that fails 1.4.11 harder than the bug this fixes.
@@ -5198,9 +5200,11 @@ describe('CSS lint: per-instance button slots are neutralised on non-owned butto
     const fsq = require('fs');
     const pathq = require('path');
 
-    // The renderer-owned button elements: hero.php:126,130 (.hero__cta, incl. the cta2
-    // modifier), cta.php:112,116 (.cta__button, incl. the button2 modifier),
-    // section.php:270 (.section__panel-cta).
+    // The renderer-owned button elements, named by the class each anchor carries rather
+    // than by line number (guard blocks in these templates shift the line numbers on
+    // every fix, and the stale numbers this comment used to quote were worse than none):
+    // hero.php `.hero__cta` (incl. the cta2 modifier), cta.php `.cta__button` (incl. the
+    // `.cta__button--secondary` button2 modifier), section.php `.section__panel-cta`.
     const OWNED_BUTTON_CLASSES = ['.hero__cta', '.cta__button', '.section__panel-cta'];
 
     /**

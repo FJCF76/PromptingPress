@@ -26,7 +26,7 @@ $body             = $props['body']             ?? '';
 // below (#233 restore, pre-rule compositions, raw meta). Here a guarded-away image_url
 // makes the EXISTING image-layout fallback fire, so the band renders text-only — exactly
 // what an empty image_url already does. NOTE this guard covers image_url only:
-// `background_image` below reaches pp_esc_image_src() unguarded and is tracked as #705.
+// `background_image` reaches pp_esc_image_src() and carries its own guard below (#705).
 $raw_image_url    = $props['image_url']        ?? '';
 $image_url        = is_scalar($raw_image_url) ? (string) $raw_image_url : '';
 $raw_image_alt    = $props['image_alt']        ?? '';
@@ -42,7 +42,22 @@ $raw_image_id     = $props['image_id'] ?? 0;
 $image_id         = is_numeric($raw_image_id) ? (int) $raw_image_id : 0;
 $layout           = $props['layout']           ?? 'text-only';
 $theme            = $props['theme']            ?? 'default';
-$background_image = $props['background_image'] ?? '';
+// #705: guard the raw-value argument of pp_esc_image_src() (`string $url`) before it
+// reaches the call below. A non-empty array is truthy, so the `if ($background_image)`
+// gate passes on one and the typed call raises a TypeError that no caller catches —
+// the whole PUBLIC PAGE 500s. Guarded at the READ because this prop drives three gates
+// (the --has-bg-image modifier, the inline background-image, and the overlay div) and
+// the read is upstream of all of them, so a guarded-away value renders the band exactly
+// as an empty background_image already does. is_scalar + (string), NOT is_string: only
+// non-scalars ever fataled (coercive mode), and the write path stores a scalar
+// background_image raw (#707), so is_string() would silently drop an accepted value.
+// Full reasoning in components/cta/cta.php. Same STORED-data reachability as the
+// image_url guard above (#233 restore, pre-rule compositions, raw meta). Distinct from
+// that guard: this one is about the band's BACKGROUND, so it never touches the
+// image-layout fallback — a section with a malformed background_image keeps its layout
+// and simply paints no background.
+$raw_background_image = $props['background_image'] ?? '';
+$background_image     = is_scalar($raw_background_image) ? (string) $raw_background_image : '';
 
 // Inline-items row (issue 475): an optional centered row of short plain-text
 // items with a CSS-generated, slot-colorable separator between them. Plain

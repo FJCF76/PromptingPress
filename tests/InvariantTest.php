@@ -1146,4 +1146,78 @@ class InvariantTest extends TestCase
 
         return $files;
     }
+
+    // ── #705: every component read of background_image is guarded ─────────
+
+    /**
+     * A SOURCE-LEVEL DRIFT CATCHER for the stored-shape guard family.
+     *
+     * #705 guards `background_image` at three component read sites so a stored non-scalar
+     * degrades instead of fataling the public page through the typed pp_esc_image_src().
+     * Those three guards are hand-copied lines, and every behavioural test for them is
+     * per-component: nothing fails if a FOURTH component starts reading the prop raw, or
+     * if one of the three loses its guard in a refactor. The completeness argument would
+     * then live only in prose, in a family that already runs to #641/#705/#706/#708/#730
+     * and #733 — so the next unguarded read is a matter of when.
+     *
+     * This converts that prose into a failing test, deliberately narrow: it asserts only
+     * that a component reading `$props['background_image']` assigns it through an
+     * is_scalar guard. It does not police OTHER props (their issues own that) and it does
+     * not care which components exist, so adding a new guarded background band passes
+     * without touching this test.
+     */
+    public function testEveryComponentReadOfBackgroundImageIsScalarGuarded(): void
+    {
+        $readers = [];
+
+        foreach ($this->phpFilesIn($this->themeRoot . '/components') as $file) {
+            $content = file_get_contents($file);
+            if (!str_contains($content, "\$props['background_image']")) {
+                continue;
+            }
+            $readers[] = basename(dirname($file));
+
+            // The prop is read only into the raw local...
+            $this->assertMatchesRegularExpression(
+                '/\$raw_background_image\s*=\s*\$props\[\'background_image\'\]/',
+                $content,
+                basename($file) . ' reads background_image into something other than'
+                . ' $raw_background_image (#705). The guard idiom expects the raw read to land'
+                . ' in that local so the guarded value is the one every gate below sees.'
+            );
+
+            // ...and the value the template actually uses comes from the guard.
+            $this->assertMatchesRegularExpression(
+                '/\$background_image\s*=\s*is_scalar\(\$raw_background_image\)\s*\?\s*\(string\)\s*\$raw_background_image\s*:\s*\'\'/',
+                $content,
+                basename($file) . ' reads background_image but does not assign it through the'
+                . ' is_scalar guard (#705). A raw read reaches the typed pp_esc_image_src()'
+                . ' and a stored array 500s the whole public page.'
+            );
+
+            // Exactly one read of the prop, so a second raw read cannot hide below the guard.
+            $this->assertSame(
+                1,
+                substr_count($content, "\$props['background_image']"),
+                basename($file) . ' reads background_image more than once (#705). Every gate must'
+                . ' read the guarded local, not the raw prop.'
+            );
+
+            // The raw value must not reach the escaper directly, guard or no guard.
+            $this->assertStringNotContainsString(
+                'pp_esc_image_src($raw_background_image',
+                $content,
+                basename($file) . ' passes the RAW background_image to pp_esc_image_src() (#705).'
+            );
+        }
+
+        // Non-vacuity: if this ever finds nothing, the regex above is silently passing.
+        sort($readers);
+        $this->assertSame(
+            ['cta', 'section', 'stats'],
+            $readers,
+            'the set of components reading background_image changed — a new reader must carry'
+            . ' the #705 guard (add it, then update this list)'
+        );
+    }
 }

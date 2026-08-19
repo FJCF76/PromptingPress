@@ -14,7 +14,22 @@ $title            = $props['title']            ?? '';
 $title_accent     = $props['title_accent']     ?? '';
 $theme            = $props['theme']            ?? 'default';
 $items            = $props['items']            ?? [];
-$background_image = $props['background_image'] ?? '';
+// #705: guard the raw-value argument of pp_esc_image_src() (`string $url`) before it
+// reaches the call below. A non-empty array is truthy, so the `if ($background_image)`
+// gate passes on one and the typed call raises a TypeError that no caller catches —
+// the whole PUBLIC PAGE 500s. Guarded at the READ because this prop drives three gates
+// (the --has-bg-image modifier, the inline background-image, and the overlay div) and
+// the read is upstream of all of them, so a guarded-away value renders the band exactly
+// as an empty background_image already does. is_scalar + (string), NOT is_string: only
+// non-scalars ever fataled (coercive mode), and the write path stores a scalar
+// background_image raw (#707), so is_string() would silently drop an accepted value.
+// Full reasoning in components/cta/cta.php. Reachable from STORED data even though the
+// write path rejects the shape, because the validator gates WRITES, not storage: #233
+// restore reports without blocking, a pre-rule composition still carries the value, and
+// a raw _pp_composition meta write is not gated at all. (Stated directly rather than by
+// comparison — stats has no image_url prop, so there is no local guard to point at.)
+$raw_background_image = $props['background_image'] ?? '';
+$background_image     = is_scalar($raw_background_image) ? (string) $raw_background_image : '';
 
 // theme coercion lives in pp_theme_class(); `muted` emits the legacy `--dark` class (#570 DG-4).
 $theme_class    = pp_theme_class($theme, 'stats');

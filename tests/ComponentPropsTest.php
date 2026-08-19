@@ -24,12 +24,24 @@ class ComponentPropsTest extends TestCase
 
     /**
      * Helper: render a component and return its HTML output.
+     *
+     * The `finally` is load-bearing (#705). A component template that throws — which is
+     * exactly what the stored-shape guard tests exist to detect the absence of — would
+     * otherwise escape with the buffer still open, so PHPUnit reports "did not close its
+     * own output buffers" (a RISKY test) on top of the real error, and the orphaned
+     * buffer can swallow output later in the same process. Closing it here means a
+     * regression arrives as a clean, readable failure. Same reasoning, same shape as
+     * StoredBackgroundImageRenderGuardTest::renderStored().
      */
     private function render(string $component, array $props): string
     {
         ob_start();
-        pp_get_component($component, $props);
-        return ob_get_clean();
+        try {
+            pp_get_component($component, $props);
+        } finally {
+            $html = ob_get_clean();
+        }
+        return $html;
     }
 
     // ── A retired cta prop name renders the SCHEMA DEFAULT (#604) ────────────
@@ -3447,5 +3459,266 @@ class ComponentPropsTest extends TestCase
         $this->assertSame('FAQPage', $schema['@type']);
         $this->assertSame('Q?', $schema['mainEntity'][0]['name']);
         $this->assertSame('A.', $schema['mainEntity'][0]['acceptedAnswer']['text']);
+    }
+
+    // ── #705: a stored non-scalar background_image must not fatal the page ────
+    //
+    // The #641 block above closed this defect class for image_url/image_alt through
+    // pp_render_responsive_image(). This is the SAME class on the sibling prop, through
+    // the other typed helper:
+    //
+    //   lib/wp.php  pp_esc_image_src(string $url, int $depth = 0)
+    //     cta.php, stats.php, section.php — all three read `background_image` raw.
+    //
+    // Each is gated on truthiness, and a non-empty array is TRUTHY, so the gate passes
+    // and the typed call raises a TypeError that no caller catches.
+    // templates/composition.php calls pp_get_component() with no try/catch, so ONE
+    // malformed stored value takes the WHOLE PUBLIC PAGE down with a 500. Catchable in
+    // principle, deliberately not caught in practice — and adding a catch is not the
+    // fix, because swallowing an escaping throw can leave core filters de-registered
+    // for the rest of the request (#730). Guard BEFORE the call.
+    //
+    // WHY THE GUARD SITS AT THE READ. This prop drives THREE gates per component — the
+    // --has-bg-image modifier, the inline background-image declaration, and the overlay
+    // <div> — and the read is upstream of all three. A call-site-only guard would leave
+    // the modifier and the overlay ON with nothing painting underneath: a dark scrim
+    // over the band's own background, wearing the light on-overlay ink the modifier
+    // selects. Guarding at the read instead reuses a state that shipped long ago, so the
+    // assertions below are "renders exactly as an empty background_image does".
+    //
+    // WHY is_scalar AND NOT is_string. PHP runs COERCIVE here, so only NON-SCALARS ever
+    // fataled: a stored `42` coerced and painted `background-image:url(42)`. create_page
+    // ACCEPTS `background_image: 42` and stores it raw with no finding (#707), so an
+    // is_string() guard would silently drop a value the front door had just accepted.
+    // Stated honestly, ONE half of the #641 rationale does not carry over here:
+    // background_image has no image_id companion (it is CSS background-image, not an
+    // <img>), so there is no resolvable attachment for is_string() to discard. The
+    // write-accepted-scalar half carries on its own. The pins below split the two halves:
+    //
+    //   NON-SCALAR  -> "" -> no background.  CHANGED: this is the fatal, now degraded.
+    //   SCALAR      -> (string) cast.        UNCHANGED: as it rendered before the guard.
+    //
+    // Ratified at gate D-B as the family standard. Scope is this prop's three read sites.
+    // The same defect through OTHER surfaces is tracked separately (#706 title/
+    // title_accent, #708 grid count()/pp_render_style_vars, #730 esc_url/wp_kses_post)
+    // and is deliberately not fixed here.
+    //
+    // Reachability is #641's exactly: the write path rejects a non-scalar, but the
+    // validator gates WRITES. restore_composition reports without blocking (#233), a
+    // composition authored before the rule still carries the value, and a raw
+    // _pp_composition meta write is not gated at all. The end-to-end pin on real stored
+    // bytes lives in tests/StoredBackgroundImageRenderGuardTest.php; these hold the
+    // per-component shape.
+
+    /**
+     * The shapes that actually FATALED, and now degrade. Every one is a non-scalar and
+     * NON-EMPTY, so it is truthy and genuinely opens the gate that reaches the typed
+     * call — an empty array is falsy and never got there, so it would pass identically
+     * with the guard removed and is not a case.
+     */
+    public static function fatalNonScalarBackgrounds(): array
+    {
+        return [
+            'import_media envelope' => [['attachment_id' => 42, 'url' => '/bg.png']],
+            'list'                  => [['/a.png', '/b.png']],
+            'nested map'            => [['src' => ['url' => '/bg.png']]],
+        ];
+    }
+
+    /**
+     * All three components, one assertion set. The contract is identical on each: the
+     * band still renders its own content, and every one of the three background gates
+     * stays shut — no modifier class, no overlay div, no background-image declaration.
+     *
+     * The `Array` assertion is not redundant with the others. phpunit.xml sets
+     * failOnWarning="false", and esc_html/esc_attr render a stored array as the literal
+     * string `Array` plus an E_WARNING WITHOUT fataling. So a future "fix" that coerced
+     * instead of degrading would leave every not-contains assertion above it green while
+     * painting `url(Array)` into the page. This is the pin that catches that.
+     *
+     * @dataProvider fatalNonScalarBackgrounds
+     */
+    public function testStoredNonScalarBackgroundImageRendersTheBandWithoutABackground($bad): void
+    {
+        foreach ([
+            ['cta',     $this->ctaProps(['title' => 'Cta band', 'background_image' => $bad]), 'cta',     'Cta band'],
+            ['stats',   $this->statsProps(['background_image' => $bad]),   'stats',   '40+'],
+            ['section', $this->sectionProps(['background_image' => $bad]), 'section', '<p>Body</p>'],
+        ] as [$component, $props, $prefix, $content]) {
+            $html = $this->render($component, $props);
+
+            // The band is there, with its own content — this is the whole point.
+            $this->assertStringContainsString('data-pp-component="' . $component . '"', $html, "{$component}: the band renders");
+            $this->assertStringContainsString($content, $html, "{$component}: the band keeps its content");
+
+            // And all three background gates stayed shut.
+            $this->assertStringNotContainsString('background-image', $html, "{$component}: no background-image declaration");
+            $this->assertStringNotContainsString($prefix . '--has-bg-image', $html, "{$component}: no background-image modifier");
+            $this->assertStringNotContainsString($prefix . '__overlay', $html, "{$component}: no overlay div");
+            $this->assertStringNotContainsString('Array', $html, "{$component}: the value is degraded, never coerced");
+        }
+    }
+
+    // ── The UNCHANGED half: a non-string SCALAR still paints, exactly as before ──
+
+    /**
+     * THE REGRESSION PIN, and the reason the guard is is_scalar and not is_string.
+     *
+     * create_page ACCEPTS `background_image: 42` and stores it raw, reporting nothing
+     * (#707), and in coercive mode that value has always painted `url(42)`. An
+     * is_string() guard would blank it, close all three gates, and silently drop a
+     * background the front door had just accepted. This pin fails the moment the
+     * predicate narrows.
+     *
+     * SCHEME-AGNOSTIC ON PURPOSE. The obvious assertion here would be the literal
+     * `background-image:url(42)`, and it would be WRONG about production. Core's
+     * esc_url() prepends a scheme to any value with no ':' and no leading /#?
+     * (wp-includes/formatting.php, `$url = $scheme . $url`), so a real visitor gets
+     * `url(http://42)`. The PHPUnit stub is type-faithful, not byte-faithful — it does
+     * not reproduce that character work, and tests/EscapingStubContractTest.php pins the
+     * stubs to exactly that contract. Asserting the stub's bytes would quietly enshrine
+     * them as production behaviour, so the regex tolerates the scheme either way and the
+     * assertion says only what this guard actually controls: the scalar survives to the
+     * escaper and still paints.
+     *
+     * FOR #707: this pins COMPATIBILITY, not correctness. Painting a bare number is what
+     * an accepted value does today; it is not a contract #707 must preserve. Updating
+     * this pin when the write path tightens is the expected move, not a regression.
+     */
+    public function testAScalarBackgroundImageStillPaintsExactlyAsBefore(): void
+    {
+        foreach ([42, true, 3.14] as $scalar) {
+            $label   = var_export($scalar, true);
+            $pattern = '#background-image:url\((?:https?://)?' . preg_quote((string) $scalar, '#') . '\)#';
+
+            foreach ([
+                ['cta',     $this->ctaProps(['background_image' => $scalar]),     'cta'],
+                ['stats',   $this->statsProps(['background_image' => $scalar]),   'stats'],
+                ['section', $this->sectionProps(['background_image' => $scalar]), 'section'],
+            ] as [$component, $props, $prefix]) {
+                $html = $this->render($component, $props);
+                $this->assertMatchesRegularExpression($pattern, $html, "{$component} {$label}: the scalar still paints");
+                $this->assertStringContainsString($prefix . '--has-bg-image', $html, "{$component} {$label}: modifier still set");
+                $this->assertStringContainsString($prefix . '__overlay', $html, "{$component} {$label}: overlay still rendered");
+            }
+        }
+    }
+
+    /**
+     * The accept side on an ordinary value: a real URL emits the exact style attribute
+     * it always has. A guard that quietly dropped legitimate backgrounds would pass
+     * every negative test above.
+     */
+    public function testAnOrdinaryBackgroundImageUrlIsUnchanged(): void
+    {
+        foreach ([
+            ['cta',     $this->ctaProps(['background_image' => 'https://example.com/bg.jpg']),     'cta'],
+            ['stats',   $this->statsProps(['background_image' => 'https://example.com/bg.jpg']),   'stats'],
+            ['section', $this->sectionProps(['background_image' => 'https://example.com/bg.jpg']), 'section'],
+        ] as [$component, $props, $prefix]) {
+            $html = $this->render($component, $props);
+            $this->assertStringContainsString(
+                'style="background-image:url(https://example.com/bg.jpg);"',
+                $html,
+                "{$component}: the exact style attribute"
+            );
+            $this->assertStringContainsString($prefix . '--has-bg-image', $html, "{$component}: modifier");
+            $this->assertStringContainsString('<div class="' . $prefix . '__overlay" aria-hidden="true"></div>', $html, "{$component}: overlay");
+        }
+    }
+
+    /**
+     * The falsy-scalar controls. These never reached the typed call (the gate was
+     * already shut) and must keep rendering no background — the (string) cast must not
+     * OPEN a gate that used to be closed. `0` is the one worth having: `(string) 0` is
+     * `"0"`, which is itself falsy in PHP, which is the only reason this holds.
+     *
+     * -0.0 is deliberately NOT in this list. It is the one scalar where the cast DOES
+     * open the gates, and it has its own pin below.
+     */
+    public function testAFalsyScalarBackgroundImageStillRendersNoBackground(): void
+    {
+        foreach ([0, 0.0, false, '', '0'] as $falsy) {
+            $label = var_export($falsy, true);
+            foreach ([
+                ['cta',     $this->ctaProps(['background_image' => $falsy]),     'cta'],
+                ['stats',   $this->statsProps(['background_image' => $falsy]),   'stats'],
+                ['section', $this->sectionProps(['background_image' => $falsy]), 'section'],
+            ] as [$component, $props, $prefix]) {
+                $html = $this->render($component, $props);
+                // Anchor the negatives to a band that actually rendered — otherwise this
+                // whole test would stay green against a component that emitted nothing.
+                $this->assertStringContainsString('data-pp-component="' . $component . '"', $html, "{$component} {$label}: the band renders");
+                $this->assertStringNotContainsString('background-image', $html, "{$component} {$label}: no background");
+                $this->assertStringNotContainsString($prefix . '--has-bg-image', $html, "{$component} {$label}: no modifier");
+                $this->assertStringNotContainsString($prefix . '__overlay', $html, "{$component} {$label}: no overlay");
+            }
+        }
+    }
+
+    /**
+     * THE PARITY PIN, and the honest exception to it.
+     *
+     * The guard's safety argument is that `(string)` casting a scalar cannot change
+     * WHICH of the three background gates fire — otherwise a value that rendered plain
+     * before would start painting a scrim after. That holds for every scalar except one,
+     * and the exception is measured here rather than reasoned about, because a review
+     * caught the original claim overstating it.
+     *
+     * FLOAT NEGATIVE ZERO is the exception: `-0.0` is falsy, but `(string) -0.0` is
+     * `'-0'`, and the only falsy strings in PHP are `''` and `'0'`. So a stored `-0.0`
+     * opens gates that used to be shut. Accepted, not fixed: the value still routes
+     * through pp_esc_image_src(), `-0` is inert in the CSS url() token, and
+     * special-casing it would mean inspecting and rewriting the stored value, which the
+     * D-B ruling forbids. Integer `-0` is NOT affected — PHP has no negative integer
+     * zero, so `-0` parses as plain `0`.
+     *
+     * Swept across ALL THREE guarded components, not just cta: each carries its own copy
+     * of the two-line guard, so a future divergence in stats or section would be
+     * invisible to a cta-only sweep. The marker asserted is the `--has-bg-image`
+     * modifier rather than the emitted URL, which keeps this independent of how faithful
+     * the esc_url() stub is to core's character work.
+     *
+     * REACHABILITY of the -0.0 flip is pinned separately, in
+     * StoredBackgroundImageRenderGuardTest::testNegativeZeroFlipsTheGateOnlyThroughARawMetaWrite —
+     * it does NOT survive a JSON round-trip, so the normal write path cannot produce it.
+     * This test is the renderer-level half.
+     */
+    public function testTheStringCastFlipsTheGateOnlyForNegativeZero(): void
+    {
+        $scalars = [0, 0.0, -0, false, true, 42, 3.14, -1, '', '0', '0.0', '+0', 'x', '00', NAN, INF, -INF];
+
+        $components = [
+            ['cta',     fn($v) => $this->ctaProps(['background_image' => $v]),     'cta'],
+            ['stats',   fn($v) => $this->statsProps(['background_image' => $v]),   'stats'],
+            ['section', fn($v) => $this->sectionProps(['background_image' => $v]), 'section'],
+        ];
+
+        foreach ($scalars as $scalar) {
+            $label     = var_export($scalar, true);
+            $rawTruthy = (bool) $scalar;
+
+            foreach ($components as [$component, $propsFor, $prefix]) {
+                $html    = $this->render($component, $propsFor($scalar));
+                $painted = str_contains($html, $prefix . '--has-bg-image');
+
+                $this->assertSame(
+                    $rawTruthy,
+                    $painted,
+                    "{$component} {$label}: the (string) cast must not change whether the band paints a background"
+                );
+            }
+        }
+
+        // The single exception, asserted head-on so it can never drift silently.
+        $this->assertFalse((bool) -0.0, 'float negative zero is falsy');
+        $this->assertTrue((bool) (string) -0.0, "...but its string cast '-0' is truthy");
+
+        foreach ($components as [$component, $propsFor, $prefix]) {
+            $html = $this->render($component, $propsFor(-0.0));
+            $this->assertStringContainsString($prefix . '--has-bg-image', $html, "{$component}: -0.0 opens the modifier gate");
+            $this->assertStringContainsString($prefix . '__overlay', $html, "{$component}: -0.0 opens the overlay gate");
+            $this->assertMatchesRegularExpression('#background-image:url\((?:https?://)?-0\)#', $html, "{$component}: -0.0 paints, where before the guard it did not");
+        }
     }
 }
