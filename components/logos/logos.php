@@ -17,7 +17,17 @@ $items   = $props['items']   ?? [];
 // theme coercion lives in pp_theme_class(); `muted` emits the legacy `--dark` class (#570 DG-4).
 $theme_class = pp_theme_class($theme, 'logos');
 
-$slot_style = pp_render_style_vars($props['__pp_style'] ?? [], 'logos');
+// #708: guard the raw `__pp_style` map before it reaches the typed
+// pp_render_style_vars(array $style, ...). A stored non-array raises a TypeError that
+// no caller catches, so the whole PUBLIC PAGE 500s. It arrives as `__pp_style` stored
+// INSIDE props: all four top-level `style` promotions are already is_array guarded, so
+// this read is the only reachable boundary and the only place a guard can help.
+// is_array, NOT is_scalar — an array IS the contract at this parameter. Degrades to no
+// inline custom properties and no `style` attribute at all, byte-identical to a band
+// that stored no style. Full reasoning in components/grid/grid.php.
+$raw_style = $props['__pp_style'] ?? null;
+$style     = is_array($raw_style) ? $raw_style : [];
+$slot_style = pp_render_style_vars($style, 'logos');
 $style_attr = $slot_style ? ' style="' . $slot_style . ';"' : '';
 ?>
 <section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="logos<?php echo esc_attr($theme_class); ?>" data-pp-component="logos"<?php echo $style_attr; ?>>
@@ -50,8 +60,12 @@ $style_attr = $slot_style ? ' style="' . $slot_style . ';"' : '';
                     // #706 (title/title_accent into pp_render_heading_with_accent) have
                     // since LANDED and carry their own canonical blocks in
                     // components/cta/cta.php and components/hero/hero.php respectively;
-                    // #708 is still open, as is #730 (core's esc_url/wp_kses_post, which
-                    // also fatal in production). NOTE this file reads `title` too, and it
+                    // #708 (the `__pp_style` map into pp_render_style_vars, and grid's
+                    // count($items)) has since LANDED too, and this file carries its
+                    // guard at the top; its canonical block is in
+                    // components/grid/grid.php. Still open on this corridor:
+                    // #730, #733, #736, #738, #739 and #740.
+                    // NOTE this file reads `title` too, and it
                     // is deliberately NOT guarded: logos passes it to esc_html(), which
                     // does not fatal, so it never met #706's admitting criterion.
                     //

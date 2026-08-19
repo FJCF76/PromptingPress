@@ -108,13 +108,19 @@ $id           = $props['id']           ?? '';
 // still reports it to the operator.
 //
 // SCOPE is this prop pair into this one helper. The same defect class through other
-// surfaces stays filed and untouched: #708 (count() on a scalar items,
-// pp_render_style_vars on a non-array style), #730 (core's esc_url/wp_kses_post, which
-// DO fatal in production), #733 (lib/ai-context.php's mb_strlen/basename on the same
-// raw title), and #707 (what the write path accepts). NOTE what that means for the
-// page-level claim: pp_render_style_vars() runs BEFORE the heading in these templates,
-// so a band carrying both a non-array `__pp_style` and a bad title still fatals via
-// #708, upstream of this guard. This closes one door on that corridor, not the corridor.
+// surfaces: #708 (count() on a scalar items, pp_render_style_vars on a non-array style)
+// has since LANDED — see the guard further down this file and its canonical block in
+// components/grid/grid.php — which matters for the page-level claim made here, because
+// pp_render_style_vars() runs BEFORE the heading in these templates. Until #708 landed,
+// a band carrying both a non-array `__pp_style` and a bad title still fataled upstream
+// of this guard; that door is now shut, so a corrupt style and a corrupt title together
+// degrade instead of 500ing (pinned in tests/StoredStyleAndItemsRenderGuardTest.php).
+// The corridor is still not fully closed. Open on it: #730 (core's esc_url/wp_kses_post,
+// which DO fatal in production), #733 (lib/ai-context.php's mb_strlen/basename on the
+// same raw title), #736 (esc_html rendering a stored array as the word `Array`), #738
+// (grid's `(string) ($index + 1)` on a string items key), #739 (faq's items into
+// pp_render_faq_schema), #740 (an object-valued style slot) and #707 (what the write
+// path accepts).
 $raw_title        = $props['title']        ?? 'Default Title';
 $title            = is_scalar($raw_title) ? (string) $raw_title : '';
 $raw_title_accent = $props['title_accent'] ?? '';
@@ -231,7 +237,17 @@ $split_ratio_attr    = ($effective_layout === 'split' && $split_ratio !== '50-50
 $vertical_align_attr = (in_array($effective_layout, ['cover', 'split'], true) && $vertical_align !== 'center') ? ' data-pp-vertical-align="' . esc_attr($vertical_align) . '"' : '';
 
 // Style slot overrides (per-instance visual customization).
-$slot_style = pp_render_style_vars($props['__pp_style'] ?? [], 'hero');
+// #708: guard the raw `__pp_style` map before it reaches the typed
+// pp_render_style_vars(array $style, ...). A stored non-array raises a TypeError that
+// no caller catches, so the whole PUBLIC PAGE 500s. It arrives as `__pp_style` stored
+// INSIDE props: all four top-level `style` promotions are already is_array guarded, so
+// this read is the only reachable boundary and the only place a guard can help.
+// is_array, NOT is_scalar — an array IS the contract at this parameter. Degrades to no
+// inline custom properties and no `style` attribute at all, byte-identical to a band
+// that stored no style. Full reasoning in components/grid/grid.php.
+$raw_style = $props['__pp_style'] ?? null;
+$style     = is_array($raw_style) ? $raw_style : [];
+$slot_style = pp_render_style_vars($style, 'hero');
 
 // Build inline style attribute: merge slot vars + cover background-image.
 $inline_styles = [];

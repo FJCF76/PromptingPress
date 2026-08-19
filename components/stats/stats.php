@@ -51,7 +51,17 @@ $theme_class    = pp_theme_class($theme, 'stats');
 $bg_image_class = $background_image ? ' stats--has-bg-image' : '';
 
 // Style slot overrides (per-instance visual customization).
-$slot_style = pp_render_style_vars($props['__pp_style'] ?? [], 'stats');
+// #708: guard the raw `__pp_style` map before it reaches the typed
+// pp_render_style_vars(array $style, ...). A stored non-array raises a TypeError that
+// no caller catches, so the whole PUBLIC PAGE 500s. It arrives as `__pp_style` stored
+// INSIDE props: all four top-level `style` promotions are already is_array guarded, so
+// this read is the only reachable boundary and the only place a guard can help.
+// is_array, NOT is_scalar — an array IS the contract at this parameter. Degrades to no
+// inline custom properties and no `style` attribute at all, byte-identical to a band
+// that stored no style. Full reasoning in components/grid/grid.php.
+$raw_style = $props['__pp_style'] ?? null;
+$style     = is_array($raw_style) ? $raw_style : [];
+$slot_style = pp_render_style_vars($style, 'stats');
 
 $inline_styles = [];
 if ($slot_style) {
