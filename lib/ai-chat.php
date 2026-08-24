@@ -1172,7 +1172,8 @@ function _pp_ai_batch_baselines_cover_mutations(array $steps, array $baselines):
  * Core logic for the batch-execute AJAX handler, extracted for the same reason
  * as _pp_ai_execute_response() (testable real-handler path, #387). Normalizes +
  * capability-checks every step up front, enforces the fail-closed baseline
- * mandate (A1), then threads the baseline map through pp_ai_execute_batch().
+ * mandate (A1), refuses the batch when any named page's stored composition is
+ * unreadable (#749), then threads the baseline map through pp_ai_execute_batch().
  *
  * @param  array $post  $_POST-shaped input: ['steps' (JSON), 'baselines' (JSON)].
  * @return array        ['ok' => bool, 'data' => mixed].
@@ -1227,6 +1228,22 @@ function _pp_ai_execute_batch_response(array $post): array {
                           . 'version as a baseline. Re-read the page and try again.',
             'error_code' => 'missing_expected_version',
         ]];
+    }
+
+    // Fail-closed unreadable-target gate (#749), the same up-front shape as the baseline
+    // mandate above. The invariant and its rationale live with the executor's own copy of
+    // this gate (pp_ai_execute_batch, lib/actions.php) — that one is the backstop that
+    // makes the data-loss fix hold for every caller.
+    //
+    // What is local, and the only reason this is repeated here: the CHAT surface has to
+    // answer through wp_send_json_error with the structured {error, error_code} payload
+    // the client already renders on its !resp.success branch (assets/js/pp-ai-chat.js).
+    // Left to the executor, the refusal would arrive on the SUCCESS branch as a step-less
+    // batch envelope, which is the one shape that renderer has no failing step to show.
+    // Detection and wording are single-owned by lib/actions.php, so the gates cannot drift.
+    $unreadable_error = _pp_batch_unreadable_target_error(_pp_batch_unreadable_targets($normalized));
+    if ($unreadable_error !== null) {
+        return ['ok' => false, 'data' => $unreadable_error];
     }
 
     return ['ok' => true, 'data' => pp_ai_execute_batch($normalized, $baselines)];

@@ -854,11 +854,19 @@ function pp_execute_action(string $name, array $params): array {
  * overwriting composition/token state), so a later step failing doesn't
  * warrant deleting it.
  *
+ * Also classifies each named page's stored composition and records the ones that
+ * CANNOT be read under 'unreadable' (#749). That key is not restore state and
+ * _pp_restore_batch_snapshot() never reads it — its only consumer is
+ * pp_ai_execute_batch(), which refuses the whole batch when it is non-empty.
+ *
  * @param  array $steps  Each: ['type' => 'action'|'apply', 'name' => string, 'params' => array]
- * @return array          Snapshot bundle passed to _pp_restore_batch_snapshot().
+ * @return array          Snapshot bundle. The state keys go to
+ *                         _pp_restore_batch_snapshot(); 'unreadable' goes to
+ *                         pp_ai_execute_batch()'s refusal gate.
  */
 function _pp_snapshot_batch_targets(array $steps): array {
-    $posts = [];
+    $posts      = [];
+    $unreadable = [];
     $site_options = [];
     $custom_css = null;
     $token_overrides = null;
@@ -874,11 +882,34 @@ function _pp_snapshot_batch_targets(array $steps): array {
             $post_id = (int) $params['post_id'];
             if (!isset($posts[$post_id]) && get_post($post_id)) {
                 $post = get_post($post_id);
+                // READ THROUGH THE CLASSIFIER, NEVER THE DEGRADING ACCESSOR (#749).
+                // pp_get_composition() returns [] for a corrupt row, and
+                // _pp_restore_batch_snapshot() writes the snapshot back
+                // unconditionally — so snapshotting through it turned a rollback
+                // into an eraser: a page that was "corrupt but recoverable" came
+                // out of a rolled-back batch genuinely empty, behind a clean
+                // rolled_back: true. Same class #241 closed for the run-scoped
+                // restore, and the same posture #506 took on the homepage seed.
+                // The composition captured here is only ever a READABLE one; an
+                // unreadable target is recorded in $unreadable and refuses the
+                // whole batch before any step runs (pp_ai_execute_batch).
+                //
+                // ONE READ decides both, deliberately. Classifying in a separate
+                // pass would leave a window — however small — in which the row
+                // flips corrupt between "is it readable?" and "capture it", and
+                // the capture would then be a degraded `[]` that the map says is
+                // fine: the original bug, rebuilt out of two honest reads. The
+                // value stored below and the verdict beside it come from the same
+                // pp_get_composition_result() call, so they cannot disagree.
+                $stored = pp_get_composition_result($post_id);
+                if (!$stored['ok']) {
+                    $unreadable[$post_id] = $stored['error'];
+                }
                 $posts[$post_id] = [
                     'title'       => $post->post_title,
                     'slug'        => $post->post_name,
                     'status'      => $post->post_status,
-                    'composition' => pp_get_composition($post_id),
+                    'composition' => $stored['composition'],
                     'seo_meta'    => pp_get_seo_meta($post_id),
                 ];
             }
@@ -939,11 +970,121 @@ function _pp_snapshot_batch_targets(array $steps): array {
     return [
         'posts'           => $posts,
         'created_posts'   => [], // filled in as create_page steps succeed
+        // {post_id => 'unexpected_shape'|'decode_error'} for every named page whose
+        // stored composition could not be read (#749). Non-empty means the batch is
+        // refused before step 1; see pp_ai_execute_batch().
+        'unreadable'      => $unreadable,
         'site_options'    => $site_options,
         'custom_css'      => $custom_css,
         'token_overrides' => $token_overrides,
         'font_urls'       => $font_urls,
         'menus'           => $menus,
+    ];
+}
+
+/**
+ * The post targets of a batch whose stored composition CANNOT be read (#749).
+ *
+ * For callers that need the verdict WITHOUT building a snapshot bundle — today
+ * exactly one, the chat entry point (lib/ai-chat.php), which refuses before it
+ * ever reaches the executor. _pp_snapshot_batch_targets() does NOT call this: it
+ * classifies from its own capture read so the stored value and the verdict come
+ * from one read (see the comment there). Both derive the answer from
+ * pp_get_composition_result(), the single classify owner, and both render it
+ * through _pp_batch_unreadable_target_error(), the single wording owner, so the
+ * two refusals cannot spell one state two ways.
+ *
+ * Read-only. The post gate is character-for-character the snapshotter's own —
+ * any step carrying a top-level numeric post_id for a post that exists — and
+ * that identity is the load-bearing property, not the breadth: it makes this set
+ * exactly the set the snapshotter captures a composition for, and therefore
+ * exactly the set a rollback could write over. Widen or narrow one and you must
+ * do the same to the other. Deliberately NOT narrowed to composition-mutating
+ * steps: `mutates_composition` is a capability predicate, not a snapshot-
+ * completeness one, and repurposing it here would silently drop the rollback
+ * baseline for any writer it does not list. The cost of the wider gate is
+ * disclosed and accepted: a batch that merely NAMES a corrupt page (publish_page,
+ * update_page_title) is refused too.
+ *
+ * WHERE THE REPAIR ACTUALLY WORKS, stated precisely because the refusal message
+ * points at it: the SINGLE-step execute path does not snapshot and so is never
+ * refused, and restore_composition is never blocked by validation (#233). That
+ * path is reached by WP-CLI (`wp pp action execute`), pp_patch_composition(), and
+ * the dashboard editor. It is NOT reached by a chat proposal: the chat client
+ * routes every proposal, one step or many, through the batch endpoint, so a
+ * repairing update_composition/restore_composition issued as a chat proposal is
+ * refused by this same gate. Repair from the CLI or the editor, then return to
+ * chat. See #756 for the chat-side gap.
+ *
+ * Insertion order is STEP order, and the refusal reports the first entry — so
+ * which page a multi-corrupt batch names is deterministic, not incidental.
+ *
+ * @param  array $steps  Each: ['type' => ..., 'name' => ..., 'params' => array]
+ * @return array         {post_id => 'unexpected_shape'|'decode_error'}; [] when all readable.
+ */
+function _pp_batch_unreadable_targets(array $steps): array {
+    $unreadable = [];
+    $seen       = [];
+
+    foreach ($steps as $step) {
+        $params = $step['params'] ?? [];
+        if (!isset($params['post_id']) || !is_numeric($params['post_id'])) {
+            continue;
+        }
+        $post_id = (int) $params['post_id'];
+        if (isset($seen[$post_id])) {
+            continue;
+        }
+        $seen[$post_id] = true;
+        if (!get_post($post_id)) {
+            continue; // never snapshotted, so never restored over
+        }
+        $stored = pp_get_composition_result($post_id);
+        if (!$stored['ok']) {
+            $unreadable[$post_id] = $stored['error'];
+        }
+    }
+
+    return $unreadable;
+}
+
+/**
+ * Renders the refusal an unreadable batch target earns (#749), or null when there is none.
+ *
+ * Single owner of the refusal's wording AND its code, for the same reason
+ * _pp_batch_unreadable_targets() is the single owner of the detection: the
+ * executor and the chat entry point both refuse, and two hand-rolled messages
+ * would be two spellings of one state.
+ *
+ * The CODE is the classification itself — `unexpected_shape` / `decode_error` —
+ * matching pp_inspect_composition() (#725), `operate inspect`, `check page`,
+ * `validate site` and the write path (#724). The MESSAGE is the shared integrity
+ * sentence (pp_composition_integrity_message) plus this surface's own next
+ * action; the diagnosis is single-owned so a new spelling of one state cannot
+ * appear here, and only the repair tail is local because only it is specific to
+ * "your multi-step proposal was refused".
+ *
+ * @param  array $unreadable  {post_id => classification} from _pp_batch_unreadable_targets().
+ * @return array|null         ['error' => string, 'error_code' => string], or null when readable.
+ */
+function _pp_batch_unreadable_target_error(array $unreadable): ?array {
+    // Head of the map, said as head-of-map. The keys are in step order, so "first"
+    // is the page the operator's own proposal named first — deterministic, which is
+    // the property the docblock above is claiming.
+    $post_id = array_key_first($unreadable);
+    if ($post_id === null) {
+        return null;
+    }
+    $error = $unreadable[$post_id];
+
+    return [
+        'error'      => pp_composition_integrity_message($post_id, $error)
+            . ' This proposal was refused before any step ran, so nothing was changed:'
+            . ' rolling it back would have to write over those bytes. Repair the page'
+            . ' FIRST, with a single write and not as a step in a proposal: one full'
+            . ' update_composition (a JSON array of components), or restore_composition'
+            . ' to replay a prior version. Then run the proposal again.',
+        'error_code' => $error,
     ];
 }
 
@@ -1163,11 +1304,14 @@ function _pp_recreate_menu_item(int $menu_id, object $item, int $parent_id): ?in
  *
  * @param array $snapshot  Bundle from _pp_snapshot_batch_targets(), with
  *                          'created_posts' populated as steps succeeded.
- * @return string[]         Anything that could NOT be restored (currently
- *                           the menu layer reports these) — empty when the
- *                           rollback was clean.
+ * @return string[]         Anything that could NOT be restored — the menu layer,
+ *                           and (since #749) any page whose composition restore was
+ *                           withheld because the live stored value became unreadable
+ *                           mid-batch. Empty when the rollback was clean.
  */
 function _pp_restore_batch_snapshot(array $snapshot): array {
+    $errors = [];
+
     foreach ($snapshot['created_posts'] as $created_post_id) {
         wp_delete_post($created_post_id, true);
     }
@@ -1176,7 +1320,33 @@ function _pp_restore_batch_snapshot(array $snapshot): array {
         if (in_array($post_id, $snapshot['created_posts'], true)) {
             continue; // already deleted above — nothing to restore it to
         }
-        pp_update_composition($post_id, $state['composition']);
+        // RE-CLASSIFY BEFORE WRITING (#749). pp_ai_execute_batch() already refused
+        // any batch whose target was unreadable AT SNAPSHOT TIME, so in the normal
+        // flow this always passes. It is checked again HERE, against live state,
+        // because the snapshot and the rollback are two reads separated by every
+        // step the batch ran: an external raw meta write, an import, or a hand-
+        // edited row can corrupt the page inside that window, and the snapshot
+        // this function holds would then be written straight over the newly
+        // recoverable bytes. Restoring the OTHER fields is still right — they were
+        // captured honestly and the batch did change them — so only the
+        // composition write is withheld, and the caller is told which page and why
+        // through rollback_errors, the channel the batch envelope already
+        // documents as "rolled_back: true is not clean until you check this".
+        // NOT a #233 exception. #233's rule — a restore is never blocked by current
+        // VALIDATION rules — is untouched: nothing here inspects the snapshot or asks
+        // whether today's rules like it. What is checked is the TARGET: whether the
+        // bytes about to be overwritten can still be read. A restore that current
+        // rules dislike still goes through; only a write onto unreadable bytes waits.
+        $stored = pp_get_composition_result($post_id);
+        if ($stored['ok']) {
+            pp_update_composition($post_id, $state['composition']);
+        } else {
+            $errors[] = pp_composition_integrity_message($post_id, $stored['error'])
+                . ' Its composition was NOT rolled back: the stored bytes changed to an'
+                . ' unreadable state during this batch, and restoring the snapshot over them'
+                . ' would destroy the only recoverable copy. Every other field on this page'
+                . ' was rolled back.';
+        }
         pp_update_page_title($post_id, $state['title']);
         pp_update_page_slug($post_id, $state['slug']);
         wp_update_post(['ID' => $post_id, 'post_status' => $state['status']], true);
@@ -1250,10 +1420,14 @@ function _pp_restore_batch_snapshot(array $snapshot): array {
     }
 
     if (($snapshot['menus'] ?? null) !== null) {
-        return _pp_restore_menu_state($snapshot['menus']);
+        // MERGED, not replaced (#749): the menu layer used to be the only producer
+        // of rollback errors and returned its list directly. A withheld composition
+        // restore is a second producer, and dropping it here would hide exactly the
+        // condition it exists to report.
+        return array_merge($errors, _pp_restore_menu_state($snapshot['menus']));
     }
 
-    return [];
+    return $errors;
 }
 
 /**
@@ -1285,9 +1459,21 @@ function _pp_restore_batch_snapshot(array $snapshot): array {
  * carry the fresh version. The mandate that every mutating step is covered lives in the
  * chat entry point (lib/ai-chat.php) — reached only after that gate passes.
  *
+ * Refuses the whole batch, before step 1, when any page it names has a stored
+ * composition that cannot be READ (#749) — see the fail-closed block below. That
+ * refusal is the one ok:false envelope with no failing step, and the only return
+ * carrying 'error' / 'error_code' at the batch level.
+ *
+ * DISCRIMINATE ON steps === [] OR error_code, NEVER ON failed_at ALONE: a
+ * SUCCESSFUL batch also returns 'failed_at' => null. The pair (ok === false,
+ * failed_at === null) is what identifies the refusal.
+ *
  * @param  array $steps      Each: ['type' => 'action'|'apply', 'name' => string, 'params' => array]
  * @param  array $baselines  {post_id => version} CAS baselines per page (#404); [] = none.
- * @return array          ['ok', 'steps' (per-step results), 'failed_at' (?int),
+ * @return array          ['ok', 'steps' (per-step results), 'failed_at' (?int —
+ *                          the failing step index; null on a SUCCESSFUL batch, and
+ *                          null on the #749 pre-execution refusal where no step ran;
+ *                          an integer index for every executed failure),
  *                          'rolled_back' (bool), 'rollback_errors' (string[] —
  *                          non-empty when the rollback itself could not fully
  *                          restore something; a consumer must not treat
@@ -1298,6 +1484,37 @@ function _pp_restore_batch_snapshot(array $snapshot): array {
  */
 function pp_ai_execute_batch(array $steps, array $baselines = []): array {
     $snapshot = _pp_snapshot_batch_targets($steps);
+
+    // FAIL CLOSED ON AN UNREADABLE TARGET (#749). A batch is atomic, and atomicity
+    // here is bought with a snapshot that gets written back on failure. If a named
+    // page's stored composition cannot be READ, no honest snapshot of it exists —
+    // rolling back would mean writing a degraded stand-in over the only recoverable
+    // copy of those bytes. So the batch is refused before step 1 instead: nothing
+    // ran, so there is nothing to roll back, which is the strongest form of the
+    // atomicity promise rather than a weaker one. Same posture as #241 (run-scoped
+    // restore fails the preflight closed) and #506 (a corrupt homepage is never
+    // seeded over), and the same up-front shape as the #404 baseline mandate.
+    //
+    // failed_at is NULL here and steps is [] — the ONLY ok:false envelope this
+    // function returns without a failing step, because no step ever ran. The chat
+    // surface never sees it: _pp_ai_execute_batch_response() (lib/ai-chat.php) runs
+    // the same refusal first and returns it through wp_send_json_error, so the
+    // client renders it on the error branch it already has for #404. This branch is
+    // the fail-closed backstop for every OTHER caller of the executor.
+    $unreadable_error = _pp_batch_unreadable_target_error($snapshot['unreadable']);
+    if ($unreadable_error !== null) {
+        return [
+            'ok'              => false,
+            'steps'           => [],
+            'failed_at'       => null,
+            'rolled_back'     => false,
+            'rollback_errors' => [],
+            'versions'        => [],
+            'error'           => $unreadable_error['error'],
+            'error_code'      => $unreadable_error['error_code'],
+        ];
+    }
+
     $results = [];
 
     // Working per-page version map: seeded from the browser baselines, then advanced to the

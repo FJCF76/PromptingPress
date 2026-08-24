@@ -140,6 +140,26 @@ function ppChatIsCompositionConflict(errData) {
  * True when a completed batch failed on a composition_conflict at its failed
  * step (the batch response is a success envelope carrying a per-step failure).
  */
+/**
+ * True when a failed batch has NO failing step to report (#749).
+ *
+ * The executor refuses a whole proposal before step 1 when a page it names has a
+ * stored composition it cannot read — a rollback would have to write a degraded
+ * stand-in over the only recoverable copy of those bytes. That refusal returns
+ * `failed_at: null` with `steps: []`, the one ok:false shape with no step index,
+ * and it carries the explanation on the batch itself as `error`.
+ *
+ * The failure renderer indexes `steps[failed_at]`, so without this guard that
+ * shape throws a TypeError and the user sees a stack-shaped string instead of
+ * the reason. The chat handler normally answers this case on the !resp.success
+ * branch, so reaching here means the page went unreadable between that gate and
+ * the executor's — narrow, but a null index is not the way to find out.
+ */
+function ppChatBatchWasRefusedUpFront(batch) {
+    if (!batch || batch.ok) return false;
+    return batch.failed_at === null || batch.failed_at === undefined;
+}
+
 function ppChatBatchHitConflict(batch) {
     if (!batch || batch.ok || batch.failed_at === null || batch.failed_at === undefined) return false;
     var failed = batch.steps && batch.steps[batch.failed_at];
@@ -1458,9 +1478,13 @@ function ppChatAppendValidationItems(container, items, className) {
                     el.classList.remove('pp-ai-step-executing');
                     el.classList.add('pp-ai-step-failed');
                 });
-                // A missing-baseline mandate rejection (#404) or a pre-exec
-                // conflict arrives as a structured payload — show the conflict
-                // affordance rather than "[object Object]".
+                // A missing-baseline mandate rejection (#404), a pre-exec conflict,
+                // or an unreadable-composition refusal (#749) all arrive as a
+                // structured payload — show the conflict affordance rather than
+                // "[object Object]". The #749 refusal deliberately takes the generic
+                // error-message path instead: re-reading the page cannot fix bytes
+                // nobody can decode, so offering "Re-read & re-preview" would send
+                // the operator round a loop that ends where it started.
                 if (ppChatIsCompositionConflict(resp.data)
                     || (resp.data && resp.data.error_code === 'missing_expected_version')) {
                     showConflictState(card, steps, pageId);
@@ -1517,6 +1541,19 @@ function ppChatAppendValidationItems(container, items, className) {
             // leaving our stored baselines stale. Re-read the baseline for each touched
             // page so the next apply doesn't false-conflict against that churn (#404).
             refreshTouchedBaselines(steps);
+
+            if (ppChatBatchWasRefusedUpFront(batch)) {
+                // No step ran, so every step is skipped, not failed. The forEach above
+                // iterated an empty steps array and the skip loop below is gated on a
+                // non-null failed_at, so without this the card is left with every row
+                // still spinning under an error line.
+                stepElements.forEach(function (el) {
+                    el.classList.remove('pp-ai-step-executing');
+                    el.classList.add('pp-ai-step-skipped');
+                });
+                addStatusMessage('Error: ' + (batch.error || 'Unknown error'), true);
+                return;
+            }
 
             var failedResult = batch.steps[batch.failed_at];
             var message = 'Error on step ' + (batch.failed_at + 1) + ': ' + (failedResult.error || 'Unknown error');
@@ -2324,6 +2361,7 @@ if (typeof module !== 'undefined' && module.exports) {
         applyVersionMap: ppChatApplyVersionMap,
         isCompositionConflict: ppChatIsCompositionConflict,
         batchHitConflict: ppChatBatchHitConflict,
+        batchWasRefusedUpFront: ppChatBatchWasRefusedUpFront,
         conflictMessage: ppChatConflictMessage
     };
 }
