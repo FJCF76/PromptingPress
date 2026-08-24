@@ -1585,7 +1585,7 @@ function _pp_action_preview(string $name, string $scope, array $target, $before,
 pp_register_action('create_page', [
     'scope'       => 'site',
     'description' => 'Creates a new page with the Composition template. Each composition item is {"component": "name", "props": {...}}.',
-    'semantics'   => 'Create. Title is required. Composition defaults to empty array and must be a JSON ARRAY (a list) of components, never an object keyed by position — an object is refused with unexpected_shape and no page is created (#724). Status defaults to "draft". Composition items use the same {"component", "props"} shape as elsewhere. Optional slug sets the canonical route up front (#134) — omit to let WordPress derive one from the title. A page created with no composition is NOT stranded: it can be populated later with update_composition or deleted with trash_page through the operate surface (#358); only component-level edits (add/remove/reorder/update/style_component) require an existing composition first.',
+    'semantics'   => 'Create. Title is required. Composition defaults to empty array and must be a JSON ARRAY (a list) of components, never an object keyed by position — an object is refused with unexpected_shape and no page is created (#724). Status defaults to "draft". Composition items use the same {"component", "props"} shape as elsewhere. Optional slug sets the canonical route up front (#134) — omit to let WordPress derive one from the title. A page created with no composition is NOT stranded: it can be populated later with update_composition or deleted with trash_page through the operate surface (#358); only component-level edits (add/remove/reorder/update/style_component) require an existing composition first. When a composition IS supplied, the call is all-or-nothing: if the composition write itself fails (the writer could not take the page lock), the page just created is deleted again and the call is REFUSED with the writer\'s error_code rather than reported as success over an empty page (#719).',
     'params'      => [
         'title'       => ['type' => 'string', 'required' => true],
         'composition' => ['type' => 'array',  'required' => false],
@@ -1631,7 +1631,96 @@ pp_register_action('create_page', [
 
         if (!empty($params['composition'])) {
             $params['composition'] = pp_normalize_composition($params['composition']);
-            pp_update_composition($post_id, $params['composition']);
+            $written = pp_update_composition($post_id, $params['composition']);
+
+            // THE WRITE'S VERDICT IS NOT OPTIONAL (#719). pp_update_composition() is a
+            // non-validating writer that still refuses in one reachable case here: it could
+            // not acquire the per-post advisory lock (GET_LOCK timed out or returned NULL),
+            // so it logged and SKIPPED the write rather than risk a lost update. Its CAS
+            // branch cannot fire on this path — create_page passes no expected_version — and
+            // both refusals return BEFORE any meta write, so on arrival here THIS call has
+            // provably stored nothing.
+            //
+            // Discarding this return let the action report ok:true over that empty page, and
+            // since #687 the same envelope also carried findings: [] — the key AI_CONTEXT.md
+            // and ai-instructions/operating-loop.md define as the positive confirmation the
+            // write did what you asked. A confident all-clear over a page that lost its
+            // content is worse than the bare ok:true it replaced, which is why the seven
+            // composition-mutating siblings all convert this WP_Error into a rejection.
+            if (is_wp_error($written)) {
+                // ROLL THE PAGE BACK, then reject in the siblings' shape. The rejection
+                // alone would not do: _pp_action_error() renders target => [], and
+                // _pp_ai_execute_error_payload() (lib/ai-chat.php) collapses every failure
+                // except composition_conflict to its message string, so a surviving page's
+                // id has nowhere structural to go and the caller is left with a page it
+                // cannot name. Deleting it makes the empty target TRUE rather than lossy:
+                // the caller either gets the page it asked for WITH its composition, or it
+                // gets nothing and retries the same call. "Nothing" is the normal outcome,
+                // not a guaranteed one — the two branches below that leave the page standing
+                // both say so in the message rather than letting the empty target imply it.
+                //
+                // wp_delete_post($id, true) is the same call, on the same rationale, as the
+                // batch rollback's treatment of a create_page step (_pp_restore_batch_snapshot
+                // above): the page did not exist before this call, so a refusal should not
+                // leave it existing after. When the delete lands, that also keeps the batch
+                // executor honest for free — it records created_posts only for steps that
+                // returned ok:true, so a page left behind by a REJECTED step would otherwise
+                // survive a `rolled_back: true` envelope. When the delete does NOT land, that
+                // is exactly the state the batch cannot see, which is why the message below
+                // names the surviving page: for a batch caller it is the only place the id
+                // appears at all.
+                //
+                // ONLY IF NOTHING ELSE WROTE. The refusal proves THIS call stored nothing; it
+                // does not prove the page is empty. wp_insert_post() above fires save_post,
+                // and a listener on it could have stored a composition of its own — deleting
+                // that would destroy content this action never wrote. So the delete is gated
+                // on the raw meta still being absent. The read is not under the write lock, so
+                // it is best-effort rather than a guarantee; what it guarantees is direction —
+                // it can only ever PREVENT a destructive call, never cause one.
+                //
+                // Not a general-purpose undo, and the comment should not pretend otherwise:
+                // wp_insert_post() and wp_delete_post() both fire hooks, so third-party side
+                // effects of the creation are not unwound. What this action owns is the pair
+                // it wrote — the post row and its composition — ending consistent. The delete
+                // also cascades wider than the row: post meta, revisions, comments and child
+                // attachments (files included) go with it. On a page seconds old whose
+                // creation is being refused that is the intent, recorded here rather than
+                // discovered later.
+                //
+                // CAPABILITY NOTE: create_page is gated on publish_pages while trash_page
+                // requires delete_post (_pp_required_caps_for, lib/ai-chat.php), so this
+                // delete runs without a delete_post check. It is not an escalation route —
+                // the target is a page that did not exist before this call, and no caller can
+                // name, influence or reuse the id — but the asymmetry is deliberate, not an
+                // oversight, and a future reader of the capability table should see it here.
+                //
+                // wp_delete_post() reports failure as a falsy return (false/null), NEVER a
+                // WP_Error, so this is a truthiness check by necessity, not by style.
+                $pristine = get_post_meta($post_id, '_pp_composition', true) === '';
+                $removed  = $pristine ? (bool) wp_delete_post($post_id, true) : false;
+
+                // The writer's own message already closes with "Retry once contention clears.",
+                // so this clause adds only what is new: what became of the page. A surviving
+                // page is NAMED, because _pp_action_error() renders target => [] and the chat
+                // collapses a failure to this string — the message is the only place its id
+                // can reach the caller.
+                if ($removed) {
+                    $aftermath = ' The page created for this call was removed, so no page was left behind.';
+                } elseif ($pristine) {
+                    $aftermath = ' The page created for this call (post ' . $post_id . ') is still there and stores'
+                        . ' no composition. Populate it with update_composition or remove it with trash_page.';
+                } else {
+                    $aftermath = ' The page created for this call (post ' . $post_id . ') is still there and is NOT'
+                        . ' empty — something else wrote to it, so it was left alone. Inspect it before reusing it.';
+                }
+
+                return _pp_action_error(
+                    'create_page',
+                    'site',
+                    $written->get_error_message() . $aftermath,
+                    $written->get_error_code()
+                );
+            }
         }
 
         return _pp_action_result('create_page', 'site', ['post_id' => $post_id], [
