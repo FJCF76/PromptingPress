@@ -4,6 +4,55 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.15.11] — 2026-08-25 — Batch rollback can no longer erase a corrupt page's recoverable bytes (#749)
+
+**A failed batch used to repair itself by destroying a page.** `_pp_snapshot_batch_targets()` captured every named page's composition through `pp_get_composition()` — the legacy accessor that DEGRADES a corrupt or wrong-shaped stored value to `[]` — and `_pp_restore_batch_snapshot()` wrote that capture back unconditionally. So a batch that merely NAMED a page whose `_pp_composition` was corrupt-but-recoverable (a JSON object, a bare scalar, truncated JSON, an already-decoded non-list array) and then failed for any reason rolled back by writing `[]` over the only recoverable copy of those bytes, and reported `rolled_back: true` with no error. The page went from "corrupt but restorable" to genuinely empty, silently. The gate was `isset($params['post_id'])`, so `publish_page`, `update_page_title` and `set_seo_meta` all triggered the snapshot even though they never touch the composition. This is unrecoverable data loss on a path an agent hits routinely, and #241 closed exactly this failure for the run-scoped restore — `lib/cli.php` still carries the comment from that fix, *"pp_get_composition() coerces corruption to [] and must not be used here"*. The batch executor never got the same guard.
+
+**What operators get: a rollback can no longer erase a corrupt page's recoverable bytes.** The stored value survives the batch that would have eaten it, and `restore_composition` still has a history ring to replay.
+
+### THE MECHANISM: refuse, not raw-snapshot — and why
+
+The ruling sanctioned two shapes: snapshot the RAW stored value so the write-back is byte-what-was-there, or refuse to proceed when a snapshot target is unreadable. **This ships REFUSE.** Raw-snapshot was rejected on evidence, not taste. There is exactly ONE writer of the `_pp_composition` meta key in `lib/` (`lib/wp.php`, inside `pp_update_composition()`'s advisory-locked callback), and it also bumps `_pp_composition_version`, bumps `_pp_composition_hash`, and pushes the prior composition onto the history ring. Restoring raw bytes needs a SECOND writer that bypasses all three — leaving the freshness marker stale while the bytes move, which is the #113/#404 CAS baselines' whole foundation, and adding a second hand-rolled `wp_slash()` meta-write site next to the one #752 already flags. Refuse adds no writer, no marker bypass, and no new serialization site. It is also the posture two siblings already take: #241 (run-scoped restore fails the preflight closed) and #506 (`pp_resolve_front_page_render()` classifies first and writes NOTHING over a corrupt homepage).
+
+So `_pp_snapshot_batch_targets()` now reads through `pp_get_composition_result()`, the single decode+classify owner, and records unreadable targets; `pp_ai_execute_batch()` refuses the whole batch before step 1 when that map is non-empty. Nothing ran, so there is nothing to roll back — the strongest form of the atomicity promise, not a weaker one. The classification IS the `error_code` (`unexpected_shape` / `decode_error`), and the message is the shared `pp_composition_integrity_message()` sentence plus a repair tail, so no fifth spelling of one state enters the vocabulary (#650/#652, #725).
+
+**One read decides both.** The captured composition and the verdict beside it come from the same `pp_get_composition_result()` call. Classifying in a separate pass would leave a window in which the row flips corrupt between "is it readable?" and "capture it", and the capture would then be a degraded `[]` that the map calls fine — the original bug, rebuilt out of two honest reads.
+
+**The rollback path re-classifies too.** The preflight only proves a target was readable when the batch STARTED; the snapshot and the rollback are separated by every step the batch ran. So `_pp_restore_batch_snapshot()` re-reads before writing and WITHHOLDS the composition restore for a row that went unreadable mid-batch, reporting it through `rollback_errors` — which is now merged with the menu layer's list rather than replaced by it. Every other field on that page still rolls back. This is not a #233 exception: nothing inspects the snapshot or asks whether today's validation rules like it; what is checked is whether the bytes about to be overwritten can still be read.
+
+### Scope boundaries
+
+- **The #719 interplay is untouched.** `lib/actions.php` still gates `created_posts` on `ok: true` steps, and `tests/CreatePageWriteFailureTest.php::testABatchWhoseCreatePageStepIsRefusedLeavesNoPageBehind` still passes unchanged — the refusal fires BEFORE step 1, so a `create_page` step in a refused batch never runs and strands nothing (pinned by a new test).
+- **#752 (`pp_update_composition`'s unchecked meta writes) is NOT touched.** Choosing refuse over raw-snapshot is precisely what kept this change out of that territory: no second meta-write site was added.
+- **#746 did NOT ride along.** It was permitted as a merged-slot landing only if the chosen mechanism naturally carried findings reporting. Refuse does not — it reports a classification, not a findings list — so #746 stays stretch and untouched.
+- **#405** (rollback clobbering a concurrent READABLE external write) is a different, already-filed case and is unchanged: only unreadable targets are withheld.
+- Breadth is deliberate and accepted: the gate covers every page any step NAMES, so a batch that only publishes or renames an already-corrupt page is refused too. Narrowing it to composition-mutating steps was considered and declined — `mutates_composition` is a capability predicate, not a snapshot-completeness one, and repurposing it would silently drop the rollback baseline for any writer it does not list.
+
+### Known limitation
+
+**On the chat surface, a corrupt page's repair must go through the CLI or the dashboard editor (#756).** The chat client routes every proposal, one step or many, through the batch endpoint, so a repairing `update_composition`/`restore_composition` issued as a chat proposal is refused by this same gate. The single-step path (`wp pp action execute`, `pp_patch_composition()`, the editor) never snapshots and is never refused. Every doc surface now says so plainly rather than prescribing a repair that would bounce.
+
+### Fixed
+
+- `_pp_snapshot_batch_targets()` reads through `pp_get_composition_result()` instead of the degrading `pp_get_composition()`, and records unreadable targets in the bundle (#749).
+- `pp_ai_execute_batch()` refuses the whole batch before step 1 when any named page's stored composition cannot be read — `ok: false`, `steps: []`, `failed_at: null`, `rolled_back: false`, plus batch-level `error` / `error_code`.
+- `_pp_restore_batch_snapshot()` re-classifies each target against live state and withholds the composition write for a row that went unreadable mid-batch, reporting it via `rollback_errors` (now merged with, not replaced by, the menu layer's list).
+- `_pp_ai_execute_batch_response()` (`lib/ai-chat.php`) runs the same refusal so the chat surface answers through `wp_send_json_error` with the structured `{error, error_code}` payload its client already renders, instead of a step-less batch envelope on the success branch.
+- `assets/js/pp-ai-chat.js` no longer indexes `steps[failed_at]` when `failed_at` is null, and marks the proposal's steps skipped rather than leaving them spinning.
+
+### Docs
+
+- `AI_CONTEXT.md` — the batch return shape (including that a SUCCESSFUL batch also has `failed_at: null`, so callers must not discriminate on it alone), the refusal, both `rollback_errors` producers, and the chat repair limitation.
+- `ai-instructions/operating-loop.md`, `ai-instructions/playbook-inspect-fix.md`, `docs/reference-apply-cli.md` — the repair must be issued as its own single action, never as a step inside a proposal.
+- `docs/operating-loop-safety.md` — a gate-coverage row, as that file's own rule requires for a caller-scoped data-safety gate.
+
+### Tests
+
+- `tests/BatchRollbackCorruptSnapshotTest.php` (new, 23 tests): both classifications across both storage channels (raw JSON string and already-decoded non-list array) plus the bare-scalar path; the composition-MUTATING refusal (the original destructive shape) alongside the wide publish/rename cases; zero writes on refusal asserted over the whole post-meta store, so the version marker, content hash and history ring are pinned too; the history ring spelled out separately, since it is what makes "recoverable" mean anything; fixtures authored through two real writes before being corrupted, rather than corrupt from birth; no step executed, asserted through side effects; determinism of which page a multi-corrupt batch names; the accepted counterparts (empty list, absent meta, unnamed corrupt page) ; orphan meta on a deleted post through BOTH gates; the #719 create_page interplay; both detectors resolving the same set; and the mid-batch TOCTOU withholding including the menu-error merge.
+- `tests/js/pp-ai-chat-cas-baselines.test.js` — 5 tests for `batchWasRefusedUpFront`, including that step index 0 is not mistaken for a refusal.
+
+---
+
 ## [v1.15.10] — 2026-08-24 — `create_page` stops reporting success over a page whose composition never stored (#719)
 
 **`create_page` created the page row, then threw away the verdict of the composition write that followed it.** `pp_update_composition()` is a non-validating writer, but it still refuses: when it cannot take the target page's advisory write lock it logs, SKIPS the write to avoid a lost update, and returns `composition_lock_failed`. Nobody looked at that return. So a `create_page` whose page was created and whose composition was refused came back `ok: true` with a `target.post_id` pointing at a silently EMPTY page — and since #687 the same envelope also carried `findings: []`, which `AI_CONTEXT.md` and `ai-instructions/operating-loop.md` define as the positive confirmation that the write did what you asked. The surface the docs tell agents to trust was actively certifying a page that had lost its content.

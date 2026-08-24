@@ -8,6 +8,7 @@
  *   applyVersionMap       — merge server post-write versions into the store
  *   isCompositionConflict — detect the structured conflict error payload
  *   batchHitConflict      — detect a batch that failed on a conflict step
+ *   batchWasRefusedUpFront — detect the step-less #749 refusal envelope
  *   conflictMessage       — the single user-facing conflict message
  */
 
@@ -41,6 +42,7 @@ const {
     applyVersionMap,
     isCompositionConflict,
     batchHitConflict,
+    batchWasRefusedUpFront,
     conflictMessage,
 } = require('../../assets/js/pp-ai-chat.js');
 
@@ -124,6 +126,38 @@ describe('batchHitConflict', function () {
     test('false when the failure was a non-conflict error', function () {
         const batch = { ok: false, failed_at: 0, steps: [{ ok: false, error_code: 'invalid_params' }] };
         expect(batchHitConflict(batch)).toBe(false);
+    });
+});
+
+describe('batchWasRefusedUpFront', function () {
+    // #749: the executor refuses a whole proposal before step 1 when a page it
+    // names has an unreadable stored composition. That is the one ok:false shape
+    // with no failing step, and the failure renderer indexes steps[failed_at] —
+    // so this predicate is what keeps it from indexing null and throwing.
+    test('true for the step-less refusal envelope', function () {
+        const batch = { ok: false, failed_at: null, steps: [], rolled_back: false,
+                        error: 'Page 7: composition data integrity error (unexpected_shape).',
+                        error_code: 'unexpected_shape' };
+        expect(batchWasRefusedUpFront(batch)).toBe(true);
+    });
+
+    test('false for an ordinary batch failure that has a failing step', function () {
+        const batch = { ok: false, failed_at: 0, steps: [{ ok: false, error: 'nope' }] };
+        expect(batchWasRefusedUpFront(batch)).toBe(false);
+    });
+
+    test('false for step index 0, which is falsy but a real step', function () {
+        // Guards the classic bug: `!batch.failed_at` would call step 0 a refusal.
+        expect(batchWasRefusedUpFront({ ok: false, failed_at: 0, steps: [{ ok: false }] })).toBe(false);
+    });
+
+    test('false for a successful batch', function () {
+        expect(batchWasRefusedUpFront({ ok: true, failed_at: null, steps: [] })).toBe(false);
+    });
+
+    test('false for a missing payload rather than throwing', function () {
+        expect(batchWasRefusedUpFront(null)).toBe(false);
+        expect(batchWasRefusedUpFront(undefined)).toBe(false);
     });
 });
 
