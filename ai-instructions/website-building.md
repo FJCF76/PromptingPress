@@ -57,6 +57,13 @@ write is rejected with `composition_conflict` and nothing is applied. This is pr
 not a failure to route around: re-read the page for its current state, then re-propose
 against it. Never retry the same write hoping it lands.
 
+That rule is about `composition_conflict` specifically. `composition_lock_failed` is the
+opposite case and the opposite advice: the writer could not take the page's lock, so it
+stored NOTHING and no state moved. Retrying the identical call is the correct response.
+On `create_page` the retry is clean because a refusal normally removes the page it had
+just created and releases its slug (#719); if the message says a page was left behind, it
+names it.
+
 ## Escalation triggers
 
 Stop and ask the user before proceeding when:

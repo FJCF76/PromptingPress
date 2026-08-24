@@ -1089,6 +1089,16 @@ if (!function_exists('wp_untrash_post')) {
 
 if (!function_exists('wp_delete_post')) {
     function wp_delete_post(int $post_id, bool $force_delete = false) {
+        // Test-controlled delete refusal: set
+        // $GLOBALS['_pp_test_undeletable_posts'][$post_id] = true to get the FALSY
+        // return real core gives when a delete does not happen (a `pre_delete_post`
+        // short-circuit, an unregistered post type, an unhealthy DB). Core never
+        // reports this as a WP_Error, so a caller's failure branch can only be
+        // exercised through a falsy return. Same opt-in, test-scoped shape as
+        // $GLOBALS['_pp_test_user_caps'] and $GLOBALS['_pp_test_template_dir'] (#719).
+        if (!empty($GLOBALS['_pp_test_undeletable_posts'][$post_id])) {
+            return false;
+        }
         if (isset($GLOBALS['_pp_test_store']['posts'][$post_id])) {
             $post = $GLOBALS['_pp_test_store']['posts'][$post_id];
             unset($GLOBALS['_pp_test_store']['posts'][$post_id]);
