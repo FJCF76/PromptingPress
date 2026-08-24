@@ -36,9 +36,10 @@
  *
  * THE PREDICATE IS is_scalar, NOT is_string, AND THAT IS LOAD-BEARING. PHP runs coercive
  * here (no declare(strict_types)), so only NON-SCALARS ever fataled — a stored `42`
- * coerced at the boundary and painted `url(42)`. The write path is scalar-permissive to
- * match: create_page accepts `background_image: 42`, stores it RAW, and the findings
- * engine reports nothing (#707). So:
+ * coerced at the boundary and painted `url(42)`. #707 has since narrowed the WRITE path
+ * so `background_image: 42` is refused, but this guard's subject is STORAGE, not writes:
+ * a pre-#707 composition, a restored snapshot (#233) and a raw meta write all still hold
+ * it, and it still has to paint. So:
  *
  *   NON-SCALAR -> ""            CHANGED: the fatal, now a degraded render.
  *   SCALAR     -> (string) cast UNCHANGED: as it painted before the guard.
@@ -46,7 +47,7 @@
  * Stated honestly, ONE half of the #641 rationale does NOT carry over to this prop:
  * `background_image` has no `image_id` companion (it is CSS `background-image`, not an
  * `<img>`), so there is no resolvable attachment for an is_string() guard to discard
- * here. The write-accepted-scalar half carries on its own and is sufficient. The scalar
+ * here. The stored-scalar half carries on its own and is sufficient. The scalar
  * URL semantics this preserves (`true` painting `url(1)`) are COMPATIBILITY, not a claim
  * that they are correct — tightening what the write path ACCEPTS is #707, and this guard
  * deliberately does not prejudge it by rejecting at render what the front door admits.
@@ -238,18 +239,23 @@ class StoredBackgroundImageRenderGuardTest extends TestCase
     /**
      * THE REGRESSION PIN for the predicate, on real stored bytes.
      *
-     * A stored non-string SCALAR background_image is not hypothetical: create_page
-     * accepts it and stores it raw (#707), and in coercive mode it has always painted.
-     * is_string() would have blanked it and closed all three gates, silently dropping a
-     * background the front door had just accepted. This fails the moment the predicate
-     * narrows.
+     * A stored non-string SCALAR background_image is not hypothetical, and #707 did not
+     * make it so. In coercive mode it has always painted, and is_string() would blank it
+     * and close all three gates, silently dropping a background that renders correctly.
+     * This fails the moment the predicate narrows.
      *
-     * A NOTE FOR WHOEVER IMPLEMENTS #707. This pin asserts COMPATIBILITY — that the guard
-     * did not change how an already-accepted scalar renders — NOT that painting `url(42)`
-     * is correct. It is deliberately not a contract you must preserve. When #707 tightens
-     * what the WRITE path accepts, updating or deleting this pin is the expected and
-     * correct move, not a regression. What must survive #707 is the surrounding property:
-     * the render path degrades a non-scalar instead of fataling.
+     * ANSWERING THE NOTE THIS DOCBLOCK USED TO LEAVE FOR #707. It said the pin asserted
+     * COMPATIBILITY — that the guard did not change how an already-accepted scalar
+     * renders — not that painting `url(42)` is CORRECT, and that updating or deleting it
+     * once the write path tightened would be the expected move rather than a regression.
+     * #707 has now landed and the pin is KEPT, because what it really holds is the
+     * property the note said had to survive: the render path still handles a stored
+     * scalar rather than dropping it. What changed is only the reachability sentence.
+     * `create_page` no longer accepts `background_image: 42` — the fixture below seeds
+     * through `pp_update_composition()`, the NON-validating writer, which is precisely
+     * the channel that still produces this state: a pre-#707 composition, a restore
+     * (#233, reports and never blocks), a raw meta write. The guard is for stored data,
+     * and #707 did not remove any of the ways stored data gets this way.
      */
     public function testAStoredScalarBackgroundImageStillPaints(): void
     {

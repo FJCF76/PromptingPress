@@ -71,7 +71,8 @@
  *
  *   #730  is_scalar($raw) ? (string) $raw : ''     — a STRING is the contract at these
  *         sinks, PHP runs coercive (no declare(strict_types) anywhere in this theme), so
- *         only non-scalars ever fataled and is_string would drop write-accepted scalars.
+ *         only non-scalars ever fataled and is_string would drop STORED scalars (#707
+ *         closed the front door on new ones; it migrated none of the existing ones).
  *   #739  is_array($raw) ? $raw : []                — an ARRAY is the contract at
  *         pp_render_faq_schema(array $items), so every non-array fatals and the
  *         shape-appropriate predicate is the #708 one.
@@ -615,7 +616,7 @@ class StoredLinkAndRichTextRenderGuardTest extends TestCase
      * ASSERTS EMITTED BYTES, because an earlier draft of this test did not, and that draft
      * passed against exactly the implementation its own comment called out as wrong.
      * Measured, one mutation at a time: narrowing the guards from is_scalar to is_string —
-     * which silently DROPS every write-accepted 0 / 42 / 3.14 / true / false — left NINE of
+     * which silently DROPS every stored 0 / 42 / 3.14 / true / false — left NINE of
      * the ten surfaces green, because the test only asserted that the band still rendered
      * and then skipped its containment check for every non-string by construction. A test
      * that cannot see a value disappear is not testing the value.
@@ -633,7 +634,7 @@ class StoredLinkAndRichTextRenderGuardTest extends TestCase
      * those two renders are SUPPOSED to differ. That surface's scalar behaviour is pinned
      * by testSectionBodySpacingIsUnchangedForEveryScalar() instead.
      */
-    public function testEveryWriteAcceptedScalarPassesThroughTheGuardUnchanged(): void
+    public function testEveryStoredScalarPassesThroughTheGuardUnchanged(): void
     {
         // Every scalar shape a stored composition can carry. `null` is absent on purpose:
         // it triggers the `??` default, which is a different code path from the guard.
@@ -650,7 +651,7 @@ class StoredLinkAndRichTextRenderGuardTest extends TestCase
             //   section.body        — $has_body_copy tests is_string on the raw value, so a
             //                         stored int 42 is not body copy while '42' is.
             //   section.panel_cta_url — the gate tests `$raw !== ''`, so a stored false
-            //                         (write-accepted) still renders its button while ''
+            //                         (stored) still renders its button while ''
             //                         renders none. Gating on the cast instead would have
             //                         deleted that button — the exact regression the raw
             //                         keying exists to prevent.
@@ -700,12 +701,14 @@ class StoredLinkAndRichTextRenderGuardTest extends TestCase
      * fix for it (an is_scalar term inside $has_panel_cta, gating on the raw value) reads
      * like an oddity unless the reason is pinned.
      *
-     * Today `panel_cta_url: false` renders an anchor with an empty href. That is arguably
-     * a broken button, but it is PRE-EXISTING and write-accepted, so tightening it is
-     * #707's business, not this guard's. What this test protects is that the guard did not
-     * silently make that decision on the way past.
+     * A STORED `panel_cta_url: false` renders an anchor with an empty href. That is
+     * arguably a broken button, and #707 has since stopped NEW ones being written — but it
+     * migrated nothing, so the stored ones still render and this is still what they do.
+     * What this test protects is that the guard did not silently make that decision on the
+     * way past, and #707 landing does not change that: a render guard must not start
+     * dropping values a write rule stopped accepting later.
      */
-    public function testAWriteAcceptedFalsePanelCtaUrlStillRendersItsButtonUnchanged(): void
+    public function testAStoredFalsePanelCtaUrlStillRendersItsButtonUnchanged(): void
     {
         $withFalse = $this->renderJson('section', self::propsFor('section.panel_cta_url', false));
 
@@ -797,7 +800,7 @@ class StoredLinkAndRichTextRenderGuardTest extends TestCase
             $this->assertStringContainsString(
                 'section__panel-cta',
                 $html,
-                'panel_cta_url ' . var_export($value, true) . ' is write-accepted and is not the'
+                'panel_cta_url ' . var_export($value, true) . ' is a STORED scalar and is not the'
                 . ' empty string, so it still renders its button. Gating on the (string) cast'
                 . ' would drop false, which is the regression the raw-keyed gate prevents.'
             );
@@ -857,7 +860,8 @@ class StoredLinkAndRichTextRenderGuardTest extends TestCase
      * $has_body_copy, which tests is_string(). Guarding `body` at the read makes the
      * guarded local a string for every scalar, so keying that flag on the guarded value
      * would flip a stored `42` from "no body copy" to "has body copy" — a spacing change
-     * for a write-accepted value. It is keyed on the raw value instead; this pins that.
+     * for a stored value that renders fine today. It is keyed on the raw value instead;
+     * this pins that.
      */
     public function testSectionBodySpacingIsUnchangedForEveryScalar(): void
     {

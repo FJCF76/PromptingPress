@@ -72,10 +72,11 @@ $style_attr = $slot_style ? ' style="' . $slot_style . ';"' : '';
                     // is_scalar, NOT is_string, and the difference is load-bearing. PHP runs
                     // COERCIVE here (no declare(strict_types)), so only NON-SCALARS ever
                     // fataled — a stored int/float/bool already coerced at the boundary and
-                    // painted. The write path is scalar-permissive to match: create_page
-                    // accepts `image_url: 42` and stores it raw with no finding (#707). So
-                    // is_string() would silently DROP a value the front door had just
-                    // accepted — and because the helper resolves $attachment_id before it
+                    // painted. #707 has since narrowed the WRITE path so `image_url: 42` is
+                    // refused, but it gates writes, not storage — a pre-#707 composition, a
+                    // restored snapshot (#233) and a raw meta write all still hold it. So
+                    // is_string() would silently DROP a value that renders correctly today
+                    // — and because the helper resolves $attachment_id before it
                     // falls back to $url, it would also discard a perfectly good image_id
                     // attachment on this component. The (string) cast keeps every scalar
                     // rendering byte-for-byte as it does today; the only shapes whose output

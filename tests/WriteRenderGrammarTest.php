@@ -796,8 +796,8 @@ class WriteRenderGrammarTest extends TestCase
             'number: empty sentinel' => ['image_id', ''],
             'string: empty string'   => ['label', ''],
             'string: null sentinel'  => ['label', null],
-            'string: an int'         => ['label', 7],
-            'string: a bool'         => ['label', true],
+            'string: ordinary text'  => ['label', 'Acme'],
+            'string: numeric string' => ['label', '7'],
         ];
     }
 
@@ -840,6 +840,17 @@ class WriteRenderGrammarTest extends TestCase
             'string: object'              => ['label', ['text' => 'Acme'], 'must be a string'],
             'string: list'                => ['label', ['Acme'], 'must be a string'],
             'string: empty array'         => ['label', [], 'must be a string'],
+            // FLIPPED BY #707. `label` 7 and `label` true were in the ACCEPT list
+            // above until the D-A ruling: the #507/#614 predicate read `is_scalar`,
+            // so a nested string field took any scalar and stored it raw. Both depths
+            // share that predicate, which is why one line moved both.
+            'string: an int'              => ['label', 7, 'must be a string'],
+            'string: a float'             => ['label', 3.14, 'must be a string'],
+            'string: true'                => ['label', true, 'must be a string'],
+            'string: false'               => ['label', false, 'must be a string'],
+            // wp_json_encode(-0.0) emits `-0`, which decodes to int 0 — a FALSY
+            // non-string scalar, the shape a truthiness gate would wave through.
+            'string: negative zero'       => ['label', -0.0, 'must be a string'],
         ];
     }
 

@@ -24,7 +24,7 @@
  * a deviation from the family idiom, it is the idiom's stated shape-appropriate form:
  * the earlier props feed `string` parameters, where coercive mode (no
  * declare(strict_types) anywhere in this theme) means only NON-scalars ever fataled and
- * is_string would have dropped write-accepted values. Here an array IS the contract —
+ * is_string would have dropped values already in storage. Here an array IS the contract —
  * every scalar fatals, and the write path says the same thing — so is_array both
  * describes the boundary and changes nothing for data that already rendered.
  *

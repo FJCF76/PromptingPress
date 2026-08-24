@@ -52,8 +52,8 @@ $title_align = $props['title_align'] ?? 'start';
 // is_array, NOT is_scalar — and that is the difference from #641/#705/#706. Those
 // three guard values headed for a `string` parameter, where PHP's coercive mode
 // (no declare(strict_types) anywhere in this theme) means only NON-scalars ever
-// fataled, so is_scalar was the predicate that changed nothing for write-accepted
-// values. Here an ARRAY IS the contract: count() accepts array|Countable and
+// fataled, so is_scalar was the predicate that changed nothing for the scalars sitting
+// in storage. Here an ARRAY IS the contract: count() accepts array|Countable and
 // nothing else, every scalar fatals, and the write path already says the same
 // thing ("prop \"items\" must be an array"). The D-B ruling names this explicitly
 // as the shape-appropriate equivalent. -0.0, the one scalar that flips a

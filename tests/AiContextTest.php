@@ -36,6 +36,36 @@ class AiContextTest extends TestCase
         $this->assertStringContainsString('## Pages', $prompt);
     }
 
+    /**
+     * The prompt teaches that a text prop takes a QUOTED STRING (#707).
+     *
+     * Same reasoning the #643 field-map pin records one screen down, and it applies with
+     * more force here because #707 is a NARROWING: values the model could write yesterday
+     * are refused today. This prompt is the only surface the chat model can learn that
+     * from — the runtime gives it no file or tool to consult, and a rejected step's
+     * message goes to the operator without re-entering the model's conversation. So a
+     * model that is not told will keep writing `"number": 42`, keep being refused, and
+     * the operator sees a loop with no explanation. Advertising the rule is part of
+     * enforcing it.
+     *
+     * Pinned on the load-bearing clauses rather than the whole paragraph, so the wording
+     * can be improved without failing, but the rule cannot silently go missing.
+     */
+    public function testSystemPromptTeachesTheStringPropRule(): void
+    {
+        $prompt = pp_ai_system_prompt();
+
+        $this->assertStringContainsString('invalid_prop_value', $prompt,
+            'the model must learn the error code it will be refused with');
+        $this->assertStringContainsString('#707', $prompt);
+        // The two mistakes worth naming, because both look reasonable to a model:
+        // a stat figure that is really text, and a link cleared with a boolean.
+        $this->assertStringContainsString('"number": "99%"', $prompt,
+            'name the quoted form for a text prop that holds a figure');
+        $this->assertStringContainsString('panel_cta_url', $prompt,
+            'name the clear-a-link case the v1.15.7 smoke actually measured');
+    }
+
     public function testSystemPromptShowsNoPagesWhenEmpty(): void
     {
         $prompt = pp_ai_system_prompt();

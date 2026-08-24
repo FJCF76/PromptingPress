@@ -63,8 +63,10 @@ $id           = $props['id']           ?? '';
 //
 // is_scalar, NOT is_string. PHP runs COERCIVE here (no declare(strict_types)), so only
 // NON-SCALARS ever fataled: a stored `42` coerced at the typed boundary and rendered
-// the heading "42", and the write path accepts and stores a scalar title raw (#707).
-// is_string() would silently drop a value the front door had just admitted. Precisely
+// the heading "42". #707 has since narrowed the WRITE path so a scalar title is refused,
+// but that gates writes and not storage — a pre-#707 composition, a restore (#233) and a
+// raw meta write all still hold it — so is_string() would silently drop a heading that
+// renders correctly today. Precisely
 // scoped, because "only non-scalars fataled" is slightly too broad as usually stated:
 // coercive mode would ALSO have accepted a __toString object, which this guard blanks.
 // That is unreachable rather than merely unlikely, and it takes two facts to say so.
