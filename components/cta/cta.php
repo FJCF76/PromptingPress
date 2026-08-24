@@ -72,9 +72,12 @@ $button_text      = $props['button_text']      ?? 'Get Started';
 //
 // is_scalar, NOT is_string, per the D-B rationale: PHP runs COERCIVE here (no
 // declare(strict_types) anywhere in this theme), so only NON-SCALARS ever fataled. A
-// stored `42` already coerced inside ltrim() and painted `href="42"`, and the write
-// path ACCEPTS a scalar url raw with no finding (#707), so is_string() would silently
-// drop a value the front door had just accepted. An object with a __toString() is
+// stored `42` already coerced inside ltrim() and painted `href="42"`, so is_string()
+// would silently drop a value that renders fine. #707 narrowed the WRITE path — a
+// `type: "string"` prop no longer accepts a non-string scalar — but that gates writes,
+// not storage, and storage is this guard's entire subject: a pre-#707 composition, a
+// restored snapshot (#233) and a raw meta write all still hold `42`, and `42` still
+// has to paint. The front door closing does not empty the room. An object with a __toString() is
 // NOT a scalar and therefore degrades too — deliberate, and stated because the
 // tempting "fix" of admitting Stringable would move the safety boundary rather than
 // hold it: core's ltrim() would accept it, but nothing here can vouch for what its
@@ -152,12 +155,14 @@ $theme            = $props['theme']            ?? 'default';
 //
 // is_scalar, NOT is_string. PHP runs COERCIVE here (no declare(strict_types)), so
 // only NON-SCALARS ever fataled: a stored `42` coerced at the boundary and PAINTED a
-// background, and create_page ACCEPTS `background_image: 42` and stores it raw with no
-// finding (#707). is_string() would silently drop a value the front door had just
-// accepted. Stated honestly, one half of the #641 rationale does NOT carry over:
+// background. #707 has since narrowed the WRITE path so `background_image: 42` is
+// refused, but that gates writes and not storage — a pre-#707 composition, a restore
+// (#233) and a raw meta write all still hold it, and it still has to paint — so
+// is_string() would silently drop a value that renders correctly today. Stated
+// honestly, one half of the #641 rationale does NOT carry over:
 // background_image has no image_id companion (it is CSS background-image, not an
 // <img>), so there is no resolvable attachment to discard here. The
-// write-accepted-scalar half carries on its own and is sufficient.
+// stored-scalar half carries on its own and is sufficient.
 //
 // NOTE ON THE EXACT BYTES, because it is easy to get wrong from the test suite: what a
 // schemeless scalar paints is decided by core's esc_url(), NOT by this guard. Real
@@ -201,8 +206,10 @@ $theme            = $props['theme']            ?? 'default';
 // background image" — what an empty value has always meant here.
 //
 // The scalar URL semantics this preserves are COMPATIBILITY, not a claim that they are
-// correct. Tightening what the write path ACCEPTS is #707; this guard deliberately does
-// not prejudge it by rejecting at render what the front door still admits.
+// correct. #707 has since tightened what the write path ACCEPTS, and this guard was
+// deliberately written not to prejudge that — which is why nothing here had to change
+// when it landed: closing the front door does not empty the room, and the stored values
+// this renders arrived before the door closed or through a channel that bypasses it.
 //
 // STORED data is the point. The write path rejects non-scalars, but it gates WRITES,
 // not storage: restore_composition reports without blocking (#233), a composition

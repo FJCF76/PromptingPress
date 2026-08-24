@@ -48,8 +48,10 @@ $title = $props['title'] ?? 'Default Title';
 // raw _pp_composition meta write is not gated at all.
 //
 // is_scalar, NOT is_string: PHP runs coercive here, so a stored int/float/bool already
-// coerced and rendered, and is_string() would silently drop a value the front door
-// accepts. Guard at the READ so every gate below sees the guarded local.
+// coerced and rendered, and is_string() would silently drop it. Since #707 the write
+// path REJECTS a non-string scalar on a type:"string" prop, but that gates writes, not
+// the stored data above — a pre-#707 page still holds 42 and still has to render.
+// Guard at the READ so every gate below sees the guarded local.
 // NEVER try/catch a wp_kses_post() TypeError to recover — the throw escapes between
 // core's remove_filter('pre_kses', …) and the matching re-add, which de-registers
 // block-attribute KSES for the rest of the request.
@@ -265,7 +267,10 @@ without extending the traversal in the same change.
 **A nested field's scalar `type` also has teeth (#614).** A field declared `type: "string"` or
 `type: "number"` inside an `items[]` map is enforced at the write path through the
 same predicate as the top-level pass, so `"42"` is a number at both depths and a
-non-numeric `image_id` is rejected with `invalid_prop_value`. The unset sentinels also
+non-numeric `image_id` is rejected with `invalid_prop_value`. Since #707 `string` means
+`is_string()` at both depths too: a non-string SCALAR (`42`, `3.14`, `true`, `false`) is
+rejected exactly like an array is, so declaring `type: "string"` on a new field buys you
+the whole contract and not just "not a container". The unset sentinels also
 match the top level (`null` for both, plus `""` for `number`), so an omitted value
 still preserves the field's default. What a nested annotation still does NOT buy you:
 `object` (nothing constrains an item `style` map's contents), and a

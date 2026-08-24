@@ -2183,9 +2183,10 @@ class ComponentPropsTest extends TestCase
      * THE PREDICATE PIN, and the reason it is is_scalar and not is_string.
      *
      * PHP runs coercive here, so a non-string SCALAR title never fataled — it coerced at
-     * the typed boundary and rendered. The write path is scalar-permissive to match
-     * (create_page accepts a scalar title and stores it raw, #707), so an is_string()
-     * guard would silently drop a heading the front door had just admitted. This table is
+     * the typed boundary and rendered. #707 narrowed the WRITE path so a scalar title is
+     * refused, but the guard's subject is STORED data — a pre-#707 composition, a restore
+     * (#233), a raw meta write — so an is_string() guard would still silently drop a
+     * heading that renders correctly today. This table is
      * the whole cast surface, measured rather than assumed, and it fails the moment the
      * predicate narrows.
      *
@@ -3066,10 +3067,10 @@ class ComponentPropsTest extends TestCase
     //
     // WHAT THE GUARD IS, AND WHY IT IS NOT is_string(). PHP runs COERCIVE here (no
     // declare(strict_types)), so only NON-SCALARS ever fataled: a stored `42` coerced at
-    // the boundary and painted `<img src="42">`. The write path is scalar-permissive to
-    // match — create_page accepts `image_url: 42` and stores it raw with NO finding
-    // (#707) — so an is_string() guard would silently drop a value the front door had
-    // just accepted. Worse, because pp_render_responsive_image() resolves $attachment_id
+    // the boundary and painted `<img src="42">`. #707 narrowed the WRITE path so
+    // `image_url: 42` is refused, but the guard's subject is STORED data — a pre-#707
+    // composition, a restore (#233), a raw meta write — so an is_string() guard would
+    // still silently drop a value that renders today. Worse, because pp_render_responsive_image() resolves $attachment_id
     // BEFORE falling back to $url, is_string() would also discard a perfectly good
     // image_id attachment on four of the five components. The pins below are split to
     // hold both halves apart:
@@ -3686,7 +3687,7 @@ class ComponentPropsTest extends TestCase
     // Stated honestly, ONE half of the #641 rationale does not carry over here:
     // background_image has no image_id companion (it is CSS background-image, not an
     // <img>), so there is no resolvable attachment for is_string() to discard. The
-    // write-accepted-scalar half carries on its own. The pins below split the two halves:
+    // stored-scalar half carries on its own. The pins below split the two halves:
     //
     //   NON-SCALAR  -> "" -> no background.  CHANGED: this is the fatal, now degraded.
     //   SCALAR      -> (string) cast.        UNCHANGED: as it rendered before the guard.

@@ -45,9 +45,10 @@
  *
  * THE PREDICATE IS is_scalar, NOT is_string, AND THAT IS LOAD-BEARING. PHP runs coercive
  * here (no declare(strict_types)), so only NON-SCALARS ever fataled — a stored `42`
- * coerced at the boundary and rendered the heading "42". The write path is
- * scalar-permissive to match: create_page accepts a scalar title, stores it RAW, and the
- * findings engine reports nothing (#707). So:
+ * coerced at the boundary and rendered the heading "42". #707 has since narrowed the
+ * WRITE path so a scalar title is refused, but this guard's subject is STORAGE, not
+ * writes: a pre-#707 composition, a restored snapshot (#233) and a raw meta write all
+ * still hold it, and it still has to render. So:
  *
  *   NON-SCALAR -> ""            CHANGED: the fatal, now a degraded render.
  *   SCALAR     -> (string) cast UNCHANGED: as it rendered before the guard.
@@ -100,7 +101,8 @@
  * (core's esc_url/wp_kses_post, which DO fatal in production), #733 (lib/ai-context.php's
  * mb_strlen()/basename() on this same raw title, the AI page-context index — so a
  * composition this guard makes safe to VIEW can still fatal the surface an operator
- * would use to DIAGNOSE it), and #707 (what the write path accepts). Never try/catch a
+ * would use to DIAGNOSE it), and #707 (what the write path accepts — since narrowed to
+ * is_string, which changed nothing here: this file's subject is stored data). Never try/catch a
  * wp_kses_post TypeError to degrade: the throw escapes between core's
  * remove_filter('pre_kses', …) and the matching re-add, so swallowing it de-registers
  * block-attribute KSES for the rest of the request. Guard BEFORE the call.
@@ -433,17 +435,21 @@ class StoredTitleRenderGuardTest extends TestCase
     /**
      * THE REGRESSION PIN for the predicate, on real stored bytes.
      *
-     * A stored non-string SCALAR title is not hypothetical: create_page accepts it and
-     * stores it raw (#707), and in coercive mode it has always rendered. is_string() would
-     * have blanked it and dropped a heading the front door had just accepted. This fails
-     * the moment the predicate narrows.
+     * A stored non-string SCALAR title is not hypothetical, and #707 did not make it so.
+     * In coercive mode it has always rendered, and is_string() would blank it and drop a
+     * heading that renders correctly. This fails the moment the predicate narrows.
      *
-     * A NOTE FOR WHOEVER IMPLEMENTS #707. This pin asserts COMPATIBILITY — that the guard
-     * did not change how an already-accepted scalar renders — NOT that a heading reading
-     * "42" is correct. It is deliberately not a contract you must preserve. When #707
-     * tightens what the WRITE path accepts, updating or deleting this pin is the expected
-     * and correct move, not a regression. What must survive #707 is the surrounding
-     * property: the render path degrades a non-scalar instead of fataling.
+     * ANSWERING THE NOTE THIS DOCBLOCK USED TO LEAVE FOR #707. It said the pin asserted
+     * COMPATIBILITY — that the guard did not change how an already-accepted scalar
+     * renders — not that a heading reading "42" is CORRECT, and that updating or deleting
+     * it once the write path tightened would be expected rather than a regression. #707
+     * has now landed and the pin is KEPT, because what it really holds is the property
+     * the note said had to survive: the render path still handles a stored scalar rather
+     * than dropping it. What changed is only the reachability sentence. `create_page` no
+     * longer accepts `title: 42` — the fixture below seeds through
+     * `pp_update_composition()`, the NON-validating writer, which is precisely the
+     * channel that still produces this state: a pre-#707 composition, a restore (#233,
+     * reports and never blocks), a raw meta write.
      */
     public function testAStoredScalarTitleStillRenders(): void
     {

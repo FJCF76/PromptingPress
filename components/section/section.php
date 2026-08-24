@@ -181,19 +181,22 @@ $content_marker_class = $body_marker !== 'disc'
 // are deliberate. Getting it wrong in either direction is a behaviour change:
 //
 //   gate on the GUARDED value  -> a stored `false` stops rendering its button. But
-//     `false` is WRITE-ACCEPTED — measured, pp_validate_composition() returns ok=true
-//     with ZERO findings for panel_cta_url:false — and (string) false is '', which
-//     fails `!== ''`. D-B's "zero rendering change for well-formed data" forbids that,
-//     so the cast must not be allowed to decide this gate.
+//     `false` is STORED-AND-RENDERING: it was write-accepted for the whole history of
+//     the product (measured at the time: pp_validate_composition() returned ok=true with
+//     ZERO findings for panel_cta_url:false), so real pages hold it, and (string) false
+//     is '', which fails `!== ''`. #707 has since closed that door for NEW writes, which
+//     changes nothing here — the stored values are still stored, and D-B's "zero
+//     rendering change for well-formed data" still forbids the cast deciding this gate.
 //   gate on the RAW value ALONE -> an array passes `!== ''` (it is not the empty
 //     string), the gate opens, and the guarded '' renders `<a href="">Go</a>`. An
 //     empty-href anchor is not "the band renders without the affected fragment"; it is
 //     a broken button pointing at the current page. So the shape test has to be here.
 //
 // Together they give exactly the intended split: every SCALAR keeps its existing
-// behaviour byte-for-byte (including `false`, which still renders its empty-href
-// button exactly as it does today — that is pre-existing and #707's business, not
-// this guard's), and only the shapes that used to FATAL change, to "no button", which
+// behaviour byte-for-byte (including a stored `false`, which still renders its
+// empty-href button exactly as it does today — #707 stopped NEW ones being written but
+// deliberately migrated nothing, so the rendering of the stored ones is still this
+// guard's business), and only the shapes that used to FATAL change, to "no button", which
 // is what an empty panel_cta_url has always meant here. Pinned both ways in
 // tests/StoredLinkAndRichTextRenderGuardTest.php.
 //

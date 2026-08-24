@@ -28,9 +28,10 @@
  *
  * THE PREDICATE IS is_scalar, NOT is_string, AND THAT IS LOAD-BEARING. PHP runs coercive
  * here (no declare(strict_types)), so only NON-SCALARS ever fataled — a stored `42`
- * coerced at the boundary and painted. The write path is scalar-permissive to match:
- * create_page accepts `image_url: 42`, stores it RAW, and the findings engine reports
- * nothing (#707). Because pp_render_responsive_image() resolves $attachment_id before it
+ * coerced at the boundary and painted. #707 has since narrowed the WRITE path so
+ * `image_url: 42` is refused, but this guard's subject is STORAGE, not writes: a
+ * pre-#707 composition, a restored snapshot (#233) and a raw meta write all still hold
+ * it. Because pp_render_responsive_image() resolves $attachment_id before it
  * falls back to $url, an is_string() guard would have blanked the URL, closed the
  * truthiness gate, and silently dropped a real resolvable image_id attachment on four of
  * the five components. So:
@@ -296,9 +297,13 @@ class StoredImageUrlRenderGuardTest extends TestCase
      * rule, and both arguments of the guarded call.
      *
      * NOT asserted here, deliberately: that the write path rejects non-string SCALARS.
-     * It does not — create_page accepts `image_url: 42` and stores it raw. That gap is
-     * #707. Pinning it as "strict" here would be false, and pinning the current
-     * permissiveness as correct would prejudge #707's fix.
+     * It now DOES — #707 landed and narrowed `type: "string"` to `is_string()` — but that
+     * rule is not this file's subject and is pinned in its own place
+     * (tests/StringPropWriteEnforcementTest.php). Asserting it here would couple a render
+     * guard's file to a write rule that can change independently of it. What this file
+     * still owns is the other half, and #707 did not weaken it: the guard must keep
+     * RENDERING a stored non-string scalar, because nothing migrated the ones already in
+     * storage.
      */
     public function testTheAuthoringPathStillRejectsANonScalarImageValue(): void
     {
