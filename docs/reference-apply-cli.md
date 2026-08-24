@@ -543,7 +543,7 @@ A single problem can surface as both, from the two different engines. That is no
 
 `preview` computes the identical findings and writes nothing, so an agent sees the required remediation before executing rather than discovering it in the next validator run. Its `after` field is the normalized composition — what `execute` would actually persist.
 
-`restore_composition` is the only action that returns `findings`. The canonical result keys are a minimum, not an exhaustive set.
+`restore_composition` was the only action that returned `findings` until #687; since then every ACCEPTED composition-mutating write carries it too, plus `create_page` and `operate patch` (see above). A REJECTED envelope carries no `findings` key at all — including a `create_page` refused by the writer (#719). The canonical result keys are a minimum, not an exhaustive set.
 
 ### `wp pp apply restore-composition` (run-scoped)
 

@@ -30,7 +30,7 @@ Run a site-scoped `wp pp apply preflight --run-id=<uuid>` (no `--post_id` — th
 
 ### 4. EDIT
 Execute actions in order:
-1. `create_page` — Create the page, ideally with its full `composition` (and optional `slug`) inline: `wp pp action execute create_page --run-id=<uuid> --params='{"title":"...","composition":[...]}'` (site-scoped; covered by the site PREFLIGHT above). If this step is REFUSED, no page was left behind and the slug was not reserved (#719) — re-run the same command rather than looking for a half-made page, unless the message says otherwise, in which case it names the page it left.
+1. `create_page` — Create the page, ideally with its full `composition` (and optional `slug`) inline: `wp pp action execute create_page --run-id=<uuid> --params='{"title":"...","composition":[...]}'` (site-scoped; covered by the site PREFLIGHT above). If this step is REFUSED, normally no page was left behind and no slug was reserved (#719) — re-run the same command rather than looking for a half-made page. If a page WAS left, the message says so and names it.
 2. `update_composition` — Only needed if you set the composition as a separate page-scoped step rather than inline at creation. First run `wp pp apply preflight --run-id=<uuid> --post_id=<new_page_id>` once the page exists, since page-scoped mutations require a PREFLIGHT covering that post.
 
 Token applies are database-backed, so no `--planned-files` is needed for design token changes.

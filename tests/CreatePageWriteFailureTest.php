@@ -471,6 +471,26 @@ final class CreatePageWriteFailureTest extends TestCase
     }
 
     /**
+     * THE CONTRACT HAS TO REACH THE CALLER THAT ACTS ON IT, and only one field does.
+     *
+     * `pp_ai_system_prompt()` builds the chat AI's action catalog from each action's
+     * `description` (lib/ai-context.php), and `wp pp action list` emits the same field.
+     * Nothing at runtime reads `semantics` — it is a declarative record only. Declaring
+     * this behaviour there and nowhere else would leave the chat AI, the surface most
+     * likely to hit a contended write, never told that a refused create_page cleans up
+     * after itself and is safe to retry. Asserted against the RENDERED prompt rather than
+     * the registry, because rendering is the step that picks the field.
+     */
+    public function testTheRefusalContractReachesTheChatAIsActionCatalog(): void
+    {
+        $prompt = pp_ai_system_prompt();
+
+        $this->assertStringContainsString('create_page', $prompt, 'precondition: the action is catalogued at all');
+        $this->assertStringContainsString('composition_lock_failed', $prompt, 'the code a caller keys on must be teachable');
+        $this->assertStringContainsString('all-or-nothing', $prompt);
+    }
+
+    /**
      * BOUNDARY, recorded rather than assumed: the writer's OTHER refusal
      * (`composition_conflict`, the compare-and-swap) is unreachable from create_page,
      * which is why this file tests only the lock. create_page declares no
