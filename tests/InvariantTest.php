@@ -1487,14 +1487,29 @@ class InvariantTest extends TestCase
      * one guarded local that exists today, so any new caller fails loudly and a human
      * decides whether it needs the guard. That is the intended failure mode — a checker
      * that silently accepted new spellings would be the bug.
+     *
+     * WIDENED BY #739 TO ADMIT pp_render_faq_schema( ALONGSIDE count(). That widening is
+     * the payoff of having keyed this catcher on the CALL rather than on the prop, and
+     * #708's landing said so in advance: "neither new catcher matches
+     * pp_render_faq_schema(", so the gap was VISIBLE rather than silently assumed covered.
+     * Both calls take the same `array` contract on the same `items` prop, so they share
+     * one guard, one predicate and now one checker. What made faq's instance worse than
+     * grid's is not visible at this level: the schema call sits OUTSIDE faq's !empty()
+     * gate, so it also fataled on falsy shapes grid survives. That behaviour is pinned in
+     * tests/StoredLinkAndRichTextRenderGuardTest.php; this checker's job is only to keep
+     * every such call reading the guarded local.
      */
-    public function testEveryCountCallInAComponentTakesAnArrayGuardedLocal(): void
+    public function testEveryItemsTypedCallInAComponentTakesAnArrayGuardedLocal(): void
     {
         $callers = [];
 
         foreach ($this->phpFilesIn($this->themeRoot . '/components') as $file) {
             $content = $this->stripPhpComments(file_get_contents($file));
-            preg_match_all('/(?<![a-z_>$])(?:count|sizeof)\s*\(([^)]*)\)/i', $content, $calls);
+            preg_match_all(
+                '/(?<![a-z_>$])(?:count|sizeof|pp_render_faq_schema)\s*\(([^)]*)\)/i',
+                $content,
+                $calls
+            );
             if ($calls[1] === []) {
                 continue;
             }
@@ -1505,40 +1520,208 @@ class InvariantTest extends TestCase
                 $this->assertMatchesRegularExpression(
                     '/^\s*\$items\s*$/',
                     $args,
-                    $name . ' calls count()/sizeof() with something other than the guarded'
-                    . ' $items local (#708): "' . trim($args) . '". If this is a NEW stored prop,'
-                    . ' guard it at the read with the is_array idiom and then widen this'
-                    . ' allowlist — a raw stored prop reaching count() 500s the whole public'
-                    . ' page. If it is a local that never holds stored data, widen the allowlist'
-                    . ' with a note saying so.'
+                    $name . ' calls count()/sizeof()/pp_render_faq_schema() with something other'
+                    . ' than the guarded $items local (#708/#739): "' . trim($args) . '". If this'
+                    . ' is a NEW stored prop, guard it at the read with the is_array idiom and'
+                    . ' then widen this allowlist — a raw stored prop reaching any of these typed'
+                    . ' boundaries 500s the whole public page. If it is a local that never holds'
+                    . ' stored data, widen the allowlist with a note saying so.'
                 );
             }
 
             $this->assertMatchesRegularExpression(
                 '/\$raw_items\s*=\s*\$props\[\'items\'\]/',
                 $content,
-                $name . ' reads items into something other than $raw_items (#708).'
+                $name . ' reads items into something other than $raw_items (#708/#739).'
             );
             $this->assertMatchesRegularExpression(
                 '/\$items\s*=\s*is_array\(\$raw_items\)\s*\?\s*\$raw_items\s*:\s*\[\]/',
                 $content,
-                $name . ' calls count() on items but does not assign $items through the is_array'
-                . ' guard (#708). is_array and NOT is_scalar: count() accepts array|Countable,'
-                . ' so every scalar fatals and an array IS the contract at this boundary.'
+                $name . ' reaches a typed items boundary but does not assign $items through the'
+                . ' is_array guard (#708/#739). is_array and NOT is_scalar: count() accepts'
+                . ' array|Countable and pp_render_faq_schema() declares `array $items`, so every'
+                . ' scalar fatals and an array IS the contract at both boundaries.'
             );
             $this->assertSame(
                 1,
                 substr_count($content, "\$props['items']"),
-                $name . ' reads items more than once (#708). Every gate must read the guarded local.'
+                $name . ' reads items more than once (#708/#739). Every gate must read the'
+                . ' guarded local.'
             );
         }
 
         sort($callers);
         $this->assertSame(
-            ['grid'],
+            ['faq', 'grid'],
             $callers,
-            'the set of components calling count() changed — a new caller must guard the stored'
-            . ' prop it counts (add the guard, then update this list)'
+            'the set of components reaching a typed items boundary changed — a new caller must'
+            . ' guard the stored prop it passes (add the guard, then update this list)'
+        );
+    }
+
+    // ── #730: every core-escaper call site uses guarded locals ───────────────
+
+    /**
+     * The fifth drift catcher in this family, for stored LINK and RICH-TEXT props into
+     * WordPress CORE's own escapers.
+     *
+     * KEYED ON THE CALL, like #706's, #708's and #739's, and for the same reason: the
+     * admitting criterion is the same TYPED CALL, not the same prop and not the same file.
+     * Keying on prop names would be worse here than anywhere else in the family, because
+     * `title` and `body` are read by components that DON'T reach these sinks (they reach
+     * esc_html, which coerces instead of fataling — the separate, still-open #736).
+     *
+     * WHAT MAKES THIS ONE EASY TO GET WRONG. Both functions are UNTYPED in core:
+     *   esc_url( $url, $protocols = null, $_context = 'display' )
+     *   wp_kses_post( $data )
+     * so nothing in either signature signals danger, and a reader checking types alone
+     * concludes they are safe. They are not: each reaches a string-only builtin (ltrim,
+     * str_contains, preg_replace) before any sanitization decision, and fatals there.
+     * Measured on real WP 7.0 / PHP 8.3.31 during #709.
+     *
+     * KEYED ON THE GUARD, NOT ON THE VARIABLE NAME, and that distinction is the whole
+     * strength of this checker. An earlier draft asserted only that each sink's argument
+     * appeared in an allowlist of accepted spellings. That is bypassed by the exact case
+     * this issue exists to prevent: a NEW component writing
+     *
+     *     $body = $props['body'] ?? '';        // no guard
+     *     ... wp_kses_post($body) ...
+     *
+     * passes a name-only allowlist, because `$body` is an accepted spelling. It was proven
+     * to pass, in a scratch copy, before this was rewritten. So for every non-exempt
+     * argument the checker now demands that the SAME FILE actually assigns that local
+     * through the is_scalar idiom. The guard is the thing enforced; the name is just how
+     * the call site and the assignment are matched to each other.
+     *
+     * EXEMPTIONS ARE NAMED, never inferred, so each one is a decision someone took.
+     */
+    public function testEveryCoreEscaperCallInAComponentTakesAGuardedLocal(): void
+    {
+        // Arguments that are NOT stored-prop-derived, each with its warrant. Anything else
+        // reaching a core escaper must carry the guard.
+        $exempt = [
+            // A theme function, not a prop.
+            'pp_site_url()',
+            // pp_resolve_logo() sources `url` from wp_get_attachment_image_url(), which
+            // returns string|false — never a stored prop value.
+            "\$logo['url']",
+            // footer's social decode loop skips non-array entries and (string)-casts the
+            // url before the escaper sees it.
+            "\$social_item['url']",
+            // DELIBERATELY UNGUARDED. hero's $proof_markup is `trim((string) $proof)`, so
+            // what arrives here is ALREADY a string and this call site cannot fatal. That
+            // prop's fatal is upstream at the cast and object-only — a language construct,
+            // not a core escaper, so a different boundary. Belongs to the open #721.
+            '$proof_markup',
+        ];
+
+        $sites = 0;
+        foreach ($this->phpFilesIn($this->themeRoot . '/components') as $file) {
+            // Comment-stripped BEFORE anything else: the #730 guard blocks are long prose
+            // quoting `esc_url()` and `wp_kses_post()` by name, so a raw scan would count
+            // sentences as call sites.
+            $content = $this->stripPhpComments(file_get_contents($file));
+            $name    = basename($file);
+
+            foreach (['esc_url', 'wp_kses_post'] as $sink) {
+                // One level of nested parens, so esc_url(pp_site_url()) captures the whole
+                // inner call instead of truncating at its first ')'.
+                preg_match_all(
+                    '/(?<![a-z_>$])' . $sink . '\s*\(\s*([^()]*(?:\([^()]*\)[^()]*)*)\)/i',
+                    $content,
+                    $calls
+                );
+                foreach ($calls[1] as $args) {
+                    $sites++;
+                    $arg = trim($args);
+                    if (in_array($arg, $exempt, true)) {
+                        continue;
+                    }
+
+                    // Only a bare local can be guarded. Anything else (a literal, a
+                    // concatenation, an inline call) is an unreviewed shape at a fataling
+                    // sink and must be brought into the idiom or exempted by name.
+                    $this->assertMatchesRegularExpression(
+                        '/^\$[a-z_][a-z0-9_]*$/i',
+                        $arg,
+                        $name . ' passes "' . $arg . '" into core\'s ' . $sink . '() (#730).'
+                        . ' Only a guarded local or a named exemption may reach that sink:'
+                        . ' it is UNTYPED but still fatals from the inside on an array or an'
+                        . ' object, and templates/composition.php has no try/catch, so a raw'
+                        . ' stored value here 500s the WHOLE public page.'
+                    );
+
+                    $local = substr($arg, 1);
+
+                    // ASSIGNED EXACTLY ONCE, asserted BEFORE the shape check, because
+                    // "the guard exists somewhere in this file" is not the same claim as
+                    // "this local is guarded". Proven in a scratch copy: adding
+                    //     $body = $props['footnote'] ?? $body;
+                    // one line BELOW section's guard reintroduces the exact whole-page
+                    // fatal this issue closes (measured: str_contains() TypeError on an
+                    // array), and every other check here stays green — the call-site
+                    // triple is unchanged and the read-once check keys on `body`, not on
+                    // the second prop. A re-assignment after the guard is the same alias
+                    // class the guard-keyed rewrite was meant to close, one level down.
+                    $this->assertSame(
+                        1,
+                        preg_match_all('/\$' . $local . '\s*=(?!=)/', $content),
+                        $name . ' assigns $' . $local . ' more than once (#730). The value that'
+                        . ' reaches ' . $sink . '() must be the one the is_scalar guard produced,'
+                        . ' so a later re-assignment — even from another `?? $' . $local . '`'
+                        . ' fallback — can carry a raw stored value straight into the sink and'
+                        . ' 500 the whole public page.'
+                    );
+
+                    $this->assertMatchesRegularExpression(
+                        '/\$' . $local . '\s*=\s*is_scalar\(\$raw_' . $local
+                        . '\)\s*\?\s*\(string\)\s*\$raw_' . $local . '\s*:\s*\'\'/',
+                        $content,
+                        $name . ' passes $' . $local . ' into core\'s ' . $sink . '() but never'
+                        . ' assigns it through the #730 guard. Add'
+                        . ' `$raw_' . $local . ' = $props[\'…\'] ?? \'\';'
+                        . ' $' . $local . ' = is_scalar($raw_' . $local . ') ? (string) $raw_'
+                        . $local . ' : \'\';` at the READ. is_scalar and NOT is_string: PHP runs'
+                        . ' coercive here, so only non-scalars ever fataled and is_string would'
+                        . ' silently drop values the write path accepts. NEVER try/catch the'
+                        . ' throw instead — it escapes between core\'s'
+                        . ' remove_filter(\'pre_kses\') and the matching re-add, de-registering'
+                        . ' block KSES for the rest of the request.'
+                    );
+
+                    // Where the guarded local comes from a top-level prop, that prop must be
+                    // read EXACTLY ONCE, so no gate can read the raw value below the guard.
+                    // Quote-INSENSITIVE for the reason the #708 catcher records: a literal
+                    // single-quoted count is bypassed by $props["body"], which leaves the
+                    // single-quoted count at 1 and slips a second raw read past.
+                    if (preg_match('/\$raw_' . $local . '\s*=\s*\$props\[[\'"]([a-z0-9_]+)[\'"]\]/i', $content, $m)) {
+                        $prop = $m[1];
+                        $this->assertSame(
+                            1,
+                            substr_count($content, '$props[\'' . $prop . '\']')
+                                + substr_count($content, '$props["' . $prop . '"]'),
+                            $name . ' reads ' . $prop . ' more than once (#730). Every gate must'
+                            . ' read the guarded local, not the raw prop.'
+                        );
+                    }
+                }
+            }
+        }
+
+        // Non-vacuity, as an EXACT count rather than a floor. A hand-picked lower bound is
+        // the weakest link in a scanner: at 13 against a real 19, six guarded sites could
+        // be deleted or renamed out of the scan and this would still pass, so the one
+        // assertion standing between a silently shrinking scan and a green run would not
+        // fire. The real distribution today is table 1, grid 1, footer 3, section 4, nav 2,
+        // hero 4, cta 2, faq 1, embed 1.
+        $this->assertSame(
+            19,
+            $sites,
+            'the number of component call sites reaching core\'s esc_url() / wp_kses_post()'
+            . ' changed (#730). If you ADDED one, it must carry the guard (or be exempted by'
+            . ' name with the reason it cannot hold a stored value); if you REMOVED one,'
+            . ' update this count. A silently shrinking scan is a checker that has stopped'
+            . ' checking.'
         );
     }
 

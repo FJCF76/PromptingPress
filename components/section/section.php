@@ -32,7 +32,31 @@ $title_accent     = is_scalar($raw_title_accent) ? (string) $raw_title_accent : 
 $eyebrow          = $props['eyebrow']          ?? '';
 $subheading       = $props['subheading']       ?? '';
 $title_align    = $props['title_align']    ?? 'start';
-$body             = $props['body']             ?? '';
+// #730: guard the rich-text `body` before it reaches core's UNTYPED wp_kses_post(),
+// which fatals from the inside on both non-string shapes. Full reasoning for the
+// esc_url() half lives in components/cta/cta.php; this is the OTHER core sink, and its
+// two failure modes are reached through different builtins:
+//
+//   wp_kses_post( ['x'] )     TypeError: str_contains(): Argument #1 ($haystack) must be of type string, array given
+//                             (via pre_kses -> wp_pre_kses_block_attributes -> filter_block_content)
+//   wp_kses_post( new Foo )   TypeError: preg_replace(): Argument #3 ($subject) must be of type array|string, Foo given
+//                             (via wp_kses_no_null)
+//
+// GUARD BEFORE THE CALL, NEVER try/catch IT. This is recorded on #730 as a binding
+// constraint rather than a preference: wp_pre_kses_block_attributes() calls
+// remove_filter('pre_kses', ...), then filter_block_content(), then the matching
+// add_filter(). When the middle step throws, the re-add never runs, so swallowing the
+// TypeError would silently de-register block-attribute KSES for the REST OF THE
+// REQUEST — turning a visible 500 into an invisible sanitization hole. The same
+// mechanism is a measurement trap: a probe that catches the first throw reports every
+// later wp_kses_post() as safe. Measure one process per case.
+//
+// ALL THREE CALL SITES ARE UNGATED. `body` renders inside .section__content in each of
+// the three layout branches, with no `if` around the echo, so every layout fatals and
+// an EMPTY array fatals as readily as a populated one. Guarding at the read fixes all
+// three from one place and is why there is exactly one read of this prop.
+$raw_body         = $props['body']             ?? '';
+$body             = is_scalar($raw_body) ? (string) $raw_body : '';
 // #641: guard BOTH raw-value arguments of pp_render_responsive_image() (`string $url`,
 // `string $alt`) before they reach it. A non-empty array is truthy, so the `!$image_url`
 // layout fallback below does NOT fire on one, the band keeps its image layout, and the
@@ -95,7 +119,11 @@ $panel_heading      = $props['panel_heading']      ?? '';
 $panel_body         = $props['panel_body']         ?? '';
 $panel_items        = is_array($props['panel_items'] ?? null) ? $props['panel_items'] : [];
 $panel_cta_text     = $props['panel_cta_text']     ?? '';
-$panel_cta_url      = $props['panel_cta_url']      ?? '';
+// #730: the panel CTA's link prop into core's esc_url(). Same boundary as cta/hero
+// (full reasoning in components/cta/cta.php); the gate below is what makes this site
+// different, so read the $has_panel_cta note there before changing either line.
+$raw_panel_cta_url  = $props['panel_cta_url']      ?? '';
+$panel_cta_url      = is_scalar($raw_panel_cta_url) ? (string) $raw_panel_cta_url : '';
 $panel_cta_variant  = $props['panel_cta_variant']  ?? 'primary';
 $panel_items_marker = $props['panel_items_marker'] ?? 'disc';
 $body_marker        = $props['body_marker']        ?? 'disc';
@@ -149,7 +177,36 @@ $content_marker_class = $body_marker !== 'disc'
     : '';
 
 // The panel CTA needs BOTH a label and a URL to render.
-$has_panel_cta = $panel_cta_text !== '' && $panel_cta_url !== '';
+// #730: this gate reads the RAW url, plus an explicit is_scalar term, and both halves
+// are deliberate. Getting it wrong in either direction is a behaviour change:
+//
+//   gate on the GUARDED value  -> a stored `false` stops rendering its button. But
+//     `false` is WRITE-ACCEPTED — measured, pp_validate_composition() returns ok=true
+//     with ZERO findings for panel_cta_url:false — and (string) false is '', which
+//     fails `!== ''`. D-B's "zero rendering change for well-formed data" forbids that,
+//     so the cast must not be allowed to decide this gate.
+//   gate on the RAW value ALONE -> an array passes `!== ''` (it is not the empty
+//     string), the gate opens, and the guarded '' renders `<a href="">Go</a>`. An
+//     empty-href anchor is not "the band renders without the affected fragment"; it is
+//     a broken button pointing at the current page. So the shape test has to be here.
+//
+// Together they give exactly the intended split: every SCALAR keeps its existing
+// behaviour byte-for-byte (including `false`, which still renders its empty-href
+// button exactly as it does today — that is pre-existing and #707's business, not
+// this guard's), and only the shapes that used to FATAL change, to "no button", which
+// is what an empty panel_cta_url has always meant here. Pinned both ways in
+// tests/StoredLinkAndRichTextRenderGuardTest.php.
+//
+// "NO BUTTON" UNDERSTATES IT ON ONE BAND SHAPE, so state the second-order effect rather
+// than let a future reader trust the smaller claim. $has_panel_cta is one of the four
+// terms in $has_panel below, and $has_panel decides whether the text-panel layout
+// renders its panel column at all or falls back to text-only. So on a panel whose ONLY
+// content is the CTA — panel_cta_text plus panel_cta_url, no heading, no body, no items
+// — a guarded-away url collapses the entire panel column and changes the band's layout,
+// not just its button. That is still exactly what the same band stored with an empty
+// panel_cta_url does today, so it remains "degrade to the empty state" rather than a new
+// one, and it is strictly better than the 500 it replaces. Pinned as its own case.
+$has_panel_cta = $panel_cta_text !== '' && is_scalar($raw_panel_cta_url) && $raw_panel_cta_url !== '';
 
 // The panel column renders only when it has some content; otherwise text-panel
 // degrades to a plain text section (mirrors the image-layout fallback below).
@@ -223,7 +280,16 @@ $style_attr = $inline_styles ? ' style="' . implode('; ', $inline_styles) . ';"'
 // is_string guard first: $body defaults to '' but a raw/legacy/restore snapshot
 // can carry a non-string here (write-time validation doesn't protect those paths),
 // and trim() on a non-string is a fatal in PHP 8 — keep the render defensive.
-$has_body_copy = is_string($body) && trim($body) !== '';
+// #730: keyed on the RAW body, and the `is_string` is now load-bearing in a way it was
+// not before. This flag drives the inline-items row's top margin, not whether the body
+// renders. If it read the GUARDED $body it would be testing is_string() against a value
+// the guard has already made a string, so it would be always-true for scalars, and a
+// stored `42` would flip from "no body copy" (today) to "has body copy" — a spacing
+// change for a value the write path accepts. Reading the raw value keeps every scalar
+// byte-identical. Degradation is unaffected either way: for a non-scalar, is_string()
+// is false and the guarded value is '', so both spellings agree on false — which is
+// also exactly what a stored empty body has always produced.
+$has_body_copy = is_string($raw_body) && trim($raw_body) !== '';
 $inline_items_html = '';
 if (!empty($body_items)) {
     $items_markup = '';

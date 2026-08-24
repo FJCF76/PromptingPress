@@ -297,7 +297,30 @@ $style_attr = $grid_style_parts ? ' style="' . implode('; ', $grid_style_parts) 
                     // "no attachment", which is what every other bad value already means.
                     $raw_image_id = $item['image_id'] ?? 0;
                     $image_id     = is_numeric($raw_image_id) ? (int) $raw_image_id : 0;
-                    $link_url    = $item['link_url']  ?? '';
+                    // #730, and this is the ELEMENT-level instance the family had not
+                    // reached before: the container `items` is guarded by #708, but a
+                    // single malformed CARD inside an otherwise well-formed list still
+                    // carries its own raw value to core's esc_url(). Measured: a stored
+                    // link_url of ["x"] raises "ltrim(): Argument #1 ($string) must be of
+                    // type string, array given" and 500s the whole page, which is why the
+                    // #708 landing recorded "the residual risk on a well-formed items list
+                    // includes a fatal, not merely a stray Array". Full reasoning in
+                    // components/cta/cta.php.
+                    //
+                    // -0.0 APPLIES HERE, unlike at cta's and hero's ungated sites. The
+                    // anchor below is gated on `if ($link_url)`, so the cast meets a
+                    // truthiness gate, and float -0.0 is the one scalar where they
+                    // disagree: -0.0 is falsy but (string) -0.0 is '-0', and only ''
+                    // and '0' are falsy strings. So a card storing -0.0 starts rendering
+                    // a link it previously omitted. Left as-is, following the #705
+                    // precedent that shipped exactly this flip: json_encode never emits
+                    // the decimal-point form (json_encode(-0.0) is the text `-0`, which
+                    // decodes back to INT 0 and stays falsy), so only stored bytes that
+                    // already contain the literal text -0.0 reach it. Special-casing it
+                    // would mean inspecting and rewriting the stored value, which is what
+                    // D-B forbids. Both channels are pinned rather than asserted.
+                    $raw_link_url = $item['link_url'] ?? '';
+                    $link_url     = is_scalar($raw_link_url) ? (string) $raw_link_url : '';
                     $link_text   = $item['link_text'] ?? 'Read more';
                     $text_role   = $item['text_role'] ?? '';
                     $allowed_text_roles = ['mono', 'meta', 'label', 'kicker'];

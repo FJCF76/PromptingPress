@@ -16,7 +16,23 @@
 
 $id      = $props['id']      ?? '';
 $title   = $props['title']   ?? '';
-$content = $props['content'] ?? '';
+// #730: `content` is this component's whole reason to exist and it goes straight into
+// core's UNTYPED wp_kses_post(), which fatals on an array (str_contains) and on an
+// object (preg_replace). Full reasoning for the esc_url() half in
+// components/cta/cta.php; for this sink and the never-try/catch rule, see
+// components/section/section.php.
+//
+// WHAT DEGRADATION LOOKS LIKE HERE, stated because this band has less left over than
+// the others: the `if ($content)` gate closes, so the .embed__content wrapper is not
+// emitted at all and the band renders as its <section> plus the heading — byte-
+// identical to a band that stored an empty content, which is an already-designed
+// state. It is not a blank structural shell: the wrapper is inside the gate, not
+// outside it.
+//
+// -0.0 applies, same truthiness gate and same #705 precedent as grid's link_url;
+// see the note there. Both storage channels pinned.
+$raw_content = $props['content'] ?? '';
+$content     = is_scalar($raw_content) ? (string) $raw_content : '';
 $theme = $props['theme'] ?? 'default';
 
 // theme coercion lives in pp_theme_class(); `muted` emits the legacy `--dark` class (#570 DG-4).

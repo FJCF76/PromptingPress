@@ -128,9 +128,20 @@ $title_accent     = is_scalar($raw_title_accent) ? (string) $raw_title_accent : 
 $eyebrow   = $props['eyebrow']  ?? '';
 $subheading  = $props['subheading'] ?? '';
 $button_text  = $props['button_text'] ?? '';
-$button_url   = $props['button_url']  ?? '#';
+// #730: guard both link props before they reach core's UNTYPED esc_url(), which still
+// fatals from the inside — ltrim() rejects an array and an object. Full reasoning in
+// components/cta/cta.php. Local specifics: both anchors here sit behind text gates
+// (`if ($button_text)` and the nested `if ($button2_text)`), never url gates, so the
+// (string) cast meets no gate and cannot flip a scalar — verified across the same
+// eleven-shape sweep cta documents. A guarded-away url therefore renders the button
+// with an empty href rather than removing it, which is the pre-existing meaning of an
+// empty stored url here and NOT a new state: the button's visibility has always been
+// the text's decision, not the url's.
+$raw_button_url  = $props['button_url']  ?? '#';
+$button_url      = is_scalar($raw_button_url) ? (string) $raw_button_url : '';
 $button2_text = $props['button2_text'] ?? '';
-$button2_url  = $props['button2_url']  ?? '#';
+$raw_button2_url = $props['button2_url'] ?? '#';
+$button2_url     = is_scalar($raw_button2_url) ? (string) $raw_button2_url : '';
 $button_variant  = $props['button_variant']  ?? 'primary';
 $button2_variant = $props['button2_variant'] ?? 'outline';
 $layout    = $props['layout']    ?? 'centered';
