@@ -200,6 +200,7 @@ into one of two classes:
 | Write-time **compare-and-swap** (#13) | Data-safety | Shared choke point (`pp_update_composition`), **opt-in**: CLI ✅, editor AJAX ✅, chat AJAX ❌ (#392) |
 | Pre-apply **rollback snapshot** | Data-safety | Recorded in the CLI preflight only; apply/token mutation outside a CLI run is not yet covered (#393) |
 | `composition_required` precondition (#358) | Data-safety | Shared choke point (`pp_validate_action`) — every executor caller inherits it: CLI, chat AJAX, batch, `pp_patch_composition()` (#387) |
+| Unreadable-composition **batch refusal** (#749) | Data-safety | Batch executor only (`pp_ai_execute_batch`) + the chat batch entry point (`_pp_ai_execute_batch_response`). Single-step execute, editor AJAX and `pp_patch_composition()` are **not** covered — and deliberately so: they take no rollback snapshot, so they have no snapshot to write back over the corrupt bytes. That asymmetry is also the only surface on which the corrupt page can be repaired (#756) |
 
 The takeaway for future hardening: leave loop-discipline gates in the CLI, but do
 not move a data-safety invariant into a CLI wrapper. When you add one, put it at
