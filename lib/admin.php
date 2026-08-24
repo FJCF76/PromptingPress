@@ -1027,15 +1027,41 @@ function pp_link_url_allowed_protocols(): array {
  *
  *     type      unset sentinel (always valid)   accepted            rejected
  *     ────────  ──────────────────────────────  ──────────────────  ─────────────────
- *     string    null                            any scalar          array / object
+ *     string    null                            is_string()         everything else
  *     number    null, ''                        is_numeric()        everything else
  *     (other)   —                               everything          —
  *
- * `string` accepts any SCALAR, not only a PHP string: an int, float or bool coerces
- * to text and renders as authored, while an array/object renders as "Array" with a
- * PHP warning. That is the line the rule draws — non-container, not is_string().
- * `number` accepts a numeric STRING because a JSON/CLI write sends "3", and the #379
- * bounds family already accepts that shape for grid.columns.
+ * `string` MEANS `is_string()` (#707). It used to mean "any scalar", on the reasoning
+ * that an int/float/bool coerces to text and renders as authored while an array/object
+ * renders as "Array" — so the rule drew its line at non-container. Measured behavior
+ * refuted the premise: `create_page` with `image_url: 42` returned `ok:true`, stored
+ * `42` RAW as an integer, reported NO finding, and painted `<img src="42">`; a stored
+ * `section.panel_cta_url: false` rendered a button with an empty href. The declared
+ * type said `string` and the write path enforced something looser, so the stored shape
+ * never had to match the declaration. The D-A ruling (canonical text in #724's body)
+ * is REJECT, NEVER COERCE: the write path refuses what the declaration does not
+ * describe, with the standard `invalid_prop_value` envelope the array rejection
+ * already used, and nothing is normalized at write or migrated in storage.
+ *
+ * `null` STAYS ACCEPTED and is not a hole in that rule: `is_scalar(null)` is false, so
+ * null never travelled the scalar arm in the first place. It is the unset sentinel
+ * below, it renders exactly as an omitted prop does, and rejecting it would be a
+ * different narrowing than the one that was ruled on. The empty string is likewise
+ * untouched — `is_string('')` is true, and it was always a valid string value.
+ *
+ * WHAT THIS DOES NOT DO: the render-side `is_scalar()` guards in `components/*.php`
+ * (#641/#705/#706/#708/#730/#739) STAY exactly as they are. They cover what this
+ * cannot — compositions authored before the type rules existed, `restore_composition`
+ * (which reports and never blocks, #233), and raw `_pp_composition` meta writes — so
+ * a stored non-string scalar still renders, coerced, instead of fataling a public page.
+ * This closes the front door those guards were built to survive; it does not replace
+ * them, and tightening them to `is_string()` would silently drop values production
+ * coercion still resolves.
+ *
+ * `number` is DELIBERATELY UNCHANGED and still accepts a numeric STRING, because a
+ * JSON/CLI write sends "3" and the #379 bounds family already accepts that shape for
+ * grid.columns. The two arms are asymmetric on purpose: `string` had no reason to
+ * accept a foreign shape, `number` has one.
  *
  * The unset sentinels are what keep the rule from over-rejecting: an omitted value
  * must preserve the prop's declared default, and every action validates the WHOLE
@@ -1048,7 +1074,7 @@ function pp_link_url_allowed_protocols(): array {
  */
 function _pp_schema_scalar_value_is_valid($declared_type, $value): bool {
     if ($declared_type === 'string') {
-        return $value === null || is_scalar($value);
+        return $value === null || is_string($value);
     }
     if ($declared_type === 'number') {
         return $value === null || $value === '' || is_numeric($value);
@@ -2074,12 +2100,16 @@ function pp_validate_composition_errors(array $items, ?int $limit = null): array
                 $value         = $item['props'][$prop_name];
 
                 if ($declared_type === 'string') {
-                    // "Reject non-scalars" (issue 507): a scalar (string/int/float/
-                    // bool) coerces to text and renders as authored; an array/object
-                    // renders as "Array" with a PHP warning. null is the unset
-                    // sentinel; the empty string is a valid string value (is_scalar).
-                    // The predicate is shared with the nested items[] pass (#614) so
-                    // the two depths cannot drift on what "string" accepts.
+                    // "The stored shape matches the declaration" (#507, narrowed by
+                    // #707): a `type: "string"` prop takes a PHP string and nothing
+                    // else. Until #707 this rule only rejected non-SCALARS, so an
+                    // authoring agent could write `image_url: 42` through the
+                    // sanctioned action, be told ok:true, and get `<img src="42">`
+                    // with no finding anywhere behind it. null is the unset sentinel;
+                    // the empty string is a valid string value. The predicate is
+                    // shared with the nested items[] pass (#614) so the two depths
+                    // cannot drift on what "string" accepts — #707 narrowed BOTH by
+                    // changing that one predicate, which is why it had to be shared.
                     if (!_pp_schema_scalar_value_is_valid('string', $value)) {
                         if (_pp_claim_item_finding($sink, 'prop', $prop_name)) {
                             $errors[] = _pp_composition_item_error($i,
@@ -2434,8 +2464,12 @@ function pp_validate_composition_errors(array $items, ?int $limit = null): array
                         // rendered a confidently wrong image behind an ok:true.
                         //
                         // The predicate is SHARED with the #507 top-level pass, so
-                        // "42" is a number at both depths and cannot drift apart.
-                        // Enum fields are RULE 4's business (#600, below) and object
+                        // "42" is a number at both depths and cannot drift apart —
+                        // and since #707 a `string` field means a PHP string at both
+                        // depths too, so a nested `image_url: 42` is refused exactly
+                        // where a top-level one is. Sharing the predicate is what made
+                        // that a one-line narrowing instead of two rules to keep in
+                        // step. Enum fields are RULE 4's business (#600, below) and object
                         // fields are nobody's — no decision exists on what an item
                         // `style` object may contain. _pp_schema_scalar_value_is_valid()
                         // returns true for both, so they fall through this rule
@@ -2453,6 +2487,25 @@ function pp_validate_composition_errors(array $items, ?int $limit = null): array
                             && !_pp_schema_scalar_value_is_valid($field_type, $entry[$field_name])
                         ) {
                             if (_pp_claim_item_finding($sink, 'prop', $prop_name, $entry_index, $field_name)) {
+                                // WHAT "got" NAMES DIFFERS BY LEG, and the split is #707's.
+                                // `number` echoes the VALUE, because that is the repair
+                                // signal there: a rejected "abc" is fixed by looking at
+                                // "abc". `string` names the SHAPE, because after #707 the
+                                // rejected values are scalars, and echoing one reads
+                                // `must be a string; got "42"` — which tells an authoring
+                                // agent that the value it was just refused already looks
+                                // like a string, and sends it to re-read a value that was
+                                // never the problem. The problem is the TYPE. It is also
+                                // what the top-level pass says (gettype, `got integer`),
+                                // and #614 shared the predicate between these two depths
+                                // precisely so they could not answer differently; a shared
+                                // verdict rendered in two vocabularies is the same drift
+                                // one layer up. Before #707 this leg only ever fired for
+                                // containers, where the helper degrades to a bare type
+                                // name anyway, so the two depths agreed by accident.
+                                $shown = $field_type === 'string'
+                                    ? gettype($entry[$field_name])
+                                    : _pp_schema_value_for_message($entry[$field_name]);
                                 $errors[] = _pp_composition_item_error($i,
                                     'invalid_prop_value',
                                     sprintf(
@@ -2462,7 +2515,7 @@ function pp_validate_composition_errors(array $items, ?int $limit = null): array
                                         _pp_item_index_label($entry_index, $entries),
                                         $field_name,
                                         $field_type,
-                                        _pp_schema_value_for_message($entry[$field_name])
+                                        $shown
                                     )
                                 );
                             }

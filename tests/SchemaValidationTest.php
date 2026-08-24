@@ -3212,15 +3212,29 @@ class SchemaValidationTest extends TestCase
     {
         // Intentional: a numeric 1 and string "1" both render as the same DOM
         // id="1" (invalid duplicate HTML id, broken anchors) and PHP array-key
-        // coercion collides them anyway, so the write-time guard rejects the pair
-        // rather than letting a DOM collision persist.
+        // coercion collides them anyway, so the guard reports the pair rather than
+        // letting a DOM collision persist.
+        //
+        // SINCE #707 THIS SHAPE IS ALSO A TYPE ERROR, and the pin covers both halves.
+        // `id` is declared `type: "string"`, so the numeric 1 is now refused on its own
+        // account — meaning a mixed-scalar id pair can no longer be WRITTEN at all. The
+        // collision rule is not thereby dead: this engine is collect-all and also backs
+        // restore_composition's findings (#233) and `wp pp check page` (#622), which run
+        // over history-ring snapshots and raw `_pp_composition` meta writes that never
+        // passed a write gate. So the shape is still REACHABLE as stored state, and both
+        // findings are what an operator repairing that page needs to see — the type error
+        // naming the band, and the collision naming every index that shares the id.
         $errors = pp_validate_composition_errors([
             ['component' => 'hero', 'props' => ['id' => 1, 'title' => 'A']],
             ['component' => 'hero', 'props' => ['id' => '1', 'title' => 'B']],
         ]);
 
-        $this->assertCount(1, $errors);
-        $this->assertSame('duplicate_component_id', $errors[0]->get_error_code());
+        $this->assertCount(2, $errors);
+        // Per-item errors come first in document order; the cross-item duplicate
+        // error is appended after the loop (see the ordering pin below).
+        $this->assertSame('invalid_prop_value', $errors[0]->get_error_code());
+        $this->assertStringContainsString('must be a string', $errors[0]->get_error_message());
+        $this->assertSame('duplicate_component_id', $errors[1]->get_error_code());
     }
 
     public function testDuplicateIdErrorTrailsPerItemErrorsInDocumentOrder(): void
@@ -4759,11 +4773,12 @@ class SchemaValidationTest extends TestCase
     // ── Generic schema-typed prop enforcement (issue 507) ───────────────────
     //
     // The shared validator enforces every prop's declared `type` (string rejects
-    // non-scalars, number rejects non-numerics, array rejects scalars, object-item
-    // arrays reject non-object entries) so an accepted write renders as authored
-    // instead of the renderer emitting "Array"/warnings behind ok:true. These are
-    // unit-level pins on pp_validate_composition; the authoring-path proofs
-    // (create_page / update_component) live in ActionsTest per Section 14.1.
+    // everything that is not a PHP string, number rejects non-numerics, array
+    // rejects scalars, object-item arrays reject non-object entries) so an accepted
+    // write renders as authored instead of the renderer emitting "Array"/warnings
+    // behind ok:true. These are unit-level pins on pp_validate_composition; the
+    // authoring-path proofs (create_page / update_component) live in ActionsTest
+    // per Section 14.1.
 
     /** type:string rejects a non-scalar (array/object) value. */
     public function testStringPropRejectsNonScalar(): void
@@ -4780,16 +4795,48 @@ class SchemaValidationTest extends TestCase
         }
     }
 
-    /** type:string still accepts scalar values (numbers/bools coerce and render as authored). */
-    public function testStringPropAcceptsScalars(): void
+    /**
+     * type:string rejects a non-string SCALAR too (#707).
+     *
+     * FLIPPED PIN. This method used to be testStringPropAcceptsScalars() and asserted
+     * that `0`, `123` and `true` all VALIDATE, on the #507 reasoning that a scalar
+     * coerces to text and renders as authored. That is the enforcement gap #707 was
+     * filed against: `create_page` with `image_url: 42` returned ok:true, stored the
+     * integer raw, reported no finding, and painted `<img src="42">`. The D-A ruling
+     * is reject-never-coerce, so the same values are now refused by the same envelope
+     * the array rejection already used. The message names the PROP, which is what an
+     * authoring agent needs to repair it.
+     */
+    public function testStringPropRejectsNonStringScalars(): void
     {
-        foreach (['Real title', '', 0, 123, true] as $ok) {
+        // -0.0 is in the set deliberately: wp_json_encode(-0.0) emits `-0`, which
+        // decodes to int 0 — a FALSY non-string scalar, the shape a truthiness gate
+        // would wave through.
+        foreach ([0, 123, -1, 3.14, -0.0, true, false] as $bad) {
+            $result = pp_validate_composition([
+                ['component' => 'cta', 'props' => [
+                    'title' => $bad, 'button_text' => 'Go', 'button_url' => '/',
+                ]],
+            ]);
+            $this->assertInstanceOf(\WP_Error::class, $result,
+                sprintf('non-string scalar title %s must be rejected', var_export($bad, true)));
+            $this->assertSame('invalid_prop_value', $result->get_error_code());
+            $this->assertStringContainsString('must be a string', $result->get_error_message());
+            $this->assertStringContainsString('"title"', $result->get_error_message(),
+                'the rejection must name the prop the author has to repair');
+        }
+    }
+
+    /** type:string still accepts real strings, the empty string, and the null unset sentinel (#707). */
+    public function testStringPropAcceptsStringsAndUnsetSentinel(): void
+    {
+        foreach (['Real title', '', '0', '123', null] as $ok) {
             $result = pp_validate_composition([
                 ['component' => 'cta', 'props' => [
                     'title' => $ok, 'button_text' => 'Go', 'button_url' => '/',
                 ]],
             ]);
-            $this->assertTrue($result, sprintf('scalar title %s must validate', var_export($ok, true)));
+            $this->assertTrue($result, sprintf('title %s must validate', var_export($ok, true)));
         }
     }
 
