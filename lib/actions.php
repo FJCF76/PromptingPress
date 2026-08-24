@@ -1007,14 +1007,16 @@ function _pp_snapshot_batch_targets(array $steps): array {
  * update_page_title) is refused too.
  *
  * WHERE THE REPAIR ACTUALLY WORKS, stated precisely because the refusal message
- * points at it: the SINGLE-step execute path does not snapshot and so is never
- * refused, and restore_composition is never blocked by validation (#233). That
- * path is reached by WP-CLI (`wp pp action execute`), pp_patch_composition(), and
- * the dashboard editor. It is NOT reached by a chat proposal: the chat client
- * routes every proposal, one step or many, through the batch endpoint, so a
- * repairing update_composition/restore_composition issued as a chat proposal is
- * refused by this same gate. Repair from the CLI or the editor, then return to
- * chat. See #756 for the chat-side gap.
+ * points at it: the SINGLE-step execute path takes no rollback snapshot, so this
+ * gate never refuses it (it can still fail on its own terms — validation, the
+ * page lock, capabilities). That path is reached by WP-CLI (`wp pp action
+ * execute`), pp_patch_composition(), and the dashboard editor. It is NOT reached
+ * by a chat proposal: the chat client routes every proposal, ONE STEP OR MANY,
+ * through the batch endpoint, so a repairing update_composition/restore_composition
+ * sent that way is refused by this same gate — restore_composition included,
+ * because this preflight runs before any step's own semantics and #233's
+ * never-block rule governs validation, not this. Repair from the CLI or the
+ * editor, then return to chat. See #756 for the chat-side gap.
  *
  * Insertion order is STEP order, and the refusal reports the first entry — so
  * which page a multi-corrupt batch names is deterministic, not incidental.
