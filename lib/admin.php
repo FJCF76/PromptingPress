@@ -802,6 +802,17 @@ function _pp_item_index_label(int|string $index, ?array $container): string {
  *   {"aa": {...}}          `Item key "aa"`         (was the fabricated `Item 0`)
  *   {"1": .., "0": ..}     `Item key "1"`, `Item key "0"`
  *
+ * THE OBJECT ARM IS NO LONGER REACHED FROM A WRITE (#724), and that is a property of the
+ * caller, not of this renderer. Both production call sites sit inside
+ * pp_validate_composition_errors()'s per-item loop, and that loop is now preceded by a
+ * container gate that refuses a non-list composition outright — so no rejected write can
+ * produce `Item key "aa"` for a BAND again. The arm is kept, not deleted: it is what makes
+ * this function and _pp_item_index_label() one renderer rather than two, the `items[]`
+ * depth below still exercises the key form on every ordinary list-shaped write, and the
+ * band-level spelling is unit-pinned in tests/WriteRejectionLocatorTest.php so the
+ * contract survives with evidence instead of as prose. Read the table as: rows 2-4 describe
+ * what this function returns when asked, not what an operator can still be shown by a write.
+ *
  * ALSO THE GATE. _pp_band_named_composition_error() (#642) has to recognise a message
  * that already spells its own band so it does not print the locator twice, and it used to
  * do that by re-spelling `sprintf('Item %d ', $index)` independently. Two spellings of one
@@ -1609,6 +1620,69 @@ function _pp_render_undeclared_prop_keys(array $keys): string {
  * @return WP_Error[]       Empty when the composition is valid.
  */
 function pp_validate_composition_errors(array $items, ?int $limit = null): array {
+    // THE CONTAINER, JUDGED BEFORE ANY BAND (#724).
+    //
+    // A composition is a LIST. A JSON object decodes to an associative PHP array that
+    // is_array() accepts, so `{"1": hero, "3": section}` used to walk straight into the
+    // per-item loop below, satisfy every per-item rule (both bands were well-formed) and
+    // return NO errors — `update_composition` answered ok:true, bumped the version, and
+    // replaced a five-band page with two bands. The read path had always called that same
+    // stored value corrupt: pp_get_composition_result() (lib/wp.php) classifies a decoded
+    // non-list as `unexpected_shape` and hands back an EMPTY composition, and `wp pp check
+    // page` says "treat as corrupted, not empty". The write path could manufacture exactly
+    // the state the diagnostics exist to detect.
+    //
+    //   composition passed here     verdict
+    //   [band, band]                LIST — the per-item loop below, byte-identical
+    //   []                          LIST — a valid empty composition, unchanged
+    //   {"1": .., "3": ..}          OBJECT — refused here, nothing below runs (#724's repro)
+    //   {"hero": ..}                OBJECT — refused here
+    //   {"0": .., "1": ..}          decodes AS A LIST; accepted. See THE LIMIT below.
+    //
+    // REJECT, NEVER COERCE (ruling D-A, canonical text in #724's body). No array_values(),
+    // no reindexing, no normalization: the standing no-migration posture means a shape the
+    // read path calls corrupt is refused, not quietly repaired into something else. The
+    // caller's bands are not lost by this refusal — they were lost by the ACCEPTANCE.
+    //
+    // WHY IT RETURNS INSTEAD OF COLLECTING. Every rule below asks "which band?", and inside
+    // a container that is not a composition there is no honest answer — that is the
+    // fabricated-locator failure #634/#650/#652 closed one layer down, and #621's
+    // misleading-repair-loop failure wearing a second hat. The read path models this
+    // exactly: a non-list yields `composition: []` and says nothing whatsoever about its
+    // contents. One container, one fact. (In the measured repro the two bands were VALID,
+    // so a collect-all pass would have appended nothing anyway.)
+    //
+    // CODE `unexpected_shape` IS BORROWED ON PURPOSE. It is the read path's own spelling
+    // (lib/wp.php, `composition_decode_error` in `operate inspect`, the two CLI integrity
+    // warnings, docs/reference-apply-cli.md). One state, one word, on both sides of the
+    // write. Coining a fourth spelling here is the drift #650/#652 spent a whole iteration
+    // undoing. No `index` is stamped: this error belongs to no single band, exactly like
+    // duplicate_component_id below.
+    //
+    // THE LIMIT, STATED SO IT IS NOT DISCOVERED LATER. `json_decode('{"0":a,"1":b}', true)`
+    // returns a PHP LIST — the keys ARE 0..n-1 in order, and the object/list distinction is
+    // destroyed before any PHP here can see it. That case is also the harmless one (key and
+    // position agree, so nothing is silently dropped), and it is the same limit #652
+    // recorded for item locators. Enforcing it would mean validating raw JSON TEXT, but
+    // every caller reaches pp_execute_action() with a decoded PHP array — there is no raw
+    // payload at this layer to inspect. `{}` decodes identically to `[]` for the same
+    // reason and is accepted as the empty composition it is indistinguishable from.
+    //
+    // The message names the CONTAINER and never a band, and reflects only the entry COUNT —
+    // no caller-supplied key text reaches an operator terminal, so the #633/#647 bounding
+    // question does not arise here at all.
+    if (!pp_is_list($items)) {
+        return [new WP_Error(
+            'unexpected_shape',
+            sprintf(
+                'The composition must be a list of components, but this one is a JSON object (%d %s). '
+                . 'Send the components as an array ([{"component": "hero", "props": {...}}, ...]), not an object.',
+                count($items),
+                count($items) === 1 ? 'entry' : 'entries'
+            )
+        )];
+    }
+
     $registered = pp_get_registered_components();
     $errors     = [];
     // One sink for the whole composition: per-item claims plus the shared budget.
@@ -3008,6 +3082,13 @@ function _pp_band_named_composition_error(WP_Error $error, array $items): WP_Err
     // band a reader counts to, not the second. Same lie as the `Item 0` this issue removed,
     // one message family over; naming it `Component key "1"` is what makes the prefix agree
     // with the `index` payload beside it, which is a key lookup and always was.
+    //
+    // SINCE #724 THIS ALWAYS RENDERS THE LIST FORM in production: the only caller is
+    // pp_validate_composition(), which returns early above when `index` is null, and a
+    // non-list composition now produces exactly one container error carrying no index —
+    // so `$items` reaching this line is always a list. The key branch is kept as the one
+    // shared renderer (deleting it would re-split the spelling that #650/#652 unified, and
+    // the `items[]` depth still uses it), and is unit-pinned rather than left as prose.
     $locator = _pp_item_index_label($index, $items);
     if ($label !== null && str_starts_with($message, $label)) {
         $message = sprintf('Component %s ("%s")', $locator, $name) . substr($message, strlen($label));

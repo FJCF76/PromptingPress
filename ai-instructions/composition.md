@@ -29,6 +29,7 @@ The format is AI-native: the same JSON a human edits in the admin meta box is wh
 - `style` — (optional) per-instance CSS custom property overrides, validated against the component's `schema.json` → `styling.style_slots`. Only declared slots are accepted. Set these via a composition write (`create_page` / `update_composition`), the `style_component` action, or by passing `style` to `add_component` (which writes it onto the new item in one call, validated by the same shared engine — no separate follow-up `style_component` needed); see `ai-instructions/style-component.md`
 - Order in the array = render order on the page
 - Any registered component can appear any number of times in any order
+- **The composition is an ARRAY, never an object (#724).** Send `[{...}, {...}]`. A JSON object keyed by position — `{"1": {...}, "3": {...}}` — is refused with `unexpected_shape`, because it is not a composition: it is the shape `wp pp check page` classifies as corrupted. Nothing is reindexed for you. This used to be accepted and silently replaced the page with just those entries while reporting `ok:true`, so if you have a script that builds the composition as a keyed map, change it to build a list. Position is expressed by ORDER in the array, never by a key.
 
 ---
 
