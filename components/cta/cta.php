@@ -33,9 +33,85 @@ $title_accent     = is_scalar($raw_title_accent) ? (string) $raw_title_accent : 
 $eyebrow          = $props['eyebrow']          ?? '';
 $body             = $props['body']             ?? '';
 $button_text      = $props['button_text']      ?? 'Get Started';
-$button_url       = $props['button_url']       ?? '#';
+// ── #730: THE CANONICAL RAW-VALUE GUARD FOR LINK PROPS INTO core's esc_url() ──
+//
+// THE CANONICAL EXPLANATION FOR THE esc_url() HALF OF #730 LIVES HERE. hero, section
+// and grid carry the same two-line guard with a pointer back to this block; keep the
+// reasoning in one place so a correction lands once. Same idiom as #641 (image_url),
+// #705 (background_image) and #706 (title), ratified as the family standard at D-B.
+//
+// WHAT IS DIFFERENT ABOUT THIS ONE, and it is the reason #730 exists at all: the
+// fataling function is not one of the theme's own typed helpers. It is WordPress
+// CORE's esc_url(), which declares NO parameter type:
+//
+//   wp-includes/formatting.php   function esc_url( $url, $protocols = null, $_context = 'display' )
+//
+// An untyped parameter reads as safe and is not. Core reaches a string-only PHP
+// builtin before it makes any sanitization decision, so the TypeError comes from
+// INSIDE core rather than from its signature:
+//
+//   esc_url() ──> ltrim( $url )   ──> TypeError on array AND on object
+//
+// Measured on real WordPress 7.0 / PHP 8.3.31 (one fresh process per case, #709):
+//   esc_url( ['x'] )      TypeError: ltrim(): Argument #1 ($string) must be of type string, array given
+//   esc_url( new Foo )    TypeError: ltrim(): Argument #1 ($string) must be of type string, Foo given
+//   esc_html/esc_attr     NO fatal — they render the literal word `Array` plus an E_WARNING
+//
+// That last row is why this issue's inventory is exactly the esc_url and wp_kses_post
+// sinks and not "every escaper": esc_html/esc_attr coerce-and-warn, which is the
+// separate, still-open #736/#721 class and deliberately NOT fixed here.
+//
+// templates/composition.php calls pp_get_component() with no try/catch, so ONE
+// malformed stored value returns a whole-page 500 instead of a band missing its link.
+//
+// NO GATE PROTECTS THESE TWO. Unlike background_image (#705), which at least had a
+// truthiness gate an array happened to pass, cta's primary button is rendered
+// UNCONDITIONALLY — the anchor below has no `if` around it at all. So `button_url`
+// reaches ltrim() on every single cta render, and even an EMPTY array fatals here
+// while it would have been gated away elsewhere. Measured both ways.
+//
+// is_scalar, NOT is_string, per the D-B rationale: PHP runs COERCIVE here (no
+// declare(strict_types) anywhere in this theme), so only NON-SCALARS ever fataled. A
+// stored `42` already coerced inside ltrim() and painted `href="42"`, and the write
+// path ACCEPTS a scalar url raw with no finding (#707), so is_string() would silently
+// drop a value the front door had just accepted. An object with a __toString() is
+// NOT a scalar and therefore degrades too — deliberate, and stated because the
+// tempting "fix" of admitting Stringable would move the safety boundary rather than
+// hold it: core's ltrim() would accept it, but nothing here can vouch for what its
+// __toString() does, and stored data cannot carry an object through the JSON channel
+// at all (see below).
+//
+// THE (string) CAST IS BEHAVIOURALLY INERT AT THIS SITE, and that is worth stating
+// because it is NOT inert everywhere in this change. A cast can only matter where the
+// cast result meets a GATE. Neither anchor below is gated on the url — the second
+// button's gate keys on button2_TEXT — so nothing here can flip. Measured across
+// '', '0', 'x', '/go', 0, 42, 3.14, 0.0, -0.0, true, false: raw and cast produce
+// byte-identical renders at both call sites. The two sites in this change where a
+// cast DOES meet a gate are section.php (panel_cta_url, `!== ''`) and the truthiness
+// pair grid/embed; each documents its own handling there.
+//
+// STORED data is the point. The write path rejects a non-scalar, but it gates WRITES,
+// not storage: restore_composition reports without blocking (#233), a composition
+// authored before the rule still carries the value, and a raw _pp_composition meta
+// write is not gated at all. Nothing here rewrites the store — the value is read, not
+// migrated, and _pp_composition_findings() still reports it to the operator.
+//
+// TWO STORAGE CHANNELS, and they do not carry the same shapes. Normal storage is a
+// JSON string, so json_decode(assoc) can only ever produce null/bool/int/float/string/
+// array — an OBJECT is unreachable through it. But pp_get_composition_result()
+// (lib/wp.php) also accepts an already-decoded ARRAY from meta, and WordPress
+// serializes array-valued meta with PHP serialize(), which DOES carry objects. So the
+// object row of the matrix above is reachable, through that second channel only. Both
+// channels are pinned in tests/StoredLinkAndRichTextRenderGuardTest.php.
+$raw_button_url   = $props['button_url']       ?? '#';
+$button_url       = is_scalar($raw_button_url) ? (string) $raw_button_url : '';
 $button2_text     = $props['button2_text']     ?? '';
-$button2_url      = $props['button2_url']      ?? '#';
+// Second button, same boundary, same reasoning as $button_url above. Guarded on its
+// own rather than folded in, because argument-level coverage is what the drift catcher
+// in tests/InvariantTest.php asserts: a per-file guard that covered only the first url
+// would leave this anchor carrying a raw stored value into ltrim().
+$raw_button2_url  = $props['button2_url']      ?? '#';
+$button2_url      = is_scalar($raw_button2_url) ? (string) $raw_button2_url : '';
 $layout           = $props['layout']           ?? 'full-width';
 $theme            = $props['theme']            ?? 'default';
 // ── #705: the raw-value guard for pp_esc_image_src() ────────────────────────

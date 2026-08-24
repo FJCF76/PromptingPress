@@ -15,6 +15,39 @@ $headers = $props['headers'] ?? [];
 $rows    = $props['rows']    ?? [];
 $caption = $props['caption'] ?? '';
 
+// ── #730: the ELEMENT-level guard for the rich-text CELL (applied in the row loop) ──
+//
+// Every cell goes into core's UNTYPED wp_kses_post(), which fatals from the inside on
+// an array (str_contains) and on an object (preg_replace). See
+// components/section/section.php for that sink and the binding never-try/catch rule,
+// and components/cta/cta.php for the family reasoning.
+//
+// GUARDED AT THE CELL, NOT THE ROW, because those are genuinely different boundaries.
+// The `(array) $row` cast in the loop already makes a malformed ROW harmless — measured,
+// a scalar row becomes a one-element array and renders one cell, no fatal — so a
+// row-level guard would close a door that is not open. The leaf value is the only shape
+// that reaches the escaper, so that is where the guard sits. It is UNGATED, like faq's
+// answer: an empty array cell fatals exactly as a populated one does.
+//
+// Degrades to an EMPTY CELL rather than a dropped one. Dropping it would shift every
+// later cell in the row one column left and silently misalign the table against its
+// headers — a worse lie to a reader than a blank cell.
+//
+// THE GUARD LIVES IN THE LOOP, BUT THIS EXPLANATION LIVES HERE, deliberately, and it
+// cost two separate regressions to learn why. Both were caught by the byte-equality
+// sweep against a clean control render, neither by eye:
+//
+//   1. PHP emits everything outside its tags verbatim, so a multi-line comment block
+//      opened at the loop's indentation PRINTS ITS OWN LEADING WHITESPACE into every
+//      table body. That changed the emitted bytes of every well-formed table on the
+//      site. Same hazard as the column-0 note in components/cta/cta.php.
+//   2. Moving the prose up here is not enough on its own: a PHP CLOSE TAG written
+//      inside a `//` line comment still ends PHP mode, because the lexer sees the tag
+//      before the comment ever ends. One such sequence quoted illustratively in this
+//      very block dumped the remainder of the file to the browser as raw text.
+//
+// So: keep prose in the header, keep the loop terse, and never quote a close tag in it.
+
 // #708: guard the raw `__pp_style` map before it reaches the typed
 // pp_render_style_vars(array $style, ...). A stored non-array raises a TypeError that
 // no caller catches, so the whole PUBLIC PAGE 500s. It arrives as `__pp_style` stored
@@ -53,7 +86,10 @@ $style_attr = $slot_style ? ' style="' . $slot_style . ';"' : '';
                     <tbody class="table__body">
                         <?php foreach ($rows as $row) : ?>
                             <tr class="table__row">
-                                <?php foreach ((array) $row as $cell) : ?>
+                                <?php // #730 cell guard — full reasoning in this file's header.
+                                foreach ((array) $row as $raw_cell) :
+                                    $cell = is_scalar($raw_cell) ? (string) $raw_cell : '';
+                                ?>
                                     <td class="table__cell">
                                         <?php echo wp_kses_post($cell); ?>
                                     </td>

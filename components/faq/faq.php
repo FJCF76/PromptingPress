@@ -30,16 +30,49 @@ $raw_title_accent = $props['title_accent'] ?? '';
 $title_accent     = is_scalar($raw_title_accent) ? (string) $raw_title_accent : '';
 $eyebrow      = $props['eyebrow']      ?? '';
 $theme        = $props['theme']        ?? 'default';
-// NOT guarded by #708, and that is deliberate rather than an oversight. #708 guards
-// `items` in grid, where it reaches count(); here it reaches a DIFFERENT typed call,
-// pp_render_faq_schema(array $items) at the bottom of this file, and the family's
-// admitting criterion is the same typed call, not the same prop. So a stored non-array
-// `items` STILL 500s the whole public page from this component — and on falsy shapes
-// ('', 0, false) that grid survives, because that call sits OUTSIDE the `!empty($items)`
-// gate below. Filed as #739 with the measured shapes; fix it there, not by widening a
-// ruling scoped to two named boundaries. The style guard this file did receive (above)
-// covers `__pp_style` only.
-$items = $props['items'] ?? [];
+// ── #739: the `items` container guard, the third typed boundary on this prop ──
+//
+// #708 guarded `items` in grid, where it reaches count(). Here it reaches a DIFFERENT
+// typed call — pp_render_faq_schema(array $items), at the bottom of this file — and the
+// family's admitting criterion is the same TYPED CALL, not the same prop and not the
+// same file, so #708 deliberately left this alone and #739 closes it.
+//
+// WORSE THAN THE GRID CASE, and that asymmetry is the whole point of the separate
+// issue: the schema call sits OUTSIDE the `!empty($items)` gate below. Grid survives a
+// falsy `items` because its only boundary is inside its gate; faq does not, so it
+// fatals on shapes an empty list is indistinguishable from. Measured, one render per
+// shape, stored bytes through the composition render loop:
+//
+//   'a string' / '' / '0'   TypeError: pp_render_faq_schema(): Argument #1 ($items) must be of type array, string given
+//   0 / 42                  ... int given
+//   false / true            ... bool given
+//   3.14                    ... float given
+//   object                  ... Foo given          (raw-serialized meta channel only)
+//
+// The issue body measured six of those; `true`, `3.14` and the object shape were added
+// here after re-deriving the set, so the guard is pinned against nine, not six. Note
+// `null` is absent from the list and is NOT a gap: `?? []` fires on it, which is why
+// the default is the empty array and must stay that way.
+//
+// is_array, NOT is_scalar — an array IS the contract at this parameter, so the
+// shape-appropriate predicate is the #708 one, exactly as D-B prescribes. Guarding at
+// the READ closes the list gate and the schema call together, from one line. Degrades
+// to the band rendering its "No questions yet." empty state with no JSON-LD script,
+// byte-identical to a band that stored no items at all.
+//
+// -0.0 DOES NOT APPLY. That trap needs a (string) CAST meeting a truthiness gate; this
+// guard performs no cast, so no scalar can change which side of `!empty()` it lands on
+// — every non-array is rejected identically. Same reasoning #708 recorded.
+//
+// WHAT THIS DOES NOT CLOSE, named so the fix is not read as broader than it is:
+// pp_render_faq_schema() re-reads each element's `question` and `answer` itself, with
+// its own `(string)` cast (lib/wp.php), INDEPENDENTLY of the element guard below. An
+// OBJECT there still fatals inside the helper, as does an object element (offset access
+// on an object). Arrays coerce to the literal `Array` with a warning instead. That is a
+// different boundary again — a language cast, not a typed call — and the same class as
+// the open #721/#736. Filed separately rather than widened into this ruling.
+$raw_items = $props['items'] ?? [];
+$items     = is_array($raw_items) ? $raw_items : [];
 
 // Tone variant. Clamp to the known set so an unknown value renders as the
 // default surface rather than emitting an unstyled `faq--<garbage>` class
@@ -77,7 +110,20 @@ $style_attr = $slot_style ? ' style="' . $slot_style . ';"' : '';
             <div class="faq__list">
                 <?php foreach ($items as $item) :
                     $question = $item['question'] ?? '';
-                    $answer   = $item['answer']   ?? '';
+                    // #730 (element level, distinct from the #739 container guard above):
+                    // the answer goes into core's UNTYPED wp_kses_post(), which fatals on
+                    // an array and on an object. See components/section/section.php for
+                    // that sink and the never-try/catch rule.
+                    //
+                    // UNGATED, so an EMPTY array fatals as readily as a populated one:
+                    // the `if (!$question)` guard above tests the QUESTION, so an item
+                    // with a good question and a malformed answer walks straight into the
+                    // escaper. Degrades to an empty .faq__answer div, keeping the
+                    // question and its <details> disclosure intact — the accordion still
+                    // opens, it just has nothing inside, which is what a stored empty
+                    // answer has always produced.
+                    $raw_answer = $item['answer'] ?? '';
+                    $answer     = is_scalar($raw_answer) ? (string) $raw_answer : '';
                     if (!$question) continue;
                 ?>
                     <details class="faq__item">

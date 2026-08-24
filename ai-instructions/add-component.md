@@ -32,8 +32,36 @@ Create `/components/mycomponent/mycomponent.php`:
 
 // Declare all props at the top with defaults.
 $title = $props['title'] ?? 'Default Title';
-$text  = $props['text']  ?? '';
-$link  = $props['link']  ?? '';
+
+// GUARD EVERY PROP THAT REACHES esc_url() OR wp_kses_post() (#730). Those two are
+// WordPress CORE functions and both are UNTYPED, so nothing in their signature warns
+// you — but each reaches a string-only PHP builtin before it sanitizes anything, and a
+// stored array or object raises a TypeError there. templates/composition.php renders
+// bands with no try/catch, so that is a whole-page 500, not a missing fragment.
+//
+//   esc_url( ['x'] )        TypeError: ltrim(): ... must be of type string, array given
+//   wp_kses_post( ['x'] )   TypeError: str_contains(): ...
+//   wp_kses_post( $object ) TypeError: preg_replace(): ...
+//
+// The write path rejects these shapes, but it gates WRITES, not STORAGE: restore
+// reports without blocking (#233), pre-rule compositions still carry old values, and a
+// raw _pp_composition meta write is not gated at all.
+//
+// is_scalar, NOT is_string: PHP runs coercive here, so a stored int/float/bool already
+// coerced and rendered, and is_string() would silently drop a value the front door
+// accepts. Guard at the READ so every gate below sees the guarded local.
+// NEVER try/catch a wp_kses_post() TypeError to recover — the throw escapes between
+// core's remove_filter('pre_kses', …) and the matching re-add, which de-registers
+// block-attribute KSES for the rest of the request.
+$raw_text = $props['text'] ?? '';
+$text     = is_scalar($raw_text) ? (string) $raw_text : '';
+$raw_link = $props['link'] ?? '';
+$link     = is_scalar($raw_link) ? (string) $raw_link : '';
+
+// Props whose contract is an ARRAY take the is_array form of the same idiom, because
+// every scalar fatals at an `array` parameter (#708/#739):
+//   $raw_items = $props['items'] ?? [];
+//   $items     = is_array($raw_items) ? $raw_items : [];
 ?>
 <section class="mycomponent">
     <div class="container">
@@ -62,6 +90,14 @@ $link  = $props['link']  ?? '';
 - Use `esc_url()` for all URLs
 - Use `esc_attr()` for all HTML attributes
 - Use `wp_kses_post()` for rich HTML content (the main prose surface: body/answer)
+- **Guard every prop that reaches `esc_url()` or `wp_kses_post()` at the read** with
+  `is_scalar($raw_x) ? (string) $raw_x : ''` (#730), and every array-contract prop with
+  `is_array($raw_x) ? $raw_x : []` (#708/#739). Both core escapers are untyped but still
+  fatal internally on an array or object, which 500s the whole public page. Read each
+  guarded prop exactly ONCE, into `$raw_<name>`, so no gate can read the raw value below
+  the guard. `tests/InvariantTest.php` enforces both rules and will fail your component
+  otherwise. `esc_html()`/`esc_attr()` do NOT need this — they coerce with a warning
+  rather than fataling.
 - Use `pp_kses_inline()` for supporting-text props that allow a link + light emphasis (a, strong, em, br) but no block elements (#439)
 - Do NOT call WordPress functions directly — use `pp_*` wrappers from `lib/wp.php`
 - Do NOT call other components from within a component
@@ -469,6 +505,19 @@ Add a row to the Component index table in `AI_CONTEXT.md`:
 - [ ] No raw hex values in the new CSS section
 - [ ] No direct WordPress function calls in the PHP file
 - [ ] All text output uses `esc_html()` (plain), `pp_kses_inline()` (inline subset), or `wp_kses_post()` (rich), per the prop's documented contract
+- [ ] Every prop reaching `esc_url()` or `wp_kses_post()` is guarded at the read with
+      `is_scalar($raw_x) ? (string) $raw_x : ''`, and every array-contract prop with
+      `is_array($raw_x) ? $raw_x : []` — each raw prop read exactly once (#730/#708/#739).
+      `InvariantTest::testEveryCoreEscaperCallInAComponentTakesAGuardedLocal` and
+      `::testEveryItemsTypedCallInAComponentTakesAnArrayGuardedLocal` fail until this is done.
+      The escaper checker is keyed on the GUARD, not the variable name: for every argument
+      reaching `esc_url()`/`wp_kses_post()` it requires a matching
+      `$x = is_scalar($raw_x) ? (string) $raw_x : ''` in the same file, so reusing a name
+      another component already guards will not satisfy it. If your call site genuinely
+      cannot carry a stored value, exempt it by name (with the reason) in that test's
+      `$exempt` list and in `StoredLinkAndRichTextRenderGuardTest::EXEMPT_CALL_SITES`;
+      otherwise add the surface to that file's `GUARDED_SURFACES`, which is compared to the
+      real call-site set by equality.
 - [ ] If the component renders a `.btn`: its owning element class is added to the
       `main .btn:not(...)` neutralisation rule in `assets/css/components.css` (#545), and any
       per-instance BUTTON slot it declares is added to that rule's `initial` list. The rule
