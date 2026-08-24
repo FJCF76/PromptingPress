@@ -4,6 +4,61 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.15.10] — 2026-08-24 — `create_page` stops reporting success over a page whose composition never stored (#719)
+
+**`create_page` created the page row, then threw away the verdict of the composition write that followed it.** `pp_update_composition()` is a non-validating writer, but it still refuses: when it cannot take the target page's advisory write lock it logs, SKIPS the write to avoid a lost update, and returns `composition_lock_failed`. Nobody looked at that return. So a `create_page` whose page was created and whose composition was refused came back `ok: true` with a `target.post_id` pointing at a silently EMPTY page — and since #687 the same envelope also carried `findings: []`, which `AI_CONTEXT.md` and `ai-instructions/operating-loop.md` define as the positive confirmation that the write did what you asked. The surface the docs tell agents to trust was actively certifying a page that had lost its content.
+
+**Every other composition-mutating action already converted this `WP_Error` into a rejection** — `update_composition`, `add_component`, `remove_component`, `reorder_components`, `update_component`, `style_component`, `restore_composition`, all seven. `create_page` was the only one that did not, which is what made this a one-function omission rather than a design gap.
+
+**THE SHAPE: reject, and roll the page back — not a bare rejection.** The issue offered three endings for the page a refusal strands (trash it, name it, leave it) and the mirror-the-siblings fix takes none of them. A bare rejection is lossy here in a way it is not for the siblings: they take a `post_id` from the caller, so the caller already knows the page. `create_page` mints the id, and `_pp_action_error()` renders `target => []`, so a bare rejection strands a page the caller cannot name. Two facts decided it. `_pp_ai_execute_error_payload()` (`lib/ai-chat.php`) collapses every failure except `composition_conflict` to its message string, so putting the id in `target` would not reach the chat caller at all. And the batch executor records a created page for rollback only when the step returned `ok: true` (`created_posts`), so a page left behind by a REJECTED step survives a `rolled_back: true` envelope — a second false report, one level up, in code this change is not allowed to touch. Deleting the page inside the action makes the empty `target` TRUE instead of lossy, keeps the batch envelope honest with no change to the batch layer, and makes a retry of the same call clean instead of accumulating `-2`-suffixed empty duplicates. It is the same call and the same rationale `_pp_restore_batch_snapshot()` already applies to a create_page step: the page did not exist before the call, so a refusal should not leave it existing after.
+
+**The delete is gated on the page still being pristine.** The refusal proves only that THIS call stored nothing; it does not prove the page is empty. `wp_insert_post()` fires `save_post`, and a listener could have stored a composition of its own, so the delete runs only while the raw `_pp_composition` meta is still absent and the page is otherwise left alone. The read is not under the write lock, so it is best-effort rather than a guarantee — but it can only ever PREVENT a destructive call, never cause one.
+
+### Not a breaking change, and the distinction matters
+
+**No composition that was accepted before is refused now.** This narrows nothing about what `create_page` takes: the validation stage is untouched, every valid composition is still valid, and the success path is byte-identical down to the stored bytes. What changed is a FALSE SUCCESS becoming an honest failure on a path that was already failing — the write was being skipped either way; the only difference is whether the envelope admits it.
+
+**Before**, on a refused composition write:
+
+```json
+{ "ok": true, "target": { "post_id": 231 }, "composition_version": 1, "findings": [] }
+```
+
+**After** — the standard rejection envelope, carrying the writer's own code:
+
+> `Could not acquire the composition write lock for post 231; the write was skipped to avoid a lost update. Retry once contention clears. The page created for this call was removed, so no page was left behind. [composition_lock_failed]`
+
+```json
+{ "ok": false, "target": [], "error_code": "composition_lock_failed", "index": null }
+```
+
+`findings` and `composition_version` are absent, as on every rejection. Two branches leave the page standing and both say so rather than letting the empty `target` imply otherwise: if the cleanup delete is itself refused, the message names the surviving page (`post 231 ... is still there and stores no composition`); if something else wrote to it first, it is left alone (`is NOT empty — something else wrote to it`).
+
+**`composition_lock_failed` is the only error code this adds.** The writer's other refusal, `composition_conflict`, is unreachable from `create_page`: it calls the writer with two arguments, so the compare-and-swap is skipped. That boundary is asserted rather than assumed, so the day a baseline IS threaded, the missing coverage is visible.
+
+### Scope boundaries, deliberately held
+
+- **#718 is untouched.** `create_page` with a stray `post_id` param still reports ANOTHER page's `composition_version` — same function, separate issue, excluded from this gate by maintainer order. `composition_version` resolution is not altered here; the existing test that records that divergence still records it.
+- **#746 / #749 are untouched.** `_pp_snapshot_batch_targets()` and `_pp_restore_batch_snapshot()` are not modified. Choosing self-rollback rather than an orphan means the batch layer needed no change to stay truthful, which is why that choice and this boundary are the same decision.
+- **The envelope contract was not extended.** No new key, no changed builder signature. On the branch where the page survives, its id reaches the caller through the message rather than through `target`, because populating `target` on a rejection would extend a recorded contract.
+
+### Fixed
+
+- **`lib/actions.php` — `create_page`'s execute honours its composition write's return value (#719).** `$written = pp_update_composition(...)` is now checked with `is_wp_error()` and converted into `_pp_action_error()` carrying `$written->get_error_message()` and `$written->get_error_code()`, matching the seven siblings exactly. Before rejecting, the page created moments earlier is removed with `wp_delete_post($post_id, true)` when its raw `_pp_composition` meta is still absent. `wp_delete_post()` reports refusal as a falsy return and never as a `WP_Error`, so the outcome is read as a truthiness check by necessity; the composed message states which of the three endings occurred. The action's `semantics` string now declares the all-or-nothing behaviour, so the chat AI is told the same contract the CLI gets.
+
+### Docs
+
+- **`AI_CONTEXT.md`** gained the `create_page` all-or-nothing paragraph beside the `findings` contract it depends on, including what an `ok: true` does and does not guarantee: the writer took the lock and refused nothing, which is strictly more than the old envelope promised and still not a read-back of the stored bytes.
+- **`ai-instructions/operating-loop.md`** records that the "`ok: true` is not the whole result" floor now holds on `create_page` too, and that a refusal is safe to retry as-is.
+
+### Tests
+
+- **`tests/CreatePageWriteFailureTest.php`** (new, 13 tests) drives the real failure through the production code path: a scripted `$wpdb` whose `GET_LOCK` answers `'0'` (contention) and `null` (DB error), the seam `tests/TokenLockTest.php` and `tests/FrontPageSafeguardTest.php` established. It pins the refusal and its `error_code`, the ABSENCE of `findings` and `composition_version` on the rejection, that no page and no reserved slug outlive the refusal, that a retry produces exactly one page, that a page something else wrote to is left alone with its foreign composition intact, that the surviving page is named when cleanup is refused, and — as the half proving this is a guard and not a behaviour change — that an acquired lock still stores, still reports `findings: []`, and still returns `composition_version` 1. Nine of the thirteen fail against the unfixed function.
+- **The batch interaction is pinned too**, because the fix's rationale leans on it: a batch whose `create_page` step is refused reports `rolled_back: true` over a page that genuinely does not exist.
+- **`tests/bootstrap.php`** gained `$GLOBALS['_pp_test_undeletable_posts']`, an opt-in per-post knob making `wp_delete_post()` return falsy, so the cleanup-failure branch is reachable at all. Same shape as the existing `_pp_test_user_caps` and `_pp_test_template_dir` knobs, and excluded from the distributed zip with the rest of `tests/`.
+
+---
+
 ## [v1.15.9] — 2026-08-24 — ⚠️ BREAKING: a composition must be a list, and a page that cannot be read stops reporting as empty (#724, #725)
 
 **`update_composition` with `{"1": hero, "3": section}` — a JSON object, not a list — returned `ok:true`, bumped `composition_version` to 3, reported `findings: []`, and replaced a five-band page with two bands. `wp pp check page` then classified the very same stored value `composition data integrity error (unexpected_shape) ... treat as corrupted, not empty`. The write path could manufacture, behind a success envelope, the exact state the diagnostics exist to detect.** Measured on fixture page 234 during the v1.15.0 release smoke. Both bands in that payload were well-formed, which is why every per-item rule stayed silent: nothing *below* the container was wrong, and no rule was looking at the container. `pp_validate_composition_errors()` now judges the container first and refuses a non-list with the read path's own classification, `unexpected_shape`.
