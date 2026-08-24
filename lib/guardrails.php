@@ -361,10 +361,20 @@ function pp_find_generated_component_ids(array $composition): array {
  * generated ids as stable made this check unreachable on any composition
  * that had been through pp_update_composition().
  *
+ * THE CONTAINER FIRST (#724), for the same reason as the smell engine beside it: the
+ * declared return says `indices => int[]`, and on a non-list container those indices are
+ * whatever keys the object carried — string keys would quietly break that contract, and a
+ * numeric object key would read as a position it does not name. A composition that is not
+ * a composition gets no ambiguous-targeting report; the container error owns it.
+ *
  * @param  array $composition  Composition array (component + props).
  * @return array[]             Each entry: ['component' => string, 'indices' => int[]]
  */
 function pp_validate_composition_styling(array $composition): array {
+    if (!pp_is_list($composition)) {
+        return [];
+    }
+
     $type_map = [];
 
     foreach ($composition as $i => $item) {
@@ -619,7 +629,35 @@ function pp_find_duplicate_component_ids(array $composition): array {
     return $dupes;
 }
 
+/**
+ * Advisory composition smells.
+ *
+ * THE CONTAINER FIRST, like every other engine (#724). A composition is a LIST. Every
+ * rule below reports `'index' => $i` and formats its locator with `%d`, so on a non-list
+ * container a string or folded object key prints a FABRICATED `index 0` — the lie
+ * #650/#652 removed from the error side. Rather than teach twenty rules about object
+ * keys, the engine answers the container question once and says nothing about the bands
+ * inside something that is not a composition, exactly as pp_validate_composition_errors()
+ * and pp_get_composition_result() do.
+ *
+ * The gate lives HERE, in the engine, not in _pp_composition_findings() where it was first
+ * written: this function is public with three production call sites, and a caller-side
+ * guard would leave the next caller free to reopen the fabricated locator with no test to
+ * catch it. Rules belong to the engines that own them.
+ *
+ * Reachable in practice, not theoretically: restore_composition passes a RAW history-ring
+ * snapshot to _pp_composition_findings() (never a value read back through
+ * pp_get_composition_result()), and the ring admits an object snapshot behind an
+ * is_array() gate.
+ *
+ * @param  array $composition  Composition array.
+ * @return array[]             Each entry: ['type' => string, 'message' => string, 'index' => int].
+ */
 function pp_validate_composition_smells(array $composition): array {
+    if (!pp_is_list($composition)) {
+        return [];
+    }
+
     $warnings = [];
 
     $consecutive_text_only = 0;

@@ -1585,7 +1585,7 @@ function _pp_action_preview(string $name, string $scope, array $target, $before,
 pp_register_action('create_page', [
     'scope'       => 'site',
     'description' => 'Creates a new page with the Composition template. Each composition item is {"component": "name", "props": {...}}.',
-    'semantics'   => 'Create. Title is required. Composition defaults to empty array. Status defaults to "draft". Composition items use the same {"component", "props"} shape as elsewhere. Optional slug sets the canonical route up front (#134) — omit to let WordPress derive one from the title. A page created with no composition is NOT stranded: it can be populated later with update_composition or deleted with trash_page through the operate surface (#358); only component-level edits (add/remove/reorder/update/style_component) require an existing composition first.',
+    'semantics'   => 'Create. Title is required. Composition defaults to empty array and must be a JSON ARRAY (a list) of components, never an object keyed by position — an object is refused with unexpected_shape and no page is created (#724). Status defaults to "draft". Composition items use the same {"component", "props"} shape as elsewhere. Optional slug sets the canonical route up front (#134) — omit to let WordPress derive one from the title. A page created with no composition is NOT stranded: it can be populated later with update_composition or deleted with trash_page through the operate surface (#358); only component-level edits (add/remove/reorder/update/style_component) require an existing composition first.',
     'params'      => [
         'title'       => ['type' => 'string', 'required' => true],
         'composition' => ['type' => 'array',  'required' => false],
@@ -1937,7 +1937,7 @@ pp_register_action('update_composition', [
     'requires_composition' => false,
     'impact_warning' => 'Replaces entire page composition',
     'description' => 'Replaces the entire composition array for a page. Populates a page created empty (its composition need not already exist). Each item is {"component": "name", "props": {...}}.',
-    'semantics'   => 'Replace. The full composition array is replaced. Pass the complete array, not a partial update. Items use {"component", "props"} shape.',
+    'semantics'   => 'Replace. The full composition array is replaced. Pass the complete array, not a partial update. Items use {"component", "props"} shape. The composition must be a JSON ARRAY (a list) of components, never an object keyed by position — {"1": {...}, "3": {...}} is refused with unexpected_shape (#724); order in the array is the render order.',
     'params'      => [
         'post_id'          => ['type' => 'int',   'required' => true],
         'composition'      => ['type' => 'array', 'required' => true],
@@ -2224,6 +2224,12 @@ function _pp_composition_findings(array $items): array {
         ];
     }
 
+    // ADVISORIES NEED A COMPOSITION TO BE ADVISORY ABOUT (#724). No gate here on purpose:
+    // all three engines answer the container question themselves — pp_validate_composition_errors()
+    // returns one `unexpected_shape` finding and stops, pp_validate_composition_smells() and
+    // pp_validate_composition_styling() return []. A guard at this call site would have been a
+    // caller protecting a shared engine, leaving the next caller free to reopen the fabricated
+    // `index %d` locator on an object-shaped container. This assembler stays a pure join.
     foreach (pp_validate_composition_smells($items) as $smell) {
         $findings[] = [
             'type'     => $smell['type'],

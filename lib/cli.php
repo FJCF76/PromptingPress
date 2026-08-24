@@ -1478,8 +1478,11 @@ class PP_Check_Command extends WP_CLI_Command {
         if (!$result['ok']) {
             // Corrupt/undecodable _pp_composition — distinct from a blank page
             // so a data-integrity problem isn't reported as "no composition"
-            // (issue #144).
-            WP_CLI::warning("Page {$post_id}: composition data integrity error ({$result['error']}). The stored _pp_composition is not a valid composition list — treat as corrupted, not empty.");
+            // (issue #144). The sentence moved to pp_composition_integrity_message()
+            // (lib/wp.php) when #725 gave `inspect-composition` the same report: one
+            // classification, said one way, wherever it surfaces. These bytes are
+            // unchanged and pinned — see CompositionShapeTrustTest.
+            WP_CLI::warning(pp_composition_integrity_message($post_id, $result['error']));
             return;
         }
         $composition = $result['composition'];
@@ -1845,7 +1848,15 @@ class PP_Operate_Command extends WP_CLI_Command {
 
         $result = pp_inspect_composition($post_id);
         if (is_wp_error($result)) {
-            WP_CLI::error($result->get_error_message());
+            // #725 made this branch reachable (this function could not return a WP_Error
+            // before). The message is static today — a fixed sentence plus an int post_id
+            // plus the classification literal — so nothing stored reaches the terminal.
+            // Wrapped anyway: pp_get_composition_result() carries the undecodable payload
+            // in its `raw` key, and the day someone extends the repair tail to show it,
+            // this sink must already be the one that strips control and format characters
+            // rather than the one that forwards a stored ANSI sequence. Same treatment
+            // _pp_cli_finding_line() gives every finding, for the same reason.
+            WP_CLI::error(_pp_cli_printable($result->get_error_message()));
         }
 
         WP_CLI::line(json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));

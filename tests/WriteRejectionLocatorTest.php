@@ -362,8 +362,20 @@ class WriteRejectionLocatorTest extends TestCase
      * The payload stays null on purpose: `index` is typed as an integer composition offset
      * (#622), and a string key is not one. Carrying the locator in the words and not in the
      * field is the honest reading, and it is what #650's recorded expectation asks for.
+     *
+     * #724 SUPERSEDES THE WRITE-PATH HALF OF THIS BLOCK, and the six tests below say so
+     * one at a time rather than being deleted. The write path no longer reaches the
+     * structural band rules with an object-shaped COMPOSITION at all: ruling D-A refuses
+     * the container first, so `{"aa": ...}` is answered "this is not a composition" instead
+     * of "this band is missing its component key". That is the stronger claim and the one
+     * an agent can act on — the band was never addressable, because the thing holding it
+     * was not a composition. What #650/#652 built is NOT deleted by that: the same locator
+     * renderer still serves the `items[]` depth on every ordinary list-shaped write (pinned
+     * in DiagnosticReachTest), and the BAND-level spelling is pinned directly below in
+     * testTheBandLocatorRendererStillSpellsAnObjectKeyHonestly so the contract survives
+     * with evidence even though no production caller can reach it through the write path.
      */
-    public function testANonIntegerCompositionKeyNamesTheRealKeyAndReportsNoBand(): void
+    public function testANonIntegerCompositionKeyIsRefusedAsAContainerBeforeAnyBandRule(): void
     {
         $this->seedPage(200, [$this->healthyLogosBand()]);
 
@@ -373,10 +385,95 @@ class WriteRejectionLocatorTest extends TestCase
         ]);
 
         $this->assertFalse($result['ok']);
-        $this->assertNull($result['index'], 'a string key is not an integer offset');
-        $this->assertSame('Item key "aa" is missing the "component" key.', $result['error']);
+        $this->assertSame('unexpected_shape', $result['error_code']);
+        $this->assertNull($result['index'], 'a container-level refusal owns no band offset');
+        $this->assertStringContainsString('must be a list of components', $result['error']);
         $this->assertStringNotContainsString('Item 0', $result['error'],
-            'the fabricated band 0 is what #650 removed');
+            'the fabricated band 0 is what #650 removed; #724 removes the band claim entirely');
+    }
+
+    /**
+     * #650/#652's BAND-level renderer, pinned where it can still be exercised.
+     *
+     * After #724 no write can hand an object-shaped composition to the structural rules, so
+     * the messages the five superseded tests above used to assert are unreachable through
+     * the action layer. The renderer that produces them is still shipped and still shared
+     * with the `items[]` depth, and a locator contract that survives only as prose is one
+     * refactor away from silently regressing. This asserts the contract directly, on the
+     * exact containers those tests used to drive through the write path.
+     */
+    public function testTheBandLocatorRendererStillSpellsAnObjectKeyHonestly(): void
+    {
+        $string_keyed = ['aa' => ['props' => []]];
+        $this->assertSame('Item key "aa"', _pp_band_index_label('aa', $string_keyed));
+
+        $numeric_object = [1 => ['props' => []], 0 => ['props' => []]];
+        $this->assertSame('Item key "1"', _pp_band_index_label(1, $numeric_object),
+            'a numeric OBJECT key still reads as a key, never as a position');
+
+        $sparse = [3 => ['props' => []]];
+        $this->assertSame('Item key "3"', _pp_band_index_label(3, $sparse));
+
+        // The load-bearing constraint from #652: a LIST container is byte-identical.
+        $this->assertSame('Item 1', _pp_band_index_label(1, [['props' => []], ['props' => []]]));
+    }
+
+    /**
+     * The #642 WRITE-BOUNDARY PREFIX, pinned where it can still be exercised.
+     *
+     * testTheWriteBoundaryPrefixIsNotReachedByAnObjectComposition and
+     * testASparseNumericKeyIsRefusedAsAContainer above used to be the ONLY coverage of
+     * `Component key "N" ("logos")`, and rewriting them for #724 would have left that
+     * branch of _pp_band_named_composition_error() both unreachable AND unpinned — a
+     * different function from the _pp_band_index_label() renderer pinned above, so the
+     * sibling test does not cover it. Driven directly here on the same containers.
+     */
+    public function testTheWriteBoundaryPrefixStillSpellsAnObjectKeyHonestly(): void
+    {
+        $sparse   = [3 => $this->badLogosBand('ccc')];
+        $stamped  = new WP_Error('invalid_style_slot', 'Component "logos" style slot "--ccc" is not declared.', ['index' => 3]);
+        $rendered = _pp_band_named_composition_error($stamped, $sparse);
+        $this->assertStringStartsWith('Component key "3" ("logos")', $rendered->get_error_message());
+        $this->assertStringNotContainsString('Component 3 ', $rendered->get_error_message(),
+            'a bare 3 reads as the fourth band; there is one band, stored under key 3');
+
+        // A LIST container stays byte-identical — the #652 constraint, at this depth too.
+        $listed = _pp_band_named_composition_error(
+            new WP_Error('invalid_style_slot', 'Component "logos" style slot "--ccc" is not declared.', ['index' => 0]),
+            [$this->badLogosBand('ccc')]
+        );
+        $this->assertStringStartsWith('Component 0 ("logos")', $listed->get_error_message());
+    }
+
+    /**
+     * The duplicate-id KEY LIST, pinned where it can still be exercised.
+     *
+     * testDuplicateComponentIdNamesObjectKeysAsKeys above was the only coverage of the
+     * cross-item pass rendering `on items key "1", key "0".`. That pass runs after the
+     * per-item loop, so #724's container gate makes it unreachable from a write; the
+     * rendering itself is unchanged and is asserted here against the engine directly.
+     */
+    public function testTheDuplicateIdKeyListStillSpellsObjectKeysAsKeys(): void
+    {
+        $dupe = static fn () => [
+            'component' => 'logos',
+            'props'     => ['id' => 'dup', 'items' => [['image_url' => '/a.png', 'image_alt' => 'A']]],
+        ];
+
+        // The cross-item detector reads the container it is given; drive it past the
+        // container gate the same way the engine's own pass does.
+        $collisions = pp_find_duplicate_component_ids([1 => $dupe(), 0 => $dupe()]);
+        $this->assertCount(1, $collisions);
+        $rendered = implode(', ', array_map(
+            static fn ($key) => _pp_item_index_label($key, [1 => $dupe(), 0 => $dupe()]),
+            $collisions[0]['indices']
+        ));
+        $this->assertSame('key "1", key "0"', $rendered);
+
+        // List container: byte-identical, and this one IS still reachable from a write.
+        $listed = pp_validate_composition_errors([$dupe(), $dupe()]);
+        $this->assertSame('duplicate_component_id', $listed[0]->get_error_code());
+        $this->assertStringStartsWith('Duplicate component id "dup" on items 0, 1.', $listed[0]->get_error_message());
     }
 
     /**
@@ -387,8 +484,12 @@ class WriteRejectionLocatorTest extends TestCase
      * a key is what makes the message and the payload say the same thing: `$items[0]` is a
      * key lookup, and it resolves to the band the message names.
      */
-    public function testANumericObjectCompositionNamesItsKeysAsKeys(): void
+    public function testANumericObjectCompositionIsRefusedAsAContainer(): void
     {
+        // SUPERSEDED BY #724 (see the block comment above): this used to assert
+        // `Item key "1" is missing the "component" key.` The write path now answers the
+        // container, so no band is named at all — and `index` goes null, because a
+        // container-level refusal belongs to no band.
         $this->seedPage(200, [$this->healthyLogosBand()]);
 
         $result = pp_execute_action('update_composition', [
@@ -397,12 +498,11 @@ class WriteRejectionLocatorTest extends TestCase
         ]);
 
         $this->assertFalse($result['ok']);
-        $this->assertSame(1, $result['index'], 'first-error-wins: the "1" band is walked first');
-        $this->assertSame('Item key "1" is missing the "component" key.', $result['error']);
-        // The #642 band prefix must NOT also fire here: the message already names its band,
-        // and the gate reads that label from the same renderer that wrote it.
+        $this->assertSame('unexpected_shape', $result['error_code']);
+        $this->assertNull($result['index']);
+        $this->assertStringContainsString('JSON object (2 entries)', $result['error']);
         $this->assertStringNotContainsString('Component 1:', $result['error'],
-            'the no-stutter gate must recognise the object-shaped band label too');
+            'no band prefix may attach to a container-level refusal');
     }
 
     /**
@@ -411,8 +511,11 @@ class WriteRejectionLocatorTest extends TestCase
      * LIST-shaped compositions, which is the shape that did not move — so half the issue would
      * have shipped verified only against the case it does not change.
      */
-    public function testANonScalarComponentOnAnObjectKeyedBandNamesTheRealKey(): void
+    public function testANonScalarComponentOnAnObjectKeyedBandIsRefusedAsAContainer(): void
     {
+        // SUPERSEDED BY #724: the second structural site is unreachable from the write path
+        // for the same reason as the first. The non-scalar-`component` rule itself is
+        // untouched and still fires on a LIST — pinned by the sibling test in this file.
         $this->seedPage(200, [$this->healthyLogosBand()]);
 
         $result = pp_execute_action('update_composition', [
@@ -421,8 +524,8 @@ class WriteRejectionLocatorTest extends TestCase
         ]);
 
         $this->assertFalse($result['ok']);
+        $this->assertSame('unexpected_shape', $result['error_code']);
         $this->assertNull($result['index']);
-        $this->assertSame('Item key "aa" has a non-scalar "component" key.', $result['error']);
         $this->assertStringNotContainsString('Item 0', $result['error']);
     }
 
@@ -434,8 +537,11 @@ class WriteRejectionLocatorTest extends TestCase
      * which is the healthy one. Exactly the lie #650 removed from the structural family,
      * in the message family an agent actually hits on a rejected write.
      */
-    public function testTheWriteBoundaryPrefixNamesAnObjectCompositionKeyAsAKey(): void
+    public function testTheWriteBoundaryPrefixIsNotReachedByAnObjectComposition(): void
     {
+        // SUPERSEDED BY #724: `[1 => bad, 0 => healthy]` never reaches the #642 prefix,
+        // because the container is refused before any band is judged. The prefix itself is
+        // unchanged and pinned byte-identically on list-shaped compositions below.
         $this->seedPage(200, [$this->healthyLogosBand()]);
 
         $result = pp_execute_action('update_composition', [
@@ -444,9 +550,10 @@ class WriteRejectionLocatorTest extends TestCase
         ]);
 
         $this->assertFalse($result['ok']);
-        $this->assertSame(1, $result['index']);
-        $this->assertStringStartsWith('Component key "1" ("logos")', $result['error']);
-        $this->assertStringNotContainsString('Component 1 ', $result['error']);
+        $this->assertSame('unexpected_shape', $result['error_code']);
+        $this->assertNull($result['index']);
+        $this->assertStringNotContainsString('Component ', $result['error'],
+            'a container refusal names no component and no band');
     }
 
     /**
@@ -467,10 +574,13 @@ class WriteRejectionLocatorTest extends TestCase
             'post_id' => 200, 'composition' => [1 => $dupe(), 0 => $dupe()],
         ]);
 
+        // SUPERSEDED BY #724: the cross-item pass runs AFTER the per-item loop, so an
+        // object-shaped composition never reaches it either. The duplicate-id rule and its
+        // key-list rendering are unchanged on list-shaped compositions (pinned below).
         $this->assertFalse($result['ok']);
-        $this->assertSame('duplicate_component_id', $result['error_code']);
-        $this->assertNull($result['index'], 'cross-item: no single band owns it');
-        $this->assertStringStartsWith('Duplicate component id "dup" on items key "1", key "0".', $result['error']);
+        $this->assertSame('unexpected_shape', $result['error_code']);
+        $this->assertNull($result['index'], 'a container refusal owns no band, same as the cross-item rule');
+        $this->assertStringNotContainsString('Duplicate component id', $result['error']);
     }
 
     /**
@@ -530,8 +640,11 @@ class WriteRejectionLocatorTest extends TestCase
      * `key "3"` form is what makes the prefix agree with the `index` beside it, which has
      * been a key lookup since #622.
      */
-    public function testASparseNumericKeyNamesThatKey(): void
+    public function testASparseNumericKeyIsRefusedAsAContainer(): void
     {
+        // SUPERSEDED BY #724: `[3 => band]` is a one-entry object, not a one-band list, and
+        // the container rule is what says so. The `key "3"` spelling stays pinned directly
+        // in testTheBandLocatorRendererStillSpellsAnObjectKeyHonestly.
         $this->seedPage(200, [3 => $this->badLogosBand('ccc')]);
 
         $result = pp_execute_action('update_composition', [
@@ -540,10 +653,9 @@ class WriteRejectionLocatorTest extends TestCase
         ]);
 
         $this->assertFalse($result['ok']);
-        $this->assertSame(3, $result['index']);
-        $this->assertStringStartsWith('Component key "3" ("logos")', $result['error']);
-        $this->assertStringNotContainsString('Component 3 ', $result['error'],
-            'a bare 3 reads as the fourth band; there is one band, stored under key 3');
+        $this->assertSame('unexpected_shape', $result['error_code']);
+        $this->assertNull($result['index']);
+        $this->assertStringContainsString('JSON object (1 entry)', $result['error']);
     }
 
     /**

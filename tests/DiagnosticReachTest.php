@@ -412,6 +412,21 @@ class DiagnosticReachTest extends TestCase
      * decodes to a string-keyed array. The offset is then not an int, and the honest
      * answer is "no locator" — never a coerced 0 pointing at the wrong band, and never
      * a fatal.
+     *
+     * #724 MADE THE ANSWER SHORTER, not different. This used to collect three per-item
+     * findings (the cta naming both required props it is missing, plus the unknown
+     * component) and assert that none of them invented a locator. The engine now judges the
+     * CONTAINER first: a non-list is not a composition, so there are no bands to report on
+     * and one finding says exactly that.
+     *
+     * BE PRECISE ABOUT WHAT THIS STILL PROVES, because the original subject moved. The
+     * no-fabricated-offset assertion below now iterates ONE container error that trivially
+     * carries no index, so it no longer exercises the thing it was written for: that a
+     * string key surviving into the per-item loop is stamped as `null` rather than coerced
+     * to `(int) "first"` === 0. That contract lives in _pp_composition_item_error() and is
+     * pinned directly in the sibling test below, since #724 leaves it unreachable from any
+     * production caller. Same for "never a fatal": the loop is no longer entered, so the
+     * guard is untested here rather than proven here.
      */
     public function testANonListCompositionYieldsNoLocatorRatherThanAFatal(): void
     {
@@ -420,12 +435,29 @@ class DiagnosticReachTest extends TestCase
             'second' => ['component' => 'ghost'],
         ]);
 
-        // Three findings since #621 (the cta names both required props it is missing),
-        // and NONE of them may invent a locator just because the list got longer.
-        $this->assertCount(3, $errors);
+        $this->assertCount(1, $errors, 'one container, one fact');
+        $this->assertSame('unexpected_shape', $errors[0]->get_error_code());
         foreach ($errors as $error) {
             $this->assertNull(pp_composition_error_index($error));
         }
+    }
+
+    /**
+     * The honest-null stamp itself (#622), pinned directly now that #724 keeps every
+     * non-integer key out of the per-item loop.
+     *
+     * _pp_composition_item_error() records `is_int($index) ? $index : null`. That guard is
+     * defence-in-depth after the container gate rather than a live path, and an unreachable
+     * guard with no test is one refactor away from being deleted as dead code and one
+     * refactor after that from a fabricated `0` coming back.
+     */
+    public function testTheItemErrorStampIsNullForANonIntegerKeyRatherThanCoercedToZero(): void
+    {
+        $stamped = _pp_composition_item_error('first', 'invalid_composition', 'Item key "first" is missing the "component" key.');
+        $this->assertNull(pp_composition_error_index($stamped), '(int) "first" is 0, and there is no band 0');
+
+        $listed = _pp_composition_item_error(2, 'invalid_composition', 'Item 2 is missing the "component" key.');
+        $this->assertSame(2, pp_composition_error_index($listed), 'a real integer offset is still carried');
     }
 
     // ── 4c. The reflected key list is bounded and printable (#633 posture) ─────

@@ -328,6 +328,52 @@ function pp_is_list(array $arr): bool {
 }
 
 /**
+ * Renders the ONE sentence every surface uses to report a corrupt stored composition (#725).
+ *
+ * `pp_get_composition_result()` below owns the CLASSIFICATION; this owns how that
+ * classification is said out loud. Both halves have to be single-owned for the same
+ * reason: #650/#652 established that one state reported in two vocabularies is how an
+ * operator ends up repairing the wrong thing, and a third spelling was exactly what
+ * #725 would have added by writing `inspect-composition` its own wording.
+ *
+ * The sentence is `wp pp check page`'s existing one, moved here VERBATIM — its bytes are
+ * pinned by CompositionShapeTrustTest so routing that command through this function
+ * stayed a no-op.
+ *
+ * WHAT IT OWNS TODAY, stated exactly, because "one classification, one sentence" is an
+ * aspiration this function does not yet fully deliver and a docblock that implied
+ * otherwise would license a fifth spelling:
+ *
+ *   OWNED   `wp pp check page`               (lib/cli.php — byte-identical, pinned)
+ *   OWNED   `operate inspect-composition`    (lib/operate.php — this sentence + its own repair tail)
+ *   NOT     `wp pp validate site`            names the page TITLE, which this signature cannot know
+ *   NOT     `pp_post_apply_validate()`       reports "corrupted AFTER APPLY", a different claim
+ *   NOT     the `operate inspect` preflight line in lib/cli.php
+ *
+ * The three that stay out are phrasing variants rather than a second vocabulary — each
+ * already carries the classification noun (`decode_error` / `unexpected_shape`) and says
+ * the row is not a valid composition list. They are left alone deliberately: routing them
+ * through here would change shipped CLI output on commands this change has no business
+ * touching. Widening the signature to absorb them is a follow-up, not a drive-by.
+ *
+ * Callers append their own next-action tail; the shared part is the diagnosis only.
+ *
+ * LIVES HERE, NOT IN lib/cli.php, and that is load-bearing rather than tidiness:
+ * lib/cli.php returns at its own line 9 unless WP_CLI is loaded, so a builder defined
+ * there would be UNDEFINED for `pp_inspect_composition()`'s other caller — the AI chat
+ * context builder (lib/ai-context.php), which runs in an ordinary web request. Next to
+ * the classifier is both the honest home and the only one that cannot fatal.
+ *
+ * @param  int    $post_id  The page whose stored composition was classified.
+ * @param  string $error    The classification: 'decode_error' or 'unexpected_shape'.
+ * @return string
+ */
+function pp_composition_integrity_message(int $post_id, string $error): string {
+    return "Page {$post_id}: composition data integrity error ({$error}). "
+        . 'The stored _pp_composition is not a valid composition list — treat as corrupted, not empty.';
+}
+
+/**
  * Reads _pp_composition and classifies its state, so callers can tell a
  * genuinely blank page apart from a corrupted one (issue #144).
  *
