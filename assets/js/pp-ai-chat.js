@@ -321,32 +321,96 @@ function ppChatCompositionUndoTarget(steps) {
 }
 
 /**
+ * True when a value is text this card can print as a name or a sentence.
+ *
+ * The one place the "is this readable?" question is answered, so the readers below and
+ * the renderer cannot answer it differently. Deliberately as weak as the test #625 shipped
+ * on `alternatives` entries: a non-empty string, whitespace included. Trimming would
+ * reject `'   '` where ppChatHasSlotAlternatives() has always accepted it, which is a
+ * change to what the step class claims, not a rendering fix — and which side owns that
+ * contract is #775's question, not this one's.
+ */
+function ppChatIsNonEmptyString(value) {
+    return typeof value === 'string' && value !== '';
+}
+
+/**
+ * True when a value is a keyed map rather than a list or a null.
+ *
+ * The other question this card asks twice: `cross_component_hints` must be one, and so
+ * must each entry in it. `typeof` calls an array an object and `Object.keys` counts its
+ * indexes, so without the Array.isArray leg a list reads as a map that names nothing —
+ * the rejection ppChatHasCrossComponentHint() has carried since #625, now shared with
+ * the entry test so the two cannot drift apart.
+ */
+function ppChatIsPlainObject(value) {
+    return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+/**
  * Renders a user-friendly error message in a preview diff area.
  * Handles structured errors (from _pp_build_friendly_error) and plain strings.
+ *
+ * WHAT IT AGREES TO PRINT (#667). Nothing below is drawn on a weaker test than the one
+ * the step's CLASS and the status bar apply to the same field. `alternatives` is exactly
+ * the list ppChatHasSlotAlternatives() classifies from; the hints are that classifier's
+ * map filtered to the entries that can be drawn (stricter, see the residual below); the
+ * two fields neither classifier reads are held to the same "is this text" question:
+ *
+ *   payload ──┬─ user_message   non-empty string ──► the message, else ──► plain branch
+ *             ├─ cross_component_hints ─► renderable hints ─┬─► "…exists on the X…"
+ *             │                                             └─► "Available on X: slot"
+ *             ├─ alternatives  ─► the entries that are names ─► "Available slots: …"
+ *             └─ raw_error      non-empty string ──────────► its own line
+ *
+ * Before this, each of the four was gated on a weaker test than the classifiers use —
+ * truthiness, or a `length` — so `alternatives: [null, {a:1}]` printed
+ * "Available slots: , [object Object]" under a step painted `pp-ai-step-impossible`,
+ * whose status bar said the change wasn't possible. Two halves of one card, disagreeing
+ * by construction. Not reachable through _pp_build_friendly_error() (lib/ai-chat.php),
+ * the sole producer, which is the same threat model #625 hardened the classifiers for.
+ *
+ * A malformed fragment is DROPPED, not narrated: there is no vocabulary here for "the
+ * server sent something I could not read", and inventing one is #664's question. The
+ * consequence is worth stating plainly — the disclosure never opens holding nothing,
+ * because the two things that open it are the two that write lines into it.
+ *
+ * One disagreement survives and is deliberate: ppChatHasCrossComponentHint() counts a
+ * hint MAP with keys, whatever the entries are, so a map whose entries name nothing
+ * still paints the step fixable and still gets the "lives on a different component"
+ * sentence, while the card now shows no hint at all. Printing "exists on the undefined
+ * component" instead would be a false claim, so this is the better end of the trade —
+ * but tightening the classifier itself would move #625's landed behavior, which this
+ * issue does not own. Filed as #789.
  */
 function ppChatRenderPreviewError(diffArea, data) {
     // Structured error from _pp_build_friendly_error (style_component failures).
-    if (data && typeof data === 'object' && data.user_message) {
+    if (data && typeof data === 'object' && ppChatIsNonEmptyString(data.user_message)) {
         var msgEl = document.createElement('div');
         msgEl.className = 'pp-ai-preview-error-message';
         msgEl.textContent = data.user_message;
         diffArea.appendChild(msgEl);
 
-        // Cross-component hint.
-        var hints = data.cross_component_hints;
-        if (hints && typeof hints === 'object') {
-            var hintKeys = Object.keys(hints);
-            if (hintKeys.length > 0) {
-                var hintEl = document.createElement('div');
-                hintEl.className = 'pp-ai-preview-error-hint';
-                var first = hints[hintKeys[0]];
-                hintEl.textContent = 'This setting exists on the ' + first.component + ' component.';
-                diffArea.appendChild(hintEl);
-            }
+        // Cross-component hint: the first RENDERABLE one. On the shipped payload that is
+        // the first entry, the same one _pp_build_friendly_error() picks with reset() to
+        // build user_message, so the sentence and the line name the same component. The
+        // two can only diverge on a map whose leading entries name nothing, which no
+        // producer emits — and a card that skipped the sentence's subject still beats one
+        // that prints "undefined" for it.
+        var hints = ppChatRenderableCrossComponentHints(data);
+        if (hints.length > 0) {
+            var hintEl = document.createElement('div');
+            hintEl.className = 'pp-ai-preview-error-hint';
+            hintEl.textContent = 'This setting exists on the ' + hints[0].component + ' component.';
+            diffArea.appendChild(hintEl);
         }
 
-        // Technical details in a native <details> disclosure.
-        if ((data.alternatives && data.alternatives.length > 0) || data.raw_error) {
+        var alternatives = ppChatSlotAlternatives(data);
+        var rawError = ppChatIsNonEmptyString(data.raw_error) ? data.raw_error : '';
+
+        // Technical details in a native <details> disclosure. Hints alone do not open
+        // it — that predates this change and is pinned as-is, not endorsed.
+        if (alternatives.length > 0 || rawError) {
             var details = document.createElement('details');
             details.className = 'pp-ai-preview-error-detail';
             var summary = document.createElement('summary');
@@ -360,18 +424,14 @@ function ppChatRenderPreviewError(diffArea, data) {
 
             var content = document.createElement('div');
             var lines = [];
-            if (data.raw_error) {
-                lines.push(data.raw_error);
+            if (rawError) {
+                lines.push(rawError);
             }
-            if (hints && typeof hints === 'object') {
-                var hKeys = Object.keys(hints);
-                for (var h = 0; h < hKeys.length; h++) {
-                    var hint = hints[hKeys[h]];
-                    lines.push('Available on ' + hint.component + ': ' + hint.slot);
-                }
+            for (var h = 0; h < hints.length; h++) {
+                lines.push('Available on ' + hints[h].component + ': ' + hints[h].slot);
             }
-            if (data.alternatives && data.alternatives.length > 0) {
-                lines.push('Available slots: ' + data.alternatives.join(', '));
+            if (alternatives.length > 0) {
+                lines.push('Available slots: ' + alternatives.join(', '));
             }
             content.textContent = lines.join('\n');
             details.appendChild(content);
@@ -380,10 +440,17 @@ function ppChatRenderPreviewError(diffArea, data) {
         return;
     }
 
-    // Plain string error (non-style_component actions).
+    // Plain string error (non-style_component actions). This is also where every caught
+    // render failure lands (#663), carrying a bounded string, so the string arm is the
+    // one behavior in this function that must never move.
+    //
+    // `message` is guarded too, and the guard costs nothing real: this value arrives from
+    // JSON.parse, which cannot produce a String wrapper or any other stringy object, so
+    // the only inputs it turns into "Preview failed" are ones that used to print
+    // "[object Object]" — a sentence about nothing either way.
     diffArea.textContent = typeof data === 'string'
         ? data
-        : (data && data.message) || 'Preview failed';
+        : (ppChatIsNonEmptyString(data && data.message) ? data.message : 'Preview failed');
 }
 
 /**
@@ -394,13 +461,48 @@ function ppChatRenderPreviewError(diffArea, data) {
  * `typeof` calls an object and `Object.keys` happily counts, so it would otherwise be
  * read as a hint that names nothing.
  *
- * Shared by the two readers below so the class painted on the step and the sentence
- * written in the status bar cannot disagree about whether a hint exists.
+ * The class painted on the step and the sentence written in the status bar both come
+ * from here, so they cannot disagree about whether a hint exists. The renderable-hint
+ * list below starts from this answer and then asks for more (an entry it can draw), so
+ * it is this predicate's reader, not its equal.
  */
 function ppChatHasCrossComponentHint(data) {
     var hints = data && data.cross_component_hints;
-    if (!hints || typeof hints !== 'object' || Array.isArray(hints)) return false;
+    if (!ppChatIsPlainObject(hints)) return false;
     return Object.keys(hints).length > 0;
+}
+
+/**
+ * The hints in a friendly error that can actually be DRAWN, in payload order (#667).
+ *
+ * The predicate above answers "does this payload claim a hint", which is what the step
+ * class and the status bar need. Drawing one needs more than a claim: a component to
+ * name and a slot to print. `_pp_build_friendly_error()` (lib/ai-chat.php) writes both
+ * on every entry it emits — a three-key literal of `component`, `slot` and `match` — so
+ * on the shipped path this returns every entry and the card is unchanged.
+ *
+ * Named for the narrower question rather than as the predicate's list form, because it
+ * is NOT its list form: ppChatHasSlotAlternatives() is true exactly when its list is
+ * non-empty, and this one can be empty while the predicate above is true. That gap is
+ * the deliberate residual — an entry that isn't a drawable map contributes nothing
+ * rather than "This setting exists on the undefined component", so a map of nulls still
+ * classifies fixable while the card shows no hint. Better than printing a name that
+ * isn't there, and closing it the other way — teaching the classifier this same test (#789) —
+ * would move what #625 landed on the step class and the status sentence.
+ */
+function ppChatRenderableCrossComponentHints(data) {
+    if (!ppChatHasCrossComponentHint(data)) return [];
+    var hints = data.cross_component_hints;
+    var keys = Object.keys(hints);
+    var renderable = [];
+    for (var i = 0; i < keys.length; i++) {
+        var hint = hints[keys[i]];
+        if (ppChatIsPlainObject(hint) &&
+            ppChatIsNonEmptyString(hint.component) && ppChatIsNonEmptyString(hint.slot)) {
+            renderable.push(hint);
+        }
+    }
+    return renderable;
 }
 
 /**
@@ -412,14 +514,37 @@ function ppChatHasCrossComponentHint(data) {
  * is decided against, so it asks for what it actually needs: at least one entry that is
  * a name. A list of nulls, objects, or empty strings has a length but names nothing,
  * and "there are settings you could use instead" would be a false claim about it.
+ *
+ * Since #667 it asks the list below rather than re-deriving the test, so the claim it
+ * makes and the names the card prints are the same set by construction. Its answer is
+ * unchanged for every input: "at least one entry is a name" is exactly "the list of
+ * entries that are names is non-empty".
  */
 function ppChatHasSlotAlternatives(data) {
+    return ppChatSlotAlternatives(data).length > 0;
+}
+
+/**
+ * The entries of `alternatives` that are names, in payload order (#667).
+ *
+ * The renderer prints this list, and the predicate above classifies from it, so no
+ * payload can put a slot list in front of the author under a step that says there is
+ * nothing to try. A non-array is no list at all — `alternatives: '--hero-bg'` has a
+ * `length`, and joining it used to throw, which #663's catch then rendered as a generic
+ * failure rather than the answer the server actually sent.
+ *
+ * What counts as a name is #625's test, unchanged: whether a numeric or list-shaped slot
+ * map should widen it is #775's open question, and it is answered in ONE place now, so
+ * whichever way that lands the card and the class move together.
+ */
+function ppChatSlotAlternatives(data) {
     var alternatives = data && data.alternatives;
-    if (!Array.isArray(alternatives)) return false;
+    if (!Array.isArray(alternatives)) return [];
+    var names = [];
     for (var i = 0; i < alternatives.length; i++) {
-        if (typeof alternatives[i] === 'string' && alternatives[i] !== '') return true;
+        if (ppChatIsNonEmptyString(alternatives[i])) names.push(alternatives[i]);
     }
-    return false;
+    return names;
 }
 
 /**
