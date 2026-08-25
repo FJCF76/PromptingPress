@@ -4,6 +4,89 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.15.12] — 2026-08-25 — A landed write can no longer lose its receipt (#717)
+
+**One bad byte used to erase the whole envelope, after the write had already persisted.** Every JSON document `lib/cli.php` printed went through its own inline `WP_CLI::line(json_encode($x, <hand-written flags>))`, and not one of the 29 sites checked the return. `json_encode()` answers `false` — not a string — on malformed UTF-8, on nesting past 512, on recursion, on INF/NAN. `WP_CLI::line(false)` prints an **empty line**, and on `wp pp action execute` the very next branch still ran `WP_CLI::success('Action "..." executed.')`. So the caller got a blank line plus a success message and lost `ok`, `error_code`, `composition_version`, `changes` and `findings` for a mutation that had ALREADY LANDED. That is the worst shape a failure can take on a write path: the data changed and the record of what changed is gone.
+
+**What operators get: a landed write can no longer lose its receipt.** The envelope survives a damaged byte, says where the damage is, and never degrades to silence.
+
+### Reachability is wider than the issue recorded
+
+#717 reasoned via a raw `_pp_composition` meta write (which `lib/wp.php:373-378` deliberately accepts as an already-decoded array, bypassing the JSON decode filter). True, but not required. `update_site_option` reports `changes[].from` read straight out of the options table (`lib/actions.php:1979,1988`), so ONE bad byte in a legacy, imported or plugin-written option value destroys the receipt of a write that landed, with no composition involved. Measured on the real code:
+
+```
+update_option('pp_footer_blurb', "Old \xB1 blurb");
+wp pp action execute update_site_option --params='{"key":"pp_footer_blurb","value":"New blurb"}'
+  -> the option IS now 'New blurb'          (the write landed)
+  -> json_encode(...) === false             ("Malformed UTF-8 characters")
+  -> stdout: ''  then  Success: Action "update_site_option" executed.
+```
+
+### THE MECHANISM: one sink, `_pp_cli_emit_json()`
+
+All 29 emits now call one function, so there is no second flag list to drift. Flags are `JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE`, and `JSON_UNESCAPED_UNICODE` is **dropped**.
+
+- **`JSON_INVALID_UTF8_SUBSTITUTE`** turns a bad byte into U+FFFD instead of destroying the document. The envelope still names the action, the code and the version, and the damaged span is visible rather than silent.
+- **Dropping `JSON_UNESCAPED_UNICODE`** is the sink-level half of the bidi defense. A stored component or slot name raw-written with U+202E (RIGHT-TO-LEFT OVERRIDE), U+2066 or U+200B no longer reaches the terminal intact. It is **lossless**: `\u202e` decodes back to the identical string, unlike stripping the characters — the other option #717 floated, and the one that would have destroyed content the operator cannot recover. It is also the only option that stays at the SINK; stripping characters out of a message is the #647/#649 axis, which this change does not touch.
+- **`DEL` (U+007F)** is escaped explicitly. JSON escapes control characters below U+0020 unconditionally, so an ANSI `ESC` always arrived as `\u001b` — but DEL sits inside ASCII, where neither JSON nor the dropped flag reaches it. Byte-level replace, safe under raw-unicode too: 0x7F cannot occur inside a UTF-8 multi-byte sequence.
+- **The return is checked.** When the encode still fails (depth and recursion are not repairable) the command prints a short document instead of a blank line: every top-level value that still encodes, plus `envelope_error` naming the encoder's own reason, plus **`omitted_keys` naming what did not survive**. That last field is what keeps the fallback honest. `changes` and `findings` are containers, so they are exactly what gets dropped, and a consumer reading `findings ?? []` beside a surviving `ok: true` would otherwise read a clean bill of health for diagnostics that were never encoded. A key in `omitted_keys` means UNKNOWN, not empty. Same trap `findings_skipped` closes on the write path.
+- **Salvage is by TYPE, not from a list of field names.** Every surface here has its own verdict field (`ok`, `valid`, `ready`, `status`, `classification`, `has_drift`), so a hand-maintained key list would silently stop covering the next one added. Non-finite floats are excluded: INF/NAN are scalar and JSON cannot encode them, so copying one across would fail the second encode too and drop the report to a literal carrying no verdict — the original bug, rebuilt inside its own fix.
+- **Nothing escapes the function.** The fail path runs inside a `try` whose `catch` still prints a pure-ASCII literal.
+
+### The complete sink inventory (29 sites, all in `lib/cli.php`)
+
+Every one of the 29 had the unchecked-return defect. None was fully defended; the second column is only about the Unicode half.
+
+| surface | sites | non-ASCII before | non-ASCII after |
+|---|---|---|---|
+| `action execute` (**the filed site**) | 2 | literal | escaped |
+| `action preview` | 2 | literal | escaped |
+| `apply preview` / `execute` / `restore-composition` / `reset` / `preflight` | 7 | literal | escaped |
+| `_pp_cli_preflight_record_failed()` (shared gate helper) | 1 | literal | escaped |
+| `readiness status` | 1 | literal | escaped |
+| `operate patch` (**the addendum site**) | 1 | escaped | escaped |
+| `operate inspect` / `checklist` / `validate` / `inspect-composition` / `composition-history` | 5 | escaped | escaped |
+| `screenshot capture` (x2) / `doctor` | 3 | escaped | escaped |
+| `check surface`, `sync check`, `target show` | 3 | escaped | escaped |
+| `integrity check` / `status` | 2 | escaped | escaped |
+| `schema` (index + report) | 2 | literal | **literal, deliberately** |
+
+So **13 surfaces change their bytes** for non-ASCII content, 14 were already escaping it and change only in gaining the guard, and 2 keep literal characters by design. The 13 are what settles the disagreement #717's addendum filed: `action execute` and `operate patch` are documented in one paragraph as "printing the whole envelope", and until now they emitted different bytes for identical content.
+
+**`wp pp schema` is the one exemption**, and its rationale predates this change: it prints shipped `schema.json` prose (em dashes, typographic quotes) for an agent that cannot open the file. Both of its builders walk `pp_get_registered_components()` and nothing else, so no stored byte reaches either. The docblock now states the rule for any future caller precisely — the payload must derive solely from files under the theme root, whose integrity is `wp pp integrity check`'s job — because the loose version ("it does not read the database") claims more than actually holds. `tests/InvariantTest.php` pins the count of raw-unicode call sites at exactly two and pins that both live in `PP_Schema_Command`, so widening the exemption is a deliberate act rather than a quiet one.
+
+### Visible-output change, stated plainly
+
+A rejection message containing an em dash now prints `\u2014` on `wp pp action execute` and the whole `wp pp apply` family. `lib/apply.php`'s `invalid_color` message is one of several that carry one, so this is not an exotic case: it is most rejection envelopes from those surfaces. Same JSON, same decoded string, different bytes, and any parser recovers the original exactly. The human-readable channel is unaffected — `WP_CLI::error/warning/success` lines and the `wp pp check page` / `validate site` finding lines never went through this sink.
+
+### Scope boundaries
+
+- **The SINK, not the message.** Bounding or sanitizing what a message REFLECTS (length caps, stripping control characters out of message text) is the uniform axis recorded for #647/#649 and is untouched here. The issue's own Notes section draws that line.
+- **#651 is fully addressed** — it filed the identical unchecked-encode defect on `action preview` and `apply preview`, four of the 29 sites, all now routed through the shared sink. Deliberate deviation from its stated Expected: it proposed falling back to a plain `WP_CLI::error()` line, which would wrongly turn a SUCCESSFUL preview whose envelope failed to encode into a non-zero exit. The minimal document is the uniform answer across all 29 and is what #717 itself asked for. Not auto-closed here; left for triage.
+- **Exit codes are unchanged.** A read-only command whose document fails to encode still exits 0, as it did when it printed a blank line. Making that non-zero is a public-surface change beyond this issue; `envelope_error` is the machine-detectable signal in the meantime.
+- **`_pp_action_error()`'s hardcoded `target = []`** is a known separate constraint and is untouched.
+- **Human-channel interpolations** in `lib/cli.php` that print stored component names and post titles without `_pp_cli_printable()` are real and out of scope — they belong to the #647/#649 message family, not to the sink.
+
+### Fixed
+
+- `wp pp action execute` no longer prints a blank line followed by `Success:` when its envelope contains a byte JSON cannot encode. The write's `ok`, `error_code`, `composition_version`, `changes` and `findings` survive (#717).
+- The same defect is closed on all 28 sibling emits in `lib/cli.php`, including `wp pp operate patch` (the second site recorded in #717's 2026-08-18 addendum) and the four `preview` emits filed as #651.
+- Stored format and bidi characters (U+202E, U+2066, U+200B) and the DEL control character can no longer reach the operator's terminal from any of these surfaces.
+- `wp pp action execute` and `wp pp operate patch` now emit byte-identical representations of identical content.
+
+### Docs
+
+- `docs/reference-apply-cli.md` gains a CLI-wide section on how every `wp pp` command prints JSON: the document is always printed, what the short-document fallback looks like, why `omitted_keys` must be read before trusting any absence, and the `wp pp schema` exemption.
+- `AI_CONTEXT.md` records the same contract for the agent-facing reader, beside the existing "print the whole envelope" paragraph.
+
+### Tests
+
+- `tests/CliEnvelopeEmitTest.php` (new, 17 pins): the landed-write receipt surviving a bad byte with the write verified as persisted; the emitted line asserted NON-empty, because the blank line is the whole regression and an assertion on the pre-encode array cannot see it; U+FFFD substitution with surrounding text intact; a rejection whose own message carries the bad byte keeping `error_code` and exit 1; `action execute` and `operate patch` agreeing byte-for-byte; the override character escaped on a surface that used to print it live, and still decoding back intact; DEL escaped; the depth failure reached through a REAL command (`operate inspect-composition` over a raw-written deep composition) rather than only through the helper; the fallback keeping the verdict and naming what it dropped; the type filter refusing an unencodable value on a salvaged key; a non-action surface keeping `valid`/`status`; a non-finite float not taking the verdict down with it; and the schema exemption paired against an envelope surface escaping the same character.
+- Discriminating power measured, not assumed: **14 of the 17 fail against a reverted `lib/cli.php`**. The three that pass are documented in place as such — one pins the pre-#717 behaviour on purpose, and two are forward-looking flag guards on a surface that already escaped.
+- `tests/InvariantTest.php`: no `WP_CLI::line(json_encode(` may return to `lib/cli.php`, and `json_encode(` appears exactly twice in its non-comment source (the document and its fallback). Comments are stripped first, so a docblock quoting the old spelling while explaining why nobody may use it does not fail the guard. Verified empirically by reintroducing the old shape in a scratch copy and confirming the test goes red.
+
+---
+
 ## [v1.15.11] — 2026-08-25 — Batch rollback can no longer erase a corrupt page's recoverable bytes (#749)
 
 **A failed batch used to repair itself by destroying a page.** `_pp_snapshot_batch_targets()` captured every named page's composition through `pp_get_composition()` — the legacy accessor that DEGRADES a corrupt or wrong-shaped stored value to `[]` — and `_pp_restore_batch_snapshot()` wrote that capture back unconditionally. So a batch that merely NAMED a page whose `_pp_composition` was corrupt-but-recoverable (a JSON object, a bare scalar, truncated JSON, an already-decoded non-list array) and then failed for any reason rolled back by writing `[]` over the only recoverable copy of those bytes, and reported `rolled_back: true` with no error. The page went from "corrupt but restorable" to genuinely empty, silently. The gate was `isset($params['post_id'])`, so `publish_page`, `update_page_title` and `set_seo_meta` all triggered the snapshot even though they never touch the composition. This is unrecoverable data loss on a path an agent hits routinely, and #241 closed exactly this failure for the run-scoped restore — `lib/cli.php` still carries the comment from that fix, *"pp_get_composition() coerces corruption to [] and must not be used here"*. The batch executor never got the same guard.
