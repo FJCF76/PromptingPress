@@ -4,6 +4,61 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.16.9] — 2026-08-25 — The accordion editor stops turning a dead button into a live link to /false (#745)
+
+**Open an aged page in the accordion editor, type one character in any field of any band, and a stored `section.panel_cta_url: false` — a dead button with an empty href — became the STRING `"false"`, a live link to a page that does not exist, on a band you never opened. The editor now refuses to open a composition that stores a non-string under a prop declaring `type: "string"`, and names the offending path so you can fix the real value in the JSON view. Other values the controls cannot round-trip are NOT covered — see the scope section below for where each one is tracked.**
+
+The mutation was invisible to the guard built to catch exactly this. `checkSerializationInvariant()` round-trips a composition through `buildAccordionData` → `serializeAccordionData` and blocks the accordion if anything changes, but that round-trip is IN-MEMORY: both halves keep `props[key]` verbatim, so it compared `false` against `false` and reported safe. The rewrite happened later, in the DOM — `escapeHtml()` emits `String(value)` into a text input, and the sync reads it back with `.val()` as the string `"false"`. That is the same blind spot `unadvertisedEnumDiffs()` was written for in #605, whose own docblock says "the mutation is introduced later, by `syncAccordionToJson()` reading values back off the DOM". The class had a named guard with one member; this is the second.
+
+The reach is what made it worth closing rather than tolerating. `syncAccordionToJson` is bound to input events and walks every field of every band, so a keystroke in band 1 rewrites band 7. And `_pp_link_url_is_valid()` accepts a scheme-less path, so the laundered `"false"` passes validation on the way out.
+
+### The save-path truth this was checked against, not assumed
+
+The editor has no private save route. `wp_ajax_pp_save_composition` (`lib/admin.php`) hands the raw buffer to `pp_execute_action('update_composition')` — the same shared engine the CLI and the AI chat use — so #707's narrowing applies in full. That makes the two possible end-states concrete:
+
+| stored | what the editor sent | what #707 does with it |
+|---|---|---|
+| `false`, untouched | `"false"` — laundered by the DOM read | **accepted**; the corruption persists and now renders a live link |
+| `false`, preserved | `false` | **rejected**, `invalid_prop_value` naming the prop |
+
+The laundering was the only reason those saves succeeded. So "preserve the value and let the author carry on" is not the better end state: since #707 such a page cannot be saved through ANY surface until the value itself changes, and leaving the author in a form whose Save button can never succeed is a quieter dead end, not a safer one. The accordion refuses up front instead, and routes to the JSON view — the one editor that can fix the value. That is the shape #605 ratified, and it satisfies D-A (reject, never coerce) without coercing, migrating, or aliasing anything.
+
+**The end-state contract:** a stored value the accordion cannot round-trip is never silently rewritten. Either it survives untouched, or the composition is refused with the offending path, its stored value, and the text the control would have substituted, all named in the notice. Nothing stored is migrated.
+
+### Fixed
+
+- **A stored value that is not a string, under a prop the schema declares `type: "string"`, is now drift (#745).** New pure `nonStringValueDiffs()` in `assets/js/pp-editor-logic.js`, one `diffs.concat()` line in `checkSerializationInvariant()`, sitting beside its #605 sibling. The predicate is the exact inverse of the write path's — `value === null || typeof value === 'string'` mirrors what #707 narrowed `_pp_schema_scalar_value_is_valid()`'s string arm to — so the editor cannot develop a private idea of what a string prop accepts. Booleans, numbers, arrays and objects all qualify; the reported `after` is the text the read would really have produced (`"false"`, `"0"`, `1,2`, `[object Object]`), not an approximation.
+
+- **Both depths, matching #707's own framing.** Top-level props and `items[]` sub-fields whose schema declares `type: "string"` — and ONLY that declaration at either depth, so nested `enum` sub-fields are not included (they stay with #646). Pinned against the REAL shipped schemas rather than only hand-written fixtures, including the exact prop and value the v1.15.0 smoke measured (`section.panel_cta_url: false`) and a real nested field (`grid.items[].link_url`), plus a structural assertion that every shipped `items` declaration really is a map of sub-key to a spec carrying a `type` — so a schema-shape change breaks the pin instead of silently disarming the walk.
+
+- **`null` and `''` stay valid.** Both are the documented unset sentinel, both keep their carve-out at the write path, and the enum sibling already treats them the same way. `null` renders empty and reads back as `''`, so it does not survive byte-identically either — that rewrite is between two spellings of one meaning ("leave this prop on its default"), and reporting it would lock the accordion on every composition that spells the sentinel the first way. Pinned so the carve-out is a decision on record.
+
+- **Reporting drift no longer throws on a value whose own `toString` is not callable.** `JSON.parse('{"toString":"x"}')` makes `String()` raise `TypeError`, and the boot call that drives this check is not wrapped — so an uncaught throw while BUILDING the notice would have left the operator with neither an accordion nor a notice, on exactly the page this check exists to get repaired. `textForm()` falls back to the value's shape tag. Scope is this path only, deliberately: `escapeHtml()` calls `String()` on the same values and is not wrapped, so the same stored value under a prop this gate does not judge still reaches the renderer and still throws. That is unchanged here and filed as #810. Found by review, not by the filed issue.
+
+- **The two guards no longer keep two copies of the same walk.** `forEachDeclaredProp()` now owns the parse, the array check, the schema map, the band guards, and the decision to iterate STORED keys rather than declared ones; `unadvertisedEnumDiffs()` and `nonStringValueDiffs()` are each reduced to their own predicate. Same reasoning as #614 on the PHP side: two copies is how two guards start disagreeing about which bands they even look at, and they would disagree silently, because each one's tests only exercise its own copy. Behaviour-preserving for #605, which keeps its full existing coverage.
+
+### Scope, and what was deliberately not touched
+
+- **`#646` is untouched.** Nested `enum` sub-fields still render as free text and `unadvertisedEnumDiffs()` still does not descend into `items[]`. That is #646's, and #646's body explains why rendering nested enums as `<select>` without extending its guard would re-create #605 one level down. Nothing here moves either half.
+- **Sub-fields declaring a type other than `string` are out.** `buildArrayFieldHtml` hardcodes a text control whatever the schema declares, so a stored `bullets` array reads back as `a,b` and a `style` object as `[object Object]`. That is a wider defect than this rule describes and reporting it here would lock the page without fixing the control that cannot show the value. Filed as #805, and now cited in the docblock rather than left as an unattributed boundary.
+- **Undeclared pass-through props are out.** They have no declared type, so #707 does not refuse them either and those compositions still save cleanly; blocking them is a heavier call that deserves its own decision. Filed as #806.
+- **Deviations from the filed issue.** Its "Expected" section also raised two adjacent silent-skip branches (an unresolved control and a restored array row, both warned about only in the browser console) as "worth deciding on in the same pass". They are a different axis — how a skip is surfaced, not whether a value is rewritten — and are left alone. The issue also described the pre-fix render as "an anchor with an empty href"; that was re-verified as still current (`$has_panel_cta` gates on the RAW value with an `is_scalar` term, so `false` opens the gate and `(string) false` is `''`) rather than taken on trust.
+
+### Docs
+
+- `AI_CONTEXT.md` — the serialization gate is no longer described as a purely structural round-trip. It now says what the gate actually promises and names both members that the in-memory comparison cannot see, so the description stops being narrower than the behaviour.
+- `AI_RULES.md` — the `esc(value)` / never-`String(value || '')` rule gains the values it now applies to, and a correction worth stating outright in a PHP-heavy repo: in JavaScript only `0`, `false`, `null` and `''` are falsy, and the string `'0'` is NOT — so a `'0'` fixture cannot probe that idiom.
+- `README.md` — the JS test inventory reflects what the form-sync suite now covers.
+
+### Tests
+
+- **The three pins that asserted the defect are flipped**, the #707 precedent verbatim: `expect(parsed[0].props.title).toBe('false')` after editing an unrelated field was the bug, written down. Replaced by pins that the refusal fires, names the path, shows `false → "false"`, and lands the author in the JSON pane with no way back into the accordion. All red-proven against the unfixed tree (30 failures) before being made green.
+- **The render-fidelity pins were re-homed, not deleted.** They protect a separate deliberate contract (`esc(value)`, never `String(value || '')`), and a review pass caught that the first re-homing broke them: `'0'` is truthy in JS, so the moved pins had stopped probing the idiom and two branches were left with mutants that survived the whole suite. They now sit where a falsy value can still reach a control — an undeclared prop for the input branch, a `number`-declared `body` for the `<textarea>` branch, and a `number`-declared row sub-key (mirroring the shipped `items[].image_id`) for the row-value assembly. Verified by re-running those mutants in a COPIED tree: all three are killed, where two previously survived.
+- Boundary coverage so each exclusion is enforced rather than merely described: enum props, number props, undeclared props and sub-keys, a non-array under an array prop, a non-object row (including an array-valued one, which is what makes the `isPlainObject` call load-bearing), an array prop with no `items`, a band with no props, and a registry entry with no schema.
+- A hostile value routed through the new guard is asserted to reach the notice ESCAPED — no element created, the text still readable — so the notice's existing escaping is pinned by the code that now depends on it.
+
+---
+
 ## [v1.16.8] — 2026-08-25 — The FAQ's structured data stops publishing damage the page refuses to show (#742)
 
 **A damaged FAQ answer rendered as an empty accordion row and then told search engines the answer was the word "Array". The schema helper now guards its own reads, so a damaged entry is skipped exactly as a stored-empty one always was — and an object-valued answer no longer 500s the page on the way there. This retires the known issue carried in the v1.16.0 release notes.**

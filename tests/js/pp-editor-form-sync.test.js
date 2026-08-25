@@ -107,6 +107,59 @@ const MULTILINE_REGISTRY = [
     },
 ];
 
+/**
+ * The same multiline field declared `type: "number"`.
+ *
+ * Exists so the <textarea> branch keeps a FALSY probe after #745. Whether a field
+ * renders as a textarea is decided by its NAME (MULTILINE_FIELDS), while whether a
+ * stored value is drift is decided by its declared TYPE — so a numeric `body` is
+ * still multiline, and a stored 0 under it is legitimately not drift. A `type:
+ * "string"` body holding 0 would be refused before rendering, leaving the branch
+ * with no way to tell esc(value) from String(value || '').
+ */
+const MULTILINE_NUMERIC = [
+    {
+        name: 'card',
+        templateOwned: false,
+        schema: {
+            props: {
+                title: { type: 'string', required: false },
+                body:  { type: 'number', required: false },
+            },
+        },
+    },
+];
+
+/**
+ * An items[] sub-schema with a NUMBER sub-key, mirroring the shipped
+ * `grid.items[].image_id` / `logos.items[].image_id` shape
+ * (`{"type": "number", "default": 0}`).
+ *
+ * Two jobs: it keeps a falsy probe on the row-value assembly in
+ * buildArrayFieldHtml (`value: item[sk]`), and it exercises the #745 walk's
+ * `sub.type !== 'string'` boundary — a non-string sub-key is deliberately NOT
+ * reported as drift, and without a non-string sub-key in any fixture that branch
+ * is never taken.
+ */
+const NUMERIC_ROW = [
+    {
+        name: 'card',
+        templateOwned: false,
+        schema: {
+            props: {
+                title: { type: 'string', required: false },
+                items: {
+                    type: 'array', required: false,
+                    items: {
+                        title: { type: 'string', required: false },
+                        count: { type: 'number', required: false },
+                    },
+                },
+            },
+        },
+    },
+];
+
 // ─── Harness ────────────────────────────────────────────────────────────────
 
 /** The markup pp-admin-editor.js expects to find on the page. */
@@ -141,7 +194,8 @@ function installDom() {
  * Boot the real editor over `json` with every card expanded.
  * Returns the jQuery handle plus a reader for the editor's current buffer.
  */
-async function bootEditor(json, components) {
+async function bootEditor(json, components, opts) {
+    opts = opts || {};
     installDom();
 
     const jquery = require('jquery');
@@ -217,7 +271,7 @@ async function bootEditor(json, components) {
     if (!settled) {
         throw new Error('editor never booted: #pp-accordion-view is empty and no serialization notice was posted');
     }
-    if (document.querySelector('.pp-serialization-error')) {
+    if (document.querySelector('.pp-serialization-error') && !opts.allowBlocked) {
         throw new Error('the serialization-invariant gate blocked the accordion; this fixture cannot exercise sync');
     }
 
@@ -235,6 +289,40 @@ async function bootEditor(json, components) {
         p.action === 'pp_save_composition' || p.action === 'pp_publish_page');
 
     return { $: jquery, getBuffer: () => buffer, getWrites: () => writes, savePosts };
+}
+
+/**
+ * Boot a fixture the invariant gate is expected to REFUSE, and report what the
+ * author is actually shown (#745).
+ *
+ * The refusal is only worth anything if it is actionable, so this returns the
+ * PATHS the notice names rather than a bare "was it blocked" boolean: a gate that
+ * blocks without saying which prop is at fault leaves the author hunting through
+ * raw JSON, which is the outcome the JSON-only route exists to avoid.
+ *
+ * Reads the rendered notice, not the invariant result — the question is what
+ * reached the DOM, and showSerializationNotice is what puts it there.
+ */
+async function bootBlocked(json, components) {
+    const { $ } = await bootEditor(json, components, { allowBlocked: true });
+    const $notice = $('.pp-serialization-error');
+    if (!$notice.length) throw new Error('expected the invariant gate to block this fixture, but it rendered');
+    return {
+        $,
+        // The accordion must be gone and the JSON pane showing — the author has to
+        // land in the editor that can actually fix the value.
+        accordionHidden: $('#pp-accordion-view').css('display') === 'none',
+        jsonShown:       $('#pp-json-view').css('display') !== 'none',
+        toggleHidden:    $('#pp-view-toggle').css('display') === 'none',
+        paths: $notice.find('tbody tr td:nth-child(2) code').map(function () {
+            return $(this).text();
+        }).get(),
+        // Built with toArray/Array#map rather than jQuery's .map().get(): jQuery
+        // FLATTENS an array returned from its callback, which would collapse the
+        // rows into one undifferentiated list of cells.
+        rows: $notice.find('tbody tr').toArray().map((tr) =>
+            $(tr).find('td').toArray().map((td) => $(td).text())),
+    };
 }
 
 /**
@@ -399,21 +487,67 @@ describe('a stored value renders as itself and reads back as itself', () => {
         return JSON.stringify([{ component: 'card', props: { title: value, items: [] } }]);
     }
 
-    // 0 and false are the cases a falsy-based default silently blanks; '' and a
-    // plain string are the controls that must not change.
-    const VALUES = [
-        ['the number zero',  0,       '0'],
-        ['a nonzero number', 42,      '42'],
-        ['boolean false',    false,   'false'],
-        ['boolean true',     true,    'true'],
+    /**
+     * Same value under a prop the schema does NOT declare. Since #745 a stored
+     * non-string under a DECLARED `type: "string"` prop is drift and never reaches
+     * the renderer, so the pass-through branch of buildAccordionData is where those
+     * values still legitimately arrive — and therefore where the render rule below
+     * is still observable end to end.
+     */
+    function fixtureWithPassThrough(value) {
+        return JSON.stringify([
+            { component: 'card', props: { title: 'T', mystery: value } },
+        ]);
+    }
+
+    // THE RULE UNDER TEST: buildFieldHtml hands the value to esc(), not to
+    // String(value || ''). The `|| ''` idiom is falsy-based, so it does not mean
+    // "default when absent" — it also swallows values an author can mean, which
+    // then render blank and are read back as ''.
+    //
+    // WHICH VALUES ACTUALLY PROBE THAT, stated carefully because it is easy to get
+    // backwards in this repo: in JAVASCRIPT the only falsy values reachable from
+    // parsed JSON are `0`, `false`, `null`, `''`. The string `'0'` is TRUTHY here —
+    // that is PHP's rule, not JS's — so a `'0'` fixture does NOT exercise the idiom,
+    // and `''` cannot either, since `'' || ''` is still `''`. The cases below are
+    // ordinary round-trip regressions and nothing more.
+    //
+    // The real falsy probes live where a falsy value can still reach a control at
+    // all: PASS_THROUGH_VALUES just below (0 and false on an undeclared prop), the
+    // multiline case, and the row case. Since #745, a 0 or false under a DECLARED
+    // string prop is drift and is refused before rendering, so those three are now
+    // the whole surface.
+    const DECLARED_VALUES = [
+        ['the string zero',  '0',     '0'],
         ['the empty string', '',      ''],
         ['a plain string',   'Hello', 'Hello'],
     ];
 
-    VALUES.forEach(([label, stored, rendered]) => {
+    DECLARED_VALUES.forEach(([label, stored, rendered]) => {
         it('renders ' + label + ' into the field', async () => {
             const { $ } = await bootEditor(fixtureWithTitle(stored), SCALAR_FIRST);
             expect(scalarControl($, 'title').val()).toBe(rendered);
+        });
+    });
+
+    const PASS_THROUGH_VALUES = [
+        ['the number zero',  0,     '0'],
+        ['a nonzero number', 42,    '42'],
+        ['boolean false',    false, 'false'],
+        ['boolean true',     true,  'true'],
+    ];
+
+    PASS_THROUGH_VALUES.forEach(([label, stored, rendered]) => {
+        it('renders ' + label + ' into an undeclared prop\'s field', async () => {
+            const { $ } = await bootEditor(fixtureWithPassThrough(stored), SCALAR_FIRST);
+            // Reaching the assertion at all is half the point: bootEditor throws if
+            // the invariant gate fired, so this also pins that #745's gate does NOT
+            // extend to undeclared props. That boundary is a decision, not an
+            // oversight — an undeclared prop has no declared type for the write path
+            // to refuse, so those compositions still save, and locking them out of
+            // the form is a heavier call that is tracked separately.
+            expect($('.pp-serialization-error').length).toBe(0);
+            expect(scalarControl($, 'mystery').val()).toBe(rendered);
         });
     });
 
@@ -428,12 +562,12 @@ describe('a stored value renders as itself and reads back as itself', () => {
         expect(scalarControl($, 'title').val()).toBe('');
     });
 
-    it('keeps a zero when an unrelated field is edited', async () => {
+    it('keeps a falsy string when an unrelated field is edited', async () => {
         // The sync rewrites every resolved field, so a value that rendered blank
         // would be read back as '' and written over even though the user never
         // touched it. Editing a DIFFERENT field is what exposes that.
         const json = JSON.stringify([
-            { component: 'card', props: { title: 0, subheading: 'Sub', items: [] } },
+            { component: 'card', props: { title: '0', subheading: 'Sub', items: [] } },
         ]);
         const { $, getBuffer } = await bootEditor(json, SCALAR_FIRST);
         const parsed = await editAndSync($, scalarControl($, 'subheading'), 'Sub edited', getBuffer);
@@ -442,48 +576,162 @@ describe('a stored value renders as itself and reads back as itself', () => {
         expect(parsed[0].props.title).toBe('0');
     });
 
-    it('keeps a false when an unrelated field is edited', async () => {
-        const json = JSON.stringify([
-            { component: 'card', props: { title: false, subheading: 'Sub', items: [] } },
-        ]);
-        const { $, getBuffer } = await bootEditor(json, SCALAR_FIRST);
-        const parsed = await editAndSync($, scalarControl($, 'subheading'), 'Sub edited', getBuffer);
-
-        expect(parsed[0].props.title).toBe('false');
-    });
-
     it('renders a zero into a multiline field', async () => {
+        // The textarea branch needs its own falsy probe, and it has to come from a
+        // prop the #745 gate does not refuse. MULTILINE_NUMERIC declares `body` as
+        // `type: "number"`, which looks odd and is load-bearing: `multiline` is keyed
+        // on the field NAME (MULTILINE_FIELDS in pp-editor-logic.js), while drift is
+        // keyed on the declared TYPE — so a numeric `body` still renders as a
+        // <textarea> and a stored 0 is legitimately not drift. Without this, mutating
+        // the textarea branch to esc(field.value || '') passes the whole suite.
         const json = JSON.stringify([{ component: 'card', props: { title: 'T', body: 0 } }]);
-        const { $ } = await bootEditor(json, MULTILINE_REGISTRY);
+        const { $ } = await bootEditor(json, MULTILINE_NUMERIC);
 
+        expect($('.pp-serialization-error').length).toBe(0);
         const $body = scalarControl($, 'body');
         expect($body.prop('tagName')).toBe('TEXTAREA');
         expect($body.val()).toBe('0');
     });
 
     it('renders a zero into a row sub-field', async () => {
+        // Row values are assembled in buildArrayFieldHtml BEFORE the renderer sees
+        // them (`value: item[sk]`), so that assembly needs a falsy probe of its own.
+        // `count` is declared `type: "number"`, mirroring the real
+        // grid/logos/testimonials `items[].image_id` (`{"type":"number","default":0}`)
+        // — a shipped shape where a stored 0 is both ordinary and falsy.
         const json = JSON.stringify([
-            { component: 'card', props: { title: 'T', items: [{ title: 0, body: false }] } },
+            { component: 'card', props: { title: 'T', items: [{ title: 'A', count: 0 }] } },
         ]);
-        const { $ } = await bootEditor(json, SCALAR_FIRST);
+        const { $ } = await bootEditor(json, NUMERIC_ROW);
 
-        expect(rowControl($, 'title', 0).val()).toBe('0');
-        expect(rowControl($, 'body', 0).val()).toBe('false');
+        expect($('.pp-serialization-error').length).toBe(0);
+        expect(rowControl($, 'count', 0).val()).toBe('0');
     });
 
     it('keeps a zero in a row when an unrelated field is edited', async () => {
-        // The render fix has to hold one level down too: row values are assembled
-        // before the renderer sees them, so a falsy default applied there would
-        // blank the value just as effectively, and the sync would read '' back.
+        // The end-to-end half: a falsy row value that rendered blank would be read
+        // back as '' and written over even though the author never touched it.
         const json = JSON.stringify([
-            { component: 'card', props: { title: 'Heading', items: [{ title: 0, body: 'B' }] } },
+            { component: 'card', props: { title: 'Heading', items: [{ title: 'A', count: 0 }] } },
         ]);
-        const { $, getBuffer } = await bootEditor(json, SCALAR_FIRST);
+        const { $, getBuffer } = await bootEditor(json, NUMERIC_ROW);
         const parsed = await editAndSync($, scalarControl($, 'title'), 'Heading edited', getBuffer);
 
         expect(parsed[0].props.title).toBe('Heading edited');
-        expect(parsed[0].props.items[0].title).toBe('0');
-        expect(parsed[0].props.items[0].body).toBe('B');
+        // Read back as the STRING '0' rather than the number 0 — that coercion is the
+        // separate, still-open pass-through/number laundering, not this rule. What
+        // this pin defends is that the value was not BLANKED.
+        expect(parsed[0].props.items[0].count).toBe('0');
+        expect(parsed[0].props.items[0].title).toBe('A');
+    });
+});
+
+// ─── 2a. The stored value the controls cannot round-trip is refused (#745) ───
+//
+// These pins replace three that asserted the OPPOSITE: that a stored `0` or
+// `false` under a declared string prop came back as the STRING "0"/"false" after
+// an edit to an unrelated field. That was the defect, written down. The measured
+// consequence on a real shipped prop: `section.panel_cta_url: false` renders a
+// dead button, the laundered "false" passes _pp_link_url_is_valid() because a
+// scheme-less path is a legal link, and the band silently becomes a live link to
+// /false — on a band the author never opened.
+//
+// The end state is not "the sync preserves it". Since #707 the write path REFUSES
+// a non-string under a string-declared prop, so such a page cannot be saved
+// through any surface until the value itself is fixed. Leaving the author in a
+// form whose Save can never succeed would be a quieter dead end, not a better one.
+// So the accordion refuses up front and routes to the JSON pane, which is the one
+// editor that can fix the value — the same shape #605 ratified for stale enums.
+
+describe('a stored non-string under a declared string prop refuses the accordion', () => {
+    it('refuses rather than laundering a boolean into the string "false"', async () => {
+        const json = JSON.stringify([
+            { component: 'card', props: { title: false, subheading: 'Sub', items: [] } },
+        ]);
+        const blocked = await bootBlocked(json, SCALAR_FIRST);
+
+        expect(blocked.paths).toContain('[0].props.title');
+        // The refusal has to be actionable: the notice names the value AND what the
+        // accordion would have turned it into.
+        const row = blocked.rows.find((r) => r.indexOf('[0].props.title') !== -1);
+        expect(row).toContain('false');
+        expect(row).toContain('"false"');
+    });
+
+    it('refuses a stored number the same way', async () => {
+        const json = JSON.stringify([
+            { component: 'card', props: { title: 0, subheading: 'Sub', items: [] } },
+        ]);
+        expect((await bootBlocked(json, SCALAR_FIRST)).paths).toContain('[0].props.title');
+    });
+
+    it('refuses a nested items[] string field holding a non-string', async () => {
+        const json = JSON.stringify([
+            { component: 'card', props: { title: 'Heading', items: [{ title: 0, body: false }] } },
+        ]);
+        const blocked = await bootBlocked(json, SCALAR_FIRST);
+        expect(blocked.paths).toContain('[0].props.items[0].title');
+        expect(blocked.paths).toContain('[0].props.items[0].body');
+    });
+
+    it('puts the author in the JSON pane, with no way back into the accordion', async () => {
+        // The refusal is only useful if it lands somewhere the value can be fixed.
+        const json = JSON.stringify([
+            { component: 'card', props: { title: false, items: [] } },
+        ]);
+        const blocked = await bootBlocked(json, SCALAR_FIRST);
+        expect(blocked.accordionHidden).toBe(true);
+        expect(blocked.jsonShown).toBe(true);
+        expect(blocked.toggleHidden).toBe(true);
+    });
+
+    it('escapes a hostile stored value on its way into the notice', async () => {
+        // The guard hands a RAW stored value to the notice as `before`, and its text
+        // form as `after`. Both are author-controlled and neither is a string here,
+        // so this is the one path where the new code widens what can reach that
+        // markup — the notice builds its table by string concatenation.
+        //
+        // The escaping itself is not new (showSerializationNotice routes both cells
+        // through esc(JSON.stringify(...))), which is exactly why it is worth a pin:
+        // the guard now depends on it, and nothing else in this suite would notice if
+        // a future edit to that renderer dropped the esc() call.
+        const hostile = '<img src=x onerror=alert(1)>';
+        const json = JSON.stringify([
+            { component: 'card', props: { title: [hostile], items: [] } },
+        ]);
+        const { $ } = await bootBlocked(json, SCALAR_FIRST);
+        const $notice = $('.pp-serialization-error');
+
+        // No element was created from the payload...
+        expect($notice.find('img').length).toBe(0);
+        expect($notice.html()).not.toContain('<img');
+        // ...but the author can still READ the value they have to fix.
+        expect($notice.text()).toContain(hostile);
+    });
+
+    it('keeps the notice readable for a nested object payload', async () => {
+        const json = JSON.stringify([
+            { component: 'card', props: { title: { a: 1, b: { c: 2 } }, items: [] } },
+        ]);
+        const blocked = await bootBlocked(json, SCALAR_FIRST);
+        expect(blocked.paths).toContain('[0].props.title');
+        const row = blocked.rows.find((r) => r.indexOf('[0].props.title') !== -1);
+        // The `after` names what the control would really have read back, which for
+        // an object is the string "[object Object]" — the honest answer, and the one
+        // that makes the destruction legible rather than plausible-looking.
+        expect(row.join(' ')).toContain('[object Object]');
+    });
+
+    it('does not refuse a composition whose string props all hold strings', async () => {
+        // The counterweight. A gate that fires on well-formed data would take the
+        // accordion away from every page, which is a worse failure than the one it
+        // prevents — so the no-false-positive case is pinned beside the positives.
+        const json = JSON.stringify([
+            { component: 'card', props: { title: '0', subheading: '', items: [{ title: 'A', body: '' }] } },
+        ]);
+        const { $ } = await bootEditor(json, SCALAR_FIRST);
+        expect($('.pp-serialization-error').length).toBe(0);
+        expect(scalarControl($, 'title').val()).toBe('0');
     });
 });
 
@@ -967,9 +1215,9 @@ describe('a pending edit to a name shared with a row lands on the right field', 
         });
     });
 
-    it('keeps a zero on a shared name across a row operation', async () => {
+    it('keeps a falsy string on a shared name across a row operation', async () => {
         const json = JSON.stringify([
-            { component: 'card', props: { title: 0, items: [{ title: 'Row one', body: 'B' }] } },
+            { component: 'card', props: { title: '0', items: [{ title: 'Row one', body: 'B' }] } },
             { component: 'card', props: { title: 'Second', items: [] } },
         ]);
         const { $, getBuffer } = await bootEditor(json, SCALAR_FIRST);
