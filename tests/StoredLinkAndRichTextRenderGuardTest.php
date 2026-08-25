@@ -6,6 +6,13 @@
  *        through WordPress CORE's own escapers, esc_url() and wp_kses_post().
  * #739 — a stored non-array faq `items` must never fatal the public page through
  *        pp_render_faq_schema(array $items), which sits OUTSIDE faq's !empty() gate.
+ * #742 — INSIDE that same helper, a damaged question/answer/element must never fatal the
+ *        page at the helper's own (string) cast, nor publish the literal word `Array`
+ *        into the FAQPage JSON-LD. Landed later, into this file rather than a new one,
+ *        because its pins are the ones #730/#739 left behind as measured residuals: the
+ *        three faq exemptions in the sweeps below are gone and two "still broken" tests
+ *        were flipped in place. A separate file would have left those exemptions looking
+ *        like permanent facts about the family.
  *
  * The fifth and sixth boundaries in this family, landed together because they meet in
  * components/faq/faq.php: #739 guards the items CONTAINER, #730 guards the `answer`
@@ -90,9 +97,25 @@
  *                                               ├─ is_scalar($raw_cell)        ──> wp_kses_post() (table cell)
  *                                               ├─ is_scalar($raw_content)     ──> wp_kses_post() (embed)
  *                                               └─ is_array($raw_items)        ──> pp_render_faq_schema()
+ *                                                                                     │  (#742, inside the helper)
+ *                                                                                     ├─ is_array($item)        ──> offset read
+ *                                                                                     ├─ is_scalar($raw_question) ──> (string) cast
+ *                                                                                     └─ is_scalar($raw_answer)   ──> (string) cast
+ *                                                                                        └─ '' ==> the item is SKIPPED,
+ *                                                                                           exactly as a stored-empty
+ *                                                                                           value has always been
  *
  * DEGRADE, NEVER REWRITE. Nothing here touches stored data. The value stays as stored,
  * the operator diagnostic still names it, and the band renders without the fragment.
+ *
+ * ONE STUB DELTA TO STAY AWAY FROM, recorded here because the obvious next test walks
+ * straight into it. Real core's wp_strip_all_tags() ends with trim(); the stub in
+ * tests/bootstrap.php is strip_tags() alone. So a WHITESPACE-ONLY question or answer
+ * clears the `=== ''` gate under the stub and is published, while production trims it to
+ * '' and skips the item. Every fixture in the #742 cases below is deliberately
+ * whitespace-free, so nothing here rests on that difference — but do NOT add a
+ * whitespace pin to this file: it would enshrine the stub's behaviour as production's.
+ * The stub/production deltas have one home, tests/EscapingStubContractTest.php.
  */
 
 use PHPUnit\Framework\TestCase;
@@ -468,17 +491,12 @@ class StoredLinkAndRichTextRenderGuardTest extends TestCase
             $surface . ': a stored ARRAY must degrade, not 500 the page.'
         );
 
-        if ($surface === 'faq.items[].answer') {
-            // The band's own rendering degrades correctly — the .faq__answer div is empty.
-            // But faq ALSO hands the whole items array to pp_render_faq_schema(), which
-            // re-reads each element's answer with its own (string) cast, so the literal
-            // word Array still reaches the JSON-LD payload. That is the residual pinned in
-            // testAnArrayAnswerStillLeaksTheWordArrayIntoTheSchemaFragment(); asserting
-            // "no Array anywhere" here would fail for that reason and hide this one.
-            $this->assertStringContainsString('faq__answer', $html);
-            return;
-        }
-
+        // faq used to need an exemption here: its own rendering degraded correctly (an
+        // empty .faq__answer div) while pp_render_faq_schema() re-read the same element
+        // with its own (string) cast and put the literal word Array into the JSON-LD.
+        // #742 closed that boundary, so the generic assertion below now covers faq too —
+        // which is the stronger claim, and the reason the exemption was deleted rather
+        // than narrowed.
         $this->assertStringNotContainsString(
             'Array',
             $html,
@@ -520,16 +538,10 @@ class StoredLinkAndRichTextRenderGuardTest extends TestCase
     {
         [$component] = self::GUARDED_SURFACES[$surface];
 
-        if ($surface === 'faq.items[].answer') {
-            // KNOWN RESIDUAL, pinned as such in
-            // testTheRemainingCastBoundariesAreStillOpen(): the guard added here DOES stop
-            // faq's own wp_kses_post() call, but pp_render_faq_schema() re-reads the same
-            // element with its own (string) cast, independently of this guard, and that
-            // cast fatals on an object. A different boundary, filed separately rather than
-            // widened into this ruling. Skipping here keeps that fact in exactly one place.
-            $this->markTestSkipped('object answer still fatals inside pp_render_faq_schema() — see testTheRemainingCastBoundariesAreStillOpen');
-        }
-
+        // faq was skipped here until #742: the #730 guard stopped faq's own
+        // wp_kses_post() call, but pp_render_faq_schema() re-read the same element with
+        // its own (string) cast, which fataled on an object regardless. That helper now
+        // carries its own guards, so the sweep covers every surface without exemption.
         $html = $this->renderArray($component, self::propsFor($surface, new stdClass()));
         $this->assertStringContainsString('data-pp-component="' . $component . '"', $html, $surface);
     }
@@ -554,15 +566,12 @@ class StoredLinkAndRichTextRenderGuardTest extends TestCase
     {
         [$component] = self::GUARDED_SURFACES[$surface];
 
-        if ($surface === 'faq.items[].answer') {
-            // Not byte-identical, and the gap is the residual rather than the guard: the
-            // unguarded pp_render_faq_schema() still emits a JSON-LD fragment for an array
-            // answer (containing the literal word Array), where a genuinely empty answer
-            // makes the helper skip the item and emit nothing. Pinned on its own below so
-            // the difference is a measured fact with a named owner, not a silent exemption.
-            $this->markTestSkipped('faq answer degradation is not byte-identical — see testAnArrayAnswerStillLeaksTheWordArrayIntoTheSchemaFragment');
-        }
-
+        // faq was exempt here until #742, and the exemption was itself the bug report:
+        // the unguarded helper emitted a JSON-LD fragment carrying the word Array where a
+        // genuinely empty answer made it skip the item and emit nothing, so the degraded
+        // render could not equal the control. It does now — and because renderJson()
+        // returns the WHOLE section, this byte comparison covers the accordion markup and
+        // the schema fragment together, which is what makes it the coherence pin.
         $degraded = $this->renderJson($component, self::propsFor($surface, ['x']));
         $control  = $this->renderJson($component, self::controlPropsFor($surface));
 
@@ -574,30 +583,240 @@ class StoredLinkAndRichTextRenderGuardTest extends TestCase
         );
     }
 
+    // ── #742: the faq schema helper's own cast boundary ───────────────────────
+
     /**
-     * The faq answer's residual, stated as a measured fact so it cannot be mistaken for
-     * coverage this change provides. The display path IS guarded — the accordion renders
-     * with an empty answer — but pp_render_faq_schema() re-reads the same element
-     * independently, casts it with (string), and puts `Array` into the page's structured
-     * data where the answer text belongs.
+     * THE FLIPPED PIN. This test used to assert the opposite — that an array `answer`
+     * degraded to an empty accordion answer while pp_render_faq_schema() published the
+     * literal word `Array` as the answer TEXT in the page's FAQPage payload. It is kept
+     * (rather than deleted) at the same boundary so the file records that the leak was
+     * real, was measured, and is now closed.
      *
-     * Same boundary as the object fatal in testTheFaqSchemaHelperStillFatalsOnObjectElements(),
-     * and the same class as the open #721/#736. When that is fixed, this test flips.
+     * The `Array` half is what the v1.16.0 release notes carried as a known issue. It is
+     * asserted against the PAYLOAD specifically, not just the page: an assertion that
+     * merely said "the page still renders" would pass against an implementation that had
+     * gone back to emitting the coerced value.
      */
-    public function testAnArrayAnswerStillLeaksTheWordArrayIntoTheSchemaFragment(): void
+    public function testAnArrayAnswerNoLongerLeaksTheWordArrayIntoTheSchemaFragment(): void
     {
         $html = $this->renderJson('faq', self::propsFor('faq.items[].answer', ['x']));
 
-        $this->assertStringContainsString('application/ld+json', $html);
-        $this->assertStringContainsString(
+        // The band renders, and the accordion still shows the question with an empty
+        // answer — the #730 degradation, unchanged by #742.
+        $this->assertStringContainsString('data-pp-component="faq"', $html);
+        $this->assertStringContainsString('faq__answer', $html);
+        $this->assertStringContainsString('Q one', $html);
+
+        // The whole page — accordion and payload alike — is free of the coerced value.
+        $this->assertStringNotContainsString(
             'Array',
             $html,
-            'the schema fragment still carries the coerced value. If this stopped being'
-            . ' true, the remaining (string)-cast boundary was closed — update this pin.'
+            'a damaged answer must never reach the JSON-LD as the literal word Array.'
         );
-        // The rendered accordion itself is clean; only the schema payload is not.
-        $visible = substr($html, 0, strpos($html, 'application/ld+json'));
-        $this->assertStringNotContainsString('Array', $visible);
+
+        // ...and the item is skipped outright rather than published with an empty answer,
+        // which is the coherence contract: a damaged value is treated exactly as a
+        // stored-empty one, and the helper has always skipped those. With one item in the
+        // fixture, that means no fragment at all.
+        $this->assertStringNotContainsString(
+            'application/ld+json',
+            $html,
+            'the only item degraded out, so there is nothing to describe and the schema'
+            . ' fragment must be absent entirely (parity with the #739 empty state).'
+        );
+    }
+
+    /**
+     * The object row of the same boundary, through the ARRAY channel — the only channel
+     * that can carry an object at all. Formerly
+     * testTheFaqSchemaHelperStillFatalsOnObjectElements(), which asserted the Error.
+     *
+     * Kept SEPARATE from the array case because the two failed differently: the array was
+     * a silent bad-data leak, the object was an uncaught Error and therefore a whole-page
+     * 500 for the visitor (templates/composition.php has no try/catch — see renderStored).
+     */
+    public function testAnObjectAnswerNoLongerFatalsInsideTheFaqSchemaHelper(): void
+    {
+        $html = $this->renderArray('faq', [
+            'title' => 'T',
+            'items' => [['question' => 'Q', 'answer' => new stdClass()]],
+        ]);
+
+        $this->assertStringContainsString('data-pp-component="faq"', $html);
+        $this->assertStringContainsString('Q', $html);
+        $this->assertStringNotContainsString('application/ld+json', $html);
+    }
+
+    /**
+     * The element-level guard, which is a different construct again: an object ELEMENT
+     * fatals at the ARRAY OFFSET READ (`Cannot use object of type X as array`), before
+     * any cast runs, so the value guards alone would not have closed it.
+     *
+     * Exercised at the HELPER rather than through a rendered band on purpose. An object
+     * element still 500s the page upstream, in faq.php's own visible loop, which reads
+     * `$item['question']` unguarded — the #736-class residual pinned in
+     * testTheVisibleFaqLoopIsStillUnguarded(). Rendering a band here would therefore
+     * measure that upstream fatal and prove nothing about this function.
+     */
+    public function testAnObjectElementNoLongerFatalsInsideTheFaqSchemaHelper(): void
+    {
+        $this->assertSame('', pp_render_faq_schema([new stdClass()]));
+
+        // ...and a damaged element does not take its well-formed siblings down with it.
+        $html = pp_render_faq_schema([
+            new stdClass(),
+            ['question' => 'Good Q', 'answer' => 'Good A'],
+            ['question' => ['x'], 'answer' => 'Orphan answer'],
+            ['question' => 'Orphan question', 'answer' => new stdClass()],
+        ]);
+        $this->assertSame(
+            1,
+            preg_match('#<script type="application/ld\+json">(.*)</script>#s', $html, $m),
+            'the helper must still emit a well-formed script tag — asserted before the'
+            . ' payload is read, so a malformed return fails HERE instead of surfacing as'
+            . ' an undefined-index notice further down.'
+        );
+        $schema = json_decode($m[1], true);
+        $this->assertSame(JSON_ERROR_NONE, json_last_error(), 'the payload must be valid JSON');
+
+        $this->assertCount(1, $schema['mainEntity'], 'only the well-formed item survives');
+        $this->assertSame('Good Q', $schema['mainEntity'][0]['name']);
+        $this->assertStringNotContainsString('Array', $html);
+    }
+
+    /**
+     * The other direction of the coherence contract, and the one a guard is most likely
+     * to break by accident: a well-formed faq is BYTE-IDENTICAL to what it rendered
+     * before the guards existed, including every scalar that can be STORED at these keys.
+     *
+     * THE REASON, STATED CAREFULLY, because an earlier draft of this docblock stated it
+     * wrongly and the wrong version is an argument for breaking the guard. is_string() in
+     * place of is_scalar() would silently drop a stored `42` / `3.14` / `true` question or
+     * answer, and every "the page still renders" assertion in this file would stay green
+     * while the payload quietly lost entries. Those values are NOT ones the write path
+     * accepts today: faq declares `items[].question` and `items[].answer` as
+     * `type: string`, and #707 narrowed the scalar check to is_string() at both depths, so
+     * a nested `question: 42` is REJECTED at write. They are values the write path
+     * accepted BEFORE #707 and that still have to render — reachable through a pre-#707
+     * composition, restore_composition (#233, which reports without blocking) and a raw
+     * `_pp_composition` meta write. #707 closed the front door this guard was built to
+     * survive; it migrated nothing already behind it. Same wording as the helper's own
+     * docblock in lib/wp.php, deliberately, so the two halves of one change cannot
+     * disagree about the write path.
+     *
+     * So these assert the EMITTED payload bytes, not merely that a fragment exists.
+     */
+    public function testWellFormedFaqItemsAreUnchangedIncludingEveryStoredScalar(): void
+    {
+        $cases = [
+            'string'  => ['Q one', 'A one', 'Q one', 'A one'],
+            'integer' => [42, 7, '42', '7'],
+            'float'   => [3.14, 2.5, '3.14', '2.5'],
+            'true'    => [true, true, '1', '1'],
+            'zero str'=> ['0', '0', '0', '0'],
+        ];
+        foreach ($cases as $label => [$q, $a, $expectQ, $expectA]) {
+            // EXACT BYTES, not decoded values. Decoding first would let a change in the
+            // emitted wrapper, the key order, or the slash escaping pass unnoticed, and
+            // the slash escaping is a documented security property of this function.
+            $expected = '<script type="application/ld+json">'
+                . '{"@context":"https:\/\/schema.org","@type":"FAQPage","mainEntity":'
+                . '[{"@type":"Question","name":"' . $expectQ . '","acceptedAnswer":'
+                . '{"@type":"Answer","text":"' . $expectA . '"}}]}'
+                . '</script>' . "\n";
+
+            $this->assertSame(
+                $expected,
+                pp_render_faq_schema([['question' => $q, 'answer' => $a]]),
+                $label . ': a write-accepted scalar must emit exactly the bytes it emitted'
+                . ' before the guards existed. Narrowing is_scalar to is_string drops this'
+                . ' row entirely, which is precisely what this comparison catches.'
+            );
+        }
+
+        // `false` and a missing key both cast to '' and were ALWAYS skipped by the
+        // empty-value rule. Unchanged, and stated here so the guard cannot be blamed for
+        // a skip that predates it.
+        $this->assertSame('', pp_render_faq_schema([['question' => false, 'answer' => 'A']]));
+        $this->assertSame('', pp_render_faq_schema([['answer' => 'A']]));
+
+        // -0.0 does NOT flip here. That trap needs a (string) cast meeting a TRUTHINESS
+        // gate; this helper compares `=== ''`, and '-0' is not '', so the float rendered
+        // before and renders now. Same reasoning #708 recorded, verified rather than
+        // assumed because the idiom is shared with surfaces where it DOES flip.
+        $minusZero = pp_render_faq_schema([['question' => -0.0, 'answer' => 'A']]);
+        $this->assertStringContainsString('"name":"-0"', $minusZero);
+
+        // The full rendered band is byte-identical to a pre-guard render of the same
+        // stored bytes — asserted as equality against an explicit expected payload rather
+        // than a marker search, because a marker search cannot see a lost entry.
+        $band = $this->renderJson('faq', self::band('faq'));
+        $this->assertStringContainsString(
+            '<script type="application/ld+json">{"@context":"https:\/\/schema.org",'
+            . '"@type":"FAQPage","mainEntity":[{"@type":"Question","name":"Q one",'
+            . '"acceptedAnswer":{"@type":"Answer","text":"A one"}}]}</script>',
+            $band
+        );
+    }
+
+    /**
+     * The ALL-DEGRADED case, which is the half of the contract that decides whether a
+     * corrupt page ships an empty shell of structured data or none at all. Every item
+     * degrades out, so `$entities` is empty and the helper returns '' — no <script>, not
+     * an empty FAQPage with a zero-length mainEntity. That matches the state #739 landed
+     * for a malformed `items` container, so the two guards agree on the empty state
+     * instead of each inventing one.
+     */
+    public function testAFaqWhoseItemsAllDegradeEmitsNoSchemaFragmentAtAll(): void
+    {
+        $html = $this->renderJson('faq', ['title' => 'Faq heading', 'items' => [
+            ['question' => 'Q one', 'answer' => ['x']],
+            ['question' => 'Q two', 'answer' => []],
+        ]]);
+
+        $this->assertStringContainsString('data-pp-component="faq"', $html);
+        $this->assertStringContainsString('faq__list', $html, 'the accordion still renders');
+        $this->assertStringNotContainsString('application/ld+json', $html);
+        $this->assertStringNotContainsString('Array', $html);
+
+        // Through the object channel too, where the same items would have 500ed. ANCHORED
+        // FIRST: a bare "no ld+json" assertion also passes against a page that rendered
+        // nothing at all, which is the vacuity trap this file's own docblock names.
+        $viaArray = $this->renderArray('faq', ['title' => 'Faq heading', 'items' => [
+            ['question' => 'Q one', 'answer' => new stdClass()],
+        ]]);
+        $this->assertStringContainsString('data-pp-component="faq"', $viaArray);
+        $this->assertStringContainsString('faq__list', $viaArray);
+        $this->assertStringNotContainsString('application/ld+json', $viaArray);
+    }
+
+    /**
+     * DEGRADE, NEVER REWRITE, at this boundary specifically: the operator's diagnostics
+     * report what was actually stored, so a guard that "helpfully" normalised the value
+     * would destroy that evidence.
+     *
+     * PINS THE SIGNATURE, not the round-trip, and the difference is the whole test. An
+     * earlier draft called the helper and then asserted the caller's array was unchanged
+     * — which is a TAUTOLOGY, because `array $items` is by value and PHP's copy-on-write
+     * makes caller mutation impossible for any implementation. Proven during review: a
+     * mutant that normalised `$items` in place still passed it. What actually carries the
+     * no-rewrite property here is the by-value parameter, so that is what is asserted.
+     */
+    public function testTheSchemaHelperCannotRewriteTheItemsItWasGiven(): void
+    {
+        $param = (new ReflectionFunction('pp_render_faq_schema'))->getParameters()[0];
+        $this->assertFalse(
+            $param->isPassedByReference(),
+            'pp_render_faq_schema() must take $items BY VALUE. Passing by reference would'
+            . ' let a future guard normalise the stored composition in place, which the'
+            . ' ruling forbids: the render degrades, it never migrates the store.'
+        );
+
+        // ...and the observable half: the call returns without touching the caller's data.
+        $items = [['question' => 'Q', 'answer' => ['x']], 'not-an-array'];
+        pp_render_faq_schema($items);
+        $this->assertSame(['x'], $items[0]['answer']);
+        $this->assertSame('not-an-array', $items[1]);
     }
 
     // ── #730: well-formed data is completely unchanged ────────────────────────
@@ -1209,10 +1428,12 @@ class StoredLinkAndRichTextRenderGuardTest extends TestCase
      *                          plus a warning (that half is what #721 describes); an OBJECT
      *                          fatals at the cast, which is measured here and is NOT in
      *                          #721's body yet.
-     *   (new) pp_render_faq_schema() re-reads each element's question/answer with its own
-     *                          (string) cast, so an OBJECT there fatals even though faq's
-     *                          own wp_kses_post() call is now guarded. An object ELEMENT
-     *                          fatals differently again, on offset access.
+     *
+     * The faq-schema half of this list CLOSED in #742 (pp_render_faq_schema now carries
+     * its own is_array element guard and is_scalar value guards) and its pins flipped
+     * above. What #742 did NOT close is a different boundary in a different file — faq's
+     * own VISIBLE loop — which is pinned separately in
+     * testTheVisibleFaqLoopIsStillUnguarded().
      *
      * Objects reach these only through the already-decoded array meta channel; the JSON
      * channel cannot carry one at all.
@@ -1233,14 +1454,85 @@ class StoredLinkAndRichTextRenderGuardTest extends TestCase
         $this->renderArray('hero', ['title' => 'T', 'proof' => new stdClass()]);
     }
 
-    /** The faq-schema half of the same residual, separated so each has its own failure. */
-    public function testTheFaqSchemaHelperStillFatalsOnObjectElements(): void
+    /**
+     * THE HONEST LIMIT OF #742, and the reason its CHANGELOG claim is scoped to the
+     * schema boundary rather than to "the faq band is safe".
+     *
+     * components/faq/faq.php reads `$question = $item['question'] ?? ''` UNGUARDED and
+     * echoes it through esc_html(). Measured: an OBJECT question fatals at esc_html's
+     * (string) cast, and an object ELEMENT fatals one line earlier at the offset read —
+     * both in the VISIBLE loop, which runs BEFORE pp_render_faq_schema() is called. So
+     * guarding the helper could not have flipped them at page level, and claiming
+     * otherwise would have been the kind of overclaim this file exists to prevent. That
+     * is the #736 class (esc_html coercion on an unguarded read), still open.
+     */
+    public function testTheVisibleFaqLoopIsStillUnguarded(): void
     {
+        // Array question: no fatal, but the accordion summary paints the coerced value.
+        // The SCHEMA side is clean — asserted separately below — so this is now a
+        // one-sided divergence rather than the two-sided leak #742 found.
+        $arrayQuestion = $this->renderJson('faq', [
+            'title' => 'T',
+            'items' => [['question' => ['x'], 'answer' => 'A one']],
+        ]);
+        $visible = substr($arrayQuestion, 0, strpos($arrayQuestion, '</div>'));
+        $this->assertStringContainsString(
+            'Array',
+            $visible,
+            '#736 class: the visible summary still coerces. If this stops being true, the'
+            . ' faq question read was guarded — update this pin rather than deleting it.'
+        );
+        $this->assertStringNotContainsString(
+            'application/ld+json',
+            $arrayQuestion,
+            '#742: the payload side of the same item degrades out entirely.'
+        );
+
+        // Object question: still a whole-page fatal, upstream of the schema call.
         $this->expectException(Error::class);
         $this->renderArray('faq', [
             'title' => 'T',
-            'items' => [['question' => 'Q', 'answer' => new stdClass()]],
+            'items' => [['question' => new stdClass(), 'answer' => 'A one']],
         ]);
+    }
+
+    /**
+     * The OBJECT ELEMENT half of the same residual, in its own test rather than appended
+     * to the one above. expectException() ends the method at the first throw, so a second
+     * fatal case sharing that method would never execute while the docblock claimed it
+     * was pinned — a test that proves less than its name says. Caught in review.
+     *
+     * Fails DIFFERENTLY from the question case: `Cannot use object of type X as array`
+     * at faq.php's offset read, one line before esc_html() is reached.
+     */
+    public function testAnObjectFaqElementStillFatalsInTheVisibleLoop(): void
+    {
+        $this->expectException(Error::class);
+        $this->renderArray('faq', ['title' => 'T', 'items' => [new stdClass()]]);
+    }
+
+    /**
+     * A SECOND, unrelated divergence between the accordion and the payload, measured
+     * while closing #742 and pinned here because it is easy to mistake for something
+     * #742 introduced. It is not: neither gate changed.
+     *
+     * The visible loop gates on TRUTHINESS (`if (!$question) continue;`) while the helper
+     * compares `$question === ''`. The string '0' and the integer 0 are falsy but not
+     * empty, so such an item renders NO accordion row while the JSON-LD still describes
+     * it. Pre-existing, unrelated to stored-value damage, and a separate ruling on which
+     * of the two gates is the correct one.
+     */
+    public function testTheFalsyQuestionGateStillDivergesBetweenAccordionAndPayload(): void
+    {
+        foreach (['0', 0] as $falsy) {
+            $html = $this->renderJson('faq', [
+                'title' => 'T',
+                'items' => [['question' => $falsy, 'answer' => 'A one']],
+            ]);
+
+            $this->assertStringNotContainsString('faq__question', $html, 'accordion skips it');
+            $this->assertStringContainsString('"name":"0"', $html, 'payload keeps it');
+        }
     }
 
     /**

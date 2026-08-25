@@ -66,11 +66,16 @@ $theme        = $props['theme']        ?? 'default';
 //
 // WHAT THIS DOES NOT CLOSE, named so the fix is not read as broader than it is:
 // pp_render_faq_schema() re-reads each element's `question` and `answer` itself, with
-// its own `(string)` cast (lib/wp.php), INDEPENDENTLY of the element guard below. An
-// OBJECT there still fatals inside the helper, as does an object element (offset access
-// on an object). Arrays coerce to the literal `Array` with a warning instead. That is a
-// different boundary again — a language cast, not a typed call — and the same class as
-// the open #721/#736. Filed separately rather than widened into this ruling.
+// its own `(string)` cast (lib/wp.php), INDEPENDENTLY of the element guard below. That
+// is a different boundary again — a language cast, not a typed call — so it was filed
+// separately as #742 rather than widened into this ruling, and #742 has since LANDED:
+// the helper now carries its own is_array element guard and is_scalar value guards, so
+// a damaged question or answer is skipped from the JSON-LD exactly as a stored-empty
+// one always was. What remains open here is the VISIBLE loop below, not the helper:
+// `$question` is read UNGUARDED into esc_html(), so an OBJECT question (and an object
+// ELEMENT, at the offset read) still 500s this page before the schema call is reached,
+// and an ARRAY question still paints the literal `Array` in the summary. That is the
+// #736 class (esc_html coercion), still open.
 $raw_items = $props['items'] ?? [];
 $items     = is_array($raw_items) ? $raw_items : [];
 
