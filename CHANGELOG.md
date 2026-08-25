@@ -4,6 +4,31 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.16.0] — 2026-08-25 — Stored-State Trust & Render Survival: the write path refuses what the read path calls corrupt, no success envelope lies, and no stored shape takes down a page (#697, #709, #705, #706, #708, #730, #739, #707, #724, #725, #719, #749, #717, #726, #686)
+
+Rollup of the v1.15.1–v1.15.14 patch train (milestone 19, gate Part 1.9997). Fifteen landings: one pre-gate infrastructure change, thirteen must-ship items closing three arcs — render survival, write-path trust, and operator addressability — plus the README restructure (v1.15.1) that preceded the gate. Every entry below has its full engineering detail in the per-patch entries that follow this one; this rollup states the shape of the release and, plainly, what breaks.
+
+**The theme of the release in one paragraph.** v1.14.0 made every diagnostic truthful; v1.15.0 made every diagnostic arrive. This release makes the stored states themselves safe. Before it, an object-shaped composition write silently destroyed bands behind `ok:true`; a failed `create_page` composition write reported success and clean findings over an empty page; a batch rollback could overwrite a corrupt-but-recoverable page with `[]`; ten components would 500 the whole public page on a stored array where a string belonged; a malformed byte could erase the JSON receipt of a write that had already landed; and the deployment gate failed 7 of 10 pages on a healthy production install. All of those are now closed, and each closure is pinned by tests that fail if it regresses.
+
+### ⚠️ What breaks, stated plainly
+
+1. **Non-string scalars are rejected on every `type:"string"` prop (v1.15.8, #707).** `create_page` / `update_composition` / `update_component` used to accept `42`, `3.14`, `true`, `false` and store them raw with zero findings; the same write now returns `invalid_prop_value` naming the band, prop, and (nested) item field. Stored values are untouched and still render through the guards. A page holding one stale non-string scalar blocks its whole-composition actions until repaired — the repair routes (one `update_composition`, or `remove_component`) are pinned as tests and documented.
+2. **A composition must be a list (v1.15.9, #724).** `update_composition` with an object-shaped composition (`{"1": ..., "3": ...}`) used to report `ok:true` and silently replace the page's bands; it now refuses with the read path's own `unexpected_shape` classification. No reindexing, no coercion — the caller's bands were lost by the old acceptance, not by the new refusal.
+3. **`--post_id` is validated canonically on all page-addressed commands (v1.15.13, #726).** `check page`, `validate page`, and `apply preflight` silently coerced `00019`→19, `19abc`→19, `1.5`→1; all seven page-addressed commands now refuse those forms with the corrected command shape. No command ever claims a supplied argument is missing.
+4. **Visible output change, not a break:** CLI JSON envelopes now `\u`-escape non-ASCII (v1.15.12, #717) — same JSON, same decoded strings, lossless; and `wp pp validate page` now exits 0 on pages whose `image_id` renders a WordPress-generated intermediate size (v1.15.14, #686) — pages that falsely failed now pass, genuinely missing files still fail.
+
+### The three arcs, summarized
+
+- **Render survival (v1.15.3–v1.15.7; #709, #705, #706, #708, #730, #739):** the test harness was made fatal-faithful to real WordPress first, then every stored-shape fatal was closed at the read boundary with the ratified `is_scalar`/`is_array` degrade idiom — `background_image`, `title`/`title_accent` (7 components), `count()`/style-vars (all 10 components), core's own `esc_url()`/`wp_kses_post()` surfaces (10 more), and faq's schema call. A band corrupt on every axis at once now renders; a full composition of corrupt bands renders; drift catchers keyed on the typed calls fail CI if a new unguarded read appears.
+- **Write-path trust (v1.15.8–v1.15.12; #707, #724, #725, #719, #749, #717):** the write path now refuses what the read path classifies as corrupt (type mismatches and container shape); `inspect-composition` reports corrupt as unreadable, never empty; a failed `create_page` composition write rejects and removes the page it created rather than reporting success over emptiness; batch rollback refuses to proceed over an unreadable snapshot target instead of erasing it; and every CLI JSON emit routes through one defended sink that can never print a blank line plus a success banner after a landed write.
+- **Operator addressability and gate truth (v1.15.2, v1.15.13, v1.15.14; #697, #726, #686):** PRs and pushes to main run the full E2E suite with a no-silent-red invariant enforced by fail-closed tests; the #685 addressing contract is complete across seven commands; and the rendered-media check resolves WordPress-generated sizes against the attachment's own metadata, ending the false deployment-gate red on healthy installs.
+
+### Known residuals, pinned with owners
+
+`hero.proof` object cast (#721), faq schema's independent cast leaking `"Array"` into JSON-LD (#742 — this release converts that loud 500 into the quiet leak; prioritized), corrupt-page repair unavailable from the chat surface (#756/#750 — CLI and editor are the routes), two real-attachment media shapes still reported missing (#762), write-path/rendered-validator media disagreement (#763), and an unterminated `<meta>` hiding subsequent images from the media check (#764). Each is a filed issue with a pinned test or measured repro.
+
+---
+
 ## [v1.15.14] — 2026-08-25 — The deployment gate stops failing pages for using images correctly (#686)
 
 **`wp pp validate page` failed on seven of ten pages of a live production site, and every one of them was healthy.** Each failure named a file the composition never stored: `[missing_local_media] Component #0 (hero): img references missing media (2026/07/care-t-860x1024.png not in Media Library).` The image existed, the file was on disk, the URL served HTTP 200, and the page rendered exactly as intended. The three pages that passed were the three with no hero image at all.
