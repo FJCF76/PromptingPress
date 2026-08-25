@@ -4,6 +4,57 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.15.14] — 2026-08-25 — The deployment gate stops failing pages for using images correctly (#686)
+
+**`wp pp validate page` failed on seven of ten pages of a live production site, and every one of them was healthy.** Each failure named a file the composition never stored: `[missing_local_media] Component #0 (hero): img references missing media (2026/07/care-t-860x1024.png not in Media Library).` The image existed, the file was on disk, the URL served HTTP 200, and the page rendered exactly as intended. The three pages that passed were the three with no hero image at all.
+
+**The gate was punishing the recommended way to use images.** When a component's `image_id` resolves, the theme renders through `pp_render_responsive_image()` → `wp_get_attachment_image($id, 'large')`, so the `<img src>` is a WordPress-**generated size** (`care-t-860x1024.png`), not the upload the composition stores (`care-t.png`). WordPress keeps ONE attachment row per upload; every generated size is an entry in that row's metadata, not a row of its own. The rendered-HTML check asked "is this exact path an attachment?", got no, and reported missing media. So the more correctly a page used `image_id`, the more certainly its own validation failed — on a command documented as a deployment gate, and on the same service that gates the AI chat's post-apply success message. A false red on healthy content is worse than no check: a genuine broken-media case looked identical to it.
+
+### THE MECHANISM: derive candidate bases, then let the attachment's own metadata answer
+
+Verification widened; classification did not move. The `<img src>` and `background-image:url()` scan sites, the same-site classifier from #83/#153, and the error's shape and wording are all untouched.
+
+- **`_pp_intermediate_size_base_paths()`** reads a `-WxH` suffix off the LAST path segment and proposes the files that size could have been generated from: the plain stem, plus the `-scaled` and `-rotated` forms. Those last two are not defensive padding — WordPress REPLACES the attached file with `{stem}-scaled.{ext}` for an upload above the big-image threshold and `{stem}-rotated.{ext}` for one whose EXIF orientation is not 1 (both through `_wp_image_meta_replace_original()`), while the sub-sizes keep the ORIGINAL stem, because core generates them from the original file "for best quality". Without those candidates, every large photo and every EXIF-rotated photo would have kept failing.
+- **`_pp_relative_path_is_attachment_size()`** decides. A candidate base resolving to a real row is not enough: the rendered basename must appear in that attachment's own `wp_get_attachment_metadata()['sizes']`. **Metadata is the authority, the filename shape is only a hint** — which is what keeps the fix from being a whitelist. A directory that happens to be named `300x200/` is not read as a size either.
+- **One query, not two.** The base candidates join the existing batch `_wp_attached_file IN (...)` lookup rather than adding a second round trip. It now asks for every matching row (a path can own more than one after a re-import or a restored backup) and keeps them all, so the verdict cannot depend on which row the database returned first.
+- **`update_postmeta_cache()`** primes the batch. `fields => 'ids'` returns from `WP_Query` before core primes any cache, so each attached-file read was its own query — a loop this fix is precisely what makes run on a healthy page, since before it those paths matched nothing at all. One priming read covers both the attached-file lookups and the `sizes` reads.
+- **An exact attachment row always wins** over the size-suffix reading, so a file genuinely uploaded as `photo-300x200.png` resolves as itself and never borrows another image's metadata.
+
+### BOTH DIRECTIONS, MEASURED
+
+Verified on real WordPress 7.0 (wp-env) with real uploads and real WordPress-generated sizes, not only against test doubles. The "before" column is the pre-fix rule (exact `_wp_attached_file` match, which is also all core's own `attachment_url_to_postid()` does) run against the same data:
+
+| Page | Rendered `src` | Before | After |
+|---|---|---|---|
+| `image_id`, normal upload | `pp686-care-t-860x1024.png` | reported missing | **exit 0** |
+| `image_id`, `-scaled` upload | `pp686-big-1024x683.png` | reported missing | **exit 0** |
+| Fabricated size of a real upload | `pp686-care-t-999x999.png` | missing | **still missing, exit 1** |
+| Size of an upload that does not exist | `pp686-ghost-300x200.png` | missing | **still missing, exit 1** |
+
+The third row is the one that matters most: `care-t.png` is a real attachment, `-999x999` is a real-looking suffix, and the page still fails, because that size is not in the attachment's metadata. Nothing passes on filename shape alone.
+
+### WHAT THIS MEANS FOR AN EXISTING INSTALL
+
+Pages that were failing this check for this reason now pass, with no change to any page, composition, attachment, or option — **nothing stored is read differently and nothing stored is written**. Only the validator's answer changes. A page that fails after upgrading is failing for a real reason: run `wp pp validate page --post_id=<id>` and treat the named file as genuinely absent from the Media Library. Sites whose pages carry no images, or whose images are external, see no change at all.
+
+Known limits, unchanged rather than introduced, both tracked in #762: a generated size whose extension differs from the attachment's own file (a HEIC/HEIF upload below the big-image threshold, whose sizes WordPress writes as JPEG since 6.7, or any site filtering `image_editor_output_format`), and the untouched original kept beside a `-scaled`/`-rotated` upload. Both still read as missing. The check also remains Media Library membership, not a filesystem `stat()` — a file deleted from disk while its attachment row survives validates clean, exactly as it did for originals before this change.
+
+Deliberately out of scope: the post-apply locator vocabulary (#714 owns that ruling), the write-path media gate that still refuses these same size URLs (#763), and the `<meta>`-strip fail-open found while testing this (#764). None of them are touched here.
+
+### Fixed
+
+- **A WordPress-generated image size no longer reads as missing media (#686).** `pp_post_apply_validate()` resolves a rendered size back to the attachment that owns it, including for uploads WordPress kept as `-scaled` or `-rotated`, so `wp pp validate page` and the chat's post-apply report stop failing pages that use `image_id` as documented. A size the attachment never generated, and a size of an upload that does not exist, both still report `missing_local_media` with the same message and `detail` as before.
+- **The batch attachment lookup no longer depends on row order (#686).** It reads every row matching a path instead of the last one seen, so a duplicate `_wp_attached_file` (re-import, restored backup) where only one row carries the size metadata resolves the same way regardless of which row the query returns first.
+
+### Docs
+
+- `ai-instructions/validate-site.md` — the rendered-validation section states that a generated size counts as present, so an agent reading a `missing_local_media` finding treats it as real and fixes the image rather than the filename in the message. It also names what the check does not prove: Media Library membership rather than the filesystem, and each `<img>`'s `src` rather than the whole `srcset`.
+
+### Tests
+
+- `tests/PostApplyIntermediateSizeMediaTest.php` (new, 29 tests) — the both-directions matrix: real sizes for plain, `-scaled` and `-rotated` uploads, non-ASCII and percent-encoded filenames (#128 unregressed), flat uploads with no year/month directory, three images resolving independently on one page, an upload genuinely named like a size, duplicate rows in both orders and beyond the key count, `false` and malformed `sizes` metadata, and the accepted HEIC limit pinned so it cannot drift silently. One test authors a real `hero` band through `pp_update_composition()` and asserts the rendered `src` attribute is the generated size, which is the production shape #686 reported.
+- `tests/bootstrap.php` — `wp_get_attachment_image()` now renders a size-derived `src` and a full `srcset` when an attachment carries `sizes` metadata, matching what core emits; the `WP_Query` double honours `posts_per_page` instead of silently ignoring it; `update_postmeta_cache()` is stubbed. A harness that always echoed the original URL could not express the shape this issue is about.
+
 ## [v1.15.13] — 2026-08-25 — No command claims a supplied argument is missing (#726)
 
 **`wp pp check page --post_id=about-us` used to answer `Error: --post_id is required.`** The flag was right there on the command line. The slug was `(int)`-cast to `0`, `0` read as absent, and the refusal told the operator to add a flag they had just typed. Meanwhile a positional argument on the same command produced WP-CLI's own `Error: Too many positional arguments: 234`, which never names `--post_id` at all. Three sibling commands had carried a helpful, flag-form refusal since #685; four had not.
