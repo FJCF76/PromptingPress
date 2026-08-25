@@ -265,12 +265,16 @@ describe('renderPreviewError', function () {
     // LINE that is not added to the disclosure's text, and when nothing else would fill
     // the disclosure, the disclosure itself is skipped.
     //
-    //   alternatives non-empty ──┐
-    //                            ├── OR ──► <details class="pp-ai-preview-error-detail">
-    //   raw_error truthy ────────┘                 raw_error line
-    //                                              hint lines
-    //                                              "Available slots: …" (alternatives only)
-    //   neither ─────────────────────────► no <details> at all
+    //   alternatives names something ──┐
+    //                                  ├── OR ──► <details class="pp-ai-preview-error-detail">
+    //   raw_error is text ─────────────┘                 raw_error line
+    //                                                    hint lines
+    //                                                    "Available slots: …" (the names)
+    //   neither ───────────────────────────────► no <details> at all
+    //
+    // The two gates read what the classifiers count, not a `length` and a truthiness
+    // (#667) — so the disclosure can never open holding nothing, because the two things
+    // that open it are the two that write lines into it.
     //
     // Asserting on absent ELEMENTS here is what made the predecessor of these tests
     // vacuous: it looked for a class the renderer never writes, so it would have kept
