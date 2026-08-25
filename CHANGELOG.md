@@ -4,6 +4,82 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.16.1] — 2026-08-25 — Bounded reports and an O(N) locator: a corrupt page can no longer produce a diagnostic nobody can read, and validating one costs linear time again (#654, #715)
+
+**Every reporting surface that hands you a findings payload is now capped at 100 entries plus one truthful tail, and the locator rescan that made validation quadratic is gone.** Two paired fixes on one axis: #654 bounds what a report CARRIES, #715 bounds what building it COSTS. `wp pp check page` is deliberately excluded from the cap and stays the one complete report, because it is the command every truncation tail points at.
+
+Since #621 findings are exhaustive per authored location, which is right for real pages and means report size scales with INPUT size. Nothing capped that on the reporting path. Measured on this repo, one `logos` band whose `items` is a list of 10,000 empty entries produced 20,001 findings and a 22 MB peak; the issue body records 120,000 findings and ~113 MB on a 176 KB input. Every reporting consumer took that array whole — restore preview, restore execute, the run-scoped rollback that aggregates every touched post into one JSON document, and the chat undo card, which renders one DOM node per finding. Separately, the locator renderer asked `pp_is_list()` once per emitted finding to choose between `item 0` and `item key "aa"`, and `pp_is_list()` was a hand-rolled `array_keys()` + `range()` shim allocating two n-element arrays per call. N findings over an N-element container is O(N²).
+
+### Budget mechanics, decided once with every consumer in view
+
+The ratified #687 D1 clause 3 budget (100 findings + one `findings_truncated` tail) now covers the three surfaces that ship a payload, through the **same helper and the same constant** — `_pp_bounded_findings()` and `PP_WRITE_FINDINGS_BUDGET`. No second budget system, no second vocabulary.
+
+| Consumer | Bound | Why |
+|---|---|---|
+| `restore_composition` preview | 100 + tail, page named | Must match execute or it reintroduces the preview/execute asymmetry #711 tracks. Cannot use the write path's helper: it reports on a history-ring snapshot that is not stored anywhere. |
+| `restore_composition` execute | 100 + tail, page named | This is the chat undo card's payload. |
+| Run-scoped rollback | 100 + tail **per reverted post** | The tail's breadcrumb is `--post_id=N`, and a run-wide budget has no single page to name; `pp_operate_restore_run_finding_count()` also counts POSTS-with-findings as the CLI's decision seam, so a global cap would blank later posts and report a cleaner rollback than happened. Accepted residual: the carried aggregate is 100 × touched posts, bounded by the run's own operations rather than by input size. |
+| `wp pp check page` / `validate site` | **Unbounded, by ruling** | Its own name is inside every truncation tail ("Run `wp pp check page --post_id=N` for the complete report"). Capping it would falsify that ratified sentence everywhere at once and hand the operator back the same first 100 findings. It streams to stdout and no landed write is at risk there. |
+| Write-rejection path | Unchanged (#621 budget of 1) | Byte-identical. |
+| Accepted-write envelope | Unchanged (100 + 1 MiB gate) | Keeps its own size-gated helper; restore does not inherit that gate. |
+
+**What the cap does NOT do, stated because it is easy to assume otherwise:** it is a COUNT bound applied after both engines have run to completion, so peak memory on the #654 fixture is unchanged at 22 MB. Restore and the rollback build their reports *after* their write lands, so a large enough page can still exhaust `memory_limit` and strand the envelope for a change that already happened. That is the availability half, it needs a #233 posture ruling of its own (report-everything vs. sometimes-skip), and it is filed as **#772** rather than smuggled in here.
+
+### The tail now carries the count as data
+
+`findings_truncated` gained a `total` integer beside its existing prose. The message text is unchanged and still byte-identical to #687's ratified wording; `total` is additive, appears **only** on a truncation entry, and the ordinary four keys still lead in the same order so a generic renderer needs no branch. It exists because a consumer that renders a COUNT cannot parse a sentence and must not count the array it was handed — which is exactly what the chat undo card did.
+
+### The card stopped lying about the number
+
+Bounding restore turned the undo card's heading from the true total into the delivered count: a snapshot with 20,001 real problems announced **"101 issues"**, counting the truncation advisory itself as one of them. The heading now reads `total` and says it is showing a subset. Regression-prevention for a lie this release would otherwise have introduced on the only non-CLI view of what an undo brought back. Band-aware row selection and locator rendering remain out of scope (#655).
+
+### Locator rendering is linear again
+
+`pp_is_list()` gets a `PHP_VERSION_ID >= 80100` fast path calling the builtin `array_is_list()`, which short-circuits on the packed hashes `json_decode()` produces and returns without walking or allocating. Fixed in the predicate rather than at the 13 call sites: a per-call-site hoist would have needed a renderer taking a raw bool detached from its container — the exact defect `DiagnosticReachTest`'s tripwire exists to prevent — and could not have reached the two delegates whose `?array $item_container` signatures that tripwire pins by reflection.
+
+Measured, PHP 8.3:
+
+| Fixture | Before | After |
+|---|---|---|
+| 10,000 structurally-bad bands, write path (#715's own) | 1.0240s | **0.0049s** |
+| same, reporting path | 1.0418s | 0.0160s |
+| 10,000-entry `items` array (#654's own) | 2.2573s | **0.0565s** |
+| 6-band realistic page | 0.0001s | 0.0001s |
+| memory, #654 fixture | 22 MB | 22 MB (count bound, not a memory bound) |
+
+Scaling is linear again: 500 / 2,000 / 5,000 / 10,000 bands cost 0.0002 / 0.0008 / 0.0022 / 0.0049s.
+
+**Byte-identical messages, proven twice.** A differential run over 11 container shapes and 26 rendered messages against an unpatched tree produced identical bytes (sha256 `d934d945…`), exercising both locator forms including the #652 case where key `"1"` precedes key `"0"`. An independent 21,919-shape fuzz (packed, holed, hash-with-sequential-int-keys, negative, `PHP_INT_MAX`, numeric-string, referenced, self-referential, 100k-element) found zero divergences between `array_is_list()` and the retained fallback.
+
+**Accepted residual:** PHP 8.0 keeps the O(N²). It is the declared floor, EOL since November 2023, and CI cannot test it. The fallback is extracted as `_pp_is_list_fallback()` specifically so a test on 8.3 can exercise the shipped 8.0 code path directly rather than a copy of it, and a source tripwire pins the version guard — widening it to `80000` would fatal on the floor with `Call to undefined function array_is_list()`, and no CI PHP could catch that.
+
+### Fixed
+
+- `restore_composition` preview and execute bound their `findings` at `PP_WRITE_FINDINGS_BUDGET` + one `findings_truncated` tail naming the page (#654).
+- `pp_operate_restore_run_compositions()` bounds each reverted post's report separately, so every tail names its own `--post_id` (#654).
+- `findings_truncated` carries the true total as a `total` integer (#654).
+- The chat undo card heading reports the true total and states when it is showing a subset (#654).
+- `pp_is_list()` answers in O(1) on PHP 8.1+, removing the per-finding container rescan (#715).
+
+### Docs
+
+- `AI_CONTEXT.md`, `docs/reference-apply-cli.md`, `docs/howto-apply-and-rollback.md`: restore/rollback are bounded, `check page` is the deliberate exception, `total` documented.
+- `ai-instructions/operating-loop.md`: a new paragraph telling the agent that a `findings` list can be incomplete, how `findings_truncated` differs from `findings_skipped`, that only an empty list is a clean report, and to read `total` rather than counting the array.
+
+### Tests
+
+- `tests/CompositionFindingsBoundsTest.php` (new, 13): per-consumer bounds, preview/execute agreement, the mixed run where one post overflows beside one that does not, the `check page` carve-out including proof the breadcrumb returns strictly more than the bounded report, and that bounding cannot flip the `validate site` exit code (findings sort errors-first, so the gated bucket can never empty).
+- `tests/PpIsListContractTest.php` (new, 6): fast path vs the SHIPPED 8.0 fallback across 13 container shapes, both locator forms byte-identical, a source tripwire on the version guard, and scale-relative performance pins (time N and 4N, assert the ratio — linear predicts 4x, quadratic 16x; verified fixed 3.09x/3.87x, reverted 15.6x/16.1x). Machine-independent by construction, unlike a wall-clock ceiling.
+- `tests/WriteEnvelopeFindingsTest.php`: the restore seam is re-stated as MECHANISM rather than size, and the tail's shape pin now records `total`.
+- `tests/js/pp-ai-chat-undo-findings.test.js`: +5 covering the true-total heading, the subset notice, an unbounded report reading exactly as before, and a malformed `total` falling back rather than being trusted.
+
+### Deviations from the filed issues
+
+- #715 proposed hoisting the discriminator at each call site. Shipped as a fix inside `pp_is_list()` instead — same O(N) outcome and byte-identical messages, with no misusable bool API, no weakened source tripwire, and coverage of the two call sites a hoist could not reach.
+- #654's body floated capping only the aggregating consumer; the ruling extended the ratified budget to all payload surfaces, and `check page` was carved out on evidence that capping it falsifies #687's ratified tail message.
+
+---
+
 ## [v1.16.0] — 2026-08-25 — Stored-State Trust & Render Survival: the write path refuses what the read path calls corrupt, no success envelope lies, and no stored shape takes down a page (#697, #709, #705, #706, #708, #730, #739, #707, #724, #725, #719, #749, #717, #726, #686)
 
 Rollup of the v1.15.1–v1.15.14 patch train (milestone 19, gate Part 1.9997). Fifteen landings: one pre-gate infrastructure change, thirteen must-ship items closing three arcs — render survival, write-path trust, and operator addressability — plus the README restructure (v1.15.1) that preceded the gate. Every entry below has its full engineering detail in the per-patch entries that follow this one; this rollup states the shape of the release and, plainly, what breaks.

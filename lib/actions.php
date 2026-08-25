@@ -820,11 +820,17 @@ function pp_execute_action(string $name, array $params): array {
             // legitimately accept a write onto a page whose OTHER bands current rules
             // reject. Reporting only the advisories there would hide the louder problem.
             //
-            // NOT AN OVERWRITE. restore_composition sets its own `findings` (#233) before
-            // returning, deliberately UNBOUNDED — bounding the restore/rollback surfaces is
-            // #654's axis, not this one — so an existing key is left exactly as the action
-            // built it. This is a key test, not a truthiness test: an action that reports a
-            // clean composition sets an empty array, and that must not be re-derived.
+            // NOT AN OVERWRITE, AND NOT A SECOND BOUNDING. restore_composition sets its own
+            // `findings` (#233) before returning, and since #654 that report is ALREADY
+            // bounded — by the same helper and the same constant, applied once at the
+            // action. Leaving an existing key untouched is therefore what keeps the two
+            // mechanisms distinct (restore has no size gate; this path does) AND what stops
+            // a report from being wrapped twice, which would count the first
+            // findings_truncated tail as an ordinary finding and append a second one
+            // contradicting it.
+            //
+            // This is a key test, not a truthiness test: an action that reports a clean
+            // composition sets an empty array, and that must not be re-derived.
             if (!array_key_exists('findings', $result)) {
                 $result['findings'] = _pp_write_findings_for($written_post_id);
             }
@@ -2485,10 +2491,17 @@ pp_register_action('remove_component', [
  * told what is wrong with what it just restored.
  *
  * FOUR CALLERS TODAY, and the reason has widened past "writes that would be rejected":
- *   restore_composition (#233)                    the original, unbounded
- *   the run-scoped rollback (#236, operate.php)   same contract, unbounded
- *   the read-only CLI diagnostics (cli.php)       `check page` / `validate site`
- *   every ACCEPTED composition write (#687)       bounded, via _pp_bounded_findings()
+ *   restore_composition (#233)                    preview + execute, bounded (#654)
+ *   the run-scoped rollback (#236, operate.php)   same contract, bounded PER POST (#654)
+ *   the read-only CLI diagnostics (cli.php)       `check page` / `validate site` — the
+ *                                                 ONE deliberately unbounded surface, by
+ *                                                 ruling; it is the complete report every
+ *                                                 truncation tail points at
+ *   every ACCEPTED composition write (#687)       bounded, plus a 1 MiB availability gate
+ * Three of the four bound what they CARRY through the one shared helper
+ * (_pp_bounded_findings). This assembler stays unbounded itself — it reports what the
+ * engines found, and each caller decides what it can hold. Putting the cap in here would
+ * bind the surface that must not have one.
  * The last one is not a "would be rejected" surface. It exists because a write can be
  * fully legal and still paint nothing (a #580 inert_slot), and because the item-scoped
  * actions validate only what they touch, so they legitimately accept a write onto a page
@@ -2599,7 +2612,7 @@ const PP_WRITE_FINDINGS_MAX_STORED_BYTES = 1048576;
  * WHY A POST-HOC SLICE AND NOT AN ENGINE LIMIT. pp_validate_composition_errors() takes a
  * `$limit` that feeds _pp_claim_item_finding()'s budget, but that gate does NOT bound the
  * whole report: the four structural band rules (missing `component` key, non-scalar
- * `component`, unknown component, template-owned chrome — lib/admin.php:1597-1648) emit
+ * `component`, unknown component, template-owned chrome, in lib/admin.php) emit
  * BEFORE any claim, the cross-item duplicate_component_id emits after the loop, and
  * pp_validate_composition_smells() has no budget at all. Passing a limit would therefore
  * cap only SOME rules while the engine kept emitting others, and — worse — the engine
@@ -2611,11 +2624,18 @@ const PP_WRITE_FINDINGS_MAX_STORED_BYTES = 1048576;
  * things it does NOT bound are easy to assume:
  *
  *   NOT engine work. Both engines run to completion before this is called, so a
- *   pathological composition costs exactly what it did before to VALIDATE — including the
- *   O(N²) band-locator rescan recorded in #715. What is bounded is everything DOWNSTREAM:
- *   the array retained on the envelope, the JSON the CLI prints, the payload the chat AJAX
- *   ships, and the per-finding rendering a consumer does. Bounding the engines themselves
- *   is a change to the engines, not to this helper.
+ *   pathological composition costs exactly what it did before to VALIDATE. What is bounded
+ *   is everything DOWNSTREAM: the array retained on the envelope, the JSON the CLI prints,
+ *   the payload the chat AJAX ships, and the per-finding rendering a consumer does.
+ *   Bounding the engines themselves is a change to the engines, not to this helper — and
+ *   #715 made exactly that change one layer down (pp_is_list(), lib/wp.php), which removed
+ *   the O(N²) band-locator rescan this note used to name. The engines are now O(N); they
+ *   still run to completion, so THE COUNT BUDGET STILL DOES NOT BOUND MEMORY. That is why
+ *   the accepted-write path needs PP_WRITE_FINDINGS_MAX_STORED_BYTES as a separate gate,
+ *   and why the restore/rollback surfaces (#654) — which report AFTER their write has
+ *   landed and so can strand an envelope for a change that already happened — carry the
+ *   count budget but not that gate. Extending it to them is a #233 posture change with its
+ *   own issue; it is not this helper's to assume.
  *
  *   NOT bytes, and NOT only for raw-written data. A finding MESSAGE can reflect stored
  *   bytes uncapped (`Unknown component: "%s"`, the style-slot "has no style slot" family),
@@ -2637,11 +2657,11 @@ const PP_WRITE_FINDINGS_MAX_STORED_BYTES = 1048576;
  *   report, and the #687 addendum records it as a separate ruling.
  *
  * The tail is the "and N more" contract _pp_render_undeclared_prop_keys() already uses
- * (lib/admin.php:1492): the count it names is the TRUE total, so a truncated report never
+ * (lib/admin.php): the count it names is the TRUE total, so a truncated report never
  * reads as a complete one. It is severity `warning` because that is the honest severity
  * for an advisory about the REPORT rather than a rule any composition broke, and because
  * every generic findings consumer branches on that value — the CLI splits `=== 'error'`
- * from everything else (_pp_cli_page_diagnostics, lib/cli.php:1347) and the chat picks a
+ * from everything else (_pp_cli_page_diagnostics(), lib/cli.php) and the chat picks a
  * per-item class from it (ppChatFindingClass). A made-up severity would not FAIL closed,
  * it would drift: the CLI would file it under smells anyway while the chat styled it as
  * something nobody defined.
@@ -2657,9 +2677,16 @@ const PP_WRITE_FINDINGS_MAX_STORED_BYTES = 1048576;
  * render. A page in that state is telling the operator something louder than an advisory.
  *
  * The pointer at the complete report names the ACTUAL page when the caller knows it, so
- * the tail is a command an operator can paste rather than one they have to fill in. The
- * post id is optional because the helper is shared: a future caller aggregating several
- * pages (the restore/rollback surfaces, #654) has no single page to name.
+ * the tail is a command an operator can paste rather than one they have to fill in.
+ *
+ * THAT POINTER IS LOAD-BEARING, AND IT IS WHY `wp pp check page` IS NOT BOUNDED. Every
+ * production caller now names a page — the write path, restore preview, restore execute,
+ * and the run rollback, which bounds PER POST precisely so it always has one to name
+ * (lib/operate.php). `check page` is the surface this sentence sends them to, so it
+ * reports completely; capping it would falsify this message everywhere at once and leave
+ * the product with no complete report at all. See _pp_cli_page_diagnostics() for the full
+ * carve-out. The $post_id parameter stays optional for direct/unit callers that genuinely
+ * have no single page, not because any production caller lacks one.
  *
  * @param  array    $findings  A _pp_composition_findings() report.
  * @param  int|null $post_id   The page the report describes, when one page owns it.
@@ -2690,6 +2717,20 @@ function _pp_bounded_findings(array $findings, ?int $post_id = null, int $budget
                 : 'wp pp check page --post_id=' . $post_id
         ),
         'index'    => null,
+        // THE TRUE TOTAL, STRUCTURALLY (#654). The message has always stated it in prose;
+        // this states it in a field, because a consumer that RENDERS A COUNT cannot parse
+        // prose and must not fall back to counting the array it was handed. The chat undo
+        // card did exactly that (findings.length), so bounding restore turned "20,001
+        // issues" into "101" — a report understating itself by two orders of magnitude on
+        // the operator's only non-CLI view of what an undo brought back.
+        //
+        // Additive and severity-neutral: every existing consumer ignores the key, the
+        // message text is unchanged and still byte-identical to #687's ratified wording,
+        // and `total` is present ONLY on a truncation entry — so `total ?? count($findings)`
+        // is the correct read everywhere, and an absent key honestly means "nothing was
+        // omitted". Deliberately not added to findings_skipped: nothing was counted there,
+        // and a zero would read as a clean bill of health.
+        'total'    => $total,
     ];
 
     return $bounded;
@@ -2844,7 +2885,19 @@ pp_register_action('restore_composition', [
         $preview = _pp_action_preview('restore_composition', 'page', ['post_id' => $params['post_id']], $current, $target, [
             ['path' => 'composition', 'from' => $current, 'to' => $target],
         ]);
-        $preview['findings'] = _pp_composition_findings($target);
+        // BOUNDED SINCE #654, and bounded HERE rather than inside the engines: the
+        // cap is on what the envelope CARRIES, so #621's exhaustive-per-authored-
+        // location contract is untouched below it. Preview and execute must agree —
+        // a preview that reported 10,000 findings for a restore whose execute
+        // reported 100 would be the preview/execute asymmetry #711 already tracks.
+        //
+        // NOT _pp_write_findings_for(): $target is a HISTORY-RING SNAPSHOT that is
+        // not stored anywhere yet, and that helper reads post meta. Preview reports
+        // on the bytes execute WILL write, which is the whole point of a preview.
+        $preview['findings'] = _pp_bounded_findings(
+            _pp_composition_findings($target),
+            $params['post_id']
+        );
         return $preview;
     },
     'execute' => function (array $params): array {
@@ -2874,9 +2927,18 @@ pp_register_action('restore_composition', [
         // SINCE #687 `findings` IS NO LONGER RESTORE-ONLY: pp_execute_action() attaches it
         // to every accepted composition write. This line still matters, and setting it HERE
         // is what makes it matter — the dispatcher skips a result that already carries the
-        // key, so restore's report stays UNBOUNDED while the write path's is capped at
-        // PP_WRITE_FINDINGS_BUDGET. Bounding the restore/rollback surfaces is #654's axis;
-        // deleting this line would silently adopt the write-path cap here.
+        // key, so restore owns its own report rather than inheriting the write path's.
+        //
+        // SINCE #654 THAT REPORT IS BOUNDED at the same PP_WRITE_FINDINGS_BUDGET, closed by
+        // the same findings_truncated tail, from the same helper. One budget system, one
+        // owner — a second cap with its own number is how two surfaces start disagreeing
+        // about what "the whole report" means. What restore does NOT inherit is Addendum
+        // #2's 1 MiB availability gate: that one stops the engines from running at all and
+        // returns a single findings_skipped entry, which would change #233's premise from
+        // "you are told exactly what an old snapshot brought back" to "sometimes you are
+        // told nothing". That is a posture change needing its own ruling, filed as its own
+        // issue — the post-write OOM it addresses is real and is NOT closed by this cap
+        // (see _pp_bounded_findings(): both engines run to completion first).
         //
         // Findings describe $target, the array this call wrote. pp_update_composition() takes
         // it by value and injects props.id into its own copy, so $target stays id-free; no
@@ -2884,7 +2946,10 @@ pp_register_action('restore_composition', [
         $result = _pp_action_result('restore_composition', 'page', ['post_id' => $params['post_id']], [
             ['path' => 'composition', 'from' => $current, 'to' => $target],
         ]);
-        $result['findings'] = _pp_composition_findings($target);
+        $result['findings'] = _pp_bounded_findings(
+            _pp_composition_findings($target),
+            $params['post_id']
+        );
         return $result;
     },
 ]);

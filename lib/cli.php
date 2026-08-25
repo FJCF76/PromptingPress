@@ -1717,6 +1717,37 @@ WP_CLI::add_command('pp apply', 'PP_Apply_Command');
  * Pure: it takes a decoded composition and returns arrays. No WP_CLI, no exit — the
  * commands own presentation and exit codes.
  *
+ * DELIBERATELY UNBOUNDED — DO NOT "FINISH" #654 HERE. #654 bounded the three surfaces
+ * that ship a findings PAYLOAD to a consumer that has to hold and render it whole
+ * (restore preview, restore execute, the run-rollback aggregation). This one is
+ * deliberately excluded, by ruling, and the reason is that its own name is the escape
+ * hatch every one of those tails points at:
+ *
+ *     "Showing 100 of 10000 findings ... Run `wp pp check page --post_id=N` for the
+ *      complete report."
+ *
+ * That sentence is ratified #687 contract and it is printed by the write path, by
+ * restore and by the rollback. Capping this function at the same 100 would make it
+ * false on every surface at once — the operator who follows the breadcrumb would be
+ * handed THE SAME FIRST 100 FINDINGS they already had, and the product would have no
+ * complete report anywhere. A bound that costs the system its only complete report is
+ * not a bound, it is a second truncation wearing the first one's clothes.
+ *
+ * The asymmetry is principled, not an oversight. `check page` streams lines to stdout
+ * for a human at a terminal; it ships nothing to a remote consumer, and — unlike
+ * restore, the rollback and the write path — no write has already landed that an OOM
+ * here would strand. The cost of the exclusion is a large transient array on a
+ * pathological page (measured: 20,001 findings / 22 MB on a 10,000-entry `items`
+ * band), which is the price of being the surface that answers completely.
+ *
+ * Bounding the ENGINE cost of building that report is a different axis and is already
+ * paid for: #715's O(N²) locator rescan is gone (see pp_is_list(), lib/wp.php).
+ *
+ * Pinned by CompositionFindingsBoundsTest so the carve-out survives with evidence
+ * rather than as prose — including the exit code, which cannot move: findings arrive
+ * errors-then-advisories, so bounding could never empty the `errors` bucket that
+ * _pp_cli_page_fails_site_validation() gates on.
+ *
  * @param  array $composition  Decoded composition array.
  * @return array{errors: array[], smells: array[], styling: array[]}
  */

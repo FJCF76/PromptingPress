@@ -1697,10 +1697,39 @@ function pp_operate_restore_run_compositions( string $run_id ): array {
         // therefore reports unknown_prop/invalid_composition here where it used to be
         // canonicalized away first. That is the 233/236 report-never-block contract
         // working on honest bytes, not a defect: the rollback still lands.
+        //
+        // BOUNDED PER POST, NOT PER REPORT (#654). This is the one findings consumer that
+        // AGGREGATES — every touched post's report lands in one JSON document — so "a
+        // per-report budget of 100" had to be resolved into a unit. Per post, for two
+        // reasons that both point the same way:
+        //
+        //   the tail names a page. _pp_bounded_findings() closes a truncated report with
+        //   `wp pp check page --post_id=N`. A budget spanning the whole run has no single
+        //   page to name, so it would degrade to the `--post_id=<id>` placeholder exactly
+        //   when the operator most needs to know WHICH page overflowed.
+        //
+        //   the CLI's seam counts POSTS. pp_operate_restore_run_finding_count() below
+        //   counts reverted posts carrying any finding, and `wp pp apply
+        //   restore-composition` warns on that count. A global budget would blank later
+        //   posts' reports entirely, dropping them out of that count and reporting a
+        //   cleaner rollback than actually happened — a bound that lies is worse than a
+        //   long report.
+        //
+        // ACCEPTED RESIDUAL, stated so it is not discovered later: the CARRIED aggregate is
+        // therefore 100 x touched posts, not 100. It is bounded by the run's own operations
+        // (touched_post_ids grows one post per apply), not by input size, which is the
+        // property the unbounded version lacked.
+        //
+        // AND THAT IS NOT THE PEAK. Say it precisely, because "bounded" invites the wrong
+        // reading: _pp_composition_findings() below runs both engines to completion for
+        // EACH post before the bound applies, so the transient allocation is still
+        // input-sized per post (measured on #654's fixture: 22 MB for one page), and the
+        // count budget only decides what survives it. Bounding that is the availability
+        // gate's axis, not this one — it is #772, deliberately not a rider here.
         $reverted[] = [
             'post_id'  => $post_id,
             'changed'  => ( $before !== $after ),
-            'findings' => _pp_composition_findings( $after ),
+            'findings' => _pp_bounded_findings( _pp_composition_findings( $after ), $post_id ),
         ];
     }
 

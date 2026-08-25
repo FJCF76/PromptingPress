@@ -317,10 +317,83 @@ function pp_resolve_front_page_render(int $post_id): array {
  * the empty case first — range(0, count($a) - 1) is range(0, -1) on [], which
  * yields [0], not [].
  *
+ * THE FAST PATH IS THE #715 FIX, and it is here rather than at the call sites
+ * because this function IS the O(N²). Every locator rendering in lib/admin.php
+ * reaches _pp_item_index_label(), which asks this question ONCE PER EMITTED
+ * FINDING to decide between `N` and `key "N"` — so a composition of N bad bands
+ * rescans an N-element container N times. Measured on PHP 8.3, 10,000 calls over
+ * a 10,000-element array: 1.0912s through the fallback below, 0.0001s through
+ * array_is_list(). The engine cost that produced it went 1.0240s -> 0.0049s on
+ * #715's own fixture (10,000 structurally-bad bands through the write path), and
+ * 2.2573s -> 0.0565s on #654's (a 10,000-entry `items` array), with every
+ * rendered message byte-identical. Scaling is linear again: 500 / 2,000 / 5,000 /
+ * 10,000 bands now cost 0.0002 / 0.0008 / 0.0022 / 0.0049s.
+ *
+ * WHY THE BUILT-IN IS O(1) HERE — "here" being load-bearing. array_is_list()
+ * short-circuits on a packed hash without holes, which is exactly what
+ * json_decode() produces for a JSON array; a decoded JSON OBJECT hits a string
+ * key in the first bucket and returns false just as fast. Both shapes are
+ * answered without a walk, and neither allocates — the fallback below builds TWO
+ * n-element arrays per call.
+ *
+ * It is NOT unconditionally O(1): a hash-shaped array whose keys happen to be
+ * sequential ints, or a packed array holed by a mid-array unset(), makes the
+ * builtin walk. No caller can hand it either — every container reaching here is a
+ * decoded composition or a `props` value read straight out of one, and the only
+ * composition-mutating array operations on the write path are array_splice()
+ * (which repacks) and an unset() on a nested `style` key (not the container asked
+ * about). Even on a walking shape the builtin measured ~18x faster than the shim,
+ * so the fast path is never a regression — only its O(1) claim is shape-dependent.
+ *
+ * BYTE-IDENTICAL BY CONSTRUCTION, not by convention: array_is_list() and the
+ * fallback are the same predicate, and PpIsListContractTest pins that they agree
+ * on every shape this codebase can hand them (packed list, string-keyed object,
+ * out-of-order int keys, the folded `{"0":..,"1":..}` case, and []).
+ *
+ * THE FALLBACK IS A FLOOR CONCESSION, NOT A SECOND IMPLEMENTATION. It runs only
+ * on PHP 8.0, where it keeps #715's O(N²) — accepted by ruling: 8.0 is the
+ * declared floor, has been EOL since November 2023, and CI cannot test it. When
+ * the floor rises to 8.1 (style.css / readme.txt `Requires PHP`), delete this
+ * function and _pp_is_list_fallback() below and call array_is_list() directly —
+ * that is the knowing removal this note exists to enable.
+ *
  * @param array $arr
  * @return bool
  */
 function pp_is_list(array $arr): bool {
+    if (PHP_VERSION_ID >= 80100) {
+        return array_is_list($arr);
+    }
+    return _pp_is_list_fallback($arr);
+}
+
+/**
+ * The PHP 8.0 arm of pp_is_list(), named so it can be TESTED (#715).
+ *
+ * A SEPARATE FUNCTION FOR ONE REASON: on every runtime this project can run tests
+ * on, the branch above returns before this is ever reached — PHPUnit 10 requires
+ * PHP 8.1+, and CI pins 8.3 — so as an inline `else` it was code that shipped to
+ * the declared floor with zero test signal. Extracted, PpIsListContractTest can
+ * call it DIRECTLY on 8.3 and differentially compare it against array_is_list()
+ * over every array shape, which is the only way the 8.0 arm gets covered at all.
+ *
+ * What that coverage is worth: pp_is_list() decides the locator form in every
+ * validation message AND gates pp_validate_composition_errors()'s container
+ * refusal (#724, reject-never-coerce). Dropping the empty guard below would make
+ * range(0, -1) return [0] rather than [], flipping `[]` from list to non-list —
+ * on 8.0 that turns a valid empty composition into a refused one, and CI would
+ * stay green because CI never runs this line.
+ *
+ * Not called anywhere but pp_is_list(). Deliberately not marked internal-only by
+ * convention alone: the source tripwire in PpIsListContractTest pins the version
+ * guard that routes to it, so the pair cannot drift apart silently.
+ *
+ * @param array $arr
+ * @return bool
+ */
+function _pp_is_list_fallback(array $arr): bool {
+    // Guard the empty case first — range(0, count($a) - 1) is range(0, -1) on [],
+    // which yields [0], not [].
     if ($arr === []) {
         return true;
     }

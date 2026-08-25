@@ -2778,9 +2778,12 @@ function pp_validate_composition_errors(array $items, ?int $limit = null): array
                     // it (#622) and restore_composition still restores and reports rather
                     // than blocking (#233).
                     // Guard order is cost-ordered: the SCHEMA-side test is a comparison
-                    // against an already-built set, the ENTRY-side one allocates two
-                    // temporary arrays inside pp_is_list() (array_keys + range). Asking the
-                    // free question first means a prop with no field map never pays for the
+                    // against an already-built set, while the ENTRY-side one inspects the
+                    // entry container through pp_is_list(). Since #715 that inspection is
+                    // O(1) on the packed arrays json_decode produces rather than the two
+                    // temporary arrays the old shim allocated, so the gap is narrower than
+                    // it was — but the schema-side question is still the free one, and
+                    // asking it first means a prop with no field map never pays for the
                     // shape test at all, on every entry of every band of every write and
                     // every `wp pp validate site` traversal.
                     if ($declared_fields === []) {

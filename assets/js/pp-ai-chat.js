@@ -540,7 +540,28 @@ function ppChatFindingClass(item) {
  * Renders `findings` only. The AJAX handler also injects `validation`
  * (pp_post_apply_validate), which flags template-owned chrome as well, so rendering both
  * would list the same component twice.
+ *
+ * THE COUNT IS THE SERVER'S, NOT THE ARRAY'S (#654). Since restore's report became
+ * bounded, `findings.length` is the number of findings DELIVERED, not the number that
+ * exist — on a pathological snapshot it is 101 when the truth is 20,001. The heading
+ * therefore reads the true total out of the `findings_truncated` entry, and says plainly
+ * that it is showing a subset. A diagnostic that quietly understates itself by two orders
+ * of magnitude is worse than a long one; this card is the only place a non-CLI operator
+ * sees what an undo brought back.
  */
+function ppChatUndoFindingsTotal(findings) {
+    for (var i = 0; i < findings.length; i++) {
+        var f = findings[i];
+        if (f && f.type === 'findings_truncated' && typeof f.total === 'number' && f.total > 0) {
+            // The tail is an advisory ABOUT the report, not an issue with the composition,
+            // so it never counts toward either number.
+            return { total: f.total, shown: findings.length - 1, truncated: true };
+        }
+    }
+
+    return { total: findings.length, shown: findings.length, truncated: false };
+}
+
 function ppChatAppendUndoFindings(card, findings) {
     if (!findings || !findings.length) return;
 
@@ -548,11 +569,15 @@ function ppChatAppendUndoFindings(card, findings) {
     section.setAttribute('role', 'status');
     section.setAttribute('aria-live', 'polite');
 
+    var counted = ppChatUndoFindingsTotal(findings);
+
     var heading = document.createElement('div');
     heading.className = 'pp-ai-step-warning';
     heading.textContent = '⚠ Restored, but the previous version has '
-        + findings.length + ' issue' + (findings.length === 1 ? '' : 's')
-        + ' under current rules:';
+        + counted.total + ' issue' + (counted.total === 1 ? '' : 's')
+        + ' under current rules'
+        + (counted.truncated ? ' (showing the first ' + counted.shown + ')' : '')
+        + ':';
     section.appendChild(heading);
 
     ppChatAppendValidationItems(section, findings, ppChatFindingClass);
