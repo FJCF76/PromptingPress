@@ -8,6 +8,24 @@ Command registration: `WP_CLI::add_command('pp apply', 'PP_Apply_Command')` (`li
 
 ---
 
+## The run token (read this first)
+
+Every mutating subcommand (`execute`, `restore`, `reset`, `preflight`) requires `--run-id=<uuid>`. You get one from:
+
+```bash
+wp pp operate inspect
+```
+
+`inspect` returns the site's operating picture as JSON with a `run_id` field appended. That `run_id` is:
+
+- **A UUID v4.** `--run-id` is rejected with `--run-id must be a valid UUID v4. Got: "<value>"` if it isn't (`pp_operate_valid_run_id`).
+- **Install-scoped and time-limited.** The run state is stored per-install and auto-expires **2 hours** after creation (`PP_OPERATE_RUN_TTL = 7200`, `lib/operate.php`). An expired, swept, corrupt, or wrong-install token fails closed on the commands that need it.
+- **The carrier of run state:** which steps completed (`PREFLIGHT`, `APPLY`), the pre-apply token snapshot, and the touched-token trail that `restore` replays.
+
+Pass the same `run_id` to `preflight`, then to `execute`/`reset`, then to `restore`.
+
+---
+
 ## How every `wp pp` command prints its JSON (#717)
 
 One contract, all of them, because a parser should not need to know which command it is talking to.
@@ -27,24 +45,6 @@ Read `omitted_keys` before you read anything else. **A key listed there is UNKNO
 **Non-ASCII arrives `\u`-escaped.** `Café` prints as `"Caf\u00e9"`, an em dash as `\u2014`. This is the same JSON string — any parser decodes it back to the original bytes, nothing is lost — and it is what `wp pp operate patch`, `check surface`, `validate`, `sync check` and `integrity` already did. `wp pp action execute` and the `wp pp apply` family used to print those characters literally, which meant the two surfaces #687 documents together emitted **different bytes for identical content**, and meant a component or slot name raw-written into a composition could hand your terminal a live U+202E (RIGHT-TO-LEFT OVERRIDE) that reverses the rest of the line. Escaping settles both: one representation everywhere, and nothing the terminal acts on. Control characters were already escaped by JSON itself, with one exception — `DEL` (U+007F), which the sink now escapes explicitly — so the emitted bytes are printable ASCII.
 
 **One command is deliberately exempt:** `wp pp schema` still prints literal characters, because its whole job is handing an agent readable prose out of `schema.json` (see [`wp pp schema`](#wp-pp-schema--the-component-contract-688)). That report is built from the shipped component registry only — no stored bytes reach it.
-
----
-
-## The run token (read this first)
-
-Every mutating subcommand (`execute`, `restore`, `reset`, `preflight`) requires `--run-id=<uuid>`. You get one from:
-
-```bash
-wp pp operate inspect
-```
-
-`inspect` returns the site's operating picture as JSON with a `run_id` field appended. That `run_id` is:
-
-- **A UUID v4.** `--run-id` is rejected with `--run-id must be a valid UUID v4. Got: "<value>"` if it isn't (`pp_operate_valid_run_id`).
-- **Install-scoped and time-limited.** The run state is stored per-install and auto-expires **2 hours** after creation (`PP_OPERATE_RUN_TTL = 7200`, `lib/operate.php`). An expired, swept, corrupt, or wrong-install token fails closed on the commands that need it.
-- **The carrier of run state:** which steps completed (`PREFLIGHT`, `APPLY`), the pre-apply token snapshot, and the touched-token trail that `restore` replays.
-
-Pass the same `run_id` to `preflight`, then to `execute`/`reset`, then to `restore`.
 
 ---
 
