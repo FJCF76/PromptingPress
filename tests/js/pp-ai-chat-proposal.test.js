@@ -429,6 +429,322 @@ describe('renderPreviewError', function () {
         expect(detailEl.textContent).toContain('--hero-bg');
         expect(detailEl.textContent).toContain('--hero-heading-color');
     });
+
+    // A hint with nothing else in the payload: the visible line renders and the
+    // disclosure does NOT open, so the "Available on X: slot" line is dropped. That
+    // predates #667 (the disclosure has always been gated on alternatives-or-raw_error)
+    // and #667 kept it rather than deciding it. Pinned in the direction it actually
+    // behaves, so a future change to it is a choice someone makes, not a side effect.
+    test('a hint alone renders its line but does not open the disclosure', function () {
+        var diffArea = document.createElement('div');
+        renderPreviewError(diffArea, {
+            error_code: 'invalid_style_slot',
+            user_message: 'Not available on section.',
+            alternatives: [],
+            cross_component_hints: { '--grid-gap': { component: 'grid', slot: '--grid-gap', match: 'exact' } }
+        });
+
+        expect(diffArea.querySelector('.pp-ai-preview-error-hint').textContent)
+            .toBe('This setting exists on the grid component.');
+        expect(diffArea.querySelector('.pp-ai-preview-error-detail')).toBeNull();
+    });
+});
+
+// ─── renderPreviewError — shapes the classifiers reject (#667) ──────────────
+
+// The card reads one payload with three readers: this renderer, ppChatGetErrorStepClass
+// (the colour), and ppChatGetStatusMessage (the sentence). Before #667 the renderer asked
+// weaker questions than the other two — a `length`, or truthiness — so a payload could
+// answer YES to the renderer and NO to the classifiers:
+//
+//   alternatives: [null, {a:1}]  ──► renderer: "Available slots: , [object Object]"
+//                                └─► class:    pp-ai-step-impossible   (grey, dead end)
+//                                └─► status:   "This change isn't possible…"
+//
+// Every test below therefore asserts on ALL THREE, not on the renderer alone: the defect
+// is not "the line is ugly", it is "one card says two opposite things". Asserting the
+// line is gone while leaving the class unread would pass just as well if the renderer
+// stopped rendering anything at all.
+//
+// None of these payloads is reachable through _pp_build_friendly_error() (lib/ai-chat.php,
+// sole producer, no filter on the path). They are the tripwire #625 accepted for the
+// classifiers, now extended to the renderer that reads the same object.
+describe('renderPreviewError agrees with the classifiers about the payload', function () {
+    function renderCard(data) {
+        var diffArea = document.createElement('div');
+        renderPreviewError(diffArea, data);
+        return diffArea;
+    }
+
+    /** The disclosure's lines, as the renderer joined them. */
+    function detailLines(diffArea) {
+        return diffArea.querySelector('.pp-ai-preview-error-detail')
+            .querySelector(':scope > div').textContent.split('\n');
+    }
+
+    test('a list of empty strings names nothing, so no half of the card says it does', function () {
+        var data = {
+            error_code: 'invalid_style_slot',
+            user_message: 'Not available.',
+            alternatives: [''],
+            cross_component_hints: {}
+        };
+        var diffArea = renderCard(data);
+
+        expect(diffArea.textContent).not.toContain('Available slots');
+        expect(diffArea.querySelector('.pp-ai-preview-error-detail')).toBeNull();
+        expect(getErrorStepClass(data)).toBe('pp-ai-step-impossible');
+        expect(getStatusMessage(data)).toContain('isn\'t possible');
+    });
+
+    test('nulls and objects in the list render no line and no [object Object]', function () {
+        var data = {
+            error_code: 'invalid_style_slot',
+            user_message: 'Not available.',
+            alternatives: [null, { a: 1 }],
+            cross_component_hints: {}
+        };
+        var diffArea = renderCard(data);
+
+        expect(diffArea.textContent).not.toContain('[object Object]');
+        expect(diffArea.textContent).not.toContain('Available slots');
+        expect(getErrorStepClass(data)).toBe('pp-ai-step-impossible');
+    });
+
+    test('a mixed list prints exactly the entries that are names', function () {
+        var data = {
+            error_code: 'invalid_style_slot',
+            user_message: 'Not available.',
+            alternatives: ['--hero-bg', null, '', 42, '--hero-pad'],
+            cross_component_hints: {}
+        };
+        var diffArea = renderCard(data);
+
+        // Line-exact: the claim is which entries survived, and a line is what the
+        // renderer joins. A substring scan would pass on ", 42" too.
+        expect(detailLines(diffArea)).toEqual(['Available slots: --hero-bg, --hero-pad']);
+        // The list names something, so this one IS fixable — the guard drops entries,
+        // it does not condemn the payload.
+        expect(getErrorStepClass(data)).toBe('pp-ai-step-fixable');
+    });
+
+    test('whitespace still counts as a name, because #625 says it does', function () {
+        // Not an endorsement: it pins that the renderer did not quietly adopt a
+        // stricter test than the class it has to agree with. Whether ' ' should be a
+        // name at all belongs to #775, which owns the element-type contract.
+        var data = {
+            error_code: 'invalid_style_slot',
+            user_message: 'Not available.',
+            alternatives: ['   '],
+            cross_component_hints: {}
+        };
+        expect(getErrorStepClass(data)).toBe('pp-ai-step-fixable');
+        expect(renderCard(data).textContent).toContain('Available slots:    ');
+    });
+
+    test('a string in place of the list renders nothing and throws nothing', function () {
+        // `alternatives.join` is undefined on a string, so this used to throw out of the
+        // renderer — recoverable since #663, but as a generic "could not display" card
+        // that loses the server's actual answer. Now the string is simply not a list.
+        var data = {
+            error_code: 'invalid_style_slot',
+            user_message: 'Not available.',
+            alternatives: '--hero-bg',
+            cross_component_hints: {}
+        };
+        var diffArea;
+        expect(function () { diffArea = renderCard(data); }).not.toThrow();
+
+        expect(diffArea.querySelector('.pp-ai-preview-error-message').textContent)
+            .toBe('Not available.');
+        expect(diffArea.querySelector('.pp-ai-preview-error-detail')).toBeNull();
+        expect(getErrorStepClass(data)).toBe('pp-ai-step-impossible');
+    });
+
+    test('an array of hints is not a hint map, in the card as in the class', function () {
+        // typeof [] === 'object' and Object.keys([...]) counts, which is why
+        // ppChatHasCrossComponentHint() carries an explicit Array.isArray rejection.
+        var data = {
+            error_code: 'invalid_style_slot',
+            user_message: 'Not available.',
+            alternatives: [],
+            cross_component_hints: [{ component: 'grid', slot: '--grid-gap' }],
+            raw_error: 'raw'
+        };
+        var diffArea = renderCard(data);
+
+        expect(diffArea.querySelector('.pp-ai-preview-error-hint')).toBeNull();
+        expect(diffArea.textContent).not.toContain('Available on');
+        expect(getErrorStepClass(data)).toBe('pp-ai-step-impossible');
+        expect(getStatusMessage(data)).toContain('isn\'t possible');
+    });
+
+    test('hint entries that name no component print no hint line', function () {
+        var data = {
+            error_code: 'invalid_style_slot',
+            user_message: 'Not available.',
+            alternatives: [],
+            cross_component_hints: { '--x': null, '--y': 'grid', '--z': { slot: '--grid-gap' } },
+            raw_error: 'raw'
+        };
+        var diffArea = renderCard(data);
+
+        expect(diffArea.querySelector('.pp-ai-preview-error-hint')).toBeNull();
+        expect(diffArea.textContent).not.toContain('undefined');
+        expect(detailLines(diffArea)).toEqual(['raw']);
+
+        // THE RESIDUAL, PINNED SO IT IS A KNOWN COST AND NOT A SURPRISE: the map has
+        // keys, so the classifier still calls this fixable and the status bar still
+        // sends the author to a component the card does not name. #667 chose that over
+        // "exists on the undefined component"; closing it means tightening
+        // ppChatHasCrossComponentHint(), which moves what #625 landed — filed as #789.
+        expect(getErrorStepClass(data)).toBe('pp-ai-step-fixable');
+        expect(getStatusMessage(data)).toContain('different component');
+    });
+
+    test('a well-formed hint beside malformed ones is the one that renders', function () {
+        var data = {
+            error_code: 'invalid_style_slot',
+            user_message: 'Not available.',
+            alternatives: ['--section-bg'],
+            cross_component_hints: {
+                '--x': null,
+                '--grid-gap': { component: 'grid', slot: '--grid-gap', match: 'exact' }
+            }
+        };
+        var diffArea = renderCard(data);
+
+        expect(diffArea.querySelector('.pp-ai-preview-error-hint').textContent)
+            .toBe('This setting exists on the grid component.');
+        expect(detailLines(diffArea)).toEqual([
+            'Available on grid: --grid-gap',
+            'Available slots: --section-bg'
+        ]);
+    });
+
+    // The shipped payload can carry SEVERAL hints: _pp_build_friendly_error()
+    // (lib/ai-chat.php) writes one entry per rejected slot, up to
+    // PP_CROSS_COMPONENT_HINT_MAX. Two things about that are contracts, not accidents,
+    // and neither is pinned by the single-entry maps every other test here uses:
+    // the visible line names the FIRST entry — the same one the server's user_message
+    // names, since it picks its subject with reset() on this map — and the disclosure
+    // lists them in payload order. Naming the wrong one puts the line in direct conflict
+    // with the sentence right above it, which is the disagreement #667 exists to close.
+    test('several hints: the visible line names the first, the disclosure lists them in order', function () {
+        var data = {
+            error_code: 'invalid_style_slot',
+            user_message: 'Not available on section.',
+            alternatives: ['--section-bg'],
+            cross_component_hints: {
+                '--grid-gap': { component: 'grid', slot: '--grid-gap', match: 'exact' },
+                '--cta-pad': { component: 'cta', slot: '--cta-pad', match: 'suffix' }
+            },
+            raw_error: 'raw'
+        };
+        var diffArea = renderCard(data);
+
+        expect(diffArea.querySelector('.pp-ai-preview-error-hint').textContent)
+            .toBe('This setting exists on the grid component.');
+        expect(detailLines(diffArea)).toEqual([
+            'raw',
+            'Available on grid: --grid-gap',
+            'Available on cta: --cta-pad',
+            'Available slots: --section-bg'
+        ]);
+    });
+
+    test('a hint that names a component but no slot draws neither of its lines', function () {
+        // Both lines come from ONE list, so the entry test is what a drawable hint
+        // needs for the WIDER of the two uses: the disclosure line prints the slot.
+        // A component-only entry could in principle still fill the visible line, and
+        // the choice not to split the test is deliberate — one question about the
+        // field, asked once — but it is a choice, so it is pinned rather than left to
+        // whichever branch someone reads first. No producer emits this shape.
+        var data = {
+            error_code: 'invalid_style_slot',
+            user_message: 'Not available.',
+            alternatives: [],
+            cross_component_hints: { '--grid-gap': { component: 'grid' } },
+            raw_error: 'raw'
+        };
+        var diffArea = renderCard(data);
+
+        expect(diffArea.querySelector('.pp-ai-preview-error-hint')).toBeNull();
+        expect(detailLines(diffArea)).toEqual(['raw']);
+
+        // Same residual as the entries-name-nothing case: the classifier counts the
+        // map's keys, so the sentence still points at a component the card does not
+        // name (#789).
+        expect(getErrorStepClass(data)).toBe('pp-ai-step-fixable');
+        expect(getStatusMessage(data)).toContain('different component');
+    });
+
+    test('a raw_error that is not text contributes no line', function () {
+        var data = {
+            error_code: 'invalid_style_slot',
+            user_message: 'Not available.',
+            alternatives: ['--hero-bg'],
+            cross_component_hints: {},
+            raw_error: { code: 'invalid_style_slot' }
+        };
+        var diffArea = renderCard(data);
+
+        expect(diffArea.textContent).not.toContain('[object Object]');
+        expect(detailLines(diffArea)).toEqual(['Available slots: --hero-bg']);
+    });
+
+    test('a non-text raw_error alone leaves no disclosure to open', function () {
+        var data = {
+            error_code: 'no_style_slots',
+            user_message: 'This component doesn\'t support style customization.',
+            alternatives: [],
+            cross_component_hints: {},
+            raw_error: {}
+        };
+        var diffArea = renderCard(data);
+
+        // The invariant the guards buy: the two fields that OPEN the disclosure are the
+        // two that write lines into it, so it can never open holding nothing.
+        expect(diffArea.querySelector('.pp-ai-preview-error-detail')).toBeNull();
+        expect(diffArea.querySelector('.pp-ai-preview-error-message').textContent)
+            .toContain('doesn\'t support');
+    });
+
+    test('a payload whose message is not text falls to the plain branch', function () {
+        var data = {
+            error_code: 'invalid_style_slot',
+            user_message: { text: 'Not available.' },
+            alternatives: ['--hero-bg'],
+            cross_component_hints: {}
+        };
+        var diffArea = renderCard(data);
+
+        // No structured card at all: there is no honest sentence to head it with, and
+        // the card has no vocabulary for "the server sent something I couldn't read".
+        // Degrading to the plain branch is the remedy the issue names for a shape the
+        // renderer cannot consume; the alternative it replaces was heading the card with
+        // "[object Object]", which is a false sentence rather than a generic one.
+        expect(diffArea.querySelector('.pp-ai-preview-error-message')).toBeNull();
+        expect(diffArea.textContent).toBe('Preview failed');
+
+        // The cost, pinned: the classifiers never read user_message, so they still
+        // classify from the rest of the payload and the status bar still points at
+        // details this card no longer draws. Same residual as the hint case above —
+        // a pointer that goes nowhere, not a card claiming two opposite things — and it
+        // closes from the classifier side, which #625 owns (#789).
+        expect(getErrorStepClass(data)).toBe('pp-ai-step-fixable');
+        expect(getStatusMessage(data)).toContain('above');
+    });
+
+    test('the plain branch does not print [object Object] either', function () {
+        expect(renderCard({ message: { nested: true } }).textContent).toBe('Preview failed');
+        // The string path through the same branch is untouched — it is where every
+        // caught render failure lands (#663), carrying a bounded sentence.
+        expect(renderCard('Preview could not be displayed: boom').textContent)
+            .toBe('Preview could not be displayed: boom');
+        expect(renderCard({ message: 'Something went wrong' }).textContent)
+            .toBe('Something went wrong');
+    });
 });
 
 // ─── getErrorStepClass ────────────────────────────────────────────────────
