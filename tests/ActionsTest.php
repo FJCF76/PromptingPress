@@ -5651,14 +5651,17 @@ class ActionsTest extends TestCase
         $this->assertArrayNotHasKey('--section-zindex', $hints);
     }
 
-    public function testCrossComponentUserMessageUsesDescriptions(): void
+    public function testUserMessageWithNoHintNamesSlotsAndCounts(): void
     {
         $post_id = pp_create_page('Cross-comp desc test');
         pp_update_composition($post_id, [
             ['component' => 'section', 'props' => ['title' => 'Hi']],
         ]);
 
-        // No cross-hint: message should list descriptions, not raw slot names.
+        // No cross-hint, and no stamped context either — the fallback path, answering
+        // from the composition as it reads now. Until #661 this listed the DESCRIPTION
+        // of all 47 declared slots; it now names a bounded sample of the slot NAMES
+        // plus the total, which is what a mistyped name actually needs.
         $error  = new WP_Error('invalid_style_slot', 'Invalid slot');
         $result = _pp_build_friendly_error($error, [
             'post_id'         => $post_id,
@@ -5666,9 +5669,27 @@ class ActionsTest extends TestCase
             'style'           => ['--section-zindex' => '10'],
         ]);
 
-        // user_message should not contain raw slot names like --section-bg.
-        $this->assertStringNotContainsString('--section-bg', $result['user_message']);
+        // No stamped context, so the rejection is second-hand and the message must NOT
+        // quote a single rejected name — the fallback set is not recipe-expanded, so it
+        // cannot know the name it would be quoting is the one that was refused.
+        $this->assertStringNotContainsString('I tried to set "', $result['user_message']);
         $this->assertStringContainsString('section', $result['user_message']);
+
+        // Computed, not hard-coded: a future section slot would otherwise break this
+        // test for a reason unrelated to what it pins.
+        $declared = pp_get_style_slots('section');
+        $this->assertStringContainsString('It has ' . count($declared) . ' style settings', $result['user_message']);
+        $this->assertGreaterThan(PP_FRIENDLY_SLOT_SAMPLE_MAX, count($declared), 'Premise: section declares more than the message samples.');
+        $this->assertStringContainsString('--section-bg', $result['user_message']);
+
+        // Bounded: the descriptions this used to concatenate are not in it.
+        $descriptions = array_column($declared, 'description');
+        // An empty description would make assertStringNotContainsString('', ...) fail
+        // with no hint that the FIXTURE is what changed, so state the premise first.
+        $this->assertNotContains('', $descriptions, 'Premise: every declared slot carries a description.');
+        foreach ($descriptions as $description) {
+            $this->assertStringNotContainsString($description, $result['user_message']);
+        }
     }
 
     public function testCrossComponentUserMessageWithHintText(): void

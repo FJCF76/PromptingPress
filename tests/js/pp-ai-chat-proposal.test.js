@@ -329,6 +329,30 @@ describe('renderPreviewError', function () {
         expect(lines).toEqual(['Available slots: --hero-bg, --hero-heading-color']);
     });
 
+    // #661: the server sentence sends the author to "the details below" for the rest of
+    // a sampled slot list. That word is only true while the disclosure is appended AFTER
+    // the message element. Nothing else pins order — the sibling tests use querySelector,
+    // which finds both elements whichever way round they render — so reordering the
+    // appends would leave the suite green while the copy pointed the wrong way.
+    test('the disclosure renders below the message the server points down from', function () {
+        var diffArea = document.createElement('div');
+        renderPreviewError(diffArea, {
+            error_code: 'invalid_style_slot',
+            user_message: 'I tried to set "--hero-bgs" on the hero component, but it doesn\'t support that '
+                + 'style setting. It has 49 style settings, including --hero-bg. The full list is in the details below.',
+            alternatives: ['--hero-bg', '--hero-heading-color'],
+            raw_error: 'Component "hero" has no style slot "--hero-bgs".'
+        });
+
+        var msgEl = diffArea.querySelector('.pp-ai-preview-error-message');
+        var detailEl = diffArea.querySelector('.pp-ai-preview-error-detail');
+        expect(msgEl).not.toBeNull();
+        expect(detailEl).not.toBeNull();
+        expect(msgEl.textContent).toContain('details below');
+        // DOCUMENT_POSITION_FOLLOWING === 4: detailEl comes after msgEl in document order.
+        expect(msgEl.compareDocumentPosition(detailEl) & 4).toBe(4);
+    });
+
     test('plain string error renders as text content', function () {
         var diffArea = document.createElement('div');
         renderPreviewError(diffArea, 'Permission denied.');
@@ -524,9 +548,9 @@ describe('getStatusMessage', function () {
         expect(msg).toContain('isn\'t possible');
     });
 
-    // #625: the bar must say what the step's colour says. A rejection that lists the
-    // settings the component does have is not "impossible" — the settings are printed
-    // in user_message on the card above this bar.
+    // #625: the bar must say what the step's colour says. A rejection that names
+    // settings the component does have is not "impossible" — they are printed in
+    // user_message on the card above this bar (a sample of them, since #661).
     test('invalid_style_slot with alternatives points at the available settings', function () {
         var msg = getStatusMessage({
             error_code: 'invalid_style_slot',
@@ -537,11 +561,11 @@ describe('getStatusMessage', function () {
         // Blames the name, not the component: the capability the author asked for is
         // in `alternatives` right there, so denying it would be the #625 bug in words.
         expect(msg).toContain('setting name this component doesn\'t have');
-        // And points at a list that exists. The card prints slot DESCRIPTIONS in
-        // user_message; the names themselves are behind a collapsed disclosure, so the
-        // sentence must not promise names on screen.
-        expect(msg).toContain('listed above');
-        expect(msg).not.toContain('names');
+        // And points at settings that are really up there. Since #661 user_message names
+        // a SAMPLE of the declared slots plus a total count, so the bar points at them
+        // without claiming the sample is the whole list — on hero that would be 5 of 49.
+        expect(msg).toContain('above');
+        expect(msg).not.toContain('listed above');
     });
 
     test('invalid_style_slot naming nothing still reports the change as impossible', function () {

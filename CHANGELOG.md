@@ -4,6 +4,69 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.16.2] — 2026-08-25 — A rejected style slot names what you typed and what the component has, in 273 characters instead of 11,309 (#661)
+
+**The one part of a failed preview the chat card cannot collapse is now the smallest part of it.** When the AI proposed a style setting a component doesn't declare, `_pp_build_friendly_error()`'s no-hint branch built its `user_message` by concatenating the DESCRIPTION of every slot the component declares. Those descriptions are full sentences carrying multi-clause caveats about hover fallbacks and breakpoints. On `hero`, which declares 49 slots, that measured **11,309 characters**, and `ppChatRenderPreviewError()` writes `user_message` into `.pp-ai-preview-error-message` unconditionally — no disclosure, no clamp. At 375px one failed step buried the Apply/Cancel row under many screens of prose.
+
+The asymmetry is what made it a bug rather than a preference: `raw_error` on the very same payload was already capped at `PP_REFLECTED_ERROR_MAX` (4096) *and* collapsed behind `<details>`, and `alternatives` — the complete list of declared slot names — was already inside that same disclosure. The verbose string was the one that rendered openly, and the bounded one was the one nobody had to scroll past.
+
+### The numbers that matter
+
+Measured through the real path: page authored with `pp_create_page` + the `update_composition` action, rejection produced by `pp_preview_action('style_component', ['style' => ['--hero-bgs' => '#111111']])`, message built by the real `_pp_build_friendly_error()`.
+
+| Measurement (hero, 49 declared slots) | Before | After | Δ |
+|---|---|---|---|
+| `user_message` length, characters | 11,309 | 273 | **41x smaller** |
+| Slot descriptions concatenated into it | 49 (11,213 chars) | 0 | removed |
+| Declared slot names said out loud | 0 | 5 + a total count | added |
+| The rejected slot name itself | never stated | stated | added |
+| `alternatives` (complete list, in `<details>`) | 49 | 49 | unchanged |
+| `raw_error` | bounded, collapsed | bounded, collapsed | unchanged |
+
+The message now reads: `I tried to set "--hero-bgs" on the hero component, but it doesn't support that style setting. It has 49 style settings, including --hero-padding-top, --hero-padding-bottom, --hero-bg, --hero-heading-color, --hero-heading-accent-color. The full list is in the details below.`
+
+Note what that sample contains. The author typed `--hero-bgs`; `--hero-bg` is the third name they now see without opening anything.
+
+### The shape chosen, and why
+
+**Names, not descriptions.** The author who lands on this branch got a NAME wrong. "Background color or gradient" does not tell them what to type; `--hero-bg` does, and seeing several together teaches the `--<component>-<thing>` convention, which is what turns a near miss into a next attempt. This inverts the #625-era reasoning that deliberately printed descriptions — that rationale is retracted here, and the status-bar sentence it justified changed with it.
+
+**A sample plus a count, not the whole list.** Nothing was dropped from the response; the complete declared list still ships as `alternatives` and the card still prints all of it. The cap chooses how much is said OUT LOUD, above the fold, where there is nothing to collapse. The sample is the first entries of that same list in the same order, so opening the disclosure shows the names just read at the top of it.
+
+**Bounded arithmetically, not by assumption.** Capping how MANY names print bounds nothing unless each name is itself bounded, and nothing upstream guarantees short names: `pp_rejected_slot_context()` checks `available_slots` for presence, type and emptiness but never for key size. Every interpolated name — the rejected one (caller-supplied outright), the component name, and each sampled name — goes through the existing `_pp_clean_reflected_text(..., PP_REFLECTED_NAME_MAX)`. Measured: a fixture component declaring 4000-character slot names produced a **20,268**-character message without that cleaning, worse than the bug being fixed, and 1,465 with it.
+
+### Claims the message no longer makes
+
+Three sentences were reworded because they asserted more than the evidence supported:
+
+- The rejected slot name is quoted **only** when the rejection carried its own candidate set (#626). On the contextless fallback that set is re-derived from `$params['style']`, which is not recipe-expanded, so a proposal mixing a recipe with one explicit unknown key could have quoted the wrong name. Second-hand evidence gets the older, unattributed opening.
+- "It has no style settings" is no longer said about a target that never resolved. An out-of-range `component_index` slips past `_pp_component_target_not_found()` (which only catches a bad `component_id`), and the old text answered it with a vague "(none)"; the new text would have made it a confident claim about a component that does not exist. That guard hole is pre-existing and filed separately (#774) — this release only stops the message from exploiting it.
+- The completely-stated form ("Its style settings are: …") is an exhaustive claim, so it is now made only when the printed names really are all of them and each survived cleaning as itself. Truncation collisions or a name that cleans away route to the counted form, which claims nothing about completeness.
+
+### Scope boundaries
+
+`alternatives` is still every declared name at full length inside the disclosure (#776), the payload's element-type contract is unchanged (#775), and the `component_index` guard hole is untouched (#774) — all filed while working on this. Reflected-value sanitization policy across branches (#647/#649), chat-card rendering and `MAX_INLINE` (#655/#712), `invalid_style_value` re-reading the composition (#659), monospace error prose (#662), and slot-name wrapping (#666) are all other issues' axes and were not touched. The cross-component hint branch is byte-identical and pinned as a whole string.
+
+### Deviations from the filed issue
+
+The issue proposed "a count plus a few names". Two things were added beyond that: the message now also states the slot that was tried (it never did before, though `raw_error` always carried it), and the sample cap is enforced per-name rather than only per-count. A "did you mean" similarity ranker was considered and rejected — PHP's `levenshtein()` changed its 255-byte behavior around the 8.0 floor this theme supports, and the boundary could not be tested here.
+
+### Fixed
+
+- The no-hint `invalid_style_slot` branch of `_pp_build_friendly_error()` (`lib/ai-chat.php`) no longer concatenates every declared slot's description into `user_message`. New helper `_pp_no_hint_slot_message()` writes the bounded sentence; new constant `PP_FRIENDLY_SLOT_SAMPLE_MAX` (5) caps how many names it says out loud. Unlike the three constants beside it, this one is a chosen editorial size rather than a measured ceiling, and it fires on most rejections by design — 9 of the 12 shipped components declare more than five slots.
+- The chat status bar no longer promises "The settings it does have are listed above" — with a sample above the fold that would overstate what is on screen. It now says "See the settings it does have above" (`assets/js/pp-ai-chat.js`).
+
+### Docs
+
+- `AI_CONTEXT.md` records that `user_message` is bounded on this path, alongside the existing `PP_REFLECTED_NAME_MAX` / `PP_REFLECTED_ERROR_MAX` note.
+- Corrected stale measurements and a diagram in the touched docblocks: the response-bounds table now states character counts on one basis (11,213 / 1,111, not byte counts off by a trailing separator), and the payload-to-card diagrams no longer draw two `<details>` disclosures where the card builds one.
+
+### Tests
+
+- New `tests/FriendlyErrorMessageBoundTest.php` (18 tests): the worst real rejection fits the chat column; the message does not grow with slot COUNT (6 vs 120 declared slots) nor with slot NAME LENGTH (4000-character names); the caller-supplied rejected name cannot reopen the unbounded message; `alternatives` still ships complete and the sample is its own prefix; both sides of the sample-size boundary; singular/plural agreement; names that clean away never become an empty item in an exhaustive list; the cross-component sentence pinned as a whole string; `raw_error` still carries the validator's complete list.
+- `tests/js/pp-ai-chat-proposal.test.js` pins that the disclosure renders BELOW the message, since the server sentence points "below".
+- Updated the pins whose premise this inverts, in `tests/ActionsTest.php`, `tests/PreviewErrorActionabilityTest.php`, and `tests/FriendlyErrorSlotContextTest.php`.
+
 ## [v1.16.1] — 2026-08-25 — Bounded reports and an O(N) locator: a corrupt page can no longer produce a diagnostic nobody can read, and validating one costs linear time again (#654, #715)
 
 **Every reporting surface that hands you a findings payload is now capped at 100 entries plus one truthful tail, and the locator rescan that made validation quadratic is gone.** Two paired fixes on one axis: #654 bounds what a report CARRIES, #715 bounds what building it COSTS. `wp pp check page` is deliberately excluded from the cap and stays the one complete report, because it is the command every truncation tail points at.

@@ -549,7 +549,9 @@ class FriendlyErrorSlotContextTest extends TestCase
         );
 
         $this->assertSame(['--hero-only-this'], $friendly['alternatives']);
-        $this->assertStringContainsString('Only this one', $friendly['user_message']);
+        // The message names the payload's slot, not the registry's — since #661 it says
+        // the NAME rather than the description, so this asserts on `--hero-only-this`.
+        $this->assertStringContainsString('--hero-only-this', $friendly['user_message']);
         $this->assertNotContains(
             '--hero-bg',
             $friendly['alternatives'],
@@ -563,7 +565,7 @@ class FriendlyErrorSlotContextTest extends TestCase
     public function testAMalformedContextRoutesToTheFallbackRatherThanHalfAnAnswer($data): void
     {
         // Half a context is worse than none: an empty available_slots would render
-        // as "Available settings: (none)" on a component declaring dozens.
+        // as "It has no style settings" on a component declaring dozens.
         $post_id = $this->authorPage('Malformed context', [
             ['component' => 'hero', 'props' => ['title' => 'Hi']],
         ]);
@@ -584,8 +586,8 @@ class FriendlyErrorSlotContextTest extends TestCase
     public static function malformedContexts(): array
     {
         // One case per guard. The last three are the ones whose absence would not
-        // merely degrade the message: an empty declared map renders as "Available
-        // settings: (none)" on a component with dozens, and a candidate list holding
+        // merely degrade the message: an empty declared map renders as "It has no
+        // style settings" on a component with dozens, and a candidate list holding
         // anything that is not an array key fatals in the consumer's slot lookups
         // instead of falling back.
         return [
