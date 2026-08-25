@@ -24,7 +24,7 @@ That got worse when #749 added a second producer. The mid-batch re-classificatio
 
 - **The card grows before the transcript announces.** `addStatusMessage()` ends by pinning the message list to its own bottom, and the proposal card is an earlier sibling in that scroller. Appending afterwards pushed the alert line back off the fold, so the larger the rollback failure, the further off-screen its own warning went. The section is also inserted above the action row rather than after it, since the proposal card appends Apply/Cancel last and a plain append left the disclosure stranded beneath a pair of disabled buttons.
 
-### Scope
+### Scope boundaries
 
 Server-side production of `rollback_errors` is untouched and byte-identical; this release only changes what the chat does with what it already received. The #749 up-front refusal keeps its own distinct rendering and is pinned as such — nothing ran, so there is nothing to revert, and its envelope carries an empty list by construction.
 
