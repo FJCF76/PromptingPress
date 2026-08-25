@@ -174,6 +174,155 @@ function ppChatConflictMessage() {
     return 'This page changed while the proposal was pending (another tab, agent, or editor). Nothing was applied.';
 }
 
+/**
+ * Most rollback_errors entries this card will DRAW (#755).
+ *
+ * Chosen to match the value PP_WRITE_FINDINGS_BUDGET carries today (lib/actions.php) —
+ * the number the server already treats as "a report a person can still read" — so this
+ * surface does not invent a second answer to a question the repo has already answered.
+ * That is a borrowed rationale, NOT a synchronized constant: nothing enforces the two
+ * staying equal, and retuning the server budget has no automatic effect here.
+ *
+ * It lives on the client because `rollback_errors` is the one report channel with NO
+ * server cap: the menu layer appends one entry per item it could not recreate
+ * (_pp_restore_batch_snapshot -> _pp_restore_menu_state, lib/actions.php), so a
+ * catastrophic menu restore produces one string per menu item and nothing upstream trims
+ * it.
+ *
+ * It bounds the DOM, not the count: the heading names how many the server reported
+ * whenever it draws fewer, so an operator is told the list is partial instead of quietly
+ * shown a prefix. Be honest about what that costs, because this differs from the bounded
+ * report it is modelled on. A truncated FINDINGS report ends with a tail naming
+ * `wp pp check page --post_id=N`, a real route to the rest. This envelope is
+ * request-scoped and returned exactly once, and the server persists nothing — so entries
+ * past the budget are gone for good, not merely collapsed. Accepted, because a
+ * 20,000-row card is not a readable report either; the count is what keeps it honest.
+ */
+var PP_CHAT_ROLLBACK_ERRORS_MAX = 100;
+
+/**
+ * What a failed batch's rollback reported: `{ shown, total, rolledBack }` (#755).
+ *
+ * `rollback_errors` is documented on pp_ai_execute_batch()'s envelope (lib/actions.php)
+ * as: non-empty when the rollback itself could not fully restore something, and "a
+ * consumer must not treat rolled_back: true as clean without checking it". Until this
+ * function existed no consumer in assets/js/ checked it at all, so the chat told the
+ * operator every change had been reverted while a page sat there still carrying
+ * mid-batch state.
+ *
+ * ONE PASS, AND ONE ANSWER FOR BOTH SURFACES. The transcript sentence and the card
+ * section are two renderings of the same fact, so they read one computed report rather
+ * than each deriving their own. That is what makes "the card cannot contradict the
+ * sentence" a property of the code instead of a promise in a comment — and it means the
+ * channel is walked once per failed batch, not once per surface.
+ *
+ * THREE NUMBERS, AND THE DIFFERENCE BETWEEN THEM IS LOAD-BEARING:
+ *
+ *   reported  how many members the server sent, renderable or not. The SENTENCE keys on
+ *             this, so "the rollback reported something" and "we can draw something" are
+ *             never confused.
+ *   total     how many of those are renderable strings. The heading's count.
+ *   shown     the first PP_CHAT_ROLLBACK_ERRORS_MAX of them. The rows.
+ *
+ * WHY `reported` AND NOT JUST `total`. Key the sentence on what is renderable and a
+ * channel whose members are all unrenderable — `[{...}]`, `['']` — collapses to "nothing
+ * was reported" and draws the byte-exact CLEAN sentence. That is precisely the #755 lie,
+ * re-entered through the filter meant to make rendering safe: the server said something
+ * went wrong and the operator is told everything reverted. Today's producers only ever
+ * append strings (lib/actions.php), so this is unreachable in practice — the same
+ * standing as the falsy-`rolled_back` case below, and it gets the same answer rather than
+ * the opposite one. An unrenderable report still costs the clean claim; it just cannot
+ * fill the card.
+ *
+ * DEFENSIVE BY DESIGN, and the reason is structural rather than paranoid. The caller runs
+ * inside executeProposal()'s promise chain, whose catch renders `err.message` straight
+ * into the transcript — so a throw here would replace the honest report with a
+ * stack-shaped string, i.e. lose exactly the information this exists to deliver. A
+ * non-array (an older payload, a key that arrived as a string) degrades to "nothing to
+ * report" rather than to an exception, and non-string members are dropped rather than
+ * String()-ed into '[object Object]'.
+ */
+function ppChatRollbackErrorReport(batch) {
+    var report = {
+        shown: [],
+        total: 0,
+        reported: 0,
+        readable: false,
+        rolledBack: !!(batch && batch.rolled_back)
+    };
+
+    var raw = batch && batch.rollback_errors;
+    if (!Array.isArray(raw)) return report;
+
+    report.readable = true;
+    report.reported = raw.length;
+
+    for (var i = 0; i < raw.length; i++) {
+        if (!ppChatIsNonEmptyString(raw[i])) continue;
+        report.total++;
+        if (report.shown.length < PP_CHAT_ROLLBACK_ERRORS_MAX) {
+            report.shown.push(raw[i]);
+        }
+    }
+
+    return report;
+}
+
+/**
+ * The clause the batch-failure line ends with, after "Error on step N: <reason>" (#755).
+ *
+ * Three answers, and which one you get is decided by the rollback REPORT, not by the
+ * rollback FLAG:
+ *
+ *   channel unreadable  ->  ''
+ *   reported > 0        ->  ' — some changes could not be reverted.'
+ *   else rolledBack     ->  ' — all changes in this proposal have been reverted.'
+ *   else                ->  ''
+ *
+ * THE REPORT OUTRANKS THE FLAG ON PURPOSE. The obvious spelling — test `rolled_back`
+ * first and only branch inside it — reads more natural and re-opens the bug for the one
+ * payload that matters most: a shape carrying entries with a falsy `rolled_back` would
+ * print nothing about them at all. Today's executor cannot produce that pair (the only
+ * return that fills rollback_errors also sets rolled_back: true; the other two hardcode
+ * an empty list — lib/actions.php), so the ordering costs nothing against real data and
+ * makes the clean sentence UNREACHABLE whenever the channel says otherwise. That
+ * unreachability is the property worth having, and it is pinned.
+ *
+ * AN UNREADABLE CHANNEL SAYS NOTHING, RATHER THAN SAYING "CLEAN". `Array.isArray` is the
+ * whole test for readability, and failing it used to fall through to the flag — so an
+ * unrecognized shape did not degrade to "nothing to report", it degraded to an
+ * affirmative all-clear, which is the precise class of false reassurance this issue
+ * exists to remove. It is one upstream line from being live: `$errors` in
+ * `_pp_restore_batch_snapshot()` is a LIST only because it is built with `$errors[] =`
+ * and `array_merge` (lib/actions.php); any key-preserving edit there — `array_filter`,
+ * `array_unique`, an `unset` — makes `wp_json_encode` emit a JSON OBJECT instead, and
+ * nothing on either side asserts list-ness. So the clean sentence now requires an
+ * explicitly EMPTY ARRAY: present, readable, and empty. Anything else is either a report
+ * or an unknown, and neither may be narrated as a clean revert.
+ *
+ * The clean sentence is byte-identical to the one this file has always shown. The failing
+ * case is deliberately a complete sentence rather than a colon introducing the entries:
+ * the entries render in the proposal card, a different element from the transcript line
+ * this clause belongs to, and a line ending in ':' with nothing after it inside its own
+ * container reads as truncated. Both halves therefore stand alone.
+ *
+ * SCOPE, so the next reader does not over-read this. Making the channel honest here does
+ * NOT make it honest on every failure exit. `ppChatBatchHitConflict()` returns earlier,
+ * into `showConflictState()`, which rebuilds the card and says "Nothing was applied." — a
+ * stronger claim than this one, made on a path that can carry entries, since the executor
+ * rolls back on a conflicting step exactly as it does on any other. That is #797, filed
+ * and deliberately not fixed here.
+ */
+function ppChatRollbackSentence(report) {
+    if (!report || !report.readable) return '';
+
+    if (report.reported > 0) {
+        return ' — some changes could not be reverted.';
+    }
+
+    return report.rolledBack ? ' — all changes in this proposal have been reverted.' : '';
+}
+
 function ppChatFormatDiffValue(val) {
     if (val === null || val === undefined) return '(none)';
     if (typeof val === 'object') {
@@ -1025,6 +1174,94 @@ function ppChatAppendUndoFindings(card, findings) {
 }
 
 /**
+ * Names the pages and menus a failed batch's rollback did NOT restore (#755).
+ *
+ * The companion to ppChatBatchRollbackSentence(): that clause tells the transcript the
+ * revert was not clean, and this puts WHICH things stayed dirty, and why, in the proposal
+ * card the operator is already looking at. Report-only — nothing here blocks or retries.
+ *
+ * WHY THE CARD AND NOT THE TRANSCRIPT LINE. `.pp-ai-status` is `text-align: center` with
+ * no width clamp (assets/css/pp-ai-chat.css), which is right for a one-line notice and
+ * wrong for a list of long strings. `.pp-ai-proposal-card` carries `max-width: 90%`, and
+ * the wrap comment on `.pp-ai-preview-error-detail > div` states that clamp is what makes
+ * `overflow-wrap: break-word` hold at all — render the disclosure outside the card and
+ * that wrap silently stops working. The card also already styles `[role="status"]`
+ * sections, because ppChatAppendUndoFindings above puts one there.
+ *
+ * Note precisely what that inherited wrap does and does not cover: the rule is scoped to
+ * `.pp-ai-preview-error-detail > div`, so it reaches the DISCLOSURE rows only. The five
+ * INLINE rows carry `pp-ai-step-failed`, which declares no wrap, and one of the producers
+ * interpolates a user-authored menu title. Ordinary prose wraps at its spaces; an
+ * unbroken token would not. That gap is pre-existing and shared with every other finding
+ * row on this card — filed as #798, not worked around here.
+ *
+ *   batch.rollback_errors ──▶ report {shown, total, reported, readable}
+ *          │                     │
+ *          │                     ├─▶ nothing renderable ──▶ no section, no empty card
+ *          │                     │
+ *          │                     └─▶ N ──▶ heading (reported count, + "showing the first")
+ *          │                                 └─▶ 5 rows inline ──▶ <details> for the rest
+ *          └──▶ (same report) ──▶ ppChatRollbackSentence() ──▶ transcript line
+ *
+ * THE ROWS GO THROUGH ppChatAppendValidationItems ON PURPOSE, and the adapter is one
+ * line: each string becomes `{ message: <string> }`. That object carries no `index` and
+ * no `type`, so ppChatFindingBand() answers null and ppChatFindingLocator() answers '' —
+ * every entry lands in the "unlocated" group, which is never pooled, so the existing
+ * selection yields five inline rows and the remainder behind "Show N more errors". Five
+ * inline, the disclosure, and the #667 rule that it never opens on an empty set are all
+ * inherited rather than re-implemented.
+ *
+ * That reuse is also a COUPLING, so it is stated rather than left to be discovered: these
+ * strings are not validation findings, and this is the second consumer of a helper whose
+ * band-aware selection was written for the first. What the helper is relied on for here
+ * is only its unlocated path (5 + disclosure + the empty gate); a future change to how
+ * LOCATED findings are grouped cannot reshape these rows, because none of them is located.
+ *
+ * THE HEADING COUNTS WHAT THE SERVER REPORTED, NOT WHAT SURVIVED THE FILTER. `reported`
+ * rather than `total`, so a channel carrying members this file cannot draw still states
+ * the real size and the "(showing the first N)" clause then covers BOTH reasons a row can
+ * be missing — the display budget, and a member that was not a renderable string. Using
+ * the filtered count would understate the server's own report with nothing on screen
+ * saying anything had been dropped.
+ *
+ * The truncation clause is spelled exactly as ppChatAppendUndoFindings spells it, because
+ * both headings can appear on the same card and two dialects of one notice is how a
+ * reader learns to distrust both.
+ */
+function ppChatAppendRollbackErrors(card, report) {
+    if (!card || !report || !report.shown.length) return;
+
+    var shown = report.shown;
+
+    var section = document.createElement('div');
+    section.setAttribute('role', 'status');
+    section.setAttribute('aria-live', 'polite');
+
+    var heading = document.createElement('div');
+    heading.className = 'pp-ai-step-failed';
+    heading.textContent = '⚠ ' + report.reported + ' change'
+        + (report.reported === 1 ? '' : 's')
+        + ' could not be reverted'
+        + (shown.length < report.reported ? ' (showing the first ' + shown.length + ')' : '')
+        + ':';
+    section.appendChild(heading);
+
+    ppChatAppendValidationItems(section, shown.map(function (message) {
+        return { message: message };
+    }), 'pp-ai-step-failed');
+
+    // ABOVE THE ACTION ROW, NOT AFTER IT. renderProposal() appends `.pp-ai-proposal-actions`
+    // last, so a plain appendChild would drop this disclosure underneath a pair of
+    // now-disabled buttons, visually detached from the steps it explains.
+    var actions = card.querySelector('.pp-ai-proposal-actions');
+    if (actions) {
+        card.insertBefore(section, actions);
+    } else {
+        card.appendChild(section);
+    }
+}
+
+/**
  * The composition offset a finding owns, or null when it owns none (#622, #655).
  *
  * The one place "does this finding name a band?" is answered, so the selection below and
@@ -1084,12 +1321,13 @@ function ppChatValidationItemRow(item, className) {
  * Shows up to 5 inline; collapses the rest in a <details> disclosure (D6).
  *
  * `className` is either a fixed class string (the post-apply validation paths, whose
- * items are already split into an errors list and a warnings list) or a function
- * (item) -> class for a list that carries its own per-item severity — today the restore
- * findings (#622). In the per-item form the disclosure summary's noun is derived from
- * the hidden items' own severities ("errors", "warnings", or "issues" when they are
- * mixed), never from the class string: calling a set that contains errors "warnings"
- * is the same misreport one level up.
+ * items are already split into an errors list and a warnings list, and — since #755 — the
+ * batch rollback report, whose items are plain strings adapted to `{ message }` and are
+ * all errors) or a function (item) -> class for a list that carries its own per-item
+ * severity — today the restore findings (#622). In the per-item form the disclosure
+ * summary's noun is derived from the hidden items' own severities ("errors", "warnings",
+ * or "issues" when they are mixed), never from the class string: calling a set that
+ * contains errors "warnings" is the same misreport one level up.
  *
  * THE INLINE ROWS ARE CHOSEN BAND-AWARE (#655). The budget of 5 was calibrated when a
  * band could contribute at most ONE finding, so five rows meant five bands. #621 made a
@@ -1129,6 +1367,11 @@ function ppChatValidationItemRow(item, className) {
  * beyond findings — the post-apply validation paths pass items that carry no `index` at
  * all, so pooling them would collapse a five-error list into one row. Those lists select
  * exactly as they did before this change.
+ *
+ * Since #755 the batch rollback report is a SECOND dependent on that never-pooled
+ * behavior: its items are adapted strings carrying no `index` by construction, so every
+ * one of them is unlocated and the five inline rows are five different entries. Pooling
+ * the unlocated group would silently collapse a whole rollback report into one row.
  */
 function ppChatAppendValidationItems(container, items, className) {
     if (!items || !items.length) return;
@@ -2019,7 +2262,7 @@ function ppChatAppendValidationItems(container, items, className) {
                 return;
             }
 
-            var batch = resp.data; // { ok, steps: [...], failed_at, rolled_back, versions }
+            var batch = resp.data; // { ok, steps: [...], failed_at, rolled_back, rollback_errors, versions }
             var applied = [];
 
             batch.steps.forEach(function (stepResult, i) {
@@ -2080,11 +2323,23 @@ function ppChatAppendValidationItems(container, items, className) {
                 return;
             }
 
+            // The revert claim is the ROLLBACK REPORT's to make, not this branch's (#755).
+            // `rolled_back: true` was read here as "clean" for as long as this code has
+            // existed, while the envelope's own docblock says it is not clean until
+            // rollback_errors is checked — so a page whose restore was withheld, or a menu
+            // item the restore could not recreate, was reported to the operator as fully
+            // reverted. Both halves of the honest answer come from that one channel: the
+            // sentence below, and the card section naming what stayed dirty.
+            // ONE REPORT, BOTH SURFACES, AND THE CARD IS GROWN FIRST. addStatusMessage()
+            // ends by pinning the transcript to its own bottom; the card is an EARLIER
+            // sibling in that scroller, so growing it afterwards would push the alert
+            // line back off the fold — the bigger the rollback failure, the further
+            // off-screen its own warning. Append, then announce.
+            var rollback = ppChatRollbackErrorReport(batch);
             var failedResult = batch.steps[batch.failed_at];
             var message = 'Error on step ' + (batch.failed_at + 1) + ': ' + (failedResult.error || 'Unknown error');
-            if (batch.rolled_back) {
-                message += ' — all changes in this proposal have been reverted.';
-            }
+            message += ppChatRollbackSentence(rollback);
+            ppChatAppendRollbackErrors(card, rollback);
             addStatusMessage(message, true);
         })
         .catch(function (err) {
@@ -2892,6 +3147,10 @@ if (typeof module !== 'undefined' && module.exports) {
         isCompositionConflict: ppChatIsCompositionConflict,
         batchHitConflict: ppChatBatchHitConflict,
         batchWasRefusedUpFront: ppChatBatchWasRefusedUpFront,
-        conflictMessage: ppChatConflictMessage
+        conflictMessage: ppChatConflictMessage,
+        rollbackErrorReport: ppChatRollbackErrorReport,
+        rollbackSentence: ppChatRollbackSentence,
+        appendRollbackErrors: ppChatAppendRollbackErrors,
+        ROLLBACK_ERRORS_MAX: PP_CHAT_ROLLBACK_ERRORS_MAX
     };
 }
