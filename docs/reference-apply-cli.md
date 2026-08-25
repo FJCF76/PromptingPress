@@ -26,6 +26,28 @@ Pass the same `run_id` to `preflight`, then to `execute`/`reset`, then to `resto
 
 ---
 
+## How every `wp pp` command prints its JSON (#717)
+
+One contract, all of them, because a parser should not need to know which command it is talking to.
+
+**The document is always printed.** Before #717 each command called `json_encode()` inline and nothing checked the return. `json_encode()` answers `false` — not a string — on malformed UTF-8, on nesting past 512 levels, on recursion; WP-CLI renders that `false` as an **empty line**, and on `wp pp action execute` the `Success:` line still followed it. A write that had already landed reported nothing at all: no `ok`, no `error_code`, no `composition_version`, no `changes`, no `findings`. Now a bad byte is replaced with U+FFFD and the document survives intact.
+
+**When it still cannot encode, you get a short document, never a blank line.** Depth and recursion are not repairable, so the command prints what it can: every top-level value that still encodes, plus two fields that say what happened.
+
+```json
+{ "ok": true, "action": "update_component", "composition_version": 7,
+  "envelope_error": "This document could not be encoded as JSON (Maximum stack depth exceeded). ...",
+  "omitted_keys": ["changes", "findings"] }
+```
+
+Read `omitted_keys` before you read anything else. **A key listed there is UNKNOWN, not empty** — `findings` is a container, so it is exactly the kind of field that gets dropped, and treating an absent `findings` as `[]` would read a clean bill of health for diagnostics that were never encoded. (Same trap the `findings_skipped` entry closes on the write path.) `ok` still tells you whether your write landed, in every case.
+
+**Non-ASCII arrives `\u`-escaped.** `Café` prints as `"Caf\u00e9"`, an em dash as `\u2014`. This is the same JSON string — any parser decodes it back to the original bytes, nothing is lost — and it is what `wp pp operate patch`, `check surface`, `validate`, `sync check` and `integrity` already did. `wp pp action execute` and the `wp pp apply` family used to print those characters literally, which meant the two surfaces #687 documents together emitted **different bytes for identical content**, and meant a component or slot name raw-written into a composition could hand your terminal a live U+202E (RIGHT-TO-LEFT OVERRIDE) that reverses the rest of the line. Escaping settles both: one representation everywhere, and nothing the terminal acts on. Control characters were already escaped by JSON itself, with one exception — `DEL` (U+007F), which the sink now escapes explicitly — so the emitted bytes are printable ASCII.
+
+**One command is deliberately exempt:** `wp pp schema` still prints literal characters, because its whole job is handing an agent readable prose out of `schema.json` (see [`wp pp schema`](#wp-pp-schema--the-component-contract-688)). That report is built from the shipped component registry only — no stored bytes reach it.
+
+---
+
 ## `wp pp operate inspect` — the INSPECT output
 
 `inspect` is the read-only INSPECT step of the operating loop: one call returns the whole operating picture and mints the run token. It never mutates the site (it does write a run-state row, the same as any `inspect` — see the run token above).

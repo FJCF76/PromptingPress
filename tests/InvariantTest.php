@@ -194,6 +194,99 @@ class InvariantTest extends TestCase
         $this->addToAssertionCount(1);
     }
 
+    // ── #717: one defended sink for every CLI JSON document ───────────────
+
+    /**
+     * No CLI command may encode its own JSON document (#717).
+     *
+     * Every emit went through an inline `WP_CLI::line(json_encode(...))` with its own
+     * flag list, and nothing checked the return: `json_encode()` answers `false` on a
+     * bad byte, `WP_CLI::line(false)` prints a BLANK LINE, and on `action execute` the
+     * success message was printed anyway — so a landed write lost its whole receipt.
+     * The fix is a single sink (`_pp_cli_emit_json`), and the way it stops being a fix
+     * is one new command written in the old shape. This catches that at the source,
+     * because a new command's own tests would pass while carrying the defect.
+     *
+     * Paired on purpose with the BEHAVIOUR pins in tests/CliEnvelopeEmitTest.php (the
+     * emitted bytes of a real command): a source grep alone proves only that the old
+     * spelling is gone, never that the surviving one still defends. This half is here
+     * rather than there because it is a whole-file property, not a command's behaviour.
+     */
+    public function testNoCliCommandEncodesItsOwnJsonDocument(): void
+    {
+        $source = file_get_contents($this->themeRoot . '/lib/cli.php');
+        $this->assertNotFalse($source);
+
+        // Comments are stripped FIRST, for both assertions. This file's prose quotes the
+        // old spelling while explaining why nothing may use it, and a docblock is not an
+        // emit — grepping raw source would fail on documentation with no defect present.
+        $code = implode("\n", preg_grep('~^\s*(\*|//|/\*)~', explode("\n", $source), PREG_GREP_INVERT));
+
+        $this->assertStringNotContainsString(
+            'WP_CLI::line(json_encode',
+            $code,
+            'lib/cli.php emits a JSON document without going through _pp_cli_emit_json() — '
+            . '#717: an unchecked json_encode() prints a BLANK LINE instead of the envelope '
+            . 'when it fails, and on a write path the success message still follows it.'
+        );
+
+        // Only the sink itself may call json_encode at all, and it must call it twice:
+        // the document, then the minimal fallback. Counting pins the fallback's existence
+        // without asserting its internals. Deliberately strict: a new json_encode() in this
+        // file is exactly the event worth stopping on, even a well-meant one, because the
+        // whole point of #717 is that there is ONE encoder here and it checks its return.
+        $this->assertSame(
+            2,
+            substr_count($code, 'json_encode('),
+            'lib/cli.php calls json_encode() somewhere other than the two calls inside '
+            . '_pp_cli_emit_json() (the document and its minimal fallback).'
+        );
+    }
+
+    /**
+     * The escaped-by-default sink has exactly one exemption, and it stays that size (#717).
+     *
+     * `_pp_cli_emit_json($data, true)` keeps literal non-ASCII. That is correct for
+     * `wp pp schema`, whose two emits render shipped schema.json prose for an agent that
+     * cannot open the file, and whose builders read the component registry only. It would
+     * be a hole on any surface carrying stored bytes: a raw-written component name holding
+     * U+202E would reach the operator's terminal live again, on that one command, while
+     * the documented contract still promises one representation everywhere.
+     *
+     * Nothing else pins this — a new `true` caller passes every behavioural test in the
+     * suite, because each of those drives a DIFFERENT command. So the count is the guard.
+     */
+    public function testTheRawUnicodeExemptionIsStillOnlyTheSchemaCommand(): void
+    {
+        $source = file_get_contents($this->themeRoot . '/lib/cli.php');
+        $this->assertNotFalse($source);
+        $code = implode("\n", preg_grep('~^\s*(\*|//|/\*)~', explode("\n", $source), PREG_GREP_INVERT));
+
+        // Single-line, no newlines: a lazy dot-all would happily span from one call to a
+        // `, true)` several calls later and report a fabricated count.
+        preg_match_all('~_pp_cli_emit_json\([^;\n]*,\s*true\s*\)~', $code, $matches);
+        $this->assertCount(
+            2,
+            $matches[0],
+            'the number of _pp_cli_emit_json() calls keeping literal non-ASCII changed. '
+            . 'Exactly two are sanctioned, both in PP_Schema_Command (#717). Any other '
+            . 'surface can carry raw-written stored bytes, and a stored U+202E would then '
+            . 'reach the terminal intact.'
+        );
+
+        // And they are still the schema emits, not two other commands that happen to total two.
+        $schema_start = strpos($code, 'class PP_Schema_Command');
+        $schema_end   = strpos($code, 'class PP_Apply_Command');
+        $this->assertIsInt($schema_start);
+        $this->assertIsInt($schema_end);
+        $schema_body = substr($code, $schema_start, $schema_end - $schema_start);
+        $this->assertSame(
+            2,
+            preg_match_all('~_pp_cli_emit_json\([^;\n]*,\s*true\s*\)~', $schema_body),
+            'both raw-unicode emits must live inside PP_Schema_Command'
+        );
+    }
+
     // ── #685: --post_id is the only CLI page address ──────────────────────
 
     /**
