@@ -46,8 +46,13 @@ pp_get_component('faq', [
 
 ## Structured data
 
-Always emits a `FAQPage` JSON-LD `<script>` block as the **last child inside the
-component's own `<section>`**, not after it — zero-config, no toggle. A `<script>` is
+Emits a `FAQPage` JSON-LD `<script>` block as the **last child inside the
+component's own `<section>`**, not after it — zero-config, no toggle. An item whose
+question or answer is empty is skipped, and since #742 so is one whose value is
+DAMAGED — a non-scalar question/answer, or an entry that is not an array — which
+degrades to empty and is therefore skipped by that same rule rather than fataling the
+page or reaching the payload as the literal word `Array`. When no item survives, no
+`<script>` is emitted at all. A `<script>` is
 metadata content, valid anywhere in the body flow, and Google reads `ld+json` from
 anywhere in the DOM, so SEO is unaffected. The placement is load-bearing for layout,
 not for SEO: emitted as a trailing *sibling* of `</section>` the script became the
