@@ -41,6 +41,8 @@ wp pp validate page --post_id=42   # Rendered-HTML validation for one page (see 
 
 `wp pp check page` reports the same composition errors but never changes its exit code — it is the per-page inspector. `wp pp validate site` is the gate.
 
+**Addressing (#726).** `check page` and `validate page` each take `--post_id=<id>` and nothing else (`validate site` is site-scoped and takes no page address) — a numeric post ID in canonical decimal form. `00019`, `19abc`, `1.5` and a bare `--post_id` are refused by name rather than silently read as some other page, and a slug or URL is never resolved. A refusal always names the flag, shows the corrected shape, and never tells you a flag you just typed is missing. Full contract: `docs/reference-apply-cli.md`.
+
 ## Rendered-HTML validation (per page)
 
 `wp pp check page` inspects raw composition data; `wp pp validate page` inspects

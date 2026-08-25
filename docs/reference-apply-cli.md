@@ -48,6 +48,64 @@ Read `omitted_keys` before you read anything else. **A key listed there is UNKNO
 
 ---
 
+## How every `wp pp` command addresses a page (#685, #726)
+
+One contract, all seven of them, for the same reason as the JSON above: you should not have to learn which third of the CLI you are talking to.
+
+**A page is addressed by `--post_id=<id>` and nothing else.** No positional argument, no slug, no URL. Seven commands are page-addressed:
+
+| Command | `--post_id` |
+|---|---|
+| `wp pp check page` | required |
+| `wp pp validate page` | required |
+| `wp pp operate inspect-composition` | required |
+| `wp pp operate patch` | required |
+| `wp pp operate composition-history` | required |
+| `wp pp apply preflight` | optional (absent = site-scoped) |
+| `wp pp screenshot capture` | optional (`--capture-url=<url>` is the other door) |
+
+**The value must be the canonical decimal form of a positive post ID.** ⚠️ **Breaking change in 1.15.13** on `check page`, `validate page`, `apply preflight` and `screenshot capture`, which previously took a loose `(int)` cast. `--post_id=00019`, `--post_id=19abc` and `--post_id=1.5` used to be silently read as 19, 19 and 1; a bare `--post_id` used to become `1`. They are now refused by name. The other three commands have enforced this since #685, so this closes the gap rather than opening one — the fix is to pass the ID exactly as `wp pp operate inspect`'s page map reports it.
+
+**No refusal ever claims a supplied argument is missing.** Three branches, and which one you get says exactly what went wrong:
+
+```
+# never typed it
+`wp pp check page`: --post_id is required. Pages are addressed by numeric WordPress post ID.
+Use the flag form `wp pp check page --post_id=<id>` with a numeric page ID; run `wp pp operate inspect` for the page map...
+
+# typed it with no usable value (`--post_id`, `--no-post_id`, `--post_id=`)
+`wp pp check page`: --post_id was supplied without a value. ...
+
+# typed it with a value that is not a post ID
+Invalid --post_id "about-us" for `wp pp check page`. Pages are addressed by numeric WordPress post ID only
+— slugs and URLs are not resolved. ...
+```
+
+Before 1.15.13 the second and third cases both answered `--post_id is required.` for a flag that was on the command line, which sent an agent looking for a flag it had already passed.
+
+**A positional page argument is refused before dispatch, with the corrected command.** WP-CLI's own `Too many positional arguments: 234` never names the flag, so a `before_run_command` hook replaces that refusal on all seven. It replaces the page-addressing refusal specifically, not every positional error these commands can raise:
+
+```
+`wp pp check page` takes no positional page argument (got "234").
+Address the page with the flag form: `wp pp check page --post_id=<id>`.
+For this call, the page part is `wp pp check page --post_id=234`.
+```
+
+The composed line corrects the **addressing** only — it does not supply whatever else the command needs (`--run-id` on preflight, `--target`/`--value` on patch), and the refusals for those two commands say so.
+
+**A call that already addressed its target gets a different refusal.** With a usable `--post_id` — or, on `screenshot capture`, a `--capture-url` — a stray token is not a missing address, so the refusal says so instead of repeating the addressing lecture:
+
+```
+`wp pp screenshot capture` got an unexpected positional argument ("stray").
+This command takes flags only; the target is already addressed. Remove "stray" and re-run.
+```
+
+`apply preflight` is the exception among the optional pair: `--run-id` is required but does not address a *page*, so a stray token beside it stays a page-addressing question and gets the breadcrumb above.
+
+**`wp pp operate inspect` is not in the table and is not page-addressed.** Its subject is the site; `--post_id` there is an enrichment filter that adds page-specific smells to a site report. It still takes the older loose cast — tracked as #760.
+
+---
+
 ## `wp pp operate inspect` — the INSPECT output
 
 `inspect` is the read-only INSPECT step of the operating loop: one call returns the whole operating picture and mints the run token. It never mutates the site (it does write a run-state row, the same as any `inspect` — see the run token above).

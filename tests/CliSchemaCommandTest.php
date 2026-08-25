@@ -958,6 +958,10 @@ class CliSchemaCommandTest extends TestCase
         // silently start swallowing component names.
         $this->assertNull(_pp_cli_positional_page_arg_error(['pp', 'schema', 'hero'], []));
         $this->assertNull(_pp_cli_positional_page_arg_error(['pp', 'schema'], []));
-        $this->assertNotContains('schema', PP_CLI_PAGE_ADDRESSED_OPERATE_SUBCOMMANDS);
+        // #726 widened the guard from `pp operate <sub>` to whole command paths,
+        // so the pin moves with it: no `pp schema ...` path may be page-addressed.
+        foreach (PP_CLI_PAGE_ADDRESSED_COMMANDS as $command) {
+            $this->assertStringStartsNotWith('pp schema', $command);
+        }
     }
 }

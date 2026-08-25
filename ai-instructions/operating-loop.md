@@ -197,6 +197,8 @@ Three playbooks are available. Each one customizes the loop for a specific opera
 | `wp pp apply preflight --run-id=<uuid>` | PREFLIGHT | Required | Run safety checks, record a site-scoped PREFLIGHT |
 | `wp pp apply preflight --run-id=<uuid> --post_id=<id>` | PREFLIGHT | Required | Record a PREFLIGHT covering that page (unlocks its typed mutations) |
 | `wp pp apply preflight --run-id=<uuid> --planned-files='[...]'` | PREFLIGHT | Required | With drift overlap detection |
+
+**Page addressing (#726).** Every `wp pp` command that targets one page takes `--post_id=<id>` — a numeric post ID in canonical decimal form, never a slug, a URL, or a positional argument. Since 1.15.13 that is enforced identically on all seven such commands, so `--post_id=00019` or `--post_id=about-us` is refused by name instead of being read as a different page (or, on `apply preflight`, silently downgrading a page-scoped preflight to site scope). Get IDs from `wp pp operate inspect`'s page map. Full contract: `docs/reference-apply-cli.md`.
 | `wp pp action execute <name> --run-id=<uuid> --params='...'` | EDIT | Required | Execute a typed action (needs a PREFLIGHT covering its target) |
 | `wp pp operate patch --post_id=<id> --target=... --value=... --run-id=<uuid>` | EDIT | Required (mutation) | Patch a composition field (needs a PREFLIGHT covering the page; `--preview` is read-only and ungated) |
 | `wp pp apply execute <name> --run-id=<uuid> --params='...'` | APPLY | Required | Commit a typed apply (DB-backed token/font override) |
