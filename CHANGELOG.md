@@ -4,6 +4,40 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.16.7] — 2026-08-25 — The chat stops promising a clean revert it never checked (#755)
+
+**"All changes in this proposal have been reverted" was printed without ever reading the channel that says whether they were. Now the rollback report decides what the chat claims, and names every page and menu that stayed dirty.**
+
+`pp_ai_execute_batch()` has always returned `rollback_errors` beside `rolled_back`, and its own docblock is explicit about the relationship: the list is "non-empty when the rollback itself could not fully restore something", and "a consumer must not treat `rolled_back: true` as clean without checking it". The chat never checked it. `rollback_errors` appeared nowhere in `assets/js/`, so the batch-failure line announced a total revert on the strength of a boolean that does not mean that. The operator was told everything went back while a page sat there still carrying mid-batch state, and the entry explaining exactly which page, and why, was dropped on the floor.
+
+That got worse when #749 added a second producer. The mid-batch re-classification guard withholds a composition restore when a page's stored bytes went unreadable during the batch, and reports it through this channel — an entry whose entire purpose is to say "this page did NOT roll back". The surface most likely to be looking is the one that discarded it.
+
+### Fixed
+
+- **The revert claim is the rollback report's to make, not the flag's (#755).** The batch-failure line now ends in one of three clauses, chosen by the report rather than by `rolled_back`. Nothing reported and the rollback claimed: the original sentence, byte for byte. Something reported: "some changes could not be reverted." Nothing claimed and nothing reported: no clause at all. The ordering is deliberate — the report is consulted BEFORE the flag, so the clean sentence is unreachable whenever the channel says otherwise, including on a payload carrying entries with a falsy `rolled_back` that today's executor cannot actually produce. Spelling it the natural way round (test the flag, branch inside it) would leave that shape silently unreported, which is the same bug wearing a different envelope.
+
+- **A rollback report the client cannot read is an unknown, not an all-clear.** `Array.isArray` is the whole readability test, and failing it used to fall through to the flag — so an unrecognized shape did not degrade to "nothing to report", it degraded to an affirmative all-clear. It is one upstream line from being live: `$errors` in `_pp_restore_batch_snapshot()` is a JSON list only because it is built with `$errors[] =` and `array_merge`, and any key-preserving edit there (`array_filter`, `array_unique`, an `unset`) makes `wp_json_encode` emit an object instead. Nothing on either side asserts list-ness. The clean sentence now requires an explicitly EMPTY ARRAY — present, readable, and empty. A channel that is absent, malformed, or carries only members the card cannot draw gets no clean claim.
+
+- **The card names which pages and menus did not roll back (#755).** A `[role="status"]` section renders into the proposal card the operator is already looking at, holding the failed steps: a heading, then the entries. It reuses the existing five-inline-plus-disclosure renderer by adapting each string to `{ message }` — every entry is unlocated by construction, so five different entries show inline and the rest collapse behind "Show N more errors", inheriting the rule that the disclosure never opens on an empty set. The card is also the right container for a structural reason: `.pp-ai-status` is centred with no width clamp, while `.pp-ai-proposal-card` carries the `max-width: 90%` that the disclosure's `overflow-wrap` depends on to work at all.
+
+- **The report is bounded, the count is not.** `rollback_errors` is the one report channel with no server cap — the menu layer appends one entry per item it could not recreate — so the card draws at most 100 and the heading states how many were reported whenever it draws fewer. The count is the SERVER's, not the filtered one, so a member the card cannot render still shows up in the total instead of vanishing. Worth being plain about the cost, because it differs from the bounded findings report this budget is modelled on: that one ends with a tail naming `wp pp check page --post_id=N`, a real route to the rest. This envelope is request-scoped and returned once, and nothing persists it, so entries past the budget are gone rather than merely collapsed.
+
+- **The card grows before the transcript announces.** `addStatusMessage()` ends by pinning the message list to its own bottom, and the proposal card is an earlier sibling in that scroller. Appending afterwards pushed the alert line back off the fold, so the larger the rollback failure, the further off-screen its own warning went. The section is also inserted above the action row rather than after it, since the proposal card appends Apply/Cancel last and a plain append left the disclosure stranded beneath a pair of disabled buttons.
+
+### Scope boundaries
+
+Server-side production of `rollback_errors` is untouched and byte-identical; this release only changes what the chat does with what it already received. The #749 up-front refusal keeps its own distinct rendering and is pinned as such — nothing ran, so there is nothing to revert, and its envelope carries an empty list by construction.
+
+One failure exit is deliberately NOT fixed here and is filed as **#797**: `ppChatBatchHitConflict()` returns earlier, into a renderer that rebuilds the card and says "Nothing was applied." The executor does not special-case a conflicting step, so that path can carry entries too, and its claim is the stronger falsehood. It is left alone because its right treatment is a wording decision that travels with #664's state vocabulary and with the repair-route questions in #756 and #767 — the conflict card's "Re-read & re-preview" affordance is useless when the reason a page did not roll back is that its bytes cannot be read. A boundary test pins the shape so the fix updates a test rather than rediscovering the gap.
+
+Also filed, not fixed: **#798**, the inline finding row's missing `overflow-wrap`, a third surface in the family #781 already covers two of — pre-existing, and shared with every other finding row on the card, but this change routes user-authored menu titles through it.
+
+### Tests
+
+- `tests/js/pp-ai-chat-rollback-errors.test.js` — 34 new cases. The clean sentence is pinned byte-exact and proven unreachable on a reported, unreadable, or undrawable channel; the heading's server-side count, the 100-entry bound, the disclosure thresholds, textContent-only rendering, and the null-card and malformed-payload paths are all covered. Four source tripwires pin the wiring itself, which no helper test can reach: the clean sentence exists in exactly one place, the branch delegates instead of testing `rolled_back` inline, the report is computed once and shared, and the card is grown before the transcript is announced.
+
+Verified by mutation in a copied tree: reverting the sentence to flag-only logic reddens 5 cases, failing open on an unreadable channel reddens 1, counting filtered entries in the heading reddens 1, announcing before appending reddens 2, and appending below the action row reddens 1.
+
 ## [v1.16.6] — 2026-08-25 — The undo card names the bands, and a rolled-back batch stops naming the wrong one (#655, #712)
 
 **Two surfaces that had the band locator and never used it honestly. The chat's undo card now shows WHICH bands an old snapshot broke, and a failed batch step no longer hands back an offset its own rollback invalidated.**
