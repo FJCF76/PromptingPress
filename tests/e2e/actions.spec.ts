@@ -251,11 +251,47 @@ test.describe('Preflight-before-mutation gate (#96)', () => {
       `wp pp operate inspect-composition ${pageId}`,
       `wp pp operate composition-history ${pageId}`,
       `wp pp operate patch ${pageId} --target=hero.subheading --value="after" --preview`,
+      // #726 — the four commands the v1.15.0 smoke measured emitting a bare
+      // "Too many positional arguments: 234". The unit pins assert the PREDICATE
+      // against a hand-built argv, so only this loop proves the hook actually
+      // beats WP-CLI's synopsis check for these command paths too.
+      `wp pp check page ${pageId}`,
+      `wp pp validate page ${pageId}`,
+      `wp pp apply preflight ${pageId} --run-id=${runId}`,
+      `wp pp screenshot capture ${pageId}`,
     ]) {
       const err = wpCliExpectFail(cmd);
       expect(err).toContain('takes no positional page argument');
       expect(err).toContain(`--post_id=${pageId}`);
       expect(err).not.toContain('Too many positional arguments');
+    }
+  });
+
+  // #726 — the false-missing statement, proven live. `--post_id=<slug>` used to
+  // be (int)-cast to 0 and reported as "--post_id is required" for a flag that was
+  // right there on the command line. Every page-addressed command must now call it
+  // invalid and say why.
+  test('a supplied but unusable --post_id is called invalid, never missing @smoke', () => {
+    const runId = ppOperateInspect();
+    ppPreflight(runId);
+    const created = ppAction('create_page', {
+      title: 'Invalid Address Page',
+      composition: [{ component: 'hero', props: { title: 'Seed', subheading: 'before' } }],
+    }, runId);
+    pageId = (created.target as any).post_id;
+
+    for (const cmd of [
+      'wp pp check page --post_id=about-us',
+      'wp pp validate page --post_id=about-us',
+      `wp pp apply preflight --post_id=about-us --run-id=${runId}`,
+      'wp pp screenshot capture --post_id=about-us',
+      'wp pp operate inspect-composition --post_id=about-us',
+      'wp pp operate composition-history --post_id=about-us',
+    ]) {
+      const err = wpCliExpectFail(cmd);
+      expect(err).toContain('Invalid --post_id "about-us"');
+      expect(err).toContain('slugs and URLs are not resolved');
+      expect(err).not.toContain('--post_id is required');
     }
   });
 

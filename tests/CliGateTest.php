@@ -661,7 +661,7 @@ class CliGateTest extends TestCase
         $this->assertSame($numericKeys, $missingKeys, 'both validation failures share the envelope shape');
     }
 
-    // ── #685: --post_id is the canonical page address ───────────────────────
+    // ── #685/#726: --post_id is the canonical page address ──────────────────
     //
     // Two decisions, two pure predicates, both pinned here without WP_CLI::error()'s
     // exit — same shape as the #390 gate predicates above:
@@ -670,68 +670,289 @@ class CliGateTest extends TestCase
     //                     │ null
     //                     v
     //   assoc_args ─> _pp_cli_post_id_arg_error()         (in-command)
+    //                     │  ├─ !array_key_exists  ──> "is required"
+    //                     │  ├─ bool | null | ''   ──> "supplied without a value"
+    //                     │  └─ non-canonical int  ──> 'Invalid --post_id "..."'
     //                     │ null
     //                     v
-    //                 (int) --post_id ──> pp_inspect_composition() / pp_patch_composition() / history
+    //                 (int) --post_id ──> the command's read/write path
+    //
+    // #685 wired the three `operate` subcommands. #726 wired the other four
+    // (`check page`, `validate page`, `apply preflight`, `screenshot capture`) to
+    // the SAME predicates and split the missing-vs-supplied branch, so no refusal
+    // calls a supplied argument missing. pageAddressedCommands() derives from the
+    // shipped constant; argVectorsThatMustNotTripTheGuard() and
+    // nonNumericPostIdValues() are hand-listed hostile inputs.
     //
     // The dispatcher-ordering half (that the pre-dispatch refusal beats WP-CLI's own
     // "Too many positional arguments") is not assertable against a stub — it is pinned
     // live in tests/e2e/actions.spec.ts.
 
     /**
-     * Derived from the shipped constant, never hand-listed: adding a fourth
-     * page-addressed subcommand must not leave these pins covering only three.
+     * The page-addressed commands whose `--post_id` is OPTIONAL in the synopsis.
      *
-     * @return array<string, array{0: string}>
+     * For these, an ABSENT flag is a legal call rather than a refusal —
+     * `apply preflight` runs site-scoped, and `screenshot capture` has
+     * `--capture-url` as its other documented addressing mode (#685's ruling
+     * names exactly that exemption). Everything else about the idiom is
+     * identical: a SUPPLIED value goes through the same gate, so "optional"
+     * never becomes "laxer".
      */
-    public static function pageAddressedSubcommands(): array
+    private const OPTIONAL_POST_ID_COMMANDS = [
+        'pp apply preflight',
+        'pp screenshot capture',
+    ];
+
+    /**
+     * Keep the hand-written list above honest against the shipped source.
+     *
+     * If a command's synopsis flips optional/required and this list is not updated,
+     * testEachPageAddressedCommandRefusesAMissingPostId silently stops exercising
+     * that command's BODY and falls back to the pure predicate — the pin thins out
+     * without ever failing. Derive the truth from which gate entry point each
+     * command actually calls, the same way the literals tripwire does.
+     */
+    public function testTheOptionalCommandListMatchesTheShippedGateEntryPoints(): void
     {
-        $subcommands = PP_CLI_PAGE_ADDRESSED_OPERATE_SUBCOMMANDS;
-        return array_combine(
-            $subcommands,
-            array_map(static fn (string $s): array => [$s], $subcommands)
+        $source = file_get_contents(dirname(__DIR__) . '/lib/cli.php');
+        $this->assertNotFalse($source);
+
+        $this->assertNotFalse(preg_match_all(
+            '/_pp_cli_optional_post_id_arg\(\$assoc_args,\s*\'([^\']+)\'\)/',
+            $source,
+            $matches
+        ));
+
+        $optional = array_values(array_unique($matches[1]));
+        sort($optional);
+        $expected = self::OPTIONAL_POST_ID_COMMANDS;
+        sort($expected);
+
+        $this->assertSame(
+            $expected,
+            $optional,
+            'OPTIONAL_POST_ID_COMMANDS has drifted from the commands that actually '
+            . 'call _pp_cli_optional_post_id_arg(). Update the list, or the body-level '
+            . 'pins quietly stop covering a command.'
         );
     }
 
-    public function testTheSubcommandProviderIsNotEmpty(): void
+    /**
+     * Derived from the shipped constant, never hand-listed: adding an eighth
+     * page-addressed command must not leave these pins covering only seven.
+     *
+     * @return array<string, array{0: string}>
+     */
+    public static function pageAddressedCommands(): array
+    {
+        $commands = PP_CLI_PAGE_ADDRESSED_COMMANDS;
+        return array_combine(
+            $commands,
+            array_map(static fn (string $c): array => [$c], $commands)
+        );
+    }
+
+    public function testTheCommandProviderCoversTheWholeShippedInventory(): void
     {
         // A constant renamed out from under the provider would make every
-        // @dataProvider pin above silently vanish instead of failing.
-        $this->assertGreaterThanOrEqual(3, count(self::pageAddressedSubcommands()));
+        // @dataProvider pin below silently vanish instead of failing.
+        $commands = self::pageAddressedCommands();
+        $this->assertGreaterThanOrEqual(7, count($commands), '#726 unified seven page-addressed commands');
+
+        // The positional guard reads the command path from $args[0..2] and treats
+        // $args[3] as the first stray token, so a four-token entry would escape the
+        // guard silently. Pin the shape the mechanism depends on.
+        foreach (array_keys($commands) as $command) {
+            $this->assertCount(3, explode(' ', $command), $command . ' must be a three-token command path');
+            $this->assertStringStartsWith('pp ', $command, $command . ' must be a `wp pp` command');
+        }
     }
 
     /**
-     * @dataProvider pageAddressedSubcommands
+     * The in-command gate does NOT read PP_CLI_PAGE_ADDRESSED_COMMANDS — each
+     * command PASSES its own path to the gate as a string literal. So a literal
+     * that drifted from the constant (a typo, a rename applied in one place) would
+     * make the PRE-DISPATCH refusal and the IN-COMMAND refusal name two different
+     * commands, and every message-level pin here would still pass because each
+     * asserts against whatever literal it was handed.
+     *
+     * Read the literals back out of the shipped source and pin the SET against the
+     * constant. This is the only assertion that can catch that drift class.
      */
-    public function testPositionalPageArgumentIsRefusedWithTheFlagForm(string $subcommand): void
+    public function testEveryInCommandGateLiteralIsAListedCommand(): void
     {
-        $error = _pp_cli_positional_page_arg_error(['pp', 'operate', $subcommand, '19']);
-        $this->assertNotNull($error, 'a positional page argument is refused');
-        $this->assertStringContainsString('takes no positional page argument', $error);
-        $this->assertStringContainsString('wp pp operate ' . $subcommand . ' --post_id=N', $error, 'names the flag form');
-        // Breadcrumb style (_pp_cli_positional_page_arg_error, matching
-        // _pp_cli_preflight_coverage_error): compose the exact next command.
-        $this->assertStringContainsString('wp pp operate ' . $subcommand . ' --post_id=19', $error);
+        $source = file_get_contents(dirname(__DIR__) . '/lib/cli.php');
+        $this->assertNotFalse($source);
+
+        $matched = preg_match_all(
+            '/_pp_cli_(?:require|optional)_post_id_arg\(\$assoc_args,\s*\'([^\']+)\'\)/',
+            $source,
+            $matches
+        );
+        $this->assertNotFalse($matched);
+
+        $literals = array_values(array_unique($matches[1]));
+        sort($literals);
+        $expected = PP_CLI_PAGE_ADDRESSED_COMMANDS;
+        sort($expected);
+
+        // Discovery must not be vacuous: a refactor that renamed the helpers or
+        // stopped passing a literal would make this pass while reading nothing.
+        $this->assertCount(
+            count(PP_CLI_PAGE_ADDRESSED_COMMANDS),
+            $matches[1],
+            'every page-addressed command must call the gate exactly once with its own path literal'
+        );
+        $this->assertSame(
+            $expected,
+            $literals,
+            'a command passes the in-command gate a path that is not in PP_CLI_PAGE_ADDRESSED_COMMANDS — '
+            . 'the pre-dispatch guard and the in-command refusal would name different commands'
+        );
     }
 
-    public function testPositionalSlugRefusalSaysSlugsAreNotResolved(): void
+    /**
+     * The exclusion set must not grow by accident.
+     *
+     * CliGateTest derives its pins FROM PP_CLI_PAGE_ADDRESSED_COMMANDS, so an
+     * eighth page-addressed command added on a raw `(int)` cast would simply never
+     * be pinned — it would join the exclusion set silently. Grep the shipped source
+     * for the loose cast and allowlist the ONE site that is deliberately still
+     * loose (`operate inspect`, filed as #760).
+     */
+    public function testNoNewCommandJoinsTheLoosePostIdCastSilently(): void
+    {
+        $source = file_get_contents(dirname(__DIR__) . '/lib/cli.php');
+        $this->assertNotFalse($source);
+
+        $matched = preg_match_all('/\(int\)\s*\(?\$assoc_args\[\'post_id\'\]/', $source, $matches);
+        $this->assertNotFalse($matched);
+
+        // TWO casts are legitimate and no more:
+        //   1. `return (int) $assoc_args['post_id'];` inside _pp_cli_require_post_id_arg(),
+        //      which runs only AFTER the gate has accepted the value, and
+        //   2. `operate inspect`, the one deliberately-excluded consumer (#760).
+        $this->assertCount(
+            2,
+            $matches[0],
+            'a command reads --post_id through a raw (int) cast instead of the shared gate. '
+            . 'Only two casts are allowlisted: the post-validation cast inside '
+            . '_pp_cli_require_post_id_arg(), and `operate inspect` (#760). Route new '
+            . 'page-addressed commands through _pp_cli_require_post_id_arg() / '
+            . '_pp_cli_optional_post_id_arg() and add them to PP_CLI_PAGE_ADDRESSED_COMMANDS.'
+        );
+
+        // The gate's own cast must sit behind the refusal, never before it.
+        $this->assertMatchesRegularExpression(
+            '/\$error = _pp_cli_post_id_arg_error\(\$assoc_args, \$command\);\s*'
+            . 'if \(\$error !== null\) \{\s*WP_CLI::error\(\$error\);\s*\}\s*'
+            . 'return \(int\) \$assoc_args\[\'post_id\'\];/',
+            $source,
+            'the shared gate must refuse BEFORE it casts'
+        );
+
+        // ...and prove the one that remains is the allowlisted one, not a new
+        // arrival that displaced it.
+        $this->assertMatchesRegularExpression(
+            '/public function inspect\(\$args, \$assoc_args\) \{\s*\$post_id = isset\(\$assoc_args\[\'post_id\'\]\) \? \(int\) \$assoc_args\[\'post_id\'\]/',
+            $source,
+            'the single remaining loose (int) cast must be `operate inspect` (#760)'
+        );
+    }
+
+    /**
+     * @dataProvider pageAddressedCommands
+     */
+    public function testPositionalPageArgumentIsRefusedWithTheFlagForm(string $command): void
+    {
+        $argv  = explode(' ', $command);
+        $error = _pp_cli_positional_page_arg_error([...$argv, '19']);
+        $this->assertNotNull($error, 'a positional page argument is refused: ' . $command);
+        $this->assertStringContainsString('takes no positional page argument', $error);
+        $this->assertStringContainsString('wp ' . $command . ' --post_id=<id>', $error, 'names the flag form');
+        // ONE placeholder convention across both guards: the value gate's shape hint
+        // says `--post_id=<id>`, so the positional guard must not spell it `N`.
+        $this->assertStringNotContainsString('--post_id=N', $error, 'no second placeholder spelling');
+        // Breadcrumb style (_pp_cli_positional_page_arg_error, matching
+        // _pp_cli_preflight_coverage_error): compose the exact next command.
+        $this->assertStringContainsString('wp ' . $command . ' --post_id=19', $error);
+        // #726's headline: no refusal may name a DIFFERENT command's shape, and
+        // WP-CLI's uninformative generic must never be what the operator sees.
+        $this->assertStringNotContainsString('Too many positional arguments', $error);
+    }
+
+    /**
+     * @dataProvider pageAddressedCommands
+     */
+    public function testPositionalSlugRefusalSaysSlugsAreNotResolved(string $command): void
     {
         // The removed url_to_postid path: a slug must not read as "almost worked".
-        $error = _pp_cli_positional_page_arg_error(['pp', 'operate', 'patch', 'about-us']);
-        $this->assertNotNull($error);
+        $argv  = explode(' ', $command);
+        $error = _pp_cli_positional_page_arg_error([...$argv, 'about-us']);
+        $this->assertNotNull($error, $command);
         $this->assertStringContainsString('Slugs and URLs are not resolved', $error);
         $this->assertStringContainsString('wp pp operate inspect', $error, 'points at the page map');
         $this->assertStringNotContainsString('--post_id=about-us', $error, 'never composes a non-numeric breadcrumb');
     }
 
-    public function testSpaceSeparatedPostIdIsRefusedWithTheEqualsForm(): void
+    /**
+     * @dataProvider pageAddressedCommands
+     */
+    public function testSpaceSeparatedPostIdIsRefusedWithTheEqualsForm(string $command): void
     {
         // WP-CLI parses `--post_id 19` as post_id=true PLUS a positional `19`
         // (Configurator::extract_assoc), so this lands on the positional guard.
         // The breadcrumb must name the `=` form the operator meant.
-        $error = _pp_cli_positional_page_arg_error(['pp', 'operate', 'patch', '19']);
-        $this->assertNotNull($error);
-        $this->assertStringContainsString('--post_id=19', $error);
+        $argv  = explode(' ', $command);
+        $error = _pp_cli_positional_page_arg_error([...$argv, '19'], ['post_id' => true]);
+        $this->assertNotNull($error, $command);
+        $this->assertStringContainsString('wp ' . $command . ' --post_id=19', $error);
+    }
+
+    public function testThePositionalGuardReachesTheThreeCommandsItUsedToMiss(): void
+    {
+        // The #726 regression, stated as the smoke measured it: these three
+        // produced a bare "Too many positional arguments: 234" with no flag named.
+        foreach (['pp check page', 'pp validate page', 'pp apply preflight'] as $command) {
+            $this->assertContains($command, PP_CLI_PAGE_ADDRESSED_COMMANDS, $command . ' is page-addressed');
+            $argv  = explode(' ', $command);
+            $error = _pp_cli_positional_page_arg_error([...$argv, '234']);
+            $this->assertNotNull($error, $command . ' must refuse a positional page argument');
+            $this->assertStringContainsString('--post_id', $error, 'the refusal names the flag');
+            $this->assertStringContainsString('wp ' . $command . ' --post_id=234', $error, 'and composes the corrected command');
+        }
+    }
+
+    /**
+     * An UNUSABLE `--post_id` addresses nothing, so the positional guard must not
+     * call the page "already addressed" and tell the operator to delete the only
+     * correct token they typed.
+     *
+     * `wp pp check page --post_id=about-us 234` used to answer "the page is already
+     * addressed by --post_id — remove 234", then refuse `about-us` on the next run.
+     * Two refusals, and the first one pointed at the wrong token. The guard and the
+     * value gate now share _pp_cli_is_canonical_post_id() so they cannot disagree
+     * about what an address is.
+     *
+     * @dataProvider pageAddressedCommands
+     */
+    public function testAnUnusablePostIdIsNotTreatedAsAnAddress(string $command): void
+    {
+        $argv = explode(' ', $command);
+        foreach ([true, false, '', null, 'about-us', '0019', '-1', '1.5'] as $unusable) {
+            $label = $command . ' / ' . json_encode($unusable);
+            $error = _pp_cli_positional_page_arg_error([...$argv, '234'], ['post_id' => $unusable]);
+            $this->assertNotNull($error, $label);
+            $this->assertStringNotContainsString('already addressed', $error, 'addresses nothing: ' . $label);
+            $this->assertStringContainsString('takes no positional page argument', $error, $label);
+            // ...and the breadcrumb composes the token that IS usable.
+            $this->assertStringContainsString('--post_id=234', $error, $label);
+        }
+
+        // A canonical value IS an address, so the stray token is just a stray token.
+        $addressed = _pp_cli_positional_page_arg_error([...$argv, 'junk'], ['post_id' => '19']);
+        $this->assertStringContainsString('already addressed', (string) $addressed, $command);
+        $this->assertStringNotContainsString('--post_id=junk', (string) $addressed, $command);
     }
 
     /** @return array<string, array{0: array<int, string>}> */
@@ -740,11 +961,15 @@ class CliGateTest extends TestCase
         return [
             'flag form has no positional'   => [['pp', 'operate', 'patch']],
             'site-scoped inspect'           => [['pp', 'operate', 'inspect']],
+            // `operate inspect`'s subject is the SITE; --post_id only enriches the
+            // report, so a positional there is not a page address this guard owns.
+            // (The silent-coercion defect that leaves behind is filed separately —
+            // ruling it page-addressed would be a new posture, not this issue.)
             'inspect with a positional'     => [['pp', 'operate', 'inspect', '19']],
-            'a different pp namespace'      => [['pp', 'check', 'page', '19']],
             'a foreign top-level command'   => [['post', 'operate', 'patch', '19']],
             'help for the command'          => [['help', 'pp', 'operate', 'patch']],
             'bare command path'             => [['pp', 'operate']],
+            'a two-token pp command'        => [['pp', 'check']],
             'empty argv'                    => [[]],
         ];
     }
@@ -753,7 +978,7 @@ class CliGateTest extends TestCase
      * @dataProvider argVectorsThatMustNotTripTheGuard
      * @param array<int, string> $args
      */
-    public function testGuardIgnoresEverythingButPageAddressedOperateSubcommands(array $args): void
+    public function testGuardIgnoresEverythingButPageAddressedCommands(array $args): void
     {
         $this->assertNull(
             _pp_cli_positional_page_arg_error($args),
@@ -819,16 +1044,46 @@ class CliGateTest extends TestCase
         }
     }
 
-    public function testMissingPostIdIsRefusedWithTheFlagFormBreadcrumb(): void
+    /**
+     * @dataProvider pageAddressedCommands
+     */
+    public function testAbsentPostIdIsRefusedWithTheFlagFormBreadcrumb(string $command): void
     {
-        // `false` is the `--no-post_id` shape; WP-CLI's required-option check
-        // passes it through because isset(false) is true.
-        foreach ([[], ['post_id' => true], ['post_id' => false], ['post_id' => '']] as $assoc) {
-            $error = _pp_cli_post_id_arg_error($assoc);
-            $this->assertNotNull($error, 'missing --post_id refused: ' . json_encode($assoc));
-            $this->assertStringContainsString('--post_id is required', $error);
-            $this->assertStringContainsString('--post_id=42', $error, 'shows the shape');
-            $this->assertStringContainsString('wp pp operate inspect', $error, 'points at the page map');
+        $error = _pp_cli_post_id_arg_error([], $command);
+        $this->assertNotNull($error, 'absent --post_id refused: ' . $command);
+        $this->assertStringContainsString('--post_id is required', $error);
+        $this->assertStringContainsString('wp ' . $command . ' --post_id=<id>', $error, 'shows the corrected shape');
+        $this->assertStringContainsString('wp pp operate inspect', $error, 'points at the page map');
+        // The shape is a PLACEHOLDER, never a fabricated ID: nothing here knows
+        // which page the operator meant, so "run ... --post_id=42" would be a lie
+        // dressed as a fix.
+        $this->assertStringNotContainsString('--post_id=42', $error);
+    }
+
+    /**
+     * The #726 headline defect, at the predicate: a flag that WAS typed must
+     * never be reported as missing.
+     *
+     * @dataProvider pageAddressedCommands
+     */
+    public function testSuppliedButValuelessPostIdIsNotCalledMissing(string $command): void
+    {
+        // Three shapes reach here from a real command line plus one from an
+        // in-process caller: bare `--post_id` (bool true), the negated
+        // `--no-post_id` (bool false), `--post_id=` (empty string), and a
+        // programmatic null. WP-CLI's required-option check passes all of them
+        // through, because isset(false) is true.
+        foreach ([['post_id' => true], ['post_id' => false], ['post_id' => ''], ['post_id' => null]] as $assoc) {
+            $label = $command . ' / ' . json_encode($assoc);
+            $error = _pp_cli_post_id_arg_error($assoc, $command);
+            $this->assertNotNull($error, 'valueless --post_id refused: ' . $label);
+            $this->assertStringContainsString('--post_id was supplied without a value', $error, $label);
+            $this->assertStringContainsString('wp ' . $command . ' --post_id=<id>', $error, $label);
+            $this->assertStringNotContainsString(
+                '--post_id is required',
+                $error,
+                'a supplied argument is never reported missing: ' . $label
+            );
         }
     }
 
@@ -862,43 +1117,382 @@ class CliGateTest extends TestCase
     {
         // is_numeric() would have accepted 1.5 / 1e3 / -1 / " 19" and then
         // (int)-truncated them into a DIFFERENT post than the operator typed.
-        $error = _pp_cli_post_id_arg_error(['post_id' => $value]);
+        $error = _pp_cli_post_id_arg_error(['post_id' => $value], 'pp operate patch');
         $this->assertNotNull($error, 'refused: ' . $value);
         $this->assertStringContainsString('Invalid --post_id "' . $value . '"', $error);
         $this->assertStringContainsString('slugs and URLs are not resolved', $error);
+        // #726: the value WAS supplied, so "required" is a false statement here.
+        $this->assertStringNotContainsString('--post_id is required', $error);
+        // And the breadcrumb must not compose the rejected value into an address.
+        $this->assertStringNotContainsString('--post_id=' . $value, $error);
+    }
+
+    /**
+     * Every page-addressed command says the SAME thing about a slug, naming
+     * itself — the one-idiom acceptance criterion of #726.
+     *
+     * @dataProvider pageAddressedCommands
+     */
+    public function testASlugValueIsCalledInvalidNotMissingOnEveryCommand(string $command): void
+    {
+        $error = _pp_cli_post_id_arg_error(['post_id' => 'about-us'], $command);
+        $this->assertNotNull($error, $command);
+        $this->assertStringContainsString('Invalid --post_id "about-us"', $error);
+        $this->assertStringContainsString('for `wp ' . $command . '`', $error, 'names the command it refused');
+        $this->assertStringContainsString('wp ' . $command . ' --post_id=<id>', $error, 'shows the corrected shape');
+        $this->assertStringContainsString('wp pp operate inspect', $error, 'points at the page map');
+        $this->assertStringNotContainsString('--post_id is required', $error, 'it was supplied');
     }
 
     public function testNumericPostIdIsAccepted(): void
     {
-        $this->assertNull(_pp_cli_post_id_arg_error(['post_id' => '19']));
-        $this->assertNull(_pp_cli_post_id_arg_error(['post_id' => 19]));
-        $this->assertNull(_pp_cli_post_id_arg_error(['post_id' => '1']));
+        $this->assertNull(_pp_cli_post_id_arg_error(['post_id' => '19'], 'pp check page'));
+        $this->assertNull(_pp_cli_post_id_arg_error(['post_id' => 19], 'pp check page'));
+        $this->assertNull(_pp_cli_post_id_arg_error(['post_id' => '1'], 'pp check page'));
     }
 
     public function testRequirePostIdWrapperFailsClosedAndReturnsTheId(): void
     {
         try {
-            _pp_cli_require_post_id_arg([]);
+            _pp_cli_require_post_id_arg([], 'pp check page');
             $this->fail('the wrapper should have refused a missing --post_id');
         } catch (WpCliExitException $e) {
-            $this->assertSame(_pp_cli_post_id_arg_error([]), $e->getMessage());
+            $this->assertSame(_pp_cli_post_id_arg_error([], 'pp check page'), $e->getMessage());
         }
-        $this->assertSame(19, _pp_cli_require_post_id_arg(['post_id' => '19']), 'returns an int, not a string');
+        $this->assertSame(19, _pp_cli_require_post_id_arg(['post_id' => '19'], 'pp check page'), 'returns an int, not a string');
+    }
+
+    public function testOptionalPostIdWrapperAcceptsAbsenceButNotAnInvalidValue(): void
+    {
+        // `apply preflight`'s --post_id is optional: a site-scoped preflight is a
+        // legal call, so absence returns null rather than refusing.
+        $this->assertNull(_pp_cli_optional_post_id_arg([], 'pp apply preflight'));
+        $this->assertSame(42, _pp_cli_optional_post_id_arg(['post_id' => '42'], 'pp apply preflight'));
+
+        // But "optional" is not "laxer": a supplied value goes through the same
+        // gate, and a valueless flag is never reported as required — on this
+        // command that would be false twice over.
+        try {
+            _pp_cli_optional_post_id_arg(['post_id' => 'about-us'], 'pp apply preflight');
+            $this->fail('an invalid --post_id must be refused even where the flag is optional');
+        } catch (WpCliExitException $e) {
+            $this->assertStringContainsString('Invalid --post_id "about-us"', $e->getMessage());
+        }
+        try {
+            _pp_cli_optional_post_id_arg(['post_id' => true], 'pp apply preflight');
+            $this->fail('a valueless --post_id must be refused');
+        } catch (WpCliExitException $e) {
+            $this->assertStringContainsString('supplied without a value', $e->getMessage());
+            $this->assertStringNotContainsString('--post_id is required', $e->getMessage());
+        }
     }
 
     /**
-     * @dataProvider pageAddressedSubcommands
+     * @dataProvider pageAddressedCommands
      */
-    public function testEachPageAddressedCommandRefusesAMissingPostId(string $subcommand): void
+    public function testEachPageAddressedCommandRefusesAMissingPostId(string $command): void
     {
-        $method = str_replace('-', '_', $subcommand);
-        $command = new PP_Operate_Command();
+        // Two commands take --post_id OPTIONALLY, so "absent" is a legal call for
+        // them, not a refusal: `apply preflight` runs site-scoped, and
+        // `screenshot capture` has --capture-url as its other documented door.
+        // Absence must therefore be ACCEPTED here, which is itself worth pinning.
+        if (in_array($command, self::OPTIONAL_POST_ID_COMMANDS, true)) {
+            $this->assertNull(_pp_cli_optional_post_id_arg([], $command), 'absence is legal here');
+            return;
+        }
+
+        [$class, $method] = self::commandCallable($command);
         try {
-            $command->$method([], []);
-            $this->fail($subcommand . ' should have refused a missing --post_id');
+            (new $class())->$method([], []);
+            $this->fail($command . ' should have refused a missing --post_id');
         } catch (WpCliExitException $e) {
             $this->assertStringContainsString('--post_id is required', $e->getMessage());
+            $this->assertStringContainsString('wp ' . $command . ' --post_id=<id>', $e->getMessage());
         }
+    }
+
+    /**
+     * The exact defect #726 was filed for, at the command body rather than the
+     * predicate: `wp pp check page --post_id=<slug>` used to answer
+     * "Error: --post_id is required." for a flag that was right there.
+     *
+     * @dataProvider pageAddressedCommands
+     */
+    public function testNoCommandCallsASuppliedSlugMissing(string $command): void
+    {
+        if ($command === 'pp apply preflight') {
+            // Its --post_id gate sits behind the required --run-id check, so the
+            // command body is exercised with a real run token in
+            // testPreflightRefusesASlugPostIdInsteadOfCallingItMissing(). Assert the
+            // gate it will reach, so this case is pinned rather than skipped.
+            $this->assertStringContainsString(
+                'Invalid --post_id "about-us"',
+                (string) _pp_cli_post_id_arg_error(['post_id' => 'about-us'], $command)
+            );
+            return;
+        }
+
+        [$class, $method] = self::commandCallable($command);
+        try {
+            (new $class())->$method([], ['post_id' => 'about-us']);
+            $this->fail($command . ' should have refused a slug --post_id');
+        } catch (WpCliExitException $e) {
+            $this->assertStringContainsString('Invalid --post_id "about-us"', $e->getMessage());
+            $this->assertStringNotContainsString(
+                '--post_id is required',
+                $e->getMessage(),
+                $command . ' claimed a supplied --post_id was missing'
+            );
+        }
+    }
+
+    /**
+     * `screenshot capture` is the seventh command (#726 ruling, 2026-08-25): it
+     * carried the SAME false-missing statement as `check page`, one door over.
+     */
+    public function testScreenshotCaptureRefusesABadPostIdInsteadOfCallingItMissing(): void
+    {
+        $capture = new PP_Screenshot_Command();
+
+        // Before #726: 'about-us' cast to 0, the URL fallback never ran, and the
+        // command answered "Either --capture-url or --post_id is required." about a
+        // flag that was right there on the command line.
+        try {
+            $capture->capture([], ['post_id' => 'about-us']);
+            $this->fail('screenshot capture should have refused a slug --post_id');
+        } catch (WpCliExitException $e) {
+            $this->assertStringContainsString('Invalid --post_id "about-us"', $e->getMessage());
+            $this->assertStringNotContainsString('is required', $e->getMessage(), 'it was supplied');
+        }
+
+        // Before #726: bare `--post_id` parsed to bool true, cast to 1, and
+        // screenshotted post 1 — a silently WRONG page, not an error.
+        try {
+            $capture->capture([], ['post_id' => true]);
+            $this->fail('screenshot capture should have refused a valueless --post_id');
+        } catch (WpCliExitException $e) {
+            $this->assertStringContainsString('supplied without a value', $e->getMessage());
+        }
+    }
+
+    public function testAnAlternativelyAddressedCallIsNotToldToAddressThePage(): void
+    {
+        // `--capture-url` addresses the capture target, so a stray token beside it
+        // is a stray token, not a missing address. Before the guard learned about
+        // the second door it answered "Address the page with the flag form" to a
+        // call that had already addressed itself.
+        $error = _pp_cli_positional_page_arg_error(
+            ['pp', 'screenshot', 'capture', 'stray'],
+            ['capture-url' => 'https://example.com/about/']
+        );
+        $this->assertNotNull($error, 'a stray positional is still refused');
+        $this->assertStringContainsString('unexpected positional argument ("stray")', $error);
+        $this->assertStringNotContainsString('Address the page with the flag form', $error);
+        $this->assertStringNotContainsString('--post_id=<id>', $error, 'it is already addressed');
+
+        // A VALUELESS alternative flag addresses nothing, so it stays on the
+        // addressing path — same rule the --post_id branch follows.
+        foreach ([true, false, null, ''] as $valueless) {
+            $bare = _pp_cli_positional_page_arg_error(
+                ['pp', 'screenshot', 'capture', '19'],
+                ['capture-url' => $valueless]
+            );
+            $this->assertStringContainsString('takes no positional page argument', $bare, json_encode($valueless));
+        }
+
+        // `apply preflight` carries a REQUIRED --run-id that does NOT address a
+        // page, so a stray positional beside it stays a page-addressing question.
+        $preflight = _pp_cli_positional_page_arg_error(
+            ['pp', 'apply', 'preflight', 'stray'],
+            ['run-id' => '123e4567-e89b-42d3-a456-426614174000']
+        );
+        $this->assertStringContainsString('takes no positional page argument', $preflight);
+    }
+
+    public function testPreflightPositionalRefusalNamesTheRunTokenNotOnlyThePage(): void
+    {
+        // `wp pp apply preflight <uuid>` is far more likely a mistyped run token
+        // than a mistyped page. A refusal that only lectures about page addressing
+        // sends the operator to look up a page ID they never needed.
+        $uuid  = '123e4567-e89b-42d3-a456-426614174000';
+        $error = _pp_cli_positional_page_arg_error(['pp', 'apply', 'preflight', $uuid]);
+        $this->assertNotNull($error);
+        $this->assertStringContainsString('--run-id=<uuid>', $error, 'names the flag they actually meant');
+
+        // And the composed-command branch says plainly that it corrects the
+        // ADDRESSING only — `--run-id` is required and this line cannot supply it.
+        $numeric = _pp_cli_positional_page_arg_error(['pp', 'apply', 'preflight', '234']);
+        $this->assertStringContainsString('wp pp apply preflight --post_id=234', $numeric);
+        $this->assertStringContainsString('--run-id=<uuid>', $numeric, 'does not promise a complete invocation');
+    }
+
+    public function testScreenshotCaptureRefusalNamesItsAlternativeAddressingMode(): void
+    {
+        // #685's ruling exempts commands documenting a second addressing mode.
+        // The refusal has to NAME it: someone who typed a URL into --post_id wants
+        // --capture-url, and sending them to the page map alone is a wrong turn.
+        $error = _pp_cli_post_id_arg_error(['post_id' => 'https://example.com/about/'], 'pp screenshot capture');
+        $this->assertNotNull($error);
+        $this->assertStringContainsString('--capture-url=<url>', $error);
+
+        $positional = _pp_cli_positional_page_arg_error(['pp', 'screenshot', 'capture', 'https://example.com/about/']);
+        $this->assertNotNull($positional);
+        $this->assertStringContainsString('--capture-url=<url>', $positional);
+
+        // And the note is scoped to the command that actually has a second door —
+        // it must not leak onto the six single-mode commands.
+        foreach (PP_CLI_PAGE_ADDRESSED_COMMANDS as $command) {
+            if ($command === 'pp screenshot capture') {
+                continue;
+            }
+            $this->assertStringNotContainsString(
+                '--capture-url',
+                (string) _pp_cli_post_id_arg_error(['post_id' => 'about-us'], $command),
+                $command . ' has one addressing mode and must not advertise another'
+            );
+        }
+    }
+
+    public function testScreenshotCaptureStillAcceptsUrlOnlyAndReportsBothModesWhenNeitherIsGiven(): void
+    {
+        // Absence stays legal — the optional gate returns null and the existing
+        // joint-requirement message is HONEST when neither flag was supplied.
+        $this->assertNull(_pp_cli_optional_post_id_arg([], 'pp screenshot capture'));
+        try {
+            (new PP_Screenshot_Command())->capture([], []);
+            $this->fail('capture with neither addressing flag should refuse');
+        } catch (WpCliExitException $e) {
+            $this->assertStringContainsString('Either --capture-url or --post_id is required', $e->getMessage());
+        }
+
+        // The URL-only door must still OPEN, not merely be mentioned in a refusal:
+        // tightening --post_id must not have made --capture-url unreachable. It gets
+        // past addressing and halts on the missing browser, which is the capture
+        // path reporting for duty (WpCliHaltException, not an addressing refusal).
+        WP_CLI::$lines = [];
+        try {
+            (new PP_Screenshot_Command())->capture([], ['capture-url' => 'https://example.com/about/']);
+            $this->fail('capture should halt on the unconfigured browser');
+        } catch (WpCliHaltException $e) {
+            $this->assertSame('1', $e->getMessage());
+        }
+        $this->assertStringContainsString('no_browser', implode("\n", WP_CLI::$lines), 'reached the capture path');
+    }
+
+    public function testScreenshotCaptureAcceptsACanonicalPostIdAndReachesTheCapturePath(): void
+    {
+        // The accept side of the line #726 rewrote: a canonical --post_id must pass
+        // the new gate and flow on to capture, not be refused by the stricter
+        // validator. Same halt-on-no-browser evidence as the --capture-url door.
+        WP_CLI::$lines = [];
+        try {
+            (new PP_Screenshot_Command())->capture([], ['post_id' => '777']);
+            $this->fail('capture should halt on the unconfigured browser');
+        } catch (WpCliHaltException $e) {
+            $this->assertSame('1', $e->getMessage());
+        } catch (WpCliExitException $e) {
+            $this->fail('a canonical --post_id must not be refused: ' . $e->getMessage());
+        }
+        $this->assertStringContainsString('no_browser', implode("\n", WP_CLI::$lines), 'reached the capture path');
+    }
+
+    public function testValidatePageValidatesTheAddressedPageAndNotAnotherOne(): void
+    {
+        // The ACCEPT side of the line #726 rewrote on `validate page`. Without this,
+        // replacing the resolved id with a constant leaves the suite green — every
+        // other pin on this command asserts a REFUSAL, so the command could validate
+        // the wrong page and ship.
+        $GLOBALS['_pp_test_store']['posts'][507] = [
+            'ID' => 507, 'post_type' => 'page', 'post_title' => 'Addressed', 'post_status' => 'publish',
+        ];
+        update_post_meta(507, '_pp_composition', json_encode([
+            ['component' => 'hero', 'props' => ['title' => 'Seed', 'subheading' => 'x']],
+        ]));
+
+        WP_CLI::$successes = [];
+        (new PP_Validate_Command())->page([], ['post_id' => '507']);
+        $this->assertSame(
+            ['Page 507: rendered validation passed.'],
+            WP_CLI::$successes,
+            'validate page must report on the page it was addressed to'
+        );
+
+        unset($GLOBALS['_pp_test_store']['posts'][507]);
+    }
+
+    public function testPreflightRecordsPageScopeForTheAddressedPost(): void
+    {
+        // The ACCEPT side on `apply preflight`: the resolved id must reach
+        // $context['post_id'], or a page-scoped preflight silently records SITE
+        // scope and the later mutation gate refuses for "no preflight covering
+        // post N" — the exact confusion this command exists to prevent.
+        // A real page, or preflight's own target_page check fails and halts before
+        // the coverage record is written.
+        $GLOBALS['_pp_test_store']['posts'][508] = [
+            'ID' => 508, 'post_type' => 'page', 'post_title' => 'Preflight Target', 'post_status' => 'publish',
+        ];
+
+        $run_id = $this->newRun();
+        try {
+            (new PP_Apply_Command())->preflight([], ['run-id' => $run_id, 'post_id' => '508']);
+        } catch (WpCliHaltException $e) {
+            $this->fail('preflight halted on a valid page: ' . implode("\n", WP_CLI::$lines));
+        }
+
+        $this->assertNull(
+            _pp_cli_preflight_coverage_error($run_id, 508),
+            'the preflight must cover the post it was addressed to'
+        );
+        $this->assertNotNull(
+            _pp_cli_preflight_coverage_error($run_id, 509),
+            'and must not cover a post it was never given'
+        );
+
+        unset($GLOBALS['_pp_test_store']['posts'][508]);
+    }
+
+    public function testPreflightRefusesASlugPostIdInsteadOfCallingItMissing(): void
+    {
+        // preflight validates --run-id first, so reaching its --post_id gate needs a
+        // real run token. Before #726 the slug was (int)-cast to 0 and the preflight
+        // silently ran SITE-scoped — no refusal at all, and a page-scoped mutation
+        // later refused for "no preflight covering post N".
+        $run_id = $this->newRun();
+        try {
+            (new PP_Apply_Command())->preflight([], ['run-id' => $run_id, 'post_id' => 'about-us']);
+            $this->fail('preflight should have refused a slug --post_id');
+        } catch (WpCliExitException $e) {
+            $this->assertStringContainsString('Invalid --post_id "about-us"', $e->getMessage());
+            $this->assertStringContainsString('wp pp apply preflight --post_id=<id>', $e->getMessage());
+            $this->assertStringNotContainsString('--post_id is required', $e->getMessage());
+        }
+    }
+
+    /**
+     * Maps a command path from the shipped constant to its WP-CLI class+method.
+     *
+     * Hand-maintained on purpose: WP-CLI's own registration (`add_command`) is a
+     * no-op in this harness, so there is nothing to read the mapping back from.
+     * The provider is still derived from the constant, so a new page-addressed
+     * command fails HERE with a named gap rather than silently going unpinned.
+     *
+     * @return array{0: class-string, 1: string}
+     */
+    private static function commandCallable(string $command): array
+    {
+        $map = [
+            'pp apply preflight'             => [PP_Apply_Command::class, 'preflight'],
+            'pp check page'                  => [PP_Check_Command::class, 'page'],
+            'pp validate page'               => [PP_Validate_Command::class, 'page'],
+            'pp operate inspect-composition' => [PP_Operate_Command::class, 'inspect_composition'],
+            'pp operate patch'               => [PP_Operate_Command::class, 'patch'],
+            'pp operate composition-history' => [PP_Operate_Command::class, 'composition_history'],
+            'pp screenshot capture'          => [PP_Screenshot_Command::class, 'capture'],
+        ];
+        if (!isset($map[$command])) {
+            self::fail('no class/method mapping pinned for page-addressed command "' . $command . '"');
+        }
+        return $map[$command];
     }
 
     public function testCompositionHistoryAddressedByPostIdReachesTheHandler(): void
