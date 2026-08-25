@@ -12,7 +12,7 @@ All notable changes to PromptingPress are documented here.
 
 ### THE MECHANISM: two pure predicates, one command inventory
 
-Nothing new was built. #685's mechanism was extended to the commands it had missed.
+No second mechanism was built. #685's is extended to the commands it had missed, which is why the pieces below are additions to it rather than a parallel path.
 
 - **`PP_CLI_PAGE_ADDRESSED_COMMANDS`** replaces `PP_CLI_PAGE_ADDRESSED_OPERATE_SUBCOMMANDS`. It now holds full three-token command paths (`pp check page`) instead of bare `operate` subcommand names, because the guard below hardcoded a `pp operate` prefix and that is exactly why four commands escaped it. Clean rename, no alias, per the no-compat posture (#570 Addendum #5).
 - **`_pp_cli_positional_page_arg_error()`** (pre-dispatch, registered on WP-CLI's `before_run_command` hook) now matches the whole command path. `before_run_command` is the only hook that fires before `Subcommand::validate_args()`, which is what makes replacing `Too many positional arguments` possible at all. WP-CLI's generic refusal stays underneath as the fail-closed backstop.
@@ -29,7 +29,7 @@ Four commands changed. Three already behaved this way and are listed so the cont
 |---|---|---|---|
 | `wp pp check page` | required | `Error: --post_id is required.` for a supplied slug; bare `Too many positional arguments: 234` | full idiom |
 | `wp pp validate page` | required | same two defects | full idiom |
-| `wp pp apply preflight` | optional | slug silently scoped the preflight to post 0; bare `Too many positional arguments` | full idiom, and the refusal names `--run-id=<uuid>` |
+| `wp pp apply preflight` | optional | a slug cast to 0 and failed the target-page check against **post 0**, with nothing in the output naming the slug; a bare `--post_id` cast to 1 and silently recorded a PREFLIGHT **covering post 1**; bare `Too many positional arguments` | full idiom, and the refusal names `--run-id=<uuid>` |
 | `wp pp screenshot capture` | optional | `Either --capture-url or --post_id is required.` for a supplied slug; bare `--post_id` screenshotted **post 1** | full idiom, and the refusal names `--capture-url=<url>` |
 | `wp pp operate inspect-composition` | required | already correct (#685) | unchanged behavior, message now names its own command |
 | `wp pp operate patch` | required | already correct (#685) | unchanged behavior, message now names its own command |

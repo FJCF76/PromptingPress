@@ -83,7 +83,7 @@ Invalid --post_id "about-us" for `wp pp check page`. Pages are addressed by nume
 
 Before 1.15.13 the second and third cases both answered `--post_id is required.` for a flag that was on the command line, which sent an agent looking for a flag it had already passed.
 
-**A positional page argument is refused before dispatch, with the corrected command.** WP-CLI's own `Too many positional arguments: 234` never names the flag, so a `before_run_command` hook replaces it on all seven:
+**A positional page argument is refused before dispatch, with the corrected command.** WP-CLI's own `Too many positional arguments: 234` never names the flag, so a `before_run_command` hook replaces that refusal on all seven. It replaces the page-addressing refusal specifically, not every positional error these commands can raise:
 
 ```
 `wp pp check page` takes no positional page argument (got "234").
@@ -92,6 +92,15 @@ For this call, the page part is `wp pp check page --post_id=234`.
 ```
 
 The composed line corrects the **addressing** only — it does not supply whatever else the command needs (`--run-id` on preflight, `--target`/`--value` on patch), and the refusals for those two commands say so.
+
+**A call that already addressed its target gets a different refusal.** With a usable `--post_id` — or, on `screenshot capture`, a `--capture-url` — a stray token is not a missing address, so the refusal says so instead of repeating the addressing lecture:
+
+```
+`wp pp screenshot capture` got an unexpected positional argument ("stray").
+This command takes flags only; the target is already addressed. Remove "stray" and re-run.
+```
+
+`apply preflight` is the exception among the optional pair: `--run-id` is required but does not address a *page*, so a stray token beside it stays a page-addressing question and gets the breadcrumb above.
 
 **`wp pp operate inspect` is not in the table and is not page-addressed.** Its subject is the site; `--post_id` there is an enrichment filter that adds page-specific smells to a site report. It still takes the older loose cast — tracked as #760.
 
