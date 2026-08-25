@@ -29,9 +29,13 @@
  * the write-rejection path keeps #621's budget of 1, and the stored composition is
  * byte-identical to what the same call stored before this change.
  *
- * WHAT THIS FILE DOES NOT OWN. The restore/rollback surfaces stay UNBOUNDED — bounding
- * them is #654's axis — so restore_composition's own `findings` (#233) must survive
- * untouched. That is asserted here as a seam, not adopted.
+ * WHAT THIS FILE DOES NOT OWN. #654 has since bounded the restore/rollback surfaces at
+ * the same budget, so the seam asserted here is no longer "restore is unbounded" but the
+ * sharper one it always meant: restore sets its own `findings` and the dispatcher skips a
+ * result that already carries the key. Same budget, different mechanism — restore reports
+ * on the array it just wrote with no size gate, while this path reads the STORED bytes
+ * through _pp_write_findings_for() and applies Addendum #2's 1 MiB gate. Bounds
+ * themselves belong to tests/CompositionFindingsBoundsTest.php.
  *
  * Section 14.1 (authoring path): every envelope assertion below goes through the real
  * write surface (pp_execute_action / pp_patch_composition / pp_ai_execute_batch), never a
@@ -537,8 +541,16 @@ final class WriteEnvelopeFindingsTest extends TestCase
 
     /**
      * The truncation tail is a real finding, not a special case a consumer has to know
-     * about: it carries the same four keys as every other entry, so anything that renders
-     * findings renders it without a branch.
+     * about: it leads with the same four keys as every other entry, in the same order, so
+     * anything that renders findings renders it without a branch.
+     *
+     * #654 added ONE key after those four — `total`, the true finding count as an integer —
+     * and the assertion is written as "the ordinary four, then exactly total" rather than
+     * relaxed to a subset check. A subset check would let a fifth key appear unnoticed, and
+     * the whole value of this pin is that a consumer can treat the tail as an ordinary
+     * finding. `total` earns its place because a consumer that renders a COUNT cannot parse
+     * the message and must not count the delivered array (the chat undo card did exactly
+     * that and reported 101 for 20,001); every other consumer ignores it.
      */
     public function testTheTruncationFindingHasTheOrdinaryFindingShape(): void
     {
@@ -548,7 +560,13 @@ final class WriteEnvelopeFindingsTest extends TestCase
         ]);
         $tail = end($result['findings']);
 
-        $this->assertSame(['type', 'severity', 'message', 'index'], array_keys($tail));
+        $this->assertSame(['type', 'severity', 'message', 'index', 'total'], array_keys($tail));
+        $this->assertSame(
+            ['type', 'severity', 'message', 'index'],
+            array_slice(array_keys($tail), 0, 4),
+            'the ordinary four come first and in order, so a generic renderer needs no branch'
+        );
+        $this->assertIsInt($tail['total']);
     }
 
     // ── 5b. The bounding helper, directly at its boundaries ─────────────────────
@@ -590,9 +608,10 @@ final class WriteEnvelopeFindingsTest extends TestCase
     }
 
     /**
-     * The `$budget` parameter is a real seam, not unexercised generality — #654 will pass
-     * its own value when it bounds the restore/rollback surfaces. Exercised at a small
-     * budget so a boundary bug cannot hide behind the one production value.
+     * The `$budget` parameter is a real seam, not unexercised generality — it is what let
+     * #654 bound the restore/rollback surfaces through this same helper instead of coining
+     * a second cap. Exercised at a small budget so a boundary bug cannot hide behind the
+     * one production value.
      */
     public function testAnExplicitSmallBudgetTruncatesTheSameWay(): void
     {
@@ -620,9 +639,10 @@ final class WriteEnvelopeFindingsTest extends TestCase
     }
 
     /**
-     * The truncation tail names the page, so it is a command an operator can paste. The
-     * placeholder form survives only for a caller with no single page to name (the
-     * aggregating restore/rollback surfaces, #654).
+     * The truncation tail names the page, so it is a command an operator can paste. Every
+     * production caller now has a page to name — #654's aggregating rollback bounds PER
+     * POST precisely so it does too — leaving the placeholder form for direct and unit
+     * callers that genuinely have none.
      */
     public function testTheTruncationTailNamesThePageWhenOneOwnsTheReport(): void
     {
@@ -863,11 +883,13 @@ final class WriteEnvelopeFindingsTest extends TestCase
     // ── 6. SEAMS: what this change must NOT reach ───────────────────────────────
 
     /**
-     * restore_composition builds its own `findings` (#233) and they stay UNBOUNDED —
-     * bounding the restore/rollback surfaces is #654's axis. The dispatcher must therefore
-     * leave an existing key alone. This is the seam that keeps the two issues separable.
+     * restore_composition builds its own `findings` (#233), so the dispatcher must leave an
+     * existing key alone. #654 has since bounded that report too, at the same budget — so
+     * the seam is no longer about SIZE but about MECHANISM: restore reports on what it
+     * wrote with no size gate, this path reads the stored bytes through the gated helper.
+     * Leaving the key alone is also what stops a report being bounded twice.
      */
-    public function testRestoreCompositionKeepsItsOwnUnboundedFindings(): void
+    public function testRestoreCompositionSetsItsOwnFindingsRatherThanInheritingTheWritePath(): void
     {
         $id = $this->pathologicalPage();
         // Give the ring a prior state to restore, then restore it.
@@ -878,16 +900,31 @@ final class WriteEnvelopeFindingsTest extends TestCase
         $result = pp_execute_action('restore_composition', ['post_id' => $id, 'steps_back' => 1]);
 
         $this->assertTrue($result['ok'], $result['error'] ?? '');
-        $this->assertGreaterThan(
-            PP_WRITE_FINDINGS_BUDGET + 1,
-            count($result['findings']),
-            'restore is not bounded by this issue — that is #654'
-        );
+
+        // The SEAM this file owns: restore sets `findings` itself and the dispatcher skips
+        // a result that already carries the key. #654 later gave restore the same COUNT
+        // budget, so the two now agree on size — but they are still not the same mechanism,
+        // and that is the part this asserts. The write path routes through
+        // _pp_write_findings_for(), which reads the STORED composition and applies
+        // Addendum #2's 1 MiB availability gate; restore reports on the array it just
+        // wrote, with no size gate, because #233 says an undo tells you what it brought
+        // back. Bounds live in CompositionFindingsBoundsTest.
         $this->assertSame(
-            [],
-            array_filter($result['findings'], static fn ($f) => $f['type'] === 'findings_truncated'),
-            'and it carries no truncation tail'
+            _pp_bounded_findings(_pp_composition_findings($this->storedComposition($id)), $id),
+            $result['findings'],
+            'restore reports its own composition through the shared bounder, not the gated write helper'
         );
+        $this->assertArrayNotHasKey(
+            'findings_skipped',
+            array_flip(self::findingTypes($result)),
+            'restore never emits the write path\'s size-gate skip entry'
+        );
+    }
+
+    /** The stored composition, read the way the write path reads it. */
+    private function storedComposition(int $post_id): array
+    {
+        return pp_get_composition($post_id);
     }
 
     /**
