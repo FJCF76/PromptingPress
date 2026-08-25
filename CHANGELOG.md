@@ -4,6 +4,104 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.15.13] — 2026-08-25 — No command claims a supplied argument is missing (#726)
+
+**`wp pp check page --post_id=about-us` used to answer `Error: --post_id is required.`** The flag was right there on the command line. The slug was `(int)`-cast to `0`, `0` read as absent, and the refusal told the operator to add a flag they had just typed. Meanwhile a positional argument on the same command produced WP-CLI's own `Error: Too many positional arguments: 234`, which never names `--post_id` at all. Three sibling commands had carried a helpful, flag-form refusal since #685; four had not.
+
+**What operators get: one refusal idiom across every page-addressed command, and no message that says a supplied argument is missing.** Every refusal now names the flag, names the command it is refusing, shows the corrected shape, and distinguishes "you never typed it" from "you typed it without a value" from "you typed a value that is not a post ID."
+
+### THE MECHANISM: two pure predicates, one command inventory
+
+Nothing new was built. #685's mechanism was extended to the commands it had missed.
+
+- **`PP_CLI_PAGE_ADDRESSED_COMMANDS`** replaces `PP_CLI_PAGE_ADDRESSED_OPERATE_SUBCOMMANDS`. It now holds full three-token command paths (`pp check page`) instead of bare `operate` subcommand names, because the guard below hardcoded a `pp operate` prefix and that is exactly why four commands escaped it. Clean rename, no alias, per the no-compat posture (#570 Addendum #5).
+- **`_pp_cli_positional_page_arg_error()`** (pre-dispatch, registered on WP-CLI's `before_run_command` hook) now matches the whole command path. `before_run_command` is the only hook that fires before `Subcommand::validate_args()`, which is what makes replacing `Too many positional arguments` possible at all. WP-CLI's generic refusal stays underneath as the fail-closed backstop.
+- **`_pp_cli_post_id_arg_error(array $assoc_args, string $command)`** (in-command) gained the command path so a refusal can name itself, and split from two branches into three.
+- **`_pp_cli_is_canonical_post_id()`** is new and is THE single definition of "addresses a page", shared by both predicates. They disagreed before: the guard counted any non-bool value as an address, so `wp pp check page --post_id=about-us 234` answered "the page is already addressed by --post_id, remove 234" — deleting the only correct token the operator typed, then refusing `about-us` on the next run.
+- **`_pp_cli_optional_post_id_arg()`** is new, for the two commands where `--post_id` is optional. A `require_*` helper that accepts absence reads as a contradiction, so absence gets its own entry point rather than a flag.
+- **`PP_CLI_OTHER_ADDRESSING_FLAGS`** is new: a data-driven note for commands that are not addressed by a page alone, so their refusals name the other flag instead of misdirecting.
+
+### The seven-command inventory
+
+Four commands changed. Three already behaved this way and are listed so the contract is visible in one place.
+
+| command | `--post_id` | before | after |
+|---|---|---|---|
+| `wp pp check page` | required | `Error: --post_id is required.` for a supplied slug; bare `Too many positional arguments: 234` | full idiom |
+| `wp pp validate page` | required | same two defects | full idiom |
+| `wp pp apply preflight` | optional | slug silently scoped the preflight to post 0; bare `Too many positional arguments` | full idiom, and the refusal names `--run-id=<uuid>` |
+| `wp pp screenshot capture` | optional | `Either --capture-url or --post_id is required.` for a supplied slug; bare `--post_id` screenshotted **post 1** | full idiom, and the refusal names `--capture-url=<url>` |
+| `wp pp operate inspect-composition` | required | already correct (#685) | unchanged behavior, message now names its own command |
+| `wp pp operate patch` | required | already correct (#685) | unchanged behavior, message now names its own command |
+| `wp pp operate composition-history` | required | already correct (#685) | unchanged behavior, message now names its own command |
+
+### The three branches, and why there are three
+
+The "is required" lie was not only on `check page`. `_pp_cli_post_id_arg_error()` itself answered `--post_id is required` for FOUR input shapes — absent, bare `--post_id` (bool `true`), negated `--no-post_id` (bool `false`), and `--post_id=` (empty string). Three of those four were **supplied on the command line**, so the three commands #685 already covered told the same lie the issue was filed about.
+
+```
+# never typed it
+`wp pp check page`: --post_id is required. Pages are addressed by numeric WordPress post ID.
+Use the flag form `wp pp check page --post_id=<id>` with a numeric page ID; run `wp pp operate inspect` ...
+
+# typed it with no usable value
+`wp pp check page`: --post_id was supplied without a value. ...
+
+# typed a value that is not a post ID
+Invalid --post_id "about-us" for `wp pp check page`. Pages are addressed by numeric WordPress post ID only
+— slugs and URLs are not resolved. ...
+```
+
+Absent-vs-supplied is decided by `array_key_exists()`, not `isset()`: `isset()` is false for a null value and would report a programmatically-supplied `['post_id' => null]` as never typed.
+
+The corrected shape is the **placeholder** `--post_id=<id>`, never a fabricated `--post_id=42`. Nothing here knows which page the operator meant, least of all when they typed a slug, and a refusal that suggests a specific wrong ID is an example wearing a fix's clothes. The one place a refusal composes a real runnable fragment is the positional guard, and only when the stray token is already a canonical ID.
+
+### ⚠️ Breaking: accepted input tightens on four commands
+
+`check page`, `validate page`, `apply preflight` and `screenshot capture` previously used a loose `(int)` cast. They now use the canonical-integer validator the other three have enforced since #685. This closes a gap rather than opening one — accepting `00019` on `check page` while `patch` rejects it is the exact inconsistency #726 names — but calls that used to work now refuse:
+
+| input | before | after |
+|---|---|---|
+| `--post_id=00019` | silently read post **19** | `Invalid --post_id "00019"` |
+| `--post_id=19abc` | silently read post **19** | `Invalid --post_id "19abc"` |
+| `--post_id=1.5` | silently read post **1** | `Invalid --post_id "1.5"` |
+| `--post_id=-1` / `--post_id=0` | `--post_id is required.` (false) | `Invalid --post_id "-1"` |
+| `--post_id` (bare) | `true` → read post **1** | `--post_id was supplied without a value` |
+
+**Migration:** pass the ID exactly as `wp pp operate inspect`'s page map reports it. Every one of these previously "worked" by operating on a page the operator did not name, so a refusal is the repair, not the regression.
+
+### Scope boundaries
+
+- **`wp pp operate inspect` is deliberately NOT in the inventory.** Its subject is the site; `--post_id` there is an enrichment filter that adds page-specific smells to a site report, not an address. Ruling it page-addressed would be a new posture statement rather than an application of #685's, so it was filed as **#760** instead. It still coerces: `--post_id=about-us` casts to `0`, `pp_inspect_site(0)` reads post 0, and the envelope reports `smells: []` about a page it never looked at.
+- **The two `POSITIONAL_PAGE_ARG` doc-lint regexes stay scoped to the `operate` triple.** They forbid re-documenting a REMOVED positional form, and only those three ever had one. Widening them to `wp pp check page[ \t]+(?!--)\S` would flag ordinary prose such as "`wp pp check page` reports the same corruption distinctly".
+- **Message bounding is untouched.** Refusals echo the caller-typed argument in the existing `Invalid --post_id "..."` shape. Capping and sanitizing what any message reflects remains the #647/#649 axis.
+
+### Deviations from the filed issue
+
+The issue said six commands. Re-derivation against `lib/cli.php` found **eight** `--post_id` consumers. `screenshot capture` was ruled IN as the seventh (2026-08-25) because #685's own ruling text classifies it as page-addressed — "required unless the command documents an alternative addressing mode, e.g. `screenshot capture --capture-url`" — and it carried the identical false-missing statement. `operate inspect` was ruled OUT and filed as #760. The `lib/cli.php` comment that listed four commands as deliberately loose was #685's iteration-scope boundary, not a posture statement, and has been rewritten.
+
+### Fixed
+
+- `wp pp check page`, `wp pp validate page`, `wp pp apply preflight` and `wp pp screenshot capture` refuse a positional page argument with a flag-form breadcrumb instead of WP-CLI's bare `Too many positional arguments`.
+- No page-addressed command reports a supplied `--post_id` as missing, including the three #685 already covered.
+- The pre-dispatch guard and the in-command gate now share one definition of "addresses a page", so a call carrying an unusable `--post_id` plus a valid positional is no longer told to delete the correct token.
+- `wp pp screenshot capture --capture-url=<url> <stray>` is no longer told to "address the page" when it already addressed the capture target.
+- A bare `--post_id` no longer resolves to post 1 on `apply preflight` or `screenshot capture`.
+
+### Docs
+
+- `docs/reference-apply-cli.md` gains a "How every `wp pp` command addresses a page" section: the seven-command table, the accepted grammar, the three refusal branches, and the `operate inspect` exclusion.
+- `ai-instructions/validate-site.md` and `ai-instructions/operating-loop.md` gain short addressing notes pointing at that section.
+- The `--post_id` OPTIONS descriptions in `lib/cli.php` state the numeric-only rule for the four newly covered commands.
+
+### Tests
+
+- `tests/CliGateTest.php`: provider-driven over the shipped constant, so an eighth command cannot ship unpinned — positional/slug/valueless/invalid refusals per command, the three-branch split, accept-path pins for `validate page`, `apply preflight` and `screenshot capture`, and negative assertions that the old "is required" wording never appears on a supplied value.
+- Two source-grep tripwires: every in-command gate literal must be a listed command, and only two `(int) $assoc_args['post_id']` casts may exist (the post-validation cast inside the gate, and the allowlisted `operate inspect`).
+- `tests/e2e/actions.spec.ts`: the live dispatcher-ordering loop covers all seven command paths, plus a new `@smoke` test proving a supplied slug is called invalid and never missing.
+
+---
+
 ## [v1.15.12] — 2026-08-25 — A landed write can no longer lose its receipt (#717)
 
 **One bad byte used to erase the whole envelope, after the write had already persisted.** Every JSON document `lib/cli.php` printed went through its own inline `WP_CLI::line(json_encode($x, <hand-written flags>))`, and not one of the 29 sites checked the return. `json_encode()` answers `false` — not a string — on malformed UTF-8, on nesting past 512, on recursion, on INF/NAN. `WP_CLI::line(false)` prints an **empty line**, and on `wp pp action execute` the very next branch still ran `WP_CLI::success('Action "..." executed.')`. So the caller got a blank line plus a success message and lost `ok`, `error_code`, `composition_version`, `changes` and `findings` for a mutation that had ALREADY LANDED. That is the worst shape a failure can take on a write path: the data changed and the record of what changed is gone.
