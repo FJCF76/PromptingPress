@@ -987,6 +987,23 @@ if (!function_exists('wp_get_attachment_image_url')) {
 // pp_render_responsive_image() (#107): resolves via the same attachment_urls
 // map. An id with no entry returns '' -- matching real WP's behavior when an
 // attachment doesn't exist -- so the caller's plain-<img> fallback kicks in.
+//
+// Size-aware since #686: when the attachment carries `sizes` metadata for the
+// REQUESTED size, the rendered src is that GENERATED FILE in the attached
+// file's directory, and the srcset lists every generated size plus the full
+// file -- which is what real WordPress emits (wp_get_attachment_image_src()
+// resolves the size via image_get_intermediate_size(); wp_calculate_image_srcset()
+// composes each candidate as dirname($meta['file']) . '/' . $size['file']).
+// Modelling that matters because the ORIGINAL is the only attachment row: a
+// stub that always echoes the original URL cannot express the shape #686 is
+// about. Attachments with no `sizes` metadata keep the historical 1x/2x output.
+//
+// Deliberate simplifications (do NOT read this stub as the srcset contract):
+// real wp_calculate_image_srcset() also drops candidates whose aspect ratio
+// differs from the requested size, drops any wider than the original, filters
+// out leftovers from a previous edit, and omits the attribute entirely when a
+// single candidate survives. Nothing in the theme reads srcset, so the stub
+// models composition and naming only.
 if (!function_exists('wp_get_attachment_image')) {
     function wp_get_attachment_image($attachment_id, $size = 'thumbnail', $icon = false, $attr = ''): string {
         $url = $GLOBALS['_pp_test_store']['attachment_urls'][(int) $attachment_id] ?? false;
@@ -997,9 +1014,41 @@ if (!function_exists('wp_get_attachment_image')) {
         $class   = $attrs['class'] ?? '';
         $alt     = $attrs['alt'] ?? '';
         $loading = $attrs['loading'] ?? '';
+
+        $src    = $url;
+        $srcset = $url . ' 1x, ' . $url . ' 2x';
+
+        // Read metadata through the sibling stub, not the store, so both halves
+        // of the #686 story (render and validation) go through one accessor.
+        $meta = wp_get_attachment_metadata((int) $attachment_id);
+        if (is_array($meta) && !empty($meta['sizes']) && is_array($meta['sizes'])) {
+            $slash      = strrpos($url, '/');
+            $dir        = $slash === false ? '' : substr($url, 0, $slash + 1);
+            $candidates = [];
+            foreach ($meta['sizes'] as $size_name => $size_meta) {
+                if (!is_array($size_meta) || empty($size_meta['file']) || !is_string($size_meta['file'])) {
+                    continue;
+                }
+                $size_url = $dir . $size_meta['file'];
+                if ($size_name === $size) {
+                    $src = $size_url;
+                }
+                // No width is not a `0w` candidate: real WP skips the entry.
+                if (isset($size_meta['width']) && is_numeric($size_meta['width'])) {
+                    $candidates[] = $size_url . ' ' . (int) $size_meta['width'] . 'w';
+                }
+            }
+            if (isset($meta['width']) && is_numeric($meta['width'])) {
+                $candidates[] = $url . ' ' . (int) $meta['width'] . 'w';
+            }
+            if ($candidates) {
+                $srcset = implode(', ', $candidates);
+            }
+        }
+
         return sprintf(
-            '<img src="%s" srcset="%s 1x, %s 2x" sizes="(max-width: 600px) 100vw, 50vw" class="%s" alt="%s" loading="%s">',
-            $url, $url, $url, $class, $alt, $loading
+            '<img src="%s" srcset="%s" sizes="(max-width: 600px) 100vw, 50vw" class="%s" alt="%s" loading="%s">',
+            $src, $srcset, $class, $alt, $loading
         );
     }
 }
@@ -1137,6 +1186,23 @@ if (!function_exists('wp_get_upload_dir')) {
     }
 }
 
+// Core primes a whole post's meta row in ONE query here (update_meta_cache()
+// selects every meta_key for the given ids). The harness reads meta straight
+// out of the store with no cache layer, so priming is a no-op — but the return
+// shape follows core's (id => [key => [values]]) so a caller that inspects it
+// sees the same thing production would.
+if (!function_exists('update_postmeta_cache')) {
+    function update_postmeta_cache(array $post_ids) {
+        $primed = [];
+        foreach ($post_ids as $post_id) {
+            foreach ($GLOBALS['_pp_test_store']['post_meta'][(int) $post_id] ?? [] as $key => $value) {
+                $primed[(int) $post_id][$key] = [$value];
+            }
+        }
+        return $primed;
+    }
+}
+
 // ── WP_Query stub (supports meta_query IN for attachment lookup) ──────────
 if (!class_exists('WP_Query')) {
     class WP_Query {
@@ -1158,6 +1224,14 @@ if (!class_exists('WP_Query')) {
                     if (isset($meta['_wp_attached_file']) && in_array($meta['_wp_attached_file'], $search_values, true)) {
                         $this->posts[] = $post_id;
                     }
+                }
+                // Honor the LIMIT. Silently ignoring it let a caller's
+                // posts_per_page be wrong without any test noticing — a
+                // truncated result set is exactly how duplicate attachment
+                // rows would go missing in production (-1 = no limit).
+                $per_page = (int) ($args['posts_per_page'] ?? -1);
+                if ($per_page > 0) {
+                    $this->posts = array_slice($this->posts, 0, $per_page);
                 }
             }
         }

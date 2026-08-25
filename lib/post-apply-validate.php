@@ -276,17 +276,41 @@ function pp_post_apply_validate(int $post_id, ?array $target = null): array {
             $relative_paths[$info['relative']] = $url;
         }
 
-        // Single batch query: find which relative paths exist in Media Library.
-        $found_paths = [];
-        if (!empty($relative_paths)) {
+        // Lookup keys = every rendered relative path, PLUS the base file(s) a
+        // WordPress-GENERATED INTERMEDIATE SIZE could have been generated from
+        // (#686). Only the original upload is an attachment row; the sizes are
+        // metadata on that row, so a rendered `-860x1024` src has no row of its
+        // own and used to read as missing media. One batch query covers both.
+        $base_candidates = [];
+        $lookup_keys     = [];
+        foreach (array_keys($relative_paths) as $relative) {
+            $lookup_keys[$relative] = true;
+            $bases = _pp_intermediate_size_base_paths($relative);
+            if (!empty($bases)) {
+                $base_candidates[$relative] = $bases;
+                foreach ($bases as $base) {
+                    $lookup_keys[$base] = true;
+                }
+            }
+        }
+
+        // Single batch query: which lookup keys are real Media Library rows?
+        $attachment_by_path = [];
+        if (!empty($lookup_keys)) {
             $query = new WP_Query([
                 'post_type'      => 'attachment',
                 'post_status'    => 'inherit',
-                'posts_per_page' => count($relative_paths),
+                // Every matching row, not one per key: the IN list already bounds
+                // this to the paths on THIS page, and a path can own more than one
+                // row (re-import, restored backup). A per-key limit would truncate
+                // those duplicates in `post_date DESC` order and make the verdict
+                // depend on which row came back — the opposite of what the map
+                // below is for.
+                'posts_per_page' => -1,
                 'meta_query'     => [
                     [
                         'key'     => '_wp_attached_file',
-                        'value'   => array_keys($relative_paths),
+                        'value'   => array_keys($lookup_keys),
                         'compare' => 'IN',
                     ],
                 ],
@@ -294,17 +318,39 @@ function pp_post_apply_validate(int $post_id, ?array $target = null): array {
                 'no_found_rows'  => true,
             ]);
 
+            // `fields => ids` returns before WP_Query primes any cache, so each
+            // get_post_meta() below would otherwise be its own query — and #686
+            // is what makes that loop run at all on a healthy page (before, the
+            // generated-size paths matched nothing, so it ran zero times). One
+            // priming read covers both the attached-file lookups here and the
+            // `sizes` metadata read during resolution.
+            update_postmeta_cache($query->posts);
+
             foreach ($query->posts as $attachment_id) {
                 $attached_file = get_post_meta($attachment_id, '_wp_attached_file', true);
                 if ($attached_file) {
-                    $found_paths[$attached_file] = true;
+                    // EVERY row for a path, not the last one seen: two attachments
+                    // can share a `_wp_attached_file` (re-import, restored backup),
+                    // and only one of them may carry the size metadata. Keeping the
+                    // whole set makes the answer independent of query order.
+                    $attachment_by_path[$attached_file][] = (int) $attachment_id;
                 }
             }
         }
 
         // Report missing local media.
         foreach ($relative_paths as $relative => $full_url) {
-            if (!isset($found_paths[$relative])) {
+            // An exact attachment row always wins over the size-suffix reading:
+            // a file genuinely UPLOADED as "photo-300x200.png" is its own
+            // attachment and resolves here, never via another image's metadata.
+            $present = isset($attachment_by_path[$relative])
+                || _pp_relative_path_is_attachment_size(
+                    $relative,
+                    $base_candidates[$relative] ?? [],
+                    $attachment_by_path
+                );
+
+            if (!$present) {
                 $info = $local_urls_to_verify[$full_url];
                 $errors[] = [
                     'check'           => 'missing_local_media',
@@ -362,11 +408,11 @@ function pp_post_apply_validate(int $post_id, ?array $target = null): array {
  *                                            → null (canonicalizer rejects it)
  *   different origin (CDN/offloaded/external) → null (skip; out of #83 scope)
  *
- * Only classification changed here (#83). Verification stays the exact
- * `_wp_attached_file` batch query, so its pre-existing limits are unchanged and
- * inherited, not introduced: size derivatives (image-1024x768.jpg vs the stored
- * image.jpg) and CDN/offloaded resolution are still out of scope — the
- * action-param validator (#153) owns those via attachment_url_to_postid().
+ * Only classification changed here (#83); #686 then widened VERIFICATION (see
+ * _pp_intermediate_size_base_paths() below) so a WordPress-generated
+ * intermediate size resolves to the attachment that owns it. CDN/offloaded
+ * resolution is still out of scope — the action-param validator (#153) owns
+ * that via attachment_url_to_postid().
  *
  * Query strings and fragments are dropped (the canonical path is used), which
  * also removes the old str_replace path's `?ver=` false-missing class for free.
@@ -405,4 +451,128 @@ function _pp_uploads_relative_path(string $url, string $uploads_baseurl): ?strin
     }
 
     return null;
+}
+
+/**
+ * Base file(s) a WordPress-generated intermediate size could have been
+ * generated from, or [] when the path does not name a size at all (#686).
+ *
+ * WordPress registers ONE attachment row per upload. Its `_wp_attached_file`
+ * names the original (or, for an image above the big-image threshold, the
+ * `-scaled` copy WordPress promotes to full size); every generated size lives
+ * as an entry in that row's `_wp_attachment_metadata['sizes']`, named
+ * `{stem}-{width}x{height}.{ext}` in the SAME directory. So a rendered
+ * `src`/`background-image` that names a size has no row to find, and the batch
+ * `_wp_attached_file` lookup alone reports it missing — which is exactly what
+ * the theme's own responsive-image path produces from a resolvable `image_id`
+ * (pp_render_responsive_image() → wp_get_attachment_image($id, 'large')).
+ *
+ *   2026/07/care-t-860x1024.png   (rendered src — no attachment row)
+ *            │
+ *            ├─ strip the -WxH suffix ──▶ 2026/07/care-t.png          ← the upload
+ *            ├─ …and the -scaled form ──▶ 2026/07/care-t-scaled.png   ← big-image upload
+ *            └─ …and the -rotated form ─▶ 2026/07/care-t-rotated.png  ← EXIF-rotated upload
+ *
+ * WordPress REPLACES the attached file for the last two: an upload above the
+ * big-image threshold keeps a `-scaled` copy as full size, and an upload whose
+ * EXIF orientation is not 1 keeps a `-rotated` one (both via
+ * _wp_image_meta_replace_original(), wp-admin/includes/image.php). In both cases
+ * the sub-sizes keep the ORIGINAL stem — core builds them from the original file
+ * "for best quality" — so the size on the page and the row in the library no
+ * longer share a name.
+ *
+ * These are CANDIDATES, never a verdict: the caller must still confirm the
+ * rendered basename is listed in the resolved attachment's own metadata
+ * (_pp_relative_path_is_attachment_size()). A fabricated `-999x999` of a real
+ * upload resolves a base here and is still reported missing there.
+ *
+ * The suffix is read off the LAST path segment only, so a directory that
+ * happens to be named `300x200/` is not mistaken for a size.
+ *
+ * Known limits (unchanged posture, not introduced — both tracked in #762):
+ * a generated size carrying a DIFFERENT extension than the attachment's own
+ * file (a HEIC/HEIF upload below the big-image threshold, whose sizes WordPress
+ * writes as JPEG since 6.7, or any site filtering `image_editor_output_format`)
+ * derives a base that matches no `_wp_attached_file`; and the untouched original
+ * beside a `-scaled`/`-rotated` upload (`$meta['original_image']`, the Media
+ * Library's "Original image" link) carries no size suffix at all, so it produces
+ * no candidates here. Both still read as missing.
+ *
+ * @param string $relative `_wp_attached_file`-relative path of the rendered URL.
+ * @return string[] Zero, or the base candidates to look up.
+ */
+function _pp_intermediate_size_base_paths(string $relative): array {
+    $slash = strrpos($relative, '/');
+    $dir   = $slash === false ? '' : substr($relative, 0, $slash + 1);
+    $file  = $slash === false ? $relative : substr($relative, $slash + 1);
+
+    if (!preg_match('/^(.+)-\d+x\d+(\.[A-Za-z0-9]+)$/', $file, $m)) {
+        return [];
+    }
+
+    return [
+        $dir . $m[1] . $m[2],
+        $dir . $m[1] . '-scaled' . $m[2],
+        $dir . $m[1] . '-rotated' . $m[2],
+    ];
+}
+
+/**
+ * True when $relative is a size WordPress actually generated for one of the
+ * resolved base attachments (#686).
+ *
+ * Metadata is the authority, not the filename shape: the rendered basename must
+ * appear in the attachment's own `sizes` list, read through
+ * wp_get_attachment_metadata() — the same filtered source WordPress renders from
+ * — so a name that merely LOOKS like a size resolves against nothing. An
+ * attachment with no `sizes` metadata owns no derivatives at all.
+ *
+ * The accepted set is a superset of what the page would emit today, not an exact
+ * match: core additionally filters candidates by aspect ratio, by width, and by
+ * edit-hash (`-e{13 digits}`, from a partial media-editor edit). Those all narrow
+ * WHICH size a given tag chooses; each one is still a real generated file of this
+ * attachment, which is the question being asked here.
+ *
+ * The directory is carried by the base path, which came from the same rendered
+ * string, so only the basename is compared here. That matches how WordPress
+ * builds the `src` in the first place: image_downsize() takes
+ * wp_get_attachment_url() (i.e. `_wp_attached_file`) and swaps the basename for
+ * the size's file, so the rendered directory is by construction the attached
+ * file's directory.
+ *
+ * Media Library membership is what is checked here, matching the surrounding
+ * check: as with an original whose file was deleted from disk, a listed size is
+ * not stat()ed. This validator reports what the library knows, not what the
+ * filesystem holds.
+ *
+ * @param string $relative   Rendered path, e.g. 2026/07/care-t-860x1024.png.
+ * @param string[] $base_paths  Candidates from _pp_intermediate_size_base_paths($relative)
+ *                              — they must be THAT path's candidates; an unrelated pair
+ *                              would ask whether one image's size belongs to another.
+ * @param array<string,int[]> $attachment_by_path `_wp_attached_file` => attachment IDs.
+ * @return bool True when $relative is a size listed by one of the resolved base attachments.
+ */
+function _pp_relative_path_is_attachment_size(string $relative, array $base_paths, array $attachment_by_path): bool {
+    if (empty($base_paths)) {
+        return false;
+    }
+
+    $slash    = strrpos($relative, '/');
+    $basename = $slash === false ? $relative : substr($relative, $slash + 1);
+
+    foreach ($base_paths as $base) {
+        foreach ($attachment_by_path[$base] ?? [] as $attachment_id) {
+            $meta = wp_get_attachment_metadata($attachment_id);
+            if (!is_array($meta) || empty($meta['sizes']) || !is_array($meta['sizes'])) {
+                continue;
+            }
+            foreach ($meta['sizes'] as $size) {
+                if (is_array($size) && isset($size['file']) && is_string($size['file']) && $size['file'] === $basename) {
+                    return true;
+                }
+            }
+        }
+    }
+
+    return false;
 }
