@@ -398,8 +398,47 @@ body.pp-ai-chat-page #wpfooter {
     opacity: 0.6;
 }
 
-.pp-ai-step-failed .pp-ai-step-diff {
+/*
+ * A failed step's diff area holds PROSE, not a value diff (#662).
+ *
+ * `.pp-ai-step-diff` is monospace (below) because its other tenant is a value diff.
+ * But `ppChatRenderPreviewError()` reuses that same element as the container for a
+ * friendly error card, so on a failed preview every prose child inherits monospace:
+ *
+ *   .pp-ai-proposal-step.<error class>       <- the reset has to land here-ish...
+ *     .pp-ai-step-diff                       <- ...because THIS is what prose inherits from
+ *       .pp-ai-preview-error-message           prose  (sets no font-family)
+ *       .pp-ai-preview-error-hint              prose  (sets no font-family)
+ *       details.pp-ai-preview-error-detail
+ *         summary                              prose  (sets no font-family)
+ *         div                                  MACHINE TEXT — keeps its own monospace
+ *
+ * The reset belongs on the CONTAINER, not on the prose children. `font-family: inherit`
+ * on `.pp-ai-preview-error-message` resolves against its parent — `.pp-ai-step-diff` —
+ * and so inherits the very monospace it was meant to undo. Measured in headless
+ * Chromium against this stylesheet: the message stayed monospace. Resetting the
+ * container makes it inherit from `.pp-ai-proposal-step` (the admin UI font) and every
+ * prose child follows, while the disclosure body's own explicit `monospace` below still
+ * wins for the one child that really is machine text. That is the whole line this rule
+ * draws: prose reads as prose, `raw_error` reads as code.
+ *
+ * The three selectors are the COMPLETE set `ppChatGetErrorStepClass()` can return
+ * (assets/js/pp-ai-chat.js). Before #662 only `pp-ai-step-failed` was listed, so the
+ * same sentence rendered in three different typefaces depending on which error code
+ * came back. tests/js/pp-ai-chat-error-card-typography.test.js fails if a fourth class
+ * is ever returned without being added here.
+ *
+ * Only the font family is shared. The red and the 13px stay scoped to
+ * `pp-ai-step-failed` below — the grey (impossible) and amber (fixable) cards keep
+ * their own palette, which #662 does not touch.
+ */
+.pp-ai-step-failed .pp-ai-step-diff,
+.pp-ai-step-impossible .pp-ai-step-diff,
+.pp-ai-step-fixable .pp-ai-step-diff {
     font-family: inherit;
+}
+
+.pp-ai-step-failed .pp-ai-step-diff {
     font-size: 13px;
     color: #d63638;
 }
@@ -408,6 +447,13 @@ body.pp-ai-chat-page #wpfooter {
     font-size: 13px;
     color: #1d2327;
     margin-bottom: 4px;
+    /*
+     * The server samples rejected slot names into this sentence (#661), and a
+     * reflected name runs to PP_REFLECTED_NAME_MAX = 256 characters with no space
+     * to break at. Without this the token overflows the card and the whole message
+     * pane grows a horizontal scrollbar (#666).
+     */
+    overflow-wrap: break-word;
 }
 
 .pp-ai-step-impossible {
@@ -432,11 +478,48 @@ body.pp-ai-chat-page #wpfooter {
     margin-top: 6px;
 }
 
+/*
+ * The disclosure body is the one child of the error card that really is machine text
+ * (`raw_error`, then the "Available slots:" list), so it keeps monospace even while the
+ * container above resets the prose around it (#662).
+ *
+ * `white-space: pre-wrap` alone cannot wrap it: the text is by construction a single
+ * unbroken run — `_pp_clean_reflected_text()` (lib/ai-chat.php) strips \p{Cc}\p{Cf},
+ * newlines included, and bounds a reflected name at PP_REFLECTED_NAME_MAX = 256 — so
+ * pre-wrap has nothing to break on and a 259-char token widened the whole chat pane
+ * (#666).
+ *
+ * History, verified against the commits rather than taken from #666's account of them:
+ * 0bfa4b2 gave the alternatives their own element with `word-break: break-all`; b45dca9
+ * replaced that element with this <details> body and wrote THIS rule with no wrap
+ * property at all, leaving the old rule behind as dead CSS until 6b966db removed it
+ * under #627. So nothing was carried across and dropped — the wrap was simply never
+ * written here, and the dead rule masked its absence for as long as it survived.
+ *
+ * `overflow-wrap: break-word` rather than the `word-break: break-word` that
+ * `.pp-ai-composition-json` spells the same idiom with: `overflow-wrap` is the standard
+ * property (`word-break: break-word` is a deprecated alias), and break-word breaks a
+ * word ONLY when it cannot fit a line of its own — so the short slot names in the
+ * "Available slots:" list still break at their commas and stay readable. `break-all`,
+ * what the original rule used, would chop every line at the box edge instead.
+ *
+ * Load-bearing dependency: `break-word` deliberately does NOT reduce a box's min-content
+ * contribution, and `.pp-ai-proposal-card` is an `align-self: flex-start` item in a
+ * column flexbox, so its cross size is fit-content. What makes the line box definite —
+ * and therefore what makes this wrap work at all — is that card's `max-width: 90%`.
+ * Remove that clamp, or render this card outside it, and break-word alone will not hold.
+ *
+ * Scope: this covers the STRUCTURED error card. The plain-string branch of
+ * ppChatRenderPreviewError() writes into `.pp-ai-step-diff` itself, and
+ * `.pp-ai-proposal-step-meta` renders a rejected step's raw name; both can carry
+ * unbounded text and neither declares a wrap. Filed separately, not fixed here.
+ */
 .pp-ai-preview-error-detail > div {
     font-family: monospace;
     font-size: 12px;
     color: #646970;
     white-space: pre-wrap;
+    overflow-wrap: break-word;
     margin-top: 4px;
 }
 
