@@ -184,4 +184,76 @@ describe('ppChatAppendUndoFindings', () => {
         const details = card.querySelector('details');
         expect(details.querySelectorAll('.pp-ai-step-failed').length).toBe(1);
     });
+    /**
+     * THE COUNT MUST BE THE SERVER'S (#654).
+     *
+     * Restore's report is bounded at 100 findings plus one `findings_truncated` entry, so
+     * `findings.length` is what was DELIVERED, not what exists. Before this fix the heading
+     * read it directly and a snapshot with 20,001 real problems announced "101 issues" —
+     * and counted the truncation advisory itself as one of them. The card is the only
+     * non-CLI view of what an undo brought back, so understating it by two orders of
+     * magnitude is a diagnostic-truth bug, not a cosmetic one.
+     */
+    describe('a bounded report (#654)', () => {
+        const truncated = (total, shown) => {
+            const list = [];
+            for (let i = 0; i < shown; i++) {
+                list.push({ type: 'unknown_prop', severity: 'error', message: 'bad ' + i, index: i });
+            }
+            list.push({
+                type: 'findings_truncated',
+                severity: 'warning',
+                index: null,
+                total: total,
+                message: 'Showing ' + shown + ' of ' + total + ' findings and ' + (total - shown)
+                    + ' more were omitted. Run `wp pp check page --post_id=7` for the complete report.'
+            });
+            return list;
+        };
+
+        it('reports the TRUE total from the server, not the delivered count', () => {
+            const card = newCard();
+            appendUndoFindings(card, truncated(20001, 100));
+
+            expect(card.textContent).toContain('20001 issues');
+            expect(card.textContent).not.toContain('101 issues');
+        });
+
+        it('says it is showing a subset, and does not count the tail as an issue', () => {
+            const card = newCard();
+            appendUndoFindings(card, truncated(20001, 100));
+
+            // 100 real findings delivered — the truncation advisory is about the report.
+            expect(card.textContent).toContain('showing the first 100');
+        });
+
+        it('leaves an unbounded report exactly as it read before', () => {
+            const card = newCard();
+            appendUndoFindings(card, [CHROME_FINDING, SMELL_FINDING]);
+
+            expect(card.textContent).toContain('2 issues');
+            expect(card.textContent).not.toContain('showing the first');
+        });
+
+        it('ignores a malformed total rather than trusting it', () => {
+            const card = newCard();
+            const bad = [CHROME_FINDING, {
+                type: 'findings_truncated', severity: 'warning', index: null,
+                total: 'lots', message: 'malformed'
+            }];
+            appendUndoFindings(card, bad);
+
+            // Falls back to the array length rather than rendering "lots issues".
+            expect(card.textContent).toContain('2 issues');
+            expect(card.textContent).not.toContain('lots');
+        });
+
+        it('still renders the singular form for exactly one finding', () => {
+            const card = newCard();
+            appendUndoFindings(card, [CHROME_FINDING]);
+
+            expect(card.textContent).toContain('1 issue ');
+            expect(card.textContent).not.toContain('1 issues');
+        });
+    });
 });
