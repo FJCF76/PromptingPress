@@ -19,6 +19,7 @@ const {
     deepDiff,
     checkSerializationInvariant,
     unadvertisedEnumDiffs,
+    nonStringValueDiffs,
     formatDiffsForIssue,
     getCollapsedRowPreview,
 } = require('../../assets/js/pp-editor-logic.js');
@@ -93,7 +94,30 @@ const FOOTER = {
     },
 };
 
-const REGISTRY = [HERO, FAQ, SECTION, GRID, FOOTER];
+/**
+ * Non-string shapes the #745 walk must NOT report: an items[] sub-key declaring
+ * `number` (mirroring the shipped grid/logos/testimonials `items[].image_id`), and
+ * an array-typed prop with no `items` sub-schema at all. Both are boundaries the
+ * docblock states explicitly, and neither is reachable from the string-only
+ * fixtures above.
+ */
+const NUMERIC = {
+    name: 'numeric',
+    schema: {
+        props: {
+            items: {
+                type: 'array', required: false,
+                items: {
+                    label: { type: 'string', required: false },
+                    count: { type: 'number', required: false },
+                },
+            },
+            loose: { type: 'array', required: false },
+        },
+    },
+};
+
+const REGISTRY = [HERO, FAQ, SECTION, GRID, FOOTER, NUMERIC];
 
 // ─── getJsonContextFromText ───────────────────────────────────────────────────
 
@@ -1084,6 +1108,329 @@ describe('checkSerializationInvariant blocks a stale enum value (#605)', () => {
     it('stays SAFE for a composition whose enum values are all advertised', () => {
         const json = JSON.stringify([
             { component: 'section', props: { body: 'x', theme: 'muted' } },
+        ]);
+        expect(checkSerializationInvariant(json, REGISTRY).safe).toBe(true);
+    });
+});
+
+// ─── nonStringValueDiffs (#745) ─────────────────────────────────────────────
+//
+// The second member of the same class as #605 above. A prop the schema declares
+// `type: "string"` gets a text control carrying escapeHtml(value), which is
+// String(value); syncAccordionToJson reads it back with .val(), so a stored
+// non-string comes back as its own TEXT. The measured case that motivated this:
+// `section.panel_cta_url: false` renders a dead button, and one keystroke anywhere
+// in the accordion turns it into the string "false" — which #707 accepts at write,
+// because a scheme-less path is a legal link — so the band silently starts pointing
+// at /false. The in-memory round-trip cannot see it (buildAccordionData and
+// serializeAccordionData both keep props[key] verbatim), which is why the check
+// has to be stated separately rather than falling out of deepDiff.
+
+describe('nonStringValueDiffs (#745)', () => {
+    const withTitle = (value) =>
+        JSON.stringify([{ component: 'hero', props: { title: value } }]);
+
+    it('flags the measured case: a stored boolean under a string-typed prop', () => {
+        const diffs = nonStringValueDiffs(withTitle(false), REGISTRY);
+        expect(diffs).toHaveLength(1);
+        expect(diffs[0].path).toBe('[0].props.title');
+        expect(diffs[0].before).toBe(false);
+        // The value the DOM read would actually put in the buffer.
+        expect(diffs[0].after).toBe('false');
+        expect(diffs[0].changeType).toBe('changed');
+    });
+
+    it('is generic — every non-string shape, each reported as the text it becomes', () => {
+        // `after` is asserted per shape rather than "some string": the notice shows
+        // this to the author as what the accordion would do, so a wrong value there
+        // is a wrong claim, not a cosmetic slip. `[object Object]` and `1,2` are the
+        // two that are least obvious, and both are what String() really produces.
+        const CASES = [
+            [true,      'true'],
+            [0,         '0'],
+            [42,        '42'],
+            [-1.5,      '-1.5'],
+            [[1, 2],    '1,2'],
+            [{ a: 1 },  '[object Object]'],
+        ];
+        CASES.forEach(([stored, becomes]) => {
+            const diffs = nonStringValueDiffs(withTitle(stored), REGISTRY);
+            expect(diffs).toHaveLength(1);
+            expect(diffs[0].after).toBe(becomes);
+        });
+    });
+
+    it('does not flag a string, however empty', () => {
+        expect(nonStringValueDiffs(withTitle('Hello'), REGISTRY)).toEqual([]);
+        expect(nonStringValueDiffs(withTitle(''), REGISTRY)).toEqual([]);
+    });
+
+    it('does not flag null, the unset sentinel #707 carves out', () => {
+        // null renders empty and reads back as '', so it does NOT survive either.
+        // It is still not drift: null and '' are two spellings of "leave this prop
+        // on its default", so the rewrite is within one meaning. Pinned so the
+        // carve-out is a decision on record rather than an oversight.
+        expect(nonStringValueDiffs(withTitle(null), REGISTRY)).toEqual([]);
+    });
+
+    it('does not flag an absent prop', () => {
+        const json = JSON.stringify([{ component: 'hero', props: { subheading: 'x' } }]);
+        expect(nonStringValueDiffs(json, REGISTRY)).toEqual([]);
+    });
+
+    it('reports the band index so the author can find it', () => {
+        const json = JSON.stringify([
+            { component: 'hero', props: { title: 'fine' } },
+            { component: 'hero', props: { title: false } },
+        ]);
+        const diffs = nonStringValueDiffs(json, REGISTRY);
+        expect(diffs).toHaveLength(1);
+        expect(diffs[0].path).toBe('[1].props.title');
+    });
+
+    it('flags a nested items[] sub-field the schema declares type string', () => {
+        const json = JSON.stringify([
+            { component: 'grid', props: { items: [{ title: 'ok' }, { link_url: false }] } },
+        ]);
+        const diffs = nonStringValueDiffs(json, REGISTRY);
+        expect(diffs).toHaveLength(1);
+        expect(diffs[0].path).toBe('[0].props.items[1].link_url');
+        expect(diffs[0].after).toBe('false');
+    });
+
+    it('reports both depths of the same composition together', () => {
+        const json = JSON.stringify([
+            { component: 'grid', props: { title: 0, items: [{ image_url: true }] } },
+        ]);
+        const paths = nonStringValueDiffs(json, REGISTRY).map((d) => d.path).sort();
+        expect(paths).toEqual(['[0].props.items[0].image_url', '[0].props.title']);
+    });
+
+    // ── Boundaries: values another guard already settles, or another rule owns ──
+
+    it('leaves enum props to unadvertisedEnumDiffs, so one value is not reported twice', () => {
+        const json = JSON.stringify([
+            { component: 'section', props: { body: 'x', theme: false } },
+        ]);
+        expect(nonStringValueDiffs(json, REGISTRY)).toEqual([]);
+    });
+
+    it('does not descend into a non-array under an array-typed prop', () => {
+        // wouldLoseArrayData already fires here: the prop renders no rows at all,
+        // so the sync leaves it alone. Reporting it as drift too would lock the
+        // whole page over a value that is already safe.
+        const json = JSON.stringify([{ component: 'grid', props: { items: 'not a list' } }]);
+        expect(nonStringValueDiffs(json, REGISTRY)).toEqual([]);
+    });
+
+    it('does not descend into a non-object row', () => {
+        // reconcileArrayItems restores that row index on its own.
+        const json = JSON.stringify([
+            { component: 'grid', props: { items: ['plain', 42, null] } },
+        ]);
+        expect(nonStringValueDiffs(json, REGISTRY)).toEqual([]);
+    });
+
+    it('ignores a row sub-key the schema does not declare', () => {
+        const json = JSON.stringify([
+            { component: 'grid', props: { items: [{ mystery: false }] } },
+        ]);
+        expect(nonStringValueDiffs(json, REGISTRY)).toEqual([]);
+    });
+
+    it('ignores a row sub-key declaring a type other than string', () => {
+        // The `sub.type !== 'string'` boundary. Without a non-string sub-key in some
+        // fixture this branch is never taken, and weakening the guard to `if (!sub)
+        // return;` would pass every other case in this file. NUMERIC_ITEMS mirrors
+        // the shipped grid/logos/testimonials `items[].image_id` declaration.
+        const json = JSON.stringify([
+            { component: 'numeric', props: { items: [{ label: 'A', count: 0 }] } },
+        ]);
+        expect(nonStringValueDiffs(json, REGISTRY)).toEqual([]);
+    });
+
+    it('ignores an array-typed prop that declares no items sub-schema', () => {
+        // The `!def.items` boundary. Rows under such a prop render no sub-field
+        // controls at all, so there is no text control to launder anything.
+        const json = JSON.stringify([
+            { component: 'numeric', props: { loose: [{ anything: false }] } },
+        ]);
+        expect(nonStringValueDiffs(json, REGISTRY)).toEqual([]);
+    });
+
+    it('ignores an array-valued row, not just a scalar one', () => {
+        // isPlainObject rejects arrays as well as primitives. A weaker
+        // `typeof row === 'object' && row !== null` check would accept an array row
+        // and start walking its numeric indices, so the array case is what makes
+        // that call load-bearing.
+        const json = JSON.stringify([
+            { component: 'grid', props: { items: [['a', 'b']] } },
+        ]);
+        expect(nonStringValueDiffs(json, REGISTRY)).toEqual([]);
+    });
+
+    it('ignores a band with no props and a registry entry with no schema', () => {
+        expect(nonStringValueDiffs(
+            JSON.stringify([{ component: 'hero' }]), REGISTRY
+        )).toEqual([]);
+        expect(nonStringValueDiffs(
+            JSON.stringify([{ component: 'bare', props: { title: false } }]),
+            REGISTRY.concat([{ name: 'bare' }])
+        )).toEqual([]);
+    });
+
+    it('ignores an undeclared top-level prop', () => {
+        const json = JSON.stringify([
+            { component: 'hero', props: { title: 'x', mystery: false } },
+        ]);
+        expect(nonStringValueDiffs(json, REGISTRY)).toEqual([]);
+    });
+
+    it('does not throw on a value whose own toString is not callable', () => {
+        // `String({toString: 'x'})` raises TypeError: ToPrimitive finds a non-callable
+        // own `toString`, falls through to Object.prototype.valueOf, and gets a
+        // non-primitive back. That value is ordinary JSON, so it is reachable as
+        // stored content — and the boot call in pp-admin-editor.js is NOT wrapped, so
+        // a throw here would leave the editor with neither an accordion nor a notice
+        // on exactly the page this check exists to get repaired.
+        const hostile = JSON.parse('{"toString":"x"}');
+        const json = JSON.stringify([{ component: 'hero', props: { title: hostile } }]);
+
+        expect(() => String(hostile)).toThrow(TypeError);   // the hazard is real
+        const diffs = nonStringValueDiffs(json, REGISTRY);  // the guard survives it
+        expect(diffs).toHaveLength(1);
+        expect(diffs[0].path).toBe('[0].props.title');
+        expect(typeof diffs[0].after).toBe('string');
+        // And it still refuses, which is the part that matters.
+        expect(checkSerializationInvariant(json, REGISTRY).safe).toBe(false);
+    });
+
+    it('ignores unknown components and malformed JSON rather than throwing', () => {
+        expect(nonStringValueDiffs('not json', REGISTRY)).toEqual([]);
+        expect(nonStringValueDiffs('{}', REGISTRY)).toEqual([]);
+        expect(nonStringValueDiffs('', REGISTRY)).toEqual([]);
+        expect(nonStringValueDiffs(
+            JSON.stringify([{ component: 'nope', props: { title: false } }]), REGISTRY
+        )).toEqual([]);
+        expect(nonStringValueDiffs(
+            JSON.stringify([null, 'x', { props: { title: false } }]), REGISTRY
+        )).toEqual([]);
+    });
+});
+
+// The registries above are hand-written, so every assertion so far has been made
+// against a shape this file chose. That is fine for the RULE, and wrong for the
+// SCHEMA CONTRACT the rule reads: `def.items[sk].type` is an assumption about
+// what components/*/schema.json actually ships, and a hand-written fixture agrees
+// with it by construction. So this block builds the registry the way lib/admin.php
+// does — the whole schema, verbatim — and asserts the guard against real props.
+describe('nonStringValueDiffs against the real shipped schemas (#745)', () => {
+    const REAL_REGISTRY = fs
+        .readdirSync(path.resolve(__dirname, '../../components'), { withFileTypes: true })
+        .filter((d) => d.isDirectory())
+        .map((d) => ({
+            name: d.name,
+            file: path.resolve(__dirname, '../../components', d.name, 'schema.json'),
+        }))
+        .filter((c) => fs.existsSync(c.file))
+        .map((c) => ({ name: c.name, schema: JSON.parse(fs.readFileSync(c.file, 'utf-8')) }));
+
+    test('the real registry loaded', () => {
+        expect(REAL_REGISTRY.length).toBeGreaterThan(5);
+    });
+
+    it('flags the exact prop and value the issue measured: section.panel_cta_url = false', () => {
+        // Not a stand-in. This is the shipped declaration
+        // (components/section/schema.json: {"type":"string","format":"link_url"}) and
+        // the value the v1.15.0 smoke measured in real stored content. Laundered to
+        // "false" it passes _pp_link_url_is_valid(), so the dead button becomes a
+        // live link to /false.
+        const json = JSON.stringify([
+            { component: 'section', props: { body: 'Copy', panel_cta_url: false } },
+        ]);
+        const diffs = nonStringValueDiffs(json, REAL_REGISTRY);
+        expect(diffs).toHaveLength(1);
+        expect(diffs[0].path).toBe('[0].props.panel_cta_url');
+        expect(diffs[0].after).toBe('false');
+    });
+
+    it('flags a real nested items[] string field', () => {
+        // grid.items[].link_url ships as {"type":"string"} inside the `items` map,
+        // which is the nested shape the walk reads. If a schema ever expressed row
+        // fields another way, this fails and the hand-written fixtures would not.
+        const json = JSON.stringify([
+            { component: 'grid', props: { items: [{ title: 'A', link_url: 0 }] } },
+        ]);
+        const diffs = nonStringValueDiffs(json, REAL_REGISTRY);
+        expect(diffs).toHaveLength(1);
+        expect(diffs[0].path).toBe('[0].props.items[0].link_url');
+    });
+
+    it('the nested shape it reads is the shape every shipped schema actually uses', () => {
+        // The structural premise, asserted directly rather than inferred from the two
+        // cases above: wherever a schema declares `items`, it is a map of sub-key to
+        // a spec object carrying a `type` string. buildArrayFieldHtml reads it the
+        // same way, so a schema that broke this would break the renderer too.
+        let checked = 0;
+        REAL_REGISTRY.forEach((c) => {
+            const props = (c.schema || {}).props || {};
+            Object.keys(props).forEach((p) => {
+                const items = props[p].items;
+                if (!items) return;
+                expect(typeof items).toBe('object');
+                expect(Array.isArray(items)).toBe(false);
+                Object.keys(items).forEach((sk) => {
+                    expect(typeof items[sk]).toBe('object');
+                    expect(typeof items[sk].type).toBe('string');
+                    checked += 1;
+                });
+            });
+        });
+        expect(checked).toBeGreaterThan(10);
+    });
+
+    it('does not flag any shipped schema default', () => {
+        // Every declared default must itself satisfy its declaration, or the guard
+        // would fire on a composition that merely wrote a prop to its own default.
+        REAL_REGISTRY.forEach((c) => {
+            const props = (c.schema || {}).props || {};
+            Object.keys(props).forEach((p) => {
+                if (props[p].type !== 'string' || props[p].default === undefined) return;
+                const json = JSON.stringify([
+                    { component: c.name, props: { [p]: props[p].default } },
+                ]);
+                expect(nonStringValueDiffs(json, REAL_REGISTRY)).toEqual([]);
+            });
+        });
+    });
+});
+
+describe('checkSerializationInvariant blocks a stored non-string value (#745)', () => {
+    it('is UNSAFE when a string-typed prop holds a boolean', () => {
+        // THE LOAD-BEARING PIN. Without it the in-memory round-trip reports safe
+        // (field.value still holds `false`), the accordion renders, and the DOM
+        // readback rewrites the band to the string "false" on the next keystroke.
+        const json = JSON.stringify([
+            { component: 'hero', props: { title: false } },
+        ]);
+        const result = checkSerializationInvariant(json, REGISTRY);
+        expect(result.safe).toBe(false);
+        expect(result.diffs.some((d) => d.path === '[0].props.title')).toBe(true);
+    });
+
+    it('is UNSAFE when a nested items[] string field holds a boolean', () => {
+        const json = JSON.stringify([
+            { component: 'grid', props: { items: [{ link_url: false }] } },
+        ]);
+        const result = checkSerializationInvariant(json, REGISTRY);
+        expect(result.safe).toBe(false);
+        expect(result.diffs.some((d) => d.path === '[0].props.items[0].link_url')).toBe(true);
+    });
+
+    it('stays SAFE for a well-formed composition, at both depths', () => {
+        const json = JSON.stringify([
+            { component: 'hero', props: { title: 'T', subheading: '' } },
+            { component: 'grid', props: { title: null, items: [{ title: 'A', link_url: '/x' }] } },
         ]);
         expect(checkSerializationInvariant(json, REGISTRY).safe).toBe(true);
     });

@@ -653,25 +653,45 @@ function checkSerializationInvariant(jsonString, componentRegistry) {
 
     var diffs = deepDiff(original, roundTripped, '');
 
-    // UNADVERTISED STORED ENUM VALUES (#605). The round-trip above is IN-MEMORY, so
-    // it cannot see this class of drift: `field.value` still holds the stored value
-    // at this point. The mutation is introduced later, by syncAccordionToJson()
-    // reading values back off the DOM — and a <select> built from the advertised
-    // `values` has no option matching an unadvertised stored value, so .val()
-    // returns the FIRST option instead.
+    // DRIFT THE IN-MEMORY ROUND-TRIP CANNOT SEE. The check above compares
+    // buildAccordionData -> serializeAccordionData, and both of those keep
+    // `props[key]` VERBATIM — so at this point `field.value` still holds exactly
+    // what was stored and the comparison finds nothing. The mutation is introduced
+    // LATER, by syncAccordionToJson() reading values back off the DOM.
     //
-    // Why this belongs here rather than being tolerated: every shipped enum is
-    // `strict: true` (#579), so the only way to hold an unadvertised value is stale
-    // storage. Without this check, a single keystroke ANYWHERE in the accordion
-    // rewrites every such band to its first advertised value and the save then
-    // PASSES the strict-enum gate — silently laundering past the very validator that
-    // is supposed to reject it, and rewriting bytes on bands the author never opened.
+    //   stored value ──render──> control ──.val()──> read ──serialize──> buffer
+    //                   │                     │
+    //     the round-trip above stops          the mutation happens HERE,
+    //     BEFORE this arrow: it never         past where deepDiff can look
+    //     builds a control, it compares
+    //     field.value
     //
-    // The fix is to refuse, not to tolerate: no coercion, no migration, no alias.
-    // This is exactly what the notice already says — "opening this composition in the
-    // accordion editor would change its structure" — so it routes into the existing
-    // JSON-only mode, where the author can see and fix the real value.
+    // Every member of the class has the same shape (a control that cannot carry the
+    // stored value reads back as something else) and the same answer: REFUSE, do not
+    // tolerate. No coercion, no migration, no alias. Each one routes into the
+    // existing JSON-only mode, where the author can see the real value and fix it.
+    //
+    // (The notice calls what it found "structural drift". For these two members that
+    // word is an overload — the structure round-trips fine and a VALUE is what would
+    // change — kept as-is because it is user-facing copy this check does not own.)
+    //
+    // Two members so far, one call each:
+    //
+    //   #605  an unadvertised stored ENUM value. A <select> built from the
+    //         advertised `values` has no matching option, so .val() returns the
+    //         FIRST option. Every shipped enum is `strict: true` (#579), so the only
+    //         way to hold one is stale storage, and without this a single keystroke
+    //         ANYWHERE rewrites every such band to `values[0]` — and the save then
+    //         PASSES the strict-enum gate, laundering past the very validator meant
+    //         to reject it.
+    //
+    //   #745  a stored value that is not a string under a prop the schema declares
+    //         `type: "string"`. It renders through escapeHtml's String() and reads
+    //         back as that text, so a stored `false` becomes the STRING "false" —
+    //         which #707 accepts at write, turning (for a link prop) a dead button
+    //         into a live link to /false on a band the author never opened.
     diffs = diffs.concat(unadvertisedEnumDiffs(jsonString, componentRegistry));
+    diffs = diffs.concat(nonStringValueDiffs(jsonString, componentRegistry));
 
     if (diffs.length === 0) {
         return { safe: true };
@@ -695,9 +715,106 @@ function checkSerializationInvariant(jsonString, componentRegistry) {
  */
 function unadvertisedEnumDiffs(jsonString, componentRegistry) {
     var out = [];
+    forEachDeclaredProp(jsonString, componentRegistry, function (def, stored, path) {
+        if (def.type !== 'enum' || !Array.isArray(def.values)) return;
+        // Unset sentinel — keeps the default, not drift.
+        if (stored === undefined || stored === null || stored === '') return;
+        if (def.values.indexOf(stored) !== -1) return;
+
+        out.push({
+            path: path,
+            before: stored,
+            after: def.values[0],
+            changeType: 'changed'
+        });
+    });
+    return out;
+}
+
+/**
+ * Whether a stored value satisfies a `type: "string"` declaration.
+ *
+ * The exact inverse of the write path's rule, which is the point: #707 narrowed
+ * `_pp_schema_scalar_value_is_valid()`'s string arm to `$value === null ||
+ * is_string($value)` (lib/admin.php), so a value this returns false for is a value
+ * the write path REFUSES. Two predicates, one rule — writing a different test here
+ * would give the editor its own private idea of what a string prop accepts, which
+ * is exactly the drift #614 extracted the PHP predicate to prevent.
+ *
+ * `null` is not drift. It is the documented unset sentinel, it keeps its carve-out
+ * at the write path, and the sibling enum guard treats it the same way. It DOES
+ * render empty and read back as '' — see the note in nonStringValueDiffs.
+ */
+function satisfiesStringDeclaration(value) {
+    return value === null || typeof value === 'string';
+}
+
+/**
+ * The text a control would hand back for this value, without ever throwing.
+ *
+ * `String(value)` is the right answer and is what actually happens: escapeHtml()
+ * emits String(value) escaped, and .val() hands back the DECODED character (see
+ * the escapeHtml docblock), so the text that lands in the buffer is String(stored)
+ * exactly — `[object Object]` for an object, `1,2` for an array.
+ *
+ * It can also THROW, which is why this is a function rather than an expression.
+ * `String()` coerces via ToPrimitive, and a parsed-JSON object can carry an own
+ * `toString` key that is not callable — `{"toString": "x"}` — so ToPrimitive falls
+ * through to Object.prototype.valueOf, gets a non-primitive back, and raises
+ * TypeError. That value is reachable: it is ordinary JSON, and the boot call in
+ * pp-admin-editor.js is not wrapped, so an uncaught throw here would leave the
+ * editor with neither an accordion NOR a notice — the worst outcome available, on
+ * exactly the page this check exists to get repaired.
+ *
+ * The fallback reports the value's default shape tag. It is not a claim about what
+ * the control would have shown: for this shape the render would throw too, so
+ * there is no text to be right about. The entry exists to REFUSE the composition
+ * and name the path; the text is the supporting detail, not the finding.
+ *
+ * SCOPE OF THIS HARDENING, so it is not read as more than it is: it closes the
+ * hazard on THIS path only. escapeHtml() and getCollapsedRowPreview() call String()
+ * on the same author-controlled values and are NOT wrapped, so the same stored value
+ * under a prop this guard does not judge — an undeclared pass-through prop — still
+ * reaches the renderer and still throws at boot. That is pre-existing and unchanged
+ * here; it is not fixed in passing because escapeHtml is the shared escaper every
+ * interpolation in the editor routes through.
+ */
+function textForm(value) {
+    try { return String(value); }
+    catch (e) { return Object.prototype.toString.call(value); }
+}
+
+/** A deepDiff-shaped entry for a value the controls would rewrite to its text form. */
+function textFormDiff(path, stored) {
+    return { path: path, before: stored, after: textForm(stored), changeType: 'changed' };
+}
+
+/**
+ * Walk every STORED prop of every band together with its schema declaration.
+ *
+ * Extracted because two guards need exactly this walk and had it inline twice —
+ * the parse, the array check, the schema map, the "is this a band we can judge"
+ * guards, and the decision to iterate the keys that are STORED rather than the
+ * ones that are DECLARED. That last one is the load-bearing part: an absent prop
+ * has no value to drift, and it is what buildAccordionData itself keys on.
+ *
+ * Same reason #614 pulled _pp_schema_scalar_value_is_valid() out on the PHP side.
+ * Two copies of a walk is how two guards start disagreeing about which bands they
+ * even look at, and they would disagree silently, because each one's tests only
+ * ever exercise its own copy.
+ *
+ * Callers get (def, storedValue, path) and contribute nothing but their own
+ * predicate. A prop the schema does not declare never reaches the callback: it has
+ * no declared type for either guard to judge it against.
+ *
+ * @param {string}   jsonString        Raw composition JSON.
+ * @param {Array}    componentRegistry Component schemas.
+ * @param {Function} callback          (def, storedValue, path) => void
+ */
+function forEachDeclaredProp(jsonString, componentRegistry, callback) {
     var parsed;
-    try { parsed = JSON.parse(jsonString); } catch (e) { return out; }
-    if (!Array.isArray(parsed)) return out;
+    try { parsed = JSON.parse(jsonString); } catch (e) { return; }
+    if (!Array.isArray(parsed)) return;
 
     var schemaMap = {};
     componentRegistry.forEach(function (c) { schemaMap[c.name] = c; });
@@ -709,22 +826,103 @@ function unadvertisedEnumDiffs(jsonString, componentRegistry) {
 
         Object.keys(item.props).forEach(function (propName) {
             var def = comp.schema.props[propName];
-            if (!def || def.type !== 'enum' || !Array.isArray(def.values)) return;
+            if (!def) return;
+            callback(def, item.props[propName], '[' + idx + '].props.' + propName);
+        });
+    });
+}
 
-            var stored = item.props[propName];
-            // Unset sentinel — keeps the default, not drift.
-            if (stored === undefined || stored === null || stored === '') return;
-            if (def.values.indexOf(stored) !== -1) return;
+/**
+ * Stored values a text control cannot represent, under props the schema declares
+ * `type: "string"` (#745).
+ *
+ * Sibling of unadvertisedEnumDiffs, same class and same contract: it knows nothing
+ * about any particular prop, and asks one question of every declaration — is the
+ * stored value something a `<input type="text">` could have carried unchanged?
+ *
+ *     stored                  renders as        reads back as     verdict
+ *     ──────────────────────  ────────────────  ────────────────  ──────────────
+ *     "https://x/"            https://x/        "https://x/"      fine
+ *     ""                      (empty)           ""                fine
+ *     null                    (empty)           ""                NOT drift (see below)
+ *     false                   false             "false"           DRIFT
+ *     0 / 42                  0 / 42            "0" / "42"        DRIFT
+ *     [1,2]                   1,2               "1,2"             DRIFT
+ *     {a:1}                   [object Object]   "[object Object]" DRIFT
+ *
+ * WHY `null` IS EXCLUDED even though it does not survive either. It renders empty
+ * and reads back as '', so an untouched null becomes '' — a real rewrite. It is
+ * still not reported, for the reason the write path carves it out: null and ''
+ * are the SAME documented sentinel ("leave this prop on its default"), so the
+ * rewrite is between two spellings of one meaning rather than between two values.
+ * Reporting it would lock the accordion on every composition that spells the
+ * sentinel the first way, to protect a distinction nothing downstream draws.
+ *
+ * SCOPE, and why each boundary is where it is rather than one rule wider:
+ *
+ *   ENUM props belong to unadvertisedEnumDiffs. Reporting them here as well would
+ *   put one stored value in the notice twice.
+ *
+ *   NUMBER props are untouched. Not because 42 and "42" are interchangeable — a
+ *   consumer that branches on type would disagree — but because the write path
+ *   deliberately still accepts a numeric string there (#707 left the `number` arm
+ *   alone so a JSON/CLI write of "3" keeps working), so the editor has no rule to
+ *   launder past. Widening to cover it is a separate decision, not a tidy-up.
+ *
+ *   UNDECLARED props (the pass-through and unknown-component branches of
+ *   buildAccordionData) are untouched: they have no declared type, the write path
+ *   accepts them, and blocking a composition that saves fine today is a heavier
+ *   call than this one. Tracked separately.
+ *
+ *   ANY OTHER DECLARED TYPE (`boolean`, `object`) is untouched, and this is the
+ *   boundary that is true today rather than true by design. buildAccordionData maps
+ *   every type that is not `enum` or `array` to a text control, so such a prop would
+ *   launder exactly like a string one, and the write path's scalar predicate returns
+ *   "not applicable" for it, so the laundered text would be accepted. It is out of
+ *   scope because it is not currently reachable: the only `boolean` declaration in
+ *   the shipped schemas is `footer.show_logo`, and footer is site chrome that a page
+ *   composition may not declare (#223). A composable `boolean` prop would need this
+ *   rule extended, not merely inherited.
+ *
+ * THE NESTED WALK descends only into a stored value that IS an array, and only
+ * into elements that ARE plain objects. Both boundaries avoid double-reporting a
+ * value another guard already settles: a non-array under an array-typed prop makes
+ * wouldLoseArrayData fire (it renders no rows at all), and a non-object row makes
+ * reconcileArrayItems restore that row. Reporting those here too would take a value
+ * that is already safe and lock the whole page over it. Sub-fields declaring
+ * something other than `string` are likewise out, and this is the boundary most
+ * worth being precise about: buildArrayFieldHtml hardcodes `type: 'string'` for
+ * every row sub-key whatever the schema declares, so a stored `bullets` array
+ * renders as `a,b` and a stored `style` object as `[object Object]`, and both read
+ * back as those strings. Neither row guard rescues them — the read carries CONTENT,
+ * so reconcileArrayItems takes it. That is a wider defect than this rule describes
+ * and it is tracked as its own issue (#805); reporting it HERE would lock the page
+ * without fixing the control that cannot show the value. Nested `enum` sub-keys are
+ * out for the same reason and are tracked in #646.
+ *
+ * @param {string} jsonString        Raw composition JSON.
+ * @param {Array}  componentRegistry Component schemas.
+ * @returns {Array} deepDiff-shaped entries, empty when nothing would drift.
+ */
+function nonStringValueDiffs(jsonString, componentRegistry) {
+    var out = [];
+    forEachDeclaredProp(jsonString, componentRegistry, function (def, stored, path) {
+        if (def.type === 'string') {
+            if (!satisfiesStringDeclaration(stored)) out.push(textFormDiff(path, stored));
+            return;
+        }
 
-            out.push({
-                path: '[' + idx + '].props.' + propName,
-                before: stored,
-                after: def.values[0],
-                changeType: 'changed'
+        if (def.type !== 'array' || !def.items || !Array.isArray(stored)) return;
+        stored.forEach(function (row, rowIdx) {
+            if (!isPlainObject(row)) return;
+            Object.keys(row).forEach(function (sk) {
+                var sub = def.items[sk];
+                if (!sub || sub.type !== 'string') return;
+                if (satisfiesStringDeclaration(row[sk])) return;
+                out.push(textFormDiff(path + '[' + rowIdx + '].' + sk, row[sk]));
             });
         });
     });
-
     return out;
 }
 
@@ -825,6 +1023,7 @@ var _logic = {
     deepDiff:                       deepDiff,
     checkSerializationInvariant:    checkSerializationInvariant,
     unadvertisedEnumDiffs:          unadvertisedEnumDiffs,
+    nonStringValueDiffs:            nonStringValueDiffs,
     formatDiffsForIssue:            formatDiffsForIssue,
     getCollapsedRowPreview:         getCollapsedRowPreview,
 };

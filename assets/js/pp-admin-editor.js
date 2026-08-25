@@ -223,7 +223,8 @@
     // `id` is defence in depth. buildArrayFieldHtml passes `field.name + '.' + sk`
     // as fieldIdx, which looks like it puts a composition-supplied name into the id,
     // but that branch is reachable only for SCHEMA-declared array props: `field.items`
-    // is assigned in one place (pp-editor-logic.js:285, the schema branch), so a
+    // is assigned in one place (the `spec.type === 'array' && spec.items` branch of
+    // buildAccordionData), so a
     // pass-through array prop has no `items`, `subKeys` is empty, and the loop that
     // composes that fieldIdx never runs. Escaping it costs one call and keeps that
     // from being a premise the schema shape could quietly stop satisfying.
@@ -245,6 +246,13 @@
         // the next sync. esc() coerces only null/undefined to '' (see escapeHtml
         // in pp-editor-logic.js), which is the rule this wants: absent renders
         // empty, present renders its own text. Strings are unaffected either way.
+        //
+        // Since #745 a 0 or false under a prop the schema declares `type: "string"`
+        // no longer reaches this branch at all: nonStringValueDiffs reports it as
+        // drift and the composition is routed to JSON-only mode before anything is
+        // rendered. The rule above still governs every value that DOES arrive here
+        // — an undeclared pass-through prop is the case that still carries one —
+        // and it stays because a falsy-based default would be wrong for those too.
         if (field.type === 'enum' && field.values) {
             h += '<select id="' + idAttr + '" data-comp="' + compIdx + '" data-field="' + nameAttr + '">';
             // The <select> is built from the advertised `values` and nothing else
@@ -299,10 +307,22 @@
                     type: 'string',
                     required: !!(subSchema[sk] && subSchema[sk].required),
                     // Same rule as the scalar branch of buildFieldHtml: coercing
-                    // here with `|| ''` would blank a stored 0 or false before the
+                    // here with `|| ''` would blank a falsy stored value before the
                     // renderer ever sees it, so fixing only that branch would still
                     // leave row values of those types rendering empty. esc() applies
                     // the null/undefined rule once, at the point of render.
+                    //
+                    // Since #745 the surviving cases here are narrower than they look.
+                    // A sub-key the schema declares `type: "string"` holding a 0 or
+                    // false is drift and never reaches this code — the composition is
+                    // routed to JSON-only mode first. What still arrives is a falsy
+                    // STRING, and sub-keys declaring a NON-string type: this builder
+                    // hardcodes `type: 'string'` below whatever the schema declares,
+                    // so `number`, `array` and `object` sub-keys (grid items[].image_id,
+                    // items[].bullets, items[].style) all render through this same text
+                    // control. The esc() rule governs those, and their wider problem —
+                    // that a text control cannot round-trip them at all — is not this
+                    // comment's business.
                     value: item[sk],
                     description: (subSchema[sk] && subSchema[sk].description) || '',
                     multiline: ['body', 'content', 'answer'].indexOf(sk) !== -1
