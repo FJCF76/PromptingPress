@@ -61,6 +61,22 @@ in the composition. Exits non-zero on failure, so it can gate a deployment workf
 the same way it gates the chat. Use it as the automated half of the rendered review
 checklist below.
 
+**A generated image size counts as present (#686).** When `image_id` resolves, the
+image renders through `wp_get_attachment_image()`, so the `src` is a WordPress-generated
+size (`care-t-860x1024.png`) rather than the upload the composition stores
+(`care-t.png`). Only the original is a Media Library row — the sizes are metadata on
+it — so `missing_local_media` used to fire on every page that used `image_id`
+correctly. It now resolves the size back to the attachment that owns it, including for
+an upload WordPress kept as `-scaled` (over the big-image threshold) or `-rotated`
+(EXIF orientation). **So treat the finding as real:** it names a file the library does
+not have, and the fix is to correct the image, not the filename in the message. A name
+that merely looks like a size does not pass — a size the attachment never generated,
+and a size of an upload that does not exist, both still fail.
+
+What it does not prove: it checks Media Library membership, not the filesystem, and it
+reads each `<img>`'s `src`, not the whole `srcset`. A file deleted from disk while its
+attachment row survives still validates clean.
+
 ## What the checks catch
 
 | Check | What it flags | What to do |
