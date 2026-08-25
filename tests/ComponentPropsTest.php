@@ -3610,6 +3610,47 @@ class ComponentPropsTest extends TestCase
         $this->assertSame('', pp_render_faq_schema([['question' => 'Only a question']]));
     }
 
+    /**
+     * #742: a DAMAGED question or answer degrades to '' and falls through to the
+     * PRE-EXISTING empty-value `continue`, so it is skipped by the same rule an
+     * incomplete item always was. Only the ELEMENT guard adds a skip of its own, and only
+     * for a shape that previously fataled at the offset read rather than reaching any
+     * existing rule — the two non-array cases below are the ones it catches.
+     *
+     * WHAT IS PINNED HERE IS THE OBSERVABLE CONTRACT: a damaged item produces exactly the
+     * outcome a stored-empty one produces. That the value path reaches it through the
+     * ORIGINAL `continue` rather than a bespoke second skip is a code-shape convention,
+     * not a tested property — review demonstrated that an equivalent bespoke skip passes
+     * this file unchanged. Stated plainly so the comment does not claim more than the
+     * assertions below carry.
+     *
+     * Unit level only. The rendered-band matrix, both storage channels, and the
+     * accordion-vs-payload coherence pins live in
+     * tests/StoredLinkAndRichTextRenderGuardTest.php.
+     */
+    public function testRenderFaqSchemaSkipsDamagedItemsInsteadOfCoercingThem(): void
+    {
+        foreach ([['x'], [], new stdClass()] as $damaged) {
+            $this->assertSame('', pp_render_faq_schema([['question' => 'Q', 'answer' => $damaged]]));
+            $this->assertSame('', pp_render_faq_schema([['question' => $damaged, 'answer' => 'A']]));
+        }
+
+        // A non-array element: object (offset read would fatal) and scalar (harmless
+        // before the guard, and still skipped after it).
+        $this->assertSame('', pp_render_faq_schema([new stdClass()]));
+        $this->assertSame('', pp_render_faq_schema(['a string']));
+
+        // The word Array never reaches the payload, which is the half that used to ship
+        // silently to search engines.
+        $mixed = pp_render_faq_schema([
+            ['question' => 'Q one', 'answer' => ['x']],
+            ['question' => 'Q two', 'answer' => 'A two'],
+        ]);
+        $this->assertStringNotContainsString('Array', $mixed);
+        $this->assertStringContainsString('Q two', $mixed);
+        $this->assertStringNotContainsString('Q one', $mixed);
+    }
+
     public function testFaqComponentRendersJsonLdWhenItemsPresent(): void
     {
         $html = $this->render('faq', $this->faqProps());

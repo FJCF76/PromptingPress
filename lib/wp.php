@@ -1349,14 +1349,87 @@ function pp_render_heading_with_accent(string $title, string $accent, string $ac
  * reached this point some other way, it would encode as "<\/script>",
  * which cannot close the surrounding <script> tag.
  *
+ * ── #742: the element-level guards, and the coherence contract they land ─────
+ *
+ * This helper re-reads each element's `question` and `answer` ITSELF, with its
+ * own `(string)` cast and its own array-offset read. Those are LANGUAGE
+ * constructs, not a typed call and not a core escaper, so they sit outside
+ * every guard the calling component applies: #739 guards faq's `items`
+ * CONTAINER and #730 guards each item's `answer` before it reaches
+ * wp_kses_post(), and neither reaches inside this function. Measured, one
+ * render per shape. READ THE RIGHT-HAND COLUMN: only three of these five were
+ * reachable through the composition render loop, and conflating that would
+ * claim a page-level fix this change does not make.
+ *
+ *   answer   = object   FATAL  Object of class X could not be converted   [render loop]
+ *   answer   = array    emitted "text":"Array" into the FAQPage payload   [render loop]
+ *   question = array    emitted "name":"Array"  into the FAQPage payload  [render loop]
+ *   question = object   FATAL  (same cast)                               [helper only *]
+ *   item     = object   FATAL  Cannot use object of type X as array      [helper only *]
+ *
+ *   * through the render loop these two fatal UPSTREAM, inside faq.php's own
+ *     visible loop, before this function is reached at all — see WHAT THIS
+ *     DOES NOT CLOSE below. They are measured here by calling the helper
+ *     directly, the only way to observe this boundary's own behaviour.
+ *
+ * templates/composition.php calls pp_get_component() with no try/catch, so each
+ * object row was a whole-page 500; the array rows were worse in a quieter way,
+ * because they published the literal word `Array` as answer text in the page's
+ * machine-readable SEO payload, where no human looks.
+ *
+ * THE GUARDS. `is_array($item)` because an array IS the contract at an offset
+ * read of a decoded composition element, and `is_scalar($raw) ? (string) $raw`
+ * because a STRING is the contract at the cast: PHP runs coercive here (no
+ * declare(strict_types) anywhere in this theme), so only non-scalars ever
+ * fataled, and is_string() would silently DROP stored scalars the write path
+ * accepts (#707 closed the front door on new ones; it migrated none of the
+ * existing ones). Both are the ratified #641/#705 idiom in its two stated
+ * forms. A Stringable object degrades too, deliberately: is_scalar() is false
+ * for every object, and nothing at this layer can vouch for what a stored
+ * object's __toString() would return. Same for ArrayAccess at the element
+ * guard — an offset read that runs arbitrary code is not the decoded-JSON
+ * shape this contract describes.
+ *
+ * THE COHERENCE CONTRACT, which is the point of the fix rather than a side
+ * effect: a damaged question or answer degrades to '' and is therefore skipped
+ * by the PRE-EXISTING empty-value `continue` below — the same treatment a
+ * stored-empty value has always had. No new rule was invented for the VALUES;
+ * the element guard is the one skip this change adds, and it catches only the
+ * shape that used to fatal at the offset read instead of reaching any rule.
+ * So the JSON-LD never publishes text the accordion suppressed as corrupt, and
+ * when every item degrades out `$entities` is empty and NO fragment is emitted
+ * at all, matching the empty state #739 landed for a malformed `items`.
+ *
+ * WHAT THIS DOES NOT CLOSE, named so the fix is not read as broader than it is.
+ * Both are pre-existing, both are the visible loop's rather than this helper's,
+ * and both are measured facts pinned in tests/StoredLinkAndRichTextRenderGuardTest.php:
+ *   - components/faq/faq.php reads `question` UNGUARDED into esc_html(), so an
+ *     OBJECT question and an OBJECT element still 500 the page upstream of this
+ *     call, and an ARRAY question still paints the literal `Array` in the
+ *     accordion summary. That is the #736 class (esc_html coercion), not this
+ *     one; guarding it here would not help, because the fatal happens first.
+ *   - a `0` / `'0'` question renders NO accordion item (the visible loop's
+ *     `if (!$question)` is a truthiness gate) while this helper's `=== ''`
+ *     comparison keeps it. Pre-existing, unrelated to stored-value damage, and
+ *     a separate ruling on which of the two gates is correct.
+ *
  * @param array $items  FAQ items: [{question, answer}, ...].
  * @return string  A full <script type="application/ld+json">...</script> tag, or ''.
  */
 function pp_render_faq_schema(array $items): string {
     $entities = [];
     foreach ($items as $item) {
-        $question = wp_strip_all_tags((string) ($item['question'] ?? ''));
-        $answer   = wp_strip_all_tags((string) ($item['answer']   ?? ''));
+        // #742: an OBJECT element fatals at the offset read below, before any
+        // cast. A scalar element is already harmless (`??` suppresses the read
+        // and both locals end up ''), so this skips exactly what it must and
+        // leaves every other shape landing where it always did.
+        if (!is_array($item)) {
+            continue;
+        }
+        $raw_question = $item['question'] ?? '';
+        $raw_answer   = $item['answer']   ?? '';
+        $question = is_scalar($raw_question) ? wp_strip_all_tags((string) $raw_question) : '';
+        $answer   = is_scalar($raw_answer)   ? wp_strip_all_tags((string) $raw_answer)   : '';
         if ($question === '' || $answer === '') {
             continue;
         }

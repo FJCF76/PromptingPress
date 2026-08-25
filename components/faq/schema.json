@@ -1,6 +1,6 @@
 {
   "component": "faq",
-  "description": "FAQ accordion using native HTML details/summary elements. Zero JavaScript required. Each item has a question and an HTML answer. Always emits a FAQPage JSON-LD structured-data block alongside the visible markup.",
+  "description": "FAQ accordion using native HTML details/summary elements. Zero JavaScript required. Each item has a question and an HTML answer. Emits a FAQPage JSON-LD structured-data block alongside the visible markup, zero-config with no toggle: an entry whose question or answer is empty is skipped, as is one whose value is damaged (a non-scalar, or an entry that is not an object), and no block is emitted at all when no entry survives.",
   "props": {
     "id": {
       "type": "string",
