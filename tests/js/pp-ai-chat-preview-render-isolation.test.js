@@ -19,14 +19,18 @@
  * a later edit that stops routing results through the helper, or drops the chain's
  * `.catch`, fails here rather than shipping a hang no unit test can see.
  *
- * HOW THE THROWS ARE INJECTED, and why not the obvious way. The reachable throw sites
- * today are inside ppChatRenderPreviewError() — `hints[keys[0]].component` on a null,
- * `alternatives.join()` on a string — and sending one of those payloads would be the
- * natural trigger. It is deliberately not used: issue #667 is open against exactly those
- * two sites, and on the day it lands those payloads stop throwing. Every test written
- * that way would keep passing while testing nothing at all. Instead the target step gets
- * a real DOM diff area whose `appendChild` throws, which is independent of any payload
- * and stays a genuine throw no matter what #667 decides.
+ * HOW THE THROWS ARE INJECTED, and why not the obvious way. When these tests were
+ * written, ppChatRenderPreviewError() had two reachable throw sites —
+ * `hints[keys[0]].component` on a null, `alternatives.join()` on a string — and sending
+ * one of those payloads would have been the natural trigger. It was deliberately not
+ * used: #667 was open against exactly those two sites, and the day it landed those
+ * payloads would stop throwing. Every test written that way would have kept passing
+ * while testing nothing at all. That day came (v1.16.5) — both are guarded now, so a
+ * payload is no longer a throw source at all. What the tests do instead has not changed
+ * and does not need to: the target step gets a real DOM diff area whose `appendChild`
+ * throws, which is independent of any payload and is a genuine throw whatever the
+ * renderer accepts. The reasoning is kept rather than deleted because it is the reason
+ * the file did not have to be rewritten when #667 landed.
  */
 
 const fs = require('fs');
