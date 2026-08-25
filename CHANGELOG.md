@@ -4,6 +4,78 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.16.4] — 2026-08-25 — One step's renderer breaking no longer costs the whole proposal its previews (#663)
+
+**A proposal card previewed its steps in one loop with no guard on it, so a throw on step 2 of 5 abandoned steps 3, 4 and 5 mid-flight and the card hung at "Loading preview…" forever, with nothing written anywhere to say why.** The steps kept their `pp-ai-step-executing` class and the placeholder text their rows were built with, the status message never ran, the Apply/Cancel row was never appended, and the rejection went nowhere. Now a throw costs exactly the step it happened in: that step shows the existing failed-step card naming the reason, every other step renders its preview, and the batch always reaches a terminal state.
+
+### What was wrong
+
+`renderProposal()` fetched every step's preview in parallel and rendered the results in a single `Promise.all().then()`:
+
+```js
+Promise.all(previewPromises).then(function (results) {
+    results.forEach(function (result, i) {
+        stepElements[i].classList.remove('pp-ai-step-executing');
+        diffAreas[i].textContent = '';
+        ...
+        ppChatRenderPreviewError(diffAreas[i], result.data);   // can throw
+        ...
+    });
+    if (anyFailed) { addStatusMessage(...); return; }           // never reached
+    // ... Apply/Cancel ...                                     // never appended
+});
+```
+
+There was no guard inside the iteration and no `.catch` on the chain. `forEach` does not resume after a callback throws, so iteration `i` throwing meant iterations `i+1..n` never ran at all. The FETCH half was already isolated — each preview promise carries its own `.catch` that converts a rejection into `{success: false, data: ...}` — so this was never about the network. It was the rendering.
+
+The renderer has two reachable throw sites for a malformed payload: `hints[keys[0]].component` read off `cross_component_hints` with no type check, and `data.alternatives.join(', ')` gated only on a truthy `.length`. Neither shape is produced by `_pp_build_friendly_error()` today. That is the point: the cost of ANY renderer slip, present or future, was a hung card rather than one bad step.
+
+### The mechanism, and why not the one the issue proposed
+
+The issue asked for a `.catch` on the chain that clears `pp-ai-step-executing` from any step still marked executing. That un-freezes the card, but it does not render the steps the throw skipped — they would settle into an error state having never been given the preview the server already returned for them. The acceptance bar here is that a throw costs ONE step, not that the card stops spinning, so the isolation has to sit inside the loop.
+
+The per-step render is now `ppChatRenderPreviewResult()`, at module scope so it has a unit-test seam (the same move #625 made for `ppChatHasSlotAlternatives()` / `ppChatHasCrossComponentHint()`), with its whole body in a `try`. Its catch drops whatever half-drawn DOM the throw left behind, renders the EXISTING plain-string error idiom, and paints `pp-ai-step-failed` — no new UI vocabulary, and the class comes from `ppChatGetErrorStepClass()` rather than a literal, so #662's typography tripwire still sees exactly three error classes. Two IIFE-local DOM builders (`renderDiffLine`, `renderCompositionDiff`) moved to module scope with it; they closed over nothing but `document` and their two module-scope helpers.
+
+The error arm renders BEFORE it classifies. That order is load-bearing and commented as such: painting the classified state first would leave a half-drawn card wearing `pp-ai-step-fixable` when the render then threw, and the catch would have to REMOVE that class before adding its own — which means enumerating the error-class set in a second place, the exact drift hazard #662's tripwire exists to catch.
+
+The chain-level `.catch` still ships, as a backstop for a throw outside the helper, in parity with `executeProposal()`'s chain catch further down the same file. It finishes the steps first and attempts the status message second: `addStatusMessage()` is itself one of the things that can throw into that catch, so calling it first would re-call the failing call, lose the rejection, and never reach the loop — reproducing this bug through the guard meant to prevent it.
+
+### Before and after
+
+| | before | after |
+|---|---|---|
+| One step's render throws, N steps in the card | all N frozen at "Loading preview…", `pp-ai-step-executing` retained | 1 failed step naming the reason, N-1 rendered |
+| Status message | never written | written, describing the first failure |
+| Apply / Cancel row | never appended | withheld (a failed step is still a failure), same as any other error |
+| The rejection | unhandled, silent | rendered in the step's card |
+| Text the operator sees on the broken step | nothing | `Preview could not be displayed: <reason>`, bounded to 200 characters |
+
+### The first-failure fix, and a trade it makes
+
+The same block picked which error the status bar describes with `if (!firstFailedData) firstFailedData = result.data;` — a test of whether the PAYLOAD is truthy, not of whether a step failed. A response that is not the `{success, data}` envelope has no `data` at all: an expired nonce makes `check_ajax_referer()` emit a bare `-1`, which parses to the number `-1` with `data === undefined`. Such a step counted toward `anyFailed` and got painted, then was skipped here, so the status bar described a LATER step's error. Verified still present at this tree before being fixed — not stale.
+
+The issue suggested tracking the first failure by index. This ships an always-truthy `{ data: ... }` wrapper returned by the helper instead, which reaches the same outcome and makes the skew structurally impossible rather than merely corrected: no future payload shape can be falsy enough to be skipped, because the thing being tested is no longer the payload.
+
+Recorded because it is a real trade, not a pure win: when step 1 fails with an empty payload and step 2 fails with a genuine `invalid_style_slot` carrying alternatives, the status bar now says the generic "Some changes couldn't be previewed" about step 1 instead of the specific "I used a setting name this component doesn't have" about step 2. That is the ordering the issue asked for and it is honest about which step failed first, but the operator gets a less actionable sentence for that input. #784 covers giving the expired-nonce case a message of its own, which is the real fix for the case that motivates it.
+
+### Scope
+
+The two throw SITES inside `ppChatRenderPreviewError()` are #667 and are deliberately untouched — this issue is about the failure MODE, and the new tests inject their throws through a stubbed `appendChild` precisely so they keep proving isolation on the day #667 guards those payloads. Whether the generic caught-throw state deserves its own vocabulary is #664. No CSS changed.
+
+### Fixed
+
+- A throw while rendering one preview result no longer abandons the remaining steps. Each result renders through `ppChatRenderPreviewResult()`, whose catch clears the partial DOM, renders the existing plain-string error idiom, and paints `pp-ai-step-failed` (`assets/js/pp-ai-chat.js`).
+- The batch-preview chain carries a `.catch`, in parity with `executeProposal()`'s. It terminalizes any step still marked `pp-ai-step-executing` before attempting the status message.
+- The status bar describes the FIRST failed step even when that step's payload is empty. The helper returns an always-truthy wrapper, so a falsy payload can no longer be mistaken for "no failure here".
+- A step painted as failed no longer carries preview changes. `_previewChanges` is dropped on entry and re-stashed only after the diff has fully drawn, so a value from an earlier successful render cannot outlive the card that justified it. Nothing reads the field today (#785).
+- Reflected exception text is bounded to 200 characters using the codebase's existing "cut to max minus 3 and mark it" convention, so one pathological message cannot grow a step's card until it pushes the steps that DID render off the screen. Reading `err.message` is itself guarded, because a throw there would escape the catch it is called from.
+
+### Tests
+
+- `tests/js/pp-ai-chat-preview-render-isolation.test.js` (new, 30 tests): terminal states for every arm; a throw in the error arm and in the success arm; exactly one state class after a throw; no stale `_previewChanges` across a re-render of the same step object; the bounding, including a thrown value whose `message` getter throws and one whose `Symbol.toPrimitive` throws; a bare thrown string; three steps where the middle one breaks; the first-failure fold asserted BY INDEX, because reading only the narrated text passes vacuously; and the chain catch leaving an already-rendered step alone.
+- Source tripwires pin the parts that live inside the file's IIFE and cannot be reached from vitest at any price: that every result routes through the guarded helper, that the chain carries a catch, that it terminalizes before it announces, that the fold keeps the first failure and unwraps it, and that the error arm renders before it classifies.
+- Every pin was proven red against a mutated tree before landing (11 operators across three passes, each run in a COPIED tree per the repo's no-mutation-in-place rule). Two mutations that survived an earlier draft were what caught a vacuous assertion in the first-failure test and a completely unpinned `update_composition` branch.
+
 ## [v1.16.3] — 2026-08-25 — The failed-preview card reads as prose again, and a 256-character slot name stops dragging the chat sideways (#662, #666)
 
 **Two defects on one surface: the same sentence rendered in three different typefaces depending on which error code came back, and the slot name inside it widened every message in the conversation.** Both live on the card `ppChatRenderPreviewError()` draws when a step's preview fails. Neither is new; #661 made the first one the state most authors land on and gave the second a second place to happen.
