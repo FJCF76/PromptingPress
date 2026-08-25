@@ -598,4 +598,89 @@ final class CompositionFindingsBoundsTest extends TestCase
             'the write path still routes through the size-gated helper, not the bare bounder'
         );
     }
+
+    /**
+     * RESTORE NEVER EMITS `findings_skipped`, AND THE CHAT CARD DEPENDS ON IT (#655).
+     *
+     * There are two "this report is about the report" species. `findings_truncated` comes
+     * from the bounder and carries a `total`; `findings_skipped` comes from the ACCEPTED
+     * WRITE path's 1 MiB availability gate (_pp_write_findings_for) and deliberately
+     * carries no `total`, because nothing was counted. Restore takes the bounder and NOT
+     * the gate — #233's premise is that you are told exactly what an old snapshot brought
+     * back, and a size gate would change that to "sometimes you are told nothing".
+     *
+     * #655's undo card lifts the truncation tail out of the collapsed disclosure so the
+     * `wp pp check page` command it names stays visible. That hoist recognizes exactly one
+     * species. A `findings_skipped` entry reaching the same card would match neither the
+     * hoist predicate nor its `total` requirement, so it would render as an ordinary
+     * finding row inside the disclosure AND be counted by the heading as an issue with the
+     * composition — burying the STRONGER disclaimer of the two behind the weaker one.
+     *
+     * That cannot happen today only because of the routing this test pins. It was a PHP
+     * comment; a JS renderer now leans on it, so it is a test.
+     */
+    public function testRestoreNeverEmitsTheSkippedSpeciesTheUndoCardCannotHoist(): void
+    {
+        foreach ([$this->pathologicalPage(), $this->slightlyStalePage(), $this->cleanPage()] as $id) {
+            $findings = $this->restoreAfterOneWrite($id)['findings'];
+
+            $this->assertNotContains(
+                'findings_skipped',
+                array_column($findings, 'type'),
+                'restore took the write path\'s availability gate — the chat undo card hoists'
+                . ' only findings_truncated, so this entry would render as an ordinary finding'
+                . ' and be counted as a composition problem (#655)'
+            );
+        }
+
+        // The routing itself, so the reason survives a refactor of the fixtures above:
+        // restore's report is the bare bounder's output, never the size-gated wrapper.
+        $id = $this->pathologicalPage();
+        $this->assertSame(
+            _pp_bounded_findings(_pp_composition_findings(pp_get_composition($id)), $id),
+            $this->restoreAfterOneWrite($id)['findings'],
+            'restore must keep routing through the bounder, which has no size gate to skip on'
+        );
+    }
+
+    /**
+     * ERRORS BEFORE ADVISORIES, AND A CONSUMER DEPENDS ON IT (#655).
+     *
+     * _pp_composition_findings() appends everything the error engine found and only then
+     * everything the smell engine found. That is not merely tidy: the chat undo card
+     * selects one inline row per band by taking each band's FIRST finding, which is only
+     * equivalent to taking its most severe one while this order holds. Interleave the two
+     * engines and the card starts giving the visible row to a band's advisory while its
+     * blocker moves behind the disclosure — the understatement #622 introduced per-item
+     * severity styling to prevent.
+     *
+     * The card's own test cannot catch that: it hands the renderer a fixture in whatever
+     * order it likes. The dependency is on THIS function, so the pin belongs here.
+     */
+    public function testEveryErrorPrecedesEveryAdvisorySoFirstPerBandIsWorstPerBand(): void
+    {
+        // One band carrying both kinds: an undeclared prop (error) and a dead style slot
+        // whose value is stored but never read (advisory).
+        $id = pp_create_page('Both kinds', 'draft');
+        pp_update_composition($id, [
+            ['component' => 'hero', 'props' => ['id' => 'h1', 'title' => 'T', 'zzUndeclared' => 1],
+             'style' => ['--hero-overlay-bg' => 'rgba(0,0,0,.5)']],
+        ]);
+
+        $findings = _pp_composition_findings(pp_get_composition($id));
+
+        $severities = array_column($findings, 'severity');
+        $this->assertContains('error', $severities, 'precondition: the fixture produces an error');
+        $this->assertContains('warning', $severities, 'precondition: the fixture produces an advisory');
+
+        $first_warning = array_search('warning', $severities, true);
+        $last_error    = array_keys($severities, 'error', true);
+        $this->assertLessThan(
+            $first_warning,
+            end($last_error),
+            'an advisory appears before an error — the chat undo card selects each band\'s'
+            . ' FIRST finding as its inline row and would now show a smell in place of a'
+            . ' blocker (#655); either restore the order or make that selector severity-aware'
+        );
+    }
 }

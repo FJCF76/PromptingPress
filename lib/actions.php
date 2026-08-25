@@ -1476,6 +1476,13 @@ function _pp_restore_batch_snapshot(array $snapshot): array {
  * SUCCESSFUL batch also returns 'failed_at' => null. The pair (ok === false,
  * failed_at === null) is what identifies the refusal.
  *
+ * A FAILED step's band locator is dropped when an earlier step in the same batch wrote
+ * that page's composition (#712): the rollback discards the composition the offset was
+ * computed against, so it is nulled rather than shipped pointing at a band that moved.
+ * See _pp_batch_forget_discarded_locator() for why null and not a re-anchored offset,
+ * and for what deliberately stays mid-batch (the message text; the succeeded steps'
+ * reports).
+ *
  * @param  array $steps      Each: ['type' => 'action'|'apply', 'name' => string, 'params' => array]
  * @param  array $baselines  {post_id => version} CAS baselines per page (#404); [] = none.
  * @return array          ['ok', 'steps' (per-step results), 'failed_at' (?int —
@@ -1536,6 +1543,10 @@ function pp_ai_execute_batch(array $steps, array $baselines = []): array {
         }
     }
     $mutated_versions = []; // {post_id => post-write version}, returned to the client.
+
+    // Pages an EARLIER, SUCCEEDED step already composition-wrote in this batch (#712).
+    // Consumed only by _pp_batch_forget_discarded_locator() at the failure return.
+    $composition_written = [];
 
     foreach ($steps as $i => $step) {
         $type   = $step['type']   ?? '';
@@ -1622,7 +1633,42 @@ function pp_ai_execute_batch(array $steps, array $baselines = []): array {
             }
         }
 
+        // A LOCATOR THE ROLLBACK IS ABOUT TO INVALIDATE IS DROPPED, NOT SHIPPED (#712).
+        // Runs before the envelope joins $results, so nothing downstream ever sees the
+        // stale offset. See the helper for why null rather than a re-anchored offset.
+        if (empty($result['ok'])) {
+            $result = _pp_batch_forget_discarded_locator($result, $params, $composition_written);
+        }
+
         $results[] = $result;
+
+        // Record the page this step wrote, AFTER the failure branch above has read the
+        // set — a step's own write cannot be what invalidates its own locator, and a
+        // failed step wrote nothing anyway.
+        //
+        // ACTIONS ONLY, and that is a fact about lib/apply.php rather than an assumption:
+        // the seven registered applies are tokens, fonts and media, none declares
+        // `mutates_composition`, none writes `_pp_composition`, and an apply envelope
+        // carries no `index` key at all — so an apply can neither invalidate a locator nor
+        // own one. Pinned by ApplyTest so the day an apply gains a composition write, this
+        // predicate is what fails rather than a locator quietly going stale.
+        //
+        // SPELLED AS `!== 'apply'` TO MIRROR THE DISPATCHER ABOVE, not as `=== 'action'`.
+        // The dispatcher routes every type that is not exactly 'apply' to
+        // pp_execute_action(), so a step with a missing, empty or misspelled `type` WRITES
+        // like an action. Asking the narrower question here would leave such a step
+        // unrecorded while its write still moved the bands — and the next failed step on
+        // that page would then ship the stale locator this whole guard exists to drop.
+        // Unreachable through the chat (lib/ai-chat.php rejects any type outside the pair
+        // before the batch runs), but this executor is public and its own contract says
+        // the mandates live in the entry point, so it must not assume one ran.
+        if (!empty($result['ok']) && $type !== 'apply'
+            && (pp_action_is_composition_mutating($name) || $name === 'create_page')) {
+            $written_target = _pp_batch_step_composition_target($params, $result);
+            if ($written_target !== null) {
+                $composition_written[$written_target] = true;
+            }
+        }
 
         if (empty($result['ok'])) {
             $rollback_errors = _pp_restore_batch_snapshot($snapshot);
@@ -1647,6 +1693,130 @@ function pp_ai_execute_batch(array $steps, array $baselines = []): array {
         'rollback_errors' => [],
         'versions'        => $mutated_versions,
     ];
+}
+
+/**
+ * The page a succeeded composition-writing step wrote, or null (#712).
+ *
+ * THE THIRD ANSWER TO "WHICH PAGE DID THIS STEP WRITE?" in this file, and the divergence
+ * is deliberate, so here is the map. pp_execute_action() resolves `findings` TARGET-first
+ * (a report naming the wrong page is worse than absent) and `composition_version`
+ * PARAMS-first (a #404 defect it is not that change's to move); the batch's version map
+ * above inherits the params-first order from `composition_version`. This one follows
+ * `findings` for the same reason `findings` chose it — it has to name the page whose bands
+ * actually moved.
+ *
+ * TARGET FIRST, for the same reason `findings` resolves that way in pp_execute_action():
+ * `create_page` takes no `post_id` at all and only its target knows the page it just
+ * created, and a create_page call carrying a stray undeclared `post_id` (which
+ * pp_validate_action() does not reject) wrote the NEW page, not the named one. The seven
+ * composition-mutating actions declare `post_id` required and echo it into their target,
+ * so for them both orders agree.
+ *
+ * @param  array $params  The step's params.
+ * @param  array $result  Its (successful) envelope.
+ * @return int|null       Post id, or null when neither side names one.
+ */
+function _pp_batch_step_composition_target(array $params, array $result): ?int {
+    if (isset($result['target']['post_id']) && is_numeric($result['target']['post_id'])) {
+        return (int) $result['target']['post_id'];
+    }
+    if (isset($params['post_id']) && is_numeric($params['post_id'])) {
+        return (int) $params['post_id'];
+    }
+
+    return null;
+}
+
+/**
+ * Drops a failed batch step's band locator when the rollback is about to invalidate it
+ * (#712 — the structural answer #642 deferred).
+ *
+ * THE PROBLEM. A batch is atomic: when a step fails, `_pp_restore_batch_snapshot()`
+ * puts every target back to its pre-batch state. The failed step's envelope is returned
+ * as-is, and its `index` was computed against the composition as THAT step saw it —
+ * mid-batch. On a page `[healthyA, healthyB, badBand]` the batch
+ * `remove_component(0)` then `update_component(0)` reports `index: 1`; after the
+ * mandatory rollback band 1 is `healthyB` and the real offender is band 2. #642 made
+ * `index` first-class precisely so an agent stops repairing the wrong band, and
+ * AI_CONTEXT.md tells it to trust the field — so on this path the field is honest about
+ * a composition that no longer exists, which to its only consumer is a fabricated
+ * locator.
+ *
+ *   step 0  remove_component(0)   ok      composition_written[42] = true
+ *   step 1  update_component(0)   FAIL    index 1, computed against [healthyB, badBand]
+ *           └─ rollback ─────────────────► [healthyA, healthyB, badBand]  (index 1 = healthyB)
+ *                                          ▲ the offset now addresses a healthy band
+ *
+ * WHY NULL AND NOT A RE-ANCHORED OFFSET. Re-anchoring needs an inverse map from
+ * mid-batch offsets back to restored ones, and no such inverse exists in general:
+ * `update_composition` and `restore_composition` replace the list wholesale, so a
+ * mid-batch band can have NO counterpart in the restored composition; `add_component`
+ * can create a band that exists only mid-batch; and a page an earlier `create_page`
+ * created is DELETED outright by the rollback, so there is no composition left to anchor
+ * against. Even the one invertible case — a single `remove_component` — would mean
+ * replaying the batch's mutations backwards through state the executor does not retain
+ * past the rollback. A locator that cannot be PROVEN to address the offending band is
+ * the thing #642 exists to prevent, so this returns the vocabulary's existing "no single
+ * band owns this" value rather than a plausible number. `null` has always meant no
+ * fabricated locator, never band 0.
+ *
+ * WHY THE OTHER CASE IS KEPT. When no earlier step wrote this page, the batch did not
+ * move its bands: the composition the failed step validated is the one
+ * `_pp_restore_batch_snapshot()` writes back, so the offset still addresses the same
+ * band after the rollback. That is the guarantee — "this BATCH did not move them", not
+ * "nothing in the universe did"; an out-of-band writer in the same window is what the
+ * #404 CAS baseline answers, not this. Nulling every failed step's locator instead would
+ * throw away a correct answer on the common single-page batch to fix the multi-step one.
+ *
+ * THE RULE IS WHOLE-STEP AND DELIBERATELY CONSERVATIVE. It asks only "did this batch
+ * write this page?", not "was this particular locator computed against stored state?".
+ * Those differ for `update_composition`, which validates the array the CALLER submitted:
+ * its offset addresses that payload, which the rollback cannot touch, so a batch of
+ * `remove_component` then a failing `update_composition` on the same page drops an offset
+ * that was provably still correct. That is the accepted cost of one rule instead of a
+ * per-action carve-out. It errs toward the documented "no locator" value rather than
+ * toward a locator whose validity depends on which action happened to reject — and a
+ * reader who has just been told the whole batch rolled back has no way to know which
+ * kind they were handed. `null` costs a re-read; a wrong offset costs a wrong repair.
+ *
+ * WHAT THIS DOES NOT TOUCH, deliberately:
+ *  - The failed step's `error` MESSAGE, which still quotes mid-batch band prose
+ *    (`Component 1 ("logos") ...`). That text comes from the producing validator; having
+ *    the batch layer rewrite another layer's sentence would be a second fabrication, and
+ *    the message half of this predates #642 (see the documented caveat).
+ *  - The SUCCEEDED steps' `findings` (and the `index` values inside them), which describe
+ *    compositions the rollback also discarded. Those are accepted-write reports, a wider
+ *    class than the rejection locator, pinned as-is by WriteEnvelopeFindingsTest.
+ * Both remain covered by the "re-read the page after a rolled-back batch" caveat in
+ * AI_CONTEXT.md and docs/reference-apply-cli.md, which now states the split.
+ *
+ * @param  array $result               The failing step's envelope.
+ * @param  array $params               That step's params (its own post_id, if any).
+ * @param  array $composition_written  {post_id => true} for pages EARLIER steps wrote.
+ * @return array                       The envelope, with `index` nulled where it no
+ *                                     longer addresses anything.
+ */
+function _pp_batch_forget_discarded_locator(array $result, array $params, array $composition_written): array {
+    if (($result['index'] ?? null) === null) {
+        return $result; // nothing to drop — a locator is real or absent, never faked.
+    }
+
+    // ONE QUESTION, ONE ANSWER. "Which page is this step about?" is asked twice per batch —
+    // here, and by the recorder that fills $composition_written — so both ask it through
+    // the same helper. Asking it two ways is how a set keyed on one id gets read with
+    // another and silently keeps every stale locator. Today the two orders agree on every
+    // reachable step (the seven mutating actions all declare post_id required), so this
+    // costs nothing and closes the fail-open a future action that resolves its target from
+    // the envelope would otherwise open.
+    $page = _pp_batch_step_composition_target($params, $result);
+    if ($page === null || !isset($composition_written[$page])) {
+        return $result;
+    }
+
+    $result['index'] = null;
+
+    return $result;
 }
 
 // ── Helper: build result arrays ─────────────────────────────────────────────

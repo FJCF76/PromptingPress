@@ -3405,4 +3405,46 @@ class ApplyTest extends TestCase
         $this->assertSame('#b45309', $after['--color-accent']);
         $this->assertSame('#123456', $after['--color-text'], 'snapshot value ignored for untouched key');
     }
+
+    /**
+     * NO APPLY WRITES A COMPOSITION, and pp_ai_execute_batch() depends on it (#712).
+     *
+     * The batch tracks which pages an earlier step composition-wrote, so it can drop a
+     * failed step's band locator when the rollback is about to invalidate it. That
+     * tracking is scoped to `type: 'action'` steps, which is only correct while the apply
+     * surface stays what it is today: tokens, fonts and media. If an apply ever gains a
+     * composition write, the batch would keep shipping a stale offset and nothing would
+     * say so — the failure would be a wrong band number in an agent's next repair, which
+     * is exactly what #642 and #712 exist to prevent.
+     *
+     * WHAT THIS IS AND IS NOT. It is a DECLARATION tripwire: it fires the day someone
+     * gives an apply the marker that would make it a composition writer. It is not proof
+     * that no apply writes `_pp_composition` — an apply that started doing so WITHOUT
+     * declaring the marker would leave this green, and that is the realistic way it would
+     * happen. No test can close that; a reviewer reading lib/apply.php can. What the
+     * second assertion does close is the predicate itself: whatever an apply declares,
+     * pp_action_is_composition_mutating() must keep answering false for its name, because
+     * it reads the ACTION registry and the batch keys on that answer.
+     */
+    public function testNoApplyDeclaresItMutatesCompositionsBecauseTheBatchLocatorGuardAssumesIt(): void
+    {
+        $applies = pp_get_registered_applies();
+        $this->assertNotEmpty($applies, 'precondition: the apply registry is populated');
+
+        foreach ($applies as $name => $definition) {
+            $this->assertArrayNotHasKey(
+                'mutates_composition',
+                $definition,
+                "apply '{$name}' declares mutates_composition — pp_ai_execute_batch()'s"
+                . ' $composition_written tracking is scoped to action steps and must widen'
+                . ' to cover this, or a rolled-back batch will ship a stale locator (#712)'
+            );
+            $this->assertFalse(
+                pp_action_is_composition_mutating($name),
+                "the batch's tracking predicate answers TRUE for apply '{$name}' — it reads"
+                . ' the action registry, so this means an action now shares that name and the'
+                . ' two surfaces can no longer be told apart by name alone (#712)'
+            );
+        }
+    }
 }
