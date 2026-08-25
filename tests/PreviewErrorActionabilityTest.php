@@ -193,11 +193,16 @@ class PreviewErrorActionabilityTest extends TestCase
         );
     }
 
-    public function testTheVisibleMessageItselfListsTheSettingsTheStatusBarPromises(): void
+    public function testTheVisibleMessageItselfNamesTheSettingsTheStatusBarPointsAt(): void
     {
-        // The status bar now says "See the available settings above". That is only
-        // honest because the non-hint branch writes the settings into `user_message`,
-        // which renders as .pp-ai-preview-error-message with no disclosure to open.
+        // The status bar says "See the settings it does have above". That is only honest
+        // because the non-hint branch names settings in `user_message`, which renders as
+        // .pp-ai-preview-error-message with no disclosure to open.
+        //
+        // Since #661 what it names is a SAMPLE of the declared slot NAMES plus the total,
+        // not every slot's description — joining those made the whole message measure
+        // 11,309 characters on hero (the descriptions alone are 11,213 of it). The full
+        // list still ships, in `alternatives`, behind the <details>.
         $post_id = $this->authorPage('Visible settings', [
             ['component' => 'hero', 'props' => ['title' => 'Hi']],
         ]);
@@ -210,10 +215,28 @@ class PreviewErrorActionabilityTest extends TestCase
 
         $friendly = _pp_build_friendly_error(pp_preview_action('style_component', $params), $params);
 
-        $this->assertStringContainsString('Available settings:', $friendly['user_message']);
-        $first_description = pp_get_style_slots('hero')['--hero-bg']['description'] ?? '';
-        $this->assertNotSame('', $first_description, 'Fixture premise: the slot carries a description.');
-        $this->assertStringContainsString($first_description, $friendly['user_message']);
+        $declared = array_keys(pp_get_style_slots('hero'));
+        $this->assertGreaterThan(
+            PP_FRIENDLY_SLOT_SAMPLE_MAX,
+            count($declared),
+            'Fixture premise: hero declares more slots than the message samples.'
+        );
+
+        // The count is the part that says "this component is configurable" — it is what
+        // keeps a sample from reading as the whole of what hero can do.
+        $this->assertStringContainsString(
+            'It has ' . count($declared) . ' style settings',
+            $friendly['user_message']
+        );
+
+        // The sample is the FIRST entries of `alternatives`, in the same order, so the
+        // disclosure opens onto the names the author has just read.
+        foreach (array_slice($declared, 0, PP_FRIENDLY_SLOT_SAMPLE_MAX) as $name) {
+            $this->assertStringContainsString($name, $friendly['user_message']);
+        }
+
+        // And it names what was tried, which the old message never did.
+        $this->assertStringContainsString('--hero-bgs', $friendly['user_message']);
     }
 
     // ── Why "names nothing" is not where a real rejection lands ───────────

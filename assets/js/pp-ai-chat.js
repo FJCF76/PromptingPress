@@ -350,6 +350,11 @@ function ppChatRenderPreviewError(diffArea, data) {
             var details = document.createElement('details');
             details.className = 'pp-ai-preview-error-detail';
             var summary = document.createElement('summary');
+            // This block is where the server's message sends the author for the rest of
+            // a sampled slot list ("the full list is in the details below", #661), so it
+            // must keep rendering BELOW .pp-ai-preview-error-message. The wording there
+            // deliberately does not quote this label, so renaming the summary is safe;
+            // moving the disclosure above the message is not.
             summary.textContent = 'Show technical details';
             details.appendChild(summary);
 
@@ -489,12 +494,14 @@ function ppChatGetErrorStepClass(data) {
  * Naming the name is true of the near miss and of a setting the component really doesn't
  * declare, which is the other thing that lands here.
  *
- * And it says the settings are LISTED above, not that their names are. What renders
- * unconditionally above this bar is `user_message`, and the non-hint branch of
- * _pp_build_friendly_error() builds its "Available settings: ..." list from each slot's
- * DESCRIPTION, not its name (lib/ai-chat.php). The names live in `alternatives`, which
- * the card prints inside a collapsed <details>. Promising names on screen would be a
- * promise the card doesn't keep.
+ * And it POINTS at the settings rather than claiming they are all up there. What renders
+ * unconditionally above this bar is `user_message`, and since #661 the non-hint branch of
+ * _pp_build_friendly_error() (lib/ai-chat.php) names at most PP_FRIENDLY_SLOT_SAMPLE_MAX
+ * of them plus a total count, sending the reader to `alternatives` in the collapsed
+ * <details> for the rest. So the settings above are real and are named — the sentence used
+ * to avoid the word "names" because the branch printed DESCRIPTIONS, and that is no longer
+ * what it prints — but on a component declaring dozens they are a sample, and "the
+ * settings it has are listed above" would be a promise the card no longer keeps.
  */
 function ppChatGetStatusMessage(data) {
     if (!data || typeof data !== 'object') return 'Some changes couldn\'t be previewed. See details above.';
@@ -503,7 +510,7 @@ function ppChatGetStatusMessage(data) {
         return 'That setting lives on a different component. See details above.';
     }
     if (code === 'invalid_style_slot' && ppChatHasSlotAlternatives(data)) {
-        return 'I used a setting name this component doesn\'t have. The settings it does have are listed above.';
+        return 'I used a setting name this component doesn\'t have. See the settings it does have above.';
     }
     if (code === 'no_style_slots' || code === 'invalid_style_slot') return 'This change isn\'t possible with the current component settings.';
     if (code === 'invalid_style_value') return 'The value format needs adjustment. See suggestions above.';

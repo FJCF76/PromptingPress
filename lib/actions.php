@@ -4029,7 +4029,7 @@ function _pp_invalid_style_slot_error(
  * Every field is checked for presence AND usable type, and the two that can render
  * as a claim about the component are also checked for emptiness. A payload that is
  * present but hollow is worse than an absent one: an empty `available_slots` would
- * render as "Available settings: (none)" on a component declaring dozens, and a
+ * render as "It has no style settings" on a component declaring dozens, and a
  * candidate list carrying a non-key value would fatal in the consumer's array
  * lookups rather than degrade. Both route to the fallback instead.
  *
