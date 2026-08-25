@@ -4,6 +4,93 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.16.3] — 2026-08-25 — The failed-preview card reads as prose again, and a 256-character slot name stops dragging the chat sideways (#662, #666)
+
+**Two defects on one surface: the same sentence rendered in three different typefaces depending on which error code came back, and the slot name inside it widened every message in the conversation.** Both live on the card `ppChatRenderPreviewError()` draws when a step's preview fails. Neither is new; #661 made the first one the state most authors land on and gave the second a second place to happen.
+
+### What was wrong
+
+`ppChatRenderPreviewError()` renders its card INTO the step's diff area, and that element is monospace by design — its other tenant is a value diff:
+
+```
+.pp-ai-proposal-step.<error class>
+  .pp-ai-step-diff                       font-family: monospace
+    .pp-ai-preview-error-message           prose  — declares no font-family
+    .pp-ai-preview-error-hint              prose  — declares no font-family
+    details.pp-ai-preview-error-detail
+      summary                              prose  — declares no font-family
+      div                                  machine text — declares monospace itself
+```
+
+Three of those four children declare no font family, so they inherit the container's monospace. The correction back to the UI font existed but was scoped to one state:
+
+```css
+/* before */
+.pp-ai-step-failed .pp-ai-step-diff { font-family: inherit; font-size: 13px; color: #d63638; }
+```
+
+`ppChatGetErrorStepClass()` paints `pp-ai-step-impossible` or `pp-ai-step-fixable` for every error code the style-slot validator actually emits, so on the two states a style_component failure produces in practice, the selector never matched — and the friendly sentence, the cross-component hint, and the "Show technical details" label all came out monospace (#662). Only the `default:` arm of `_pp_build_friendly_error()`, reached by codes the class reader does not know, still lands on `pp-ai-step-failed`, which is why the reset looked like it worked at all.
+
+Separately, a rejected slot name is interpolated verbatim into that sentence and into `raw_error`, bounded at `PP_REFLECTED_NAME_MAX = 256`. `_pp_clean_reflected_text()` strips `\p{Cc}\p{Cf}` — newlines included, deliberately — so the result is a single unbroken run with nothing to break at. Neither the message nor the disclosure body declared a wrap, and `.pp-ai-chat-messages` sets `overflow-y: auto`, which computes `overflow-x: auto` (#666).
+
+### The numbers that matter
+
+Measured in headless Chromium against the shipped stylesheet, exact renderer DOM, 375px viewport, 256-character slot name reflected into both `user_message` and `raw_error`.
+
+| Measurement | Before | After |
+|---|---|---|
+| Message font on `pp-ai-step-fixable` / `-impossible` | monospace | admin UI font |
+| Hint and disclosure label on those states | monospace | admin UI font |
+| Disclosure body (`raw_error`, slot list) | monospace | monospace, unchanged |
+| Message font on `pp-ai-step-failed` | admin UI font | admin UI font, unchanged |
+| Failed card's red / size | `#d63638` / 13px | `#d63638` / 13px, unchanged |
+| Chat pane `scrollWidth` vs `clientWidth` | 1657 vs 359 | 336 vs 335 |
+| Message element `scrollWidth` vs `clientWidth` | 1625 vs 296 | 275 vs 275 |
+| Disclosure body `scrollWidth` vs `clientWidth` | 1506 vs 296 | 275 vs 275 |
+
+### The selectors, after
+
+```css
+.pp-ai-step-failed .pp-ai-step-diff,
+.pp-ai-step-impossible .pp-ai-step-diff,
+.pp-ai-step-fixable .pp-ai-step-diff { font-family: inherit; }
+
+.pp-ai-step-failed .pp-ai-step-diff { font-size: 13px; color: #d63638; }
+
+.pp-ai-preview-error-message      { ... overflow-wrap: break-word; }
+.pp-ai-preview-error-detail > div { font-family: monospace; white-space: pre-wrap; overflow-wrap: break-word; ... }
+```
+
+### Why the line falls between prose and code
+
+The elements already encode the distinction, and the fix respects it rather than inventing one. `-message`, `-hint` and `summary` are prose by construction — a sentence, a sentence, a button label — and none of them declares a font, because none of them ever wanted one. The disclosure body is the single child that really is machine text: `raw_error` as the server phrased it, then the declared slot names. It declares `monospace` on itself, and that declaration still wins over the inherited value, so `raw_error` keeps reading as code while the sentence above it stops pretending to be. A reader can now tell, by typeface alone, which parts of the card are the theme talking and which are the machine quoting itself.
+
+The reset lands on the CONTAINER, not on the prose children, and that is the load-bearing detail. Only the container has a parent outside the monospace.
+
+### Deviations from the filed issues
+
+**#662 offered two fixes; the first one does not work.** Its Expected section proposed either moving `font-family: inherit` onto `.pp-ai-preview-error-message`, or extending the selector to the impossible/fixable states. The first was prototyped before implementation and measured: `inherit` on the message resolves against its parent, which is `.pp-ai-step-diff` — the very monospace it was meant to escape — and the message stayed monospace on every state. Only the container-scoped reset works. The issue's second option was taken.
+
+**Only the font family was widened, not the rule.** Extending the existing rule wholesale would have carried `color: #d63638` and `font-size: 13px` onto the grey (impossible) and amber (fixable) cards, repainting them red. The rule is split instead: the family is shared across the three error states, the red and the size stay scoped to the failed one. Those palettes are #664's subject, not this change's.
+
+**The reset reaches the hint and the disclosure label, not only the message.** #662's title and Expected name the message. The hint and the summary sit in the same container, inherit the same monospace, and already read in the UI font on `pp-ai-step-failed` — fixing only the message would have left the exact inconsistency #662 filed, one element over.
+
+**`overflow-wrap: break-word`, where #666 pointed at `word-break: break-word`.** The issue cites `.pp-ai-composition-json` as the pattern to copy. `overflow-wrap` is the standard property (`word-break: break-word` is a deprecated alias for it), and `break-word` breaks a word only when it cannot fit a line of its own — so the short names in the "Available slots:" list still break at their commas instead of being chopped at the box edge, which `break-all` would have done. #666's other two ingredients from that pattern, `max-height` and `overflow: auto`, were not taken: they bound a tall JSON dump, and nothing in this defect is about height.
+
+### Scope boundaries
+
+The append order inside `ppChatRenderPreviewError()` is untouched — the disclosure still renders below the message the server's copy points down from (#661). No colour, size, weight or spacing changed anywhere; the file's hardcoded hex palette is a recorded observation and stays as it is. `pp-ai-step-rejected` and `pp-ai-step-warning` are not error-card states and were left alone. Two pre-existing defects found while measuring were filed rather than fixed: validator prose rendering monospace in a validation-overflow disclosure that shares this selector (#778), and `.pp-ai-proposal-card` overflowing its pane by half a pixel at 375px because `max-width: 90%` caps a content box that then adds 34px of padding and border (#779). The second is the whole of the 336-vs-335 residual in the table above; every element carrying the long token measures `scrollWidth === clientWidth`.
+
+### Fixed
+
+- Preview-error prose now renders in the admin UI font on all three error-step states, not only `pp-ai-step-failed`, while `raw_error` and the declared-slot list keep monospace (#662).
+- A 256-character slot name now wraps inside the card instead of pushing a horizontal scrollbar across the whole conversation, in both the message and the technical-details disclosure (#666).
+
+### Tests
+
+- `tests/e2e/ai-chat.spec.ts` — three rendered cases, one per arm of `ppChatGetErrorStepClass()`, each reached through its own error payload rather than by writing the class name onto the step. Assert computed `font-family` per element, that the failed card keeps its red and 13px through the rule split, and that neither the message nor the disclosure body overflows at 375px.
+- `tests/js/pp-ai-chat-error-card-typography.test.js` — source tripwires for enumeration drift: the set of classes `ppChatGetErrorStepClass()` can return must equal the set of states carrying the font reset, in both directions, so a fourth error class cannot ship rendering monospace prose on a state no fixture exercises.
+
 ## [v1.16.2] — 2026-08-25 — A rejected style slot names what you typed and what the component has, in 273 characters instead of 11,309 (#661)
 
 **The one part of a failed preview the chat card cannot collapse is now the smallest part of it.** When the AI proposed a style setting a component doesn't declare, `_pp_build_friendly_error()`'s no-hint branch built its `user_message` by concatenating the DESCRIPTION of every slot the component declares. Those descriptions are full sentences carrying multi-clause caveats about hover fallbacks and breakpoints. On `hero`, which declares 49 slots, that measured **11,309 characters**, and `ppChatRenderPreviewError()` writes `user_message` into `.pp-ai-preview-error-message` unconditionally — no disclosure, no clamp. At 375px one failed step buried the Apply/Cancel row under many screens of prose.

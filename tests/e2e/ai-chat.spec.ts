@@ -444,3 +444,245 @@ test.describe('AI Chat — streaming & apply (mock SSE)', () => {
     ).toBeVisible({ timeout: 10000 });
   });
 });
+
+/**
+ * Preview-error card typography and overflow (#662, #666).
+ *
+ * The rendered half of the contract. tests/js/pp-ai-chat-error-card-typography.test.js
+ * scans the source for enumeration drift; only a browser can answer the question those
+ * two issues actually asked, because both defects are CASCADE facts, not source facts.
+ *
+ * The DOM this depends on, and why the font reset has to land on the CONTAINER rather
+ * than on the prose children, is diagrammed once in assets/css/pp-ai-chat.css, above the
+ * `.pp-ai-step-diff` font reset. Not restated here: two live copies of one renderer's
+ * shape drift apart independently.
+ *
+ * The short version, because it is what these assertions turn on: #662's own proposed
+ * fix (`font-family: inherit` on the message) does not work, because `inherit` resolves
+ * against `.pp-ai-step-diff` — the monospace being escaped. A computed-style assertion
+ * is the only thing that can tell the working fix from the broken one; a source scan
+ * sees a `font-family` declaration on the message either way and calls it fixed.
+ *
+ * Every case here drives the REAL renderer through the REAL stylesheet: the payloads go
+ * in through the mocked `pp_ai_preview` response exactly as the server would send them,
+ * and `ppChatGetErrorStepClass()` picks the step class itself.
+ */
+test.describe('AI Chat — preview-error card typography and overflow (#662, #666)', () => {
+  let pageId: number;
+
+  test.afterEach(async () => {
+    if (pageId) {
+      try {
+        deletePage(pageId);
+      } catch {
+        /* already cleaned */
+      }
+      pageId = 0;
+    }
+  });
+
+  // PP_REFLECTED_NAME_MAX (lib/ai-chat.php) bounds a reflected name at 256 characters,
+  // and _pp_clean_reflected_text() strips \p{Cc}\p{Cf} — newlines included — so this is
+  // the longest unbroken run the disclosure can actually be asked to render. It is
+  // interpolated into user_message AND raw_error, because since #661 the sentence
+  // samples slot names too, so both elements carry a token with nothing to break on.
+  const LONG_SLOT = `--hero-${'x'.repeat(249)}`;
+
+  /**
+   * The three arms of ppChatGetErrorStepClass(), each reached by its own payload
+   * rather than by writing the class name onto the step from the test — the mapping
+   * from error code to class is part of what is being pinned.
+   */
+  const CASES = [
+    {
+      label: 'fixable (a mistyped slot name — the common landing state since #625)',
+      stepClass: 'pp-ai-step-fixable',
+      isRed: false,
+      payload: {
+        error_code: 'invalid_style_slot',
+        user_message: `I tried to set "${LONG_SLOT}" on the hero component, but it doesn't support that style setting. The full list is in the details below.`,
+        alternatives: ['--hero-bg', '--hero-heading-color'],
+        cross_component_hints: { '--grid-gap': { component: 'grid', slot: '--grid-gap', match: 'exact' } },
+        raw_error: `Component "hero" has no style slot "${LONG_SLOT}".`,
+      },
+    },
+    {
+      label: 'impossible (the component declares no style slots at all)',
+      stepClass: 'pp-ai-step-impossible',
+      isRed: false,
+      payload: {
+        error_code: 'no_style_slots',
+        user_message: `The nav component doesn't support style customization, so "${LONG_SLOT}" has nowhere to go.`,
+        alternatives: [],
+        raw_error: `Component "nav" declares no style slots; rejected "${LONG_SLOT}".`,
+      },
+    },
+    {
+      label: 'failed (the default arm — an error code the class reader does not know)',
+      stepClass: 'pp-ai-step-failed',
+      isRed: true,
+      payload: {
+        error_code: 'some_unmapped_error',
+        user_message: `Something went wrong applying "${LONG_SLOT}".`,
+        alternatives: [],
+        raw_error: `Unmapped failure for "${LONG_SLOT}".`,
+      },
+    },
+  ];
+
+  for (const c of CASES) {
+    test(`#662/#666 ${c.label}: prose reads as prose, raw_error stays monospace, nothing overflows at 375px`, async ({
+      page,
+    }) => {
+      // 375px is the stress width: the card is capped at max-width 90% of the message
+      // pane, so this is where an unbreakable token has the least room to fit.
+      await page.setViewportSize({ width: 375, height: 800 });
+
+      pageId = createPage('E2E Chat Preview Error Typography');
+      await gotoChat(page, pageId);
+      await mockStream(page, [
+        {
+          done: true,
+          proposal: {
+            steps: [
+              {
+                type: 'action',
+                name: 'style_component',
+                description: 'Set a style on the hero',
+                params: { post_id: pageId, component_index: 0, style: { [LONG_SLOT]: 'red' } },
+              },
+            ],
+          },
+        },
+      ]);
+      await mockAjax(page, {
+        pp_ai_preview: () => ({ success: false, data: c.payload }),
+      });
+
+      await page.fill('#pp-ai-input', 'Change a style');
+      await page.click('#pp-ai-send');
+
+      const step = page.locator(`.pp-ai-proposal-step.${c.stepClass}`);
+      await expect(step).toBeVisible({ timeout: 10000 });
+
+      const message = step.locator('.pp-ai-preview-error-message');
+      const detailBody = step.locator('.pp-ai-preview-error-detail > div');
+      const summary = step.locator('.pp-ai-preview-error-detail summary');
+      await expect(message).toBeVisible();
+      await expect(summary).toBeVisible();
+
+      // Open the disclosure before measuring anything. Chromium leaves a closed
+      // <details>'s content out of an ancestor's scrollWidth, so with it shut the pane
+      // measurement below would be answered by `user_message` alone and would stay
+      // green with the disclosure body's wrap deleted. Open is also the state #666 was
+      // filed about: the author expands the technical details, and the pane grows a
+      // scrollbar.
+      await step
+        .locator('details.pp-ai-preview-error-detail')
+        .evaluate((d: HTMLDetailsElement) => {
+          d.open = true;
+        });
+      await expect(detailBody).toBeVisible();
+
+      const fontOf = (loc: ReturnType<typeof page.locator>) =>
+        loc.evaluate((el) => getComputedStyle(el).fontFamily);
+
+      // ── #662: prose in the UI font, machine text in monospace ──────────────
+      // Asserted RELATIONALLY, against the step's own font, rather than by looking for
+      // the word "monospace" in the computed stack. Two reasons. The admin font is
+      // WordPress's to choose and changes between releases, so no literal stack can be
+      // hardcoded. And a stack that is monospace WITHOUT saying so — `Consolas`,
+      // `Menlo`, `Courier New`, `ui-monospace` — would sail past a `/monospace/` regex
+      // while the prose rendered exactly as wrongly as before. The step container is
+      // outside the diff element's monospace, so it IS the admin font by construction:
+      // prose must equal it, machine text must not.
+      const stepFont = await step.evaluate((el) => getComputedStyle(el).fontFamily);
+      expect(await fontOf(message), `${c.stepClass}: the message reads as prose`).toBe(stepFont);
+      expect(await fontOf(summary), `${c.stepClass}: the disclosure label reads as prose`).toBe(stepFont);
+      expect(await fontOf(detailBody), `${c.stepClass}: raw_error reads as code`).not.toBe(stepFont);
+      // ...and specifically the monospace this stylesheet declares for it.
+      expect(await fontOf(detailBody), `${c.stepClass}: raw_error keeps its own monospace`).toMatch(
+        /monospace/,
+      );
+
+      // The hint is prose by the same construction, and only rendered when the payload
+      // carries cross_component_hints. Its font is pinned but not its wrap: the only
+      // value it interpolates is `hint.component`, a registered component name from the
+      // theme's own registry, so it cannot carry the unbounded reflected token #666 is
+      // about the way the message and the disclosure body can.
+      if (await step.locator('.pp-ai-preview-error-hint').count()) {
+        expect(
+          await fontOf(step.locator('.pp-ai-preview-error-hint')),
+          `${c.stepClass}: the cross-component hint reads as prose`,
+        ).toBe(stepFont);
+      }
+
+      // ── #662 regression guard: the rule split must not move the failed palette ──
+      // Widening the original rule (instead of splitting out only the font-family)
+      // would have painted the grey and amber cards red.
+      const diffColor = await step
+        .locator('.pp-ai-step-diff')
+        .evaluate((el) => getComputedStyle(el).color);
+      if (c.isRed) {
+        expect(diffColor, 'the failed card keeps its red').toBe('rgb(214, 54, 56)');
+        expect(
+          await step.locator('.pp-ai-step-diff').evaluate((el) => getComputedStyle(el).fontSize),
+        ).toBe('13px');
+      } else {
+        expect(diffColor, `${c.stepClass} must not inherit the failed card's red`).not.toBe(
+          'rgb(214, 54, 56)',
+        );
+      }
+
+      // ── #666: the long token wraps instead of widening the pane ────────────
+      // The contract, asserted exactly: the two elements that carry the 256-char token
+      // must contain it. This is the part of #666 that is about wrapping, and it is
+      // strict — scrollWidth may not exceed clientWidth by so much as a pixel.
+      for (const [name, loc] of [
+        ['message', message],
+        ['disclosure body', detailBody],
+      ] as const) {
+        const box = await loc.evaluate((el) => ({
+          scrollWidth: el.scrollWidth,
+          clientWidth: el.clientWidth,
+        }));
+        expect(box.scrollWidth, `${c.stepClass}: the ${name} wraps the long slot name`).toBeLessThanOrEqual(
+          box.clientWidth,
+        );
+      }
+
+      // And the consequence #666 actually complained about: the token no longer drags
+      // a horizontal scrollbar across the whole conversation. Before the fix this
+      // measured 1657 against a 359px pane at this viewport.
+      //
+      // One pixel of slack, and it is a measured allowance rather than a fudge factor.
+      // `.pp-ai-proposal-card` is `box-sizing: content-box` with `max-width: 90%` plus
+      // 16px of padding and a 1px border on each side, so once its content reaches the
+      // cap its BORDER box is 90% + 34px — 335.5px inside a 335px pane at 375px wide.
+      // That half pixel is the card's box model, not this token: every element from the
+      // step inward measures 275/275 here, and the same card overflows by the same
+      // amount for any content that reaches the cap. Filed as #779.
+      const paneWidths = () =>
+        page.locator('.pp-ai-chat-messages').evaluate((el) => ({
+          scrollWidth: el.scrollWidth,
+          clientWidth: el.clientWidth,
+        }));
+      const pane = await paneWidths();
+      expect(
+        pane.scrollWidth,
+        `${c.stepClass}: the chat pane must not scroll horizontally (${pane.scrollWidth} vs ${pane.clientWidth})`,
+      ).toBeLessThanOrEqual(pane.clientWidth + 1);
+
+      // At a width where the card's 90% cap leaves room for its own 34px of chrome, the
+      // #779 allowance does not apply and the pane must be exactly clean. Without this,
+      // the suite would never assert zero overflow anywhere, and #779's half pixel could
+      // grow to a whole one with nothing noticing.
+      await page.setViewportSize({ width: 1280, height: 800 });
+      const widePane = await paneWidths();
+      expect(
+        widePane.scrollWidth,
+        `${c.stepClass}: no horizontal overflow at 1280px (${widePane.scrollWidth} vs ${widePane.clientWidth})`,
+      ).toBeLessThanOrEqual(widePane.clientWidth);
+    });
+  }
+});
