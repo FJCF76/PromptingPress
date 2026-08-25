@@ -4,6 +4,58 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.16.8] — 2026-08-25 — The FAQ's structured data stops publishing damage the page refuses to show (#742)
+
+**A damaged FAQ answer rendered as an empty accordion row and then told search engines the answer was the word "Array". The schema helper now guards its own reads, so a damaged entry is skipped exactly as a stored-empty one always was — and an object-valued answer no longer 500s the page on the way there. This retires the known issue carried in the v1.16.0 release notes.**
+
+`pp_render_faq_schema()` does not receive the values it encodes. It receives the whole `items` array and re-reads each entry's `question` and `answer` itself, with its own `(string)` cast and its own array-offset read. Those are language constructs, not typed calls and not core escapers, so every guard the faq component applies stops short of them: #739 guards the `items` CONTAINER at the read, #730 guards each entry's `answer` before it reaches `wp_kses_post()`, and neither reaches inside this function. The result was a page whose two halves disagreed on every request. The visible accordion degraded correctly — the damaged answer rendered as an empty row — while the machine-readable payload beneath it published `"text":"Array"` to anyone crawling the page. That is the half nobody looks at, which is why it survived two guards landing on the same prop.
+
+The object case was louder and rarer. `(string)` on an object with no `__toString()` throws, `templates/composition.php` calls `pp_get_component()` with no try/catch, and so a single object-valued answer anywhere in a stored composition was a whole-page 500 for every visitor.
+
+### Fixed
+
+- **A damaged question or answer is now skipped by the rule that already skipped empty ones (#742).** `is_scalar($raw) ? (string) $raw : ''` on both values, then the function's PRE-EXISTING `if ($question === '' || $answer === '')` does the rest. No new skip rule was written for the values, and that is the point rather than a tidiness note: "a damaged value is treated exactly as a stored-empty one" is true because it travels the same line of code, not because two rules were kept in agreement by hand. `is_scalar` and NOT `is_string`, per the ratified #641/#705 idiom — PHP runs coercive here, so only non-scalars ever fataled, and `is_string` would silently drop a stored `42` / `3.14` / `true`. Those are not values the front door still accepts (#707 narrowed `type: string` to `is_string()` at both depths), they are values it accepted BEFORE #707 that still have to render: a pre-#707 composition, a `restore_composition` snapshot (#233, which reports without blocking), a raw `_pp_composition` meta write.
+
+- **An object-valued answer no longer takes the page down. Before:** `Error: Object of class stdClass could not be converted to string`, uncaught, HTTP 500 for the whole page. **After:** the entry degrades out of the schema, the accordion renders its question with an empty answer, and the rest of the page is untouched.
+
+- **An array-valued question or answer no longer reaches the payload. Before:** `"name":"Array"` / `"text":"Array"` inside the `<script type="application/ld+json">` block served to search engines. **After:** the value degrades to empty, the entry is skipped, and the literal word `Array` cannot appear in the emitted JSON-LD at all — asserted against the payload specifically, since an assertion that only checked the page still rendered would pass against a version that had gone back to emitting it.
+
+- **A non-array ENTRY is skipped before the offset read that used to fatal on it.** `if (!is_array($item)) continue;` — an object entry threw `Cannot use object of type X as array` at `$item['question']`, before any cast ran, so the value guards alone would not have closed it. A scalar entry was already harmless (`??` suppresses the read) and is skipped identically, so nothing else moves. `ArrayAccess` is rejected along with every other object, deliberately and for the same reason `is_scalar` rejects `Stringable`: an offset read that runs arbitrary userland code during a public render is not the decoded-composition shape this contract describes.
+
+### The coherence contract this lands
+
+Stated as the invariant, because it is what the fix is for and it is narrower than "the two halves agree":
+
+> **The JSON-LD never publishes text the accordion suppressed as damaged.** A `question` or `answer` that is not a scalar degrades to `''` at the schema boundary and is skipped by the empty-value rule, which is the same outcome a stored-empty value has always produced on both sides. When every entry degrades out, `$entities` is empty and NO `<script>` fragment is emitted at all — not an empty `FAQPage` shell — which is the state #739 already landed for a malformed `items` container. Both directions are pinned: the degraded entry, and the all-degraded band.
+
+Well-formed data is byte-identical. Every scalar that can be stored at these keys — including `42`, `3.14`, `true`, `'0'`, and `-0.0` — emits exactly the bytes it emitted before, asserted as whole-string equality against the expected `<script>` payload rather than against decoded values, so a change in the wrapper, the key order, or `wp_json_encode()`'s slash escaping cannot slip through. (`-0.0` does not flip here: that trap needs a cast meeting a truthiness gate, and this comparison is `=== ''`.)
+
+### Scope boundaries
+
+The guard is the schema helper's, and the coherence claim is scoped to it. Three sibling instances of the same defect class are untouched and stay open: **#721** (`hero.proof`, `trim((string) $proof)` — both its array and object halves), **#740** (object-valued style-slot maps), and **#736** (`esc_html()` coercion painting `Array` as a heading on logos/table/embed).
+
+Two divergences between the accordion and the payload survive this change, both measured, both pinned as tests that fail when someone closes them, and both filed rather than fixed here because each is a separate ruling on someone else's boundary:
+
+- **#802** — faq's own VISIBLE loop reads `items[].question` unguarded into `esc_html()`. An object question, and an object entry, still 500 the page there — *upstream* of this call, so guarding the helper could not flip them at page level. An array question still paints the literal `Array` in the accordion summary while the payload beneath it is now clean. That is the #736 class in a component #736's body does not list.
+- **#803** — the accordion gates on truthiness (`if (!$question)`) while the helper compares `=== ''`, so a `'0'` or `0` question renders no row but is still described in the JSON-LD. Pre-existing, unrelated to damaged data, and reachable through the ordinary write path rather than through corrupt storage.
+
+**Correction to the filed issue.** #742's body measured five failing shapes as though all five were reachable through the composition render loop. Three are (`answer` object, `answer` array, `question` array); the other two (`question` object, entry object) fatal upstream in the visible loop and are observable at this boundary only by calling the helper directly. The docblock and the tests now record which is which, so the fix is not read as making a page-level guarantee it does not make.
+
+Also filed while working here, both outside this change: **#800** (`_pp_component_is_empty()`'s faq and logos arms throw on an object entry, so `wp pp check page` and `restore_composition`'s findings die on the corruption they exist to report — the render path now survives what the diagnostic path does not) and **#801** (the `wp_strip_all_tags()` test stub omits core's trailing `trim()`, its script/style content strip, and its untyped non-scalar contract).
+
+### Docs
+
+- `AI_CONTEXT.md`, `components/faq/schema.json` and `components/faq/README.md` all claimed the component "always emits" a FAQPage block. It has never been unconditional — an entry with no question was always skipped — and this change adds a second way to reach the no-fragment state. All three now describe the skip and the empty state, moved together as that schema's `do_not_touch` rule requires.
+- `docs/AI_IMPLEMENTATION_RECIPES.md` framed the guard obligation entirely around component reads feeding `esc_url()` / `wp_kses_post()`. It now names the third boundary this issue is: a shared `lib/` helper that RE-READS a prop it was handed sits downstream of every component guard, and both `InvariantTest` drift catchers scan `components/` only, so nothing fails the build when one drifts — the pin has to be behavioural.
+
+### Tests
+
+- `tests/StoredLinkAndRichTextRenderGuardTest.php` — the two "still broken" pins are flipped in place rather than deleted, so the file records that the leak and the fatal were real and are now closed. Three faq exemptions are gone from the shared sweeps, which is the stronger result: the array case now passes the same "no literal `Array` anywhere on the page" assertion every sibling surface passes, and the byte-identical-to-a-clean-control comparison now covers faq too, across the accordion markup and the schema fragment together. New coverage for the object answer through the serialized-meta channel, the object entry, a mixed list where one good entry survives three damaged siblings, the all-degraded empty state through both storage channels, and the two surviving divergences above.
+- `tests/ComponentPropsTest.php` — the helper's own unit-level skip contract, beside the existing incomplete-item cases.
+- Verified by mutation in a COPIED tree: narrowing `is_scalar` to `is_string` reddens the scalar byte comparison, deleting the element guard reddens the object-entry pins, deleting the value guards reddens the leak and fatal pins, and degrading to a placeholder instead of `''` reddens the empty-state pins. Two tests were rewritten during review because they proved less than their names claimed — a by-value "does not rewrite" assertion that no implementation could fail (now a reflection pin on the signature, since the by-value parameter is what actually carries the property), and a residual pin whose `expectException` ended the method before its second case ran.
+
+---
+
 ## [v1.16.7] — 2026-08-25 — The chat stops promising a clean revert it never checked (#755)
 
 **"All changes in this proposal have been reverted" was printed without ever reading the channel that says whether they were. Now the rollback report decides what the chat claims, and names every page and menu that stayed dirty.**
