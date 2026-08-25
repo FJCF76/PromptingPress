@@ -187,6 +187,136 @@ function _pp_cli_reject_positional_page_arg(array $args, array $assoc_args = [])
 WP_CLI::add_hook('before_run_command', '_pp_cli_reject_positional_page_arg');
 
 /**
+ * THE machine-readable stdout sink: every JSON document this file prints (#717).
+ *
+ * Before #717 each of the 29 emit sites called `json_encode()` inline with a
+ * hand-maintained flag list, and two defects rode on all of them.
+ *
+ *  1. NOTHING CHECKED THE RETURN. `json_encode()` answers `false` — not a
+ *     string — on malformed UTF-8, on nesting past 512, on recursion, on
+ *     INF/NAN. `WP_CLI::line(false)` prints an EMPTY LINE, and on the write
+ *     paths the very next branch still runs `WP_CLI::success(...)`. The caller
+ *     got a blank line plus a success message and lost `ok`, `error_code`,
+ *     `composition_version`, `changes` and `findings` for a mutation that had
+ *     ALREADY PERSISTED. Measured, and reachable without any raw
+ *     `_pp_composition` write: `update_site_option` reports `changes[].from`
+ *     read straight out of the DB, so one bad byte in a legacy/imported option
+ *     value destroys the receipt of a write that landed.
+ *
+ *  2. `JSON_UNESCAPED_UNICODE` handed the terminal raw U+202E (RLO), U+2066
+ *     and U+200B out of stored component names, slot names and prop values.
+ *     The read-only diagnostics path already refused to do that
+ *     (_pp_cli_finding_line / _pp_cli_printable below), and `operate patch`
+ *     already omitted the flag — the surfaces disagreed with each other.
+ *
+ * THE FLAGS, and why this set. `JSON_INVALID_UTF8_SUBSTITUTE` turns a bad byte
+ * into U+FFFD instead of destroying the document: the envelope still names the
+ * action, the error code and the version, and the damaged span is visible
+ * rather than silent. Dropping `JSON_UNESCAPED_UNICODE` is the SINK-level half
+ * of the bidi defense and is LOSSLESS: the escape `\u202e` decodes back to the
+ * very same string in any JSON parser, while the emitted bytes stay printable
+ * ASCII, so nothing the terminal acts on survives. Stripping the characters
+ * instead (the other option #717 floated) would destroy content the operator
+ * cannot recover, and bounding what a MESSAGE reflects is a separate recorded
+ * axis (#647/#649) — this function is the SINK, not the message.
+ *
+ * Two ranges JSON does not settle on its own, so this does. Control characters
+ * below U+0020 were never at risk: JSON escapes those unconditionally, whatever
+ * the flags say, so an ANSI `ESC` has always arrived as the escape `\u001b`.
+ * `DEL` (U+007F) is the exception — a control character JSON leaves alone,
+ * which dropping `JSON_UNESCAPED_UNICODE` does not touch either, so it is
+ * escaped explicitly below. That replace is byte-level and stays correct even
+ * under `$raw_unicode`: 0x7F cannot occur inside a UTF-8 multi-byte sequence.
+ *
+ * `$raw_unicode` is the ONE documented deviation, and `wp pp schema` is its only
+ * caller — both of its emits: `pp_component_schema_index()` and
+ * `pp_component_schema_report()` (`lib/operate.php`). That surface prints shipped
+ * `schema.json` prose (em dashes, typographic quotes) for an agent that cannot
+ * open the file, and BOTH builders walk `pp_get_registered_components()` and
+ * nothing else. State the rule for future callers precisely, because the loose
+ * version ("it does not read the database") claims more than actually holds: the
+ * payload must derive SOLELY FROM FILES UNDER THE THEME ROOT, whose integrity is
+ * `wp pp integrity check`'s job. Anything that can reach an option, a post meta
+ * or a request does not qualify. The count of `true` call sites is pinned in
+ * tests/InvariantTest.php, so widening this is a deliberate act, not a quiet one.
+ *
+ * FAIL PATH. When the encode still fails — the classes SUBSTITUTE cannot fix
+ * — emit a MINIMAL document rather than a blank line: every top-level value
+ * that is still encodable, plus `envelope_error` naming the encoder's own
+ * reason, plus `omitted_keys` naming what did NOT survive.
+ *
+ * `omitted_keys` is what keeps the fallback honest. `changes` and `findings` are
+ * containers, so they are exactly what a failing document drops — and a
+ * consumer reading `$r['findings'] ?? []` beside a surviving `ok: true` would
+ * otherwise read a clean bill of health for diagnostics that were never encoded.
+ * That is the trap `findings_skipped` exists to close on the write path ("a skip
+ * is not a clean bill of health"): an absent key here means UNKNOWN, and this
+ * field is what says so. Salvaging by TYPE rather than from a list of known field
+ * names is deliberate as well — every surface in this file has its own verdict
+ * field (`ok`, `valid`, `ready`, `status`, `classification`, `has_drift`), and a
+ * hand-maintained list would silently stop covering the next one added.
+ *
+ * Nothing may escape this function. The fail path runs inside a `try` whose
+ * `catch` still prints the pure-ASCII literal: a sink whose whole purpose is that
+ * a landed write never loses its receipt must not be able to throw one away.
+ *
+ * @param mixed $data         The document to print. Every caller passes an array.
+ * @param bool  $raw_unicode  True only for `wp pp schema` (see above).
+ */
+function _pp_cli_emit_json($data, bool $raw_unicode = false): void {
+    $flags = JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE;
+    if ($raw_unicode) {
+        $flags |= JSON_UNESCAPED_UNICODE;
+    }
+
+    $json = json_encode($data, $flags);
+    if ($json !== false) {
+        WP_CLI::line(str_replace("\x7f", '\\u007f', $json));
+        return;
+    }
+
+    try {
+        $reason  = json_last_error_msg();
+        $minimal = [];
+        $omitted = [];
+
+        // Keep every top-level value that can still be encoded, and NAME the rest.
+        // INF/-INF/NAN are scalar and JSON cannot encode them, so the finite check is
+        // load-bearing: one of them copied across would fail this second encode too and
+        // drop the report to the bare literal, which carries no verdict at all — the
+        // original bug, rebuilt inside its own fix.
+        if (is_array($data)) {
+            foreach ($data as $key => $value) {
+                if ($value === null || is_bool($value) || is_string($value) || is_int($value)
+                    || (is_float($value) && is_finite($value))) {
+                    $minimal[$key] = $value;
+                } else {
+                    $omitted[] = (string) $key;
+                }
+            }
+        }
+
+        $minimal['envelope_error'] = 'This document could not be encoded as JSON ('
+            . $reason . '). The fields above are the ones that survived. A key listed in '
+            . 'omitted_keys is UNKNOWN, not empty — do not read an absent "findings" or '
+            . '"changes" as a clean result. Any write reported here has already been '
+            . 'applied or refused; re-read the target to see its current state.';
+        $minimal['omitted_keys'] = $omitted;
+
+        $json = json_encode($minimal, $flags);
+        if ($json !== false) {
+            WP_CLI::line(str_replace("\x7f", '\\u007f', $json));
+            return;
+        }
+    } catch (\Throwable $e) {
+        // Fall through to the literal. Reporting a lost envelope must never be the
+        // thing that loses it.
+    }
+
+    WP_CLI::line('{"envelope_error":"This document could not be encoded as JSON. Re-read the target to see its current state."}');
+}
+
+/**
  * Reports a preflight whose checks passed but whose state could not be
  * recorded (#227). Every post-check failure exit in `apply preflight` goes
  * through here so the single emit path keeps the JSON contract fail-closed:
@@ -201,7 +331,7 @@ WP_CLI::add_hook('before_run_command', '_pp_cli_reject_positional_page_arg');
 function _pp_cli_preflight_record_failed(array $result, string $message): void {
     $result['ok']    = false;
     $result['error'] = $message;
-    WP_CLI::line(json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+    _pp_cli_emit_json($result);
     WP_CLI::error($message);
 }
 
@@ -555,12 +685,12 @@ class PP_Action_Command extends WP_CLI_Command {
         $result = pp_preview_action($name, $params);
 
         if (is_wp_error($result)) {
-            WP_CLI::line(json_encode(['ok' => false, 'error' => $result->get_error_message()], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+            _pp_cli_emit_json(['ok' => false, 'error' => $result->get_error_message()]);
             WP_CLI::halt(1);
             return;
         }
 
-        WP_CLI::line(json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+        _pp_cli_emit_json($result);
     }
 
     /**
@@ -618,7 +748,7 @@ class PP_Action_Command extends WP_CLI_Command {
                 // WP_Error keeps this path fail-closed and pure. halt(1) preserves the
                 // non-zero exit the old WP_CLI::error produced.
                 $result = _pp_action_validation_error_envelope($name, $validation);
-                WP_CLI::line(json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+                _pp_cli_emit_json($result);
                 WP_CLI::halt(1);
                 return;
             }
@@ -638,7 +768,7 @@ class PP_Action_Command extends WP_CLI_Command {
 
         $result = pp_execute_action($name, $params);
 
-        WP_CLI::line(json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+        _pp_cli_emit_json($result);
 
         if ($result['ok']) {
             // Refresh the freshness baseline (#113) so this run's own next mutation on the
@@ -688,7 +818,7 @@ class PP_Target_Command extends WP_CLI_Command {
             }
         }
 
-        WP_CLI::line(json_encode($target, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+        _pp_cli_emit_json($target);
 
         if (!empty($warnings)) {
             WP_CLI::warning('Could not resolve: ' . implode(', ', $warnings) . '. Verify WordPress is fully loaded.');
@@ -756,10 +886,10 @@ class PP_Schema_Command extends WP_CLI_Command {
         // is a typo, not an omission. The builder's refusal names all twelve, which is
         // more useful than silently printing the index.
         if (!isset($args[0])) {
-            WP_CLI::line(json_encode(
-                ['components' => pp_component_schema_index()],
-                JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE
-            ));
+            // `true` = keep literal non-ASCII. Same rationale as the report emit below,
+            // and the same reason it is safe here: pp_component_schema_index() walks the
+            // shipped component registry only.
+            _pp_cli_emit_json(['components' => pp_component_schema_index()], true);
             return;
         }
 
@@ -768,15 +898,15 @@ class PP_Schema_Command extends WP_CLI_Command {
             WP_CLI::error($report->get_error_message());
         }
 
-        // JSON_UNESCAPED_UNICODE matches the other report emitters in this file. Schema
-        // descriptions and conditionality notes are full of em dashes and typographic
-        // quotes, and without this flag every one of them arrives as a numeric \u escape.
-        // A surface whose whole point is being read as prose by an agent that cannot open
-        // schema.json should hand it the characters, not their codepoints.
-        WP_CLI::line(json_encode(
-            $report,
-            JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE
-        ));
+        // The `$raw_unicode` argument is the ONE deviation from the escaped-by-default
+        // sink (#717), and this command is its only caller. Schema descriptions and
+        // conditionality notes are full of em dashes and typographic quotes, and without
+        // it every one of them arrives as a numeric \u escape. A surface whose whole point
+        // is being read as prose by an agent that cannot open schema.json should hand it
+        // the characters, not their codepoints. It is safe here for a reason that has to
+        // keep holding: pp_component_schema_report() reads the shipped component registry
+        // and nothing else, so no stored byte an operator never validated reaches it.
+        _pp_cli_emit_json($report, true);
     }
 }
 
@@ -859,12 +989,12 @@ class PP_Apply_Command extends WP_CLI_Command {
         $result = pp_preview_apply($name, $params);
 
         if (is_wp_error($result)) {
-            WP_CLI::line(json_encode(['ok' => false, 'error' => $result->get_error_message()], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+            _pp_cli_emit_json(['ok' => false, 'error' => $result->get_error_message()]);
             WP_CLI::halt(1);
             return;
         }
 
-        WP_CLI::line(json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+        _pp_cli_emit_json($result);
     }
 
     /**
@@ -906,7 +1036,7 @@ class PP_Apply_Command extends WP_CLI_Command {
 
         $result = pp_execute_apply($name, $params);
 
-        WP_CLI::line(json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+        _pp_cli_emit_json($result);
 
         if (!$result['ok']) {
             WP_CLI::halt(1);
@@ -1061,7 +1191,7 @@ class PP_Apply_Command extends WP_CLI_Command {
             WP_CLI::error('Run "' . $run_id . '" has no usable touched-post record; cannot revert compositions. The run state may be missing, expired, corrupt, or from a different site. Nothing was changed.');
         }
 
-        WP_CLI::line(json_encode($report, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+        _pp_cli_emit_json($report);
 
         $skipped  = count($report['skipped']);
         if ($skipped > 0) {
@@ -1142,7 +1272,7 @@ class PP_Apply_Command extends WP_CLI_Command {
             $result = pp_execute_apply('reset_all_design_tokens', []);
         }
 
-        WP_CLI::line(json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+        _pp_cli_emit_json($result);
 
         if (!$result['ok']) {
             WP_CLI::halt(1);
@@ -1225,7 +1355,7 @@ class PP_Apply_Command extends WP_CLI_Command {
         if (!$result['ok']) {
             // Error-grade check failed: report the checks and stop. Nothing is
             // recorded, so downstream gates stay closed.
-            WP_CLI::line(json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+            _pp_cli_emit_json($result);
             WP_CLI::halt(1);
         }
 
@@ -1302,7 +1432,7 @@ class PP_Apply_Command extends WP_CLI_Command {
             _pp_cli_preflight_record_failed($result, _pp_cli_preflight_record_failed_message($run_id, pp_operate_run_status($run_id)));
         }
 
-        WP_CLI::line(json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+        _pp_cli_emit_json($result);
     }
 }
 
@@ -1571,7 +1701,7 @@ class PP_Check_Command extends WP_CLI_Command {
 
         $result = pp_classify_surface($path);
 
-        WP_CLI::line(json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+        _pp_cli_emit_json($result);
 
         if ($result['classification'] === 'core') {
             WP_CLI::warning('Core file — do not edit directly.');
@@ -1769,7 +1899,7 @@ class PP_Operate_Command extends WP_CLI_Command {
         }
 
         $result['run_id'] = $run_id;
-        WP_CLI::line(json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+        _pp_cli_emit_json($result);
     }
 
     /**
@@ -1794,7 +1924,7 @@ class PP_Operate_Command extends WP_CLI_Command {
             WP_CLI::error("Unknown playbook '{$playbook}'. Available: {$available}");
         }
 
-        WP_CLI::line(json_encode($checklists[$playbook], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+        _pp_cli_emit_json($checklists[$playbook]);
     }
 
     /**
@@ -1818,7 +1948,7 @@ class PP_Operate_Command extends WP_CLI_Command {
         }
 
         $result = pp_validate_loop_run($run);
-        WP_CLI::line(json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+        _pp_cli_emit_json($result);
 
         if (!$result['valid']) {
             WP_CLI::halt(1);
@@ -1859,7 +1989,7 @@ class PP_Operate_Command extends WP_CLI_Command {
             WP_CLI::error(_pp_cli_printable($result->get_error_message()));
         }
 
-        WP_CLI::line(json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+        _pp_cli_emit_json($result);
     }
 
     /**
@@ -1959,7 +2089,7 @@ class PP_Operate_Command extends WP_CLI_Command {
             }
         }
 
-        WP_CLI::line(json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+        _pp_cli_emit_json($result);
     }
 
     /**
@@ -2000,12 +2130,12 @@ class PP_Operate_Command extends WP_CLI_Command {
         }
         $rows = array_reverse($rows);
 
-        WP_CLI::line(json_encode([
+        _pp_cli_emit_json([
             'post_id' => $post_id,
             'max'     => pp_composition_history_max(),
             'count'   => $count,
             'entries' => $rows,
-        ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+        ]);
     }
 }
 
@@ -2056,7 +2186,7 @@ class PP_Screenshot_Command extends WP_CLI_Command {
             foreach ($specs as $spec) {
                 $results[] = pp_screenshot_capture($spec);
             }
-            WP_CLI::line(json_encode($results, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+            _pp_cli_emit_json($results);
             $any_failed = !empty(array_filter($results, fn($r) => !$r['ok']));
             if ($any_failed) {
                 WP_CLI::halt(1);
@@ -2085,7 +2215,7 @@ class PP_Screenshot_Command extends WP_CLI_Command {
         ];
 
         $result = pp_screenshot_capture($spec);
-        WP_CLI::line(json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+        _pp_cli_emit_json($result);
 
         if (!$result['ok']) {
             WP_CLI::halt(1);
@@ -2131,7 +2261,7 @@ class PP_Screenshot_Command extends WP_CLI_Command {
         // false, --probe sets it true, absent uses the default (true).
         $probe = (bool) \WP_CLI\Utils\get_flag_value($assoc_args, 'probe', true);
         $readiness = pp_screenshot_readiness($probe, true);
-        WP_CLI::line(json_encode($readiness, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+        _pp_cli_emit_json($readiness);
         if (!$readiness['ready']) {
             WP_CLI::halt(1);
         }
@@ -2246,7 +2376,7 @@ class PP_Sync_Command extends WP_CLI_Command {
             'manifest_release_version' => $manifest['release_version'] ?? null,
         ];
 
-        WP_CLI::line(json_encode($report, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+        _pp_cli_emit_json($report);
 
         if ($has_drift) {
             if (!empty($added)) {
@@ -2313,7 +2443,7 @@ class PP_Readiness_Command {
         $result   = pp_preflight([]);
         $findings = $result['findings'];
 
-        WP_CLI::line(json_encode($findings, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+        _pp_cli_emit_json($findings);
 
         $active = (int) ($findings['active_warnings'] ?? 0);
         $ack    = (int) ($findings['acknowledged'] ?? 0);
@@ -2473,7 +2603,7 @@ class PP_Integrity_Command {
         }
 
         // Print the result as formatted JSON.
-        WP_CLI::line(json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+        _pp_cli_emit_json($result);
 
         if ($result['status'] === 'safe') {
             WP_CLI::success('All theme files match the shipped manifest.');
@@ -2535,7 +2665,7 @@ class PP_Integrity_Command {
             ));
         }
 
-        WP_CLI::line(json_encode($option, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+        _pp_cli_emit_json($option);
     }
 }
 
