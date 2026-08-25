@@ -4,6 +4,90 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.16.5] — 2026-08-25 — The error card stops naming settings its own status bar calls impossible (#667)
+
+**One friendly-error payload is read by three things — the card, the step's colour, and the status sentence — and until now the card asked easier questions about it than the other two, so a malformed payload could print "Available slots: , [object Object]" under a grey step whose status bar said the change wasn't possible.** The card now reads that payload through the same predicates the classifiers use. A fragment whose shape they reject is dropped instead of drawn, so the three halves of the card cannot claim opposite things about the same object.
+
+### What was wrong
+
+`ppChatRenderPreviewError()` (`assets/js/pp-ai-chat.js`) read four fields with tests weaker than the ones a few lines below it:
+
+| field | what the classifiers require (#625) | what the renderer accepted |
+|---|---|---|
+| `alternatives` | an array holding at least one non-empty string | anything with `.length > 0` |
+| `cross_component_hints` | an object, explicitly not an array, with keys | `typeof === 'object'` (arrays pass) |
+| `raw_error` | not read by them | any truthy value |
+| `user_message` | not read by them | any truthy value |
+
+So `alternatives: ['']` printed an empty slot list, `[null, {a:1}]` printed `, [object Object]`, an ARRAY of hints printed a hint line, and a non-string `raw_error` or `user_message` printed `[object Object]` — every one of them under a step `ppChatGetErrorStepClass()` had painted `pp-ai-step-impossible` and a sentence reading "This change isn't possible with the current component settings."
+
+### The accepted-shape contract
+
+Derived from the sole producer, `_pp_build_friendly_error()` (`lib/ai-chat.php`), on every return path:
+
+- `alternatives` — a JSON array of `array_keys()` output: slot or recipe names, non-empty strings.
+- `cross_component_hints` — a JSON object keyed by rejected slot name, each value `{component, slot, match}`; `(object) []` on every branch that has no hint, never a list.
+- `raw_error` — a string, cleaned and bounded by `_pp_clean_reflected_text()`.
+- `user_message` — a string on every branch.
+
+Classifier side and renderer side now answer that contract from ONE place per field, rather than two tests that happen to agree today:
+
+```
+                    ppChatIsNonEmptyString(value)
+                              |
+        +---------------------+----------------------+
+        v                     v                      v
+ppChatSlotAlternatives   ppChatCrossComponentHints   raw_error / user_message gates
+   (the names)              (the drawable hints)
+        |                     |
+        v                     v
+ppChatHasSlotAlternatives   ppChatHasCrossComponentHint (unchanged)
+   = that list is non-empty
+        |
+        +--> step class + status sentence, reading the same list the card prints
+```
+
+### How it degrades
+
+A malformed fragment is dropped, never narrated — the card has no vocabulary for "the server sent something I could not read", and inventing one is a separate question (#664). A payload whose `user_message` is not text falls to the plain-string branch instead of heading the card with `[object Object]`. One consequence is worth naming: the two fields that OPEN the technical-details disclosure are the two that write lines into it, so the disclosure can no longer open holding nothing.
+
+`alternatives` arriving as a string rather than an array also stops throwing. `'--hero-bg'.join` is not a function, so that payload used to escape the renderer and land in #663's catch as a generic "could not be displayed" card, losing the answer the server actually sent.
+
+### Scope
+
+- **The plain-string branch is unchanged for strings.** Every caught render failure lands there carrying a bounded sentence (#663), and its tests inject throws through a stubbed `appendChild` precisely so they stay valid across this change.
+- **#775 is not decided here.** Whether a numeric or list-shaped slot map should count as naming settings — cast server-side, or widen the JS test — stays open. This change routes that question through a single predicate, so whichever way #775 lands, the card and the step class move together instead of needing two edits.
+- **#776 is untouched.** No bound was added to the joined `Available slots:` line.
+- **The server is byte-identical.** `_pp_build_friendly_error()` and `pp_rejected_slot_context()` are not touched.
+- **No new UI vocabulary.** No fourth error class, no new CSS.
+- **One disagreement survives, deliberately and pinned.** `ppChatHasCrossComponentHint()` still counts a hint map by its keys, so a map whose entries name nothing still paints the step fixable and still gets the "lives on a different component" sentence while the card now shows no hint at all. Printing "exists on the undefined component" instead would be a false claim, and tightening the classifier would move what #625 landed on the class and the sentence. Filed as #789.
+
+### Deviations from the filed issue
+
+The issue names `alternatives`, `cross_component_hints` and `raw_error`. Two shapes were guarded beyond that list, both for the same defect the issue describes: `user_message` (the card's headline, which rendered `[object Object]` for a non-string exactly as `raw_error` did) and the plain branch's `message` fallback. The `message` guard changes nothing a response can carry — `JSON.parse` cannot produce a String wrapper — so its only effect is turning `[object Object]` into "Preview failed".
+
+### Fixed
+
+- `alternatives` is rendered as the entries that are names, so a list of nulls, objects, empty strings, or numbers no longer prints an empty or `[object Object]` slot list under a step painted `pp-ai-step-impossible` (`assets/js/pp-ai-chat.js`).
+- `alternatives` arriving as something other than an array renders no line and, in particular, no longer throws — `'--hero-bg'.join` used to escape the renderer into #663's catch and lose the server's answer.
+- `cross_component_hints` given as an ARRAY draws no hint line, matching the `Array.isArray` rejection `ppChatHasCrossComponentHint()` has carried since #625.
+- A hint entry that is not a map naming a component and a slot contributes neither its visible line nor its `Available on X: slot` line, instead of printing "This setting exists on the undefined component."
+- A non-string `raw_error` contributes no line, and a payload whose `user_message` is not text falls to the plain-string branch rather than heading the card with `[object Object]`. The plain branch's own `message` fallback is held to the same test.
+- `ppChatHasSlotAlternatives()` now answers from the list the card prints (`ppChatSlotAlternatives()`), and the array-vs-map question is answered once (`ppChatIsPlainObject()`) instead of twice. Both are behavior-identical; they remove the places the readers could drift.
+
+### Docs
+
+- `AI_CONTEXT.md` records what the error card agrees to draw, alongside the classification rules #625 put there, including the one asymmetry left open (#789).
+
+### Tests
+
+- `tests/js/pp-ai-chat-proposal.test.js` gains 15 tests in a `renderPreviewError agrees with the classifiers about the payload` block. Each asserts all THREE readers — the drawn card, `getErrorStepClass()`, and `getStatusMessage()` — because the defect is not an ugly line, it is one card saying two opposite things; asserting the line alone would pass just as well if the renderer drew nothing at all.
+- Multi-hint payloads pin the contracts single-entry fixtures left open: the visible line names the FIRST renderable hint (the same entry the server's `reset()` names), and the disclosure lists hints in payload order.
+- Two tests pin behavior this change deliberately did NOT move, and say so: whitespace still counts as a name (that contract is #775's), and a hint alone still does not open the disclosure.
+- Every new pin was proven red against a tree with the guards removed, plus three targeted mutants (visible line naming the last hint, the hint loop reversed, the `slot` requirement dropped). All mutation runs happened in COPIED trees, per the repo's no-mutation-in-place rule.
+
+---
+
 ## [v1.16.4] — 2026-08-25 — One step's renderer breaking no longer costs the whole proposal its previews (#663)
 
 **A proposal card previewed its steps in one loop with no guard on it, so a throw on step 2 of 5 abandoned steps 3, 4 and 5 mid-flight and the card hung at "Loading preview…" forever, with nothing written anywhere to say why.** The steps kept their `pp-ai-step-executing` class and the placeholder text their rows were built with, the status message never ran, the Apply/Cancel row was never appended, and the rejection went nowhere. Now a throw costs exactly the step it happened in: that step shows the existing failed-step card naming the reason, every other step renders its preview, and the batch always reaches a terminal state.
