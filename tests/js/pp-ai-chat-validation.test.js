@@ -113,4 +113,29 @@ describe('appendValidationItems', function () {
         var details = container.querySelector('details');
         expect(details.className).toBe('pp-ai-preview-error-detail');
     });
+
+    /**
+     * THE POST-APPLY VALIDATION PATH IS BYTE-UNCHANGED BY #655.
+     *
+     * This renderer is shared. #655 made the RESTORE findings select their inline rows
+     * band-aware and print a `[type] index N: ` locator, but a post-apply validation item
+     * is not a finding: pp_post_apply_validate() (lib/post-apply-validate.php) emits
+     * {check, message} with no `type` and no `index`. Two regressions are possible and
+     * both are silent, so both are pinned here rather than left to the findings tests:
+     * pooling every locator-less item under one group would collapse a five-error list
+     * into ONE inline row, and a prefix built from a missing `type` would print `[]: `
+     * in front of every line.
+     */
+    test('an item with no locator still selects and renders exactly as before (#655)', function () {
+        var items = [];
+        for (var i = 1; i <= 7; i++) {
+            items.push({ check: 'composition_readback', message: 'Error ' + i });
+        }
+        appendValidationItems(container, items, 'pp-ai-step-failed');
+
+        expect(container.children.length).toBe(6); // 5 inline + the disclosure
+        expect(container.firstChild.textContent).toBe('Error 1');
+        expect(container.textContent).not.toContain('[');
+        expect(container.querySelector('details summary').textContent).toBe('Show 2 more errors');
+    });
 });

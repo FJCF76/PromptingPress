@@ -885,4 +885,340 @@ class WriteRejectionLocatorTest extends TestCase
         $this->assertFalse($envelope['ok']);
         $this->assertNull($envelope['index']);
     }
+
+    // ── 5. A rolled-back batch's failed-step locator (#712) ───────────────────
+
+    /*
+     * #642 made `index` first-class so an agent stops repairing the wrong band, and
+     * AI_CONTEXT.md tells it to trust the field. A BATCH broke that promise: the batch is
+     * atomic, so a failing step rolls every earlier step back, but the failed step's
+     * envelope kept the offset it computed against the MID-BATCH composition the rollback
+     * then threw away. #642 shipped the caveat as documentation and deferred the
+     * structural answer to the chat-rendering slot; the answer is to DROP the locator
+     * when an earlier step in the same batch wrote that page's composition, and to keep
+     * it when none did.
+     *
+     *   page 200 = [healthyA, healthyB, badBand]
+     *   step 0   remove_component(0)      ok
+     *   step 1   update_component(0)      FAIL  index 1  ← against [healthyB, badBand]
+     *            └─ rollback ────────────► [healthyA, healthyB, badBand]
+     *                                       index 1 = healthyB. The offender is band 2.
+     *
+     * Null and not a re-anchored offset because no inverse map exists in general:
+     * update_composition/restore_composition replace the list wholesale, add_component can
+     * create a band that exists only mid-batch, and a create_page target is deleted by the
+     * rollback outright. See _pp_batch_forget_discarded_locator() (lib/actions.php).
+     */
+
+    /** The #712 repro: an earlier removal shifts the offset, so the offset is dropped. */
+    public function testARolledBackBatchDropsALocatorAnEarlierStepInvalidated(): void
+    {
+        $this->seedPage(200, [
+            $this->healthyLogosBand(),
+            $this->healthyLogosBand(),
+            $this->badLogosBand('bbb'),
+        ]);
+
+        $batch = pp_ai_execute_batch([
+            ['type' => 'action', 'name' => 'remove_component', 'params' => [
+                'post_id' => 200, 'component_index' => 0,
+            ]],
+            ['type' => 'action', 'name' => 'update_component', 'params' => $this->repairPayload(0)],
+        ]);
+
+        $this->assertFalse($batch['ok']);
+        $this->assertSame(1, $batch['failed_at']);
+        $this->assertTrue($batch['rolled_back'], 'precondition: the mid-batch composition is gone');
+
+        $failed = $batch['steps'][1];
+        $this->assertFalse($failed['ok']);
+        $this->assertArrayHasKey('index', $failed, 'the key stays; only its value is dropped');
+        $this->assertNull($failed['index'],
+            'the offset was computed against a composition the rollback discarded');
+
+        // What it WOULD have claimed, and why that claim is false: band 1 of the restored
+        // page is healthy and the real offender sits at band 2.
+        $restored = pp_get_composition(200);
+        $this->assertCount(3, $restored);
+        $this->assertSame('/ok.png', $restored[1]['props']['items'][0]['image_url']);
+    }
+
+    /**
+     * THE PLAUSIBLE ZERO — the shape that would survive review unnoticed.
+     *
+     * A shifted offset of 1 or 3 at least looks like a number worth checking. A shifted
+     * offset of 0 reads as "the first band", which is where an agent looks first anyway,
+     * so a wrong zero is the one that gets acted on.
+     */
+    public function testTheDroppedLocatorIncludesAPlausibleLookingZero(): void
+    {
+        $this->seedPage(200, [
+            $this->healthyLogosBand(),
+            $this->badLogosBand('aaa'),
+            $this->badLogosBand('bbb'),
+        ]);
+
+        $batch = pp_ai_execute_batch([
+            ['type' => 'action', 'name' => 'remove_component', 'params' => [
+                'post_id' => 200, 'component_index' => 0,
+            ]],
+            // Repairs what is band 1 mid-batch; the whole-composition rule then blocks on
+            // mid-batch band 0 — which is band 1 of the restored page.
+            ['type' => 'action', 'name' => 'update_component', 'params' => $this->repairPayload(1)],
+        ]);
+
+        $this->assertFalse($batch['ok']);
+        $this->assertNull($batch['steps'][1]['index']);
+    }
+
+    /**
+     * THE OTHER HALF, and the reason this is not "null every failed step's locator":
+     * when the batch did not move this page's bands, the composition the failed step
+     * validated is the one the rollback writes back, so the offset still addresses the
+     * same band. Throwing that away would break the common single-page batch to fix the
+     * multi-step one.
+     */
+    public function testALocatorSurvivesWhenNoEarlierStepWroteThatComposition(): void
+    {
+        $this->seedPage(200, [$this->healthyLogosBand(), $this->badLogosBand('bbb')]);
+
+        $batch = pp_ai_execute_batch([
+            // A non-composition write on the SAME page: snapshotted and rolled back, but
+            // it moves no bands.
+            ['type' => 'action', 'name' => 'update_page_title', 'params' => [
+                'post_id' => 200, 'title' => 'Renamed',
+            ]],
+            ['type' => 'action', 'name' => 'update_component', 'params' => $this->repairPayload(0)],
+        ]);
+
+        $this->assertFalse($batch['ok']);
+        $this->assertSame(1, $batch['steps'][1]['index'],
+            'the offset still addresses the same band after the rollback');
+
+        // Proof rather than assertion: band 1 of the restored page IS the offender.
+        $restored = pp_get_composition(200);
+        $this->assertSame(['attachment_id' => 42], $restored[1]['props']['items'][0]['image_id']);
+    }
+
+    /** A composition write on a DIFFERENT page cannot shift this page's offsets. */
+    public function testALocatorSurvivesAnEarlierWriteToAnotherPage(): void
+    {
+        $this->seedPage(200, [$this->healthyLogosBand(), $this->badLogosBand('bbb')]);
+        $this->seedPage(201, [$this->healthyLogosBand(), $this->healthyLogosBand()]);
+
+        $batch = pp_ai_execute_batch([
+            ['type' => 'action', 'name' => 'remove_component', 'params' => [
+                'post_id' => 201, 'component_index' => 0,
+            ]],
+            ['type' => 'action', 'name' => 'update_component', 'params' => $this->repairPayload(0)],
+        ]);
+
+        $this->assertFalse($batch['ok']);
+        $this->assertSame(1, $batch['steps'][1]['index']);
+    }
+
+    /**
+     * A STEP WITH NO `type` WRITES LIKE AN ACTION, SO IT MUST BE RECORDED LIKE ONE.
+     *
+     * The dispatcher is `($type === 'apply') ? pp_execute_apply : pp_execute_action`, so
+     * every type that is not exactly 'apply' — missing, empty, misspelled — executes as an
+     * action and really does move the bands. A recorder asking the narrower
+     * `$type === 'action'` would skip such a step and let the next failure ship the stale
+     * locator this guard exists to drop: the write happens, the tracking does not.
+     *
+     * The chat cannot produce this (lib/ai-chat.php rejects any type outside the pair
+     * before the batch runs), but pp_ai_execute_batch() is public and its own docblocks
+     * say the mandates live in the entry point, so it must not assume one ran.
+     */
+    public function testATypelessStepStillCountsAsAWriteForTheLocatorGuard(): void
+    {
+        $this->seedPage(200, [
+            $this->healthyLogosBand(),
+            $this->healthyLogosBand(),
+            $this->badLogosBand('bbb'),
+        ]);
+
+        $batch = pp_ai_execute_batch([
+            // No 'type' key at all — the dispatcher runs this as an action.
+            ['name' => 'remove_component', 'params' => ['post_id' => 200, 'component_index' => 0]],
+            ['type' => 'action', 'name' => 'update_component', 'params' => $this->repairPayload(0)],
+        ]);
+
+        $this->assertFalse($batch['ok']);
+        $this->assertSame(1, $batch['failed_at']);
+        $this->assertCount(2, $batch['steps'], 'precondition: the typeless step RAN and succeeded');
+        $this->assertTrue($batch['steps'][0]['ok']);
+        $this->assertNull($batch['steps'][1]['index'],
+            'the typeless step wrote the composition, so the locator it invalidated is dropped');
+    }
+
+    /**
+     * An `apply` step writes tokens, fonts and media — never a composition.
+     *
+     * OVERDETERMINED, and said so rather than left to look load-bearing: this stays green
+     * with the recorder's `$type === 'action'` clause deleted, because no registered apply
+     * takes a `post_id` at all, so _pp_batch_step_composition_target() finds no page to
+     * record either way. The type clause is unreachable-by-construction and cannot be
+     * pinned behaviourally; what defends it is ApplyTest's registry tripwire. This case is
+     * kept for the end-to-end shape — an apply in a batch disturbs nothing — not as the
+     * guard's coverage.
+     */
+    public function testALocatorSurvivesAnEarlierApplyStep(): void
+    {
+        $this->seedPage(200, [$this->healthyLogosBand(), $this->badLogosBand('bbb')]);
+
+        $batch = pp_ai_execute_batch([
+            ['type' => 'apply', 'name' => 'update_design_token', 'params' => [
+                'token' => '--color-accent', 'value' => '#ff0000',
+            ]],
+            ['type' => 'action', 'name' => 'update_component', 'params' => $this->repairPayload(0)],
+        ]);
+
+        $this->assertFalse($batch['ok']);
+        $this->assertTrue($batch['steps'][0]['ok'], 'precondition: the apply landed');
+        $this->assertSame(1, $batch['steps'][1]['index']);
+    }
+
+    /**
+     * A page an earlier create_page made is DELETED by the rollback, so a locator into it
+     * addresses no composition at all — the strongest form of the same problem.
+     */
+    public function testALocatorIntoAPageTheRollbackDeletesIsDropped(): void
+    {
+        $batch = pp_ai_execute_batch([
+            ['type' => 'action', 'name' => 'create_page', 'params' => [
+                'title'       => 'Fresh',
+                'composition' => [['component' => 'hero', 'props' => ['title' => 'T']]],
+            ]],
+            ['type' => 'action', 'name' => 'update_component', 'params' => [
+                'post_id'         => 100, // the id pp_create_page hands out first here
+                'component_index' => 0,
+                'props'           => ['no_such_prop' => 'x'],
+            ]],
+        ]);
+
+        $this->assertFalse($batch['ok']);
+        $this->assertTrue($batch['steps'][0]['ok'], 'precondition: the page was created');
+        $this->assertSame(100, $batch['steps'][0]['target']['post_id'], 'precondition: id assumption holds');
+        $this->assertNull($batch['steps'][1]['index']);
+        $this->assertArrayNotHasKey(100, $GLOBALS['_pp_test_store']['posts'],
+            'and the page the offset pointed into no longer exists');
+    }
+
+    /**
+     * A non-int `post_id` never reaches a composition write at all — pp_validate_action()
+     * refuses it as `invalid_param_type` before step 1 does anything.
+     *
+     * A characterization pin on the param gate, NOT coverage of the #712 code (it
+     * survives every mutation of it). It is here because the batch's page tracking would
+     * otherwise look like it has to cope with numeric-string ids, and it does not.
+     * Note the casts in that tracking are not what this defends and no test could defend
+     * them: PHP normalizes a numeric-string array offset to the same int key on write and
+     * read, so `(int)` is a no-op for every `is_numeric` value the guard could see. They
+     * are there for the non-integer numerics (`"200.5"`) that the gate below makes
+     * unreachable.
+     */
+    public function testANonIntPostIdIsRefusedBeforeAnythingIsWritten(): void
+    {
+        $this->seedPage(200, [$this->healthyLogosBand(), $this->badLogosBand('bbb')]);
+
+        $batch = pp_ai_execute_batch([
+            ['type' => 'action', 'name' => 'remove_component', 'params' => [
+                'post_id' => '200', 'component_index' => 0,
+            ]],
+            ['type' => 'action', 'name' => 'update_component', 'params' => $this->repairPayload(0)],
+        ]);
+
+        $this->assertSame(0, $batch['failed_at'], 'the FIRST step is what fails');
+        $this->assertCount(1, $batch['steps'], 'so the second never ran');
+        $this->assertSame('invalid_param_type', $batch['steps'][0]['error_code']);
+        $this->assertNull($batch['steps'][0]['index'], 'a param-shape error owns no band');
+    }
+
+    /** Only the locator moves. Everything else about the failure is byte-identical. */
+    public function testDroppingTheLocatorChangesNothingElseAboutTheFailure(): void
+    {
+        $composition = [
+            $this->healthyLogosBand(),
+            $this->healthyLogosBand(),
+            $this->badLogosBand('bbb'),
+        ];
+        $this->seedPage(200, $composition);
+
+        $batch = pp_ai_execute_batch([
+            ['type' => 'action', 'name' => 'remove_component', 'params' => [
+                'post_id' => 200, 'component_index' => 0,
+            ]],
+            ['type' => 'action', 'name' => 'update_component', 'params' => $this->repairPayload(0)],
+        ]);
+
+        $failed = $batch['steps'][1];
+        $this->assertSame('update_component', $failed['action']);
+        $this->assertStringContainsString('image_id', $failed['error'],
+            'the message is the producing validator\'s, untouched — including its mid-batch band prose');
+        $this->assertSame('invalid_prop_value', $failed['error_code']);
+        $this->assertTrue($batch['rolled_back']);
+        $this->assertSame([], $batch['rollback_errors']);
+        $this->assertSame(1, $batch['failed_at']);
+        $this->assertSame([], $batch['versions']);
+
+        // The composition is back to its pre-batch CONTENT. Not a byte comparison: the
+        // rollback writes through pp_update_composition(), which injects a generated
+        // props.id into any band that authored none — the #232 behavior, unrelated to
+        // this change and true of the rollback before it.
+        $restored = pp_get_composition(200);
+        $this->assertCount(3, $restored);
+        $this->assertSame('/ok.png', $restored[0]['props']['items'][0]['image_url']);
+        $this->assertSame('/ok.png', $restored[1]['props']['items'][0]['image_url']);
+        $this->assertSame('pp-bbb', $restored[2]['props']['id'], 'the offender is back where it was');
+    }
+
+    /**
+     * A FAILED STEP THAT NAMES NO PAGE KEEPS ITS LOCATOR, because nothing the rollback
+     * did can have moved what that locator addresses.
+     *
+     * `create_page` is the reachable shape: it declares no `post_id` (the page it would
+     * write is the one it would create), and it validates the composition the CALLER
+     * submitted, so its rejection offset indexes that payload rather than any stored
+     * band. An earlier step rolling page 200 back cannot invalidate it. This pins the
+     * helper's "no page named" branch, which is otherwise the one path in it with no
+     * coverage — inverting that branch to drop the locator instead leaves every other
+     * test in this file green.
+     */
+    public function testAFailedStepThatNamesNoPageKeepsItsLocator(): void
+    {
+        $this->seedPage(200, [$this->healthyLogosBand(), $this->healthyLogosBand()]);
+
+        $batch = pp_ai_execute_batch([
+            ['type' => 'action', 'name' => 'remove_component', 'params' => [
+                'post_id' => 200, 'component_index' => 0,
+            ]],
+            ['type' => 'action', 'name' => 'create_page', 'params' => [
+                'title'       => 'Fresh',
+                'composition' => [
+                    ['component' => 'hero', 'props' => ['title' => 'T']],
+                    $this->badLogosBand('ccc'),
+                ],
+            ]],
+        ]);
+
+        $this->assertFalse($batch['ok']);
+        $this->assertSame(1, $batch['failed_at']);
+        $this->assertTrue($batch['rolled_back'], 'precondition: page 200 was rolled back');
+        $this->assertSame(1, $batch['steps'][1]['index'],
+            'the offset indexes the submitted composition, which no rollback touched');
+    }
+
+    /*
+     * NOT PINNED, AND DELIBERATELY: "a successful batch is unaffected".
+     *
+     * There is no test to write. _pp_batch_forget_discarded_locator() runs only on the
+     * failure branch, and even if it ran on every step it could change nothing — an
+     * ACCEPTED envelope carries no `index` key at all (_pp_action_result()), and the
+     * helper returns early on an absent locator and never adds one. A test asserting a
+     * successful batch's steps carry no locator therefore passes with the ok-guard
+     * deleted, which makes it a test of _pp_action_result()'s shape wearing a #712 label.
+     * The guard stays because it says what the code means; the claim that a test defends
+     * it does not.
+     */
 }

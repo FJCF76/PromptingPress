@@ -895,6 +895,61 @@ function ppChatFindingClass(item) {
 }
 
 /**
+ * The report's truncation tail, or null when the report is complete (#654, #655).
+ *
+ * ONE PREDICATE, TWO READERS. The heading reads this entry for the true total, and
+ * ppChatAppendUndoFindings() lifts the same entry out of the findings list so its
+ * message renders outside the disclosure. Asking the question in two places is how the
+ * two start disagreeing — a hoisted entry the counter did not recognize would be
+ * subtracted from neither number while occupying a line of its own.
+ *
+ * The test is deliberately the strict one #654 shipped: type AND a positive numeric
+ * `total`. A malformed tail is therefore not a tail at all — it stays an ordinary
+ * finding row and the count falls back to the array length, exactly as before.
+ *
+ * ONE SPECIES, ON PURPOSE. The other report-about-the-report entry, `findings_skipped`,
+ * cannot reach this card: it comes from the accepted-write path's 1 MiB availability gate,
+ * and restore deliberately does not inherit that gate (#233 — you are told what an old
+ * snapshot brought back, always). If it ever did arrive it would match neither this
+ * predicate nor its `total` requirement (it carries none, because nothing was counted), so
+ * it would render as an ordinary finding row and be counted as a problem with the
+ * composition — the stronger disclaimer of the two, buried. That routing is pinned by
+ * CompositionFindingsBoundsTest::testRestoreNeverEmitsTheSkippedSpeciesTheUndoCardCannotHoist
+ * rather than assumed here.
+ */
+function ppChatUndoFindingsTail(findings) {
+    for (var i = 0; i < findings.length; i++) {
+        var f = findings[i];
+        if (f && f.type === 'findings_truncated' && typeof f.total === 'number' && f.total > 0) {
+            return f;
+        }
+    }
+
+    return null;
+}
+
+/**
+ * The two numbers the heading needs: { total, shown, truncated }.
+ *
+ * `tail` is optional. Pass the entry ppChatUndoFindingsTail() already found — the caller
+ * that hoists it needs it anyway — and this reads it instead of scanning for a second
+ * copy of the same answer. Omit it and this finds its own. Only `undefined` means "not
+ * supplied"; `null` is the real answer "this report is complete" and is respected.
+ */
+function ppChatUndoFindingsTotal(findings, tail) {
+    if (tail === undefined) {
+        tail = ppChatUndoFindingsTail(findings);
+    }
+    if (tail !== null) {
+        // The tail is an advisory ABOUT the report, not an issue with the composition,
+        // so it never counts toward either number.
+        return { total: tail.total, shown: findings.length - 1, truncated: true };
+    }
+
+    return { total: findings.length, shown: findings.length, truncated: false };
+}
+
+/**
  * Renders restore_composition's findings on a SUCCESSFUL undo (#233).
  *
  * Restore is never blocked by current validation rules — a snapshot today's validators
@@ -920,20 +975,12 @@ function ppChatFindingClass(item) {
  * that it is showing a subset. A diagnostic that quietly understates itself by two orders
  * of magnitude is worse than a long one; this card is the only place a non-CLI operator
  * sees what an undo brought back.
+ *
+ * THE LAYOUT, top to bottom (#655): the heading, then the truncation notice if the report
+ * was cut, then the band-aware inline rows, then the disclosure holding the rest. The
+ * notice sits between the heading whose count it qualifies and the rows it explains the
+ * absence of, which is where a reader resolves "20,001 issues, so why five lines?".
  */
-function ppChatUndoFindingsTotal(findings) {
-    for (var i = 0; i < findings.length; i++) {
-        var f = findings[i];
-        if (f && f.type === 'findings_truncated' && typeof f.total === 'number' && f.total > 0) {
-            // The tail is an advisory ABOUT the report, not an issue with the composition,
-            // so it never counts toward either number.
-            return { total: f.total, shown: findings.length - 1, truncated: true };
-        }
-    }
-
-    return { total: findings.length, shown: findings.length, truncated: false };
-}
-
 function ppChatAppendUndoFindings(card, findings) {
     if (!findings || !findings.length) return;
 
@@ -941,7 +988,8 @@ function ppChatAppendUndoFindings(card, findings) {
     section.setAttribute('role', 'status');
     section.setAttribute('aria-live', 'polite');
 
-    var counted = ppChatUndoFindingsTotal(findings);
+    var tail    = ppChatUndoFindingsTail(findings);
+    var counted = ppChatUndoFindingsTotal(findings, tail);
 
     var heading = document.createElement('div');
     heading.className = 'pp-ai-step-warning';
@@ -952,13 +1000,88 @@ function ppChatAppendUndoFindings(card, findings) {
         + ':';
     section.appendChild(heading);
 
-    ppChatAppendValidationItems(section, findings, ppChatFindingClass);
+    // THE TRUNCATION NOTICE IS NOT A FINDING, SO IT DOES NOT LIVE WITH THEM (#655).
+    // #654 gave the heading the server's true total but left this entry inside the
+    // findings array, which on a truncated report means it is the LAST of 101 entries
+    // and therefore always inside the collapsed disclosure. The one sentence naming
+    // `wp pp check page --post_id=N` — the only route to the complete report the card is
+    // admitting it cannot show — was buried inside the thing it exists to escape. It is
+    // lifted here: rendered under the heading it qualifies, before the rows, in the open.
+    //
+    // Lifting it also keeps it out of the band-aware selection below, where an entry
+    // that describes the REPORT (index: null by construction) would otherwise consume an
+    // inline slot that belongs to an affected band.
+    if (tail !== null && ppChatIsNonEmptyString(tail.message)) {
+        var notice = document.createElement('div');
+        notice.className = 'pp-ai-step-warning';
+        notice.textContent = tail.message;
+        section.appendChild(notice);
+    }
+
+    var items = (tail === null) ? findings : findings.filter(function (f) { return f !== tail; });
+
+    ppChatAppendValidationItems(section, items, ppChatFindingClass);
     card.appendChild(section);
 }
 
 /**
+ * The composition offset a finding owns, or null when it owns none (#622, #655).
+ *
+ * The one place "does this finding name a band?" is answered, so the selection below and
+ * the locator renderer cannot answer it differently. `index` is documented as `int|null`
+ * (`pp_composition_error_index()`, lib/admin.php — an `is_int` read), so anything else is
+ * not a locator: a numeric string, a float, a NaN, a negative offset, or the key being
+ * absent entirely (every post-apply validation item, which carries `check` and `message`
+ * and no locator at all). Those all group as "unlocated" and draw no `index N`, rather
+ * than putting a number on screen that no band answers to.
+ */
+function ppChatFindingBand(item) {
+    if (!item || typeof item.index !== 'number' || !isFinite(item.index)) return null;
+    if (item.index < 0 || Math.floor(item.index) !== item.index) return null;
+
+    return item.index;
+}
+
+/**
+ * A finding's locator, as the row prefix `[type] index N: ` (#655).
+ *
+ * The CLI's idiom, adapted: `_pp_cli_finding_line()` (lib/cli.php) renders
+ * `  - [unknown_prop] index 0: message` and this renders the same string without the
+ * list bullet, so an operator reads a card row and a `wp pp check page` line the same
+ * way. ONE vocabulary for band locators — a fourth spelling is the #650/#652 lesson.
+ *
+ * No `index` → `[type]: `, the CLI's own choice to omit rather than fake a locator for
+ * a cross-item rule. No `type` → no prefix at all, which is the post-apply validation
+ * path: those items are not findings, carry no locator, and must render exactly as they
+ * did before this change.
+ */
+function ppChatFindingLocator(item) {
+    if (!item || !ppChatIsNonEmptyString(item.type)) return '';
+
+    var band = ppChatFindingBand(item);
+
+    return '[' + item.type + ']' + (band === null ? '' : ' index ' + band) + ': ';
+}
+
+/**
+ * One rendered row: the locator, then the message (#655).
+ *
+ * Shared by the inline rows and the disclosure rows so a band cannot be identifiable
+ * above the fold and anonymous below it — the disclosure is where the SECOND, THIRD and
+ * fourth findings of an already-shown band land, which is exactly where "which band is
+ * this?" is hardest to answer.
+ */
+function ppChatValidationItemRow(item, className) {
+    var div = document.createElement('div');
+    div.className = className;
+    div.textContent = ppChatFindingLocator(item) + item.message;
+
+    return div;
+}
+
+/**
  * Appends validation items (errors or warnings) to a container.
- * Shows first 5 inline; collapses the rest in a <details> disclosure (D6).
+ * Shows up to 5 inline; collapses the rest in a <details> disclosure (D6).
  *
  * `className` is either a fixed class string (the post-apply validation paths, whose
  * items are already split into an errors list and a warnings list) or a function
@@ -967,6 +1090,45 @@ function ppChatAppendUndoFindings(card, findings) {
  * the hidden items' own severities ("errors", "warnings", or "issues" when they are
  * mixed), never from the class string: calling a set that contains errors "warnings"
  * is the same misreport one level up.
+ *
+ * THE INLINE ROWS ARE CHOSEN BAND-AWARE (#655). The budget of 5 was calibrated when a
+ * band could contribute at most ONE finding, so five rows meant five bands. #621 made a
+ * band report every problem its rules can locate — a retired prop key, a dead style
+ * slot, a dead card link, two missing required props — so a single broken band routinely
+ * fills all five, and every OTHER affected band hides behind the disclosure. The
+ * consumer that most needs the wide report showed the least of it. Selection is now
+ * first-finding-per-distinct-`index`:
+ *
+ *   findings                     inline (≤5)                 disclosure
+ *   ─────────────────────────    ─────────────────────────   ──────────────────────
+ *   [0] index 0  unknown_prop ──► [0]  (band 0, first)
+ *   [1] index 0  dead slot     ─────────────────────────────► [1]
+ *   [2] index 0  dead link     ─────────────────────────────► [2]
+ *   [3] index 2  unknown_prop ──► [3]  (band 2, first)
+ *   [4] index 5  missing prop ──► [4]  (band 5, first)
+ *
+ * No backfill into the unused slots: an inline row is a DIFFERENT band, and filling the
+ * remainder with more of band 0 would take that back. The cost is stated rather than
+ * hidden — a one-band page with six findings now draws one row and "Show 5 more errors"
+ * where it used to draw five rows. The locator on each row (ppChatFindingLocator) and the
+ * disclosure are what carry the rest.
+ *
+ * FIRST-PER-BAND IS ALSO WORST-PER-BAND, and that is inherited rather than coded here.
+ * _pp_composition_findings() (lib/actions.php) appends every ERROR the error engine found
+ * and only then every advisory from the smell engine, so a band that has an error meets
+ * this loop at that error first and the error is what takes the inline row. Picking the
+ * FIRST occurrence therefore never promotes a band's advisory over its blocker — which
+ * would undo #622's reason for styling items by severity at all. If that assembler ever
+ * interleaves the two engines, this has to select by severity explicitly — which is why
+ * the order is pinned on the PHP side (CompositionFindingsBoundsTest) as well as the
+ * order-preserving selection here, rather than left as a comment on a cross-file
+ * dependency.
+ *
+ * An UNLOCATED item is its own group, never pooled with the other unlocated ones: a
+ * cross-item rule and a param error are different problems, and — the reason this matters
+ * beyond findings — the post-apply validation paths pass items that carry no `index` at
+ * all, so pooling them would collapse a five-error list into one row. Those lists select
+ * exactly as they did before this change.
  */
 function ppChatAppendValidationItems(container, items, className) {
     if (!items || !items.length) return;
@@ -975,8 +1137,24 @@ function ppChatAppendValidationItems(container, items, className) {
     var classFor = perItem ? className : function () { return className; };
 
     var MAX_INLINE = 5;
-    var shown = items.slice(0, MAX_INLINE);
-    var overflow = items.slice(MAX_INLINE);
+    var shown = [];
+    var overflow = [];
+    var seenBands = {};
+
+    items.forEach(function (item) {
+        var band = ppChatFindingBand(item);
+        var key = (band === null) ? null : 'band:' + band;
+        var isFirstOfBand = (key === null) || !Object.prototype.hasOwnProperty.call(seenBands, key);
+        if (key !== null) {
+            seenBands[key] = true;
+        }
+
+        if (isFirstOfBand && shown.length < MAX_INLINE) {
+            shown.push(item);
+        } else {
+            overflow.push(item);
+        }
+    });
 
     var noun;
     if (!perItem) {
@@ -991,10 +1169,7 @@ function ppChatAppendValidationItems(container, items, className) {
     }
 
     shown.forEach(function (item) {
-        var div = document.createElement('div');
-        div.className = classFor(item);
-        div.textContent = item.message;
-        container.appendChild(div);
+        container.appendChild(ppChatValidationItemRow(item, classFor(item)));
     });
 
     if (overflow.length > 0) {
@@ -1005,10 +1180,7 @@ function ppChatAppendValidationItems(container, items, className) {
         details.appendChild(summary);
 
         overflow.forEach(function (item) {
-            var div = document.createElement('div');
-            div.className = classFor(item);
-            div.textContent = item.message;
-            details.appendChild(div);
+            details.appendChild(ppChatValidationItemRow(item, classFor(item)));
         });
 
         container.appendChild(details);
@@ -2708,6 +2880,9 @@ if (typeof module !== 'undefined' && module.exports) {
         appendValidationItems: ppChatAppendValidationItems,
         appendUndoFindings: ppChatAppendUndoFindings,
         findingClass: ppChatFindingClass,
+        findingBand: ppChatFindingBand,
+        findingLocator: ppChatFindingLocator,
+        undoFindingsTail: ppChatUndoFindingsTail,
         buildCompositionSummary: ppChatBuildCompositionSummary,
         detectPageId: ppChatDetectPageId,
         findPageById: ppChatFindPageById,
