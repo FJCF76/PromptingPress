@@ -518,6 +518,246 @@ function ppChatGetStatusMessage(data) {
 }
 
 /**
+ * Renders one non-composition change as `path: from -> to`.
+ *
+ * Module scope (not IIFE-local) because ppChatRenderPreviewResult() below has to reach
+ * it and is itself unit-tested directly. Every name it reads — `document`,
+ * ppChatFormatDiffValue — is already module-scope, so nothing IIFE-local was lost in
+ * the move.
+ */
+function ppChatRenderDiffLine(change) {
+    var div = document.createElement('div');
+    var label = document.createTextNode(change.path + ': ');
+    div.appendChild(label);
+
+    var fromSpan = document.createElement('span');
+    fromSpan.className = 'pp-ai-step-diff-from';
+    fromSpan.textContent = ppChatFormatDiffValue(change.from);
+    div.appendChild(fromSpan);
+
+    div.appendChild(document.createTextNode(' \u2192 '));
+
+    var toSpan = document.createElement('span');
+    toSpan.className = 'pp-ai-step-diff-to';
+    toSpan.textContent = ppChatFormatDiffValue(change.to);
+    div.appendChild(toSpan);
+
+    return div;
+}
+
+/**
+ * Renders an update_composition diff: a prose summary plus the raw JSON in a disclosure.
+ *
+ * Module scope for the same reason as ppChatRenderDiffLine above.
+ */
+function ppChatRenderCompositionDiff(diffArea, change) {
+    var summary = ppChatBuildCompositionSummary(change.from, change.to);
+
+    // Summary section
+    var summaryDiv = document.createElement('div');
+    summaryDiv.className = 'pp-ai-composition-summary';
+    summary.lines.forEach(function (line) {
+        if (line === '') {
+            summaryDiv.appendChild(document.createElement('br'));
+        } else {
+            var p = document.createElement('div');
+            p.textContent = line;
+            summaryDiv.appendChild(p);
+        }
+    });
+    diffArea.appendChild(summaryDiv);
+
+    // Expandable raw JSON
+    var details = document.createElement('details');
+    details.className = 'pp-ai-composition-raw';
+
+    var summaryEl = document.createElement('summary');
+    var jsonStr = JSON.stringify(change.to, null, 2);
+    summaryEl.textContent = 'View raw composition JSON (' + summary.toCount + ' components, ' +
+        Math.round(jsonStr.length / 1024) + ' KB)';
+    details.appendChild(summaryEl);
+
+    var pre = document.createElement('pre');
+    pre.className = 'pp-ai-composition-json';
+    var code = document.createElement('code');
+    code.textContent = jsonStr;
+    pre.appendChild(code);
+    details.appendChild(pre);
+
+    diffArea.appendChild(details);
+}
+
+/**
+ * Longest engine-supplied exception text echoed into a step card (#663).
+ *
+ * The prefix below is fixed prose and is not counted against it. Two hundred is not a
+ * safety boundary — the text is written with textContent and never reaches a parser —
+ * it is a LAYOUT boundary. The card that broke sits in a column with the N steps that
+ * did render, and #663 exists so those N stay visible; letting one pathological message
+ * grow that card without limit would push them off the screen and re-create the symptom
+ * by another route. Every real engine's TypeError/ReferenceError text runs well under
+ * this, so on a genuine renderer bug the operator reads the whole reason.
+ *
+ * The budget covers THIS sentence, not the whole card. A step's normal error path still
+ * renders `raw_error` and `alternatives` at whatever length the server sent (bounded
+ * there, by PP_REFLECTED_ERROR_MAX), and a successful update_composition preview still
+ * renders its full JSON in a disclosure. Bounding the one string this file invents is
+ * not a claim that the card is bounded everywhere.
+ */
+var PP_CHAT_RENDER_ERROR_MAX = 200;
+
+/**
+ * Turns a caught render exception into the sentence a step card shows.
+ *
+ * Truncation follows the convention used across this codebase (lib/ai-chat.php's
+ * _pp_clean_reflected_text, ppChatFormatDiffValue above): cut to max - 3 and mark it,
+ * so the result never exceeds the stated budget.
+ *
+ * The wording says DISPLAYED, not "failed": by the time this fires the server has
+ * usually answered fine and it is this file that could not draw the answer. Telling the
+ * operator their change was rejected would be a false claim about the server.
+ *
+ * READING `message` IS ITSELF GUARDED. Every caller is inside a catch, so a throw here
+ * would escape that catch and take the remaining steps down with it — the exact failure
+ * this whole change exists to stop. `err.message` is an ordinary property on everything
+ * the engine throws, but it does not have to be: a getter or a `Symbol.toPrimitive` can
+ * throw, and `throw` accepts any value. Nothing reachable today does that; the guard is
+ * here so the claim "the catch cannot throw" is true of the code rather than of the
+ * inputs we happen to expect.
+ */
+function ppChatPreviewRenderErrorText(err) {
+    var raw;
+    try {
+        if (err && err.message) {
+            raw = String(err.message);
+        } else if (typeof err === 'string') {
+            // `throw 'something'` is legal and carries no `.message`. Falling back to
+            // 'Unknown error' here would lose the only reason the card has, which is the
+            // loss this issue is about. Objects deliberately do NOT fall through to
+            // String(err): '[object Object]' says less than 'Unknown error' does.
+            raw = err;
+        } else {
+            raw = '';
+        }
+    } catch (e) {
+        raw = '';
+    }
+    if (!raw) {
+        raw = 'Unknown error';
+    }
+    if (raw.length > PP_CHAT_RENDER_ERROR_MAX) {
+        raw = raw.substring(0, PP_CHAT_RENDER_ERROR_MAX - 3) + '...';
+    }
+    return 'Preview could not be displayed: ' + raw;
+}
+
+/**
+ * Renders ONE preview result into its step, and does not propagate render failures (#663).
+ *
+ * Returns null when the step rendered a preview, or a `{ data: ... }` wrapper when the
+ * step ended in an error state.
+ *
+ * WHY THIS IS A FUNCTION AT ALL. Its caller renders N of these in a loop. Before #663
+ * that loop was a bare forEach inside a Promise.all().then() with no guard anywhere on
+ * the chain, so a throw on step 2 of 5 abandoned steps 3, 4 and 5 mid-flight: they kept
+ * the `pp-ai-step-executing` class and the 'Loading preview' placeholder their card was
+ * built with, the status message never ran, and the Apply/Cancel row was never appended.
+ * One renderer slip cost the whole card, silently and permanently.
+ *
+ *   result i ──▶ remove executing ──▶ clear placeholder ──┬─▶ success ─▶ diff lines ─▶ null
+ *        │                                                │
+ *        │                                                └─▶ failure ─▶ error card ─▶ {data}
+ *        │                                                                    │
+ *        └──────────────── throw, anywhere above ─────────────────────────────┘
+ *                                     │
+ *                                     ▼
+ *                     drop partial DOM ─▶ plain-string error card
+ *                     ─▶ pp-ai-step-failed ─▶ {data: text}
+ *
+ * Every arm ends in a terminal state, so step i cannot leave step i+1 unrendered.
+ *
+ * THE ERROR ARM RENDERS BEFORE IT CLASSIFIES, AND THE ORDER IS LOAD-BEARING. Painting
+ * ppChatGetErrorStepClass()'s answer first would leave a half-drawn card wearing a
+ * classified state if the render then threw, and the catch would have to REMOVE that
+ * class before adding its own — which means enumerating the error-class set in a second
+ * place. That enumeration drifting is exactly the hazard #662's typography tripwire
+ * exists to catch (tests/js/pp-ai-chat-error-card-typography.test.js). Rendering first
+ * costs nothing and leaves the catch a step with no state class to fight over. Do not
+ * "tidy" the two statements back into declaration order.
+ *
+ * THE CATCH DELIBERATELY COLLAPSES TO THE GENERIC FAILED STATE. A payload the renderer
+ * choked on is a payload this card cannot honestly narrate, so claiming its classified
+ * state (fixable, impossible) would assert something the card visibly did not draw. The
+ * status bar collapses with it: the wrapper carries a STRING, and ppChatGetStatusMessage()
+ * answers any non-object with its generic sentence. So both halves land on "something
+ * went wrong here" rather than one claiming a specific remedy the other cannot show —
+ * which is the agreement #625 and #662 both turn on. Note what that is not: the card
+ * names the reason and the status bar does not, so the agreement is that neither
+ * OVERCLAIMS, not that they print the same words. Whether this generic state deserves
+ * its own vocabulary is #664's question, not this one's; nothing here adds a fourth class.
+ *
+ * `_previewChanges` is dropped on entry and re-stashed only once the whole diff has
+ * drawn, so the field is present exactly when a drawn preview justifies it. Setting it
+ * up front would strand the payload on a step that then failed to draw; leaving a
+ * previous run's value would do the same for a caller that re-renders the same step
+ * object.
+ *
+ * Be precise about why that matters, because it is easy to overstate: NOTHING READS THIS
+ * FIELD. executeProposal() re-serializes from `type`/`name`/`params` and never touches
+ * it, and a repo-wide search finds no other reader. So this is hygiene on a write, not a
+ * guard on a read — a step painted failed cannot hand a stale array to a future reader
+ * that does not exist yet. Whether the field should be wired up or removed outright is
+ * filed separately; it is not decided here.
+ *
+ * The catch repeats the error arm's three statements rather than sharing a helper with
+ * it. They are alike only in shape: the arm narrates a server payload, the catch
+ * narrates a bounded local string over a diff area it must first clear. Folding two
+ * three-line sequences with different preconditions into one function would hide that
+ * difference to save nothing.
+ *
+ * The catch itself cannot throw. ppChatPreviewRenderErrorText() guards its own read of
+ * `message`, ppChatRenderPreviewError() with a string takes its plain-string branch (one
+ * textContent assignment), and ppChatGetErrorStepClass() with a string returns
+ * 'pp-ai-step-failed' off its first line. Passing something that is not an element for
+ * `stepEl` or `diffArea` is a programming error, not a render failure, and is not what
+ * this guard is for.
+ */
+function ppChatRenderPreviewResult(stepEl, diffArea, step, result) {
+    try {
+        stepEl.classList.remove('pp-ai-step-executing');
+        diffArea.textContent = '';
+        delete step._previewChanges;
+
+        if (result && result.success && result.data && result.data.changes) {
+            result.data.changes.forEach(function (change) {
+                if (step.name === 'update_composition' && change.path === 'composition' &&
+                    Array.isArray(change.from) && Array.isArray(change.to)) {
+                    ppChatRenderCompositionDiff(diffArea, change);
+                } else {
+                    diffArea.appendChild(ppChatRenderDiffLine(change));
+                }
+            });
+            if (result.data.changes.length === 0) {
+                diffArea.textContent = '(no changes)';
+            }
+            step._previewChanges = result.data.changes;
+            return null;
+        }
+
+        var data = result ? result.data : undefined;
+        ppChatRenderPreviewError(diffArea, data);
+        stepEl.classList.add(ppChatGetErrorStepClass(data));
+        return { data: data };
+    } catch (e) {
+        var text = ppChatPreviewRenderErrorText(e);
+        diffArea.textContent = '';
+        ppChatRenderPreviewError(diffArea, text);
+        stepEl.classList.add(ppChatGetErrorStepClass(text));
+        return { data: text };
+    }
+}
+
+/**
  * Maps a restore finding's severity to its display class (#622).
  *
  * `severity: 'error'` means a normal write of the restored composition would be
@@ -1167,63 +1407,6 @@ function ppChatAppendValidationItems(container, items, className) {
 
     // ── Proposal Card Rendering ────────────────────────────────────────
 
-    function renderDiffLine(change) {
-        var div = document.createElement('div');
-        var label = document.createTextNode(change.path + ': ');
-        div.appendChild(label);
-
-        var fromSpan = document.createElement('span');
-        fromSpan.className = 'pp-ai-step-diff-from';
-        fromSpan.textContent = ppChatFormatDiffValue(change.from);
-        div.appendChild(fromSpan);
-
-        div.appendChild(document.createTextNode(' \u2192 '));
-
-        var toSpan = document.createElement('span');
-        toSpan.className = 'pp-ai-step-diff-to';
-        toSpan.textContent = ppChatFormatDiffValue(change.to);
-        div.appendChild(toSpan);
-
-        return div;
-    }
-
-    function renderCompositionDiff(diffArea, change) {
-        var summary = ppChatBuildCompositionSummary(change.from, change.to);
-
-        // Summary section
-        var summaryDiv = document.createElement('div');
-        summaryDiv.className = 'pp-ai-composition-summary';
-        summary.lines.forEach(function (line) {
-            if (line === '') {
-                summaryDiv.appendChild(document.createElement('br'));
-            } else {
-                var p = document.createElement('div');
-                p.textContent = line;
-                summaryDiv.appendChild(p);
-            }
-        });
-        diffArea.appendChild(summaryDiv);
-
-        // Expandable raw JSON
-        var details = document.createElement('details');
-        details.className = 'pp-ai-composition-raw';
-
-        var summaryEl = document.createElement('summary');
-        var jsonStr = JSON.stringify(change.to, null, 2);
-        summaryEl.textContent = 'View raw composition JSON (' + summary.toCount + ' components, ' +
-            Math.round(jsonStr.length / 1024) + ' KB)';
-        details.appendChild(summaryEl);
-
-        var pre = document.createElement('pre');
-        pre.className = 'pp-ai-composition-json';
-        var code = document.createElement('code');
-        code.textContent = jsonStr;
-        pre.appendChild(code);
-        details.appendChild(pre);
-
-        diffArea.appendChild(details);
-    }
-
     function fetchPreview(step) {
         var data = new FormData();
         data.append('action', 'pp_ai_preview');
@@ -1352,39 +1535,26 @@ function ppChatAppendValidationItems(container, items, className) {
         });
 
         Promise.all(previewPromises).then(function (results) {
-            var anyFailed = false;
-            var firstFailedData = null;
+            // Each result is rendered through a helper that cannot propagate a render
+            // failure, so step i breaking cannot cost steps i+1..n their previews (#663).
+            //
+            // The wrapper the helper returns is what fixes the second half of #663: the
+            // old code kept `if (!firstFailedData) firstFailedData = result.data`, which
+            // asks whether the PAYLOAD is truthy, not whether a step failed. A response
+            // that isn't the {success, data} envelope has no `data` at all — an expired
+            // nonce makes check_ajax_referer() emit a bare -1, which parses to the number
+            // -1 with `data === undefined` — so that step was painted as failed and then
+            // skipped here, and the status bar described a LATER step's error. A wrapper
+            // object is truthy whatever it carries, so the skew cannot come back.
+            var firstFailure = null;
 
             results.forEach(function (result, i) {
-                stepElements[i].classList.remove('pp-ai-step-executing');
-                diffAreas[i].textContent = '';
-
-                if (result.success && result.data && result.data.changes) {
-                    // Store preview data on the step for Apply to use
-                    steps[i]._previewChanges = result.data.changes;
-
-                    result.data.changes.forEach(function (change) {
-                        if (steps[i].name === 'update_composition' && change.path === 'composition' &&
-                            Array.isArray(change.from) && Array.isArray(change.to)) {
-                            renderCompositionDiff(diffAreas[i], change);
-                        } else {
-                            diffAreas[i].appendChild(renderDiffLine(change));
-                        }
-                    });
-                    if (result.data.changes.length === 0) {
-                        diffAreas[i].textContent = '(no changes)';
-                    }
-                } else {
-                    anyFailed = true;
-                    var errorClass = ppChatGetErrorStepClass(result.data);
-                    stepElements[i].classList.add(errorClass);
-                    ppChatRenderPreviewError(diffAreas[i], result.data);
-                    if (!firstFailedData) firstFailedData = result.data;
-                }
+                var failure = ppChatRenderPreviewResult(stepElements[i], diffAreas[i], steps[i], result);
+                if (failure && !firstFailure) firstFailure = failure;
             });
 
-            if (anyFailed) {
-                addStatusMessage(ppChatGetStatusMessage(firstFailedData), true);
+            if (firstFailure) {
+                addStatusMessage(ppChatGetStatusMessage(firstFailure.data), true);
                 return;
             }
 
@@ -1414,6 +1584,32 @@ function ppChatAppendValidationItems(container, items, className) {
             actions.appendChild(cancelBtn);
             card.appendChild(actions);
             messagesEl.scrollTop = messagesEl.scrollHeight;
+        }).catch(function (err) {
+            // Backstop for a throw OUTSIDE the per-result helper — the status message,
+            // the Apply/Cancel block, or anything a later edit adds to this `then`.
+            // Parity with executeProposal()'s chain catch below, which this chain never
+            // had (#663).
+            //
+            // THE STEPS ARE FINISHED BEFORE THE STATUS MESSAGE IS ATTEMPTED, and the
+            // order is the whole point. addStatusMessage() is itself one of the things
+            // that can throw INTO this catch; running it first would mean re-calling the
+            // call that just failed, losing the rejection, and never reaching the loop —
+            // leaving steps mid-flight, which is #663's symptom reproduced by the guard
+            // meant to prevent it. The loop cannot fail the same way, because every paint
+            // it performs goes through ppChatRenderPreviewResult, which absorbs its own
+            // throws. So the half that always survives runs first.
+            //
+            // Steps are terminalized rather than repainted: by the time this fires the
+            // loop has usually finished, and every step it rendered already carries the
+            // right state. `pp-ai-step-executing` is precisely the set that did not get
+            // one, so it is the set to finish.
+            var text = ppChatPreviewRenderErrorText(err);
+            stepElements.forEach(function (el, i) {
+                if (el.classList.contains('pp-ai-step-executing')) {
+                    ppChatRenderPreviewResult(el, diffAreas[i], steps[i], { success: false, data: text });
+                }
+            });
+            addStatusMessage(text, true);
         });
     }
 
@@ -2380,6 +2576,8 @@ if (typeof module !== 'undefined' && module.exports) {
         isRevertEligible: ppChatIsRevertEligible,
         compositionUndoTarget: ppChatCompositionUndoTarget,
         renderPreviewError: ppChatRenderPreviewError,
+        renderPreviewResult: ppChatRenderPreviewResult,
+        previewRenderErrorText: ppChatPreviewRenderErrorText,
         getErrorStepClass: ppChatGetErrorStepClass,
         getStatusMessage: ppChatGetStatusMessage,
         appendValidationItems: ppChatAppendValidationItems,
