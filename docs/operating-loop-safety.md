@@ -199,7 +199,7 @@ into one of two classes:
 | Preflight **freshness** pre-check (#113) | Data-safety | WP-CLI only (`_pp_cli_require_composition_fresh`) — pre-check, not the guarantee |
 | Write-time **compare-and-swap** (#13) | Data-safety | Shared choke point (`pp_update_composition`), **opt-in**: CLI ✅, editor AJAX ✅, chat AJAX ❌ (#392) |
 | Pre-apply **rollback snapshot** | Data-safety | Recorded in the CLI preflight only; apply/token mutation outside a CLI run is not yet covered (#393) |
-| `composition_required` precondition (#358) | Data-safety | Shared choke point (`pp_validate_action`) — every executor caller inherits it: CLI, chat AJAX, batch, `pp_patch_composition()` (#387) |
+| `composition_required` precondition (#358) | Data-safety | Shared choke point (`pp_validate_action`) — every executor caller inherits it: CLI, chat AJAX, batch, `pp_patch_composition()` (#387). Since #748 the refusal distinguishes a blank page ("has none yet") from an unreadable one (the shared integrity sentence naming `unexpected_shape` / `decode_error`); the gate itself is unchanged |
 | Unreadable-composition **batch refusal** (#749) | Data-safety | Batch executor only (`pp_ai_execute_batch`) + the chat batch entry point (`_pp_ai_execute_batch_response`). Single-step execute, editor AJAX and `pp_patch_composition()` are **not** covered — and deliberately so: they take no rollback snapshot, so they have no snapshot to write back over the corrupt bytes. That asymmetry is also the only surface on which the corrupt page can be repaired (#756) |
 
 The takeaway for future hardening: leave loop-discipline gates in the CLI, but do
