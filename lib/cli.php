@@ -686,6 +686,13 @@ function _pp_cli_require_preflight_covers(string $run_id, ?int $post_id): void {
  * post from $params (page/section actions carry a required post_id; site actions
  * carry none), asserts that the action's declared scope is consistent with that
  * presence so a misdeclared action can't be mis-gated, then enforces coverage.
+ *
+ * SINCE #767 THERE IS A THIRD STEP BETWEEN THOSE TWO, and it narrows the gate:
+ * `update_composition` / `restore_composition` on a page whose stored composition is
+ * already classified corrupt are admitted WITHOUT coverage, because `apply preflight`
+ * refuses that page and no preflight can therefore ever cover it. See
+ * pp_corrupt_page_repair_carve_out() (lib/operate.php) for maintainer ruling D-1 and its
+ * three conditions; the ordering rationale is inline in the body.
  */
 /**
  * Pure decision for the scope-consistency guardrail (#390) that resolves an
@@ -738,6 +745,22 @@ function _pp_cli_require_preflight_for_action(string $run_id, array $action, arr
         WP_CLI::error($target_error);
     }
 
+    // Corrupt-page repair carve-out (#767, ruling D-1). A page the preflight command
+    // itself refuses to preflight (lib/cli.php, `apply preflight`: a corrupt composition
+    // is not a usable restore baseline) cannot satisfy a preflight-coverage requirement,
+    // so demanding one here made the documented repair unreachable from the CLI. The
+    // carve-out admits ONLY the two whole-composition verbs, ONLY on that classification,
+    // and lifts ONLY this gate and the freshness gate below it — the scope-consistency
+    // check above already ran, pp_validate_action() already validated the incoming
+    // replacement in `execute`, and the run token / INSPECT ordering is untouched.
+    //
+    // ORDER MATTERS: the target gate runs FIRST. It catches action-registration bugs
+    // (an unrecognized scope, a page action with no post_id), and a misdeclared action
+    // must never reach a classification read that could hand it a preflight-free write.
+    if (pp_corrupt_page_repair_carve_out($action, $post_id) !== null) {
+        return;
+    }
+
     _pp_cli_require_preflight_covers($run_id, $post_id);
 
     // The #358 composition-presence precondition is NOT enforced here anymore
@@ -761,13 +784,23 @@ function _pp_cli_require_preflight_for_action(string $run_id, array $action, arr
  * changed through another path between preflight and execute.
  *
  * No-op for actions that don't mutate the composition (title/slug/seo/publish) and for
- * site-scoped actions (no post_id). Fail-closed: a missing recorded baseline blocks.
- * Call AFTER the coverage gate so the two errors stay distinct.
+ * site-scoped actions (no post_id). Fail-closed: a missing recorded baseline blocks —
+ * with ONE exception since #767, below. Call AFTER the coverage gate so the two errors
+ * stay distinct.
  *
  * Returns the validated baseline version so `execute` can thread it into the action as
  * `expected_version` for an atomic write-time compare-and-swap (#13) — closing the TOCTOU
  * window between this pre-check and the actual write. Returns null for the no-op cases
  * (non-mutating / site-scoped), where no CAS baseline applies.
+ *
+ * THE #767 CARVE-OUT IS THE THIRD SOURCE OF A VERSION, and it is not a preflight-validated
+ * one. For `update_composition` / `restore_composition` on a corrupt-classified page
+ * (pp_corrupt_page_repair_carve_out, lib/operate.php) a missing recorded baseline does NOT
+ * block: it cannot exist, because it is recorded BY the preflight that page cannot pass.
+ * The gate returns ok with a LIVE marker read as the CAS baseline instead, so the write-time
+ * compare-and-swap still refuses if the page stopped being corrupt underneath the repair.
+ * That substitution is what keeps the data-safety half of this gate intact while the
+ * loop-discipline half lifts.
  *
  * @return int|null  The baseline version to use as expected_version, or null (no CAS).
  */
@@ -791,6 +824,49 @@ function _pp_cli_require_preflight_for_action(string $run_id, array $action, arr
 function _pp_cli_composition_fresh_decision(string $run_id, array $action, ?int $post_id): array {
     if (empty($action['mutates_composition']) || $post_id === null) {
         return ['status' => 'ok', 'version' => null];
+    }
+
+    // Corrupt-page repair carve-out (#767, ruling D-1). This gate is not merely waived
+    // here, it is UNSATISFIABLE here: its baseline is recorded BY the preflight command,
+    // which fails closed on this exact classification, so a carve-out repair can never
+    // have one and the fail-closed missing-baseline branch below would re-close the loop
+    // the coverage carve-out just opened.
+    //
+    // The CAS baseline is taken LIVE instead, and it is what keeps condition (1) of the
+    // ruling true at the WRITE rather than only at the check: pp_update_composition()
+    // re-reads the version from the DB inside its per-post advisory lock and refuses with
+    // `composition_conflict` if it moved. So if another writer repairs the page between
+    // this decision and the write, the carve-out write is rejected instead of overwriting
+    // a now-healthy composition — the page stopped being the corrupt page the hatch was
+    // opened for. Retrying is then the ordinary path: the page is healthy, so
+    // `apply preflight` works.
+    //
+    // READ THE MARKER FIRST. THE ORDER OF THESE TWO STATEMENTS IS THE GUARANTEE.
+    // Taken the other way round — classify, then read the version — a repair landing
+    // BETWEEN them hands back the POST-repair version, the in-lock read matches it, the CAS
+    // passes, and the preflight-free write lands on a now-healthy composition: the exact
+    // data-loss hole this baseline exists to close, reintroduced by statement order. With
+    // the marker read first, every interleaving fails closed:
+    //
+    //   repair lands BEFORE the marker read      the classification below reads healthy,
+    //                                            the carve-out does not apply, refused
+    //   repair lands BETWEEN marker and classify same — the classification reads healthy
+    //   repair lands AFTER the classification    baseline is pre-repair, in-lock read is
+    //                                            post-repair, the CAS refuses
+    //
+    // Do not "tidy" this into the branch below.
+    $live_version = (int) pp_get_composition_marker($post_id)['version'];
+
+    // THIS RE-ASKS rather than reusing the coverage gate's answer, and the second read is
+    // deliberate. Each gate answers to the state at its OWN moment; if a repair lands
+    // between the two, this one sees a healthy page, the carve-out does not apply, and the
+    // fail-closed missing-baseline branch below refuses — which is correct, because a
+    // healthy page needs a preflight. Threading one cached classification through both
+    // gates would make them agree by construction on a value that had gone stale in
+    // between, trading a safe refusal for a preflight-free write. The cost is one extra
+    // indexed point lookup per repair command, on the CLI path, once per operator command.
+    if (pp_corrupt_page_repair_carve_out($action, $post_id) !== null) {
+        return ['status' => 'ok', 'version' => $live_version];
     }
 
     $recorded = pp_operate_get_composition_snapshot($run_id, $post_id);
@@ -973,7 +1049,10 @@ class PP_Action_Command extends WP_CLI_Command {
 
         // Preflight-before-mutation gate (#96). Every `action execute` mutates
         // DB-backed state, so require a completed PREFLIGHT covering this target
-        // before the write lands. Validate first so a malformed/nonexistent
+        // before the write lands — except the #767 carve-out, which admits
+        // `update_composition` / `restore_composition` on a corrupt-classified page
+        // that no preflight can cover (see _pp_cli_require_preflight_for_action).
+        // Validate first so a malformed/nonexistent
         // target surfaces its real error instead of a confusing "preflight a
         // page that doesn't exist" message, and so the gate only demands a
         // preflight for an action that would actually run. Unknown action names
@@ -1668,7 +1747,14 @@ class PP_Apply_Command extends WP_CLI_Command {
             // coerces corruption to [] and must not be used here.
             $composition_result = pp_get_composition_result($pid);
             if (!$composition_result['ok']) {
-                _pp_cli_preflight_record_failed($result, 'Could not read a valid pre-apply composition baseline for run token "' . $run_id . '" (post ' . $pid . '): the stored composition is ' . $composition_result['error'] . '. PREFLIGHT was not recorded, so both the action gate and the restore baseline stay fail-closed. Repair the post\'s composition before re-running `wp pp apply preflight`.');
+                // NAMES THE ROUTE THAT RUNS (#767). This refusal is one half of the loop
+                // ruling D-1 closed: it used to say "repair the composition first" while
+                // the repair itself was refused for want of the preflight this command
+                // declines to record. The carve-out makes the two whole-composition verbs
+                // reachable on exactly this classification, so the instruction is now
+                // executable — and it is spelled out, because an operator reading a
+                // fail-closed message should not have to know a carve-out exists.
+                _pp_cli_preflight_record_failed($result, 'Could not read a valid pre-apply composition baseline for run token "' . $run_id . '" (post ' . $pid . '): the stored composition is ' . $composition_result['error'] . '. PREFLIGHT was not recorded, so both the action gate and the restore baseline stay fail-closed. ' . pp_corrupt_repair_route_message($pid, $run_id));
             }
             $composition_content = $composition_result['composition'];
         }

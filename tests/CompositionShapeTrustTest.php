@@ -553,25 +553,60 @@ class CompositionShapeTrustTest extends TestCase
     }
 
     /**
-     * #767: the corrupt refusal names NO repair route, deliberately.
+     * #767: the corrupt refusal names a repair route that RUNS.
      *
-     * On the CLI, "repair it with a full update_composition" is currently circular —
-     * `apply preflight` fails closed on a corrupt page while `action execute
-     * update_composition` refuses for want of preflight coverage — and that circularity is
-     * unruled. A gate that prescribes a command the operator cannot run is worse than one
-     * that prescribes none, so this surface names the classification and points at the
-     * read-only report. Pinned so the omission reads as a decision, not an oversight.
+     * THIS PIN WAS DELIBERATELY REVERSED, and the reversal is the point. Between #748 and
+     * #767 it asserted the opposite — that the message named NEITHER verb — because the
+     * only route it could have named was circular on the CLI: `apply preflight` failed
+     * closed on a corrupt page while `action execute update_composition` refused for want
+     * of preflight coverage. Naming a command the operator cannot run is worse than naming
+     * none, so the omission was pinned as a decision rather than an oversight.
+     *
+     * Maintainer ruling D-1 (#767) removed that precondition: the carve-out
+     * (pp_corrupt_page_repair_carve_out) admits exactly these two verbs on exactly this
+     * classification, so the route now executes and the silence has no justification left.
+     * An operator who reaches THIS message is by construction on the page the carve-out
+     * exists for — they asked for a band-level edit on a composition nothing can read.
+     *
+     * What is pinned is not just "some route is named" but that the named route is the one
+     * that works: both whole-composition verbs, and the fact that no preflight is needed.
      */
-    public function testTheCorruptRefusalPrescribesNoRepairCommand(): void
+    public function testTheCorruptRefusalPrescribesTheRepairRouteThatRuns(): void
     {
         $post_id = pp_create_page('Corrupt page', 'draft');
         pp_update_composition($post_id, $this->objectShapedPayload());
 
         $message = pp_action_composition_precondition(pp_get_action('update_component'), $post_id)->get_error_message();
 
-        $this->assertStringNotContainsString('update_composition', $message,
-            '#767: the CLI route to that write is gated behind a preflight this page cannot pass');
-        $this->assertStringNotContainsString('restore_composition', $message);
+        $this->assertStringContainsString('update_composition', $message,
+            '#767: the carve-out makes this route executable, so the refusal names it');
+        $this->assertStringContainsString('restore_composition', $message);
+        $this->assertStringContainsString('no preflight', $message,
+            'the route only helps if the operator is told it needs no preflight');
+        // The diagnosis half is untouched — the flip added a tail, it did not reword the
+        // sentence #650/#652/#725 single-owns.
+        $this->assertStringContainsString('treat as corrupted, not empty', $message);
+    }
+
+    /**
+     * The BLANK refusal did NOT inherit the route flip.
+     *
+     * `pp_action_composition_precondition()` has two rejection branches and only the
+     * corrupt one is inside the carve-out's world. A blank page has nothing to repair and
+     * no carve-out applies to it, so its sentence — pinned to the byte by
+     * testTheBlankRefusalsWordingIsUnchangedToTheByte — must not start advertising a
+     * preflight-free write. Asserted separately because "add a tail to the corrupt branch"
+     * is exactly the edit that would leak into a shared builder.
+     */
+    public function testTheBlankRefusalStillPrescribesNoPreflightFreeRoute(): void
+    {
+        $post_id = pp_create_page('Blank page', 'draft');
+
+        $message = pp_action_composition_precondition(pp_get_action('update_component'), $post_id)->get_error_message();
+
+        $this->assertStringContainsString('has none yet', $message, 'premise: this is the blank branch');
+        $this->assertStringNotContainsString('no preflight', $message);
+        $this->assertStringNotContainsString('#767', $message);
     }
 
     /**
