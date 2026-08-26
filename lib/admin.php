@@ -3665,6 +3665,219 @@ add_filter('admin_body_class', function (string $classes): string {
     return $classes;
 });
 
+/**
+ * The text the composition editor's JSON pane loads, for ANY stored value (#750).
+ *
+ * The pane has always shown "the STORED bytes, re-encoded" (#604) — that is the honest view
+ * and this keeps it. What it did not do was survive the stored values that are not strings,
+ * and the editor is the ONE repair surface #767 verified as working, so the shapes it fell
+ * over on were exactly the ones that need repairing:
+ *
+ *   stored value                          class              BEFORE            NOW
+ *   -----------------------------------   ----------------   ---------------   --------------
+ *   '' / null / false                     absent (blank)     '' blank pane     '' blank pane
+ *   valid JSON list                       readable           pretty-printed    pretty-printed
+ *   JSON object                           unexpected_shape   pretty-printed    pretty-printed
+ *   undecodable JSON                      decode_error       raw, verbatim     raw, verbatim
+ *   '0'                                   unexpected_shape   '' — pane LIED    '0', verbatim
+ *   '0.0'                                 unexpected_shape   '0.0'             '0.0'
+ *   int 0                                 unexpected_shape   '' — pane LIED    '0'
+ *   int 5 / float / true                  unexpected_shape   FATAL TypeError   JSON scalar
+ *   PHP list array (importer-written)     readable           FATAL TypeError   pretty-printed
+ *   PHP map array (importer-written)      unexpected_shape   FATAL TypeError   pretty-printed
+ *
+ * TWO REAL BUGS, both in the falsy/non-string columns, both pre-existing and both fatal to
+ * this issue's own acceptance criterion (a corrupt page must be PRESENTED as corrupt):
+ *
+ *   `if ($raw)` skipped the re-encode for the FALSY-but-present values — the string '0' and
+ *   the int 0 — and `esc_textarea($raw ?: '')` then turned them into ''. A page storing the
+ *   JSON scalar `0` opened as a BLANK pane: the pristine-blank lie this issue exists to
+ *   remove, in its purest form. ('0.0' escaped it only by being a truthy string.)
+ *
+ *   get_post_meta() unserializes on the way out, so a row written as a PHP array by an
+ *   importer or `wp post meta update ... --format=json` (the shape
+ *   pp_get_composition_result_authoritative()'s docblock documents as reachable) came back
+ *   as an ARRAY. json_decode(array) is a TypeError on PHP 8: the editor page died with a
+ *   fatal before rendering anything at all.
+ *
+ * ONLY STRINGS ARE DECODED, and everything else is re-encoded to JSON rather than cast.
+ * `(string) $value` would render true as "1" and an array as "Array"; wp_json_encode()
+ * renders what the value IS, which is what an operator has to see to fix it. The pane is
+ * still a rendering of storage, not a proposed repair — the notice beside it names the
+ * classification, and nothing is written until the operator saves.
+ *
+ * @param  mixed $raw  The stored `_pp_composition` value, exactly as get_post_meta returned it.
+ * @return string      Text for the editor pane.
+ */
+function pp_composition_editor_text($raw): string {
+    return _pp_composition_editor_displayable(_pp_composition_editor_raw_text($raw));
+}
+
+/**
+ * Whatever pp_composition_editor_text() produced, in a form esc_textarea() can print (#750).
+ *
+ * THE THIRD WAY TO SHOW A BLANK PANE FOR A NON-BLANK ROW, and it hides in the escaper.
+ * esc_textarea() is htmlspecialchars($text, ENT_QUOTES, blog_charset) — explicit flags, so
+ * PHP 8's ENT_SUBSTITUTE default does not apply — and htmlspecialchars returns the EMPTY
+ * STRING when its input is not valid UTF-8. Truncated or binary-garbage bytes are a real
+ * `decode_error` shape, so without this the pane renders empty for exactly the corruption
+ * that is hardest to reason about, right beside a notice saying the row is corrupt.
+ *
+ * TRANSCRIBED, NOT SUBSTITUTED, and the difference is the whole safety argument. The obvious
+ * implementation — mb_convert_encoding($text, 'UTF-8', 'UTF-8'), which swaps each bad byte
+ * for `?` — is worse than the blank pane it replaces:
+ *
+ *   stored   [{"component":"hero","props":{"title":"caf\xE9"}}]   decode_error, latin-1 title
+ *   swapped  [{"component":"hero","props":{"title":"caf?"}}]      VALID JSON, a valid list
+ *
+ * That pane parses. It passes the client validator, passes the server's decode, writes
+ * through `update_composition`, and the notice clears reporting "Composition repaired" — so
+ * the one action the notice tells the operator to take silently replaces a character of
+ * their content with a question mark and calls it a repair. The pane's documented contract
+ * since #604 is "the STORED bytes, re-encoded"; a swap quietly makes that false while
+ * looking more correct than before.
+ *
+ * Escaping each invalid byte as `\xNN` keeps the promise instead. It is not a valid JSON
+ * escape, so the transcription cannot parse: the client validator refuses the save, the
+ * operator has to type a real composition, and what they see identifies the offending byte
+ * exactly. Valid multibyte runs pass through untouched, so a mixed row still reads.
+ *
+ * The exact bytes are on the history ring either way (#818) — `wp pp operate
+ * composition-history --post_id=N`, where `raw_base64` is the copy and `raw_sha256` verifies
+ * it. This function's job is only to make sure the pane never claims to be them.
+ */
+function _pp_composition_editor_displayable(string $text): string {
+    if ($text === '' || mb_check_encoding($text, 'UTF-8')) {
+        return $text;
+    }
+
+    $out = '';
+    $len = strlen($text);
+    for ($i = 0; $i < $len;) {
+        // The shortest byte run starting here that IS valid UTF-8 (1 for ASCII, up to 4 for
+        // a multibyte character). A prefix of a multibyte sequence fails the check, so this
+        // never splits a legitimate character.
+        $kept = false;
+        for ($n = 1; $n <= 4 && $i + $n <= $len; $n++) {
+            $chunk = substr($text, $i, $n);
+            if (mb_check_encoding($chunk, 'UTF-8')) {
+                $out .= $chunk;
+                $i   += $n;
+                $kept = true;
+                break;
+            }
+        }
+        if (!$kept) {
+            $out .= sprintf('\\x%02X', ord($text[$i]));
+            $i++;
+        }
+    }
+
+    return $out;
+}
+
+/** The per-shape decision itself; see pp_composition_editor_text()'s table. */
+function _pp_composition_editor_raw_text($raw): string {
+    // Genuine absence only, and ASKED of the classifier's own predicate rather than
+    // re-spelled here: the pane is blank on exactly the values every other surface calls a
+    // blank page, and stays that way if that definition ever moves. '0' is not one of them.
+    if (pp_composition_value_is_absent($raw)) {
+        return '';
+    }
+
+    if (is_string($raw)) {
+        $decoded = json_decode($raw, true);
+        if (is_array($decoded)) {
+            // Pretty-print stored JSON so the editor shows readable multi-line content.
+            // The editor shows the STORED bytes, re-encoded (#604). It used to migrate a
+            // legacy `variant` key out of the decoded view first (#69/#388 read path); that
+            // migration is gone, so a pre-rename page now surfaces `variant` verbatim in the
+            // editor exactly as it sits in the database. That is the honest view: `variant`
+            // is rejected on every write path, so showing the operator a `layout`/`theme`
+            // shape the stored document does not actually have was the editor telling a
+            // small lie about storage. Saving such a page fails with `unknown_prop` and
+            // names the offending key — the intended, loud outcome.
+            return (string) json_encode($decoded, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+        }
+        return $raw;
+    }
+
+    // JSON_INVALID_UTF8_SUBSTITUTE, because wp_json_encode returns FALSE on a value it
+    // cannot encode and `(string) false` is '' — a blank pane for a row that is anything
+    // but blank. A stored value carrying invalid UTF-8 (an importer writing raw bytes, a
+    // truncated serialized payload) is exactly the case, and it is the case that most needs
+    // to be visible.
+    return (string) wp_json_encode(
+        $raw,
+        JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE
+    );
+}
+
+/**
+ * What the composition editor tells the operator about a page it cannot read (#750), or null.
+ *
+ * THE EDITOR'S HALF OF RULING R-C. The boot gate that catches a corrupt page already exists
+ * — #745's serialization-invariant check refuses the accordion and routes to JSON-only mode
+ * — but the notice it posts is the STRUCTURAL-DRIFT story ("opening this composition in the
+ * accordion editor would change its structure"), told about a DATA-CORRUPTION state. It
+ * never names the classification, never says the page is corrupted rather than empty, never
+ * names the repair, and offers a "Copy as GitHub Issue" button that invites a bug report
+ * against the theme when what is actually wrong is the row. Same wrong conclusion as the
+ * chat's, dressed as a different one.
+ *
+ * WHY THE CLASSIFICATION IS COMPUTED IN PHP AND SHIPPED TO THE CLIENT, rather than derived
+ * in JS from the buffer: a second implementation of the decision is a second spelling of it,
+ * and #650/#652 is the whole reason both the diagnosis and the route are single-owned
+ * functions. The JS asks nobody — it renders what the one classifier said.
+ *
+ * The MESSAGE is pp_composition_integrity_message()'s and the ROUTE is
+ * pp_corrupt_repair_route_message()'s, with only the lead-in local, matching
+ * _pp_batch_unreadable_target_error() (lib/actions.php) and pp_inspect_composition()
+ * (lib/operate.php). The shared route names WP-CLI and "the dashboard composition editor";
+ * on THIS surface the second half is where the operator already is, which is why the local
+ * lead-in says so plainly instead of leaving them to work it out. #767's measurement
+ * confirms this surface works: the editor save reaches pp_execute_action('update_composition')
+ * with no run token, so no preflight coverage gate applies, and the incoming replacement is
+ * still fully validated (ruling D-1, condition 3).
+ *
+ * Reads the CACHED classifier for the same reason pp_ai_page_context() does: this decides
+ * what a NOTICE says, not whether a gate opens.
+ *
+ * `$can_write_here` EXISTS BECAUSE THE PROMISE HAS TO BE TRUE FOR THE READER, not for the
+ * surface in general. With WordPress's per-user "Disable syntax highlighting while editing"
+ * profile option there is no CodeMirror instance, and both `doSaveDraft()` and
+ * `doPublishOrUpdate()` (assets/js/pp-admin-editor.js) open with `if (!cm) return;` — so
+ * Save and Publish are silent no-ops for that author on every page, corrupt or not (filed
+ * separately). Telling them to "fix it here and save" would be this change putting a fresh
+ * lie where it just removed one, so that author is pointed at the routes that do run. The
+ * inertness is pre-existing; the promise would have been new.
+ *
+ * @param  int  $post_id         The page being opened in the editor.
+ * @param  bool $can_write_here  Can THIS editor session actually perform the write?
+ * @return array{error: string, message: string, repair: string}|null  Null when readable.
+ */
+function pp_composition_editor_integrity(int $post_id, bool $can_write_here = true): ?array {
+    $stored = pp_get_composition_result($post_id);
+    if ($stored['ok']) {
+        return null;
+    }
+
+    $lead_in = $can_write_here
+        ? 'This editor is one of the repair surfaces, so you can fix it here: replace the'
+            . ' JSON below with a valid composition array and save. That save is one'
+            . ' whole-composition write, and it is validated in full before anything is'
+            . ' stored. '
+        : 'Saving from this editor is disabled while syntax highlighting is turned off in'
+            . ' your WordPress profile, so the repair has to come from one of the routes'
+            . ' below. ';
+
+    return [
+        'error'   => (string) $stored['error'],
+        'message' => pp_composition_integrity_message($post_id, (string) $stored['error']),
+        'repair'  => $lead_in . pp_corrupt_repair_route_message($post_id),
+    ];
+}
+
 // ── Workspace Page Callback ───────────────────────────────────────────────────
 
 function pp_composition_workspace_page(): void {
@@ -3688,22 +3901,9 @@ function pp_composition_workspace_page(): void {
         wp_die('You do not have permission to edit this page.');
     }
 
-    $raw        = get_post_meta($post_id, '_pp_composition', true);
-    // Pretty-print stored JSON so the editor shows readable multi-line content.
-    // The editor shows the STORED bytes, re-encoded (#604). It used to migrate a
-    // legacy `variant` key out of the decoded view first (#69/#388 read path); that
-    // migration is gone, so a pre-rename page now surfaces `variant` verbatim in the
-    // editor exactly as it sits in the database. That is the honest view: `variant`
-    // is rejected on every write path, so showing the operator a `layout`/`theme`
-    // shape the stored document does not actually have was the editor telling a
-    // small lie about storage. Saving such a page fails with `unknown_prop` and
-    // names the offending key — the intended, loud outcome.
-    if ($raw) {
-        $decoded = json_decode($raw, true);
-        if (is_array($decoded)) {
-            $raw = json_encode($decoded, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
-        }
-    }
+    // The pane text for any stored value, including the corrupt ones (#750) — see
+    // pp_composition_editor_text(), which owns the per-shape decision and why.
+    $raw        = pp_composition_editor_text(get_post_meta($post_id, '_pp_composition', true));
     $components = pp_get_registered_components();
 
     // Back always goes to the Pages list — not get_edit_post_link(), which
@@ -3802,7 +4002,7 @@ function pp_composition_workspace_page(): void {
                             id="pp-composition-editor"
                             name="pp_composition"
                             style="display:none;"
-                        ><?php echo esc_textarea($raw ?: ''); ?></textarea>
+                        ><?php echo esc_textarea($raw); ?></textarea>
                     </div>
                 </div>
             </div>
@@ -4052,6 +4252,12 @@ add_action('admin_enqueue_scripts', function (string $hook) {
         // Optimistic-locking baseline (#13): the composition version this editor is loading.
         // Sent back as expected_version on save/publish so a concurrent write is caught.
         'compositionVersion' => pp_get_composition_marker($post_id)['version'],
+        // Stored-composition classification (#750): null on a readable page, otherwise the
+        // classification plus the sentences the operator is shown. The client renders this;
+        // it never re-derives the decision. `$cm_settings` is falsy exactly when this author
+        // turned syntax highlighting off, which is also when the editor's Save is inert —
+        // see pp_composition_editor_integrity().
+        'compositionIntegrity' => pp_composition_editor_integrity($post_id, (bool) $cm_settings),
     ]);
 });
 

@@ -463,15 +463,25 @@ function pp_composition_integrity_message(int $post_id, string $error): string {
  *
  * SCOPED TO THE NO-ROLLBACK-SNAPSHOT ROUTES, and the boundary is deliberate rather than an
  * oversight (#756). Ruling D-1 opened a third route — a chat proposal whose ONLY step is
- * one of these two verbs — and it is NOT named here, because it is not a route every
- * caller can offer. Three of the four callers are CLI- or action-facing, where "send it as
- * a one-step proposal" is advice about a surface the operator is not on; only the batch
- * refusal renders on the surface where it is actionable, so it names that route in its own
- * caller-local lead-in. Uniformity is the point of this function, and a sentence that is
- * true on one of four surfaces is not uniform — pushing it in here to keep the spelling in
- * one place would have put wrong advice on the other three. What is single-owned is the
- * claim "a whole-composition write repairs this page, and here is what it costs"; where
- * that write can be sent from is the caller's to say.
+ * one of these two verbs — and it is NOT named here, because it is not a route every caller
+ * can offer. Uniformity is the point of this function, and a sentence that is true on some
+ * callers' surfaces and not others is not uniform; pushing it in here to keep the spelling
+ * in one place would have put wrong advice on the rest. What is single-owned is the claim
+ * "a whole-composition write repairs this page, and here is what it costs"; WHERE that
+ * write can be sent from is the caller's to say, in its own lead-in.
+ *
+ * THE CALLER CENSUS, kept current because the scoping argument above is only checkable
+ * against it (six since #750, was four):
+ *
+ *   ROUTE IS ACTIONABLE WHERE IT RENDERS — each names it in its own lead-in
+ *     _pp_batch_unreadable_target_error()   lib/actions.php   "in a proposal of its OWN"
+ *     _pp_ai_page_context_corrupt_block()   lib/ai-context.php  the same, said to the model
+ *     pp_composition_editor_integrity()     lib/admin.php     "replace the JSON below and save"
+ *
+ *   ROUTE IS ELSEWHERE — advice about a surface the reader is not on, so none is added
+ *     the `apply preflight` failure          lib/cli.php
+ *     the composition_required refusal       lib/operate.php
+ *     pp_inspect_composition()               lib/operate.php
  *
  * The run token is optional because only one caller has one. With it the sentence renders
  * runnable commands; without it, the verbs. Never invent a token to fill the gap — a
@@ -691,6 +701,27 @@ function pp_get_composition_result_authoritative(int $post_id): array {
 }
 
 /**
+ * Is this stored `_pp_composition` value a genuinely BLANK page? (#144, extracted #750)
+ *
+ * The one owner of "blank", for the same reason the classification and the two sentences
+ * are single-owned: a surface that decides this for itself decides it differently one day.
+ * The composition editor needs the same answer (a blank pane belongs to a blank page, and
+ * to nothing else — lib/admin.php), and a hand-copied `=== '' || === null || === false`
+ * there would be kept in sync by prose alone.
+ *
+ * Absent meta: get_post_meta(single=true) returns '' when the key does not exist. Match only
+ * genuine absence — NOT every falsy value — so a stored falsy-but-present payload (the JSON
+ * string "0", an int 0) still reaches shape classification instead of masquerading as a
+ * blank page.
+ *
+ * @param mixed $raw  The stored value, exactly as read.
+ * @return bool
+ */
+function pp_composition_value_is_absent($raw): bool {
+    return $raw === '' || $raw === null || $raw === false;
+}
+
+/**
  * The classification itself, as a pure function of the stored value (#144, extracted #767).
  *
  * Every state table entry documented on pp_get_composition_result() is decided HERE. Two
@@ -703,11 +734,7 @@ function pp_get_composition_result_authoritative(int $post_id): array {
  * @return array{ok: bool, composition: array, error: ?string, raw: ?string}
  */
 function pp_classify_composition_value($raw): array {
-    // Absent meta: get_post_meta(single=true) returns '' when the key does not
-    // exist. Match only genuine absence here — NOT every falsy value — so a
-    // stored falsy-but-present payload (the JSON string "0", an int 0) still
-    // reaches shape classification below instead of masquerading as a blank page.
-    if ($raw === '' || $raw === null || $raw === false) {
+    if (pp_composition_value_is_absent($raw)) {
         return ['ok' => true, 'composition' => [], 'error' => null, 'raw' => null];
     }
 
