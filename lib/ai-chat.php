@@ -1382,7 +1382,8 @@ function _pp_ai_batch_baselines_cover_mutations(array $steps, array $baselines):
  * as _pp_ai_execute_response() (testable real-handler path, #387). Normalizes +
  * capability-checks every step up front, enforces the fail-closed baseline
  * mandate (A1), refuses the batch when any named page's stored composition is
- * unreadable (#749), then threads the baseline map through pp_ai_execute_batch().
+ * unreadable (#749) — unless it is the one-step corrupt-page repair ruling D-1
+ * carves out (#756) — then threads the baseline map through pp_ai_execute_batch().
  *
  * @param  array $post  $_POST-shaped input: ['steps' (JSON), 'baselines' (JSON)].
  * @return array        ['ok' => bool, 'data' => mixed].
@@ -1450,7 +1451,21 @@ function _pp_ai_execute_batch_response(array $post): array {
     // Left to the executor, the refusal would arrive on the SUCCESS branch as a step-less
     // batch envelope, which is the one shape that renderer has no failing step to show.
     // Detection and wording are single-owned by lib/actions.php, so the gates cannot drift.
-    $unreadable_error = _pp_batch_unreadable_target_error(_pp_batch_unreadable_targets($normalized));
+    //
+    // The #756 carve-out travels with the gate, not beside it: both sites ask
+    // _pp_batch_unreadable_refusal(), so neither can apply a different RULE about which
+    // batches are admitted. That is why the exemption is not spelled out at either call
+    // site — there is nothing to keep in sync.
+    //
+    // ONE RULE IS NOT ONE ANSWER, and the gap is a concurrent write rather than drift.
+    // The two gates evaluate that shared rule at two moments, against two `unreadable`
+    // maps built by two reads (this one's detector, the executor's own capture), and the
+    // carve-out's classification read is authoritative and uncached at each. So a repair
+    // landing between them can make this gate admit and the executor refuse. Nothing
+    // runs and nothing is written; the executor's step-less envelope arrives on the
+    // SUCCESS branch, which is the shape ppChatBatchWasRefusedUpFront() exists to render
+    // (assets/js/pp-ai-chat.js) — see its docblock, which names this window.
+    $unreadable_error = _pp_batch_unreadable_refusal($normalized, _pp_batch_unreadable_targets($normalized));
     if ($unreadable_error !== null) {
         return ['ok' => false, 'data' => $unreadable_error];
     }

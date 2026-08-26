@@ -18,28 +18,42 @@
  *
  *   _pp_ai_execute_batch_response(POST)          [lib/ai-chat.php — the chat surface]
  *      │
- *      ├─ _pp_batch_unreadable_targets(steps) non-empty
- *      │      └─► REFUSE: ok=false + {error, error_code} via wp_send_json_error,
- *      │                  rendered on the client's !resp.success branch
+ *      ├─ _pp_batch_unreadable_refusal(steps, _pp_batch_unreadable_targets(steps))
+ *      │      │      non-null ─► REFUSE: ok=false + {error, error_code} via
+ *      │      │                  wp_send_json_error, rendered on the client's
+ *      │      │                  !resp.success branch
+ *      │      │
+ *      │      └─ null when EITHER all targets are readable, OR the batch is the
+ *      │         one-step corrupt-page repair ruling D-1 admits (#756) —
+ *      │         _pp_batch_corrupt_repair_admitted(): exactly one step, type
+ *      │         'action', update_composition/restore_composition, on a page the
+ *      │         AUTHORITATIVE read still calls corrupt, and that page is the sole
+ *      │         entry in the unreadable map
  *      │
- *      └─ all readable
- *           │
- *           ▼
+ *      ▼
  *   pp_ai_execute_batch(steps)                    [lib/actions.php — every caller]
  *      │
  *      ├─ _pp_snapshot_batch_targets(steps)  ── classifies from its own capture read,
  *      │                                        recording snapshot['unreadable']
  *      │
- *      ├─ snapshot['unreadable'] non-empty ─► REFUSE before step 1
- *      │        ok=false, steps=[], failed_at=null, rolled_back=false,
- *      │        error_code = the classification itself, ZERO writes
+ *      ├─ _pp_batch_unreadable_refusal(steps, snapshot['unreadable']) non-null
+ *      │        └─► REFUSE before step 1: ok=false, steps=[], failed_at=null,
+ *      │            rolled_back=false, error_code = the classification itself,
+ *      │            ZERO writes. Same owner as the chat gate, so the two cannot
+ *      │            apply different rules about what is admitted.
  *      │
- *      ├─ all readable ───────────────────► run the batch exactly as before
+ *      ├─ admitted ──────────────────────► run the batch exactly as before
  *      │
- *      └─ on a step failure: _pp_restore_batch_snapshot()
- *             └─ re-classifies each target against LIVE state before writing;
- *                a row that went unreadable mid-batch keeps its bytes and the
- *                withholding is reported through rollback_errors.
+ *      └─ on a step failure: _pp_restore_batch_snapshot(), TWO withhold guards:
+ *             ├─ post_id in snapshot['unreadable'] (#756) ─► NEVER write the
+ *             │     capture back: it is the degrading `[]` stand-in, and the page
+ *             │     may now hold a repair that outlived the batch. Checked FIRST,
+ *             │     because it is a fact about the capture that no later read
+ *             │     can change. Reachable only on the carve-out path.
+ *             └─ else re-classify against LIVE state (#749): a row that went
+ *                   unreadable MID-batch keeps its bytes.
+ *           Both withholdings are reported through rollback_errors, in
+ *           deliberately different words.
  *
  * Coverage:
  *   both classifications (unexpected_shape, decode_error) × both storage channels
@@ -637,14 +651,23 @@ class BatchRollbackCorruptSnapshotTest extends TestCase
 
         $this->assertSame([$corrupt => 'unexpected_shape'], $snapshot['unreadable']);
 
-        // THE TWO-LAYER CONTRACT, stated rather than assumed. The bundle STILL carries
+        // THE THREE-LAYER CONTRACT, stated rather than assumed. The bundle STILL carries
         // a degraded [] composition for the unreadable page — the classifier has no
         // honest value to offer and the bundle shape stays uniform. That value is
-        // exactly what used to be written back and destroy the page. What makes it
-        // safe is not the capture; it is that `unreadable` refuses the batch before
-        // anything can restore, and that _pp_restore_batch_snapshot() re-classifies
-        // against live state before it writes. A future reader must not "clean this
-        // up" by trusting the bundle.
+        // exactly what used to be written back and destroy the page. What makes it safe
+        // is never the capture; it is, in order:
+        //
+        //   1. `unreadable` refuses the batch before anything can restore — for every
+        //      batch EXCEPT the one-step corrupt-page repair #756 admits;
+        //   2. on that one admitted path, _pp_restore_batch_snapshot() refuses outright
+        //      to write back the composition of any page named in `unreadable`. Layer 3
+        //      cannot cover this: once the repair lands the page reads FINE, so a live
+        //      re-classify would wave the [] through over the repair;
+        //   3. for a page that was readable at capture and went unreadable MID-batch,
+        //      _pp_restore_batch_snapshot() re-classifies against live state before it
+        //      writes.
+        //
+        // A future reader must not "clean this up" by trusting the bundle.
         $this->assertSame([], $snapshot['posts'][$corrupt]['composition'], 'still degraded — and still never written');
         $this->assertSame('Recorded', $snapshot['posts'][$corrupt]['title'], 'the non-composition fields are honest');
 

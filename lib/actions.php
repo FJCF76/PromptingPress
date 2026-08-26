@@ -865,14 +865,17 @@ function pp_execute_action(string $name, array $params): array {
  * warrant deleting it.
  *
  * Also classifies each named page's stored composition and records the ones that
- * CANNOT be read under 'unreadable' (#749). That key is not restore state and
- * _pp_restore_batch_snapshot() never reads it — its only consumer is
- * pp_ai_execute_batch(), which refuses the whole batch when it is non-empty.
+ * CANNOT be read under 'unreadable' (#749). Two consumers, and they are opposite
+ * ends of the same guarantee: pp_ai_execute_batch() refuses the whole batch when it
+ * is non-empty (except for the one carve-out batch, #756), and since that carve-out
+ * _pp_restore_batch_snapshot() reads it too — a page listed here had no readable
+ * composition to capture, so its snapshot is a stand-in and is never written back.
  *
  * @param  array $steps  Each: ['type' => 'action'|'apply', 'name' => string, 'params' => array]
  * @return array          Snapshot bundle. The state keys go to
  *                         _pp_restore_batch_snapshot(); 'unreadable' goes to
- *                         pp_ai_execute_batch()'s refusal gate.
+ *                         pp_ai_execute_batch()'s refusal gate AND to
+ *                         _pp_restore_batch_snapshot()'s withhold branch.
  */
 function _pp_snapshot_batch_targets(array $steps): array {
     $posts      = [];
@@ -888,8 +891,8 @@ function _pp_snapshot_batch_targets(array $steps): array {
         $name   = $step['name']   ?? '';
         $params = $step['params'] ?? [];
 
-        if (isset($params['post_id']) && is_numeric($params['post_id'])) {
-            $post_id = (int) $params['post_id'];
+        $post_id = _pp_batch_step_post_id($step);
+        if ($post_id !== null) {
             if (!isset($posts[$post_id]) && get_post($post_id)) {
                 $post = get_post($post_id);
                 // READ THROUGH THE CLASSIFIER, NEVER THE DEGRADING ACCESSOR (#749).
@@ -900,9 +903,16 @@ function _pp_snapshot_batch_targets(array $steps): array {
                 // out of a rolled-back batch genuinely empty, behind a clean
                 // rolled_back: true. Same class #241 closed for the run-scoped
                 // restore, and the same posture #506 took on the homepage seed.
-                // The composition captured here is only ever a READABLE one; an
-                // unreadable target is recorded in $unreadable and refuses the
-                // whole batch before any step runs (pp_ai_execute_batch).
+                // THE CAPTURE IS READABLE EXCEPT ON ONE PATH, and the exception is
+                // why the bundle must never be trusted blind. An unreadable target
+                // is recorded in $unreadable, which refuses the whole batch before
+                // any step runs (pp_ai_execute_batch) for every batch EXCEPT the
+                // one-step corrupt-page repair ruling D-1 admits (#756). On that
+                // path the value stored below IS the degrading accessor's `[]`, a
+                // stand-in for bytes nobody could decode — so it reaches
+                // _pp_restore_batch_snapshot(), which refuses to write back the
+                // composition of any page named in $unreadable. Capture honestly,
+                // record what the capture is worth, and let the restorer decide.
                 //
                 // ONE READ decides both, deliberately. Classifying in a separate
                 // pass would leave a window — however small — in which the row
@@ -993,6 +1003,43 @@ function _pp_snapshot_batch_targets(array $steps): array {
 }
 
 /**
+ * The page one batch step names, or null when it names none usably (#749/#756).
+ *
+ * THE SINGLE OWNER OF ONE COERCION, and it is a gate-integrity concern rather than a
+ * tidiness one. Three callers ask "which page is this step about?" and they must get the
+ * same answer for the same step: the SNAPSHOTTER decides which page gets captured (and so
+ * which page a rollback could write over), the DETECTOR decides which pages the #749
+ * refusal is about, and the ADMISSION (#756) decides which page is exempt from that
+ * refusal. A step the admission resolves to page A while the detector resolves it to page
+ * B is a batch where the gate opens on a page nobody classified.
+ *
+ * That identity used to be asserted in three docblocks instead of being a fact about the
+ * code. A comment claiming byte-identity is the weakest available enforcement of
+ * byte-identity — nothing fails when only two of three copies are updated — and #756
+ * raised the stake from "two detectors disagree" to "a gate opens", so the convention
+ * became a function.
+ *
+ * IT DELIBERATELY DOES NOT CHECK THAT THE POST EXISTS. That question belongs to the two
+ * callers that ask it, and they ask it for different reasons (the snapshotter will not
+ * capture a page it cannot load; the detector will not report one). Folding it in here
+ * would silently give the admission a third condition nobody wrote down.
+ *
+ * `is_numeric` rather than `is_int`, because the executor is public and takes params that
+ * never passed through pp_ai_coerce_params() — a caller handing it the string "42" means
+ * post 42, and every one of these three callers must agree that it does.
+ *
+ * @param  array $step  ['type' => ..., 'name' => ..., 'params' => array]
+ * @return int|null     The step's target post ID, or null when it carries no usable one.
+ */
+function _pp_batch_step_post_id(array $step): ?int {
+    $params = $step['params'] ?? [];
+    if (!isset($params['post_id']) || !is_numeric($params['post_id'])) {
+        return null;
+    }
+    return (int) $params['post_id'];
+}
+
+/**
  * The post targets of a batch whose stored composition CANNOT be read (#749).
  *
  * For callers that need the verdict WITHOUT building a snapshot bundle — today
@@ -1025,13 +1072,17 @@ function _pp_snapshot_batch_targets(array $steps): array {
  * covering preflight on this classification, and the dashboard editor.
  * pp_patch_composition() / `wp pp operate patch` reaches the same executor but is
  * NOT a repair route — it is refused on a corrupt page by the composition_required
- * precondition (#748), and a field selector cannot reshape a container anyway. It is NOT reached
- * by a chat proposal: the chat client routes every proposal, ONE STEP OR MANY,
- * through the batch endpoint, so a repairing update_composition/restore_composition
- * sent that way is refused by this same gate — restore_composition included,
- * because this preflight runs before any step's own semantics and #233's
- * never-block rule governs validation, not this. Repair from the CLI or the
- * editor, then return to chat. See #756 for the chat-side gap.
+ * precondition (#748), and a field selector cannot reshape a container anyway.
+ *
+ * AND SINCE #756 THE CHAT IS A REPAIR ROUTE TOO, which is a change to what this
+ * paragraph used to say rather than an addition to it. The chat client routes every
+ * proposal, one step or many, through the batch endpoint, so the repair this refusal
+ * prescribes used to come back refused by the very code it was meant to clear. Ruling
+ * D-1's carve-out admits it: a proposal of EXACTLY ONE update_composition /
+ * restore_composition step on a page already classified corrupt proceeds, with the
+ * step's own validation untouched. It is admitted at the refusal, not at the
+ * snapshot — this detector still reports the page, and the rollback still refuses to
+ * write that report's page back. See _pp_batch_corrupt_repair_admitted().
  *
  * Insertion order is STEP order, and the refusal reports the first entry — so
  * which page a multi-corrupt batch names is deterministic, not incidental.
@@ -1044,11 +1095,10 @@ function _pp_batch_unreadable_targets(array $steps): array {
     $seen       = [];
 
     foreach ($steps as $step) {
-        $params = $step['params'] ?? [];
-        if (!isset($params['post_id']) || !is_numeric($params['post_id'])) {
+        $post_id = _pp_batch_step_post_id($step);
+        if ($post_id === null) {
             continue;
         }
-        $post_id = (int) $params['post_id'];
         if (isset($seen[$post_id])) {
             continue;
         }
@@ -1072,6 +1122,14 @@ function _pp_batch_unreadable_targets(array $steps): array {
  * _pp_batch_unreadable_targets() is the single owner of the detection: the
  * executor and the chat entry point both refuse, and two hand-rolled messages
  * would be two spellings of one state.
+ *
+ * WORDING ONLY — THIS IS NOT THE GATE, and since #756 the distinction matters.
+ * "Does this batch refuse?" is _pp_batch_unreadable_refusal()'s question, and
+ * that is what both surfaces call; this renders the answer once the decision is
+ * made. Calling this directly as a gate skips the corrupt-page repair carve-out
+ * and would refuse a batch the executor admits — the exact drift single ownership
+ * exists to prevent, one layer in. Tests may call it to assert wording; nothing
+ * else should call it at all.
  *
  * The CODE is the classification itself — `unexpected_shape` / `decode_error` —
  * matching pp_inspect_composition() (#725), `operate inspect`, `check page`,
@@ -1098,11 +1156,144 @@ function _pp_batch_unreadable_target_error(array $unreadable): ?array {
         'error'      => pp_composition_integrity_message($post_id, $error)
             . ' This proposal was refused before any step ran, so nothing was changed:'
             . ' rolling it back would have to write over those bytes. Repair the page'
-            . ' FIRST, with a single write and not as a step in a proposal. '
+            . ' FIRST, in a proposal of its OWN — a single step, nothing alongside it'
+            . ' (#756) — or from a surface that takes no rollback snapshot. '
             . pp_corrupt_repair_route_message($post_id)
-            . ' Then run the proposal again.',
+            . ' Then run this proposal again.',
         'error_code' => $error,
     ];
+}
+
+/**
+ * The page a batch is allowed to repair despite the #749 refusal, or null (#756).
+ *
+ * THE DEADLOCK THIS BREAKS. #749's refusal message prescribes the repair — "one full
+ * `update_composition`, or `restore_composition`" — and on the chat surface that
+ * instruction could not be followed. The chat client posts EVERY proposal, one step or
+ * many, to the batch endpoint (executeProposal, assets/js/pp-ai-chat.js), so the
+ * prescribed repair carried the same post_id into the same gate and came back refused
+ * with the very code it was meant to clear. The operator was told to do X, did X, and
+ * was told again to do X.
+ *
+ * Maintainer ruling D-1 (#767) approved the narrow carve-out that closes it, and the
+ * ruling's three conditions are quoted in full on pp_corrupt_page_repair_carve_out()
+ * (lib/operate.php), the SHARED predicate this delegates to. Conditions (1) corrupt
+ * classification and (2) the two whole-composition verbs are that predicate's; sharing
+ * it with the CLI's admission is the only way the two surfaces cannot drift on which
+ * pages are repairable. Condition (3) — full validation of the incoming replacement —
+ * is untouched here by construction: this function gates a PREFLIGHT, and every step
+ * still runs through pp_execute_action()/pp_validate_action() exactly as before. An
+ * admission moves nothing about what a verb accepts.
+ *
+ * SINGLE-STEP ONLY, and the alternative was measured rather than reasoned about. A
+ * first-step exemption — "let step 1 repair the page, then carry on" — reopens #749's
+ * data loss by a longer road: the snapshot of a corrupt page is the degraded `[]`
+ * stand-in, so once step 1 REPAIRS the page a later step's failure rolls back over a
+ * page that now reads fine, and _pp_restore_batch_snapshot() writes that `[]` straight
+ * over the operator's repair. #818 did not close this: it preserves the corrupt bytes
+ * on the history ring, which is a different rescue — the repair is still erased, and
+ * the page afterwards reads ok/empty rather than corrupt, so no surface flags it at all.
+ *
+ * With exactly one step there is no such path. A succeeded single step means the batch
+ * SUCCEEDED, and pp_ai_execute_batch() rolls back only on a failure; a FAILED single
+ * step wrote nothing, so the page is still corrupt when the rollback re-classifies it
+ * and the composition write is withheld. The window that does survive at one step is a
+ * concurrent repair by another writer, and that one is closed in the rollback rather
+ * than here — see _pp_restore_batch_snapshot(), which never writes back a composition
+ * captured from an already-unreadable page.
+ *
+ * IT KNOWS NOTHING ABOUT THE REQUEST, inheriting that boundary from the shared
+ * predicate: capabilities, nonces and the #404 baseline mandate are the chat entry
+ * point's (lib/ai-chat.php), and they all still run. An admission here lifts the #749
+ * preflight and nothing else.
+ *
+ * THE post_id COERCION IS THE DETECTOR'S AND THE SNAPSHOTTER'S, because all three now
+ * call _pp_batch_step_post_id(). That identity is load-bearing rather than stylistic: the
+ * detector decides which page the refusal is ABOUT, this decides which page is exempt,
+ * and a batch where the two disagree is one where the gate opens on a page nobody
+ * classified. It is a shared function rather than three matching copies for exactly that
+ * reason — see the helper's own docblock.
+ *
+ * @param  array $steps  Each: ['type' => ..., 'name' => ..., 'params' => array]
+ * @return int|null      The post the carve-out exempts, or null when it does not apply.
+ */
+function _pp_batch_corrupt_repair_admitted(array $steps): ?int {
+    if (count($steps) !== 1) {
+        return null; // the whole point: a repair travels alone or not at all
+    }
+
+    $step = $steps[array_key_first($steps)];
+    if (!is_array($step)) {
+        return null; // a step that is not a step names nothing
+    }
+
+    // ACTIONS ONLY, checked explicitly rather than by `!== 'apply'`. The executor's
+    // dispatcher treats every non-'apply' type as an action, which is the right posture
+    // for a WRITE path (a misspelled type must not skip a guard) and the wrong one for a
+    // GATE: an exemption is not something a malformed step should be able to fall into.
+    if (($step['type'] ?? '') !== 'action') {
+        return null;
+    }
+
+    $post_id = _pp_batch_step_post_id($step);
+    if ($post_id === null) {
+        return null;
+    }
+
+    // is_string BEFORE the lookup, not a cast. `name` is attacker-shaped JSON, and
+    // casting an array to string is a PHP warning plus the literal "Array" — a
+    // diagnostic-noise path into a gate, for a value that could never have named an
+    // action anyway. pp_get_action() wants a string; anything else is simply not a name.
+    $name = $step['name'] ?? null;
+    if (!is_string($name)) {
+        return null;
+    }
+
+    $action = pp_get_action($name);
+    if ($action === null) {
+        return null; // unregistered name: pp_execute_action would reject it anyway
+    }
+
+    // Conditions (1) and (2), from the shared owner. It fails closed with no usable
+    // $wpdb handle, so a context that cannot read the classification authoritatively
+    // never opens the gate.
+    if (pp_corrupt_page_repair_carve_out($action, $post_id) === null) {
+        return null;
+    }
+
+    return $post_id;
+}
+
+/**
+ * The refusal a batch earns under #749, honouring the #756 carve-out — or null (#756).
+ *
+ * THE SINGLE OWNER OF "DOES THIS BATCH REFUSE", and it exists because there are two
+ * gates. The executor (pp_ai_execute_batch) and the chat entry point
+ * (_pp_ai_execute_batch_response) each refuse on their own, for reasons documented at
+ * both sites, and #749 already single-owned the DETECTION and the WORDING so the two
+ * could not spell one state two ways. The carve-out adds a third thing they must agree
+ * on — which batches are EXEMPT — and a surface that admitted a repair the other
+ * refused would be the deadlock again, one layer down.
+ *
+ * THE EXEMPT SET MUST BE EXACTLY THE ADMITTED PAGE. With one step
+ * _pp_batch_unreadable_targets() can only ever report that step's own post_id, so
+ * today this is belt and braces; it is written anyway because the alternative is a gate
+ * that would silently widen if either detector ever learned to read a second post_id
+ * out of one step (a nested target, a param alias). A carve-out that grows when
+ * somebody else extends an unrelated parser is not a narrow carve-out.
+ *
+ * @param  array $steps       The batch's steps, for the carve-out test.
+ * @param  array $unreadable  {post_id => classification} from the caller's detector.
+ * @return array|null         ['error' => string, 'error_code' => string], or null when
+ *                             the batch may proceed.
+ */
+function _pp_batch_unreadable_refusal(array $steps, array $unreadable): ?array {
+    $admitted = _pp_batch_corrupt_repair_admitted($steps);
+    if ($admitted !== null && array_keys($unreadable) === [$admitted]) {
+        return null;
+    }
+
+    return _pp_batch_unreadable_target_error($unreadable);
 }
 
 /**
@@ -1321,10 +1512,12 @@ function _pp_recreate_menu_item(int $menu_id, object $item, int $parent_id): ?in
  *
  * @param array $snapshot  Bundle from _pp_snapshot_batch_targets(), with
  *                          'created_posts' populated as steps succeeded.
- * @return string[]         Anything that could NOT be restored — the menu layer,
- *                           and (since #749) any page whose composition restore was
- *                           withheld because the live stored value became unreadable
- *                           mid-batch. Empty when the rollback was clean.
+ * @return string[]         Anything that could NOT be restored — the menu layer, and
+ *                           any page whose composition restore was withheld: because
+ *                           the live stored value became unreadable mid-batch (#749),
+ *                           or because it was ALREADY unreadable when this batch
+ *                           snapshotted it, which since #756 is reachable through the
+ *                           corrupt-page repair carve-out. Empty when clean.
  */
 function _pp_restore_batch_snapshot(array $snapshot): array {
     $errors = [];
@@ -1337,25 +1530,55 @@ function _pp_restore_batch_snapshot(array $snapshot): array {
         if (in_array($post_id, $snapshot['created_posts'], true)) {
             continue; // already deleted above — nothing to restore it to
         }
-        // RE-CLASSIFY BEFORE WRITING (#749). pp_ai_execute_batch() already refused
-        // any batch whose target was unreadable AT SNAPSHOT TIME, so in the normal
-        // flow this always passes. It is checked again HERE, against live state,
-        // because the snapshot and the rollback are two reads separated by every
-        // step the batch ran: an external raw meta write, an import, or a hand-
-        // edited row can corrupt the page inside that window, and the snapshot
-        // this function holds would then be written straight over the newly
-        // recoverable bytes. Restoring the OTHER fields is still right — they were
-        // captured honestly and the batch did change them — so only the
-        // composition write is withheld, and the caller is told which page and why
-        // through rollback_errors, the channel the batch envelope already
-        // documents as "rolled_back: true is not clean until you check this".
+        // A SNAPSHOT TAKEN FROM UNREADABLE BYTES IS NEVER RESTORABLE (#756), and this
+        // is checked FIRST because it is a fact about the CAPTURE, which no later read
+        // can change. #749 made the whole batch refuse in this state, so the only way a
+        // page reaches the rollback with an entry in 'unreadable' is the corrupt-page
+        // repair carve-out — and there the captured value is the degrading accessor's
+        // `[]`, a stand-in for bytes nobody could decode, not a composition the page
+        // ever had.
+        //
+        // The live re-classify below cannot cover this case, and the difference is the
+        // reason both guards exist. It asks whether the TARGET is readable NOW, and on
+        // the one path that matters most it answers YES: the repair landed, the step
+        // that failed was a LATER one (or, at one step, a concurrent writer's repair
+        // landed and this batch's write lost the compare-and-swap). Either way the page
+        // reads fine, the guard waves the write through, and `[]` goes over a real
+        // composition — measured, and silently, with rollback_errors empty. The repair
+        // the operator was told to make is erased by the rollback of the proposal that
+        // made it, and the page afterwards reads ok-and-empty rather than corrupt, so
+        // nothing flags it again.
+        //
+        // Withholding costs nothing that was ever owed. The batch found this page
+        // unreadable, so there is no pre-batch composition to return it to: leaving the
+        // stored bytes alone IS the honest restore, whether they are still the corrupt
+        // ones or a repair that outlived the batch. Every other field still rolls back.
+        if (isset($snapshot['unreadable'][$post_id])) {
+            $errors[] = pp_composition_integrity_message($post_id, $snapshot['unreadable'][$post_id])
+                . ' Its composition was NOT rolled back, and that is the safe outcome:'
+                . ' the stored bytes could not be read when this batch snapshotted them,'
+                . ' so the snapshot holds a stand-in rather than a composition this page'
+                . ' ever had. Writing it back would destroy whatever is there now —'
+                . ' the unreadable bytes, or a repair that landed during the batch.'
+                . ' Re-read the page to see which. Every other field was rolled back.';
+        //
+        // RE-CLASSIFY BEFORE WRITING (#749), the second guard and a different question.
+        // The snapshot and the rollback are two reads separated by every step the batch
+        // ran: an external raw meta write, an import, or a hand-edited row can corrupt a
+        // page that WAS readable at capture inside that window, and the honest snapshot
+        // this function holds would then be written straight over the newly recoverable
+        // bytes. Restoring the OTHER fields is still right — they were captured honestly
+        // and the batch did change them — so only the composition write is withheld, and
+        // the caller is told which page and why through rollback_errors, the channel the
+        // batch envelope already documents as "rolled_back: true is not clean until you
+        // check this".
+        //
         // NOT a #233 exception. #233's rule — a restore is never blocked by current
         // VALIDATION rules — is untouched: nothing here inspects the snapshot or asks
         // whether today's rules like it. What is checked is the TARGET: whether the
         // bytes about to be overwritten can still be read. A restore that current
         // rules dislike still goes through; only a write onto unreadable bytes waits.
-        $stored = pp_get_composition_result($post_id);
-        if ($stored['ok']) {
+        } elseif (($stored = pp_get_composition_result($post_id))['ok']) {
             pp_update_composition($post_id, $state['composition']);
         } else {
             $errors[] = pp_composition_integrity_message($post_id, $stored['error'])
@@ -1479,7 +1702,12 @@ function _pp_restore_batch_snapshot(array $snapshot): array {
  * Refuses the whole batch, before step 1, when any page it names has a stored
  * composition that cannot be READ (#749) — see the fail-closed block below. That
  * refusal is the one ok:false envelope with no failing step, and the only return
- * carrying 'error' / 'error_code' at the batch level.
+ * carrying 'error' / 'error_code' at the batch level. Exactly one batch shape is
+ * exempt (#756, ruling D-1): a SINGLE update_composition / restore_composition step
+ * on a page already classified corrupt, which is the repair the refusal itself
+ * prescribes. Nothing else about the refusal moves, and the exemption buys no
+ * weakening of the rollback — _pp_restore_batch_snapshot() never writes back a
+ * composition captured from an unreadable page.
  *
  * DISCRIMINATE ON steps === [] OR error_code, NEVER ON failed_at ALONE: a
  * SUCCESSFUL batch also returns 'failed_at' => null. The pair (ok === false,
@@ -1525,7 +1753,14 @@ function pp_ai_execute_batch(array $steps, array $baselines = []): array {
     // the same refusal first and returns it through wp_send_json_error, so the
     // client renders it on the error branch it already has for #404. This branch is
     // the fail-closed backstop for every OTHER caller of the executor.
-    $unreadable_error = _pp_batch_unreadable_target_error($snapshot['unreadable']);
+    // ONE EXCEPTION, AND IT IS THE REPAIR ITSELF (#756). A batch of exactly ONE
+    // update_composition/restore_composition step on an already-corrupt page is the
+    // write this refusal's own message prescribes, so it proceeds — ruling D-1, shared
+    // with the CLI admission and single-owned for both gates by
+    // _pp_batch_unreadable_refusal(). Everything else about the refusal is unchanged,
+    // and the atomicity promise is kept from the other end: the rollback below never
+    // writes a composition captured from an unreadable page.
+    $unreadable_error = _pp_batch_unreadable_refusal($steps, $snapshot['unreadable']);
     if ($unreadable_error !== null) {
         return [
             'ok'              => false,
