@@ -461,6 +461,18 @@ function pp_composition_integrity_message(int $post_id, string $error): string {
  * Callers own their own lead-in ("the action you asked for was refused", "this proposal was
  * refused before any step ran", "PREFLIGHT was not recorded"); this owns the route.
  *
+ * SCOPED TO THE NO-ROLLBACK-SNAPSHOT ROUTES, and the boundary is deliberate rather than an
+ * oversight (#756). Ruling D-1 opened a third route — a chat proposal whose ONLY step is
+ * one of these two verbs — and it is NOT named here, because it is not a route every
+ * caller can offer. Three of the four callers are CLI- or action-facing, where "send it as
+ * a one-step proposal" is advice about a surface the operator is not on; only the batch
+ * refusal renders on the surface where it is actionable, so it names that route in its own
+ * caller-local lead-in. Uniformity is the point of this function, and a sentence that is
+ * true on one of four surfaces is not uniform — pushing it in here to keep the spelling in
+ * one place would have put wrong advice on the other three. What is single-owned is the
+ * claim "a whole-composition write repairs this page, and here is what it costs"; where
+ * that write can be sent from is the caller's to say.
+ *
  * The run token is optional because only one caller has one. With it the sentence renders
  * runnable commands; without it, the verbs. Never invent a token to fill the gap — a
  * copy-pasteable command carrying a fabricated UUID is worse than a named verb.
@@ -585,7 +597,8 @@ function pp_composition_db_handle(): ?object {
  * WHY THIS EXISTS, and it is a security boundary rather than a performance note.
  * The corrupt-page repair carve-out (#767, maintainer ruling D-1) NARROWS an enforcement
  * gate: on a page whose stored composition is classified corrupt, `update_composition` /
- * `restore_composition` are admitted on WP-CLI without a covering preflight. The input
+ * `restore_composition` are admitted without a covering preflight on WP-CLI, and (since
+ * #756) admitted through the #749 chat batch refusal when they travel alone. The input
  * that opens that gate is therefore the classification itself, and a gate must not be
  * openable by a value that is merely STALE.
  *
@@ -598,9 +611,23 @@ function pp_composition_db_handle(): ?object {
  *
  * TWO THINGS MAKE THE READERS AGREE, and both are load-bearing rather than decoration.
  * Anywhere they disagree, the disagreement IS the vulnerability: every other surface —
- * `wp pp check page`, `apply preflight`, the #749 batch gate, the composition precondition —
- * classifies through the cached reader, so a row this one calls corrupt and they call
- * healthy opens the carve-out on a page the coverage gate considers perfectly preflightable.
+ * `wp pp check page`, `apply preflight`, the composition precondition — classifies through
+ * the cached reader, so a row this one calls corrupt and they call healthy opens the
+ * carve-out on a page the coverage gate considers perfectly preflightable.
+ *
+ * THE #749 BATCH GATE NOW USES BOTH READERS IN ONE DECISION (#756), which looks like the
+ * configuration this docblock calls the bug and is not, so the resolution is recorded here
+ * rather than left to be re-derived. `_pp_batch_unreadable_targets()` classifies through
+ * the CACHED reader to decide which pages the refusal is about;
+ * `_pp_batch_corrupt_repair_admitted()` reaches this one to decide which page is EXEMPT.
+ * The exemption requires BOTH to call the page corrupt — the cached map must name exactly
+ * the page this reader admits — so a disagreement can only ever refuse:
+ *
+ *   cache corrupt, row healthy   this reader declines, the exemption closes, batch refused.
+ *   cache healthy, row corrupt   the cached map is empty, so there was no refusal to lift.
+ *
+ * The gate opens on agreement and on nothing else, which is the same posture the CLI
+ * consumer has; only the batch surface has two readers to reconcile.
  *
  *   maybe_unserialize()   get_post_meta() unserializes on the way out (get_metadata ->
  *                         maybe_unserialize), a direct column read does not. `_pp_composition`

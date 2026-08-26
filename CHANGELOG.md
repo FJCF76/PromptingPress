@@ -4,6 +4,76 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.16.16] — 2026-08-26 — The chat surface can repair the page it refuses (#756)
+
+**A refusal that tells an operator how to get unstuck now names a route that works from where they are standing.** #749 refuses a whole chat proposal, before step 1, when any page it names has a stored composition nobody can read, and its message prescribes the fix: one full `update_composition`, or `restore_composition`. On the chat surface that instruction could not be followed. The chat client posts every proposal, one step or many, to the batch endpoint, so the prescribed repair carried the same `post_id` into the same gate and came back refused with the very code it was meant to clear. The operator was told to do X, did X, and was told again to do X.
+
+Maintainer ruling D-1 (recorded on #767) approved a narrow carve-out, and #767 landed its CLI half. This is the chat half, and it is the same carve-out rather than a second one: both surfaces ask the shared predicate `pp_corrupt_page_repair_carve_out()`, so they cannot drift on which pages are repairable. A proposal whose ONLY step is `update_composition` or `restore_composition`, aimed at a page already classified `unexpected_shape` or `decode_error`, now proceeds. Everything else about the refusal is unchanged.
+
+### The single-step decision, and the trap that decided it
+
+The obvious wider rule — exempt the repair wherever it appears, or exempt it as step 1 — was measured and rejected. The batch snapshot of a corrupt page is the degrading accessor's `[]`, and #818 did not change that (it preserves the corrupt bytes on the history ring, which is a different rescue). So with a second step in the batch: step 1 repairs the page, a later step fails, the rollback re-classifies, finds the page READABLE now because the repair fixed it, and writes that `[]` straight over the operator's repair. Measured on the pre-fix tree: composition `[]` afterwards, and `rollback_errors` EMPTY, so the envelope reported a clean revert. Worse than the state it replaced, because the page then reads ok-and-blank rather than corrupt and no surface flags it again.
+
+With exactly one step there is no such path. A succeeded single step means the batch succeeded, and the executor rolls back only on a failure. A failed single step wrote nothing, so the page is still corrupt when the rollback re-classifies it, and the composition write is withheld.
+
+### The pairing, which is the other half of the fix
+
+One window survives even at one step: another writer repairs the page between the model's read and the apply, this batch's write loses the compare-and-swap, and the rollback then finds a readable page and a `[]` snapshot. `_pp_restore_batch_snapshot()` now refuses, as a first branch, to write back ANY composition captured from a page the snapshot recorded as unreadable. That capture is a stand-in for bytes nobody could decode, never a composition the page actually had, so writing it back is never the honest restore, whether what is there now is the corrupt bytes or a repair that outlived the batch. The page is reported through `rollback_errors` with wording true of that case, and the pre-existing mid-batch-corruption branch keeps its own distinct sentence. Every other field on the page still rolls back.
+
+### What a chat operator can now do, stated plainly
+
+Exactly one thing they could not do before: reach a whole-composition write on a page the batch preflight previously refused. It is not a new capability in the wider system — the single-step endpoint `wp_ajax_pp_ai_execute` already permitted both verbs on a corrupt page under the same nonce, capabilities and CAS mandate, with no #749 gate at all. This change only makes the batch endpoint match a write the single endpoint already allowed.
+
+The waiver is that preflight and nothing else. `current_user_can('edit_posts')`, `_pp_user_meets_required_caps()` per step, the AJAX nonce, the #404 CAS baseline mandate, `pp_validate_action()`'s full validation of the incoming replacement, the #233 restore contract and #818's `history_entry_not_restorable` all still run, and all are pinned. The classification is read from the database rather than the object cache, so a stale value cannot open the gate, and the predicate fails closed with no usable database handle. The admitted page must also be exactly the page the refusal detector classified.
+
+### Gates that lift, and gates that hold, on the chat surface
+
+Lifts: the #749 batch refusal, for one batch shape only.
+
+Holds, all pinned: every other batch naming a corrupt page — a second step of any kind, a repair in second position, two repairs for two corrupt pages, any other registered verb (swept from the action registry rather than a hand-written list), an `apply` step, a malformed step, an unregistered name, a missing or non-numeric `post_id`, a healthy page, a blank page, a second unreadable page in the map, and a context with no database handle.
+
+### Two readers now meet at this gate, and only agreement opens it
+
+The refusal detector classifies through the object cache; the carve-out classifies from the database row. Before this change one reader decided everything on this path. The exemption requires both to call the page corrupt, so a disagreement can only ever refuse: a stale corrupt cache over a healthy row closes the hatch and still refuses, and a stale healthy cache means there was no refusal to lift in the first place. Both directions are pinned. The wider consequence of that asymmetry for batches outside the carve-out is filed separately as #833.
+
+### Scope boundaries
+
+No JavaScript behaviour changed, and that was a measurement rather than a preference: the client has no pre-flight of its own, it branches on step count only for a button label and a token-only shortcut, and the CAS baseline it sends comes from the composition version marker, which a corrupt page has. One JS docblock was corrected.
+
+Not touched: the chat system prompt and editor wording (#750), the undo card's handling of the preserved-bytes message (#822), the history-ring selector lock (#829), the conflict exit (#797), or the WP-CLI gates (#767, already landed).
+
+### Known limitations, disclosed
+
+After an admitted repair succeeds, the post-apply card offers "Undo these changes", which replays the newest history-ring slot. On a just-repaired page that slot is the preserved-bytes entry #818 wrote, and `restore_composition` refuses it with `history_entry_not_restorable` — the correct answer, since undoing a repair back to unreadable bytes is not something to do silently, surfaced through the message handling #822 already tracks.
+
+An admitted repair that FAILS returns `rolled_back: true` with a non-empty `rollback_errors` for a batch that wrote nothing. The report is honest and its text explains why the composition was withheld, but the alarm is louder than the event. Accepted rather than suppressed: #755's rule is that `rolled_back: true` is not clean until you check `rollback_errors`, and silencing the entry to quiet the alarm would trade a true report for a comfortable one.
+
+The AI chat still reads a corrupt page as blank when it composes a proposal (#750), so the model is not yet told to author the repair this change admits. The route exists; teaching the model to take it is #750's job.
+
+### Fixed
+
+- The #749 batch refusal admits the one-step corrupt-page repair (ruling D-1). `_pp_batch_unreadable_refusal()` (`lib/actions.php`) is the single owner of "does this batch refuse" and both gates — the executor's backstop (`pp_ai_execute_batch`) and the chat AJAX handler (`_pp_ai_execute_batch_response`, `lib/ai-chat.php`) — now ask it, so the two surfaces cannot drift on which batches are admitted. `_pp_batch_corrupt_repair_admitted()` decides the exemption and delegates the classification and verb conditions to the shared `pp_corrupt_page_repair_carve_out()`.
+- `_pp_restore_batch_snapshot()` never writes back a composition captured from a page the snapshot recorded as unreadable, reporting it through `rollback_errors` in wording distinct from the pre-existing mid-batch-corruption case. Without this, the carve-out's own rollback could erase the repair it had just admitted.
+- `_pp_batch_step_post_id()` is now the single owner of "which page does this step name", shared by the snapshotter, the refusal detector and the admission. It was three copies of four lines held together by docblocks asserting they must match; the admission raised the stake from "two detectors disagree" to "a gate opens on a page nobody classified", so the convention became a function.
+- The admission rejects a non-string step `name` before the registry lookup instead of casting it, so a malformed proposal cannot raise an "Array to string conversion" warning on the way into a gate.
+- The #749 refusal message no longer prescribes something the chat surface cannot do: "with a single write and not as a step in a proposal" became "in a proposal of its OWN".
+
+### Docs
+
+- `ai-instructions/operating-loop.md`, `ai-instructions/playbook-inspect-fix.md`, `docs/reference-apply-cli.md`, `AI_CONTEXT.md` — five places told the model a corrupt page could never be repaired from chat, "not even a one-step one". All corrected to prescribe the one-step proposal, with the conditions that keep it narrow.
+- `docs/operating-loop-safety.md` — the #749 batch-refusal row records the exemption and its single owner; a new row documents the rollback withhold and why its two branches are checked in that order; the carve-out row names its second consuming surface; the `pp_patch_composition()` row's route list gains the chat route.
+- `docs/reference-apply-cli.md` — the canonical ruling D-1 section now states that the ruling has two consuming surfaces and what each one adds and lifts.
+- `AI_CONTEXT.md` — the `pp_ai_execute_batch()` reference entry names the exempt batch shape and a third `rollback_errors` producer, with the sentence each producer emits.
+- `lib/wp.php` — `pp_get_composition_result_authoritative()`'s security docblock records why the batch gate's split read is safe in both directions; `pp_corrupt_repair_route_message()` narrows its single-ownership claim to the no-rollback-snapshot routes and says why the chat route is deliberately caller-local.
+
+### Tests
+
+- `tests/ChatBatchCorruptRepairCarveOutTest.php` — 32 tests in four families: ADMITS (both verbs, every producible `unexpected_shape` variant, both gates agreeing), REFUSES (step counts 0/2/3/5, a registry-derived sweep of every non-allowlisted action, non-action types, unregistered names, unusable `post_id`s, healthy and blank pages, a second unreadable page, no database handle), HOLDS (full validation of the replacement, the CAS baseline mandate, a stale baseline conflicting rather than clobbering, the capability gate), and ERASES (the rollback pairing, including a competing repair landing inside an admitted batch, and the menu-layer merge).
+- Both row-vs-cache directions are staged and pinned, which is new coverage for a two-reader interaction that did not exist on this path before.
+- `tests/BatchRollbackCorruptSnapshotTest.php` — the flow diagram and the safety-contract comment now describe three layers rather than two.
+
+---
+
 ## [v1.16.15] — 2026-08-26 — A concurrent edit can no longer erase a history snapshot (#823)
 
 **Two edits to the same page, close enough together to overlap, could cost you an undo step without a word of warning — and since v1.16.13 the step it cost you could be the preserved copy of a corrupted page.** The page history ring was rebuilt from a cached read inside the write lock, so a request that had read the page before waiting its turn rebuilt the ring from what it saw *before* waiting, and wrote that back over the entry the writer ahead of it had just added. The ring is the one structure in this theme whose entire job is losing nothing.

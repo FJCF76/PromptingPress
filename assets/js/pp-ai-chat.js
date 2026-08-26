@@ -149,11 +149,19 @@ function ppChatIsCompositionConflict(errData) {
  * `failed_at: null` with `steps: []`, the one ok:false shape with no step index,
  * and it carries the explanation on the batch itself as `error`.
  *
+ * ONE PROPOSAL SHAPE IS EXEMPT (#756, ruling D-1): a proposal whose ONLY step is
+ * `update_composition` or `restore_composition` on a page already classified
+ * corrupt is the repair the refusal itself prescribes, so it runs. Nothing here
+ * changes for it — it returns an ordinary one-step envelope on both branches.
+ *
  * The failure renderer indexes `steps[failed_at]`, so without this guard that
  * shape throws a TypeError and the user sees a stack-shaped string instead of
  * the reason. The chat handler normally answers this case on the !resp.success
- * branch, so reaching here means the page went unreadable between that gate and
- * the executor's — narrow, but a null index is not the way to find out.
+ * branch, so reaching here means the two gates disagreed across a concurrent
+ * write: the page went unreadable after the handler's check, or — since #756 —
+ * a competing repair made it READABLE after the handler admitted the carve-out,
+ * closing the exemption before the executor re-checked it. Narrow either way,
+ * and a null index is not how anyone should find out.
  */
 function ppChatBatchWasRefusedUpFront(batch) {
     if (!batch || batch.ok) return false;
