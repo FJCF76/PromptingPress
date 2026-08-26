@@ -1019,8 +1019,13 @@ function _pp_snapshot_batch_targets(array $steps): array {
  * WHERE THE REPAIR ACTUALLY WORKS, stated precisely because the refusal message
  * points at it: the SINGLE-step execute path takes no rollback snapshot, so this
  * gate never refuses it (it can still fail on its own terms — validation, the
- * page lock, capabilities). That path is reached by WP-CLI (`wp pp action
- * execute`), pp_patch_composition(), and the dashboard editor. It is NOT reached
+ * page lock, capabilities). Since #767 that path is exactly TWO surfaces, and the
+ * list is shorter than this paragraph used to claim: `wp pp action execute
+ * update_composition` / `restore_composition`, which ruling D-1 admits without a
+ * covering preflight on this classification, and the dashboard editor.
+ * pp_patch_composition() / `wp pp operate patch` reaches the same executor but is
+ * NOT a repair route — it is refused on a corrupt page by the composition_required
+ * precondition (#748), and a field selector cannot reshape a container anyway. It is NOT reached
  * by a chat proposal: the chat client routes every proposal, ONE STEP OR MANY,
  * through the batch endpoint, so a repairing update_composition/restore_composition
  * sent that way is refused by this same gate — restore_composition included,
@@ -1093,9 +1098,9 @@ function _pp_batch_unreadable_target_error(array $unreadable): ?array {
         'error'      => pp_composition_integrity_message($post_id, $error)
             . ' This proposal was refused before any step ran, so nothing was changed:'
             . ' rolling it back would have to write over those bytes. Repair the page'
-            . ' FIRST, with a single write and not as a step in a proposal: one full'
-            . ' update_composition (a JSON array of components), or restore_composition'
-            . ' to replay a prior version. Then run the proposal again.',
+            . ' FIRST, with a single write and not as a step in a proposal. '
+            . pp_corrupt_repair_route_message($post_id)
+            . ' Then run the proposal again.',
         'error_code' => $error,
     ];
 }

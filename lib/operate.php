@@ -37,6 +37,13 @@ function pp_operate_loop_steps(): array {
             'required_inputs'  => ['mutation_plan'],
             'required_outputs' => ['preflight_result'],
         ],
+        // EDIT's preflight_result input governs an AUTHORED LOOP MANIFEST, which is what
+        // pp_validate_loop_run() checks — not what any single command enforces. Worth
+        // saying since #767: a corrupt-page repair is deliberately a preflight-free
+        // `wp pp action execute`, so a run consisting of one is not a loop and this row is
+        // not the gate it bypasses (the gates it lifts are the CLI's coverage (#96) and
+        // freshness (#113) checks, enumerated on pp_corrupt_page_repair_carve_out()).
+        // Do not "reconcile" the two by relaxing this row.
         'EDIT' => [
             'phase'            => 'implementer',
             'required_inputs'  => ['preflight_result'],
@@ -419,11 +426,15 @@ function pp_inspect_site(?int $post_id = null): array {
  * builder owns its spelling. (Deliberate divergence from #749's batch refusal, which
  * returns the classification AS its code — that surface had no prior code to preserve.)
  *
- * THE MESSAGE PRESCRIBES NO REPAIR ROUTE, and that omission is deliberate (#767): on the
- * CLI, "repair it with a full update_composition" is currently circular — `apply preflight`
- * fails closed on a corrupt page while `action execute update_composition` refuses for
- * want of preflight coverage. Until that is ruled, this gate names the classification and
- * nothing else. Naming a route that does not run is worse than naming none.
+ * THE MESSAGE NOW PRESCRIBES A REPAIR ROUTE, and the flip is deliberate (#767). It named
+ * none between #748 and #767 because the only route it could have named was circular on
+ * the CLI: `apply preflight` failed closed on a corrupt page while `action execute
+ * update_composition` refused for want of preflight coverage, so the two instructions
+ * pointed at each other. Naming a route that does not run is worse than naming none.
+ * Maintainer ruling D-1 (#767) closed that loop — see pp_corrupt_page_repair_carve_out()
+ * below — so the route exists and this gate names it. The precondition for the silence is
+ * gone, so the silence goes too: an operator refused HERE is, by construction, on a page
+ * the carve-out was written for.
  *
  * AND THE BREADCRUMB PROMISES ONLY WHAT IT DELIVERS. On this state `wp pp check page`
  * prints THIS SAME SENTENCE and returns (lib/cli.php) — there is no fuller report to send
@@ -433,13 +444,12 @@ function pp_inspect_site(?int $post_id = null): array {
  * detail. An earlier draft said "for the full report" and was a tautology dressed as a
  * next step.
  *
- * KNOWN DIVERGENCE, recorded rather than quietly lived with: `pp_inspect_composition()`
- * (#725, below in this file) still ends its report on the same state with "Repair the page
- * with a full update_composition write ... or restore_composition". That is the route #767
- * measured as circular from the CLI. The two surfaces therefore differ on what to DO — not
- * on what the state IS, which is the vocabulary #650/#652 cares about and which both take
- * from pp_composition_integrity_message(). Reconciling the advice belongs to #767's ruling,
- * not to this gate.
+ * DIVERGENCE RESOLVED (#767). `pp_inspect_composition()` (#725, below in this file) ended
+ * its report on the same state with "Repair the page with a full update_composition write
+ * ... or restore_composition" while this gate named no route at all — the two surfaces
+ * agreed on what the state IS (both take the diagnosis from
+ * pp_composition_integrity_message(), the vocabulary #650/#652 cares about) and disagreed
+ * on what to DO. Both now name the same route, and it is one that runs.
  *
  * @param array    $action  The registered action definition.
  * @param int|null $post_id The target post ID (null for site-scoped actions).
@@ -465,10 +475,11 @@ function pp_action_composition_precondition(array $action, ?int $post_id) {
             . sprintf(
                 ' Action "%s" operates on an existing composition, so it was refused and'
                 . ' the stored bytes were left untouched. `wp pp check page --post_id=%d`'
-                . ' reports the same classification against the stored page.',
+                . ' reports the same classification against the stored page. ',
                 $action['name'] ?? '?',
                 $post_id
             )
+            . pp_corrupt_repair_route_message($post_id)
         );
     }
     if (!empty($stored['composition'])) {
@@ -482,6 +493,125 @@ function pp_action_composition_precondition(array $action, ?int $post_id) {
             $post_id
         )
     );
+}
+
+/**
+ * The corrupt-page repair carve-out (#767 — maintainer ruling D-1, 2026-08-26).
+ *
+ * THE LOOP IT BREAKS. On a page whose stored `_pp_composition` is classified corrupt, the
+ * WP-CLI repair route was circular. `wp pp apply preflight --post_id=N` fails closed on
+ * exactly this state ("the stored composition is <classification> ... Repair the post's
+ * composition before re-running"), while `wp pp action execute update_composition
+ * --post_id=N` refuses for want of preflight coverage ("no completed PREFLIGHT covering
+ * post N. ... Run `wp pp apply preflight`"). Each instruction pointed at the other, so the
+ * only pages the gates could not preflight were also the only pages the CLI could not
+ * repair — stranding every SSH/chat-first operator on the dashboard editor.
+ *
+ * THE RULING, quoted, because its narrowness is the whole design:
+ *
+ *   "APPROVED: the narrow corrupt-page repair carve-out. Scope, verbatim-tight: (1) applies
+ *    ONLY when the stored composition is ALREADY classified corrupt (the unexpected_shape/
+ *    decode_error read-path classification); (2) ONLY for the two whole-composition verbs
+ *    `update_composition` / `restore_composition`; (3) the incoming replacement STILL
+ *    passes full validation before write. This is NOT a general preflight bypass — it is
+ *    an escape hatch for the exact class of pages the current gates cannot preflight."
+ *
+ * Conditions (1) and (2) are THIS predicate. Condition (3) is not, and must not be: it is
+ * satisfied by gates that were already there and that this carve-out deliberately does not
+ * touch. pp_validate_action() runs the action's own validate callable BEFORE the CLI reaches
+ * any preflight gate, so nothing about what a verb accepts changes here.
+ *
+ * READ CONDITION (3) AS "STILL", NOT AS "NEWLY", and the distinction is load-bearing because
+ * the two verbs do not validate alike:
+ *
+ *   update_composition   full pp_validate_composition() of the incoming array, unchanged.
+ *   restore_composition  the #233 contract, unchanged: it replays a snapshot VERBATIM and
+ *                        REPORTS rule violations in `findings` rather than blocking. Its one
+ *                        precondition is #818's `history_entry_not_restorable` on a
+ *                        preserved-bytes ring slot, which is not a validation veto either.
+ *
+ * A literal reading of condition (3) — "make restore validate its snapshot on this path" —
+ * would break the invariant #233 exists for: restore is never blocked by current validation
+ * rules, because undo is wired to it and a restore that current rules refuse would fail
+ * exactly when a user most needs it. The ruling names `restore_composition` in condition (2)
+ * knowing that, so condition (3) is read as "the carve-out changes nothing about what any
+ * verb validates" — which is what it does. Nothing here can write a composition that the
+ * same verb would not have written on a preflighted page; the ONLY thing removed is the
+ * preflight requirement.
+ *
+ * SHARED, NOT CLI-LOCAL, on purpose: #756 admits the same carve-out at the chat batch
+ * refusal, and one classification predicate is the only way the two surfaces cannot drift
+ * on which pages are repairable.
+ *
+ * WHAT THIS PREDICATE DOES NOT KNOW, and the caller therefore still owns. It answers one
+ * question — "is this the corrupt-page repair case?" — and nothing about the REQUEST. Run
+ * tokens, the INSPECT-first ordering, capabilities, nonces, request provenance: every
+ * caller keeps enforcing its own, and a `true` here is never permission to skip them. The
+ * CLI's admission (lib/cli.php) lifts the preflight COVERAGE (#96) and FRESHNESS (#113)
+ * gates and nothing else.
+ *
+ * THE READ IS AUTHORITATIVE, not cached, and that is a security property rather than a
+ * detail. This predicate's answer OPENS a gate, so a stale value must not be able to open
+ * it — see pp_get_composition_result_authoritative() (lib/wp.php) for the mechanism and
+ * the cache-warming path (#823) that makes staleness reachable rather than theoretical.
+ *
+ * IT IS A POINT-IN-TIME ANSWER. Between this check and the write, another writer can
+ * repair the page; the carve-out caller closes that window by threading the pre-write
+ * composition version as `expected_version`, so pp_update_composition()'s in-lock
+ * compare-and-swap rejects the write if the page stopped being corrupt underneath it.
+ * A carve-out admission is not a licence to overwrite a healthy composition.
+ *
+ * @param array    $action  The REGISTERED action definition (its 'name' is the registry's
+ *                          own key, never a raw user string — pp_get_action() is an exact
+ *                          lookup with no alias or normalization surface, #603/#604/#606).
+ * @param int|null $post_id The target post ID, or null for a site-scoped action.
+ * @return string|null  The classification ('unexpected_shape' | 'decode_error') when the
+ *                      carve-out applies; null when it does not.
+ */
+function pp_corrupt_page_repair_carve_out(array $action, ?int $post_id): ?string {
+    if ($post_id === null) {
+        return null; // site-scoped: no stored composition to be corrupt
+    }
+
+    // Condition (2), checked before the read so the non-carve-out path costs no query.
+    // A CLOSED allowlist of the two whole-composition verbs: every other action either
+    // edits bands inside a composition the reader cannot produce, or does not touch the
+    // composition at all. Neither can repair the page, so neither gets the hatch.
+    $name = $action['name'] ?? '';
+    if (!in_array($name, ['update_composition', 'restore_composition'], true)) {
+        return null;
+    }
+
+    // FAIL CLOSED WHEN THE READ CANNOT BE AUTHORITATIVE. pp_get_composition_result_
+    // authoritative() degrades to the cached read with no usable $wpdb handle, which is the
+    // right answer for a READER and the wrong one for a GATE: the cached value is precisely
+    // the thing that might be stale, and trusting it here would reintroduce the hazard the
+    // authoritative read exists to remove. No database to ask means no carve-out. In
+    // production every clause of pp_composition_db_handle() always holds, so this branch is
+    // a unit-context and misconfiguration guard, not an operator-facing one.
+    if (pp_composition_db_handle() === null) {
+        return null;
+    }
+
+    // Condition (1). Blank is NOT corrupt: an absent or empty `_pp_composition` classifies
+    // ok=true with composition=[], so a never-populated page keeps needing a preflight like
+    // any other healthy page.
+    $stored = pp_get_composition_result_authoritative($post_id);
+    if ($stored['ok']) {
+        return null;
+    }
+
+    // ALLOWLIST, NOT `!ok`, and the difference is the whole fail-closed posture. The ruling
+    // names two classifications; today they are the only two the classifier can produce, so
+    // `return $stored['error']` would behave identically — and would silently promote any
+    // classification added LATER into a preflight bypass nobody ruled on. A gate that widens
+    // itself when someone else extends an enum is not a narrow carve-out. Adding a
+    // classification here must be a deliberate act.
+    if (!in_array($stored['error'], ['unexpected_shape', 'decode_error'], true)) {
+        return null;
+    }
+
+    return $stored['error'];
 }
 
 /**
@@ -2600,9 +2730,8 @@ function pp_inspect_composition(int $post_id): array|WP_Error {
         return new WP_Error(
             $stored['error'],
             pp_composition_integrity_message($post_id, $stored['error'])
-            . ' No component targets can be read from it. Repair the page with a full'
-            . ' update_composition write (a JSON array of components), or restore a prior'
-            . ' version with restore_composition.'
+            . ' No component targets can be read from it. '
+            . pp_corrupt_repair_route_message($post_id)
         );
     }
     $composition = $stored['composition'];

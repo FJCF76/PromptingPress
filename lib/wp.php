@@ -447,6 +447,51 @@ function pp_composition_integrity_message(int $post_id, string $error): string {
 }
 
 /**
+ * The ONE sentence every surface uses to say how a corrupt page gets repaired (#767).
+ *
+ * Sibling of pp_composition_integrity_message() above and single-owned for the same reason.
+ * That function exists because #650/#652 established that one STATE reported in two
+ * vocabularies is how an operator repairs the wrong thing; ruling D-1 makes the ROUTE
+ * uniform too, so four private spellings of it are the same drift risk one layer out. They
+ * had already drifted before this was extracted: of the four surfaces, only three mentioned
+ * the preserved bytes and only two said the preservation happens BY the repair write — which
+ * matters, because on the surfaces that refuse BEFORE any repair the ring holds nothing yet,
+ * and an operator told otherwise runs `composition-history` and finds an empty list.
+ *
+ * Callers own their own lead-in ("the action you asked for was refused", "this proposal was
+ * refused before any step ran", "PREFLIGHT was not recorded"); this owns the route.
+ *
+ * The run token is optional because only one caller has one. With it the sentence renders
+ * runnable commands; without it, the verbs. Never invent a token to fill the gap — a
+ * copy-pasteable command carrying a fabricated UUID is worse than a named verb.
+ *
+ * @param  int         $post_id  The page to repair.
+ * @param  string|null $run_id   The caller's run token, when it has one.
+ * @return string
+ */
+function pp_corrupt_repair_route_message(int $post_id, ?string $run_id = null): string {
+    if ($run_id !== null) {
+        $route = 'Repair it with ONE whole-composition write, which needs no preflight on a page in'
+            . ' this state (#767): `wp pp action execute update_composition --run-id=' . $run_id
+            . ' --params=\'{"post_id":' . $post_id . ',"composition":[...]}\'` (a JSON array of'
+            . ' components), or `wp pp action execute restore_composition --run-id=' . $run_id
+            . ' --params=\'{"post_id":' . $post_id . '}\'`.';
+    } else {
+        $route = 'Repair it with ONE whole-composition write — `update_composition` (a JSON array'
+            . ' of components) or `restore_composition` — which on WP-CLI (`wp pp action execute`)'
+            . ' needs no preflight on a page in this state (#767); the dashboard composition editor'
+            . ' does the same job.';
+    }
+
+    // FUTURE TENSE, DELIBERATELY. Every caller of this renders BEFORE any repair has run, so
+    // the ring does not hold these bytes yet. "The bytes are preserved" sends an operator to
+    // an empty history listing and teaches them the message lies.
+    return $route
+        . ' The repair write preserves the unreadable bytes on the page\'s history ring (#818);'
+        . ' read them afterwards with `wp pp operate composition-history --post_id=' . $post_id . '`.';
+}
+
+/**
  * Reads _pp_composition and classifies its state, so callers can tell a
  * genuinely blank page apart from a corrupted one (issue #144).
  *
@@ -465,19 +510,167 @@ function pp_composition_integrity_message(int $post_id, string $error): string {
  * A JSON object decodes to an associative PHP array that is_array() would accept,
  * so list-shape is enforced via pp_is_list() to keep objects out of compositions.
  *
- * This is the single owner of composition decode + state classification for
- * consuming callers (inspect / check / validate, and the front-page render safeguard
- * pp_resolve_front_page_render() — issue #506 — which classifies here so a corrupt
- * homepage is never overwritten by the blank-page seed). The generic renderer
+ * This is the single owner of the CACHED read every consumer shares (inspect / check /
+ * validate, and the front-page render safeguard pp_resolve_front_page_render() — issue
+ * #506 — which classifies here so a corrupt homepage is never overwritten by the
+ * blank-page seed). Since #767 the CLASSIFICATION half is owned one level down by
+ * pp_classify_composition_value(), so that a second READER can exist without a second
+ * spelling of the decision; #144's "one classifier" invariant lives there now and is
+ * unweakened. There are exactly two readers and adding a third needs a reason:
+ * this one (cached, for every consumer) and pp_get_composition_result_authoritative()
+ * (uncached, for gate-opening decisions only). The generic renderer
  * pp_composition() still keeps its own defensive decode by design — issue #144 leaves
  * that render path untouched.
+ *
+ * SINCE #767 THE READ AND THE CLASSIFICATION ARE SEPARATE FUNCTIONS, and the split is
+ * the point rather than tidiness. This function is still the ONLY thing that pairs "read
+ * `_pp_composition` the way every consumer reads it" with the classification, and its
+ * behaviour is byte-for-byte what it was. What the split buys is a SECOND reader —
+ * pp_get_composition_result_authoritative() below — that answers the same question from
+ * the database instead of the object cache, without forking the classification into a
+ * second spelling. #144's "one classify owner" invariant now lives in
+ * pp_classify_composition_value(); both readers delegate to it.
  *
  * @param int $post_id  WordPress post ID.
  * @return array{ok: bool, composition: array, error: ?string, raw: ?string}
  */
 function pp_get_composition_result(int $post_id): array {
-    $raw = get_post_meta($post_id, '_pp_composition', true);
+    return pp_classify_composition_value(get_post_meta($post_id, '_pp_composition', true));
+}
 
+/**
+ * The $wpdb handle, but only when it can actually answer an uncached composition read (#767).
+ *
+ * SINGLE OWNER OF THE CAPABILITY QUESTION, because two callers need the SAME answer for
+ * opposite reasons and must never disagree about it:
+ *
+ *   pp_get_composition_result_authoritative()  falls back to the cached read when this is
+ *                                              null — an honest degradation for a general
+ *                                              reader with no database to ask.
+ *   pp_corrupt_page_repair_carve_out()         refuses to open when this is null — because
+ *                                              a GATE may not be opened by a value that
+ *                                              might be stale, and the cached read is
+ *                                              exactly the value it might be.
+ *
+ * That asymmetry is the point, and it is why the check lives here rather than inline in
+ * either: if the reader silently degraded while the gate kept trusting it, the cache-staleness
+ * hazard the carve-out was built to avoid would come straight back through the fallback.
+ *
+ * Four clauses, all required, because a partial handle is a real shape in this codebase's
+ * unit context (several test doubles implement get_var and nothing else) and reading
+ * `$wpdb->postmeta` off one of them yields an undefined-property warning and an empty table
+ * name — a query that cannot be trusted. In production WordPress every clause always holds.
+ *
+ * @return object|null  The handle, or null when an uncached read is not possible.
+ */
+function pp_composition_db_handle(): ?object {
+    global $wpdb;
+
+    if (is_object($wpdb)
+        && method_exists($wpdb, 'get_var')
+        && method_exists($wpdb, 'prepare')
+        && isset($wpdb->postmeta)) {
+        return $wpdb;
+    }
+    return null;
+}
+
+/**
+ * The same question, answered from the DATABASE rather than the object cache (#767).
+ *
+ * WHY THIS EXISTS, and it is a security boundary rather than a performance note.
+ * The corrupt-page repair carve-out (#767, maintainer ruling D-1) NARROWS an enforcement
+ * gate: on a page whose stored composition is classified corrupt, `update_composition` /
+ * `restore_composition` are admitted on WP-CLI without a covering preflight. The input
+ * that opens that gate is therefore the classification itself, and a gate must not be
+ * openable by a value that is merely STALE.
+ *
+ * It is reachable, not theoretical. #823 documents the mechanism on the sibling meta:
+ * WordPress warms a post's WHOLE meta row in one query (update_meta_cache), so any earlier
+ * get_post_meta() on the post populates `_pp_composition` in the request-local cache too,
+ * and a concurrent repair landing after that warm-up leaves the cached copy corrupt while
+ * the row is healthy. Reading the cache there would admit a preflight-free write to a
+ * HEALTHY page — precisely the thing the carve-out is not allowed to do.
+ *
+ * TWO THINGS MAKE THE READERS AGREE, and both are load-bearing rather than decoration.
+ * Anywhere they disagree, the disagreement IS the vulnerability: every other surface —
+ * `wp pp check page`, `apply preflight`, the #749 batch gate, the composition precondition —
+ * classifies through the cached reader, so a row this one calls corrupt and they call
+ * healthy opens the carve-out on a page the coverage gate considers perfectly preflightable.
+ *
+ *   maybe_unserialize()   get_post_meta() unserializes on the way out (get_metadata ->
+ *                         maybe_unserialize), a direct column read does not. `_pp_composition`
+ *                         normally holds JSON, but nothing enforces that: any caller passing
+ *                         an ARRAY to update_post_meta() — an importer, a post-duplicator
+ *                         plugin, `wp post meta update <id> _pp_composition '[...]'
+ *                         --format=json` — stores a PHP-serialized row. Raw, that is
+ *                         `a:1:{...}`, which is not JSON, which classifies `decode_error`
+ *                         while every other surface reads a healthy list. maybe_unserialize()
+ *                         is a no-op on the JSON rows this theme writes, so it costs nothing
+ *                         and closes that gap. The sibling authoritative reader
+ *                         _pp_read_token_overrides_locked_strict() takes the same step for
+ *                         the same reason.
+ *   ORDER BY meta_id ASC  `_pp_composition` is single-valued by convention, not by schema.
+ *                         get_post_meta($id, $k, true) returns the FIRST row in meta_id order
+ *                         (update_meta_cache selects ORDER BY meta_id ASC, get_metadata takes
+ *                         [0]). An unordered SELECT ... LIMIT 1 may hand back a different row,
+ *                         so a duplicated key could open the carve-out on the strength of a
+ *                         row no other surface reads.
+ *
+ * RELATED BUT NOT THE SAME as the two `_locked` readers below (_pp_read_composition_json_locked,
+ * _pp_read_composition_version_locked). All three read the row instead of the cache; the
+ * difference is only WHERE they run — those two inside pp_update_composition()'s advisory
+ * lock, this one outside it, at a gate. They do NOT currently share the row-ordering rule:
+ * both `_locked` readers still issue an unordered LIMIT 1. That asymmetry is pre-existing and
+ * filed as #825 rather than fixed here.
+ *
+ * FALLBACK, stated plainly: with no usable handle (see pp_composition_db_handle) this
+ * degrades to the cached read, because a reader with no database to ask has nothing better
+ * to return. Production WordPress always has one, so the fallback is a unit-context path,
+ * never a live one — and the carve-out's own tests install a $wpdb stub precisely so they
+ * exercise the authoritative branch rather than quietly proving the fallback.
+ *
+ * THE CARVE-OUT DOES NOT INHERIT THAT FALLBACK, and that is deliberate: it refuses to open
+ * rather than trust a cached answer. Degrading is right for a reader and wrong for a gate.
+ *
+ * @param int $post_id  WordPress post ID.
+ * @return array{ok: bool, composition: array, error: ?string, raw: ?string}
+ */
+function pp_get_composition_result_authoritative(int $post_id): array {
+    $wpdb = pp_composition_db_handle();
+
+    if ($wpdb !== null) {
+        $raw = $wpdb->get_var(
+            $wpdb->prepare(
+                "SELECT meta_value FROM {$wpdb->postmeta} WHERE post_id = %d AND meta_key = %s ORDER BY meta_id ASC LIMIT 1",
+                $post_id,
+                '_pp_composition'
+            )
+        );
+        // A missing row is null here and '' from get_post_meta(single=true); the classifier
+        // treats both as genuine absence, so the two readers agree on a blank page.
+        // maybe_unserialize() is the step get_metadata() takes on the cached path — see the
+        // docblock: without it a PHP-serialized row reads `decode_error` here and healthy
+        // everywhere else, which is the disagreement that OPENS the gate.
+        return pp_classify_composition_value($raw === null ? '' : maybe_unserialize($raw));
+    }
+
+    return pp_get_composition_result($post_id);
+}
+
+/**
+ * The classification itself, as a pure function of the stored value (#144, extracted #767).
+ *
+ * Every state table entry documented on pp_get_composition_result() is decided HERE. Two
+ * readers feed it — the cached one and the authoritative one — so a caller that needs a
+ * database-fresh answer never has to re-implement the decision. Keep it pure: it must be
+ * callable on a value the caller already holds (a $wpdb column, a fixture, a decoded array)
+ * without touching post meta.
+ *
+ * @param mixed $raw  The stored `_pp_composition` value, exactly as read.
+ * @return array{ok: bool, composition: array, error: ?string, raw: ?string}
+ */
+function pp_classify_composition_value($raw): array {
     // Absent meta: get_post_meta(single=true) returns '' when the key does not
     // exist. Match only genuine absence here — NOT every falsy value — so a
     // stored falsy-but-present payload (the JSON string "0", an int 0) still

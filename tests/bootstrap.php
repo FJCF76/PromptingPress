@@ -1076,21 +1076,70 @@ if (!function_exists('attachment_url_to_postid')) {
 // $GLOBALS['wpdb'] = new wpdb() themselves and unset it in tearDown.
 if (!class_exists('wpdb')) {
     class wpdb {
-        public string $posts = 'wp_posts';
+        public string $posts    = 'wp_posts';
+        // #767: pp_get_composition_result_authoritative() interpolates this into its
+        // direct SELECT. Absent, the property read emitted an "Undefined property"
+        // warning and the table name rendered empty.
+        public string $postmeta = 'wp_postmeta';
 
-        // Substitutes %s placeholders so get_var() below can inspect the
-        // actual guid being queried, rather than returning a fixed value
-        // regardless of what was asked for.
+        // Substitutes placeholders IN ORDER so get_var() below can inspect what was
+        // actually asked for, rather than returning a fixed value regardless. %d and
+        // %s are both handled and consume args left to right — a single-%s query (the
+        // original guid lookup) renders exactly as it did before.
         public function prepare(string $query, ...$args): string {
-            foreach ($args as $arg) {
-                $query = preg_replace('/%s/', "'" . addslashes((string) $arg) . "'", $query, 1);
-            }
-            return $query;
+            $i = 0;
+            return (string) preg_replace_callback('/%[ds]/', static function (array $m) use (&$i, $args): string {
+                $arg = $args[$i] ?? '';
+                $i++;
+                return $m[0] === '%d' ? (string) (int) $arg : "'" . addslashes((string) $arg) . "'";
+            }, $query);
         }
 
         public function get_var(string $query) {
             if (preg_match("/guid = '([^']*)'/", $query, $m)) {
                 return $GLOBALS['_pp_test_store']['wpdb_guid_map'][$m[1]] ?? null;
+            }
+            // Direct postmeta point-lookups — the reads that deliberately BYPASS the
+            // object cache. Three exist: _pp_read_composition_version_locked() and
+            // _pp_read_composition_json_locked() (both inside the write lock, #133/#818)
+            // and pp_get_composition_result_authoritative() (#767).
+            //
+            // This branch used to be absent, so all three answered NULL here and any test
+            // installing this stub silently modelled an EMPTY postmeta table. That was
+            // invisible while the only caller asked "is there prior state?" — but #767
+            // threads a real compare-and-swap baseline, and a version column that always
+            // read 0 made every CAS assertion pass for the wrong reason. Model the table.
+            //
+            // Default: agree with the meta store, so installing this stub never silently
+            // changes what an existing test's direct read returns. Opt into a row-vs-cache
+            // DIVERGENCE per post and key with
+            //   $GLOBALS['_pp_test_store']['wpdb_postmeta'][$post_id][$meta_key]
+            // which then stands for the DATABASE row while ['post_meta'] stands for the
+            // (possibly stale) cache. null there means "no row". That divergence is the
+            // whole hazard #767's carve-out has to be honest about (#823 documents how a
+            // request warms a stale copy).
+            if (preg_match("/meta_key = '([^']+)'/", $query, $km)
+                && preg_match('/post_id = (\d+)/', $query, $pm)) {
+                $meta_key = $km[1];
+                $post_id  = (int) $pm[1];
+                $db       = $GLOBALS['_pp_test_store']['wpdb_postmeta'] ?? [];
+                if (isset($db[$post_id]) && array_key_exists($meta_key, $db[$post_id])) {
+                    $value = $db[$post_id][$meta_key];
+                    return $value === null ? null : (string) $value;
+                }
+                $value = $GLOBALS['_pp_test_store']['post_meta'][$post_id][$meta_key] ?? null;
+                if ($value === null || $value === '' || $value === false) {
+                    return null;
+                }
+                // A real meta_value column holds a STRING, and WordPress puts a non-scalar
+                // there the way update_metadata() does: maybe_serialize(), read back through
+                // maybe_unserialize(). Model that, not wp_json_encode() — a JSON rendering
+                // would make the direct and cached readers agree on precisely the input
+                // where PRODUCTION makes them disagree (a PHP-serialized `_pp_composition`
+                // row is a healthy list to get_post_meta() and undecodable bytes to a raw
+                // column read), so the one asymmetry worth a regression test would be the
+                // one the harness could never reproduce.
+                return is_scalar($value) ? (string) $value : maybe_serialize($value);
             }
             return null;
         }
