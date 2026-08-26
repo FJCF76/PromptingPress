@@ -285,7 +285,7 @@ The rolled-back-batch caveat applies here and, since #712, ONLY here. A batch st
 
 > `The composition must be a list of components, but this one is a JSON object (2 entries). Send the components as an array ([{"component": "hero", "props": {...}}, ...]), not an object. [unexpected_shape]`
 
-**What breaks, and the fix.** Any caller sending an object-shaped `composition` param is now rejected instead of silently destroying bands — send a JSON array. Nothing is coerced or reindexed on your behalf (ruling D-A: reject, never coerce), and nothing stored is migrated. The error `unexpected_shape` is deliberately the read path's own word for this state, so a refused write and `wp pp check page` / `wp pp operate inspect` / `inspect-composition` all name it identically. This rejection carries **no `index`** — the problem is the container, not any band, so no band locator is invented. Two shapes are indistinguishable after `json_decode` and remain accepted: `{"0": ..., "1": ...}` (the keys ARE `0..n-1`, so PHP hands back a list — and key and position agree, so nothing is dropped) and `{}` (identical to `[]`). A page that already stores the object shape is **not** migrated: `wp pp check page` and `wp pp operate inspect-composition` both report it as corrupt, and one full `update_composition` write with a JSON array repairs it. `restore_composition` is the deliberate exception as always (#233) — it replays an object-shaped history snapshot verbatim and reports the container in `findings` rather than blocking undo. **Send either repair as a SINGLE action, never as a chat proposal (#749)** — not even a one-step one. A batch is refused before step 1 when any page it names has an unreadable stored composition, and the chat client routes every proposal through the batch endpoint, so a repair sent that way comes back refused with the very code it was meant to clear. The gate runs before any step's own semantics, so `restore_composition` is refused there too despite #233. The single-step path (`wp pp action execute`, `pp_patch_composition()`, the dashboard editor) takes no rollback snapshot and so is never refused by that gate — repair from the CLI or the editor (#756).
+**What breaks, and the fix.** Any caller sending an object-shaped `composition` param is now rejected instead of silently destroying bands — send a JSON array. Nothing is coerced or reindexed on your behalf (ruling D-A: reject, never coerce), and nothing stored is migrated. The error `unexpected_shape` is deliberately the read path's own word for this state, so a refused write and `wp pp check page` / `wp pp operate inspect` / `inspect-composition` all name it identically. This rejection carries **no `index`** — the problem is the container, not any band, so no band locator is invented. Two shapes are indistinguishable after `json_decode` and remain accepted: `{"0": ..., "1": ...}` (the keys ARE `0..n-1`, so PHP hands back a list — and key and position agree, so nothing is dropped) and `{}` (identical to `[]`). A page that already stores the object shape is **not** migrated: `wp pp check page` and `wp pp operate inspect-composition` both report it as corrupt, and one full `update_composition` write with a JSON array repairs it. `restore_composition` is the deliberate exception (#233) — a JSON object decodes to a PHP array, so it is snapshotted as a composition and replayed verbatim, with the container reported in `findings` rather than blocking undo. The SCALAR sub-case of `unexpected_shape` (a stored `null`, `5`, `"text"`) does not decode to an array, so since 1.16.13 it is preserved as bytes instead and refused with `history_entry_not_restorable` (#818). **Send either repair as a SINGLE action, never as a chat proposal (#749)** — not even a one-step one. A batch is refused before step 1 when any page it names has an unreadable stored composition, and the chat client routes every proposal through the batch endpoint, so a repair sent that way comes back refused with the very code it was meant to clear. The gate runs before any step's own semantics, so `restore_composition` is refused there too despite #233. The single-step path (`wp pp action execute`, `pp_patch_composition()`, the dashboard editor) takes no rollback snapshot and so is never refused by that gate — repair from the CLI or the editor (#756).
 
 **Template-owned chrome (#223).** `nav` and `footer` are rendered on every page by `templates/base.php`. They are registered, renderable components, but they are **not composable** — a composition containing either would render the site header or footer twice. `pp_validate_composition()` rejects them, so `create_page`, `update_composition`, `add_component`, `update_component`, and the dashboard editor's save all fail with:
 
@@ -563,7 +563,9 @@ wp pp apply restore --run-id=<uuid> --token=--color-accent
 
 ## Composition history & restore (#133)
 
-Design-token writes have always been reversible (snapshot at preflight, `restore`). Composition writes — the page content itself — now match that parity. Every composition write (`update_composition`, `add_component`, `remove_component`, `reorder_components`, `update_component`, and `restore_composition` itself) pushes the **prior** composition onto a bounded per-post history ring (last 10 entries) before overwriting. Restore reads that ring.
+Design-token writes have always been reversible (snapshot at preflight, `restore`). Composition writes — the page content itself — now match that parity. Every composition write (`update_composition`, `add_component`, `remove_component`, `reorder_components`, `update_component`, and `restore_composition` itself) pushes the **prior** state onto a bounded per-post history ring (last 10 entries) before overwriting. Restore reads that ring.
+
+**A ring slot holds one of two things (#818).** Normally a **composition snapshot** — the prior components, replayable by `restore_composition`. But when the bytes a write replaces did not decode to a composition (a `decode_error` page, or the valid-JSON-scalar sub-case of `unexpected_shape`), the slot holds those **preserved bytes** instead. Before 1.16.13 such a write pushed *nothing*, so repairing a corrupt page destroyed the only recoverable copy of what was there — and the documented repair is exactly one full `update_composition` write, which made the recovery path the destructive one. The bytes are now kept, readable through `wp pp operate composition-history`, and refused by `restore_composition` (they are not a composition, so there is nothing to replay). The trade, stated: a preserved-bytes slot consumes a ring slot like any other, so a page corrupted and repaired repeatedly evicts good snapshots faster.
 
 There are two restore surfaces, both conflict-checked writes that land their own history entry (so a restore is itself reversible):
 
@@ -585,11 +587,13 @@ Target selectors (params):
 - `history_index` (int) — absolute 0-based index into the ring (oldest = 0). Takes precedence over `steps_back`.
 - `expected_version` (int, optional) — optimistic-locking baseline (#13); the restore is rejected with `composition_conflict` if the page moved since.
 
-Errors: `no_history` (the page has no recorded prior state), `history_out_of_bounds` (selector past the ring), `composition_conflict` (stale `expected_version`).
+Errors: `no_history` (the page has no recorded prior state), `history_out_of_bounds` (selector past the ring), `history_entry_not_restorable` (the selected slot holds preserved bytes, not a composition — read them with `wp pp operate composition-history --post_id=<id>` and select an earlier entry), `composition_conflict` (stale `expected_version`).
 
 #### Restore reports, it does not block (#233)
 
 A snapshot captured before a validation rule existed still restores. Current rules never veto a restore — undo is wired to this action, so a restore that today's rules refuse would make undo fail exactly when you most need it. Instead the restore succeeds and tells you what is wrong with what it just wrote.
+
+**One precondition can still refuse a restore, and it is not a validation veto (#818).** If the selected ring slot holds *preserved bytes* rather than a composition snapshot, there is no composition to replay and the restore is refused with `history_entry_not_restorable`. That is a precondition failure of the same species as `no_history` and `history_out_of_bounds` — a statement about which slot you selected, not a judgment on its contents. Every slot that carries a composition still restores verbatim and still reports, however illegal today's rules find it. The refusal names the byte count and the command that prints the bytes; step to an earlier entry to roll the page back.
 
 Two things follow from that, and both are visible in the result:
 
@@ -660,7 +664,16 @@ Lists a page's history ring so you know which `steps_back` / `history_index` to 
 wp pp operate composition-history --post_id=42
 ```
 
-Output carries `count`, the ring `max` (10), and per-entry `{history_index, steps_back, version, timestamp, components}`, newest first.
+Output carries `count`, the ring `max` (10), and one row per entry, newest first. Every row has `{history_index, steps_back, version, timestamp, components, restorable}`.
+
+⚠️ **Breaking change in 1.16.13:** `components` is now **nullable**. Branch on `restorable` before using it.
+
+| `restorable` | the slot holds | row also carries |
+|---|---|---|
+| `true` | a composition snapshot | `components` = the band count (int) |
+| `false` | preserved bytes (#818) | `components` = `null`, plus `raw_bytes`, `raw_sha256`, `raw_base64`, `raw` |
+
+**`raw_base64` is the recovery channel; `raw` is for reading.** The command's JSON sink encodes with `JSON_INVALID_UTF8_SUBSTITUTE`, and malformed UTF-8 is one of the corruptions that lands a page in `decode_error` — so `raw` can come back with those bytes *substituted*. `raw_base64` is pure ASCII and survives untouched; check what you saved against `raw_sha256`, which is taken over the true bytes. Nothing is truncated: a truncated recovery is not a recovery.
 
 ### In the AI chat
 
