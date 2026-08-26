@@ -117,7 +117,12 @@ are outside the composition CAS. On `composition_conflict` the handler returns t
 structured envelope (`error_code` + `expected_version`/`current_version`), and the chat UI
 shows one affordance — **Re-read & re-preview** — which re-reads the page for a fresh
 baseline and re-previews the proposal against current state before the user confirms again;
-it is never a blind retry that re-sends the stale write with a bumped version. The writer's
+it is never a blind retry that re-sends the stale write with a bumped version. That count is
+about THIS class, not about the card: since #704 a card refused by VALIDATION grows a
+different affordance (**Ask the AI to fix it**, which sends an operator-approved repair
+request to the model). A conflict deliberately gets neither that button nor the model-facing
+note that accompanies it — the page moved under a proposal that was correct when written, so
+re-reading is the repair and the model has nothing to fix. The writer's
 own null-skips-CAS back-compat is untouched — the mandate lives in the chat entry points'
 contracts. This shipped per the baseline-lifecycle design on
 [#392](https://github.com/FJCF76/PromptingPress/issues/392) (v1.2.0 gate).

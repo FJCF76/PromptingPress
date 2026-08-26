@@ -1270,6 +1270,148 @@ function ppChatAppendRollbackErrors(card, report) {
 }
 
 /**
+ * The server's model-facing note for a refused proposal, or null (#704).
+ *
+ * PRESENCE DECIDES WHEREVER THIS IS ASKED, and this function interprets nothing. Whether a
+ * rejection is the model's to answer is a question about the CLASS of the failure — a bad
+ * prop key is the model's, a page that moved under a correct proposal is not — and
+ * lib/ai-chat.php answers it once, at each refusal site, where the reason is actually
+ * known. Re-deriving it here (by reading error_code, or by picking which failure branches
+ * "look like" validation) is how two answers drift apart.
+ *
+ * ONE HONEST EXCEPTION, and it predates this: the CONFLICT branches never get here at all.
+ * executeProposal() routes a composition_conflict and a missing baseline to
+ * showConflictState() before any note is read (#404), so the client still owns THAT
+ * routing. The server agrees — it writes no note for either class — but the agreement is
+ * two decisions that match, not one decision asked once. If the server ever decided a
+ * conflict IS the model's to answer, this file would have to be changed to let the note
+ * through; nothing here would notice on its own.
+ *
+ * Read defensively for the same reason every other envelope read in this file is: the
+ * payload is JSON off the wire, and a `.substring` on a non-string would throw inside the
+ * fetch handler and take the rest of the failure rendering down with it (#663's lesson).
+ */
+function ppChatModelNote(payload) {
+    if (!payload || typeof payload.model_note !== 'string') return null;
+
+    return payload.model_note === '' ? null : payload.model_note;
+}
+
+/** Per-card counter for the repair note's id, so aria-describedby always resolves (#704). */
+var ppChatRepairNoteSeq = 0;
+
+/**
+ * The visible half of the operator-gated repair loop (#704, ruling D-2).
+ *
+ * Two elements, and each answers a different half of the ruling.
+ *
+ *   ┌ card ─────────────────────────────────────────────────┐
+ *   │ step rows (failed / skipped)                          │
+ *   │ rollback disclosure, when there is one (#755)          │
+ *   │ ┌ .pp-ai-proposal-actions ──────────────────────────┐ │
+ *   │ │ [ Apply All ] [ Cancel ]   both disabled, spent   │ │
+ *   │ └───────────────────────────────────────────────────┘ │
+ *   │ ┌ .pp-ai-repair-actions ────────────────────────────┐ │
+ *   │ │ "The AI can see this error..."   ← the model       │ │
+ *   │ │                                    KNOWS           │ │
+ *   │ │ [ Ask the AI to fix it ]         ← the operator    │ │
+ *   │ └──────────────────────────────────────DECIDES──────┘ │
+ *   └───────────────────────────────────────────────────────┘
+ *
+ * APPENDED LAST, after the Apply/Cancel row rather than in place of it. The spent row stays
+ * because it is the record of what the operator authorized, and ppChatAppendRollbackErrors()
+ * inserts its disclosure before the FIRST `.pp-ai-proposal-actions` — so growing the card
+ * from the end keeps that insertion point where it was.
+ *
+ * The SENTENCE exists because the append is otherwise invisible. The note is a hidden
+ * conversation turn; without a line saying so, an operator who reads the error has no way
+ * to know whether the correction reached the model or is still theirs to retype, which is
+ * the whole complaint #704 opens with. It is deliberately a statement of fact and not an
+ * instruction: an operator who would rather type their own next message has already been
+ * told the context is there.
+ *
+ * The BUTTON is the gate. D-2 rules the retry PROPOSED, never automatic, so the affordance
+ * is the proposal and the click is the approval — nothing here sends anything, and the
+ * handler this is given is the only thing in the file that can. It disables on use because
+ * the card is history the moment the request is in flight; a second click would send a
+ * second identical request against a conversation that already contains the first.
+ *
+ * DISABLED FIRST, THEN GIVEN BACK IF NOTHING WENT. Disabling before the handler runs is
+ * what makes "a throwing handler leaves no live button" true of the code rather than of
+ * the handlers we happen to pass. But a REFUSED send is not a spent one: sendMessage()
+ * declines while a stream is in flight, and an operator who clicks this while their own
+ * message is still streaming would otherwise be left with a permanently dead button and
+ * nothing on screen explaining it. So a handler that answers `false` gets its button back.
+ * A handler that throws does not, which is the conservative half staying conservative.
+ *
+ * MUST BE CALLED BEFORE addStatusMessage(), like every other thing that grows this card:
+ * addStatusMessage() ends by pinning the transcript to its own bottom and the card is an
+ * earlier sibling in that scroller, so growing the card afterwards pushes the alert line
+ * back off the fold (#755's ordering contract).
+ *
+ * The button wears `.button.button-primary`, the same WordPress-admin pair
+ * showConflictState() dresses its single affordance in, so a repair offer looks like a
+ * repair offer wherever the card puts one. The ROW is its own class rather than
+ * `.pp-ai-proposal-actions` — see the CSS, which explains why a flex row built for a pair
+ * of buttons is the wrong container for a sentence and a button.
+ *
+ * @param {HTMLElement} card     The proposal card to grow.
+ * @param {Function}    onRetry  Invoked on click. The ONLY path from this card to a request.
+ * @return {HTMLElement|null}    The button, or null when there was no card to grow.
+ */
+function ppChatAppendRepairAffordance(card, onRetry) {
+    if (!card) return null;
+
+    var actions = document.createElement('div');
+    actions.className = 'pp-ai-repair-actions';
+
+    var note = document.createElement('div');
+    note.className = 'pp-ai-repair-note';
+    // Unique per card: a failure card is appended to a transcript that may already hold
+    // earlier ones, and two elements sharing an id would point every aria-describedby at
+    // whichever the parser saw first.
+    note.id = 'pp-ai-repair-note-' + (++ppChatRepairNoteSeq);
+    note.textContent = 'The AI can see this error — it is part of the conversation now.';
+    actions.appendChild(note);
+
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'button button-primary';
+    btn.textContent = 'Ask the AI to fix it';
+    // DESCRIBED, NOT ANNOUNCED. The sibling rollback disclosure is a live region
+    // (role="status") and the failure line below the card is an alert, so a third
+    // announcement on one failure would talk over the two that carry the actual news.
+    // Tying the sentence to the control instead means it is read exactly when it is
+    // actionable — as the button takes focus, which is where the line below sends it.
+    btn.setAttribute('aria-describedby', note.id);
+    btn.addEventListener('click', function () {
+        // Disable FIRST: onRetry runs the send synchronously, and a handler that throws
+        // after a half-sent request must not leave a live button behind it.
+        btn.disabled = true;
+        if (onRetry() === false) {
+            // Nothing was sent, so nothing was spent. Explicit `=== false`, not falsy: a
+            // handler that returns undefined is one that made no claim either way, and the
+            // conservative reading of no claim is that the request went.
+            btn.disabled = false;
+        }
+    });
+    actions.appendChild(btn);
+
+    card.appendChild(actions);
+
+    // FOCUS HAS TO BE PUT SOMEWHERE, because the failure already took it away: executeProposal()
+    // disables the Apply button the operator just clicked, and disabling the focused element
+    // drops focus to <body>. A keyboard user would then Tab from the top of the whole WP admin
+    // document to reach a button that appeared at the bottom of a card in direct response to
+    // their own click. Moving it is the conventional answer for exactly that case — a primary
+    // action created BY the user's activation — and this file already places focus deliberately
+    // on the neighbouring outcomes (Cancel and a successful apply both end at the input).
+    btn.focus();
+
+    return btn;
+}
+
+/**
  * The composition offset a finding owns, or null when it owns none (#622, #655).
  *
  * The one place "does this finding name a band?" is answered, so the selection below and
@@ -2265,6 +2407,11 @@ function ppChatAppendValidationItems(container, items, className) {
                     || (resp.data && resp.data.error_code === 'missing_expected_version')) {
                     showConflictState(card, steps, pageId);
                 } else {
+                    // The model's copy of the refusal, and the operator's way to spend it
+                    // (#704). Both are gated on the server having written a note, which is
+                    // how 'Permission denied.' and the malformed-request refusals get
+                    // neither — see ppChatModelNote(). Card first, alert second (#755).
+                    offerRepair(card, ppChatModelNote(resp.data));
                     addStatusMessage('Error: ' + ((resp.data && resp.data.error) || resp.data || 'Unknown error'), true);
                 }
                 return;
@@ -2327,6 +2474,7 @@ function ppChatAppendValidationItems(container, items, className) {
                     el.classList.remove('pp-ai-step-executing');
                     el.classList.add('pp-ai-step-skipped');
                 });
+                offerRepair(card, ppChatModelNote(batch));
                 addStatusMessage('Error: ' + (batch.error || 'Unknown error'), true);
                 return;
             }
@@ -2348,6 +2496,7 @@ function ppChatAppendValidationItems(container, items, className) {
             var message = 'Error on step ' + (batch.failed_at + 1) + ': ' + (failedResult.error || 'Unknown error');
             message += ppChatRollbackSentence(rollback);
             ppChatAppendRollbackErrors(card, rollback);
+            offerRepair(card, ppChatModelNote(batch));
             addStatusMessage(message, true);
         })
         .catch(function (err) {
@@ -2356,6 +2505,74 @@ function ppChatAppendValidationItems(container, items, className) {
                 el.classList.add('pp-ai-step-failed');
             });
             addStatusMessage('Error: ' + err.message, true);
+        });
+    }
+
+    /**
+     * What the operator sends when they spend the repair affordance (#704).
+     *
+     * A REAL message, rendered in the transcript like any other, because the operator is
+     * approving a request made in their name and has to be able to read it. It does not
+     * restate the error: the note the server wrote is already the adjacent turn, carrying
+     * the code, the blocking band and the reason at their authoritative length, and a
+     * second, shorter retelling assembled here is exactly the drifting duplicate this
+     * change exists to avoid.
+     */
+    var REPAIR_REQUEST = 'That proposal was rejected. Please correct the problem and propose the change again.';
+
+    /**
+     * Puts a refusal back in front of the model, and the retry in front of the OPERATOR
+     * (#704, ruling D-2).
+     *
+     * The whole mechanism is these few lines, and the shape is the ruling:
+     *
+     *   note ──▶ conversation (hidden `user` turn)   the model KNOWS      ← mechanical
+     *   note ──▶ card affordance                     the operator DECIDES ← gated
+     *
+     * ONE CALL SITE PER FAILURE EXIT, AND NO SITE MAY SEND. The append and the affordance
+     * are deliberately not separable: an appended note with no affordance is context the
+     * operator was never told about, and an affordance with no note is a button that asks
+     * the model to fix something it cannot see. Both are gated on the same server-written
+     * note, so a failure class the server judged not-the-model's gets neither, silently
+     * and by construction.
+     *
+     * NOTHING BELOW SENDS ANYTHING. sendMessage() is reached only from the click handler,
+     * which is the single line in this change that can reach the provider — that is what
+     * makes "the retry is proposed, never automatic" a property of the code rather than a
+     * claim in a comment. Reusing sendMessage() rather than a private send path is the
+     * other half of it: the retry inherits the page-selection gate, the streaming lock and
+     * the transcript render that every operator message already goes through.
+     *
+     * The turn is a `user` one on purpose, and the two reasons are independent.
+     * PROVENANCE: this is the environment reporting an outcome, not the model speaking —
+     * the sibling on the success path spells the same thing `[Applied changes: ...]`, and
+     * an `assistant` turn would put a server verdict in the model's own mouth. DISPLAY:
+     * restoreConversation() hides a user turn whose content starts with '[' and hides an
+     * assistant turn on `internal: true`; the note is bracketed by its builder
+     * (_pp_ai_rejection_note, lib/ai-chat.php) so the first rule catches it. `internal` is
+     * set beside it as the structural statement of what this turn is — it never leaves the
+     * browser (pp_ai_format_messages strips unknown keys), so it costs nothing and it is
+     * what a future flag-based user-turn filter would read instead of the '[' convention.
+     *
+     * @param {HTMLElement}   card  The failed proposal's card.
+     * @param {string|null}   note  ppChatModelNote()'s answer for this failure.
+     */
+    function offerRepair(card, note) {
+        // BOTH guards up front, so the pairing above is a property of the code. The card
+        // guard used to live inside ppChatAppendRepairAffordance(), which meant a cardless
+        // call would push the note, persist it, and then quietly decline to tell the
+        // operator about it — the exact half-state the docblock says cannot happen. Every
+        // caller passes executeProposal()'s own `card`, so this is unreachable today; an
+        // invariant worth stating is worth holding.
+        if (!note || !card) return;
+
+        conversation.push({ role: 'user', content: note, internal: true });
+        saveState();
+
+        // The return value is the affordance's, not ours to swallow: sendMessage() declines
+        // while a stream is in flight, and the button gives itself back when it does.
+        ppChatAppendRepairAffordance(card, function () {
+            return sendMessage(REPAIR_REQUEST);
         });
     }
 
@@ -2673,8 +2890,21 @@ function ppChatAppendValidationItems(container, items, className) {
 
     // ── SSE Streaming via fetch + ReadableStream ───────────────────────
 
+    /**
+     * @return {boolean} True when a request was actually dispatched.
+     *
+     * REPORTS ITS OWN REFUSALS (#704). Every early return below is a legitimate refusal —
+     * a stream already in flight, an empty message, no page selected — and each used to be
+     * silent because the only caller was a button that stays available for another try.
+     * The repair affordance is not that kind of caller: it disables itself on click, so a
+     * silent refusal would leave the operator staring at a dead button with no way to ask
+     * again and nothing on screen saying why. Answering the question the caller has to ask
+     * ("did that go?") here keeps the guards single-owned; the alternative was re-testing
+     * `isStreaming` at the call site, which is how two copies of one rule drift apart.
+     * Existing callers ignore the value, which is exactly right for them.
+     */
     function sendMessage(text) {
-        if (isStreaming || !text.trim()) return;
+        if (isStreaming || !text.trim()) return false;
 
         var trimmed = text.trim();
         var pages = config.pages || [];
@@ -2686,7 +2916,7 @@ function ppChatAppendValidationItems(container, items, className) {
         // against page_id: null (or silently reusing a stale prior target).
         if (!activePageId) {
             showPageSelectionPrompt(detectedPageId, pages);
-            return;
+            return false;
         }
 
         maybeShowPageSwitchSuggestion(detectedPageId, pages);
@@ -2700,6 +2930,8 @@ function ppChatAppendValidationItems(container, items, className) {
 
         var myRequestId = ++currentRequestId;
         streamChat(conversation, myRequestId);
+
+        return true;
     }
 
     // First-token watchdog (issue 139): a proxy/CDN that buffers the whole
@@ -3159,6 +3391,8 @@ if (typeof module !== 'undefined' && module.exports) {
         rollbackErrorReport: ppChatRollbackErrorReport,
         rollbackSentence: ppChatRollbackSentence,
         appendRollbackErrors: ppChatAppendRollbackErrors,
+        modelNote: ppChatModelNote,
+        appendRepairAffordance: ppChatAppendRepairAffordance,
         ROLLBACK_ERRORS_MAX: PP_CHAT_ROLLBACK_ERRORS_MAX
     };
 }

@@ -740,6 +740,37 @@ body.pp-ai-chat-page #wpfooter {
     }
 }
 
+/* ── Repair affordance (#704) ──────────────────────────────────────────────
+ *
+ * The row a REFUSED proposal grows: one sentence telling the operator the model can see
+ * the rejection, and one button offering to spend that. Ruling D-2 makes the button the
+ * gate, so it is the only thing on this card that can reach the provider.
+ *
+ * NOT `.pp-ai-proposal-actions`, though it sits in the same place and carries the same
+ * separator, and the divergence is deliberate rather than a missed reuse. That class is
+ * `display: flex` because it holds a PAIR of buttons; dropping a sentence into it makes
+ * the sentence and the button flex siblings competing for one line, which at 375px squeezes
+ * the prose into a narrow ragged column beside the button. Nor `.pp-ai-status`, whose
+ * colour is #00a32a — success green, on a card whose every step just failed. The three
+ * shared declarations below are the price of not fighting a layout mode, and the price is
+ * cheaper than either alternative looks.
+ */
+
+.pp-ai-repair-actions {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid #f0f0f1;
+}
+
+/* Grey and quiet on purpose. This line is not the error — the alert below the card is —
+ * it is the answer to "did the correction get through, or is it still mine to retype?",
+ * so it reads at the weight of the step meta it sits above. */
+.pp-ai-repair-note {
+    font-size: 12px;
+    color: #646970;
+    margin-bottom: 8px;
+}
+
 /* ── Reduced Motion ────────────────────────────────────────────────────── */
 
 @media (prefers-reduced-motion: reduce) {

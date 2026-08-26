@@ -13,7 +13,7 @@
 [![JavaScript](https://img.shields.io/badge/JavaScript-Vanilla-F7DF1E?style=flat-square&logo=javascript&logoColor=black)](https://developer.mozilla.org/en-US/docs/Web/JavaScript)
 [![Vitest](https://img.shields.io/badge/Vitest-Tests-6E9F18?style=flat-square&logo=vitest&logoColor=white)](https://vitest.dev)
 [![Tests](https://img.shields.io/badge/Tests-passing-22C55E?style=flat-square)](tests/)
-[![Version](https://img.shields.io/badge/version-1.16.17-6366F1?style=flat-square)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.16.18-6366F1?style=flat-square)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/License-GPL--2.0-blue?style=flat-square)](LICENSE)
 
 </div>
@@ -305,7 +305,7 @@ wp pp action execute add_component \
 
 An in-admin chat at PromptingPress > AI Chat. The AI reads your real site state — pages, compositions, media library, design tokens — and proposes changes as structured mutation cards with Apply/Cancel buttons.
 
-Multi-step proposals show numbered steps with "Apply All." After applying, the AI knows about its own changes and can build on them in the same conversation. Streaming via SSE. Supports Anthropic, Google, and OpenAI through WordPress 7.0 Connectors.
+Multi-step proposals show numbered steps with "Apply All." After applying, the AI knows about its own changes and can build on them in the same conversation. It also learns when a proposal is **refused**: a rejected step's error code, the composition band that blocked it, and the validator's message go back into the conversation, so you no longer retype a validation error to get it corrected. The retry stays yours — the failed card offers an **Ask the AI to fix it** button and nothing is sent until you click it. Streaming via SSE. Supports Anthropic, Google, and OpenAI through WordPress 7.0 Connectors.
 
 **Why this matters:** The AI doesn't generate raw code and hope it works. It proposes typed actions through the same validated layer that CLI and the editor use. Every proposal is previewable and reversible.
 
