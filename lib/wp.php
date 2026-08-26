@@ -2611,7 +2611,7 @@ function pp_get_composition_marker(int $post_id): array {
 // #113 marker bump, so history stays consistent with the version counter.
 //
 //   pp_update_composition(post, C_new)
-//     └─ [lock] read prior JSON J_prior ──┬─ decodes to an array ──► push {ts, version,
+//     └─ [lock] read prior JSON J_prior ──┬─ decodes to a LIST ────► push {ts, version,
 //                                         │                          hash, composition}
 //                                         └─ does NOT ────────────► push {ts, version,
 //                                                                    hash, raw_b64}
@@ -2622,10 +2622,16 @@ function pp_get_composition_marker(int $post_id): array {
 // itself a conflict-checked write that lands its own history entry.
 //
 // #818: EVERY prior state gets a ring slot, including one whose stored bytes do
-// not decode to an array. Those push a raw entry carrying the bytes verbatim
+// not decode to a composition. Those push a raw entry carrying the bytes verbatim
 // instead of a `composition` entry — preserved, addressable and printable, but
 // NOT replayable. Before #818 they were not pushed at all, so the repair write
 // for a corrupt page destroyed the only recoverable copy of it.
+//
+// #841: "decodes to a composition" means decodes to a LIST, not merely to an
+// array. A JSON OBJECT decodes to a PHP associative array, so the older
+// is_array() test filed one as a replayable snapshot and replaying it fataled.
+// The test is now pp_is_list() at BOTH ends — the push above, and
+// _pp_normalize_history_ring() for rings written before the fix.
 
 /**
  * Maximum number of prior-composition snapshots retained per post (#133).
@@ -2649,12 +2655,45 @@ function pp_composition_history_max(): int {
  * are mutually exclusive: a raw entry carries `raw` (a string) and no `composition`, a
  * snapshot carries `composition` (an array) and no `raw`.
  *
+ * TRUE MEANS "NOT REPLAYABLE, CARRIES BYTES" — it does not, on its own, promise those bytes
+ * are the page's original ones. They are, for every raw entry a push minted. For a pre-#841
+ * object row that _pp_normalize_history_ring() reclassified they are the ring's decoded copy
+ * re-encoded; see pp_get_composition_history() for that caveat and who it reaches.
+ *
  * @param array $entry  A single normalized entry, from either ring reader — see
  *                      pp_get_composition_history() for the shape.
  * @return bool  True for a preserved-bytes entry.
  */
 function pp_history_entry_is_raw(array $entry): bool {
     return isset($entry['raw']) && is_string($entry['raw']);
+}
+
+/**
+ * Is this decoded payload a REPLAYABLE composition snapshot (#841)?
+ *
+ * ONE OWNER FOR THE QUESTION #841 WAS ABOUT. Two places in the ring have to agree on it:
+ * pp_update_composition()'s push, deciding which entry shape a prior state gets, and
+ * _pp_normalize_history_ring(), deciding which shape a STORED entry reads back as. The
+ * defect was those two ends holding different opinions — the push accepted any array, so a
+ * decoded JSON OBJECT was filed and read back as replayable, and replaying it drove the
+ * id-injection loop onto a string band. Spelling the test twice is how that happens again;
+ * spelling it once makes the agreement structural rather than a promise in two comments.
+ *
+ * Deliberately NOT pp_history_entry_is_raw()'s counterpart: that predicate answers "which
+ * form is this ALREADY-NORMALIZED entry?", while this one judges a raw payload — a fresh
+ * json_decode of stored bytes (so possibly null, an int, a string) or a stored entry's
+ * `composition` value, which a hand-edited row could set to anything.
+ *
+ * The composition contract is a LIST (pp_validate_composition_errors() refuses a non-list
+ * container, #724), so this asks pp_is_list() and nothing more. It judges the CONTAINER
+ * only: whether the elements inside it are usable components is a separate question, and
+ * one this predicate deliberately does not answer (see #842).
+ *
+ * @param mixed $payload  A decoded composition candidate.
+ * @return bool  True when it may be replayed as a composition.
+ */
+function _pp_history_payload_is_snapshot($payload): bool {
+    return is_array($payload) && pp_is_list($payload);
 }
 
 /**
@@ -2667,17 +2706,42 @@ function pp_history_entry_is_raw(array $entry): bool {
  *             restore_composition replays this verbatim (#233).
  *
  *   RAW       {timestamp:int, version:int, hash:string, raw:string}
- *             The prior STORED BYTES, EXACTLY, when they did not decode to an array — a page
- *             classified decode_error, or the valid-JSON-scalar sub-case of
- *             unexpected_shape (see pp_get_composition_result). Before #818 these were
- *             not pushed AT ALL, so the write that replaced them destroyed the only
- *             recoverable copy. They are preserved instead, but they are NOT a
- *             composition and must never be treated as one: restore_composition refuses
- *             to replay a raw entry (`history_entry_not_restorable`) and
+ *             The prior STORED BYTES, EXACTLY, when they did not decode to a COMPOSITION —
+ *             a page classified decode_error, or either sub-case of unexpected_shape: the
+ *             valid-JSON SCALAR (`null`, `5`, `"text"`) and, since #841, the valid-JSON
+ *             OBJECT (`{"component":…}`, `{"a":…,"b":…}`). See pp_get_composition_result.
+ *             NOT the folded numeric object `{"0":…,"1":…}`, which json_decode hands back
+ *             as a genuine PHP LIST — no code below the decode can tell it from an
+ *             authored array, so it is snapshotted like one (pp_is_list(), and
+ *             CompositionShapeTrustTest pins that it is accepted).
+ *             Before #818 these were not pushed AT ALL, so the write that replaced them
+ *             destroyed the only recoverable copy. They are preserved instead, but they
+ *             are NOT a composition and must never be treated as one: restore_composition
+ *             refuses to replay a raw entry (`history_entry_not_restorable`) and
  *             `wp pp operate composition-history` prints the bytes so an operator can
  *             recover them by hand. Use pp_history_entry_is_raw() to branch.
  *
  * The two forms are mutually exclusive and the discriminating key is always present.
+ *
+ * ONE RAW ENTRY IS NOT BYTE-EXACT, AND IT IS THE ONE THIS DOCBLOCK OWES YOU (#841). A ring
+ * written before #841 holds OBJECT-shaped priors filed as `composition` entries, because the
+ * push tested is_array() and a JSON object decodes to a PHP associative array. Those rows are
+ * reclassified to RAW on the way out of _pp_normalize_history_ring(), which is what stops a
+ * restore of one from fataling — but their `raw` is that decoded object RE-ENCODED, not the
+ * bytes the page stored. The stored bytes for that class are already gone: the pre-#841 push
+ * kept a decoded array and nothing else, so whitespace, key ORDER, duplicate keys, number
+ * spelling and escape form were lost at that push, not here. Every raw entry a CURRENT push
+ * mints is byte-exact, including the object class; only this migration path is a re-encode.
+ * It matters most for `raw_sha256` in the CLI listing, which is a transfer digest either way
+ * (see PP_Operate_Command::composition_history) and for a reclassified row is a digest of the
+ * re-encode, never a proof about what the page originally stored.
+ *
+ * The reclassification is a READ, so the stored row keeps its old shape until something
+ * writes the ring again — at which point the append path in pp_update_composition() persists
+ * the reclassified form through _pp_history_entries_for_storage() and the migration becomes
+ * durable. Anything reading `_pp_composition_history` WITHOUT this normalizer therefore still
+ * sees the mis-filed `composition` key on an un-rewritten page. Nothing in this codebase does
+ * that (the two ring readers both come through here); a plugin or a hand query could.
  *
  * ON DISK A RAW ENTRY IS BASE64, AND THAT IS LOAD-BEARING, NOT TIDINESS. The ring is
  * persisted as JSON, and JSON IS NOT A BYTE CONTAINER. Malformed UTF-8 is one of the
@@ -2767,7 +2831,7 @@ function _pp_normalize_history_ring($raw): array {
         return [];
     }
     $clean = [];
-    foreach ($entries as $entry) {
+    foreach ($entries as $index => $entry) {
         if (!is_array($entry)) {
             continue;
         }
@@ -2784,22 +2848,116 @@ function _pp_normalize_history_ring($raw): array {
         // writing the meta directly; not defended against, because guessing which half a
         // hand-edit meant is worse than picking the documented one.
         //
+        // SINCE #841 THE SNAPSHOT BRANCH ASKS pp_is_list(), the same question the
+        // composition contract asks (#724) and the same one the push below now asks. So
+        // "the replayable half" means a LIST — a `composition` holding a JSON object falls
+        // past this branch to the reclassification at the bottom of the loop, and a
+        // both-keys row whose composition is an object reads as the preserved BYTES rather
+        // than the object. That is the both-keys preference working, not an exception to
+        // it: the preference is for the half that can actually be replayed.
+        //
         // This is where the invariant pp_history_entry_is_raw() relies on is ESTABLISHED,
         // which is why the raw test is spelled out here rather than delegated to it: the
         // predicate answers "which form is this?" for an already-normalized entry, while
-        // these two branches decide the form from arbitrary stored bytes, where `raw`
-        // could be anything at all.
-        if (isset($entry['composition']) && is_array($entry['composition'])) {
+        // the branches below decide the form from arbitrary stored bytes, where `raw`
+        // could be anything at all. Three of them since #841: snapshot, preserved bytes,
+        // and the reclassification of a row the pre-#841 push mis-filed as a snapshot.
+        if (isset($entry['composition']) && _pp_history_payload_is_snapshot($entry['composition'])) {
             $clean[] = $common + ['composition' => $entry['composition']];
-        } elseif (isset($entry['raw_b64']) && is_string($entry['raw_b64'])) {
-            // Strict decode: a ring row whose payload is not real base64 is malformed and
-            // is dropped, the same treatment every other unrecognizable row gets. Handing
-            // back base64_decode()'s lenient garbage would be worse than dropping it —
-            // the whole point of this entry is that its bytes are EXACT.
-            $bytes = base64_decode($entry['raw_b64'], true);
-            if ($bytes !== false) {
-                $clean[] = $common + ['raw' => $bytes];
+            continue;
+        }
+
+        // NOT A SNAPSHOT, so the row is a preserved-bytes candidate and the only question
+        // left is where its bytes come from. Decoded BEFORE the branch, not inside it, so a
+        // row whose `raw_b64` is not real base64 can still fall through to the #841
+        // reclassification below instead of consuming the row and yielding nothing. Strict
+        // decode either way: handing back base64_decode()'s lenient garbage would be worse
+        // than having no bytes at all — the whole point of this entry is that they are EXACT.
+        $bytes = (isset($entry['raw_b64']) && is_string($entry['raw_b64']))
+            ? base64_decode($entry['raw_b64'], true)
+            : false;
+
+        if ($bytes !== false) {
+            $clean[] = $common + ['raw' => $bytes];
+        } elseif (isset($entry['composition']) && is_array($entry['composition'])) {
+            // THE LEGACY ROW #841 HAS TO ANSWER FOR. `composition` is an array but not a
+            // LIST, so it is a JSON object and never was a composition — the push branch
+            // below filed it as one because it keyed on bare is_array(), and replaying it
+            // reached pp_update_composition()'s id-injection loop with a string where a
+            // band should be (uncaught TypeError). Rings written before #841 hold these,
+            // and the ring meta is raw-writable besides, so refusing at the RESOLVER
+            // would leave this reader still calling the row restorable. Answering it HERE
+            // keeps one owner for "which form is this entry" and hands the whole #818
+            // machinery — restorable:false, components:null, raw/raw_base64/raw_sha256,
+            // the history_entry_not_restorable refusal — the shape it already knows.
+            //
+            // STATED LIMIT, AND IT IS A REAL ONE: for a row reclassified here `raw` is
+            // this ring's DECODED copy re-encoded, not the bytes the page stored. The
+            // ring never kept those for this class — the pre-#841 push stored a decoded
+            // array — so the exact original bytes are already gone and no reader can
+            // conjure them. Everything a new push preserves is still byte-exact; only
+            // this migration path is a re-encode, which is why it is documented on
+            // pp_get_composition_history() rather than left for a reader to infer from
+            // a raw_sha256 that would otherwise look like a preservation digest.
+            //
+            // json_encode(), NOT wp_json_encode(), AND THAT IS THE SAME RULING AS #818's,
+            // applied to the other end of the pipe. This function's own contract (see
+            // pp_get_composition_history) is that wp_json_encode does not fail on a payload
+            // it cannot represent: it runs _wp_json_sanity_check() / _wp_json_convert_string(),
+            // coerces the bytes and SUCCEEDS, "having silently substituted the exact bytes
+            // this entry exists to preserve. A lossy copy that reports success is the worse
+            // of the two." That verdict is about a RECOVERY payload, which is exactly what
+            // this is. The objection that made #818 choose base64 over a loud failure does
+            // not apply here: this encode covers ONE entry's payload, so a false return
+            // costs that row's bytes, never the other nine slots.
+            //
+            // Reachable because the normalizer accepts an ALREADY-DECODED ring (documented
+            // above; get_post_meta unserializes, and the locked reader maybe_unserialize()s),
+            // and a serialized row never passed a json_decode — so it can carry invalid
+            // UTF-8, INF/NAN or a resource that no encoder will take.
+            //
+            // Same flags as every other composition encode in this file, so a legacy row
+            // reads back the way the same document would have been stored today.
+            //
+            // ORDERED AFTER raw_b64 ON PURPOSE, and after a SUCCESSFUL decode of it: a
+            // hand-edited row carrying BOTH a non-list `composition` and real preserved
+            // bytes hands back the BYTES. That is a deliberate narrowing of the both-keys
+            // preference noted above — the preference is for the REPLAYABLE half, and a
+            // JSON object is not replayable, so preferring it over exact bytes would trade
+            // a recovery for a refusal. When the bytes turn out to be unreadable, the
+            // object is the only recovery left and the row falls through to here rather
+            // than losing both halves.
+            $encoded = json_encode(
+                $entry['composition'],
+                JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+            );
+            if (is_string($encoded)) {
+                $clean[] = $common + ['raw' => $encoded];
+                continue;
             }
+
+            // THE SLOT SURVIVES EVEN WHEN ITS PAYLOAD DOES NOT, and that is a decision, not
+            // a leftover. Dropping the row here would not merely hide it: the append path
+            // in pp_update_composition() rebuilds the stored ring from what this function
+            // returns, so a dropped row is DELETED by the next composition write — turning
+            // a read-time degradation into permanent data destruction, which is the #818
+            // behavior this whole area exists to end. It would also shift `history_index`
+            // and `steps_back` for every neighbouring slot, and those are positional
+            // selectors an operator types from an earlier listing: _pp_resolve_history_target()
+            // promises an unreplayable slot "stays ADDRESSABLE ... so history_index and
+            // steps_back keep counting writes truthfully". A zero-byte raw entry keeps that
+            // promise, refuses like any other raw row, and is neither the fatal nor a silent
+            // deletion. The breadcrumb is the other half: a slot that reads as empty for a
+            // reason nobody can see is the gap the sibling guard below already refuses to
+            // leave.
+            error_log(
+                'PromptingPress: composition history entry ' . $index . ' holds a non-list '
+                . '`composition` that could not be re-encoded (' . json_last_error_msg()
+                . '); the ring slot was kept as an empty preserved-bytes entry so it stays '
+                . 'addressable, but its payload is not recoverable through '
+                . '`wp pp operate composition-history`. Read `_pp_composition_history` directly.'
+            );
+            $clean[] = $common + ['raw' => ''];
         }
     }
     return $clean;
@@ -4044,13 +4202,31 @@ function pp_update_composition(int $post_id, array $composition, ?int $expected_
             // one full update_composition write, i.e. this function. The recovery path was
             // the destructive one.
             //
-            // Both classifications that reach here lose bytes on the old gate, not just the
-            // one the issue names: `decode_error` (undecodable), AND the valid-JSON-SCALAR
-            // sub-case of `unexpected_shape` (`null`, `5`, `"text"` — valid JSON, decodes
-            // to a non-array). Keying on the decode itself rather than on a re-run of
-            // pp_get_composition_result() covers both with one branch, and is the only
-            // honest test available inside the lock anyway: the classifier reads through
-            // the meta CACHE, while these are the authoritative bytes read from the DB.
+            // Three classifications reach here and none of them is a composition:
+            // `decode_error` (undecodable), the valid-JSON-SCALAR sub-case of
+            // `unexpected_shape` (`null`, `5`, `"text"`), and — since #841 — the JSON
+            // OBJECT sub-case of `unexpected_shape` (`{"component":…}`, `{"a":…,"b":…}` —
+            // but NOT `{"0":…,"1":…}`, which json_decode hands back as a genuine list and
+            // which nothing below the decode can distinguish from an authored array).
+            //
+            // THE OBJECT CASE IS WHY THIS TEST IS pp_is_list() AND NOT is_array() (#841).
+            // json_decode(…, true) hands back a PHP ASSOCIATIVE array for a JSON object,
+            // so bare is_array() called it a composition and filed it as a replayable
+            // snapshot: `wp pp operate composition-history` reported it restorable with a
+            // component COUNT taken off the object's keys, and selecting it drove the
+            // id-injection loop above onto a string band — an uncaught TypeError on both
+            // the CLI action surface and the chat batch executor, reached by following the
+            // repair route the theme's own corruption message recommends. The composition
+            // contract is a LIST (pp_validate_composition_errors() refuses a non-list
+            // container, #724), so the push has to ask the contract's own question. Asking
+            // the decode rather than re-running pp_get_composition_result() still covers
+            // all three with one branch, and is still the only honest test available inside
+            // the lock: the classifier reads through the meta CACHE, while these are the
+            // authoritative bytes read from the DB.
+            //
+            // Rings written before #841 already hold mis-filed object entries;
+            // _pp_normalize_history_ring() reclassifies those on the way out, so the
+            // read side and this write side agree on the same list test.
             //
             // A raw entry is a PRESERVED-BYTES record, not a snapshot. It is not a
             // composition and no reader may treat it as one — see pp_get_composition_history()
@@ -4061,7 +4237,7 @@ function pp_update_composition(int $post_id, array $composition, ?int $expected_
                 'version'   => $current_version,
                 'hash'      => (string) get_post_meta($post_id, '_pp_composition_hash', true),
             ];
-            $entry += is_array($prior_items)
+            $entry += _pp_history_payload_is_snapshot($prior_items)
                 ? ['composition' => $prior_items]
                 : ['raw' => $prior_json];
 

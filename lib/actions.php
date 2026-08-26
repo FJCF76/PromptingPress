@@ -3234,6 +3234,14 @@ function _pp_write_findings_for(int $post_id): array {
  * `history_index` and `steps_back` keep counting writes truthfully and an operator can
  * step straight past it to the last good composition.
  *
+ * WHY THIS STAYS A ONE-LINE PREDICATE AND NOT A SHAPE CHECK (#841). The class that used to
+ * slip past it — a prior that decoded to a JSON OBJECT — is answered where the entry FORM is
+ * decided, in _pp_normalize_history_ring() (lib/wp.php), not here. Every stage below reaches
+ * this resolver through pp_get_composition_history(), so by the time an entry arrives it has
+ * already been classified once; re-deciding the form here would give the CLI listing and this
+ * refusal two different opinions about the same row, which is exactly how the mis-filed entry
+ * came to report `restorable: true` while fataling on selection.
+ *
  * @param array $history  The history ring from pp_get_composition_history().
  * @param array $params   Action params (may carry history_index and/or steps_back).
  * @return int|WP_Error
@@ -3278,15 +3286,17 @@ function _pp_reject_unreplayable_history_entry(array $history, int $idx, array $
     return new WP_Error(
         'history_entry_not_restorable',
         sprintf(
-            // CAUSE-NEUTRAL WORDING. Not "undecodable": a raw entry also covers the
-            // valid-JSON-SCALAR sub-case of unexpected_shape, which decodes fine. An
+            // CAUSE-NEUTRAL WORDING. Not "undecodable": a raw entry also covers both
+            // sub-cases of unexpected_shape — a valid-JSON SCALAR, and since #841 a
+            // valid-JSON OBJECT — which decode fine and are not compositions. An
             // operator whose page was classified unexpected_shape must not read a
             // message describing a state they are not in — the read path and the write
             // path have to name the same state the same way (#650/#652/#725).
             'History entry %d (steps_back %d) holds stored bytes that did not decode to a composition '
-            . '(%d bytes), so it cannot be replayed as one. The bytes were preserved rather than '
-            . 'discarded: read them with `wp pp operate composition-history --post_id=%d`. To roll the '
-            . 'page back to a real composition, select an earlier entry.',
+            . '(%d bytes as this ring holds them), so it cannot be replayed as one. The bytes were '
+            . 'preserved rather than discarded: read them with '
+            . '`wp pp operate composition-history --post_id=%d`, which states which byte views are '
+            . 'exact. To roll the page back to a real composition, select an earlier entry.',
             $idx,
             count($history) - $idx,
             strlen($history[$idx]['raw']),
@@ -3313,8 +3323,8 @@ pp_register_action('restore_composition', [
     // The chat's "Undo these changes" link is the surface most likely to select a
     // preserved-bytes slot, so declaring the refusal only in the declarative record
     // would leave the one caller that hits it untaught.
-    'description' => 'Restores a page composition to a prior version recorded in its history ring. Select the target with steps_back (1 = most recent prior state, the default) or history_index (absolute 0-based). history_index takes precedence. A ring slot may instead hold stored bytes that did not decode to a composition, preserved so that repairing a corrupt page cannot destroy the only copy of what was there; selecting that slot is refused with history_entry_not_restorable — read the bytes with `wp pp operate composition-history --post_id=<id>` and select an earlier entry.',
-    'semantics'   => 'Rewrite. The composition is replaced with a prior snapshot captured before an earlier write. Restore is itself a conflict-checked write (records its own history entry), so it can be undone in turn. A ring slot can instead hold stored bytes that did not decode to a composition (a decode_error page, or the valid-JSON-scalar sub-case of unexpected_shape), preserved so that repairing a corrupt page cannot destroy the only copy of what was there; selecting that slot is refused with history_entry_not_restorable — read the bytes with `wp pp operate composition-history --post_id=<id>` and select an earlier entry to roll back.',
+    'description' => 'Restores a page composition to a prior version recorded in its history ring. Select the target with steps_back (1 = most recent prior state, the default) or history_index (absolute 0-based). history_index takes precedence. A ring slot may instead hold stored bytes that did not decode to a composition — a composition is a JSON ARRAY, so bytes that were unparseable, or valid JSON that is a scalar or a JSON OBJECT, are not one. Those are preserved so that repairing a corrupt page cannot destroy the only copy of what was there; selecting that slot is refused with history_entry_not_restorable — read the bytes with `wp pp operate composition-history --post_id=<id>` and select an earlier entry.',
+    'semantics'   => 'Rewrite. The composition is replaced with a prior snapshot captured before an earlier write. Restore is itself a conflict-checked write (records its own history entry), so it can be undone in turn. A ring slot can instead hold stored bytes that did not decode to a composition (a decode_error page, or either sub-case of unexpected_shape — a valid-JSON scalar, or a valid-JSON object), preserved so that repairing a corrupt page cannot destroy the only copy of what was there; selecting that slot is refused with history_entry_not_restorable — read the bytes with `wp pp operate composition-history --post_id=<id>` and select an earlier entry to roll back.',
     'params'      => [
         'post_id'          => ['type' => 'int', 'required' => true],
         'steps_back'       => ['type' => 'int', 'required' => false],

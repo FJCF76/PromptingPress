@@ -4,6 +4,91 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.17.1] — 2026-08-27 — The undo that crashed: an object-shaped history slot is preserved, not replayed (#841)
+
+**A page whose stored composition was a JSON object got filed on the history ring as a restorable snapshot. Selecting it crashed the command instead of restoring anything — on the exact route the release notes tell you to take.**
+
+v1.17.0 headlines a repair arc: every corrupt page now has a working way out, and the write that repairs one can no longer destroy the only copy of what was there (#818). This release fixes the hole the release smoke found in that arc before it shipped. `wp pp operate composition-history` listed the slot holding the corrupt page's own bytes as `"components": 2, "restorable": true`, and running the restore it advertised ended in an uncaught PHP TypeError — on the WP-CLI action surface and in the AI chat's "Undo these changes" link alike. The v1.17.0 tag was held on this finding; 1.17.1 is the stable release those notes point at.
+
+### What went wrong
+
+`pp_update_composition()` (`lib/wp.php`) pushes the PRIOR stored state onto the ring before every write, in one of two forms: a replayable `composition` snapshot, or a preserved-bytes entry for bytes that are not a composition. It picked the form with `is_array(json_decode($prior_json, true))`.
+
+A JSON **object** decodes to a PHP **associative array**. `is_array()` says true. So `{"component":"hero","props":{…}}` — the shape a single band pasted into the database produces, and one of the two shapes `pp_get_composition_result()` classifies `unexpected_shape` — was recorded as a replayable snapshot. Replaying it handed the id-injection loop a string where a band belongs:
+
+```
+PHP Fatal error: Uncaught TypeError: Cannot access offset of type string on string
+  in .../lib/wp.php:3997
+#0 .../lib/actions.php(3396): pp_update_composition()
+```
+
+The smoke recorded it as finding F1, HIGH: *"restore_composition fatals (uncaught TypeError) on an object-shaped unexpected_shape page whose corrupt bytes were preserved by the #818 repair"* — a false `restorable: true` plus a crash on the documented repair route, which is an operator-trust failure in the arc this release is named for. The `decode_error` and valid-JSON-scalar classes were already handled correctly; this was the one that slipped through.
+
+### The fix
+
+The composition contract is a **list** — `pp_validate_composition_errors()` has refused a non-list container since #724. The ring now asks that same question, through one predicate (`_pp_history_payload_is_snapshot()`), at both ends:
+
+| | before | now |
+|---|---|---|
+| push: prior decodes to a list | snapshot | snapshot |
+| push: prior decodes to an object | **snapshot (wrong)** | preserved bytes, byte-exact |
+| push: prior is a scalar or unparseable | preserved bytes | preserved bytes |
+| read: stored `composition` is a list | snapshot | snapshot |
+| read: stored `composition` is an object | **snapshot (wrong)** | preserved bytes (re-encoded) |
+
+Spelling the test once is the point, not tidiness: the defect WAS the two ends holding different opinions about what counts as a composition.
+
+An object-shaped slot now reports `restorable: false`, `components: null` and the three byte views (`raw`, `raw_base64`, `raw_sha256`) like every other preserved-bytes slot, and `restore_composition` refuses it with `history_entry_not_restorable` — the refusal that was already documented for this class and never fired.
+
+### Rings written before this release
+
+Existing installs already hold mis-filed slots; the smoke's fixture page was one. They are reclassified when the ring is READ, so selecting one now refuses instead of crashing, and the next write to that page persists the corrected form. That is answered at the reader — the single documented owner of "which form is this entry" — rather than at the restore resolver, because a resolver-side guard would have left `wp pp operate composition-history` still calling the row restorable while the action refused it: the same two-opinions split, one layer up.
+
+**One honest caveat, documented on every surface that prints those bytes.** For a slot filed the old way, `raw` / `raw_base64` are the ring's decoded copy RE-ENCODED, not the bytes the page originally stored — the pre-fix push kept a decoded array and nothing else, so whitespace, key order and escape form were lost then, not now. `raw_sha256` proves the transfer, not the preservation, for those rows. Slots written by 1.17.1 and later are byte-exact for every class.
+
+A slot whose payload cannot be re-encoded at all keeps its ring position as a zero-byte preserved-bytes entry and logs, rather than vanishing: the append path rebuilds stored history from what the reader returns, so a dropped row would be DELETED by the next write, and `history_index` / `steps_back` are positional selectors an operator types from an earlier listing.
+
+### ⚠️ Breaking change
+
+Restoring an object-shaped history slot used to return `ok: true` when the object's values happened to be well-formed bands — rewriting a healthy page back into a corrupt one and reporting success — and to crash otherwise. It now always returns `ok: false` with `history_entry_not_restorable`. That reverses a ruling recorded in #724's test suite, deliberately: one entry form that sometimes replays, sometimes re-corrupts and sometimes crashes is not a contract, and the bytes are handed back instead.
+
+**#233 is unmoved.** Its contract is that restore is never blocked by current VALIDATION RULES — every slot carrying a list-shaped composition still replays verbatim and still reports, however illegal today's rules find its contents. This refusal says the slot holds no composition at all, which is the same species as `no_history` and `history_out_of_bounds`.
+
+**Narrower than "objects".** `{"0":…,"1":…}` decodes to a genuine PHP list (the keys ARE `0..n-1`), so nothing below the decode can tell it from an authored array; it is unaffected, as are `[]` and `{}`.
+
+### The shell exit code, answered
+
+The smoke also noted `wp pp action execute` returning shell exit 0 despite the fatal. Investigated and **not fixed, because it is not this code's doing**: there is no `try`/`catch` anywhere on the CLI action path (`lib/cli.php` calls `pp_execute_action()` bare), a standalone `wp --require=<file that throws> cli version` measures exit 255, and WP-CLI ships no `wp_fatal_error_handler_enabled` filter, so a booted-WP fatal's exit code belongs to WP core's handler and WP-CLI's `wp_die` handler. The dev install's `debug.log` settles it: the smoke's fatal is followed immediately by `fwrite(): Write of 148 bytes failed with errno=32 Broken pipe in .../WP_CLI/Loggers/Base.php` — the command was piped, so the 0 that was read was the downstream element's status. After this fix the path returns the canonical `ok: false` envelope and halts non-zero anyway.
+
+### Scope
+
+The classification key, the read-side answer for existing rings, the pins and the docs. **Not** closed here and filed as **#842**: a prior whose CONTAINER is a valid list but whose ELEMENTS are not components (`["a","b"]`, or a band whose `props` is a string) still files as restorable and still reaches the same loop. Different class — `pp_get_composition_result()` does not even report those pages as corrupt — and closing it needs a posture ruling about which layer owns the guarantee.
+
+### Fixed
+
+- `pp_update_composition()`'s history push and `_pp_normalize_history_ring()` both classify through `_pp_history_payload_is_snapshot()` (`pp_is_list()`), so a JSON-object prior is preserved as bytes rather than filed as a replayable snapshot (`lib/wp.php`).
+- Rings written before this release are reclassified on read, so an already-stored mis-filed slot refuses with `history_entry_not_restorable` instead of raising an uncaught TypeError — on the CLI and through `pp_ai_execute_batch()` alike.
+- The reclassification encodes with `json_encode()`, not `wp_json_encode()`: WP's wrapper coerces a payload it cannot represent and reports success, which for a recovery payload is the silent-substitution failure #818 chose base64 to avoid.
+- A ring row carrying both a non-list `composition` and an unreadable `raw_b64` no longer loses both halves — the bytes are decoded before the branch, so a failed decode falls through to the object rather than consuming the row.
+- A row whose payload cannot be re-encoded keeps its slot (zero-byte preserved-bytes entry) and logs, instead of being dropped and then deleted from storage by the next write. It lists with `raw_bytes: 0` and refuses like any other preserved-bytes slot; the log line names the page so the row can still be read out of `_pp_composition_history` by hand.
+- The `history_entry_not_restorable` message now says the byte count is "as this ring holds them" and points at the listing for which byte views are exact, so a pre-1.17.1 slot's re-encoded length is not read as a measurement of the page's own bytes.
+
+### Docs
+
+- The preserved-bytes class is enumerated as three shapes (unparseable, valid-JSON scalar, valid-JSON object) wherever it was previously two: `restore_composition`'s `description` and `semantics`, `wp pp operate composition-history`'s help, `docs/reference-apply-cli.md`, `docs/howto-apply-and-rollback.md`, `docs/AI_IMPLEMENTATION_RECIPES.md`, `AI_CONTEXT.md`, `ai-instructions/add-component.md` and `ai-instructions/playbook-inspect-fix.md`. The object clause is in `description` specifically, which is the field `pp_ai_system_prompt()` renders — nothing at runtime reads `semantics` (#719).
+- The re-encode caveat is stated on every surface that hands those bytes back, and the folded-numeric-object exclusion wherever the object rule is stated.
+- `docs/reference-apply-cli.md` carries a ⚠️ breaking-change callout beside the 1.16.13 one, and the ring's ASCII diagram in `lib/wp.php` was corrected from "decodes to an array" to "decodes to a LIST".
+
+### Tests
+
+- The object class pinned end to end: preserved byte-exact on push (asserted against STORED meta, with a non-canonical fixture, so the assertion cannot be satisfied by the reader's compat branch), listed non-restorable with its three byte views, refused at `validate` / `preview` / `execute`, and refused through the chat batch executor.
+- A seeded LEGACY ring pinned through the real `restore_composition` action: quarantined on read, refused rather than fatal, still addressable so the good snapshot beside it replays, and re-persisted as `raw_b64` by the next write.
+- List-shaped entries pinned byte-identical, including one carrying nested objects inside a band, plus the empty composition.
+- The both-keys row with unreadable bytes, the unencodable payload keeping its slot, terminal-escape safety on the reclassified payload, the two ring readers agreeing on the new row class, and the object clause reaching the rendered chat catalog.
+- `tests/CompositionShapeTrustTest.php`'s object-restore pin inverted to the new ruling with its reasoning recorded, and a companion added holding the #233 half that must not move.
+
+---
+
 ## [v1.17.0] — 2026-08-26 — Chat & Repair Surface Truth: everything the theme knows reaches the operator and the model, bounded and actionable, and every corrupt page has a working repair route (#654, #715, #661, #662, #666, #663, #667, #655, #712, #755, #742, #745, #744, #805, #748, #818, #767, #823, #756, #750, #704)
 
 Rollup of the v1.16.1–v1.16.18 patch train (milestone 20, gate Part 1.9998). Twenty-one landings in eighteen iterations across three arcs. Every entry below retains its full engineering detail in the per-patch entries that follow; this rollup states the shape of the release and, plainly, what changes in behavior.
