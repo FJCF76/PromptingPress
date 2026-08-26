@@ -4,6 +4,52 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.16.13] — 2026-08-26 — Repairing a corrupt page no longer destroys the only copy of what was there (#818)
+
+**The documented fix for a corrupt page was a full `update_composition` write. That write is what deleted the evidence. Composition writes now preserve stored bytes they cannot read, instead of dropping them on the floor, so a repair and a recovery are no longer the same irreversible act.**
+
+`pp_update_composition()` (`lib/wp.php`) is the one writer of `_pp_composition`, and before overwriting it pushes the prior state onto a bounded ten-entry history ring so the state a write replaces stays restorable. That push was gated on whether the prior bytes decoded to an array. When they did not — a page classified `decode_error`, or the valid-JSON-scalar sub-case of `unexpected_shape` — nothing was pushed at all, and the very next statement overwrote the row. Everything around it treats those bytes as precious: #144 classifies them, #725 makes the read path say "treat as corrupted, not empty", #749 refuses a whole batch rather than roll a snapshot over them, #748 stopped six action surfaces from telling an agent to populate over them. All of that protected a copy the sanctioned repair then discarded, silently, with no way to get it back.
+
+The decode now chooses the entry SHAPE rather than whether to push. A prior that decodes to an array is snapshotted exactly as before. A prior that does not is preserved as a raw record carrying the exact bytes, which `wp pp operate composition-history` prints back and `restore_composition` refuses to replay — it holds bytes, not a composition. Repair the page, then read what was there.
+
+### Fixed
+
+- **A `decode_error` repair write left no recoverable copy of the bytes it replaced (#818).** The `is_array($prior_items)` gate in `pp_update_composition()` decided WHETHER to push; it now decides WHICH of two entry forms to push. `{timestamp, version, hash, composition}` for a decodable prior (unchanged), `{timestamp, version, hash, raw}` for one that did not decode.
+- **The same gate destroyed a second class the filed issue did not enumerate, and that is fixed too.** The issue states `unexpected_shape` is safe, which is true only for its JSON-OBJECT sub-case (an object decodes to a PHP array, so it was always snapshotted). `pp_get_composition_result()` also classifies a stored `null`, `5` or `"text"` as `unexpected_shape`; those decode to a NON-array, failed the identical gate, and were destroyed identically. The fix keys on the gate ("the prior bytes did not decode to an array") rather than on a re-run of the classifier, so both lossy classes are covered by one branch. Keying on the classifier was not cleanly available anyway: it reads through the meta cache, while this code sits inside the advisory lock holding the authoritative bytes. **This is a deliberate widening beyond the ruling's `decode_error` wording**, recorded here so it is visible rather than implied.
+- **An empty stored row no longer mints a bogus zero-byte entry.** `_pp_read_composition_json_locked()`'s two branches disagreed about the empty string: the production SELECT returned `''` for an existing-but-empty row while the cached fallback mapped it to `null`. Harmless while the caller only asked "does this decode?", it became a 0-byte preserved entry on production installs only — eating a ring slot and making `steps_back=1`, the chat undo's selector, refuse. Empty rows are routine: the `_pp_composition` sanitize callback rewrites any non-array payload to `''`.
+- **A failed ring encode no longer wipes the ring.** The encode result is checked before the meta write, so a failure leaves the previous ring intact and logs why, instead of storing `false` over all ten entries.
+
+### Changed
+
+- **On disk a preserved entry is base64 (`raw_b64`); callers get the decoded bytes as `raw`.** This is load-bearing, not tidiness. JSON is not a byte container, and malformed UTF-8 is one of the corruptions that produces `decode_error`. Stored verbatim, those bytes break the ring encode two ways: `json_encode()` returns `false`, which would have persisted over the whole ring and taken every good snapshot with it, while WP's `wp_json_encode()` catches that and re-encodes through `_wp_json_sanity_check()`, succeeding with the bytes silently coerced. Failing loudly loses ten entries; succeeding quietly returns a lossy copy of the one thing the entry exists to preserve. `_pp_history_entries_for_storage()` is the single place that knows the encoding.
+- **`restore_composition` gains one refusal: `history_entry_not_restorable`.** Selecting a preserved-bytes slot is refused at validate, preview and execute, from the one resolver all three share. The message names the byte count, the command that prints the bytes, and what to do instead.
+- **⚠️ `wp pp operate composition-history` output shape.** Every row gains `restorable` (bool). `components` is now NULLABLE — it is `null` on a preserved-bytes row, which also carries `raw_bytes`, `raw_sha256`, `raw_base64` and `raw`. **Consumers doing arithmetic or comparison on `.components` must branch on `restorable` first.** No in-repo consumer reads the field, and the row only appears after a corrupt page is repaired, so a healthy site never sees it. `raw_base64` is the recovery channel and `raw` is the human-readable view: the CLI's JSON sink encodes with `JSON_INVALID_UTF8_SUBSTITUTE`, so `raw` can come back substituted for exactly the malformed-UTF-8 corruption this exists for.
+
+### The #233 interaction, stated
+
+#233's contract is "restore is never blocked by CURRENT VALIDATION RULES — it restores verbatim and REPORTS findings". That is untouched. Every ring entry carrying a composition still restores verbatim and still reports, however illegal today's rules find it. `history_entry_not_restorable` is on a different axis: a preserved-bytes slot holds no composition to replay, so the refusal is a PRECONDITION failure of the same species as the existing `no_history` and `history_out_of_bounds`, not a validation veto. No #233 posture change was required by either candidate shape, so the ruling's "if both shapes need a #233 change, stop" clause did not trigger. The carve-out is now stated in `docs/reference-apply-cli.md`, `docs/AI_IMPLEMENTATION_RECIPES.md` (invariant 2c), `AI_CONTEXT.md` and `ai-instructions/add-component.md` so no surface still claims restore can never refuse.
+
+### Known limits, stated rather than discovered later
+
+- **The recovery window is finite.** A preserved slot is a ring slot: ten further writes on that page evict it, and a restore is itself a write. Nothing warns that the clock is running, so read the bytes out soon after a repair.
+- **Downgrading loses them.** Pre-1.16.13 code drops entries without a `composition` key on read and re-persists the filtered ring on the next write, so rolling the theme back deletes preserved bytes and shifts absolute `history_index` values. Copy `raw_base64` out first.
+- **The listing is uncapped by design** — a truncated recovery is not a recovery — so a pathologically large corrupt payload makes this the memory-heaviest read in the CLI. The bytes remain in post meta and readable directly if it cannot render.
+- Not addressed here, filed instead: #821 (a failed ring write does not stop the overwrite), #823 (the ring is rebuilt from a CACHED read inside the write lock, so a concurrent writer can drop an entry), #822 (the chat undo card discards the server's message).
+
+### Docs
+
+- `docs/reference-apply-cli.md` — both ring entry forms and the slot-pressure trade, the new error code, the #233 precondition carve-out, the full listing output shape with the breaking `components` note, and the narrowed object-vs-scalar `unexpected_shape` framing.
+- `docs/howto-apply-and-rollback.md` — the unrestorable-slot case in the rollback walkthrough plus a Troubleshooting entry keyed on the refusal.
+- `AI_CONTEXT.md`, `docs/AI_IMPLEMENTATION_RECIPES.md`, `ai-instructions/add-component.md`, `ai-instructions/playbook-inspect-fix.md`, `ai-instructions/operating-loop.md` — the repair route now tells an agent the bytes survive and where to read them; the unconditional "restore never fails" claims carry the one precondition.
+- The refusal is declared in the action's `description`, not only its `semantics`: `pp_ai_system_prompt()` builds the chat AI's catalog from `description` and nothing at runtime reads `semantics` (#719's rule).
+
+### Tests
+
+- `tests/CompositionHistoryRawPreservationTest.php` — 20 cases. The filed repro end to end (seed, corrupt, repair, recover), the same repair through the real `update_composition` ACTION (Section 14.1), and every ring reader pinned on the new form: the normalizer, the append round-trip that would otherwise drop the entry one write later, restore's validate/preview/execute refusal, and the CLI listing.
+- Byte-exactness is pinned over bytes no JSON encoder will take, together with the good snapshot beside them surviving — the case that would have clobbered all ten entries.
+- The production `$wpdb` read branch is exercised for the first time (the suite otherwise runs only the cached fallback), which is what makes the empty-row case visible at all.
+- Also pinned: eviction in ring order in BOTH directions, the object-shaped `unexpected_shape` path byte-identical, the scalar sub-case preserved, both-keys precedence, malformed rows still dropped, the refusal reaching the chat AI's catalog, and the preserved bytes reaching the terminal escaped.
+
 ## [v1.16.12] — 2026-08-26 — Six edit surfaces stop calling a corrupt page empty (#748)
 
 **Every component-level edit on a page whose stored composition cannot be read used to answer "post N has none yet. Populate it first with `update_composition`" — an instruction to overwrite the only copy of the recoverable bytes. Those six surfaces now name the corruption instead, in the same two words the diagnostics already use for it. "Empty" is once again reserved for a page that really is empty.**
