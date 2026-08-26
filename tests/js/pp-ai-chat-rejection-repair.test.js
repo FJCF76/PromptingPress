@@ -288,19 +288,32 @@ describe('a refused proposal reaches the model (#704)', function () {
         batchResponse = refusedBatch();
 
         const card = await proposeAndPreview();
-        await apply(card);
 
-        // addStatusMessage() pins the transcript to its own bottom and the card is an
-        // earlier sibling in that scroller. If the repair row were appended AFTER the
-        // announce, the alert would be pushed back off the fold. Checked as DOM order in
-        // the real transcript rather than as source-string order.
-        const children = Array.from(messagesEl.children);
-        const alerts = children.filter(function (el) {
-            return el.classList.contains('pp-ai-status-error');
+        // WATCHED AS AN EVENT SEQUENCE, not as final DOM order. Comparing the card's sibling
+        // index against the alert's proves nothing here: appending a row INTO the card never
+        // moves the card, so that assertion held whichever order the two calls ran in — it
+        // was green even with the calls swapped. What the #755 contract is actually about is
+        // WHEN each mutation happened, because addStatusMessage() ends by pinning the
+        // transcript to its own bottom and a card that grows afterwards pushes the alert back
+        // off the fold. MutationObserver records mutations in order, so the order is readable.
+        const events = [];
+        const observer = new dom.window.MutationObserver(function (records) {
+            records.forEach(function (r) {
+                Array.from(r.addedNodes).forEach(function (n) {
+                    if (!n.classList) return;
+                    if (n.classList.contains('pp-ai-repair-actions')) events.push('card-grown');
+                    if (n.classList.contains('pp-ai-status-error')) events.push('announced');
+                });
+            });
         });
-        expect(alerts.length).toBeGreaterThan(0);
-        expect(children.indexOf(card)).toBeLessThan(children.indexOf(alerts[alerts.length - 1]));
-        expect(repairRow(card)).not.toBeNull();
+        observer.observe(messagesEl, { childList: true, subtree: true });
+
+        await apply(card);
+        observer.disconnect();
+
+        expect(events).toContain('card-grown');
+        expect(events).toContain('announced');
+        expect(events.indexOf('card-grown')).toBeLessThan(events.indexOf('announced'));
     });
 });
 
@@ -445,6 +458,79 @@ describe('failures that are not the model\'s to answer get nothing', function ()
 });
 
 // ─── The pre-execution refusal, which does carry one ─────────────────────────
+
+describe('a refusal that arrives on the error branch', function () {
+    // THE COMMON #749 ROUTE, and it had no test at all. The chat entry point runs its own
+    // copy of the unreadable-target gate and answers through wp_send_json_error, so the
+    // client sees resp.success === false with a structured payload carrying the note — a
+    // different branch of executeProposal() from the executor's step-less envelope below.
+    // Deleting the offerRepair() call on that branch left all 1557 JS tests green: the PHP
+    // suite proved the note was written and the JS suite proved nothing delivered it.
+
+    const REFUSAL_NOTE = '[Rejected: this proposal was refused before any step ran. '
+        + 'error_code: decode_error. Reason: That page\'s stored composition cannot be read. '
+        + 'No step ran, so nothing was changed. The operator decides whether to retry — '
+        + 'do not re-send this proposal unless asked.]';
+
+    it('appends the note and offers the repair', async function () {
+        batchResponse = {
+            success: false,
+            data: {
+                error: 'That page\'s stored composition cannot be read.',
+                error_code: 'decode_error',
+                model_note: REFUSAL_NOTE
+            }
+        };
+
+        const card = await proposeAndPreview();
+        await apply(card);
+
+        expect(rejectionTurns()).toHaveLength(1);
+        expect(rejectionTurns()[0].content).toBe(REFUSAL_NOTE);
+        expect(repairRow(card)).not.toBeNull();
+        expect(messagesEl.textContent).toContain('cannot be read');
+    });
+
+    it('persists the note by its own save, not a neighbour\'s', async function () {
+        // This branch returns BEFORE refreshTouchedBaselines(), which is the call whose own
+        // saveState() was masking offerRepair()'s on every other path — deleting the save in
+        // offerRepair() left the suite green because a later, unrelated write happened to
+        // flush the same conversation. Here nothing else saves, so the note reaching
+        // localStorage is offerRepair()'s doing and the reload-survival the whole bracket
+        // convention depends on is actually pinned.
+        batchResponse = {
+            success: false,
+            data: { error: 'Refused.', error_code: 'decode_error', model_note: REFUSAL_NOTE }
+        };
+
+        const card = await proposeAndPreview();
+        const before = calls.filter(function (c) { return c.action === 'pp_ai_page_baseline'; }).length;
+        await apply(card);
+
+        expect(calls.filter(function (c) { return c.action === 'pp_ai_page_baseline'; }).length)
+            .toBe(before); // premise: no baseline refresh ran to mask the save
+        expect(rejectionTurns()).toHaveLength(1);
+    });
+
+    it('routes a stale baseline to the conflict affordance and appends nothing', async function () {
+        // The negative twin on the same branch: a missing baseline is browser plumbing the
+        // model never sees, so it takes showConflictState() and the server writes no note.
+        batchResponse = {
+            success: false,
+            data: {
+                error: 'This proposal changes a page but is missing that page\'s current version.',
+                error_code: 'missing_expected_version'
+            }
+        };
+
+        const card = await proposeAndPreview();
+        await apply(card);
+
+        expect(rejectionTurns()).toHaveLength(0);
+        expect(repairRow(card)).toBeNull();
+        expect(card.textContent).toContain('Re-read & re-preview');
+    });
+});
 
 describe('a batch refused before step 1 (#749)', function () {
     it('appends its note and offers the repair, with every step marked skipped', async function () {

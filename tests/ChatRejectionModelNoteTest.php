@@ -348,6 +348,57 @@ class ChatRejectionModelNoteTest extends TestCase
         $this->assertStringContainsString('error_code: codex', $note);
     }
 
+    public function testTheBandLocatorIsReadOFFTheFailingStep(): void
+    {
+        // The builder's own locator test passes an index by hand, which proves the SENTENCE
+        // and not the EXTRACTION. Nulling the read in _pp_ai_batch_rejection_note() left the
+        // whole suite green, so the field the docblock calls "THE field this note exists to
+        // deliver" could be dropped from every real batch rejection unnoticed.
+        $with = _pp_ai_batch_rejection_note([
+            'ok' => false, 'failed_at' => 0, 'rolled_back' => true, 'rollback_errors' => [],
+            'steps' => [['ok' => false, 'action' => 'update_component', 'error' => 'No.',
+                         'error_code' => 'invalid_composition', 'index' => 3]],
+        ]);
+
+        $this->assertStringContainsString('Blocking composition band: index 3.', $with);
+
+        // int|null is the documented shape (pp_composition_error_index). Anything else is
+        // not a locator, and printing a number no band answers to is worse than printing
+        // none — the same posture ppChatFindingBand() takes on the operator's side.
+        foreach ([null, '3', 3.0, true, ['3']] as $not_a_locator) {
+            $note = _pp_ai_batch_rejection_note([
+                'ok' => false, 'failed_at' => 0, 'rolled_back' => true, 'rollback_errors' => [],
+                'steps' => [['ok' => false, 'action' => 'update_component', 'error' => 'No.',
+                             'error_code' => 'invalid_composition', 'index' => $not_a_locator]],
+            ]);
+            $this->assertStringNotContainsString('Blocking composition band', (string) $note);
+        }
+    }
+
+    public function testTheRealSurfacesLocatorAndTheNoteAgree(): void
+    {
+        // Whatever the real rejection reports, the note says the same thing. Asserted as a
+        // CONSISTENCY contract rather than a fixed number, because which rules carry a band
+        // offset is #642's business and may widen; what must never drift is the note
+        // disagreeing with the envelope it was built from.
+        $post_id  = $this->seedPage('Locator page');
+        $baseline = $this->version($post_id);
+
+        $resp = $this->throughChat(
+            [$this->unknownPropStep($post_id)],
+            [(string) $post_id => $baseline]
+        );
+
+        $index = $resp['data']['steps'][0]['index'] ?? null;
+        $note  = $resp['data']['model_note'];
+
+        if (is_int($index)) {
+            $this->assertStringContainsString('Blocking composition band: index ' . $index . '.', $note);
+        } else {
+            $this->assertStringNotContainsString('Blocking composition band', $note);
+        }
+    }
+
     public function testBlockingBandIsNamedWhenTheRejectionOwnsOne(): void
     {
         // THE field this note exists to deliver (#642): every composition-mutating action
@@ -359,6 +410,54 @@ class ChatRejectionModelNoteTest extends TestCase
 
         $this->assertStringContainsString('Blocking composition band: index 3.', $with);
         $this->assertStringNotContainsString('Blocking composition band', $without);
+    }
+
+    public function testTheCodeIsBoundedAtTheNameBudget(): void
+    {
+        // Widening this budget to PP_REFLECTED_ERROR_MAX left the whole suite green, so the
+        // choice of budget was a claim with nothing behind it. The docblock argues codes are
+        // not guaranteed short by anything upstream (#661's lesson); that argument is only
+        // worth making if the smaller budget is the one enforced.
+        $huge = str_repeat('c', PP_REFLECTED_NAME_MAX * 3);
+        $note = _pp_ai_rejection_note('step 1 was refused.', $huge, 'Message.', null, 'Reverted.');
+
+        $this->assertStringContainsString(str_repeat('c', PP_REFLECTED_NAME_MAX - 3) . '...', $note);
+        $this->assertStringNotContainsString(str_repeat('c', PP_REFLECTED_NAME_MAX + 1), $note);
+    }
+
+    public function testTheActionNameIsCleanedAndBoundedLikeEveryOtherReflectedSpan(): void
+    {
+        // Dropping _pp_clean_reflected_text() from the action read (keeping only the
+        // unframing) left the whole suite green. The action name is echoed from the step the
+        // MODEL wrote, so an uncleaned one is exactly the context-flood and zero-width vector
+        // the call is there to close — and only the bracket half was pinned.
+        $hostile = str_repeat('a', PP_REFLECTED_NAME_MAX * 2) . "\u{200B}\nx";
+        $note    = _pp_ai_batch_rejection_note([
+            'ok' => false, 'failed_at' => 0, 'rolled_back' => true, 'rollback_errors' => [],
+            'steps' => [['ok' => false, 'action' => $hostile, 'error' => 'No.', 'error_code' => 'x']],
+        ]);
+
+        $this->assertLessThan(mb_strlen($hostile), mb_strlen($note));
+        $this->assertStringContainsString('...', $note);
+        $this->assertStringNotContainsString("\u{200B}", $note);
+        $this->assertStringNotContainsString("\n", $note);
+        $this->assertStringNotContainsString(str_repeat('a', PP_REFLECTED_NAME_MAX + 1), $note);
+    }
+
+    public function testTheReasonSentenceIsNeverGivenTwoFullStops(): void
+    {
+        // Making the full stop unconditional left the whole suite green, so a note reading
+        // "Reason: No such prop.." would have shipped. Validator messages are sentences and
+        // mostly end in one.
+        $ends   = _pp_ai_rejection_note('step 1 was refused.', '', 'Already a sentence.', null, 'Reverted.');
+        $bare   = _pp_ai_rejection_note('step 1 was refused.', '', 'No trailing stop', null, 'Reverted.');
+        $marked = _pp_ai_rejection_note('step 1 was refused.', '', 'Really?', null, 'Reverted.');
+
+        $this->assertStringContainsString('Reason: Already a sentence. ', $ends);
+        $this->assertStringNotContainsString('sentence..', $ends);
+        $this->assertStringContainsString('Reason: No trailing stop. ', $bare);
+        $this->assertStringContainsString('Reason: Really? ', $marked);
+        $this->assertStringNotContainsString('Really?.', $marked);
     }
 
     public function testEmptyCodeAndEmptyMessageAreOmittedRatherThanPrintedBlank(): void
@@ -414,6 +513,22 @@ class ChatRejectionModelNoteTest extends TestCase
         );
     }
 
+    public function testAChannelThatIsNotAListIsAnUnknownRatherThanACleanRevert(): void
+    {
+        // Reducing the guard to a bare array_key_exists() left the whole suite green: a
+        // `rollback_errors: null` or `'boom'` envelope would then miss the `=== []` test and
+        // reach count() on a non-array. The clause's whole thesis is that a channel it cannot
+        // read is an UNKNOWN, so the malformed shapes are the ones that most need pinning.
+        foreach ([null, 'boom', 42, (object) []] as $not_a_list) {
+            $this->assertSame(
+                'Whether the changes were reverted was not reported.',
+                _pp_ai_rollback_clause([
+                    'steps' => [['ok' => false]], 'rolled_back' => true, 'rollback_errors' => $not_a_list,
+                ])
+            );
+        }
+    }
+
     public function testDirtyRollbackPluralisesOnTheCount(): void
     {
         $two = ['steps' => [['ok' => false]], 'rollback_errors' => ['a', 'b']];
@@ -436,6 +551,26 @@ class ChatRejectionModelNoteTest extends TestCase
         $this->assertNull(_pp_ai_batch_rejection_note($ok));
         $this->assertNull(_pp_ai_batch_rejection_note($blank));
         $this->assertNull(_pp_ai_batch_rejection_note($ragged));
+    }
+
+    public function testEachGuardOnTheFailingStepReadIsLoadBearing(): void
+    {
+        // Every envelope above carries steps: [], so isset() alone answered all of them and
+        // the other two guards were never exercised — reducing the condition to isset() left
+        // the whole suite green. These have POPULATED steps, so each guard is the only thing
+        // standing between the read and a wrong answer.
+        $stringy = ['ok' => false, 'steps' => [['ok' => false, 'error' => 'x']], 'failed_at' => '0',
+                    'rolled_back' => true, 'rollback_errors' => []];
+        $floaty  = ['ok' => false, 'steps' => [['ok' => false, 'error' => 'x']], 'failed_at' => 0.0,
+                    'rolled_back' => true, 'rollback_errors' => []];
+        // A scalar step entry would fatal on $step['error_code'] under PHP 8, so this guard
+        // is the difference between null and a 500 on the operator's Apply.
+        $scalar  = ['ok' => false, 'steps' => ['not-an-array'], 'failed_at' => 0,
+                    'rolled_back' => true, 'rollback_errors' => []];
+
+        $this->assertNull(_pp_ai_batch_rejection_note($stringy));
+        $this->assertNull(_pp_ai_batch_rejection_note($floaty));
+        $this->assertNull(_pp_ai_batch_rejection_note($scalar));
     }
 
     public function testTheExecutorsOwnStepLessRefusalAlsoCarriesANote(): void
