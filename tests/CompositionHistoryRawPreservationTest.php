@@ -27,8 +27,11 @@
  * THE FIX (mechanism: PRESERVE, the filed issue's shape 1). The gate no longer decides
  * WHETHER to push, only WHICH ENTRY SHAPE to push:
  *
- *   prior bytes decode to an array  ─►  {timestamp, version, hash, composition: [...]}
+ *   prior bytes decode to a LIST    ─►  {timestamp, version, hash, composition: [...]}
  *   prior bytes do NOT              ─►  {timestamp, version, hash, raw: "<exact bytes>"}
+ *
+ * (#818 wrote "decode to an ARRAY" there; #841 corrected it to LIST and the three-row
+ * table further down is the authoritative version. See the #841 section below.)
  *
  * ON DISK the raw half is base64 (`raw_b64`); pp_get_composition_history() hands callers
  * the decoded bytes. Not cosmetic: JSON is not a byte container, and malformed UTF-8 is
@@ -56,13 +59,48 @@
  * `composition` still restores verbatim and still reports. #233 is unmoved.
  *
  * THE UNEXPECTED_SHAPE ASYMMETRY, AND THE HOLE THE FILED ISSUE DID NOT ENUMERATE. The
- * issue states `unexpected_shape` is safe because a JSON OBJECT decodes to a PHP array
- * and so passes the gate. True — and pinned here as byte-identical. But
- * `pp_get_composition_result()` also classifies as `unexpected_shape` the case "valid
- * JSON, non-list SCALAR" (`null`, `5`, `"text"`), and those decode to a non-array, fail
- * the SAME gate, and were destroyed by the SAME line. The fix keys on the gate itself
- * ("the prior bytes did not decode to an array") rather than on a re-run of the
- * classifier, so both lossy sub-cases are covered by one branch. Both are pinned below.
+ * #818 issue states `unexpected_shape` is safe because a JSON OBJECT decodes to a PHP array
+ * and so passes the gate. But `pp_get_composition_result()` also classifies as
+ * `unexpected_shape` the case "valid JSON, non-list SCALAR" (`null`, `5`, `"text"`), and
+ * those decode to a non-array, fail the SAME gate, and were destroyed by the SAME line.
+ * The #818 fix keys on the gate itself ("the prior bytes did not decode to an array")
+ * rather than on a re-run of the classifier, so both lossy sub-cases are covered by one
+ * branch. Both are pinned below.
+ *
+ * ═══ #841 — AND "SAFE" WAS THE WRONG WORD FOR THE OBJECT HALF ═══════════════════════
+ *
+ * "Passes the gate" is true and was mistaken for "is handled". A JSON OBJECT decodes to a
+ * PHP ASSOCIATIVE array, so `is_array()` filed it as a replayable `composition` snapshot:
+ * `wp pp operate composition-history` reported `restorable: true` with a component count
+ * taken off the object's KEYS, and selecting that slot drove pp_update_composition()'s
+ * id-injection loop onto a string band — an uncaught TypeError (lib/wp.php:3997) on the
+ * CLI action surface AND the chat batch executor, reached by following the repair route
+ * the theme's own corruption message recommends. Measured by the v1.17.0 release smoke,
+ * finding F1, on dev page 250.
+ *
+ * The composition contract is a LIST (pp_validate_composition_errors() refuses a non-list
+ * container, #724), so both ends now ask the contract's own question, pp_is_list():
+ *
+ *   push (pp_update_composition)        decodes to a LIST      → composition snapshot
+ *                                       anything else          → raw, exact bytes
+ *   read (_pp_normalize_history_ring)   composition IS a list  → composition snapshot
+ *                                       raw_b64                → raw, exact bytes
+ *                                       composition NOT a list → raw, RE-ENCODED  (#841)
+ *
+ * That last row is the migration: rings written before #841 already hold mis-filed object
+ * entries, and the ring meta is raw-writable besides. Reclassifying at the READER — the
+ * one place that decides an entry's form from arbitrary stored bytes — is what makes the
+ * refusal, the `restorable: false` listing and the three byte views fall out of the #818
+ * machinery unchanged, instead of teaching a second opinion to the restore resolver and
+ * leaving the CLI still calling the row restorable. STATED, because a test file that
+ * asserts byte-identity everywhere else must not imply it here: a reclassified row's
+ * `raw` is the ring's decoded copy re-encoded. The page's own bytes for that class were
+ * never kept, so no reader can hand them back.
+ *
+ * NOT CLOSED BY THIS, AND DELIBERATELY SO: a prior whose CONTAINER is a valid list but
+ * whose ELEMENTS are not components (`["a","b"]`, or a band whose `props` is a string)
+ * still files as restorable and still fatals the same loop. Different class — the
+ * classifier does not even call those pages corrupt — filed as #842.
  *
  * Coverage:
  *   the filed repro end to end — seed, corrupt, repair, recover the bytes
@@ -72,8 +110,10 @@
  *     pp_update_composition's own append (the round-trip that would otherwise drop it),
  *     restore_composition validate / preview / execute, and the
  *     `wp pp operate composition-history` CLI listing
- *   the unexpected_shape OBJECT path, byte-identical
  *   the unexpected_shape SCALAR sub-case, which the same gate also lost
+ *   the unexpected_shape OBJECT sub-case (#841): preserved on push, quarantined on read
+ *     for a legacy ring, refused on both channels, and re-persisted by the next write
+ *   the list-shaped paths that must NOT move, byte-identical
  *   ring bounding with a raw entry in it
  *   the accepted counterpart: a healthy page's ring is untouched by all of this
  */
@@ -527,6 +567,19 @@ class CompositionHistoryRawPreservationTest extends TestCase
         $this->assertStringContainsString('restore_composition', $prompt, 'precondition: the action is catalogued');
         $this->assertStringContainsString('history_entry_not_restorable', $prompt, 'the code a caller keys on must be teachable');
         $this->assertStringContainsString('composition-history', $prompt, 'and so must the route to the bytes');
+
+        // #841 RIDES THE SAME RULE. The class that changed sides is the one the chat's undo
+        // link is most likely to select, and pp_ai_system_prompt() renders `description`
+        // (lib/ai-context.php builds each catalog line from `{$def['description']}`) while
+        // NOTHING at runtime reads `semantics`. Stating the object sub-case only in
+        // `semantics` would leave the one caller that hits it untaught — which is exactly
+        // the #719 failure this pin exists to prevent, so the new clause is asserted here
+        // rather than trusted to a code review of the right field.
+        $this->assertStringContainsString(
+            'JSON OBJECT',
+            $prompt,
+            'the newly-refused class must reach the catalog the chat AI actually reads'
+        );
     }
 
     /**
@@ -556,22 +609,48 @@ class CompositionHistoryRawPreservationTest extends TestCase
     // ── 3. The paths that must NOT move ──────────────────────────────────────
 
     /**
-     * THE UNEXPECTED_SHAPE OBJECT PATH IS BYTE-IDENTICAL. A JSON object decodes to a PHP
-     * array, passes the gate, and is snapshotted as a `composition` entry exactly as it
-     * always was — the fix must not reclassify the class that was never broken.
+     * A LIST-SHAPED PRIOR IS STILL A SNAPSHOT, BYTE-IDENTICAL — including one carrying a
+     * nested JSON OBJECT inside a band. #841 moved the CONTAINER test to pp_is_list(); it
+     * must not have moved anything about what a band may contain. `style` and `props` are
+     * maps by design, and a fix that reached into bands would turn every styled page's
+     * ring entry into preserved bytes.
      */
-    public function testTheObjectShapedUnexpectedShapePathIsUnchanged(): void
+    public function testAListShapedPriorWithNestedObjectsIsStillSnapshottedVerbatim(): void
     {
-        $post_id = $this->corruptedPage('{"1":{"component":"hero","props":{"id":"obj-1"}}}');
-        $this->assertSame('unexpected_shape', pp_get_composition_result($post_id)['error']);
+        $nested  = [['component' => 'hero', 'props' => ['id' => 'n-1', 'title' => 'T'], 'style' => ['bg' => '#fff']]];
+        $post_id = $this->corruptedPage((string) wp_json_encode($nested));
 
         pp_update_composition($post_id, $this->repairBands());
 
         $ring  = pp_get_composition_history($post_id);
         $entry = end($ring);
-        $this->assertArrayNotHasKey('raw', $entry, 'a decodable prior is still a composition snapshot, not raw bytes');
-        $this->assertSame(['1' => ['component' => 'hero', 'props' => ['id' => 'obj-1']]], $entry['composition']);
+        $this->assertArrayNotHasKey('raw', $entry, 'a LIST prior is still a composition snapshot, not raw bytes');
+        $this->assertSame($nested, $entry['composition'], 'byte-identical, nested maps and all');
         $this->assertFalse(pp_history_entry_is_raw($entry));
+        $this->assertTrue(pp_execute_action('restore_composition', [
+            'post_id' => $post_id, 'steps_back' => 1,
+        ])['ok'], 'and it still replays');
+    }
+
+    /**
+     * THE EMPTY COMPOSITION IS A LIST. `[]` passes pp_is_list() — pinned because the PHP
+     * 8.0 fallback needs an explicit empty guard to agree (see _pp_is_list_fallback), and
+     * a regression there would turn every cleared page's prior into preserved bytes and
+     * refuse the undo that restores it.
+     */
+    public function testAnEmptyPriorCompositionIsStillARestorableSnapshot(): void
+    {
+        $post_id = $this->corruptedPage('[]');
+
+        pp_update_composition($post_id, $this->repairBands());
+
+        $ring  = pp_get_composition_history($post_id);
+        $entry = end($ring);
+        $this->assertSame([], $entry['composition'], 'an empty composition is a composition');
+        $this->assertFalse(pp_history_entry_is_raw($entry));
+        $this->assertTrue(pp_execute_action('restore_composition', [
+            'post_id' => $post_id, 'steps_back' => 1,
+        ])['ok']);
     }
 
     /**
@@ -698,5 +777,417 @@ class CompositionHistoryRawPreservationTest extends TestCase
         $history = pp_get_composition_history($post_id);
         $this->assertCount(1, $history);
         $this->assertSame('kept', $history[0]['raw']);
+    }
+
+    // ── 4. #841 — the OBJECT-shaped class, on both ends of the ring ──────────
+
+    /** The exact object-shaped bytes from the release-smoke F1 repro (dev page 250). */
+    private const OBJECT_BYTES = '{"component":"hero","props":{"title":"obj-shaped"}}';
+
+    /**
+     * The same shape, stored NON-CANONICALLY: extra spacing, a non-ASCII character and a
+     * forward slash. Every push-side assertion uses THIS one, and the choice is the pin.
+     *
+     * OBJECT_BYTES happens to be byte-identical to its own re-encode, so a test asserting
+     * `raw === OBJECT_BYTES` after a push cannot tell "the exact stored bytes were
+     * preserved" (what the fixed push does) from "the decoded object was re-encoded" (what
+     * the reader's #841 compat branch does to a row the BROKEN push filed). Both produce
+     * the same string, so such a test passes with the push fix reverted — the two halves of
+     * this fix would then have one pin between them. These bytes survive the round trip
+     * only if the push really kept them, so the assertion discriminates.
+     */
+    private const OBJECT_BYTES_UNCANONICAL =
+        '{"component": "hero", "props": {"title": "café", "link_url": "/about/us"}}';
+
+    /**
+     * What a LEGACY mis-filed row's decoded object must re-encode to. Carries a non-ASCII
+     * character and a forward slash on purpose: without
+     * JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES the reclassification would hand the
+     * operator `café` and `\/about\/us`, which is not what the page held and not what
+     * every other composition encode in lib/wp.php produces. An all-ASCII fixture leaves
+     * those flags unpinned.
+     */
+    private const OBJECT_BYTES_LEGACY = '{"component":"hero","props":{"title":"café","link_url":"/about/us"}}';
+
+    /**
+     * THE MEASURED DEFECT, PUSH SIDE. On the unfixed writer this fails at the FIRST
+     * assertion: the entry carries `composition` holding the decoded object, which is what
+     * made the listing call it restorable and the replay fatal.
+     */
+    public function testAnObjectShapedPriorIsPreservedAsBytesInsteadOfFiledAsASnapshot(): void
+    {
+        $post_id = $this->corruptedPage(self::OBJECT_BYTES_UNCANONICAL);
+        $this->assertSame('unexpected_shape', pp_get_composition_result($post_id)['error'], 'precondition');
+
+        pp_update_composition($post_id, $this->repairBands());
+
+        // ASSERT THE STORED ROW, NOT ONLY THE READ-BACK RING. Everything else in this
+        // section reads through pp_get_composition_history(), which since #841 RECLASSIFIES
+        // a mis-filed row on the way out — so a ring read alone cannot tell a fixed push
+        // from a broken push whose row the reader repaired. Reverting the push key leaves
+        // every normalized assertion green and only this one red, which is the difference
+        // between pinning half the fix and pinning it.
+        $stored = json_decode((string) get_post_meta($post_id, '_pp_composition_history', true), true);
+        $row    = end($stored);
+        $this->assertArrayNotHasKey('composition', $row, 'the PUSH must not file an object as a snapshot');
+        $this->assertSame(self::OBJECT_BYTES_UNCANONICAL, base64_decode($row['raw_b64'], true));
+
+        $ring  = pp_get_composition_history($post_id);
+        $entry = end($ring);
+        $this->assertArrayNotHasKey(
+            'composition',
+            $entry,
+            'a JSON object is not a composition and must never be filed as one'
+        );
+        $this->assertTrue(pp_history_entry_is_raw($entry));
+        $this->assertSame(
+            self::OBJECT_BYTES_UNCANONICAL,
+            $entry['raw'],
+            'a CURRENT push is byte-exact for this class like every other'
+        );
+        // The fixture earns that assertion: these bytes are NOT their own re-encode, so
+        // equality here means preservation and could not be satisfied by the compat branch.
+        $this->assertNotSame(
+            self::OBJECT_BYTES_UNCANONICAL,
+            json_encode(json_decode(self::OBJECT_BYTES_UNCANONICAL, true), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            'premise: the fixture distinguishes preserved bytes from a re-encode'
+        );
+        $this->assertSame('Repaired', pp_get_composition($post_id)[0]['props']['title'], 'the repair still landed');
+    }
+
+    /**
+     * SECTION 14.1 — through the real `update_composition` ACTION, which is what the
+     * corruption message actually tells an operator or agent to run.
+     */
+    public function testTheRepairActionPreservesAnObjectShapedPriorToo(): void
+    {
+        $post_id = $this->corruptedPage(self::OBJECT_BYTES_UNCANONICAL);
+
+        $result = pp_execute_action('update_composition', [
+            'post_id'     => $post_id,
+            'composition' => $this->repairBands(),
+        ]);
+
+        $this->assertTrue($result['ok'], 'the documented repair route must still succeed');
+        $ring = pp_get_composition_history($post_id);
+        $this->assertSame(self::OBJECT_BYTES_UNCANONICAL, end($ring)['raw']);
+    }
+
+    /**
+     * THE FALSE REPORT THE SMOKE READ. The listing said `components: 2, restorable: true`
+     * for a two-KEY object — a count of the object's keys, and an invitation to a fatal.
+     * It now says what the row is, and hands back all three byte views.
+     */
+    public function testTheCliListingStopsCallingAnObjectShapedRowRestorable(): void
+    {
+        $post_id = $this->corruptedPage(self::OBJECT_BYTES_UNCANONICAL);
+        pp_update_composition($post_id, $this->repairBands());
+
+        (new PP_Operate_Command())->composition_history([], ['post_id' => (string) $post_id]);
+        $row = json_decode(implode("\n", WP_CLI::$lines), true)['entries'][0];
+
+        $this->assertFalse($row['restorable'], 'the measured defect reported true here');
+        $this->assertNull($row['components'], 'the measured defect counted the object KEYS here');
+        $this->assertSame(self::OBJECT_BYTES_UNCANONICAL, $row['raw']);
+        $this->assertSame(self::OBJECT_BYTES_UNCANONICAL, base64_decode($row['raw_base64'], true));
+        $this->assertSame(hash('sha256', self::OBJECT_BYTES_UNCANONICAL), $row['raw_sha256']);
+        $this->assertSame(strlen(self::OBJECT_BYTES_UNCANONICAL), $row['raw_bytes']);
+    }
+
+    /**
+     * THE DOCUMENTED REFUSAL FINALLY FIRES FOR THIS CLASS, at all three stages of the
+     * restore contract, from the one resolver they share. On the unfixed tree every one of
+     * these calls raises an uncaught TypeError instead of returning.
+     */
+    public function testRestoreRefusesAnObjectShapedRowAtEveryStage(): void
+    {
+        $post_id = $this->corruptedPage(self::OBJECT_BYTES_UNCANONICAL);
+        pp_update_composition($post_id, $this->repairBands());
+        $before = pp_get_composition_marker($post_id);
+
+        $validation = pp_validate_action('restore_composition', ['post_id' => $post_id, 'steps_back' => 1]);
+        $this->assertInstanceOf(WP_Error::class, $validation);
+        $this->assertSame('history_entry_not_restorable', $validation->get_error_code());
+
+        $preview = pp_preview_action('restore_composition', ['post_id' => $post_id, 'steps_back' => 1]);
+        $this->assertInstanceOf(WP_Error::class, $preview);
+        $this->assertSame('history_entry_not_restorable', $preview->get_error_code());
+
+        $result = pp_execute_action('restore_composition', ['post_id' => $post_id, 'steps_back' => 1]);
+        $this->assertFalse($result['ok']);
+        $this->assertSame('history_entry_not_restorable', $result['error_code']);
+        $this->assertStringContainsString(
+            'wp pp operate composition-history --post_id=' . $post_id,
+            $result['error'],
+            'and it still names the route to the bytes'
+        );
+        $this->assertSame($before, pp_get_composition_marker($post_id), 'a refused restore must not move the page');
+    }
+
+    /**
+     * THE SECOND CHANNEL THE SMOKE FATALED. The chat's "Undo these changes" link runs the
+     * same action through pp_ai_execute_batch(), which has no fatal handler of its own —
+     * an uncaught TypeError there takes the AJAX request down, not one step of it.
+     */
+    public function testTheChatBatchExecutorGetsTheRefusalRatherThanAFatal(): void
+    {
+        $post_id = $this->corruptedPage(self::OBJECT_BYTES_UNCANONICAL);
+        pp_update_composition($post_id, $this->repairBands());
+
+        $batch = pp_ai_execute_batch(
+            [['type' => 'action', 'name' => 'restore_composition', 'params' => [
+                'post_id' => $post_id, 'steps_back' => 1,
+            ]]],
+            [$post_id => pp_get_composition_marker($post_id)['version']]
+        );
+
+        $this->assertFalse($batch['ok'], 'the batch reports a refused step, it does not crash');
+        $this->assertSame('history_entry_not_restorable', $batch['steps'][0]['error_code']);
+        $this->assertSame(0, $batch['failed_at'], 'and the batch stops on it like any refused step');
+    }
+
+    // ── 4b. Rings written BEFORE the fix ─────────────────────────────────────
+
+    /**
+     * Seeds a ring the pre-#841 writer would have produced: an object-shaped prior filed as
+     * a `composition` entry, beside a genuine snapshot. Written through raw meta because the
+     * fixed writer can no longer produce this row — which is the point. Rings on live
+     * installs (the smoke's page 250) hold exactly this, and `_pp_composition_history` is
+     * raw-writable by anything else on the site besides.
+     *
+     * @return int  The post id.
+     */
+    private function legacyMisfiledRing(): int
+    {
+        $post_id = pp_create_page('Legacy misfiled ring', 'draft');
+        // wp_slash() like the production writer does: update_post_meta() UNSLASHES on the
+        // way in (tests/bootstrap.php models WP core), so an unslashed payload silently
+        // loses the backslash of every `\uXXXX` escape — which for a non-ASCII fixture
+        // means the seeded row never holds what the test says it holds.
+        update_post_meta($post_id, '_pp_composition_history', wp_slash((string) wp_json_encode([
+            ['timestamp' => 11, 'version' => 1, 'hash' => 'h1', 'composition' => $this->originalBands()],
+            ['timestamp' => 22, 'version' => 2, 'hash' => 'h2', 'composition' => json_decode(self::OBJECT_BYTES_LEGACY, true)],
+        ])));
+        pp_update_composition($post_id, $this->repairBands());
+        return $post_id;
+    }
+
+    /**
+     * THE COMPAT ANSWER, AND THE HONEST END STATE THE ISSUE ASKED FOR: selecting an
+     * already-stored mis-filed row must not fatal. It is quarantined at the reader, so the
+     * refusal comes from the same resolver and carries the same code as every other
+     * unreplayable slot.
+     */
+    public function testALegacyMisfiledRowIsQuarantinedOnReadInsteadOfFataling(): void
+    {
+        $post_id = $this->legacyMisfiledRing();
+
+        $history = pp_get_composition_history($post_id);
+        $legacy  = $history[1];
+        $this->assertTrue(pp_history_entry_is_raw($legacy), 'the reader reclassifies the mis-filed row');
+        $this->assertArrayNotHasKey('composition', $legacy);
+        $this->assertSame(
+            self::OBJECT_BYTES_LEGACY,
+            $legacy['raw'],
+            'the object comes back re-encoded, with the same flags every other composition encode uses'
+        );
+        $this->assertSame(2, $legacy['version'], 'and the row keeps its provenance');
+        $this->assertSame('h2', $legacy['hash']);
+        $this->assertSame(11, $history[0]['timestamp'], 'the snapshot beside it is untouched');
+
+        $result = pp_execute_action('restore_composition', [
+            'post_id' => $post_id, 'history_index' => 1,
+        ]);
+        $this->assertFalse($result['ok'], 'the measured defect raised an uncaught TypeError here');
+        $this->assertSame('history_entry_not_restorable', $result['error_code']);
+
+        // The slot stays ADDRESSABLE: the good snapshot before it still replays.
+        $this->assertTrue(pp_execute_action('restore_composition', [
+            'post_id' => $post_id, 'history_index' => 0,
+        ])['ok']);
+        $this->assertSame(
+            ['band-1', 'band-2'],
+            array_column(array_column(pp_get_composition($post_id), 'props'), 'id')
+        );
+    }
+
+    /** The legacy row reaches the operator through the listing as what it is. */
+    public function testALegacyMisfiledRowListsAsNonRestorableWithItsBytes(): void
+    {
+        $post_id = $this->legacyMisfiledRing();
+
+        (new PP_Operate_Command())->composition_history([], ['post_id' => (string) $post_id]);
+        $entries = json_decode(implode("\n", WP_CLI::$lines), true)['entries'];
+
+        // Newest first, and the fixture's page had no prior composition of its own, so its
+        // write pushed nothing: the mis-filed row is still the newest of the two seeded.
+        $row = $entries[0];
+        $this->assertSame(1, $row['history_index'], 'precondition: this is the mis-filed slot');
+        $this->assertFalse($row['restorable'], 'the measured defect reported true here');
+        $this->assertNull($row['components']);
+        $this->assertSame(self::OBJECT_BYTES_LEGACY, base64_decode($row['raw_base64'], true));
+        $this->assertTrue($entries[1]['restorable'], 'the snapshot beside it is still replayable');
+    }
+
+    /**
+     * QUARANTINE IS DURABLE, NOT JUST A READ-TIME VIEW. The append path reads the ring
+     * through the same normalizer and re-persists it through
+     * _pp_history_entries_for_storage(), so the next write on the page stores the row as
+     * `raw_b64` — the form every reader agrees on. A normalizer output that could not be
+     * re-stored would break the ring's own round-trip invariant.
+     */
+    public function testTheNextWriteRePersistsALegacyMisfiledRowAsPreservedBytes(): void
+    {
+        $post_id = $this->legacyMisfiledRing();
+
+        pp_update_composition($post_id, [['component' => 'hero', 'props' => ['id' => 'later', 'title' => 'Later']]]);
+
+        $stored = json_decode((string) get_post_meta($post_id, '_pp_composition_history', true), true);
+        $row    = $stored[1];
+        $this->assertArrayNotHasKey('composition', $row, 'the defective row is gone from storage');
+        $this->assertSame(self::OBJECT_BYTES_LEGACY, base64_decode($row['raw_b64'], true));
+        $this->assertSame(2, $row['version'], 'provenance survives the migration');
+
+        // And it still reads and refuses the same way after the round-trip.
+        $history = pp_get_composition_history($post_id);
+        $this->assertTrue(pp_history_entry_is_raw($history[1]));
+        $this->assertSame(self::OBJECT_BYTES_LEGACY, $history[1]['raw']);
+    }
+
+    /**
+     * THE BOTH-KEYS ROW, NARROWED. `testAnEntryCarryingBothShapesReadsAsTheComposition`
+     * above pins the documented preference for the replayable half. When that half is a
+     * JSON OBJECT it is not replayable, so the row reads as the preserved BYTES instead —
+     * preferring the object would trade a real recovery for a refusal, and preferring it
+     * while calling it restorable is the defect itself.
+     */
+    public function testABothKeysRowWithANonListCompositionHandsBackThePreservedBytes(): void
+    {
+        $post_id = pp_create_page('Both keys, object half', 'draft');
+        update_post_meta($post_id, '_pp_composition_history', wp_json_encode([[
+            'timestamp'   => 5,
+            'version'     => 5,
+            'hash'        => 'h',
+            'composition' => json_decode(self::OBJECT_BYTES, true),
+            'raw_b64'     => base64_encode('the real prior bytes'),
+        ]]));
+
+        $history = pp_get_composition_history($post_id);
+        $this->assertCount(1, $history);
+        $this->assertTrue(pp_history_entry_is_raw($history[0]));
+        $this->assertSame(
+            'the real prior bytes',
+            $history[0]['raw'],
+            'exact bytes beat a re-encode when the row carries both'
+        );
+    }
+
+    /**
+     * A ring row whose non-list `composition` cannot be re-encoded KEEPS ITS SLOT as a
+     * zero-byte preserved-bytes entry, rather than vanishing.
+     *
+     * DROPPING IT WOULD NOT BE A READ-TIME DEGRADATION, WHICH IS WHY THIS IS PINNED.
+     * pp_update_composition() rebuilds the STORED ring from what the normalizer returns, so
+     * a row this reader drops is deleted from the database by the next composition write —
+     * a silent, permanent destruction of a recorded prior state, which is the #818 behavior
+     * this whole area exists to end. It would also renumber `history_index` / `steps_back`
+     * for the neighbouring slots, and _pp_resolve_history_target() promises an unreplayable
+     * slot "stays ADDRESSABLE ... so history_index and steps_back keep counting writes
+     * truthfully" — an operator who read an index from an earlier listing would silently
+     * restore a different entry.
+     *
+     * REACHABILITY, stated correctly because the obvious answer is wrong: NOT depth. The
+     * branch encodes the payload standalone, shallower than the ring decode that accepted
+     * it, so on the JSON-string path the budget is strictly larger and JSON_ERROR_DEPTH
+     * cannot reach it. The live path is the other form _pp_decode_history_ring() accepts —
+     * an ALREADY-DECODED meta array (get_post_meta unserializes; the locked reader calls
+     * maybe_unserialize), which never passed a json_decode and can hold a value no encoder
+     * will take. The fixture is exactly that: a NAN, seeded straight into the store rather
+     * than through update_post_meta(), because a value that cannot be encoded cannot be
+     * written as JSON in the first place.
+     */
+    public function testANonListCompositionThatCannotBeReEncodedKeepsItsSlot(): void
+    {
+        $post_id = pp_create_page('Unencodable object half', 'draft');
+        $GLOBALS['_pp_test_store']['post_meta'][$post_id]['_pp_composition_history'] = [[
+            'timestamp'   => 1,
+            'version'     => 1,
+            'hash'        => 'h',
+            'composition' => ['a' => NAN],
+        ], [
+            'timestamp'   => 2,
+            'version'     => 2,
+            'hash'        => 'h',
+            'raw_b64'     => base64_encode('kept'),
+        ]];
+
+        $history = pp_get_composition_history($post_id);
+        $this->assertCount(2, $history, 'the slot survives so the ring does not renumber');
+        $this->assertTrue(pp_history_entry_is_raw($history[0]), 'and it refuses like any raw row');
+        $this->assertSame('', $history[0]['raw'], 'with no payload, because none could be rendered');
+        $this->assertSame(1, $history[0]['version'], 'provenance is still readable');
+        $this->assertSame('kept', $history[1]['raw'], 'the row beside it is untouched');
+
+        // The refusal still fires and still names the recovery command.
+        $result = pp_execute_action('restore_composition', ['post_id' => $post_id, 'history_index' => 0]);
+        $this->assertFalse($result['ok']);
+        $this->assertSame('history_entry_not_restorable', $result['error_code']);
+    }
+
+    /**
+     * BOTH KEYS, AND THE BYTES ARE UNREADABLE. The reclassification is ordered after
+     * `raw_b64` so real preserved bytes win — but only when they are real. A strict base64
+     * failure used to consume the row and yield nothing, losing BOTH halves of the one
+     * subsystem whose job is losing nothing. The object is the only recovery left, so the
+     * row falls through to the re-encode instead.
+     */
+    public function testABothKeysRowWithUnreadableBytesFallsBackToTheObject(): void
+    {
+        $post_id = pp_create_page('Both keys, bad base64', 'draft');
+        update_post_meta($post_id, '_pp_composition_history', wp_slash((string) wp_json_encode([[
+            'timestamp'   => 5,
+            'version'     => 5,
+            'hash'        => 'h',
+            'composition' => json_decode(self::OBJECT_BYTES_LEGACY, true),
+            'raw_b64'     => '!!!not base64!!!',
+        ]])));
+
+        $history = pp_get_composition_history($post_id);
+        $this->assertCount(1, $history, 'the row is not dropped');
+        $this->assertSame(
+            self::OBJECT_BYTES_LEGACY,
+            $history[0]['raw'],
+            'a partial recovery beats losing both halves'
+        );
+    }
+
+    /**
+     * THE RECLASSIFIED PAYLOAD REACHES THE TERMINAL ESCAPED TOO. The sibling pin above
+     * covers the decode_error PUSH path; this covers the #841 read path, which is where
+     * escaping is most load-bearing — the re-encode runs with JSON_UNESCAPED_UNICODE, so a
+     * legacy object carrying a bidi override holds those code points as raw bytes in `raw`
+     * before _pp_cli_emit_json() sees them.
+     */
+    public function testAReclassifiedPayloadIsEscapedOnTheWayToTheTerminal(): void
+    {
+        $nasty   = "\x1b[31mRED\x7f\xe2\x80\xaeoverride";
+        $post_id = pp_create_page('Nasty legacy object', 'draft');
+        update_post_meta($post_id, '_pp_composition_history', wp_slash((string) wp_json_encode([[
+            'timestamp'   => 5,
+            'version'     => 5,
+            'hash'        => 'h',
+            'composition' => ['component' => 'hero', 'props' => ['title' => $nasty]],
+        ]])));
+
+        (new PP_Operate_Command())->composition_history([], ['post_id' => (string) $post_id]);
+        $emitted = implode("\n", WP_CLI::$lines);
+
+        $this->assertStringNotContainsString("\x1b", $emitted, 'no raw ESC — that is terminal injection');
+        $this->assertStringNotContainsString("\x7f", $emitted, 'no raw DEL');
+        $this->assertStringNotContainsString("\xe2\x80\xae", $emitted, 'no raw RLO override');
+        // …and the value still round-trips intact for the operator.
+        $row = json_decode($emitted, true)['entries'][0];
+        $this->assertFalse($row['restorable']);
+        $this->assertSame($nasty, json_decode($row['raw'], true)['props']['title']);
     }
 }

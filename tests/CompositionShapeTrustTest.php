@@ -355,38 +355,103 @@ class CompositionShapeTrustTest extends TestCase
 
     // ── 5. The boundary: restore reports, never blocks (#233) ────────────────
 
-    public function testRestoreStillRestoresAnObjectShapedSnapshotAndReportsTheContainer(): void
+    /**
+     * REVERSED BY #841, AND THE REVERSAL IS THE POINT OF THIS DOCBLOCK.
+     *
+     * This test used to assert the opposite: that restore REPLAYS an object-shaped snapshot
+     * and re-corrupts the page, on the reasoning that "undo must never be refused by a rule
+     * that landed after the snapshot" and that #233 outranks #724's container rule. That
+     * reasoning rested on a premise the v1.17.0 release smoke falsified. The ring did not
+     * hold a snapshot of an object-shaped prior in any meaningful sense — it held a decoded
+     * JSON OBJECT behind an is_array() gate, and what happened on replay depended on what
+     * the object's VALUES happened to be:
+     *
+     *   {1: band, 3: band}                      values are bands  → replayed, page corrupt again
+     *   {"component":"hero","props":{…}}         values are strings → uncaught TypeError
+     *                                                                (lib/wp.php:3997)
+     *
+     * The second row is the one an operator actually meets: it is the shape a single band
+     * pasted into `_pp_composition` produces, and the theme's own corruption message sends
+     * them to `restore_composition` to repair it. One entry form that sometimes replays and
+     * sometimes crashes the command is not a contract, and `wp pp operate composition-history`
+     * advertised BOTH as `restorable: true` with a component count taken off the object's
+     * keys. #841 makes the ring ask the composition contract's own question at the push and
+     * at the read (pp_is_list), so an object-shaped prior is PRESERVED as bytes and refused
+     * by name.
+     *
+     * #233 IS NOT WEAKENED BY THAT, and the boundary is worth stating precisely: its contract
+     * is "restore is never blocked by current VALIDATION RULES — it replays verbatim and
+     * REPORTS". Every entry that carries a composition still does exactly that, however
+     * illegal today's rules find its contents (see the list-shaped counterpart below). This
+     * refusal says the slot holds no composition at all, which is the same species as
+     * `no_history` and `history_out_of_bounds`, and it hands back the bytes instead.
+     *
+     * NARROW IN PRACTICE: `{"0":…,"1":…}` — the folded numeric object an aged install is most
+     * likely to hold — decodes to a PHP LIST (pinned above in
+     * testAnOrderedNumericObjectDecodesAsAListAndIsAccepted) and is unaffected. Only a
+     * genuinely string- or gap-keyed object reaches this refusal.
+     */
+    public function testRestoreRefusesAnObjectShapedSnapshotInsteadOfReCorruptingThePage(): void
     {
-        // Undo must never be refused by a rule that landed after the snapshot. The history
-        // ring accepts an object snapshot behind an is_array() gate, so this state is
-        // reachable on any install that predates #724 — restore must still replay it, and
-        // must say what it replayed.
         $post_id = pp_create_page('Aged page', 'draft');
         pp_update_composition($post_id, $this->objectShapedPayload());
+        pp_update_composition($post_id, $this->fiveBands());
+
+        // The ring filed the object-shaped prior as preserved BYTES, not as a snapshot.
+        $ring  = pp_get_composition_history($post_id);
+        $entry = end($ring);
+        $this->assertTrue(pp_history_entry_is_raw($entry), 'a JSON object is not a composition');
+        $this->assertSame(
+            $this->objectShapedPayload(),
+            json_decode($entry['raw'], true),
+            'and the operator can still recover exactly what was there'
+        );
+
+        $result = pp_execute_action('restore_composition', ['post_id' => $post_id, 'steps_back' => 1]);
+
+        $this->assertFalse($result['ok']);
+        $this->assertSame('history_entry_not_restorable', $result['error_code']);
+        $this->assertStringContainsString('composition-history', $result['error'], 'the route to the bytes');
+
+        // THE STATE IT LEAVES BEHIND, which is the half worth recording: the page is NOT
+        // re-corrupted. Before #841 this same call rewrote a healthy page back into an
+        // `unexpected_shape` one and reported ok:true — a successful-looking undo whose
+        // whole effect was to break the page again.
+        $this->assertNull(pp_get_composition_result($post_id)['error'], 'the page stays healthy');
+        $this->assertCount(5, pp_inspect_composition($post_id));
+    }
+
+    /**
+     * THE #233 HALF THAT DID NOT MOVE. A LIST-shaped snapshot whose CONTENTS today's rules
+     * reject still replays verbatim and still reports — restore reports, never blocks. If
+     * this ever fails, #841's container test has leaked into the band level and #233 is
+     * genuinely broken.
+     */
+    public function testRestoreStillReplaysAListSnapshotTodaysRulesWouldRejectAndReportsIt(): void
+    {
+        $post_id = pp_create_page('Aged list page', 'draft');
+        pp_update_composition($post_id, [['component' => 'hero', 'props' => ['id' => 'aged', 'title' => 'Aged']]]);
+        // A band whose `items` is an OBJECT: a list container, an illegal interior.
+        update_post_meta($post_id, '_pp_composition', (string) wp_json_encode(
+            [['component' => 'faq', 'props' => ['id' => 'legacy', 'items' => ['aa' => ['q' => 'Q']]]]]
+        ));
         pp_update_composition($post_id, $this->fiveBands());
 
         $result = pp_execute_action('restore_composition', ['post_id' => $post_id, 'steps_back' => 1]);
 
         $this->assertTrue($result['ok'], 'restore is never blocked by current validation rules (#233)');
-        $this->assertCount(1, $result['findings'], 'one container, one fact — no advisories about bands inside it');
-        $this->assertSame('unexpected_shape', $result['findings'][0]['type']);
-        $this->assertSame('error', $result['findings'][0]['severity']);
-        $this->assertNull($result['findings'][0]['index'], 'no band owns a container-level finding');
+        $this->assertSame('legacy', pp_get_composition($post_id)[0]['props']['id'], 'replayed verbatim');
 
-        // AND THE STATE IT LEAVES BEHIND, which is the half worth recording: restore is the
-        // one surface that can legitimately RE-CORRUPT a page after #724 closed the write
-        // path, because #233 outranks the new rule. The page is corrupt again, every read
-        // surface says so (including #725's, which returned [] here before), and the same
-        // one-list repair recovers it. Intended behavior, pinned rather than discovered.
-        $this->assertSame('unexpected_shape', pp_get_composition_result($post_id)['error']);
-        $this->assertInstanceOf(WP_Error::class, pp_inspect_composition($post_id));
-
-        $repaired = pp_execute_action('update_composition', [
-            'post_id'     => $post_id,
-            'composition' => $this->fiveBands(),
-        ]);
-        $this->assertTrue($repaired['ok']);
-        $this->assertCount(5, pp_inspect_composition($post_id));
+        // REPORTS, and specifically: names the BAND whose contents today's rules reject.
+        // `assertNotSame([], ...)` would be satisfied by any unrelated advisory, which is
+        // not the contract — #233 is "you are told exactly what an old snapshot brought
+        // back", so the pin has to be on the finding that describes THIS band.
+        $errors = array_values(array_filter(
+            $result['findings'],
+            static fn (array $f): bool => $f['severity'] === 'error'
+        ));
+        $this->assertNotSame([], $errors, 'the illegal interior must be reported as an error');
+        $this->assertSame(0, $errors[0]['index'], 'and located at the band that carries it');
     }
 
     // ── 5b. The component-level gate: corrupt is not empty (#748) ────────────

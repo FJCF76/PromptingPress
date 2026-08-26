@@ -2463,8 +2463,8 @@ class PP_Operate_Command extends WP_CLI_Command {
      *
      * THIS COMMAND IS THE RECOVERY PATH FOR A CORRUPT PAGE'S BYTES (#818). A ring slot
      * may hold stored bytes that did not decode to a composition rather than a
-     * composition snapshot (a decode_error page, or the valid-JSON-scalar sub-case of
-     * unexpected_shape) — preserved
+     * composition snapshot (a decode_error page, or either sub-case of unexpected_shape —
+     * a valid-JSON scalar, or a valid-JSON object) — preserved
      * so that repairing a corrupt page no longer destroys the only copy of what was
      * there. Such a row reports `restorable: false`, a null `components` (there is
      * nothing to count), and THREE views of the bytes. Printing them is the point:
@@ -2483,6 +2483,16 @@ class PP_Operate_Command extends WP_CLI_Command {
      * digest is computed HERE, at read time, over what the ring currently holds. It
      * verifies the transfer, NOT the preservation — it cannot tell you the stored entry
      * still matches the bytes that were pushed, because no digest is recorded at push time.
+     *
+     * A SECOND LIMIT ON THE SAME FIELD, FOR ONE ROW CLASS (#841). A ring written before
+     * #841 filed an OBJECT-shaped prior as a `composition` entry (a JSON object decodes to
+     * a PHP associative array, which the old push test accepted). Such a row is
+     * reclassified to a raw row by _pp_normalize_history_ring(), so it lists here with
+     * `restorable: false` and all three views instead of advertising a replay that fatals —
+     * but its bytes are that decoded object RE-ENCODED, because the ring never stored the
+     * page's own bytes for this class. `raw_base64` still round-trips exactly what this
+     * command read, and `raw_sha256` still proves that transfer; neither is a statement
+     * about the original stored bytes for a row of this vintage.
      *
      * SIZE, STATED: a raw row emits the payload twice (`raw` plus `raw_base64` at 4/3) with
      * no cap, by design — a truncated recovery is not a recovery. On a pathologically large

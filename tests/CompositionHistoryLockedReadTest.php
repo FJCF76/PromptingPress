@@ -461,6 +461,13 @@ class CompositionHistoryLockedReadTest extends TestCase
             'raw entry'           => wp_json_encode([['timestamp' => 1, 'version' => 2, 'hash' => 'h', 'raw_b64' => base64_encode(self::CORRUPT_BYTES)]]),
             'unreadable base64'   => wp_json_encode([['timestamp' => 1, 'version' => 2, 'hash' => 'h', 'raw_b64' => 'not!base64!']]),
             'entry matching none' => wp_json_encode([['timestamp' => 1, 'version' => 2, 'hash' => 'h']]),
+            // #841: a `composition` that is an array but NOT a list — the row a pre-#841
+            // push filed for an object-shaped prior. The normalizer reclassifies it to a
+            // raw entry, and BOTH readers have to do that identically: the locked reader is
+            // the one whose answer gets PERSISTED, so a cached reader that reclassified
+            // while it did not (or the reverse) would migrate the ring one way and store it
+            // the other.
+            'misfiled object'     => wp_json_encode([['timestamp' => 1, 'version' => 2, 'hash' => 'h', 'composition' => ['component' => 'hero', 'props' => ['id' => 'obj']]]]),
             'entry not an array'  => wp_json_encode(['just a string']),
             'mixed list'          => wp_json_encode([
                 ['timestamp' => 1, 'version' => 1, 'hash' => 'a', 'composition' => $composition],
