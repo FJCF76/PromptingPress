@@ -389,40 +389,315 @@ class CompositionShapeTrustTest extends TestCase
         $this->assertCount(5, pp_inspect_composition($post_id));
     }
 
+    // ── 5b. The component-level gate: corrupt is not empty (#748) ────────────
+
     /**
-     * The component-level gate on a CORRUPT page: pinned as the state it is, not fixed.
+     * The SIX surfaces pp_action_composition_precondition() guards, enumerated here
+     * because "one fix, not six" is only true while the inventory is checkable:
      *
-     * pp_action_composition_precondition() reads through pp_get_composition(), which
-     * degrades a non-list to [], so every component-level action and `operate patch`
-     * answer `composition_required` — "post N has none yet. Populate it first" — which is
-     * false for a page that is corrupt rather than blank. That is the SAME wrong conclusion
-     * #725 removed from inspect-composition, reached through a different door.
+     *   pp_validate_action()      add_component, remove_component, reorder_components,
+     *   (lib/actions.php)         update_component, style_component   ← 5, every executor
+     *                             caller inherits them (chat AJAX, WP-CLI, batch)
+     *   pp_patch_composition()    `wp pp operate patch`, mutating AND --preview  ← 1
      *
-     * Not fixed here: the gate is shared by six surfaces and needs its own code-and-noun
-     * ruling (keep `composition_required` with a corrected message, or return the
-     * classification?), so it is filed as #748. The gate fails CLOSED — no stored bytes are
-     * touched — so the defect is diagnostic, not destructive. Pinned so the gap is a
-     * recorded decision rather than an omission, and so #748's fix has a failing assertion
-     * waiting for it.
+     * Re-derived from the callers rather than copied from the issue: the five are exactly
+     * the page/section-scoped actions that do NOT set requires_composition => false.
+     *
+     * SEVEN entries, SIX surfaces: `operate patch` is one surface with two code paths, and
+     * both are driven because only one of them can write. What the CLI operator reaches
+     * first on the mutating path is the run/preflight/freshness stack in lib/cli.php, which
+     * on a corrupt page fires ahead of this gate (#767) — so the mutating entry pins the
+     * predicate's own behavior at that call site, not the command's observable output.
+     *
+     * The five actions are DERIVED from the live registry, not listed: pp_register_action()
+     * defaults `requires_composition` to TRUE (lib/actions.php), so a new page/section-scoped
+     * action joins this gate silently. Deriving means the day that happens, this file starts
+     * driving it instead of quietly covering five of six.
+     *
+     * @return array<string, callable(int): (true|WP_Error)>  surface name => gate call
      */
-    public function testComponentLevelActionsStillCallACorruptPageEmptyPending748(): void
+    private function compositionGatedSurfaces(): array
+    {
+        $gated = [];
+        foreach ($GLOBALS['_pp_actions'] as $name => $definition) {
+            if (!in_array($definition['scope'] ?? '', ['page', 'section'], true)) {
+                continue;
+            }
+            if (($definition['requires_composition'] ?? true) === false) {
+                continue;
+            }
+            $gated[] = $name;
+        }
+        sort($gated);
+        $this->assertSame(
+            ['add_component', 'remove_component', 'reorder_components', 'style_component', 'update_component'],
+            $gated,
+            'the gated inventory changed — a new page/section action inherits this gate by default (#358/#387); '
+            . 'add it to the expected set and to #748\'s surface count deliberately'
+        );
+
+        $surfaces = [];
+        foreach ($gated as $name) {
+            $surfaces[$name] = fn(int $post_id) => pp_action_composition_precondition(pp_get_action($name), $post_id);
+        }
+        // The direct caller. Returns the predicate's own WP_Error verbatim from step 2a,
+        // so the patch surface is pinned through the real function, not the predicate again.
+        // BOTH of its paths, because step 2a sits ahead of the preview/mutate fork and the
+        // mutating one is the half that could write: --preview is the read-only call, and
+        // the second entry is the real one.
+        $surfaces['operate patch (preview)'] = fn(int $post_id) => pp_patch_composition($post_id, 'hero.title', 'x', /* preview */ true);
+        $surfaces['operate patch (mutating)'] = fn(int $post_id) => pp_patch_composition($post_id, 'hero.title', 'x', /* preview */ false);
+        return $surfaces;
+    }
+
+    /**
+     * THE FIX (#748), pinned per surface and per class.
+     *
+     * Before this, the gate read through pp_get_composition(), which degrades an unreadable
+     * row to [], so all six surfaces answered "post N has none yet. Populate it first with
+     * update_composition" on a page that HAS a composition it cannot read. That sentence is
+     * an instruction to destroy the recoverable bytes — the same wrong conclusion #725
+     * removed from inspect-composition, reached through a different door.
+     *
+     * Both corruption classes are asserted because the classification is the one part of
+     * the sentence that varies, and pinning one of two leaves half the branch unguarded.
+     */
+    public function testEveryGatedSurfaceNamesTheCorruptionInsteadOfCallingThePageEmpty(): void
+    {
+        $seeds = [
+            'unexpected_shape' => function (int $post_id): void { pp_update_composition($post_id, $this->objectShapedPayload()); },
+            'decode_error'     => function (int $post_id): void { update_post_meta($post_id, '_pp_composition', '{"component":'); },
+        ];
+
+        foreach ($seeds as $classification => $seed) {
+            foreach ($this->compositionGatedSurfaces() as $surface => $call) {
+                $post_id = pp_create_page("Corrupt for {$surface} ({$classification})", 'draft');
+                $seed($post_id);
+                $this->assertSame($classification, pp_get_composition_result($post_id)['error'], 'premise');
+                $bytes_before = get_post_meta($post_id, '_pp_composition', true);
+
+                $result = $call($post_id);
+
+                $this->assertSame($bytes_before, get_post_meta($post_id, '_pp_composition', true),
+                    "$surface must fail CLOSED — the only copy of those bytes is still on the page");
+
+                $this->assertInstanceOf(WP_Error::class, $result, "$surface must still refuse a corrupt page");
+                $this->assertSame('composition_required', $result->get_error_code(),
+                    "$surface keeps the documented code — #748 is message-level");
+                $message = $result->get_error_message();
+                $this->assertStringContainsString(
+                    pp_composition_integrity_message($post_id, $classification),
+                    $message,
+                    "$surface must say it in the one shared sentence, not a seventh spelling"
+                );
+                $this->assertStringContainsString('treat as corrupted, not empty', $message);
+                $this->assertStringNotContainsString('has none yet', $message,
+                    "$surface must not call an unreadable page empty");
+                $this->assertStringNotContainsString('Populate it first', $message,
+                    'populating over recoverable bytes is exactly what this refusal must not invite');
+                $this->assertStringContainsString("wp pp check page --post_id={$post_id}", $message,
+                    'the breadcrumb names the actual page, so it is pasteable');
+            }
+        }
+    }
+
+    /**
+     * The other half of the distinction, on the same six surfaces: a page that really is
+     * blank keeps the sentence it has always had, byte for byte. "Empty" is reserved for
+     * empty (#748 ruling), which is only a rule if the empty case is pinned too.
+     */
+    public function testEveryGatedSurfaceStillSaysHasNoneYetOnAGenuinelyBlankPage(): void
+    {
+        // All THREE ways a page is legitimately empty, not just the absent-meta one a
+        // fresh create_page produces: the classifier treats absent, empty-string and a
+        // stored empty list alike, so each must stay on the blank branch. Any of them
+        // sliding onto the corrupt branch would be this fix telling an operator their
+        // untouched new page is damaged.
+        $blank_states = [
+            'absent meta'  => function (int $post_id): void {},
+            'empty string' => function (int $post_id): void { update_post_meta($post_id, '_pp_composition', ''); },
+            'stored []'    => function (int $post_id): void { pp_update_composition($post_id, []); },
+        ];
+
+        foreach ($blank_states as $state => $seed) {
+            foreach ($this->compositionGatedSurfaces() as $surface => $call) {
+                $post_id = pp_create_page("Blank for {$surface} ({$state})", 'draft');
+                $seed($post_id);
+                $stored = pp_get_composition_result($post_id);
+                $this->assertTrue($stored['ok'], "premise: {$state} is not a corrupt state");
+                $this->assertSame([], $stored['composition'], 'premise');
+
+                $result = $call($post_id);
+
+                $this->assertInstanceOf(WP_Error::class, $result, "$surface must still refuse a blank page");
+                $this->assertSame('composition_required', $result->get_error_code());
+                $this->assertStringContainsString('has none yet', $result->get_error_message(),
+                    "$surface must not start reporting a blank page ({$state}) as corrupt");
+                $this->assertStringNotContainsString('integrity error', $result->get_error_message());
+            }
+        }
+    }
+
+    public function testTheBlankRefusalsWordingIsUnchangedToTheByte(): void
+    {
+        // The shipped sentence, pinned as a literal. The corrupt branch was added beside
+        // it, not in front of it — a refactor that "tidies" the two into one builder would
+        // otherwise be free to reword the case that was never broken.
+        $post_id = pp_create_page('Blank page', 'draft');
+
+        $this->assertSame(
+            'Action "update_component" operates on an existing composition, but post '
+            . $post_id . ' has none yet. Populate it first with update_composition (or restore it), then retry.',
+            pp_action_composition_precondition(pp_get_action('update_component'), $post_id)->get_error_message()
+        );
+    }
+
+    /**
+     * #767: the corrupt refusal names NO repair route, deliberately.
+     *
+     * On the CLI, "repair it with a full update_composition" is currently circular —
+     * `apply preflight` fails closed on a corrupt page while `action execute
+     * update_composition` refuses for want of preflight coverage — and that circularity is
+     * unruled. A gate that prescribes a command the operator cannot run is worse than one
+     * that prescribes none, so this surface names the classification and points at the
+     * read-only report. Pinned so the omission reads as a decision, not an oversight.
+     */
+    public function testTheCorruptRefusalPrescribesNoRepairCommand(): void
     {
         $post_id = pp_create_page('Corrupt page', 'draft');
         pp_update_composition($post_id, $this->objectShapedPayload());
 
-        $result = pp_execute_action('update_component', [
+        $message = pp_action_composition_precondition(pp_get_action('update_component'), $post_id)->get_error_message();
+
+        $this->assertStringNotContainsString('update_composition', $message,
+            '#767: the CLI route to that write is gated behind a preflight this page cannot pass');
+        $this->assertStringNotContainsString('restore_composition', $message);
+    }
+
+    /**
+     * WHICH inputs open the gate is unchanged — the whole point of a message-level fix.
+     *
+     * Asserted as an equivalence against the OLD predicate expression rather than as four
+     * hand-written expectations, because the claim being made is "same predicate, better
+     * sentence" and that is what an equivalence test says.
+     */
+    public function testTheGateOpensAndClosesOnExactlyTheSameInputsAsBefore(): void
+    {
+        // Each row carries BOTH its premise and the answer expected of it. The equivalence
+        // alone would be self-satisfying: the old predicate reads the same accessor the new
+        // one does, so a seed that silently failed to land makes both sides agree on the
+        // WRONG state and the row passes green. Only the 'healthy' row asserts the gate
+        // OPENS at all, which is exactly the row a dropped seed would neutralise.
+        $states = [
+            // state              seed                                                                                   classification      gate opens?
+            'blank'            => [function (int $post_id): void {},                                                       null,               false],
+            'unexpected_shape' => [function (int $post_id): void { pp_update_composition($post_id, $this->objectShapedPayload()); }, 'unexpected_shape', false],
+            'decode_error'     => [function (int $post_id): void { update_post_meta($post_id, '_pp_composition', '{"component":'); }, 'decode_error',     false],
+            'healthy'          => [function (int $post_id): void { pp_update_composition($post_id, $this->fiveBands()); },  null,               true],
+        ];
+
+        foreach ($states as $state => [$seed, $classification, $opens]) {
+            $post_id = pp_create_page("Gate {$state}", 'draft');
+            $seed($post_id);
+
+            $stored = pp_get_composition_result($post_id);
+            $this->assertSame($classification, $stored['error'], "premise: {$state} seeded the state it claims");
+            $this->assertSame($state === 'healthy', $stored['composition'] !== [], "premise: {$state} has content only when it should");
+
+            $legacy = !empty(pp_get_composition($post_id)); // the pre-#748 predicate, verbatim
+            $gate   = pp_action_composition_precondition(pp_get_action('update_component'), $post_id);
+
+            $this->assertSame($opens, $gate === true, "the gate must be " . ($opens ? 'OPEN' : 'CLOSED') . " for {$state}");
+            $this->assertSame($legacy, $gate === true, "the gate must open for {$state} exactly as it did before");
+        }
+    }
+
+    /**
+     * Section 14.1 (authoring path): the refusal an agent actually meets, through
+     * pp_execute_action() — the entry point the in-admin chat AJAX and the batch executor
+     * both call — not the predicate in isolation. All three classes: both corruptions and
+     * the blank page, because the executor's wiring (pp_validate_action's ordering, the
+     * envelope's error/error_code mapping) is a second thing that can break, and pinning
+     * one classification through it would leave the other trusting the predicate test.
+     */
+    public function testTheRealActionSurfaceReportsBothClassesAndWritesNothing(): void
+    {
+        $post_id = pp_create_page('Corrupt page', 'draft');
+        pp_update_composition($post_id, $this->objectShapedPayload());
+        $bytes_before = get_post_meta($post_id, '_pp_composition', true);
+
+        $corrupt = pp_execute_action('update_component', [
             'post_id'         => $post_id,
             'component_index' => 0,
             'props'           => ['title' => 'Edited'],
         ]);
 
-        $this->assertFalse($result['ok']);
-        $this->assertSame('composition_required', $result['error_code'],
-            '#748: reports absent when the truth is unreadable');
-        $this->assertStringContainsString('has none yet', $result['error']);
+        $this->assertFalse($corrupt['ok']);
+        $this->assertSame('composition_required', $corrupt['error_code'],
+            'the envelope keeps the machine-readable code these six surfaces have always returned');
+        $this->assertStringContainsString('integrity error (unexpected_shape)', $corrupt['error']);
+        $this->assertStringNotContainsString('has none yet', $corrupt['error']);
 
-        // Fails CLOSED: the recoverable bytes are still there for #725 to report on.
+        // Fails CLOSED, byte for byte: the recoverable bytes #725 reports on are still there.
+        $this->assertSame($bytes_before, get_post_meta($post_id, '_pp_composition', true));
         $this->assertSame('unexpected_shape', pp_get_composition_result($post_id)['error']);
+
+        // The undecodable class through the same surface. Its own call, not a second
+        // assertion on the first: the classification is chosen inside the accessor and
+        // carried through two layers of wiring, so a decode_error that never traverses the
+        // executor is pinned only where it was produced.
+        $undecodable_id = pp_create_page('Undecodable page', 'draft');
+        update_post_meta($undecodable_id, '_pp_composition', '{"component":');
+        $undecodable_bytes = get_post_meta($undecodable_id, '_pp_composition', true);
+
+        $undecodable = pp_execute_action('style_component', [
+            'post_id'         => $undecodable_id,
+            'component_index' => 0,
+            'style'           => ['bg' => 'surface'],
+        ]);
+
+        $this->assertFalse($undecodable['ok']);
+        $this->assertSame('composition_required', $undecodable['error_code']);
+        $this->assertStringContainsString('integrity error (decode_error)', $undecodable['error']);
+        $this->assertStringNotContainsString('has none yet', $undecodable['error']);
+        $this->assertSame($undecodable_bytes, get_post_meta($undecodable_id, '_pp_composition', true));
+
+        // The blank counterpart through the same surface, unchanged by this issue.
+        $blank_id = pp_create_page('Blank page', 'draft');
+        $blank = pp_execute_action('add_component', [
+            'post_id'   => $blank_id,
+            'component' => 'hero',
+            'props'     => ['title' => 'Should be rejected'],
+        ]);
+
+        $this->assertFalse($blank['ok']);
+        $this->assertSame('composition_required', $blank['error_code']);
+        $this->assertStringContainsString('has none yet', $blank['error']);
+        // Asserted on the RAW meta, not through pp_get_composition(): that accessor is the
+        // one this whole issue exists to stop trusting, and it answers [] for a corrupt row
+        // too — so it would have called a rejected write that stored an object "clean".
+        $this->assertSame('', get_post_meta($blank_id, '_pp_composition', true),
+            'the rejected action wrote no first component');
+        $this->assertTrue(pp_get_composition_result($blank_id)['ok']);
+    }
+
+    public function testAHealthyPageStillClearsTheGateOnEverySurface(): void
+    {
+        $post_id = pp_create_page('Healthy page', 'draft');
+        // ONE band, not fiveBands(): the patch selector below must resolve to a single
+        // component or it fails with multiple_components AFTER the gate — which would pass
+        // this test for the wrong reason.
+        pp_update_composition($post_id, [['component' => 'hero', 'props' => ['id' => 'band-1', 'title' => 'One']]]);
+
+        foreach (['add_component', 'remove_component', 'reorder_components', 'update_component', 'style_component'] as $name) {
+            $this->assertTrue(
+                pp_action_composition_precondition(pp_get_action($name), $post_id),
+                "$name must still clear the gate on a readable, non-empty composition"
+            );
+        }
+        // The patch surface reaches its preview instead of the gate's refusal.
+        $patched = pp_patch_composition($post_id, 'hero.title', 'Edited', /* preview */ true);
+        $this->assertIsArray($patched, is_wp_error($patched) ? $patched->get_error_message() : '');
     }
 
     public function testTheFindingsReportSkipsAdvisoriesForANonListContainer(): void

@@ -135,7 +135,11 @@ function pp_validate_action(string $name, array $params) {
     // page with error_code 'composition_required'; populate/lifecycle/metadata
     // actions opt out via requires_composition => false; site-scoped actions
     // (no post_id) are a no-op. Declarative + fail-closed; the single predicate
-    // lives in pp_action_composition_precondition() (lib/operate.php).
+    // lives in pp_action_composition_precondition() (lib/operate.php). Since #748
+    // that predicate distinguishes the two states behind one code: a genuinely
+    // blank page keeps "has none yet", while an UNREADABLE one is reported with
+    // the shared integrity sentence naming unexpected_shape / decode_error —
+    // "empty" is reserved for a page that really is.
     //
     // Gated on the page EXISTING: a nonexistent (or non-page) post is the
     // action's own not_found / not_a_page case, emitted by the semantic validate

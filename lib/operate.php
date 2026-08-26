@@ -383,6 +383,64 @@ function pp_inspect_site(?int $post_id = null): array {
  * Site-scoped actions carry no post_id and are not composition-targeted; this is a
  * no-op for them ($post_id === null → true).
  *
+ * A CORRUPT PAGE IS NOT AN EMPTY ONE (#748). This gate used to read through
+ * pp_get_composition(), which degrades an unreadable stored row to `[]` (lib/wp.php),
+ * so all SIX surfaces it guards — add_component, remove_component, reorder_components,
+ * update_component, style_component (via pp_validate_action, lib/actions.php) and
+ * `wp pp operate patch` (via pp_patch_composition() below) — told the caller the page
+ * "has none yet. Populate it first with update_composition". False for a page whose
+ * `_pp_composition` decodes to a JSON object or does not decode at all: it HAS a
+ * composition, and an agent that believes the page is blank authors over the
+ * recoverable bytes. Exactly the wrong conclusion #725 removed from the read path,
+ * reached through a different door.
+ *
+ * It now reads through pp_get_composition_result(), the single decode+classify owner,
+ * and says which of the two states it found, in the vocabulary every other surface
+ * already uses (#650/#652: one state, one noun set):
+ *
+ *   stored value                     gate    message
+ *   ───────────────────────────────  ──────  ────────────────────────────────────────
+ *   non-empty valid list             OPEN    —
+ *   absent / blank / `[]`            CLOSED  "has none yet. Populate it first ..."
+ *   object, scalar, undecodable      CLOSED  the shared integrity sentence, naming
+ *                                            `unexpected_shape` / `decode_error`
+ *
+ * WHICH INPUTS OPEN THE GATE IS UNCHANGED, by construction rather than by care:
+ * pp_get_composition() IS `pp_get_composition_result($post_id)['composition']`
+ * (lib/wp.php), and a `!ok` classification always carries `composition => []`, so the
+ * old `!empty(pp_get_composition(...))` test and the new one are the same predicate on
+ * every input. This issue changes what the refusal SAYS, never when it fires — the
+ * fail-closed contract of #358/#387 is untouched and pinned as such.
+ *
+ * The error CODE stays `composition_required` on both closed branches. The ruling on
+ * #748 is message-level; `error_code` is documented machine-facing surface for these six
+ * actions (AI_CONTEXT.md), and a caller keying on it must not have to relearn the gate to
+ * read a better sentence. The classification travels in the message, where the shared
+ * builder owns its spelling. (Deliberate divergence from #749's batch refusal, which
+ * returns the classification AS its code — that surface had no prior code to preserve.)
+ *
+ * THE MESSAGE PRESCRIBES NO REPAIR ROUTE, and that omission is deliberate (#767): on the
+ * CLI, "repair it with a full update_composition" is currently circular — `apply preflight`
+ * fails closed on a corrupt page while `action execute update_composition` refuses for
+ * want of preflight coverage. Until that is ruled, this gate names the classification and
+ * nothing else. Naming a route that does not run is worse than naming none.
+ *
+ * AND THE BREADCRUMB PROMISES ONLY WHAT IT DELIVERS. On this state `wp pp check page`
+ * prints THIS SAME SENTENCE and returns (lib/cli.php) — there is no fuller report to send
+ * anyone to, because no surface can list the bands of a composition that will not parse.
+ * So the tail says the command "reports the same classification against the stored page",
+ * which is what an operator gets: independent confirmation against stored bytes, not more
+ * detail. An earlier draft said "for the full report" and was a tautology dressed as a
+ * next step.
+ *
+ * KNOWN DIVERGENCE, recorded rather than quietly lived with: `pp_inspect_composition()`
+ * (#725, below in this file) still ends its report on the same state with "Repair the page
+ * with a full update_composition write ... or restore_composition". That is the route #767
+ * measured as circular from the CLI. The two surfaces therefore differ on what to DO — not
+ * on what the state IS, which is the vocabulary #650/#652 cares about and which both take
+ * from pp_composition_integrity_message(). Reconciling the advice belongs to #767's ruling,
+ * not to this gate.
+ *
  * @param array    $action  The registered action definition.
  * @param int|null $post_id The target post ID (null for site-scoped actions).
  * @return true|WP_Error  WP_Error('composition_required', ...) when the gate is closed.
@@ -397,8 +455,23 @@ function pp_action_composition_precondition(array $action, ?int $post_id) {
     if (!$requires) {
         return true;
     }
-    $composition = pp_get_composition($post_id);
-    if (!empty($composition)) {
+    $stored = pp_get_composition_result($post_id);
+    if (!$stored['ok']) {
+        // Unreadable, not absent. Diagnosis from the single owner (#725), tail local
+        // because only the tail is specific to "the action you asked for was refused".
+        return new WP_Error(
+            'composition_required',
+            pp_composition_integrity_message($post_id, $stored['error'])
+            . sprintf(
+                ' Action "%s" operates on an existing composition, so it was refused and'
+                . ' the stored bytes were left untouched. `wp pp check page --post_id=%d`'
+                . ' reports the same classification against the stored page.',
+                $action['name'] ?? '?',
+                $post_id
+            )
+        );
+    }
+    if (!empty($stored['composition'])) {
         return true;
     }
     return new WP_Error(
@@ -2514,7 +2587,7 @@ function pp_component_schema_report(string $component): array|WP_Error {
  * a chat-surface call rather than a read-path one. Filed rather than assumed fixed.
  *
  * The message is the shared integrity sentence plus this surface's own next action. The
- * diagnosis is single-owned (pp_composition_integrity_message) so a fourth spelling of
+ * diagnosis is single-owned (pp_composition_integrity_message) so a new spelling of
  * one state cannot appear here; the repair tail is local because it is the only part that
  * is specific to "you were trying to edit this page".
  *
