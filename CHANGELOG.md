@@ -4,6 +4,45 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.16.10] — 2026-08-26 — A declared list or object may no longer hold a scalar (#744)
+
+**A `grid` card whose `bullets` were written as a comma-joined string used to validate, persist exactly as written, and render with no checklist at all. So did a card or panel row whose `style` was written as `"dark"` instead of a slot map. The write path now refuses both, at both depths, naming the band, the prop, the item and the field.**
+
+The composition validator has rejected a scalar where a top-level array belongs since #507. The nested `items[]` field walk never asked the question: its `item_type: "string"` rule is gated on `is_array()`, so a scalar field never enters the loop, and the #614 declared-type rule fenced itself to `string` and `number`. So the two depths disagreed about what `type: "array"` means, and a field one level down could hold anything. That is the same asymmetry #614 closed for `image_id` and #707 closed for `image_url`, one type over — and it was already documented as a known hole in a comment above the rules it slipped past. This closes it under the same D-A ruling those two carried: **reject, never coerce.** Nothing is wrapped in a one-element array at write, and nothing stored is migrated.
+
+### Fixed
+
+- **`_pp_schema_container_value_is_valid()`** (`lib/admin.php`) — a new shared predicate beside `_pp_schema_scalar_value_is_valid()` and `_pp_schema_enum_value_is_valid()`, giving `array` and `object` ONE definition that both depths call. `null` and `''` stay the unset sentinels, matching the top-level rule it was extracted from; an empty container is accepted because it is a container.
+- **The nested `items[]` walk gained RULE 6** — a field declaring `array` or `object` and handed a present scalar is rejected with `invalid_prop_value`: `Component "grid" prop "items" item 0 field "bullets" must be an array; got string.` The message names the SHAPE, not the value, matching what the top level says for the same defect and what #707 settled for the `string` leg.
+- **Complete inventory covered, both depths.** Nested: `grid.items[].bullets` (`array`), `grid.items[].style` and `section.panel_items[].style` (`object`) — the only three nested container declarations in the registry. Top level: the 9 `type: "array"` props (`faq.items`, `grid.items`, `logos.items`, `section.body_items`, `section.panel_items`, `stats.items`, `table.headers`, `table.rows`, `testimonials.items`), whose inline test moved into the shared predicate with identical semantics.
+- **The top-level pass gained an `object` arm** — forward-looking: no shipped schema declares a top-level `object` prop, and leaving that depth unenforced is exactly how this defect was created. Pinned through a synthetic component fixture rather than left as unreachable code.
+- **Stale inline comments corrected** — the rule list above the nested walk described this hole as open, the RULE 3 comment called the container types "nobody's", six comments still counted four or five rules, and the per-item style engine called RULE 6's claim-collision hazard hypothetical when it is now real.
+
+### ⚠️ Breaking (write acceptance narrows)
+
+- A write that stored a scalar into a declared list or object field is now **refused**. Before: `create_page` with `"bullets": "Fast, honest"` returned `ok:true`, stored the string, reported no finding, and rendered a card with no bullets. After: `ok:false` with `invalid_prop_value` naming the band, prop, item and field.
+- **⚠️ The accordion editor cannot save or preview a page that uses `grid.items[].bullets` or a per-item `style` until #805 lands.** This is a consequence this release makes visible, and it is stated plainly rather than discovered: `assets/js/pp-admin-editor.js` builds every `items[]` row sub-key as a text control whatever the schema declares, so one accordion sync turns `bullets: ["a","b"]` into `"a,b"` and `style: {...}` into `"[object Object]"`. Both the AJAX save and the AJAX preview validate, so both now refuse that payload, and the in-editor invariant notice is deliberately silent for this class. **The JSON view is the working route** — edit those pages there. Note what the refusal buys: the old sync SILENTLY DESTROYED those bullets, storing `"a,b"` that rendered nothing. The write is now blocked instead of lossy, and your data survives. #805 fixes the control itself.
+- **Stored values are not migrated and are not repaired** — they keep rendering exactly as they do today (as nothing), because the render-side `is_array()` guards are untouched. What changes is that whole-composition validation refuses to save over a page that still holds one, so a stale band blocks edits to unrelated bands until it is repaired. `wp pp check page --post_id=N` lists every offender; repair them in one `update_composition`, or delete the band with `remove_component`. `restore_composition` still restores verbatim and reports rather than blocks (#233), so undo never fails.
+- Migration: rewrite the value as a real container — `"bullets": ["Fast", "Honest"]`, `"style": {"--grid-item-bg": "#111111"}`.
+
+### Scope boundaries
+
+- `type: "number"` still accepts a numeric string. Deliberate (#707), untouched (#769).
+- A JSON LIST in an `object` field still satisfies this rule, which decides "container, not scalar" and nothing about what a container may hold. It is still refused end to end by the style-slot engine (`invalid_style_slot`, naming slot `"0"`).
+- The editor's read-side handling of a stored scalar (#805) is untouched: a write-path fix cannot repair stored damage and does not claim to.
+
+### Docs
+
+- `lib/ai-context.php`, `ai-instructions/composition.md`, `ai-instructions/validate-site.md`, `ai-instructions/add-component.md`, `AI_CONTEXT.md` and `docs/reference-apply-cli.md` now state the container half of the declared-type rule. Two of them said the opposite of what now ships.
+- The `validate-site` repair guidance was split by type: a text prop wants the value QUOTED, a container prop wants it rewritten as an array/object. Quoting is the shape being refused there, so the old single instruction would have sent an authoring agent into a repair loop.
+
+### Tests
+
+- `tests/ContainerPropWriteEnforcementTest.php` (new) — the predicate and its not-applicable contract; schema-driven walks asserting the complete shipped INVENTORY at both depths, each driving every non-container scalar (a string-only walk left an `is_string()`-narrowed arm green under mutation); the authoring path through `create_page` / `update_composition` / `update_component` / `add_component` with nothing persisted on rejection; the accept side including a style map decoded from real JSON and the `null` / `''` / empty-container sentinels; the top-level `object` arm through a synthetic component with a swapped template root; and the boundaries — `restore_composition` verbatim plus reporting, findings naming every offending field, a scalar `style` not suppressing a sibling card's slot finding, both repair routes, and a stored scalar still rendering as nothing.
+- `tests/SchemaValidationTest.php` — `schemaPlaceholderValue()` gained an `object` leg. FLIPPED: it fell through to the string `'x'`, so the every-component acceptance walk was asserting that a STRING in `grid.items[].style` validates. It no longer does.
+
+---
+
 ## [v1.16.9] — 2026-08-25 — The accordion editor stops turning a dead button into a live link to /false (#745)
 
 **Open an aged page in the accordion editor, type one character in any field of any band, and a stored `section.panel_cta_url: false` — a dead button with an empty href — became the STRING `"false"`, a live link to a page that does not exist, on a band you never opened. The editor now refuses to open a composition that stores a non-string under a prop declaring `type: "string"`, and names the offending path so you can fix the real value in the JSON view. Other values the controls cannot round-trip are NOT covered — see the scope section below for where each one is tracked.**
