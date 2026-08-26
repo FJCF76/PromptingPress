@@ -1094,6 +1094,94 @@ function _pp_schema_scalar_value_is_valid($declared_type, $value): bool {
 }
 
 /**
+ * True when $value satisfies a declared CONTAINER schema `type` — `array` or
+ * `object` (issue #744).
+ *
+ * The third sibling of _pp_schema_scalar_value_is_valid() and
+ * _pp_schema_enum_value_is_valid(), and it exists for the same reason they do:
+ * ONE definition of what a declared type accepts, called from the two depths that
+ * need it — the #507 generic TOP-LEVEL prop pass and the #579 A-27 NESTED items[]
+ * field pass — so the two cannot drift apart about whether `bullets: "text"` is a
+ * list. The rule was INLINE in the top-level pass while the nested depth had no
+ * container rule at all, and that is exactly the drift this closes: a nested field
+ * declaring `type: "array"` and handed a SCALAR was accepted by every one of the
+ * five nested rules (RULE 2 walks a bullets array's ENTRIES and never enters on a
+ * scalar; RULE 3's fence was scalar types only), so `grid.items[].bullets: "Fast,
+ * cheap"` returned ok:true, persisted RAW, and rendered NOTHING —
+ * components/grid/grid.php reads it through `is_array(...) ? ... : []`. The author
+ * asked for a checklist, was told it worked, and got a card with no checklist: the
+ * reported-success-without-effect class, same as #614 and #707 one type over.
+ *
+ *     type      unset sentinel (always valid)   accepted            rejected
+ *     ────────  ──────────────────────────────  ──────────────────  ─────────────────
+ *     array     null, ''                        is_array()          every other scalar
+ *     object    null, ''                        is_array()          every other scalar
+ *     (other)   —                               everything          —
+ *
+ * `[]` needs no sentinel row: it IS an array, so it is accepted by the test itself.
+ * The top-level rule this was extracted from spelled `$value !== []` out anyway; the
+ * clause was redundant with `!is_array($value)` and is not carried forward.
+ *
+ * THE TWO TYPES SHARE ONE ANSWER because PHP has one shape for both: a JSON list and
+ * a JSON object both decode to a PHP array under `json_decode($json, true)`. So what
+ * this predicate actually decides is "container or scalar?", and the error text
+ * ("must be an array" / "must be an object") is NARROWER than what is enforced by
+ * exactly one thing: a JSON LIST handed to an `object` field still passes here. That
+ * is deliberate, not an oversight. This rule applies the D-A reject-never-coerce
+ * ruling (canonical text in #724's body) to the declared CONTAINER types — a scalar
+ * is not a container — and it decides nothing about what a container may HOLD.
+ * Map-vs-list and the contents of an item `style` object remain nobody's rule, the
+ * same "no decision exists" the RULE 3 comment records; the entry-shape question one
+ * level up is owned by `item_type: "object"` (_pp_entry_is_object_shape), which is a
+ * different rule with a different message. Widening this one to reject a list would
+ * be a new narrowing on a shape no test has measured, not the one that was ruled on.
+ *
+ * AND IT DOES NOT LEAVE THE LIST CASE UNGUARDED, which is why "container, not scalar"
+ * is enough here. Both shipped `object` declarations are per-item style maps, and a
+ * LIST reaching one is already refused a few rules later by the shared style-slot
+ * engine, which reads its keys as slot names: `style: ["#fff"]` returns
+ * `invalid_style_slot` — `item 0 has no style slot "0". Available slots: ...` —
+ * naming the card and listing what it accepts. So the authoring contract an operator
+ * reads ("a per-item style takes a JSON object") holds end to end; it is just
+ * enforced by the rule that owns style slots rather than by this one.
+ *
+ * The unset sentinels are the same two the top-level array rule already used, kept
+ * BECAUSE they are the same: every action validates the WHOLE composition, so a rule
+ * that rejected a blank would block edits to unrelated bands on the same page, and a
+ * nested sentinel that disagreed with the top-level one would re-open the drift this
+ * predicate closes. They are also an accepted limitation, stated plainly: `bullets:
+ * ""` is still accepted and still renders nothing. It is the shape that keeps an
+ * omitted value on the prop's declared default, it is what `null` means everywhere
+ * else in this family, and narrowing it is a different ruling than #744's.
+ *
+ * WHAT THIS DOES NOT DO: nothing is coerced (a scalar is never wrapped in an array)
+ * and nothing stored is migrated. The render-side `is_array()` guards in
+ * `components/*.php` stay exactly as they are — they cover what a write gate cannot
+ * reach (pre-rule compositions, `restore_composition`, raw `_pp_composition` meta
+ * writes), and a stored scalar keeps rendering as an empty list rather than fataling
+ * a public page. This closes the front door; it does not repair what is already
+ * inside (#805 records the editor's read-side handling of exactly that).
+ *
+ * Returns true for every other declared type — the same not-applicable contract both
+ * sibling predicates carry, so a caller may hand it any declaration it walks. Be
+ * precise about what that buys today: all three call sites DO pre-classify (the two
+ * top-level arms sit inside the `elseif ($declared_type === ...)` chain, RULE 6 gates
+ * on `$field_type === 'array' || 'object'`), so the fall-through is not load-bearing
+ * in production. It keeps the predicate total for direct tests, and it means a schema
+ * that one day declares a type outside the closed six-name set no-ops here instead of
+ * throwing — which is the behaviour a not-applicable answer should have.
+ *
+ * @param string|null $declared_type The schema `type` value, or null when undeclared.
+ * @param mixed       $value         Raw authored value.
+ */
+function _pp_schema_container_value_is_valid($declared_type, $value): bool {
+    if ($declared_type === 'array' || $declared_type === 'object') {
+        return $value === null || $value === '' || is_array($value);
+    }
+    return true;
+}
+
+/**
  * True when $value satisfies a declared STRICT enum definition (issues 380/#579 at
  * the top level, extended to nested items[] fields by #600).
  *
@@ -2222,7 +2310,14 @@ function pp_validate_composition_errors(array $items, ?int $limit = null): array
                     // Reject scalars where an array belongs. null/''/[] are the unset
                     // sentinel (an empty row renders nothing). A present scalar is the
                     // silent-wrong case the renderer's is_array() guards swallow.
-                    if ($value !== null && $value !== '' && $value !== [] && !is_array($value)) {
+                    //
+                    // The test moved into _pp_schema_container_value_is_valid() in #744
+                    // and is otherwise unchanged (the old `$value !== []` clause was
+                    // redundant with `!is_array($value)`). It moved for the reason #614
+                    // moved the scalar test: the NESTED items[] pass needed the same
+                    // answer one level down, and a second copy is exactly how two depths
+                    // start disagreeing about whether `bullets: "text"` is a list.
+                    if (!_pp_schema_container_value_is_valid($declared_type, $value)) {
                         if (_pp_claim_item_finding($sink, 'prop', $prop_name)) {
                             $errors[] = _pp_composition_item_error($i,
                                 'invalid_prop_value',
@@ -2297,14 +2392,48 @@ function pp_validate_composition_errors(array $items, ?int $limit = null): array
                             }
                         }
                     }
+                } elseif ($declared_type === 'object') {
+                    // Reject scalars where an object belongs (#744), through the same
+                    // predicate and with the same sentinels as the `array` arm above —
+                    // the two types have one answer because a JSON list and a JSON
+                    // object both decode to a PHP array, so what is actually enforced
+                    // is "container, not scalar". What a container may HOLD is not
+                    // decided here; see the predicate's docblock.
+                    //
+                    // NO SHIPPED SCHEMA DECLARES A TOP-LEVEL `object` PROP TODAY. Both
+                    // `object` declarations in the registry (grid.items[].style and
+                    // section.panel_items[].style) are NESTED fields, handled by RULE 6
+                    // below. This arm is deliberately built anyway, and #744 is the
+                    // argument for building it: that issue exists because one depth
+                    // enforced a declared type and the other did not, and the cheap
+                    // moment to close a fence is before something lands on it, not
+                    // after. It is pinned by a SYNTHETIC component fixture rather than
+                    // by a shipped schema — see ContainerPropWriteEnforcementTest —
+                    // because an unreachable arm that no test can enter is how a fence
+                    // silently stops being one.
+                    if (!_pp_schema_container_value_is_valid($declared_type, $value)) {
+                        if (_pp_claim_item_finding($sink, 'prop', $prop_name)) {
+                            $errors[] = _pp_composition_item_error($i,
+                                'invalid_prop_value',
+                                sprintf(
+                                    'Component "%s" prop "%s" must be an object; got %s.',
+                                    $name,
+                                    $prop_name,
+                                    gettype($value)
+                                )
+                            );
+                        }
+                        continue;
+                    }
                 }
             }
         }
 
-        // NESTED item-field contracts (issue #579 A-27, extended by #614, #600 and #643).
-        // The families above walk TOP-LEVEL props only, so FOUR schema annotations
+        // NESTED item-field contracts (issue #579 A-27, extended by #614, #600, #643 and #744).
+        // The families above walk TOP-LEVEL props only, so FIVE schema annotations
         // one level down were DECLARED and enforced by NOTHING. Rules 1 and 2 came
-        // with #579; RULE 3 is #614 and RULE 4 is #600, and both are marked inline
+        // with #579; RULE 3 is #614, RULE 6 is #744 and sits between RULE 3 and RULE 4
+        // because it finishes RULE 3's job, and RULE 4 is #600 — all are marked inline
         // where they sit, between them. RULE 5 (#643) is the one rule here that is
         // NOT a declaration going unenforced: it walks the other direction — the
         // entry's OWN keys against the declared set — and closes the last silent
@@ -2329,11 +2458,7 @@ function pp_validate_composition_errors(array $items, ?int $limit = null): array
         //      array of objects/numbers reached the renderer, which escapes each entry
         //      and prints "Array".
         //   3. the field's own scalar `type` — `string` or `number` (#614). See the
-        //      RULE 3 comment inline below for the defect it closes and for the one
-        //      nested type it still leaves alone (`object`, which nothing has
-        //      specified). A nested `array` field handed a SCALAR is also still
-        //      accepted: rule 2 walks a bullets array's ENTRIES and never the field
-        //      itself, and rule 3's fence is scalar types only.
+        //      RULE 3 comment inline below for the defect it closes.
         //   4. a nested `enum` field's STRICT membership (#600) — declared on
         //      grid.items[].text_role, the only nested enum in the shipped schemas
         //      today. Same rule the top-level block above applies, sharing the same
@@ -2341,16 +2466,27 @@ function pp_validate_composition_errors(array $items, ?int $limit = null): array
         //   5. a key the field map does NOT declare (#643) — the #147 top-level
         //      `unknown_prop` gate's semantics one level down. See the RULE 5 comment
         //      inline below for the defect it closes and for its two guards.
+        //   6. the field's own CONTAINER `type` — `array` or `object` (#744), the
+        //      other half of the declared-type job RULE 3 does for scalars, which is
+        //      why it sits beside RULE 3 rather than at the end. Declared on THREE
+        //      fields today: grid.items[].bullets (`array`), grid.items[].style and
+        //      section.panel_items[].style (`object`). Until #744 a scalar in any of
+        //      them was accepted by all five rules above — rule 2 walks a bullets
+        //      array's ENTRIES and a scalar never enters the loop, and rule 3's fence
+        //      was scalar types only — so the two DEPTHS disagreed about what
+        //      `type: "array"` means, exactly the asymmetry #614 closed for `string`
+        //      and `number`. The predicate is shared with the top-level pass for that
+        //      reason. See the RULE 6 comment inline below.
         //
         // Enforced HERE, in the shared validator — no second validator, no
         // per-component branch. Walked at the SAME one-items-level depth as the #154
         // media-URL and #507 link_url families.
         //
-        // ALL FIVE RULES READ A FIELD MAP, never the JSON-Schema-ish scalar `items`
+        // EVERY RULE HERE READS A FIELD MAP, never the JSON-Schema-ish scalar `items`
         // form (`bullets.items => {"type": "string"}`) — the is_array($field_def)
         // guard below is what separates them, so an `items` declaration that is a
         // value grammar rather than a map of fields is untouched by every rule here.
-        // Rules 1-4 apply that guard per field as they iterate the declarations;
+        // Every rule but 5 applies that guard per field as it iterates the declarations;
         // rule 5 iterates the ENTRY instead, so it reads the same predicate applied
         // to the whole map ($declared_fields, hoisted below) — one definition of
         // "is this a field map?", never two.
@@ -2376,7 +2512,7 @@ function pp_validate_composition_errors(array $items, ?int $limit = null): array
                     continue; // absent / scalar — the type pass above owns that error
                 }
                 // THE EFFECTIVE DECLARED-FIELD SET, hoisted per prop for RULE 5 (#643).
-                // Rules 1-4 iterate the DECLARATIONS, so each can ask `is_array($field_def)`
+                // Rules 1-4 and 6 iterate the DECLARATIONS, so each can ask `is_array($field_def)`
                 // one field at a time — the guard that separates a FIELD MAP from the
                 // JSON-Schema-ish scalar form. Rule 5 iterates the ENTRY's own keys instead,
                 // so it needs the whole set up front: both to decide whether this `items` is
@@ -2391,7 +2527,7 @@ function pp_validate_composition_errors(array $items, ?int $limit = null): array
                 // `{"type": "string", "values": ["a","b"], "strict": true}` would read as a
                 // field map holding one field named `values`, and rule 5 would then report
                 // every REAL key of every entry as undeclared against `Available fields:
-                // values` — confidently wrong, and worse than silence. Rules 1-4 survive
+                // values` — confidently wrong, and worse than silence. Rules 1-4 and 6 survive
                 // that shape by accident (they index `$field_def['required']` / `['type']`
                 // on a list, get null, and no-op), so the loose predicate only becomes
                 // consequential once a rule reads the map as a whole. No shipped schema hits
@@ -2543,11 +2679,14 @@ function pp_validate_composition_errors(array $items, ?int $limit = null): array
                         // depths too, so a nested `image_url: 42` is refused exactly
                         // where a top-level one is. Sharing the predicate is what made
                         // that a one-line narrowing instead of two rules to keep in
-                        // step. Enum fields are RULE 4's business (#600, below) and object
-                        // fields are nobody's — no decision exists on what an item
-                        // `style` object may contain. _pp_schema_scalar_value_is_valid()
-                        // returns true for both, so they fall through this rule
-                        // untouched.
+                        // step. Enum fields are RULE 4's business (#600, below) and the
+                        // container types are RULE 6's since #744 — that rule says a
+                        // declared `array`/`object` field may not hold a SCALAR, and
+                        // still says nothing about what one may CONTAIN (no decision
+                        // exists on what an item `style` object may hold).
+                        // _pp_schema_scalar_value_is_valid() returns true for every
+                        // type but these two, so they fall through this rule untouched
+                        // and are judged by the rules that own them.
                         //
                         // Same accepted cost the required rule above carries: every
                         // action validates the WHOLE composition, so a stored value
@@ -2605,6 +2744,78 @@ function pp_validate_composition_errors(array $items, ?int $limit = null): array
                             // this same field. Recount these if the nesting changes.
                             continue;
                         }
+                        // RULE 6 — the field's own declared CONTAINER type (#744).
+                        // The other half of RULE 3's job, and it sits here rather than
+                        // at the end of the loop because it answers the same question
+                        // about the same declaration: does the value match the type the
+                        // schema declares? RULE 3 answers it for `string`/`number`;
+                        // this answers it for `array`/`object`, through the sibling
+                        // predicate, SHARED with the top-level pass for exactly the
+                        // reason #614 shared the scalar one — the top level has
+                        // rejected a scalar where an array belongs since #507, this
+                        // depth accepted one until now, and two depths enforcing one
+                        // declaration differently is the defect, not the fix.
+                        //
+                        // What it caught, measured on main before the fix:
+                        // `grid.items[].bullets: "not an array"` validated, persisted
+                        // RAW and rendered NOTHING — components/grid/grid.php reads it
+                        // as `is_array($item['bullets'] ?? null) ? ... : []`. So did a
+                        // scalar `style` on a grid card or a section panel row: the
+                        // per-item slot engine below skips a non-array `style` map, and
+                        // both renderers read it through the same is_array() guard. An
+                        // author asked for a checklist or a one-card colour override,
+                        // was told ok:true, and got neither.
+                        //
+                        // ORDER AND CLAIMS. It runs BEFORE RULE 2 (the item_type:
+                        // "string" bullets loop at the end of this body), which is
+                        // gated on is_array() and so could never see a scalar anyway —
+                        // but the claim taken here is what guarantees ONE finding per
+                        // field rather than a second rule reporting the same defect in
+                        // a different vocabulary. The claim key is the same
+                        // `prop/<prop>/<entry>/<field>` shape RULES 1/3/4 use; the
+                        // per-item STYLE engine below deliberately claims a different
+                        // role segment (`item-style`), which is what keeps a rejected
+                        // scalar `style` from swallowing a slot finding — see the
+                        // comment there, which anticipated exactly this rule.
+                        //
+                        // Same accepted cost as every rule in this block: whole-
+                        // composition validation means a stored scalar blocks edits to
+                        // unrelated bands until the item is repaired through the
+                        // ordinary authoring surface. v1.13.0 no-compat posture, not a
+                        // regression — no coercion (a scalar is never wrapped in a
+                        // one-element array), no migration, and restore_composition
+                        // still reports rather than blocks (#233).
+                        if (($field_type === 'array' || $field_type === 'object')
+                            && array_key_exists($field_name, $entry)
+                            && !_pp_schema_container_value_is_valid($field_type, $entry[$field_name])
+                        ) {
+                            if (_pp_claim_item_finding($sink, 'prop', $prop_name, $entry_index, $field_name)) {
+                                // Names the SHAPE (gettype), never the value — the same
+                                // choice #707 made for the `string` leg and for the same
+                                // reason: the rejected values here are scalars, and
+                                // echoing one reads `must be an array; got "text"`,
+                                // which sends an authoring agent to re-read a value that
+                                // was never the problem. The problem is the TYPE. It is
+                                // also verbatim what the top-level arm says for the same
+                                // defect one level up, so the two depths cannot answer
+                                // in two vocabularies.
+                                $errors[] = _pp_composition_item_error($i,
+                                    'invalid_prop_value',
+                                    sprintf(
+                                        'Component "%s" prop "%s" item %s field "%s" must be %s; got %s.',
+                                        $name,
+                                        $prop_name,
+                                        _pp_item_index_label($entry_index, $entries),
+                                        $field_name,
+                                        $field_type === 'array' ? 'an array' : 'an object',
+                                        gettype($entry[$field_name])
+                                    )
+                                );
+                            }
+                            // Same depth accounting as RULE 3 above — a bare `continue`
+                            // is the next FIELD of this entry (#621).
+                            continue;
+                        }
                         // RULE 4 — the field's own STRICT enum membership (#600).
                         // The last accept-at-write / coerce-at-render surface in the
                         // composition grammar. `strict` shipped in #380 and #579 made
@@ -2659,7 +2870,7 @@ function pp_validate_composition_errors(array $items, ?int $limit = null): array
                             // is the next FIELD of this entry (#621).
                             continue;
                         }
-                        if (($field_def['type'] ?? null) === 'array'
+                        if ($field_type === 'array'
                             && ($field_def['item_type'] ?? null) === 'string'
                             && array_key_exists($field_name, $entry)
                             && is_array($entry[$field_name])
@@ -2688,7 +2899,7 @@ function pp_validate_composition_errors(array $items, ?int $limit = null): array
                         }
                     }
                     // RULE 5 — the entry's own UNDECLARED fields (#643).
-                    // Rules 1-4 walk the DECLARATIONS, so they can only ever judge a field
+                    // Rules 1-4 and 6 walk the DECLARATIONS, so they can only ever judge a field
                     // the schema names. Nothing walked the other direction, and the gap was
                     // the nearest neighbour to the defect #614 closed: #614 stops
                     // `image_id: {attachment_id: 42}` from resolving the wrong attachment,
@@ -2954,11 +3165,15 @@ function pp_validate_composition_errors(array $items, ?int $limit = null): array
                         // The ROLE segment is `item-style`, not `prop`, because `style` is
                         // a real declared items[] FIELD (grid.items, section.panel_items)
                         // and the nested-field rules claim `prop / <prop> / <entry> /
-                        // <field>`. Sharing that namespace would let a future scalar-typed
-                        // `style` field claim this card's location and silently swallow the
-                        // slot finding — a suppressed diagnostic is the one failure mode
-                        // the claim set must never cause. Role segments are rule-owned
-                        // literals, so they cannot collide with an authored name.
+                        // <field>`. THAT HAZARD IS NO LONGER HYPOTHETICAL: since #744,
+                        // RULE 6 above claims exactly `prop / <prop> / <entry> / style`
+                        // when a card's `style` is a SCALAR. Sharing one namespace would
+                        // have let that rejection swallow this card's slot finding — a
+                        // suppressed diagnostic is the one failure mode the claim set must
+                        // never cause — and the separate role is what keeps a scalar
+                        // `style` on card 0 and a dead slot on card 1 both reported. Role
+                        // segments are rule-owned literals, so they cannot collide with an
+                        // authored name.
                         if (_pp_claim_item_finding($sink, 'item-style', $prop_name, $elem_index)) {
                             $errors[] = _pp_composition_item_error($i, $style_error->get_error_code(), $style_error->get_error_message());
                         }

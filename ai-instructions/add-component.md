@@ -272,10 +272,14 @@ non-numeric `image_id` is rejected with `invalid_prop_value`. Since #707 `string
 rejected exactly like an array is, so declaring `type: "string"` on a new field buys you
 the whole contract and not just "not a container". The unset sentinels also
 match the top level (`null` for both, plus `""` for `number`), so an omitted value
-still preserves the field's default. What a nested annotation still does NOT buy you:
-`object` (nothing constrains an item `style` map's contents), and a
-field declaring `type: "array"` handed a **scalar** — `item_type` checks a nested
-array's entries, never the field itself.
+still preserves the field's default. Since #744 the same holds for the container
+types: declaring `type: "array"` or `type: "object"` on a nested field DOES reject a
+present **scalar** at the write path, through a predicate shared with the top level and
+with the same `null` / `""` sentinels. (Before #744 it bought nothing — `item_type`
+checks a nested array's entries, never the field itself.) What a nested annotation
+still does NOT buy you is any constraint on what a container HOLDS: nothing checks an
+item `style` map's contents, and a JSON *list* handed to an `object` field still
+satisfies the type rule, because PHP decodes both JSON containers to an array.
 
 **Enforcement reach:** the closed key set is a **repo-CI invariant**, not a runtime
 gate. `SchemaValidationTest` runs `pp_schema_definition_errors()` over every shipped

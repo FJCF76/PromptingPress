@@ -2145,8 +2145,7 @@ class SchemaValidationTest extends TestCase
      * A schema-type-valid placeholder for one NESTED items[] field definition (#614).
      *
      * Mirrors the top-level placeholder logic for the types that reach this depth. The
-     * default stays 'x' so a plain string field, and any type no rule enforces yet
-     * (`object`), behave exactly as before.
+     * default stays 'x', which is what a plain string field wants.
      *
      * @param mixed $def The field definition, or the JSON-Schema-ish scalar form.
      */
@@ -2164,6 +2163,18 @@ class SchemaValidationTest extends TestCase
         }
         if ($type === 'array') {
             return ['x'];
+        }
+        if ($type === 'object') {
+            // FLIPPED BY #744: an `object` field used to fall through to 'x' because
+            // nothing enforced the type, and the walk above therefore asserted that a
+            // STRING in grid.items[].style validates. It no longer does — a declared
+            // container may not hold a scalar — so the placeholder has to be a real
+            // container. The EMPTY map is the right one: it is what `{}` decodes to,
+            // it satisfies the type rule, and it needs no knowledge of which style
+            // slots the enclosing component happens to declare (a populated map would
+            // couple this generic helper to per-component slot lists, and the slot
+            // engine skips an empty style map anyway).
+            return [];
         }
         return 'x';
     }
