@@ -13,7 +13,7 @@
 [![JavaScript](https://img.shields.io/badge/JavaScript-Vanilla-F7DF1E?style=flat-square&logo=javascript&logoColor=black)](https://developer.mozilla.org/en-US/docs/Web/JavaScript)
 [![Vitest](https://img.shields.io/badge/Vitest-Tests-6E9F18?style=flat-square&logo=vitest&logoColor=white)](https://vitest.dev)
 [![Tests](https://img.shields.io/badge/Tests-passing-22C55E?style=flat-square)](tests/)
-[![Version](https://img.shields.io/badge/version-1.16.10-6366F1?style=flat-square)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.16.11-6366F1?style=flat-square)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/License-GPL--2.0-blue?style=flat-square)](LICENSE)
 
 </div>
@@ -430,7 +430,7 @@ Enforced by `AI_RULES.md` and verified by automated tests:
 composer install && composer test
 ```
 
-**JS unit tests** — JSON context, composition validator, accordion data, insert position, data-loss guard, DOM selector alignment, attribute-context escaping (rendered against the real editor), field lookup for names with selector-significant characters, form sync (falsy-value round-trip, refusal of a stored non-string under a string-declared prop, scalar-vs-array-row field resolution, pending edits across row operations and before save/publish/view-switch, array values whose stored shape the row controls cannot show), serialization invariant (deep diff + round-trip gate), CSS lint, docs lint, packaging, proposal card, guided error card, page targeting, post-apply validation, shared PHP/JS validation contract, server-driven warning lookup:
+**JS unit tests** — JSON context, composition validator, accordion data, insert position, data-loss guard, DOM selector alignment, attribute-context escaping (rendered against the real editor), field lookup for names with selector-significant characters, form sync (falsy-value round-trip, refusal of a stored non-string under a string-declared prop, scalar-vs-array-row field resolution, pending edits across row operations and before save/publish/view-switch, array values whose stored shape the row controls cannot show, row sub-fields keeping their declared type through an unrelated edit), serialization invariant (deep diff + round-trip gate), CSS lint, docs lint, packaging, proposal card, guided error card, page targeting, post-apply validation, shared PHP/JS validation contract, server-driven warning lookup:
 
 ```bash
 npm install && npm test

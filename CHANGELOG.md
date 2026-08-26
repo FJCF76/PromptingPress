@@ -4,6 +4,84 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.16.11] — 2026-08-26 — A row sub-field keeps the type its schema declares (#805)
+
+**One edit to a card's title used to flatten that card's `bullets` into `"one,two"`, stringify its `image_id`, and destroy its `style` into `"[object Object]"` — and since v1.16.10 the write path refused the first two, so a page using them could not be saved or previewed through the accordion at all. The controls now match the declared types, the accordion route is open again, and nothing is rewritten behind the author's back.**
+
+`buildArrayFieldHtml()` built EVERY `items[]` row sub-key as a text control, whatever the schema said, and `syncAccordionToJson()` read it back with `.val()`. A text control renders a list through `String()`, so `["one","two"]` became the text `one,two`; the read then took that text as the value. Nothing rescued it: the whole-field veto only fires on a contentless read, and the per-row merge treats a row carrying content as an edit. The invariant gate could not see it either — its round-trip is in-memory, and the mutation happens later, when the DOM read gives the value back.
+
+### The mechanism, and why this one
+
+The ruling offered two shapes: extend #745's refuse-at-load-into-JSON-mode idiom to this class, or teach the controls to round-trip the declared types. **This ships a hybrid, and the split falls on one question: is the stored value VALID?**
+
+`bullets: ["one","two"]` is exactly what `components/grid/schema.json` asks for. #745 routes a page to JSON-only mode because its stored value VIOLATES its declaration — aged storage, genuinely broken. Routing a correct page would have locked the accordion permanently on every page using two shipped features, to protect values that were never in danger once the control stopped destroying them. That is not honesty, it is a regression wearing honesty's clothes. So this borrows #745's REFUSAL PRINCIPLE — a control that cannot round-trip a value must never write its read back — without its whole-page routing:
+
+```
+stored bullets      what the accordion does                  why
+──────────────────  ───────────────────────────────────────  ──────────────────────
+["one","two"]       renders read-only, preserves it,         VALID. The page is fine;
+                    keeps the full accordion                 only the CONTROL was wrong
+"one,two"           refuses the whole composition into       DRIFT. The write path
+                    JSON-only mode, naming the path          refuses it too (#744)
+```
+
+### What the accordion can hold now, and what still routes to JSON
+
+- **`array` and `object` sub-keys** (`grid.items[].bullets`, `grid.items[].style`, `section.panel_items[].style`) render READ-ONLY, showing the stored value as JSON — the real value, not `one,two` or `[object Object]` — so it can be copied straight into the JSON view. A text box cannot carry a list or a map, and whatever an author typed into one would have to be guessed at.
+- **`number` sub-keys** (`grid`/`logos`/`testimonials` `items[].image_id`) keep their text box, because a text box CAN carry a number faithfully. Removing that would have been an unforced regression on three shipped components.
+- **Everything else is unchanged.** `string` and `enum` sub-keys keep exactly the controls they had.
+- **Only a MALFORMED container routes to JSON-only mode** — a scalar where a list or map belongs. The author sees the path and the value in the drift table, fixes it in the JSON pane, and saves.
+
+### Fixed
+
+- **`buildArrayFieldHtml()`** (`assets/js/pp-admin-editor.js`) asks the declared type which control to build instead of hardcoding `type: 'string'`. The read-only control carries **no `data-comp` / `data-field`**, which is what makes it safe rather than merely read-only: `findByCompField()` matches on those two attributes, so the sync can never resolve it. `readonly` alone would not do it — a readonly or disabled control still answers `.val()`.
+- **`reconcileSubFieldTypes()`** (`assets/js/pp-editor-logic.js`) — a new pure function, the third member of the row-guard family, answering the one question the other two cannot: was this SUB-KEY ever on screen to be edited? `wouldLoseArrayData` answers it for a whole field, `reconcileArrayItems` for a whole row. It never fabricates: a sub-key the stored row does not have is not restored.
+- **Ordering is load-bearing in both directions.** It runs AFTER the whole-field veto, so that veto still judges the raw read, and BEFORE the per-row merge, because a read-only sub-key is absent from the read — running it second would make the row test conclude "the read cannot represent this row", restore the whole row, and silently discard an author's legitimate clearing.
+- **`reconcileArrayItems()` gained `unreadableKeys`** so a restored container is not counted as author content. Without it, a row holding an UNDECLARED sibling key would have lost it: the restored value made the row look edited, so the read won and the undeclared key was dropped — by a control the author never touched.
+- **A `number` sub-key is settled by comparing the read against what was RENDERED**, not by parsing the text back. Unchanged text means the control was not touched, so the stored value stands. Parsing would need `is_numeric()` in JS, and there is no exact mirror of it (`"1e5"`, `" 5"`, `".5"`, `"5."`, `"0x1A"` all disagree with `Number()`) — an approximation would be the editor inventing its own idea of what a `number` prop accepts, which is the drift #614 extracted the PHP predicate to prevent.
+- **`nonContainerValueDiffs()` + `satisfiesContainerDeclaration()`** — the third sibling beside `unadvertisedEnumDiffs` (#605) and `nonStringValueDiffs` (#745), mirroring `_pp_schema_container_value_is_valid()` (#744) so the editor and the write path cannot disagree about what a container is.
+- **`forEachDeclaredSubField()`** — the nested row walk EXTRACTED from `nonStringValueDiffs` so the two guards share it, the same reason `forEachDeclaredProp()` was extracted before it. Diffs now come out grouped by depth; every row in the notice carries its own component index and path, so nothing downstream depends on the old order.
+
+### The #744 accordion lockout is lifted
+
+**This retires the "⚠️ The accordion editor cannot save or preview a page that uses `grid.items[].bullets` or a per-item `style` until #805 lands" line from the v1.16.10 notes.** That warning is now spent: the sync hands the write path a real array and a real map, so the container rule accepts them, and both the AJAX save and the AJAX preview go through. Pinned in PHP, not only in JS — `ContainerPropWriteEnforcementTest::testUpdateCompositionTakesTheRowShapeTheAccordionNowEmits()` runs the pre-#805 flattened row and the post-#805 preserved row through the real `update_composition` as a pair, because only the shipped validator can answer whether the write path takes it.
+
+### Operator-facing
+
+- One note per array field (not per row) names the sub-keys the accordion cannot edit and what kind each is: `bullets (list) and style (object) are edited in the JSON view.` The fact is about the SCHEMA, so repeating it under every card says nothing new the second time and a screen reader would read it once per row.
+- A sub-key whose value is UNSET renders no control at all. `section.panel_items` declares a `style` on every row and almost no row has one; a captioned empty box on eight rows is taller than the two short inputs it replaced. The note still names the field, so it stays discoverable.
+- The read-only control is sized to its content (capped), because a textarea's resize grip is mouse-only and a fixed two rows leaves a keyboard author arrowing through a window over a value they cannot edit. It is marked inert with a dashed border at 3.69:1 against the card — a recessed fill measured 1.05:1 against the editable fill, which is no signal at all.
+
+### Scope boundaries
+
+- **`#646` (nested `enum` renders as free text) is untouched.** It names the same line as the root cause, but its Expected covers the AUTHORING gap; routing enums to a `<select>` would not have saved a single one of the values this fixes.
+- **`#809` (one keystroke writes every schema default) does NOT fall out of this mechanism.** Its fix is `userTouched` bookkeeping on TOP-LEVEL props; nothing here touches `userTouched` or reaches top-level props. Stated plainly because the ruling asked.
+- **The `number` leg does not route to JSON-only mode**, for the `is_numeric()` reason above. That is #745's own recorded boundary for `number`, extended unchanged.
+- **A deliberate edit to `image_id` still lands as the string `"456"`**, which `is_numeric()` accepts on purpose (#707). Unchanged from before this release: no new accepted value, no new refusal. What changed is that an UNTOUCHED `image_id` is no longer rewritten.
+- **One shape where render-then-read is not identity is not rescued:** a stored string under a non-string declaration containing CR or LF, which the HTML value sanitization algorithm strips. The outcome is the pre-#805 behaviour for that one value, so nothing is made worse; normalizing it would mean deciding which whitespace differences are meaningful inside a stored value, and no such rule exists.
+- **No schema, validator, or write-path change.** `#807`, `#810`, `#806`, `#808` untouched.
+
+### Deviations from the filed issue
+
+- The issue's Expected allowed either a faithful control or leaving the value alone. This does BOTH, split by declared type, because neither alone covers the three shapes: a container cannot get a faithful text control, and a number does not need to lose its editable one.
+- The issue also measured a second shape — an UNDECLARED sub-key dropped when a sibling carries content. That is unchanged here and now tracked separately (#815), except that a declared `array`/`object` sub-key the row does not have is no longer fabricated.
+
+### Tests
+
+- `tests/js/pp-editor-form-sync.test.js` — 19 new pins through the REAL editor booted under jsdom: each of the three types surviving an unrelated edit, the lockout lifted, clearing every editable field still landing, an undeclared sibling key surviving that clearing, a deliberate number edit landing as typed, no control for an unset value, a control only on the rows that hold one, no grafting when a row is removed, a malformed container routing to JSON mode, a well-formed one keeping its accordion, the note in its singular and three-key forms, a required container sub-key carrying the required marker, the control sized to its value between a floor and a cap, and a row created by the REAL `+ Add item` button. Ten of them fail on the previous commit.
+- `tests/js/pp-editor-logic.test.js` — truth tables for the class rule and the container predicate, `reconcileSubFieldTypes` branch by branch, `displayOnlySubKeys` directly, `reconcileArrayItems`' new `unreadableKeys` argument directly, and the whole set re-asked against the REAL shipped schemas.
+- `tests/ContainerPropWriteEnforcementTest.php` — the write-path pair described above, with the refused half split ONE SUB-KEY AT A TIME. A single row carrying every flattened value proves almost nothing: the validator stops at the first failure, so disabling the `array` leg outright left the combined pin green. Each half now asserts the `invalid_prop_value` code, the field name, the shape message, and that nothing persisted.
+- Mutation-checked in a scratch copy, never in the working tree: disabling the container predicate's `array` leg, dropping the display-only guard in `subFieldIsTypedScalar`, dropping the `unreadableKeys` ignore, and neutering `displayOnlySubKeys` are each killed by a named pin.
+- One pin CHANGED rather than added: "keeps a zero in a row when an unrelated field is edited" asserted the STRING `'0'` and called the coercion "separate, still-open". That is the laundering this closes; it now asserts the number `0`.
+
+### Docs
+
+- `AI_CONTEXT.md` — the admin-editor paragraph: three value checks, and the typed row sub-field behaviour.
+- `AI_RULES.md` — the renderer rule (which sub-keys still reach the text branch) and the row-guard rule (three grains, and why the order is load-bearing).
+- `README.md` — the JS test inventory.
+
+---
+
 ## [v1.16.10] — 2026-08-26 — A declared list or object may no longer hold a scalar (#744)
 
 **A `grid` card whose `bullets` were written as a comma-joined string used to validate, persist exactly as written, and render with no checklist at all. So did a card or panel row whose `style` was written as `"dark"` instead of a slot map. The write path now refuses both, at both depths, naming the band, the prop, the item and the field.**
