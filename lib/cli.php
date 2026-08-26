@@ -2375,6 +2375,35 @@ class PP_Operate_Command extends WP_CLI_Command {
      * with the index and steps_back selector to pass to the restore_composition action.
      * Read-only — needs no run token.
      *
+     * THIS COMMAND IS THE RECOVERY PATH FOR A CORRUPT PAGE'S BYTES (#818). A ring slot
+     * may hold stored bytes that did not decode to a composition rather than a
+     * composition snapshot (a decode_error page, or the valid-JSON-scalar sub-case of
+     * unexpected_shape) — preserved
+     * so that repairing a corrupt page no longer destroys the only copy of what was
+     * there. Such a row reports `restorable: false`, a null `components` (there is
+     * nothing to count), and THREE views of the bytes. Printing them is the point:
+     * restore_composition refuses to replay a raw entry, so this listing is the only
+     * shipped surface that hands them back, whole and uncapped — a truncated recovery is
+     * not a recovery.
+     *
+     * `raw_base64` IS THE RECOVERY CHANNEL; `raw` is for reading. That split is forced by
+     * the corruption class itself: _pp_cli_emit_json() encodes with
+     * JSON_INVALID_UTF8_SUBSTITUTE, so a page corrupted by malformed UTF-8 — one of the
+     * causes pp_get_composition_result() names for decode_error — would come back through
+     * `raw` with those bytes SUBSTITUTED. Silently lossy, in the one field an operator
+     * would copy out to recover with. `raw_base64` is pure ASCII and survives the encoder
+     * untouched; `raw_sha256` lets them prove the copy that landed on their disk matches
+     * the copy this command read. STATED LIMIT, so the field is not over-trusted: the
+     * digest is computed HERE, at read time, over what the ring currently holds. It
+     * verifies the transfer, NOT the preservation — it cannot tell you the stored entry
+     * still matches the bytes that were pushed, because no digest is recorded at push time.
+     *
+     * SIZE, STATED: a raw row emits the payload twice (`raw` plus `raw_base64` at 4/3) with
+     * no cap, by design — a truncated recovery is not a recovery. On a pathologically large
+     * corrupt payload that makes this command the memory-heaviest read in the CLI. If it
+     * cannot complete, the bytes are still in `_pp_composition_history` post meta and can be
+     * read directly; nothing is lost, the convenience surface just cannot render it.
+     *
      * ## OPTIONS
      *
      * --post_id=<id>
@@ -2396,13 +2425,28 @@ class PP_Operate_Command extends WP_CLI_Command {
         // reachable as steps_back=1. history_index stays the absolute ring position.
         $rows = [];
         foreach ($history as $index => $entry) {
-            $rows[] = [
+            $row = [
                 'history_index' => $index,
                 'steps_back'    => $count - $index,
                 'version'       => $entry['version'],
                 'timestamp'     => $entry['timestamp'],
-                'components'    => count($entry['composition']),
             ];
+            if (pp_history_entry_is_raw($entry)) {
+                // Preserved bytes, not a snapshot (#818). `components` stays in the shape
+                // as an explicit null rather than being dropped: a row missing the key
+                // reads as a listing bug, a row saying null says "there is nothing here
+                // to count", which is the true statement.
+                $row['components'] = null;
+                $row['restorable'] = false;
+                $row['raw_bytes']  = strlen($entry['raw']);
+                $row['raw_sha256'] = hash('sha256', $entry['raw']);
+                $row['raw_base64'] = base64_encode($entry['raw']);
+                $row['raw']        = $entry['raw'];
+            } else {
+                $row['components'] = count($entry['composition']);
+                $row['restorable'] = true;
+            }
+            $rows[] = $row;
         }
         $rows = array_reverse($rows);
 

@@ -2973,8 +2973,26 @@ function _pp_write_findings_for(int $post_id): array {
  *   - history_index: absolute 0-based index into the ring (takes precedence).
  *   - steps_back:    1 = most recent prior state (last entry), 2 = the one before it,
  *                    … N = the oldest retained entry. Defaults to 1.
- * Returns the resolved absolute index, or a WP_Error when the ring is empty or the
- * selector is out of range.
+ * Returns the resolved absolute index, or a WP_Error when the ring is empty, the
+ * selector is out of range, or the entry it names is not replayable.
+ *
+ * THE ONE CHOKEPOINT for all three stages of the restore contract — validate, preview
+ * and execute each resolve through here — which is why the #818 raw-entry refusal lives
+ * here rather than being spelled three times. A raw entry holds prior stored BYTES that
+ * did not decode to a composition (see pp_get_composition_history), so there is nothing
+ * to replay: the refusal is a PRECONDITION failure of the same species as `no_history`
+ * and `history_out_of_bounds` below it.
+ *
+ * #233 IS UNTOUCHED BY THAT. Its contract is "restore is never blocked by CURRENT
+ * VALIDATION RULES — it restores verbatim and REPORTS what came back". That is a
+ * different axis: every entry that CARRIES a composition still restores verbatim and
+ * still reports, however illegal today's rules find it. This refusal says the selected
+ * slot holds no composition at all, and it says where to read the bytes instead — the
+ * alternative was to keep destroying them, which is the bug #818 closes.
+ *
+ * The raw entry stays ADDRESSABLE on purpose: it occupies its ring slot, so
+ * `history_index` and `steps_back` keep counting writes truthfully and an operator can
+ * step straight past it to the last good composition.
  *
  * @param array $history  The history ring from pp_get_composition_history().
  * @param array $params   Action params (may carry history_index and/or steps_back).
@@ -2990,13 +3008,51 @@ function _pp_resolve_history_target(array $history, array $params) {
         if ($idx < 0 || $idx >= $count) {
             return new WP_Error('history_out_of_bounds', sprintf('history_index %d is out of bounds (0..%d).', $idx, $count - 1));
         }
-        return $idx;
+        return _pp_reject_unreplayable_history_entry($history, $idx, $params);
     }
     $steps = isset($params['steps_back']) ? (int) $params['steps_back'] : 1;
     if ($steps < 1 || $steps > $count) {
         return new WP_Error('history_out_of_bounds', sprintf('steps_back %d is out of range (1..%d).', $steps, $count));
     }
-    return $count - $steps;
+    return _pp_reject_unreplayable_history_entry($history, $count - $steps, $params);
+}
+
+/**
+ * Passes a resolved ring index through, or refuses it when the entry holds preserved
+ * BYTES rather than a composition (#818).
+ *
+ * The message has one job beyond refusing: say that the bytes still exist and where to
+ * read them. A refusal that only said "cannot restore" would leave the operator exactly
+ * where the destroyed-bytes bug left them — knowing something is unrecoverable, with no
+ * route to it — which is the failure #818 exists to end.
+ *
+ * @param array $history  The ring from pp_get_composition_history().
+ * @param int   $idx      An index already proven in-bounds by the caller.
+ * @param array $params   Action params (for the post_id the message names).
+ * @return int|WP_Error
+ */
+function _pp_reject_unreplayable_history_entry(array $history, int $idx, array $params) {
+    if (!pp_history_entry_is_raw($history[$idx])) {
+        return $idx;
+    }
+    return new WP_Error(
+        'history_entry_not_restorable',
+        sprintf(
+            // CAUSE-NEUTRAL WORDING. Not "undecodable": a raw entry also covers the
+            // valid-JSON-SCALAR sub-case of unexpected_shape, which decodes fine. An
+            // operator whose page was classified unexpected_shape must not read a
+            // message describing a state they are not in — the read path and the write
+            // path have to name the same state the same way (#650/#652/#725).
+            'History entry %d (steps_back %d) holds stored bytes that did not decode to a composition '
+            . '(%d bytes), so it cannot be replayed as one. The bytes were preserved rather than '
+            . 'discarded: read them with `wp pp operate composition-history --post_id=%d`. To roll the '
+            . 'page back to a real composition, select an earlier entry.',
+            $idx,
+            count($history) - $idx,
+            strlen($history[$idx]['raw']),
+            (int) ($params['post_id'] ?? 0)
+        )
+    );
 }
 
 pp_register_action('restore_composition', [
@@ -3009,8 +3065,16 @@ pp_register_action('restore_composition', [
     // exactly the #233 contract violation. So it opts out of the #358 gate.
     'requires_composition' => false,
     'impact_warning' => 'Rewrites the page composition to a prior version',
-    'description' => 'Restores a page composition to a prior version recorded in its history ring. Select the target with steps_back (1 = most recent prior state, the default) or history_index (absolute 0-based). history_index takes precedence.',
-    'semantics'   => 'Rewrite. The composition is replaced with a prior snapshot captured before an earlier write. Restore is itself a conflict-checked write (records its own history entry), so it can be undone in turn.',
+    // THE REFUSAL CLAUSE LIVES IN `description`, NOT ONLY IN `semantics`, and that is
+    // load-bearing (the #719 rule, pinned by CreatePageWriteFailureTest::
+    // testTheRefusalContractReachesTheChatAIsActionCatalog). pp_ai_system_prompt()
+    // builds the chat AI's action catalog from `description` (lib/ai-context.php) and
+    // `wp pp action list` emits the same field; NOTHING at runtime reads `semantics`.
+    // The chat's "Undo these changes" link is the surface most likely to select a
+    // preserved-bytes slot, so declaring the refusal only in the declarative record
+    // would leave the one caller that hits it untaught.
+    'description' => 'Restores a page composition to a prior version recorded in its history ring. Select the target with steps_back (1 = most recent prior state, the default) or history_index (absolute 0-based). history_index takes precedence. A ring slot may instead hold stored bytes that did not decode to a composition, preserved so that repairing a corrupt page cannot destroy the only copy of what was there; selecting that slot is refused with history_entry_not_restorable — read the bytes with `wp pp operate composition-history --post_id=<id>` and select an earlier entry.',
+    'semantics'   => 'Rewrite. The composition is replaced with a prior snapshot captured before an earlier write. Restore is itself a conflict-checked write (records its own history entry), so it can be undone in turn. A ring slot can instead hold stored bytes that did not decode to a composition (a decode_error page, or the valid-JSON-scalar sub-case of unexpected_shape), preserved so that repairing a corrupt page cannot destroy the only copy of what was there; selecting that slot is refused with history_entry_not_restorable — read the bytes with `wp pp operate composition-history --post_id=<id>` and select an earlier entry to roll back.',
     'params'      => [
         'post_id'          => ['type' => 'int', 'required' => true],
         'steps_back'       => ['type' => 'int', 'required' => false],
