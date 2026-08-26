@@ -20,6 +20,12 @@ const {
     checkSerializationInvariant,
     unadvertisedEnumDiffs,
     nonStringValueDiffs,
+    nonContainerValueDiffs,
+    satisfiesContainerDeclaration,
+    subFieldIsDisplayOnly,
+    subFieldIsTypedScalar,
+    reconcileSubFieldTypes,
+    displayOnlySubKeys,
     formatDiffsForIssue,
     getCollapsedRowPreview,
 } = require('../../assets/js/pp-editor-logic.js');
@@ -117,7 +123,32 @@ const NUMERIC = {
     },
 };
 
-const REGISTRY = [HERO, FAQ, SECTION, GRID, FOOTER, NUMERIC];
+/**
+ * The CONTAINER sub-key shapes, mirroring what components/grid/schema.json ships:
+ * `items[].bullets` declaring `array` and `items[].style` declaring `object`,
+ * beside a `number` and a `string`. Before #805 all four rendered as text
+ * controls and read back as text; now the two containers render read-only and
+ * the number is settled against what it was rendered from.
+ */
+const CONTAINER = {
+    name: 'container',
+    schema: {
+        props: {
+            title: { type: 'string', required: false },
+            items: {
+                type: 'array', required: false,
+                items: {
+                    title:    { type: 'string', required: false },
+                    bullets:  { type: 'array',  required: false },
+                    style:    { type: 'object', required: false },
+                    image_id: { type: 'number', required: false },
+                },
+            },
+        },
+    },
+};
+
+const REGISTRY = [HERO, FAQ, SECTION, GRID, FOOTER, NUMERIC, CONTAINER];
 
 // ─── getJsonContextFromText ───────────────────────────────────────────────────
 
@@ -1485,5 +1516,346 @@ describe('escapeHtml covers both markup and quote characters', () => {
     it('produces output that cannot terminate a quoted attribute', () => {
         const hostile = '" data-comp="9';
         expect(escapeHtml(hostile).indexOf('"')).toBe(-1);
+    });
+});
+
+// ─── #805: row sub-fields the controls cannot round-trip ─────────────────────
+//
+// Two halves, and the split is the whole design:
+//
+//   the CONTROL half   a sub-key declaring a container renders read-only and is
+//                      never read back, so a WELL-FORMED list or map survives a
+//                      sync and the page keeps its accordion
+//   the GUARD half     a stored value that VIOLATES an array/object declaration
+//                      is drift in #745's sense — the write path refuses it too
+//                      (#744) — so the composition routes to JSON-only mode
+
+const withItems = (items) =>
+    JSON.stringify([{ component: 'container', props: { items } }]);
+
+describe('satisfiesContainerDeclaration (#805)', () => {
+    it('accepts the two unset sentinels the write path accepts', () => {
+        // Mirrors _pp_schema_container_value_is_valid() (lib/admin.php): a guard
+        // that disagreed with the write path about the sentinel would lock the
+        // accordion on pages that save perfectly well.
+        expect(satisfiesContainerDeclaration(null)).toBe(true);
+        expect(satisfiesContainerDeclaration('')).toBe(true);
+    });
+
+    it('accepts a list and a map alike', () => {
+        // One test for both declared types, because PHP has one shape for both:
+        // a JSON list and a JSON map both decode to a PHP array.
+        expect(satisfiesContainerDeclaration([])).toBe(true);
+        expect(satisfiesContainerDeclaration(['a'])).toBe(true);
+        expect(satisfiesContainerDeclaration({})).toBe(true);
+        expect(satisfiesContainerDeclaration({ a: 1 })).toBe(true);
+    });
+
+    it('refuses every scalar', () => {
+        ['text', 0, 42, false, true].forEach((v) => {
+            expect(satisfiesContainerDeclaration(v)).toBe(false);
+        });
+    });
+});
+
+describe('the sub-field class rule is total (#805)', () => {
+    it('sends only array and object to the read-only display', () => {
+        expect(subFieldIsDisplayOnly({ type: 'array' })).toBe(true);
+        expect(subFieldIsDisplayOnly({ type: 'object' })).toBe(true);
+        ['string', 'enum', 'number', 'boolean'].forEach((t) => {
+            expect(subFieldIsDisplayOnly({ type: t })).toBe(false);
+        });
+    });
+
+    it('never calls a container a typed scalar', () => {
+        // The two predicates are exported and a caller may ask either first, so
+        // their mutual exclusivity has to be asserted rather than inferred from the
+        // one call site that happens to ask in a safe order.
+        expect(subFieldIsTypedScalar({ type: 'array' })).toBe(false);
+        expect(subFieldIsTypedScalar({ type: 'object' })).toBe(false);
+    });
+
+    it('leaves string and enum on the plain text control', () => {
+        // enum stays where it was deliberately: a nested enum renders as free
+        // text today and the authoring gap is #646's, not this change's.
+        expect(subFieldIsTypedScalar({ type: 'string' })).toBe(false);
+        expect(subFieldIsTypedScalar({ type: 'enum' })).toBe(false);
+    });
+
+    it('treats every other declared type as a typed scalar', () => {
+        expect(subFieldIsTypedScalar({ type: 'number' })).toBe(true);
+        expect(subFieldIsTypedScalar({ type: 'boolean' })).toBe(true);
+        // A type name nobody has written yet gets the conservative answer rather
+        // than falling through to "read it back as text".
+        expect(subFieldIsTypedScalar({ type: 'duration' })).toBe(true);
+    });
+
+    it('claims nothing about an undeclared sub-key', () => {
+        [undefined, null, {}].forEach((def) => {
+            expect(subFieldIsDisplayOnly(def)).toBe(false);
+            expect(subFieldIsTypedScalar(def)).toBe(false);
+        });
+    });
+});
+
+describe('nonContainerValueDiffs (#805)', () => {
+    it('reports a scalar stored under an array-declaring sub-key', () => {
+        const diffs = nonContainerValueDiffs(withItems([{ bullets: 'one,two' }]), REGISTRY);
+        expect(diffs).toHaveLength(1);
+        expect(diffs[0].path).toBe('[0].props.items[0].bullets');
+        expect(diffs[0].before).toBe('one,two');
+    });
+
+    it('reports a scalar stored under an object-declaring sub-key', () => {
+        const diffs = nonContainerValueDiffs(withItems([{ style: '[object Object]' }]), REGISTRY);
+        expect(diffs).toHaveLength(1);
+        expect(diffs[0].path).toBe('[0].props.items[0].style');
+    });
+
+    it('says nothing about a well-formed list or map', () => {
+        // The premise the mechanism rests on. Reporting these would lock every
+        // correct page using two shipped features out of the accordion forever.
+        expect(nonContainerValueDiffs(
+            withItems([{ bullets: ['one', 'two'], style: { '--x': '#fff' } }]), REGISTRY,
+        )).toEqual([]);
+    });
+
+    it('says nothing about the unset sentinels', () => {
+        expect(nonContainerValueDiffs(withItems([{ bullets: '', style: null }]), REGISTRY)).toEqual([]);
+    });
+
+    it('never reports a number sub-key, whatever it holds', () => {
+        // Deliberate, and it is #745's own recorded boundary: is_numeric() has no
+        // exact JS mirror, so a guard here would be the editor inventing its own
+        // idea of a valid number. reconcileSubFieldTypes makes it unnecessary.
+        [123, '123', 'abc', {}, []].forEach((v) => {
+            expect(nonContainerValueDiffs(withItems([{ image_id: v }]), REGISTRY)).toEqual([]);
+        });
+    });
+
+    it('leaves the boundaries another guard already settles alone', () => {
+        // A non-array under an array-typed prop is wouldLoseArrayData's (it
+        // renders no rows at all); a non-object row is reconcileArrayItems'.
+        const notAnArray = JSON.stringify([
+            { component: 'container', props: { items: 'not an array' } },
+        ]);
+        expect(nonContainerValueDiffs(notAnArray, REGISTRY)).toEqual([]);
+        expect(nonContainerValueDiffs(withItems(['plain', 42]), REGISTRY)).toEqual([]);
+    });
+
+    it('says nothing about a sub-key the schema does not declare', () => {
+        expect(nonContainerValueDiffs(withItems([{ nope: 'x' }]), REGISTRY)).toEqual([]);
+    });
+
+    it('survives input the parser cannot use', () => {
+        expect(nonContainerValueDiffs('not json', REGISTRY)).toEqual([]);
+        expect(nonContainerValueDiffs('', REGISTRY)).toEqual([]);
+        expect(nonContainerValueDiffs('{}', REGISTRY)).toEqual([]);
+    });
+
+    it('routes the composition through checkSerializationInvariant', () => {
+        // The guard is only worth anything if it reaches the author, so pin the
+        // wiring, not just the predicate.
+        const result = checkSerializationInvariant(withItems([{ bullets: 'one,two' }]), REGISTRY);
+        expect(result.safe).toBe(false);
+        expect(result.diffs.some((d) => d.path === '[0].props.items[0].bullets')).toBe(true);
+
+        expect(checkSerializationInvariant(withItems([{ bullets: ['one'] }]), REGISTRY).safe).toBe(true);
+    });
+});
+
+describe('displayOnlySubKeys (#805)', () => {
+    // The single derivation feeding reconcileArrayItems' unreadableKeys argument.
+    // A wrong answer here silently re-opens the undeclared-key drop that argument
+    // exists to prevent, so it is asserted directly rather than only through the
+    // end-to-end pin that consumes it.
+    const SUB = {
+        title:    { type: 'string' },
+        bullets:  { type: 'array'  },
+        image_id: { type: 'number' },
+        style:    { type: 'object' },
+        role:     { type: 'enum', values: ['a'] },
+    };
+
+    it('names the container sub-keys, in declaration order', () => {
+        expect(displayOnlySubKeys(SUB)).toEqual(['bullets', 'style']);
+    });
+
+    it('names nothing when no sub-key is a container', () => {
+        expect(displayOnlySubKeys({ title: { type: 'string' }, n: { type: 'number' } })).toEqual([]);
+        expect(displayOnlySubKeys({})).toEqual([]);
+    });
+
+    it('stands down on a sub-schema it cannot walk', () => {
+        [undefined, null, 'not a schema', ['not', 'a', 'schema'], 42].forEach((bad) => {
+            expect(displayOnlySubKeys(bad)).toEqual([]);
+        });
+    });
+});
+
+describe('reconcileArrayItems ignores the keys no control could carry (#805)', () => {
+    // The guard whose failure mode is the silent loss of an undeclared row key.
+    const STORED = [{ title: 'A', bullets: ['x'], foo: 'bar' }];
+
+    it('keeps the row when the only content in the read was restored', () => {
+        // Every control the author could type into reads back empty, and `foo`
+        // never had one — so this row is not an edit, and taking the read would
+        // drop `foo`. Without the ignore list the restored bullets would read as
+        // content and the row would be taken.
+        const read = [{ title: '', bullets: ['x'] }];
+        expect(reconcileArrayItems(read, STORED, ['bullets']).items[0]).toEqual(STORED[0]);
+        expect(reconcileArrayItems(read, STORED, ['bullets']).restored).toEqual([0]);
+    });
+
+    it('takes the read when the author actually typed something', () => {
+        const read = [{ title: 'edited', bullets: ['x'] }];
+        expect(reconcileArrayItems(read, STORED, ['bullets']).items[0].title).toBe('edited');
+    });
+
+    it('defaults to ignoring nothing', () => {
+        // Two-argument callers keep exactly the behaviour they had.
+        const read = [{ title: '', bullets: ['x'] }];
+        expect(reconcileArrayItems(read, STORED).items[0].title).toBe('');
+        expect(reconcileArrayItems(read, STORED, []).items[0].title).toBe('');
+    });
+});
+
+describe('reconcileSubFieldTypes (#805)', () => {
+    const SUB = {
+        title:    { type: 'string' },
+        bullets:  { type: 'array'  },
+        style:    { type: 'object' },
+        image_id: { type: 'number' },
+    };
+
+    it('always keeps a container sub-key, since no control ever showed it', () => {
+        const read = [{ title: 'edited' }];
+        const orig = [{ title: 'A', bullets: ['one', 'two'], style: { '--x': '#fff' } }];
+        const out = reconcileSubFieldTypes(read, orig, SUB);
+
+        expect(out.items[0]).toEqual({
+            title: 'edited', bullets: ['one', 'two'], style: { '--x': '#fff' },
+        });
+        expect(out.restored).toEqual([
+            { index: 0, key: 'bullets' }, { index: 0, key: 'style' },
+        ]);
+    });
+
+    it('keeps a typed scalar only while its text is the text it was rendered from', () => {
+        const orig = [{ image_id: 123 }];
+
+        // Untouched: the read is String(123), so the stored NUMBER stands.
+        expect(reconcileSubFieldTypes([{ image_id: '123' }], orig, SUB).items[0].image_id).toBe(123);
+        // Edited: the author typed it, so it lands as typed. That it lands as a
+        // STRING is the accepted limitation — is_numeric() accepts it at write,
+        // deliberately (#707), and it is what the editor did before #805 too.
+        expect(reconcileSubFieldTypes([{ image_id: '456' }], orig, SUB).items[0].image_id).toBe('456');
+        // Cleared: '' is the unset sentinel and the author can mean it.
+        expect(reconcileSubFieldTypes([{ image_id: '' }], orig, SUB).items[0].image_id).toBe('');
+    });
+
+    it('renders null as empty, so an untouched null survives as null', () => {
+        // escapeHtml coerces null to '', which is what the read hands back — the
+        // same sentinel-preserving rule the string guard applies one type over.
+        const out = reconcileSubFieldTypes([{ image_id: '' }], [{ image_id: null }], SUB);
+        expect(out.items[0].image_id).toBe(null);
+    });
+
+    it('treats a key missing from the read as unedited, whatever its class', () => {
+        // No control resolved, so nothing showed it, so there was nothing to
+        // change — the same answer the row guard gives one grain up.
+        const out = reconcileSubFieldTypes([{}], [{ title: 'A', image_id: 7 }], SUB);
+        expect(out.items[0]).toEqual({ title: 'A', image_id: 7 });
+    });
+
+    it('never invents a sub-key the stored row did not have', () => {
+        const out = reconcileSubFieldTypes([{ title: 'A' }], [{ title: 'A' }], SUB);
+        expect('bullets' in out.items[0]).toBe(false);
+        expect('style' in out.items[0]).toBe(false);
+        expect(out.restored).toEqual([]);
+    });
+
+    it('leaves a row that has no stored counterpart alone', () => {
+        const out = reconcileSubFieldTypes(
+            [{ title: 'A' }, { title: 'new row' }], [{ title: 'A', bullets: ['x'] }], SUB,
+        );
+        expect(out.items[1]).toEqual({ title: 'new row' });
+    });
+
+    it('leaves a row whose stored counterpart is not an object alone', () => {
+        // reconcileArrayItems owns that row; two rules touching it would be two
+        // rules disagreeing about it.
+        const out = reconcileSubFieldTypes([{ title: '' }], ['plain'], SUB);
+        expect(out.items[0]).toEqual({ title: '' });
+    });
+
+    it('does not mutate what it was given', () => {
+        const read = [{ title: 'edited' }];
+        const orig = [{ title: 'A', bullets: ['one'] }];
+        reconcileSubFieldTypes(read, orig, SUB);
+        expect(read).toEqual([{ title: 'edited' }]);
+        expect(orig).toEqual([{ title: 'A', bullets: ['one'] }]);
+    });
+
+    it('stands down when there is nothing to reconcile against', () => {
+        const read = [{ title: 'A' }];
+        expect(reconcileSubFieldTypes(read, 'not an array', SUB).items).toBe(read);
+        expect(reconcileSubFieldTypes(read, [{ title: 'A' }], undefined).items).toBe(read);
+        expect(reconcileSubFieldTypes(read, [{ title: 'A' }], null).items).toBe(read);
+    });
+});
+
+describe('#805 against the real shipped schemas', () => {
+    const REAL = fs
+        .readdirSync(path.resolve(__dirname, '../../components'), { withFileTypes: true })
+        .filter((d) => d.isDirectory())
+        .map((d) => ({ name: d.name, file: path.resolve(__dirname, '../../components', d.name, 'schema.json') }))
+        .filter((c) => fs.existsSync(c.file))
+        .map((c) => ({ name: c.name, schema: JSON.parse(fs.readFileSync(c.file, 'utf-8')) }));
+
+    it('classifies the shipped container sub-keys as display-only', () => {
+        // Not stand-ins: these are the declarations the issue measured.
+        const grid = REAL.find((c) => c.name === 'grid').schema.props.items.items;
+        const section = REAL.find((c) => c.name === 'section').schema.props.panel_items.items;
+
+        expect(subFieldIsDisplayOnly(grid.bullets)).toBe(true);
+        expect(subFieldIsDisplayOnly(grid.style)).toBe(true);
+        expect(subFieldIsDisplayOnly(section.style)).toBe(true);
+        expect(subFieldIsTypedScalar(grid.image_id)).toBe(true);
+        expect(subFieldIsDisplayOnly(grid.title)).toBe(false);
+        // The nested enum stays exactly where it was — #646's, not this change's.
+        expect(subFieldIsDisplayOnly(grid.text_role)).toBe(false);
+        expect(subFieldIsTypedScalar(grid.text_role)).toBe(false);
+    });
+
+    it('keeps the accordion for the shipped bullets and style shapes', () => {
+        const json = JSON.stringify([
+            {
+                component: 'grid',
+                props: {
+                    items: [{
+                        title: 'Card A',
+                        bullets: ['Fast', 'Cheap'],
+                        image_id: 42,
+                        style: { '--grid-item-bg': '#fff' },
+                    }],
+                },
+            },
+        ]);
+        expect(nonContainerValueDiffs(json, REAL)).toEqual([]);
+        expect(checkSerializationInvariant(json, REAL).safe).toBe(true);
+    });
+
+    it('refuses the flattened shapes #744 rejects at write', () => {
+        const json = JSON.stringify([
+            {
+                component: 'grid',
+                props: { items: [{ bullets: 'Fast,Cheap', style: '[object Object]' }] },
+            },
+        ]);
+        const paths = nonContainerValueDiffs(json, REAL).map((d) => d.path).sort();
+        expect(paths).toEqual([
+            '[0].props.items[0].bullets', '[0].props.items[0].style',
+        ]);
     });
 });

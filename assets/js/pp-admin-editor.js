@@ -230,8 +230,15 @@
     // from being a premise the schema shape could quietly stop satisfying.
     //
     // `field.name` IS caller-supplied. Escape both once here and reuse everywhere.
+    // ONE id scheme, two builders. buildDisplayOnlyFieldHtml composes the same shape
+    // for its own control, and a scheme that drifted between them would show up only
+    // as a <label for> pointing at nothing — invisible to every assertion.
+    function fieldElementId(compIdx, fieldIdx, itemIdx) {
+        return 'pp-field-' + compIdx + '-' + fieldIdx + (itemIdx !== undefined ? '-' + itemIdx : '');
+    }
+
     function buildFieldHtml(field, compIdx, fieldIdx, itemIdx) {
-        var id = 'pp-field-' + compIdx + '-' + fieldIdx + (itemIdx !== undefined ? '-' + itemIdx : '');
+        var id = fieldElementId(compIdx, fieldIdx, itemIdx);
         var idAttr   = esc(id);
         var nameAttr = esc(field.name);
         var reqClass = field.required ? ' pp-accordion-field--required' : '';
@@ -285,6 +292,119 @@
         return h;
     }
 
+    // A row sub-key whose declared type a text control cannot round-trip: a list or a
+    // map (#805). It is SHOWN — as the JSON the author actually stored, not as
+    // `one,two` or `[object Object]` — and it is not editable here, and it says so.
+    //
+    // IT CARRIES NO data-comp / data-field, which is what makes it safe rather than
+    // merely read-only: findByCompField matches on those two attributes, so the sync
+    // can never resolve this control and can never write its text into the buffer.
+    // `readonly` alone would not do it — a readonly (or disabled) control is still
+    // matched by find('input, textarea, select') and still answers .val().
+    //
+    // The value is stringified with JSON.stringify rather than esc(String(value)) so
+    // the display is the real value and can be copied straight into the JSON view.
+    //
+    // TWO THINGS IT DELIBERATELY DOES NOT DO, because both would cost more screen than
+    // they carry information:
+    //
+    //   AN UNSET VALUE RENDERS NO CONTROL AT ALL. `section.panel_items` declares a
+    //   `style` on every row and almost no row has one, so a control per row would put
+    //   an empty box and a caption on eight rows to display nothing — taller than the
+    //   two short inputs this replaced, which is a regression dressed as honesty. The
+    //   field is still named, once, by the note below.
+    //
+    //   THE NOTE IS PER FIELD, NOT PER ROW. "bullets is a list" is a fact about the
+    //   SCHEMA, so repeating it under every card says nothing new the second time and
+    //   a screen reader would read it once per row. One note per array field, and
+    //   every row's control points aria-describedby at that one id — several elements
+    //   sharing one describedby target is the intended ARIA shape for exactly this.
+    var DISPLAY_ONLY_TYPE_WORDS = { array: 'list', object: 'object' };
+
+    /** The id of the one note shared by every display-only control in an array field. */
+    function displayOnlyNoteId(compIdx, fieldName) {
+        return 'pp-note-' + compIdx + '-' + fieldName;
+    }
+
+    /**
+     * The single sentence naming every sub-key of this field the accordion cannot edit.
+     *
+     * Names the sub-keys AND their kinds, so the author learns what exists and why it
+     * is not here without opening the schema: `bullets (list) and style (object) are
+     * edited in the JSON view.`
+     */
+    function displayOnlyNoteText(subKeys) {
+        var parts = subKeys.map(function (entry) {
+            return entry.key + ' (' + (DISPLAY_ONLY_TYPE_WORDS[entry.type] || 'object') + ')';
+        });
+        var subject = parts.length === 1
+            ? parts[0]
+            : parts.slice(0, -1).join(', ') + ' and ' + parts[parts.length - 1];
+        return subject + (parts.length === 1 ? ' is' : ' are') + ' edited in the JSON view.';
+    }
+
+    // JSON.stringify rather than String(): it is the honest display, it round-trips
+    // into the JSON view by copy-paste, and it is also the SAFER call. String() coerces
+    // through ToPrimitive, so a parsed-JSON object carrying a non-callable own
+    // `toString` key throws TypeError (see textForm's docblock in pp-editor-logic.js) —
+    // at boot, on exactly the page this control exists to make repairable.
+    // JSON.stringify does not consult toString at all.
+    //
+    // The catch and the undefined test are belt-and-braces on a value that came from
+    // JSON.parse: the remaining throw sources (circular references, BigInt, a callable
+    // throwing toJSON) and the remaining undefined-returning inputs (function, symbol)
+    // are all unreachable from parsed JSON. They stay because the alternative failure
+    // is the whole accordion refusing to render with no notice, which is the outcome
+    // this control is meant to prevent.
+    function displayOnlyText(value) {
+        if (value === null || value === undefined || value === '') return '';
+        try {
+            var json = JSON.stringify(value);
+            return json === undefined ? '' : json;
+        } catch (e) {
+            return '';
+        }
+    }
+
+    /**
+     * Rows tall enough to show the value without asking for a drag.
+     *
+     * A textarea's resize grip is MOUSE ONLY, so a fixed two rows leaves a keyboard
+     * author arrowing through a two-line window over a value they cannot edit. Sizing
+     * to the content puts the ordinary case (a four-slot style map is about 120
+     * characters) fully on screen, and the cap keeps a pathological value from taking
+     * the whole card — past the cap the grip is still there for a mouse.
+     *
+     * The 60 is a rough characters-per-row for a 12px monospace control in a typical
+     * pane, not a measurement: the pane is resizable, so no constant is right for every
+     * width. Being approximately right beats being exactly two.
+     */
+    function displayOnlyRows(text) {
+        return Math.min(8, Math.max(2, Math.ceil(text.length / 60)));
+    }
+
+    function buildDisplayOnlyFieldHtml(subKey, subDef, value, compIdx, fieldName, itemIdx) {
+        var text = displayOnlyText(value);
+        // Nothing stored: the field is named once by the field-level note, and a box
+        // showing nothing is not worth the height. See the block comment above.
+        if (text === '') return '';
+
+        var idAttr   = esc(fieldElementId(compIdx, fieldName + '.' + subKey, itemIdx));
+        var noteId   = esc(displayOnlyNoteId(compIdx, fieldName));
+        // Unreachable today — subFieldIsDisplayOnly has already confirmed a truthy
+        // subDef — and kept because its failure would be a silently missing marker.
+        var reqClass = (subDef && subDef.required) ? ' pp-accordion-field--required' : '';
+
+        var h = '<div class="pp-accordion-field pp-accordion-field--display-only' + reqClass + '">';
+        h += '<label for="' + idAttr + '">' + esc(subKey) + '</label>';
+        h += '<textarea id="' + idAttr + '" rows="' + displayOnlyRows(text) + '" readonly';
+        h += ' aria-describedby="' + noteId + '">';
+        h += esc(text);
+        h += '</textarea>';
+        h += '</div>';
+        return h;
+    }
+
     function buildArrayFieldHtml(field, compIdx, fieldIdx) {
         var items = Array.isArray(field.value) ? field.value : [];
         var subSchema = field.items || {};
@@ -293,6 +413,22 @@
         var h = '<div class="pp-accordion-field pp-accordion-field--required">';
         h += '<label>' + nameAttr + '</label>';
         h += '</div>';
+
+        // One note for the whole field, naming every sub-key the accordion cannot edit
+        // and what kind each is. Emitted whether or not any row currently HOLDS one of
+        // those values, because the fact is about the schema: it is how an author
+        // learns `bullets` exists at all now that an unset one renders no control.
+        var displayOnly = subKeys.filter(function (sk) {
+            return logic.subFieldIsDisplayOnly(subSchema[sk]);
+        }).map(function (sk) {
+            return { key: sk, type: subSchema[sk].type };
+        });
+        if (displayOnly.length) {
+            h += '<p class="pp-accordion-field__note pp-accordion-array-note" id="' +
+                esc(displayOnlyNoteId(compIdx, field.name)) + '">' +
+                esc(displayOnlyNoteText(displayOnly)) + '</p>';
+        }
+
         h += '<div class="pp-accordion-array" data-comp="' + compIdx + '" data-field="' + nameAttr + '">';
 
         items.forEach(function (item, itemIdx) {
@@ -302,6 +438,15 @@
             h += '<button class="pp-array-remove-btn" data-comp="' + compIdx + '" data-field="' + nameAttr + '" data-item="' + itemIdx + '" aria-label="Remove item ' + (itemIdx + 1) + '">&times;</button>';
             h += '</div>';
             subKeys.forEach(function (sk) {
+                // A sub-key declaring a container gets the read-only display above
+                // instead of a text control. Every other declaration keeps the text
+                // control: a string or enum round-trips through it faithfully, and a
+                // number is SHOWN faithfully and settled on read by
+                // reconcileSubFieldTypes rather than by parsing the text back.
+                if (logic.subFieldIsDisplayOnly(subSchema[sk])) {
+                    h += buildDisplayOnlyFieldHtml(sk, subSchema[sk], item[sk], compIdx, field.name, itemIdx);
+                    return;
+                }
                 var subField = {
                     name: sk,
                     type: 'string',
@@ -316,13 +461,13 @@
                     // A sub-key the schema declares `type: "string"` holding a 0 or
                     // false is drift and never reaches this code — the composition is
                     // routed to JSON-only mode first. What still arrives is a falsy
-                    // STRING, and sub-keys declaring a NON-string type: this builder
-                    // hardcodes `type: 'string'` below whatever the schema declares,
-                    // so `number`, `array` and `object` sub-keys (grid items[].image_id,
-                    // items[].bullets, items[].style) all render through this same text
-                    // control. The esc() rule governs those, and their wider problem —
-                    // that a text control cannot round-trip them at all — is not this
-                    // comment's business.
+                    // STRING, and a falsy value under a declaration this branch still
+                    // shows as text: since #805 `array` and `object` sub-keys are gone
+                    // to the read-only display above, but a `number` sub-key
+                    // (items[].image_id) still renders here, so a stored 0 must render
+                    // as `0` rather than as empty. What it must not do is come BACK as
+                    // the string "0" on an unrelated edit, and that is settled on the
+                    // read by reconcileSubFieldTypes, not here.
                     value: item[sk],
                     description: (subSchema[sk] && subSchema[sk].description) || '',
                     multiline: ['body', 'content', 'answer'].indexOf(sk) !== -1
@@ -537,12 +682,31 @@
                             'stored value. Sync skipped for this field.');
                         return;
                     }
+                    // Put back the sub-fields no control could carry, BEFORE the
+                    // rows are settled (#805). Order is load-bearing in both
+                    // directions: after the whole-field veto above, so that veto
+                    // still judges the raw read; before reconcileArrayItems, whose
+                    // per-row test asks whether every key the stored row had was on
+                    // screen to be cleared — a read-only container sub-key is not in
+                    // the read, so running this second would make that test restore
+                    // the WHOLE row and silently discard a legitimate clearing.
+                    //
+                    // No console.warn here, unlike the two guards either side. Those
+                    // report something exceptional; this is the designed steady state
+                    // of every page holding a list or a per-item style, it would fire
+                    // on every keystroke of a debounced sync, and the reason is
+                    // already on screen next to the control. Warning here would drown
+                    // the two warnings that do mean something. `restored` is still
+                    // returned — the tests read it.
+                    var typed = logic.reconcileSubFieldTypes(items, field.value, subSchema);
+
                     // The read can be right about some rows and wrong about
                     // others, so the rows are settled one at a time rather than
                     // the field being taken or refused whole. A row the author
                     // edited always wins; a row whose read carries nothing its
                     // stored item could have produced keeps what was stored.
-                    var reconciled = logic.reconcileArrayItems(items, field.value);
+                    var reconciled = logic.reconcileArrayItems(
+                        typed.items, field.value, logic.displayOnlySubKeys(subSchema));
                     reconciled.restored.forEach(function (itemIdx) {
                         console.warn('pp-editor: data-loss guard fired for "' + field.name +
                             '" item ' + itemIdx + ' — the DOM read carried nothing the stored item ' +
