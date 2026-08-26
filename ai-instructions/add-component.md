@@ -371,7 +371,10 @@ killed it: the heal emitted no `changes` entry, so an agent that wrote `cta_text
 record, Addendum #4).** It said a legacy name resolves at render iff a shipped mechanism
 promises the already-stored document will render, and named `restore_composition` (#233)
 as that mechanism. `restore_composition`'s actual contract is narrower: it restores the
-snapshot verbatim and **reports findings**, and it never blocks. It does not promise that
+snapshot verbatim and **reports findings** rather than blocking on it. (Since #818 one
+precondition can refuse it outright: a ring slot holding preserved bytes rather than a
+composition. That is a statement about the slot, not about the snapshot's contents — every
+slot that carries a composition still replays verbatim.) It does not promise that
 what it restores still paints. Keeping a name alive because an old document might replay
 it is exactly the legacy tolerance the governing ruling names as a NON-GOAL, so the slot
 map was removed outright (#603), the prop map followed it (#604), the last legacy value
@@ -489,6 +492,8 @@ pp_get_component('mycomponent', [
 > `template_owned_component` on every write-time path, and it will be dropped from the catalog
 > the AI reads. `restore_composition` is the one deliberate exception (#233): it replays stored
 > history, so it writes the chrome and reports it as a finding rather than refusing the restore.
+> (It can still refuse for a reason unrelated to validation — a ring slot holding preserved bytes
+> rather than a composition, #818 — but no validation rule ever vetoes what it replays.)
 >
 > The drift guards in `tests/NavReadinessTest.php` read `base.php` back and fail if you forget.
 > Calling it from any other template (`front-page.php`, `single.php`, …) needs none of this.

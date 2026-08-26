@@ -2121,7 +2121,17 @@ function _pp_read_composition_json_locked($wpdb, int $post_id): ?string {
                 '_pp_composition'
             )
         );
-        return ($raw === null) ? null : (string) $raw;
+        // '' means "no prior state", exactly as in the cached branch below (#818). The
+        // two branches used to DISAGREE here: a SELECT against an existing-but-empty
+        // `_pp_composition` row returns '', which this branch handed back as a real
+        // value while the fallback mapped it to null. That was invisible while the
+        // caller only asked "does this decode to an array?" — both answers led to no
+        // push. Once an undecodable prior started being PRESERVED, the disagreement
+        // became a 0-byte raw entry minted on production installs only: it consumes a
+        // ring slot and makes steps_back=1 (the chat's undo selector) refuse. Empty
+        // rows are routinely reachable — the `_pp_composition` sanitize_callback in
+        // lib/admin.php rewrites any non-array payload to ''.
+        return ($raw === null || (string) $raw === '') ? null : (string) $raw;
     }
     $raw = get_post_meta($post_id, '_pp_composition', true);
     // get_post_meta(single=true) returns '' for an absent key; treat only genuine
@@ -2182,12 +2192,21 @@ function pp_get_composition_marker(int $post_id): array {
 // #113 marker bump, so history stays consistent with the version counter.
 //
 //   pp_update_composition(post, C_new)
-//     └─ [lock] read prior JSON J_prior  ──►  push {ts, version, hash, C_prior}
+//     └─ [lock] read prior JSON J_prior ──┬─ decodes to an array ──► push {ts, version,
+//                                         │                          hash, composition}
+//                                         └─ does NOT ────────────► push {ts, version,
+//                                                                    hash, raw_b64}
 //                write C_new, bump marker      onto _pp_composition_history (ring, last N)
 //
 // restore_composition (lib/actions.php) reads this ring and re-writes a chosen
 // entry's composition back through pp_update_composition — so a restore is
 // itself a conflict-checked write that lands its own history entry.
+//
+// #818: EVERY prior state gets a ring slot, including one whose stored bytes do
+// not decode to an array. Those push a raw entry carrying the bytes verbatim
+// instead of a `composition` entry — preserved, addressable and printable, but
+// NOT replayable. Before #818 they were not pushed at all, so the repair write
+// for a corrupt page destroyed the only recoverable copy of it.
 
 /**
  * Maximum number of prior-composition snapshots retained per post (#133).
@@ -2203,13 +2222,89 @@ function pp_composition_history_max(): int {
 }
 
 /**
+ * Is this history-ring entry a PRESERVED-BYTES record rather than a composition
+ * snapshot (#818)?
+ *
+ * The one predicate every ring reader uses to tell the two entry forms apart. Written
+ * against the NORMALIZED shape pp_get_composition_history() returns, where the two forms
+ * are mutually exclusive: a raw entry carries `raw` (a string) and no `composition`, a
+ * snapshot carries `composition` (an array) and no `raw`.
+ *
+ * @param array $entry  A single entry from pp_get_composition_history().
+ * @return bool  True for a preserved-bytes entry.
+ */
+function pp_history_entry_is_raw(array $entry): bool {
+    return isset($entry['raw']) && is_string($entry['raw']);
+}
+
+/**
  * Returns the composition history ring for a post, newest-last (#133).
  *
- * Each entry is `{timestamp:int, version:int, hash:string, composition:array}` — the
- * composition is the state as it was BEFORE the write that pushed the entry. Defensive
- * like pp_get_composition_result: an absent, non-JSON, non-list, or shape-wrong meta row
- * degrades to [] (no history) rather than fataling, and malformed individual entries are
- * dropped. Callers get a clean list they can index or walk backwards.
+ * TWO ENTRY FORMS since #818, and a reader must handle both:
+ *
+ *   SNAPSHOT  {timestamp:int, version:int, hash:string, composition:array}
+ *             The prior composition, as it was BEFORE the write that pushed the entry.
+ *             restore_composition replays this verbatim (#233).
+ *
+ *   RAW       {timestamp:int, version:int, hash:string, raw:string}
+ *             The prior STORED BYTES, EXACTLY, when they did not decode to an array — a page
+ *             classified decode_error, or the valid-JSON-scalar sub-case of
+ *             unexpected_shape (see pp_get_composition_result). Before #818 these were
+ *             not pushed AT ALL, so the write that replaced them destroyed the only
+ *             recoverable copy. They are preserved instead, but they are NOT a
+ *             composition and must never be treated as one: restore_composition refuses
+ *             to replay a raw entry (`history_entry_not_restorable`) and
+ *             `wp pp operate composition-history` prints the bytes so an operator can
+ *             recover them by hand. Use pp_history_entry_is_raw() to branch.
+ *
+ * The two forms are mutually exclusive and the discriminating key is always present.
+ *
+ * ON DISK A RAW ENTRY IS BASE64, AND THAT IS LOAD-BEARING, NOT TIDINESS. The ring is
+ * persisted as JSON, and JSON IS NOT A BYTE CONTAINER. Malformed UTF-8 is one of the
+ * corruptions pp_get_composition_result() names as a decode_error cause, and storing
+ * those bytes verbatim breaks the ring encode in one of two ways depending on which
+ * encoder runs — both fatal to the point of the entry:
+ *
+ *   json_encode()      returns FALSE outright (`Malformed UTF-8 characters`). The meta
+ *                      write would then persist that false over the WHOLE ring, so the
+ *                      fix for losing one page's bytes would lose all ten entries.
+ *   wp_json_encode()   does NOT fail: on a false return it runs _wp_json_sanity_check()
+ *                      / _wp_json_convert_string(), which coerce the string to valid
+ *                      UTF-8 and re-encode. It SUCCEEDS, having silently substituted the
+ *                      exact bytes this entry exists to preserve. A lossy copy that
+ *                      reports success is the worse of the two.
+ *
+ * So the stored key is `raw_b64` — pure ASCII, which no encoder has to touch — and THIS
+ * function hands callers the decoded bytes back under `raw`. Callers never see base64;
+ * every write of the ring converts back through _pp_history_entries_for_storage().
+ *
+ * `version` and `hash` mean THE MARKER AS IT STOOD when the entry was pushed, in both
+ * forms — not "the version/hash OF this payload". For a snapshot those coincide, because
+ * the marker was written by the same call that stored the composition. For a RAW entry
+ * they do not, and deliberately so: bytes that reached `_pp_composition` without going
+ * through pp_update_composition() leave the marker describing the last composition that
+ * DID, which is itself the tell that the corruption bypassed the writer. Nothing in the
+ * codebase reads `hash` off an entry today; read it as provenance, never as a checksum of
+ * `raw`.
+ *
+ * SLOT PRESSURE, ACCEPTED (#818), AND IT CUTS BOTH WAYS. A raw entry consumes a ring
+ * slot that a composition snapshot would otherwise hold, so a page corrupted and repaired
+ * N times evicts good snapshots N slots faster than before. The other direction matters
+ * more and is easier to miss: ORDINARY WRITES EVICT THE RAW ENTRY. A preserved-bytes slot
+ * has a hard, silent lifetime of pp_composition_history_max() further writes on that page
+ * — and a restore is itself a write — after which the bytes are gone for good. Nothing
+ * warns the operator that the clock is running, so the recovery window is real but finite:
+ * read the bytes out soon after the repair.
+ *
+ * Both directions are the deliberate trade. The ruling is that the bytes a repair replaces
+ * must stay recoverable, and dropping them at the push to protect older snapshots is the
+ * destroying-the-only-copy behavior #818 closes. No separate cap or exemption for raw
+ * entries — a second bound with its own number is how one ring starts having two policies.
+ *
+ * Defensive like pp_get_composition_result: an absent, non-JSON, non-list, or shape-wrong
+ * meta row degrades to [] (no history) rather than fataling, and an individual entry that
+ * matches NEITHER form is dropped — as it always was. Callers get a clean list they can
+ * index or walk backwards.
  *
  * @param int $post_id  WordPress post ID.
  * @return array  List of history entries, oldest first, or [] if none/unreadable.
@@ -2225,16 +2320,69 @@ function pp_get_composition_history(int $post_id): array {
     }
     $clean = [];
     foreach ($entries as $entry) {
-        if (is_array($entry) && isset($entry['composition']) && is_array($entry['composition'])) {
-            $clean[] = [
-                'timestamp'   => (int) ($entry['timestamp'] ?? 0),
-                'version'     => (int) ($entry['version'] ?? 0),
-                'hash'        => (string) ($entry['hash'] ?? ''),
-                'composition' => $entry['composition'],
-            ];
+        if (!is_array($entry)) {
+            continue;
+        }
+        $common = [
+            'timestamp' => (int) ($entry['timestamp'] ?? 0),
+            'version'   => (int) ($entry['version'] ?? 0),
+            'hash'      => (string) ($entry['hash'] ?? ''),
+        ];
+        // Snapshot first: `composition` is the older form and the overwhelmingly common
+        // one, and an entry carrying both keys — which this writer never produces, so it
+        // means a hand-edited row — is read as the replayable half. STATED LIMIT: that
+        // preference is wrong when the replayable half is EMPTY, where it yields a
+        // restorable no-op snapshot and the bytes beside it are dropped. Reachable only by
+        // writing the meta directly; not defended against, because guessing which half a
+        // hand-edit meant is worse than picking the documented one.
+        //
+        // This is where the invariant pp_history_entry_is_raw() relies on is ESTABLISHED,
+        // which is why the raw test is spelled out here rather than delegated to it: the
+        // predicate answers "which form is this?" for an already-normalized entry, while
+        // these two branches decide the form from arbitrary stored bytes, where `raw`
+        // could be anything at all.
+        if (isset($entry['composition']) && is_array($entry['composition'])) {
+            $clean[] = $common + ['composition' => $entry['composition']];
+        } elseif (isset($entry['raw_b64']) && is_string($entry['raw_b64'])) {
+            // Strict decode: a ring row whose payload is not real base64 is malformed and
+            // is dropped, the same treatment every other unrecognizable row gets. Handing
+            // back base64_decode()'s lenient garbage would be worse than dropping it —
+            // the whole point of this entry is that its bytes are EXACT.
+            $bytes = base64_decode($entry['raw_b64'], true);
+            if ($bytes !== false) {
+                $clean[] = $common + ['raw' => $bytes];
+            }
         }
     }
     return $clean;
+}
+
+/**
+ * Converts normalized ring entries back into their STORED form (#818).
+ *
+ * The inverse of pp_get_composition_history()'s normalization, and mandatory before any
+ * write of `_pp_composition_history`: a raw entry's decoded bytes must go back to base64
+ * before the ring meets a JSON encoder, or invalid UTF-8 either fails the encode of the
+ * whole ring or gets silently substituted — see that function's docblock for which
+ * encoder does which. Composition entries pass through untouched.
+ *
+ * The append path in pp_update_composition() reads the ring through the normalizer and
+ * appends in normalized form, so this is the SINGLE place that knows the on-disk
+ * encoding. Keep it that way: an entry persisted around this converter is unreadable to
+ * pp_get_composition_history() and vanishes on the next write.
+ *
+ * @param array $entries  Normalized entries from pp_get_composition_history().
+ * @return array  The same list in stored form.
+ */
+function _pp_history_entries_for_storage(array $entries): array {
+    return array_map(function (array $entry): array {
+        if (!pp_history_entry_is_raw($entry)) {
+            return $entry;
+        }
+        $encoded = base64_encode($entry['raw']);
+        unset($entry['raw']);
+        return $entry + ['raw_b64' => $encoded];
+    }, $entries);
 }
 
 /**
@@ -3407,23 +3555,78 @@ function pp_update_composition(int $post_id, array $composition, ?int $expected_
         // captured bytes are exactly what a later restore replays.
         $prior_json = _pp_read_composition_json_locked($wpdb, $post_id);
         if ($prior_json !== null) {
+            // THE DECODE DECIDES THE ENTRY SHAPE, NOT WHETHER TO PUSH (#818). This used to
+            // be `if (is_array($prior_items)) { push }` — so a page whose stored bytes did
+            // not decode to an array got NO entry, and the update_post_meta() three lines
+            // below destroyed the only recoverable copy of those bytes. That is the exact
+            // state the rest of the pipeline treats as precious: #144 classifies it, #725
+            // makes the read path say "treat as corrupted, not empty", #749 refuses a batch
+            // rather than roll a snapshot over it, #748 stopped six action surfaces from
+            // telling an agent to populate over it — and the DOCUMENTED repair for it is
+            // one full update_composition write, i.e. this function. The recovery path was
+            // the destructive one.
+            //
+            // Both classifications that reach here lose bytes on the old gate, not just the
+            // one the issue names: `decode_error` (undecodable), AND the valid-JSON-SCALAR
+            // sub-case of `unexpected_shape` (`null`, `5`, `"text"` — valid JSON, decodes
+            // to a non-array). Keying on the decode itself rather than on a re-run of
+            // pp_get_composition_result() covers both with one branch, and is the only
+            // honest test available inside the lock anyway: the classifier reads through
+            // the meta CACHE, while these are the authoritative bytes read from the DB.
+            //
+            // A raw entry is a PRESERVED-BYTES record, not a snapshot. It is not a
+            // composition and no reader may treat it as one — see pp_get_composition_history()
+            // for the two entry forms and pp_history_entry_is_raw() for the predicate.
             $prior_items = json_decode($prior_json, true);
-            if (is_array($prior_items)) {
-                $history   = pp_get_composition_history($post_id);
-                $history[] = [
-                    'timestamp'   => time(),
-                    'version'     => $current_version,
-                    'hash'        => (string) get_post_meta($post_id, '_pp_composition_hash', true),
-                    'composition' => $prior_items,
-                ];
-                $max = pp_composition_history_max();
-                if (count($history) > $max) {
-                    $history = array_slice($history, -$max);
-                }
-                update_post_meta(
-                    $post_id,
-                    '_pp_composition_history',
-                    wp_slash(wp_json_encode($history, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES))
+            $entry       = [
+                'timestamp' => time(),
+                'version'   => $current_version,
+                'hash'      => (string) get_post_meta($post_id, '_pp_composition_hash', true),
+            ];
+            $entry += is_array($prior_items)
+                ? ['composition' => $prior_items]
+                : ['raw' => $prior_json];
+
+            // Assembled in NORMALIZED form and converted to the stored form ONCE, on the
+            // way out. Building the new entry pre-encoded would put the on-disk encoding
+            // in two places 1200 lines apart, and would make "every ring write goes
+            // through the converter" a request in a docblock rather than a fact about
+            // the code. It is the fact that matters: an entry persisted without the
+            // conversion is unreadable to pp_get_composition_history(), which is a silent
+            // corruption path in the one subsystem whose whole job is losing nothing.
+            $history   = pp_get_composition_history($post_id);
+            $history[] = $entry;
+            $max = pp_composition_history_max();
+            if (count($history) > $max) {
+                $history = array_slice($history, -$max);
+            }
+            // A FAILED ENCODE MUST NOT BECOME A WIPED RING. base64 closes the invalid-UTF-8
+            // failure class for the raw payload, but it is not the only one — JSON_ERROR_DEPTH
+            // still reaches here, because wrapping a prior array inside an entry inside the
+            // ring nests it two levels deeper than it sat when json_decode() accepted it. On
+            // false, wp_slash(false) is false and update_post_meta would store an empty value
+            // that reads back as [] — all ten slots gone, on the very write that was meant to
+            // preserve one. Keeping the previous ring is strictly better than destroying it.
+            //
+            // This guard covers the CLOBBER half only. That a skipped push leaves the write
+            // below it to proceed anyway — losing the prior state silently — is the older,
+            // wider gap tracked in #821, whose fix is a posture decision (fail closed vs
+            // report) rather than a line.
+            $encoded = wp_json_encode(
+                _pp_history_entries_for_storage($history),
+                JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+            );
+            if ($encoded !== false) {
+                update_post_meta($post_id, '_pp_composition_history', wp_slash($encoded));
+            } else {
+                // A BREADCRUMB IS NOT A POSTURE. Which of "fail the write" / "report it on
+                // the envelope" this should become is #821's call; that a skipped push
+                // leaves no trace at all is not a decision anyone made. One line makes the
+                // difference between a diagnosable event and an unexplained gap in a ring.
+                error_log(
+                    'PromptingPress: composition post ' . $post_id
+                    . ' history ring NOT updated (JSON encode failed: ' . json_last_error_msg()
+                    . '); the previous ring was left intact but the state this write replaced was not recorded.'
                 );
             }
         }

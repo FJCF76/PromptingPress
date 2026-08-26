@@ -136,6 +136,8 @@ wp pp action execute restore_composition --run-id=$RUN --params='{"post_id":42,"
 
 `steps_back=1` is the most recent prior state; increase it to walk further back, or pass `history_index` for an absolute ring position.
 
+**A slot can be unrestorable, and that is the good outcome (#818).** If the page was corrupt and someone repaired it, the ring holds the bytes that repair replaced. The listing marks that row `restorable: false` with `components: null`, and selecting it fails with `history_entry_not_restorable` — there is no composition in it to replay. Recover the bytes by copying `raw_base64` from the listing (check it against `raw_sha256`; `raw` is the human-readable view and can be lossy for malformed UTF-8), then step to an earlier entry to roll the page back.
+
 **Check the `findings` array in the result.** A restore is never blocked by current validation rules, so an old snapshot can come back carrying something today's validators reject (site chrome in the composition, say). The restore still succeeds — undo must not fail — and reports what it wrote:
 
 ```bash
@@ -170,6 +172,9 @@ You skipped step 3, or the run expired. Run `wp pp apply preflight --run-id=$RUN
 
 **Preflight errors: `Could not read an atomic pre-apply token baseline ... the token lock is contended, or the pp_token_overrides row is corrupt/unreadable`**
 Preflight fails closed rather than freezing a rollback point it can't trust. Three causes: another process is writing tokens right now (lock contention, issue #200) — wait a moment and re-run the same `preflight` command, it succeeds once the contention clears; or the stored `pp_token_overrides` option is corrupt/hand-edited into a non-array (issue #207) — re-running won't help because the row stays unreadable, so inspect and repair the `pp_token_overrides` option before retrying; or the option read itself errored at the database (issue #212, detected via `$wpdb->last_error`) — re-run once the database recovers. Recording an empty baseline for a corrupt row or a failed read would make a later `restore` delete the touched tokens instead of restoring them, which is why it refuses.
+
+**`History entry N (steps_back M) holds stored bytes that did not decode to a composition`**
+That ring slot is not a composition snapshot — it holds the bytes a repair write replaced on a corrupt page, kept so the repair could not destroy the only copy of them (#818). Nothing is wrong and nothing was lost. Read the bytes with `wp pp operate composition-history --post_id=<id>` (`raw_base64` is the exact copy, `raw_sha256` verifies it), then pass a larger `steps_back` — or the `history_index` of a row showing `restorable: true` — to roll the page back to a real composition.
 
 **`Refusing to apply: run "..." has no usable rollback snapshot`**
 The run has no snapshot to undo to, so `execute`/`reset` won't mutate. Re-run `wp pp operate inspect` then `wp pp apply preflight --run-id=$RUN` to establish a fresh, reversible baseline.
