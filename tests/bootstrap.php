@@ -1100,9 +1100,10 @@ if (!class_exists('wpdb')) {
                 return $GLOBALS['_pp_test_store']['wpdb_guid_map'][$m[1]] ?? null;
             }
             // Direct postmeta point-lookups — the reads that deliberately BYPASS the
-            // object cache. Three exist: _pp_read_composition_version_locked() and
-            // _pp_read_composition_json_locked() (both inside the write lock, #133/#818)
-            // and pp_get_composition_result_authoritative() (#767).
+            // object cache. Four exist: _pp_read_composition_version_locked(),
+            // _pp_read_composition_json_locked() and _pp_read_composition_history_locked()
+            // (all three inside the write lock, #133/#818/#823) and
+            // pp_get_composition_result_authoritative() (#767).
             //
             // This branch used to be absent, so all three answered NULL here and any test
             // installing this stub silently modelled an EMPTY postmeta table. That was
@@ -1118,6 +1119,17 @@ if (!class_exists('wpdb')) {
             // (possibly stale) cache. null there means "no row". That divergence is the
             // whole hazard #767's carve-out has to be honest about (#823 documents how a
             // request warms a stale copy).
+            //
+            // A STAGED ROW IS FROZEN: WRITES DO NOT UPDATE IT, and since #823 that matters on
+            // the main write path. update_post_meta() above writes only to ['post_meta'];
+            // nothing ever writes ['wpdb_postmeta']. Production is the opposite — update_
+            // metadata() UPDATEs the row and then invalidates the cache, so the authoritative
+            // reader in write N+1 sees write N. So a test that stages a divergence and then
+            // performs TWO composition writes has the second one rebuild from the same
+            // pre-first-write row, which manufactures #823's symptom against a correct writer
+            // (and, worse, would let a test asserting a SHORT ring pass against a regressed
+            // one). Stage the divergence, perform ONE write, then CLEAR the staged key —
+            // see CompositionHistoryLockedReadTest::settle(), which exists for exactly this.
             if (preg_match("/meta_key = '([^']+)'/", $query, $km)
                 && preg_match('/post_id = (\d+)/', $query, $pm)) {
                 $meta_key = $km[1];

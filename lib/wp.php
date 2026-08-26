@@ -541,12 +541,16 @@ function pp_get_composition_result(int $post_id): array {
 /**
  * The $wpdb handle, but only when it can actually answer an uncached composition read (#767).
  *
- * SINGLE OWNER OF THE CAPABILITY QUESTION, because two callers need the SAME answer for
+ * SINGLE OWNER OF THE CAPABILITY QUESTION, because callers need the SAME answer for
  * opposite reasons and must never disagree about it:
  *
  *   pp_get_composition_result_authoritative()  falls back to the cached read when this is
  *                                              null — an honest degradation for a general
  *                                              reader with no database to ask.
+ *   _pp_read_composition_history_locked()      the same degradation, inside the write lock
+ *                                              (#823): a ring it cannot read authoritatively
+ *                                              is still better read stale than treated as
+ *                                              empty, which would wipe it.
  *   pp_corrupt_page_repair_carve_out()         refuses to open when this is null — because
  *                                              a GATE may not be opened by a value that
  *                                              might be stale, and the cached read is
@@ -617,12 +621,13 @@ function pp_composition_db_handle(): ?object {
  *                         so a duplicated key could open the carve-out on the strength of a
  *                         row no other surface reads.
  *
- * RELATED BUT NOT THE SAME as the two `_locked` readers below (_pp_read_composition_json_locked,
- * _pp_read_composition_version_locked). All three read the row instead of the cache; the
- * difference is only WHERE they run — those two inside pp_update_composition()'s advisory
- * lock, this one outside it, at a gate. They do NOT currently share the row-ordering rule:
- * both `_locked` readers still issue an unordered LIMIT 1. That asymmetry is pre-existing and
- * filed as #825 rather than fixed here.
+ * RELATED BUT NOT THE SAME as the three `_locked` readers below (_pp_read_composition_json_locked,
+ * _pp_read_composition_version_locked, _pp_read_composition_history_locked). All four read the
+ * row instead of the cache; the difference is only WHERE they run — those three inside
+ * pp_update_composition()'s advisory lock, this one outside it, at a gate. They do not all
+ * share the row-ordering rule: the version and json readers still issue an unordered LIMIT 1,
+ * which is pre-existing and filed as #825 rather than fixed here. The history reader (#823)
+ * carries the ordering, for the reason its own docblock gives.
  *
  * FALLBACK, stated plainly: with no usable handle (see pp_composition_db_handle) this
  * degrades to the cached read, because a reader with no database to ask has nothing better
@@ -2333,6 +2338,173 @@ function _pp_read_composition_json_locked($wpdb, int $post_id): ?string {
 }
 
 /**
+ * Reads the composition history ring straight from the DB inside the composition lock,
+ * bypassing the post-meta object cache (#823). The third sibling of the two readers
+ * above, and it exists for the same reason they do.
+ *
+ * THE LOSS IT CLOSES, which is a lost UNDO STEP rather than a lost counter. The ring is
+ * rebuilt read-modify-write inside pp_update_composition()'s per-post advisory lock. The
+ * lock serialized the WRITES and did nothing about the READ, so a request that warmed the
+ * post's meta cache BEFORE the lock rebuilt the ring from that pre-lock copy:
+ *
+ *     A: reads the page (ring […, e1] now warm in A's request cache)
+ *     A: calls pp_update_composition(), blocks in GET_LOCK
+ *     B: holds the lock, appends e2, writes […, e1, e2], releases
+ *     A: acquires, re-reads version and composition FROM THE DB (correctly), rebuilds the
+ *        ring from its STALE […, e1], appends e3, writes […, e1, e3]        ← e2 is gone
+ *
+ * No persistent object cache is needed: core's WP_Object_Cache is per-request, and
+ * update_metadata()'s wp_cache_delete() only clears the WRITING process's copy. Nor does
+ * the warm-up need to be deliberate — update_meta_cache() loads EVERY meta_key for the
+ * post in one query, so any earlier get_post_meta() on the post (pp_get_composition_result()
+ * runs on essentially every path that leads to a write) warms this key too. On the restore
+ * path it is guaranteed: lib/actions.php calls pp_get_composition_history() immediately
+ * before pp_update_composition().
+ *
+ * Since #818 the dropped entry can be the PRESERVED-BYTES entry for a corrupt page — the
+ * only recoverable copy of those bytes, rescued at the repair write and dropped one
+ * concurrent write later, silently.
+ *
+ * NO $wpdb PARAMETER, unlike the two siblings above, and that asymmetry is deliberate.
+ * Since #767 the question "can we do an uncached read at all?" has a SINGLE OWNER,
+ * pp_composition_db_handle(), which reads the global itself — and the handle
+ * _pp_with_advisory_lock() passes to the mutator is the same global it captured. Taking a
+ * parameter and then answering the capability question from the global would give this
+ * function two sources of truth for one handle; re-spelling the four clauses locally would
+ * fork the owner. The four-clause guard is strictly stronger than the siblings' two-clause
+ * one: a partial handle (several test doubles implement get_var and nothing else) yields an
+ * empty table name and a query that cannot be trusted.
+ *
+ * TWO ASSUMPTIONS THIS READ RESTS ON, stated as assumptions because nothing here enforces
+ * them, and both predate #823 — every reader and writer inside the lock shares them:
+ *
+ *   SAME CONNECTION.  Advisory locks are connection-scoped, so a read over a different
+ *                     connection is a read outside the lock. Two things could move it:
+ *                     third-party code reassigning $GLOBALS['wpdb'] mid-request (a db.php
+ *                     drop-in, a multi-network plugin — nothing in this theme does), and
+ *                     wpdb's own errno-2006 self-heal, which re-runs a statement on a NEW
+ *                     connection after check_connection() and reports success with an empty
+ *                     last_error. The reconnect silently voids the GET_LOCK for the whole
+ *                     rest of the mutator, not just this read; tracked as its own issue
+ *                     rather than patched here.
+ *   FRESH SNAPSHOT.   InnoDB defaults to REPEATABLE READ, and GET_LOCK neither commits nor
+ *                     refreshes a read view. Under vanilla WordPress autocommit every
+ *                     statement gets a fresh snapshot and this read sees the concurrent
+ *                     writer's committed ring. Inside an explicit transaction opened earlier
+ *                     on the same connection by other code, it would be served from a
+ *                     pre-lock snapshot — authoritative in shape, stale in fact.
+ *
+ * ORDER BY meta_id ASC, which the two siblings above still lack (#825, not fixed here).
+ * `_pp_composition_history` is single-valued by convention, not by schema, and
+ * get_post_meta($id, $k, true) returns the FIRST row in meta_id order (update_meta_cache
+ * selects ORDER BY meta_id ASC, get_metadata takes [0]). So the ordering is what makes this
+ * read the SAME row the cached path reads — omitting it is what would change behavior on a
+ * duplicated key, not carrying it. (update_metadata() then updates every row for the key,
+ * so a write collapses duplicates; the ordering only has to survive until then.)
+ *
+ * THE WRITE BELOW LEAVES THE REQUEST'S CACHE CORRECT, which the filed issue asked to be
+ * confirmed rather than assumed. update_metadata() deletes the post's whole `post_meta`
+ * cache entry after a successful UPDATE (wp-includes/meta.php, verified against WP 7.0:
+ * `wp_cache_delete( $object_id, $meta_type . '_meta' )` at both the add and update paths),
+ * so a later get_post_meta() in the same request re-primes from the row this write just
+ * committed. Nothing here has to prime the cache by hand, and a caller reading the ring
+ * after the write sees the ring that was written.
+ *
+ * A FAILED READ FALLS BACK TO THE CACHE, and the honest way to say it is that this fix
+ * closes the stale-read window only when the uncached read SUCCEEDS. The alternative is
+ * worse in the one direction that matters here: $wpdb->get_var() returns null both for
+ * "no row" and for a failed query (#212), so treating a DB error as an empty ring would
+ * WIPE up to pp_composition_history_max() entries on the very write that was supposed to
+ * preserve one — a new data-loss path opened by a data-loss fix. Falling back leaves a
+ * failed read behaving exactly as this code behaved before #823. That a skipped or degraded
+ * ring push still lets the composition overwrite proceed is the wider posture question
+ * tracked in #821.
+ *
+ * @param int $post_id  WordPress post ID.
+ * @return array  Normalized ring entries, oldest first (see pp_get_composition_history).
+ */
+function _pp_read_composition_history_locked(int $post_id): array {
+    $wpdb = pp_composition_db_handle();
+    if ($wpdb === null) {
+        // Unit context: no database to ask, and no cross-process store for a cached read
+        // to be stale against. Production WordPress always has a usable handle.
+        return pp_get_composition_history($post_id);
+    }
+
+    $raw = $wpdb->get_var(
+        $wpdb->prepare(
+            "SELECT meta_value FROM {$wpdb->postmeta} WHERE post_id = %d AND meta_key = %s ORDER BY meta_id ASC LIMIT 1",
+            $post_id,
+            '_pp_composition_history'
+        )
+    );
+    // #212's disambiguation, and it must precede the null handling below: a failed query
+    // also returns null, and must not be read as "this page has no history". It covers the
+    // query-level failures (killed query, statement timeout, lock wait) — wpdb::query()
+    // flushes last_error to '' at the start of every query and sets it on error. It does
+    // NOT cover the two branches where wpdb bails before running anything (`!$this->ready`,
+    // a failed check_connection()), which return null with last_error empty. Left as the
+    // sibling _pp_read_token_overrides_locked_strict() leaves it: both require a dead
+    // connection, and the update_post_meta() below would fail on the same connection, so
+    // the short ring is never persisted.
+    if (!empty($wpdb->last_error)) {
+        return _pp_degraded_history_ring($post_id, 'the authoritative read failed (' . $wpdb->last_error . ')');
+    }
+    // maybe_unserialize() is the step get_metadata() takes on the cached path. A ring row
+    // written as a PHP-serialized array (an importer, a post-duplicator, `wp post meta
+    // update ... --format=json`) is a readable ring to get_post_meta() and opaque bytes to
+    // a raw column read; without this the two readers would disagree about which entries
+    // exist, which is the disagreement this reader was added to remove.
+    $value = ($raw === null) ? '' : maybe_unserialize($raw);
+
+    // A ROW THAT IS PRESENT BUT NOT A RING IS DAMAGED, NOT EMPTY — and this is the only
+    // place in the codebase that can tell the two apart, because it is the only one holding
+    // the raw bytes. The general reader collapses both to [] and is right to; here [] would
+    // be persisted: the rebuild below appends one entry to it and writes the result, so a
+    // single truncated write to this row would take the other nine slots with it, on the
+    // write path #818 built to keep the last copy of a corrupt page's bytes. That is the
+    // same wipe the last_error branch above refuses, arriving through a SUCCESSFUL read, so
+    // it gets the same answer. `_pp_composition_history` is the row most exposed to it: same
+    // column and same writer as `_pp_composition` (whose rows demonstrably do go
+    // undecodable — that is why #818 exists), carrying up to ten compositions rather than
+    // one.
+    $entries = _pp_decode_history_ring($value);
+    if ($entries === null) {
+        return _pp_degraded_history_ring($post_id, 'the stored ring row is present but did not decode to a list');
+    }
+    return _pp_normalize_history_ring($entries);
+}
+
+/**
+ * The locked reader's fallback: the cached ring, plus a line in the log saying why (#823).
+ *
+ * A BREADCRUMB IS NOT A POSTURE, and this file already settled that argument for the
+ * strictly milder degradation below it (a skipped ring write, which at least leaves the
+ * previous ring intact). This one is worse and had no breadcrumb at all: the write proceeds,
+ * persists a ring rebuilt from a possibly-stale copy, and reads in every log exactly like a
+ * healthy write. Falling back is still right — a stale ring beats a wiped one, and it is
+ * what this code did before #823 — but a fix whose premise is "the only recoverable copy of
+ * those bytes" must not fail silently back into the bug it closes.
+ *
+ * NOT LOGGED, deliberately: the no-usable-handle branch. That one is the documented
+ * unit-context path (production always satisfies every clause of pp_composition_db_handle()),
+ * so a line there would fire on every composition write in the test suite and say nothing
+ * about production.
+ *
+ * @param int    $post_id  WordPress post ID.
+ * @param string $reason   What went wrong, in words, for the log line.
+ * @return array  The cached ring, normalized as usual.
+ */
+function _pp_degraded_history_ring(int $post_id, string $reason): array {
+    error_log(
+        'PromptingPress: composition post ' . $post_id
+        . ' history ring read fell back to the object cache (' . $reason
+        . '); a concurrent write\'s entry may be dropped from the ring by this write.'
+    );
+    return pp_get_composition_history($post_id);
+}
+
+/**
  * Computes the freshness content-hash of a composition (#113).
  *
  * Hashes the CANONICAL pre-stable-id form: the auto-generated top-level props.id (the
@@ -2423,7 +2595,8 @@ function pp_composition_history_max(): int {
  * are mutually exclusive: a raw entry carries `raw` (a string) and no `composition`, a
  * snapshot carries `composition` (an array) and no `raw`.
  *
- * @param array $entry  A single entry from pp_get_composition_history().
+ * @param array $entry  A single normalized entry, from either ring reader — see
+ *                      pp_get_composition_history() for the shape.
  * @return bool  True for a preserved-bytes entry.
  */
 function pp_history_entry_is_raw(array $entry): bool {
@@ -2499,16 +2672,44 @@ function pp_history_entry_is_raw(array $entry): bool {
  * matches NEITHER form is dropped — as it always was. Callers get a clean list they can
  * index or walk backwards.
  *
+ * THIS IS THE CACHED READER, which is the right one everywhere except inside the write
+ * lock. The rebuild in pp_update_composition() reads through
+ * _pp_read_composition_history_locked() instead (#823) — same normalization, asked of the
+ * database — because a cached ring there loses a concurrent writer's entry. Both share
+ * _pp_normalize_history_ring(), so they cannot drift on which entries are readable.
+ *
  * @param int $post_id  WordPress post ID.
  * @return array  List of history entries, oldest first, or [] if none/unreadable.
  */
 function pp_get_composition_history(int $post_id): array {
-    $raw = get_post_meta($post_id, '_pp_composition_history', true);
-    if ($raw === '' || $raw === null || $raw === false) {
-        return [];
-    }
-    $entries = is_array($raw) ? $raw : json_decode((string) $raw, true);
-    if (!is_array($entries) || !pp_is_list($entries)) {
+    return _pp_normalize_history_ring(get_post_meta($post_id, '_pp_composition_history', true));
+}
+
+/**
+ * Normalizes a STORED `_pp_composition_history` value into the ring shape every reader
+ * sees (#133, raw entries #818, extracted #823).
+ *
+ * Extracted verbatim from pp_get_composition_history() when #823 added a second reader
+ * — _pp_read_composition_history_locked(), which asks the DATABASE the same question
+ * inside the write lock. The two readers differ in WHERE the bytes come from and in
+ * nothing else, and that is the point: the ring's whole job is losing nothing, so a
+ * cached reader and an authoritative reader that disagreed about which entries are
+ * readable would be a silent loss of exactly the entries only one of them can see.
+ * One normalizer makes the agreement structural instead of a promise.
+ *
+ * Accepts what BOTH sources can hand back: get_post_meta() unserializes on the way out
+ * (so an array arrives already decoded), a column read does not (so a JSON string
+ * arrives, or an array after maybe_unserialize). Everything else — entry forms, the
+ * base64 decode, the drop rules — is documented on pp_get_composition_history(), which
+ * remains the reference for the shape this returns.
+ *
+ * @param mixed $raw  The stored meta value: a JSON string, an already-decoded array, or an
+ *                    absent-row marker ('', null, false).
+ * @return array  List of normalized entries, oldest first, or [] if none/unreadable.
+ */
+function _pp_normalize_history_ring($raw): array {
+    $entries = _pp_decode_history_ring($raw);
+    if ($entries === null) {
         return [];
     }
     $clean = [];
@@ -2551,6 +2752,34 @@ function pp_get_composition_history(int $post_id): array {
 }
 
 /**
+ * Decodes a stored ring value to its raw entry list, distinguishing ABSENT from UNREADABLE
+ * (#133, #823).
+ *
+ * One owner for "is this stored value a ring at all?", because two readers ask it and one of
+ * them can ACT on the difference. `_pp_normalize_history_ring()` collapses both answers to []
+ * — the right degradation for a general reader, which has nothing better to return. The locked
+ * reader cannot: it is about to persist a ring rebuilt from this answer, and "the row is
+ * absent" (push one entry onto nothing) and "the row is damaged" (nine slots we cannot read)
+ * are the same [] with opposite consequences. Keeping the distinction HERE rather than
+ * re-spelling the decode at the call site is what keeps the two readers from drifting about
+ * which values count as a ring.
+ *
+ * An absent row decodes to an EMPTY ring rather than to null: nothing was written yet, which
+ * is a perfectly readable answer.
+ *
+ * @param mixed $raw  The stored meta value.
+ * @return array|null  The raw (un-normalized) entry list, or null if the value is not a ring.
+ */
+function _pp_decode_history_ring($raw): ?array {
+    if ($raw === '' || $raw === null || $raw === false) {
+        return [];
+    }
+    $entries = is_array($raw) ? $raw : json_decode((string) $raw, true);
+    return (is_array($entries) && pp_is_list($entries)) ? $entries : null;
+}
+
+
+/**
  * Converts normalized ring entries back into their STORED form (#818).
  *
  * The inverse of pp_get_composition_history()'s normalization, and mandatory before any
@@ -2564,7 +2793,9 @@ function pp_get_composition_history(int $post_id): array {
  * encoding. Keep it that way: an entry persisted around this converter is unreadable to
  * pp_get_composition_history() and vanishes on the next write.
  *
- * @param array $entries  Normalized entries from pp_get_composition_history().
+ * @param array $entries  Normalized entries, from either ring reader — the write path feeds
+ *                        it the authoritative one (#823); see pp_get_composition_history()
+ *                        for the shape.
  * @return array  The same list in stored form.
  */
 function _pp_history_entries_for_storage(array $entries): array {
@@ -3787,7 +4018,14 @@ function pp_update_composition(int $post_id, array $composition, ?int $expected_
             // the code. It is the fact that matters: an entry persisted without the
             // conversion is unreadable to pp_get_composition_history(), which is a silent
             // corruption path in the one subsystem whose whole job is losing nothing.
-            $history   = pp_get_composition_history($post_id);
+            //
+            // READ THE RING FROM THE DATABASE, not the cache (#823). This is a
+            // read-modify-write inside the lock, so the READ has to be as authoritative as
+            // the two above it: a request that warmed the post's meta cache before blocking
+            // on GET_LOCK would otherwise rebuild the ring from its pre-lock copy and drop
+            // whatever the writer it waited for had just pushed — including, since #818, a
+            // preserved-bytes entry that is the only recoverable copy of a corrupt page.
+            $history   = _pp_read_composition_history_locked($post_id);
             $history[] = $entry;
             $max = pp_composition_history_max();
             if (count($history) > $max) {

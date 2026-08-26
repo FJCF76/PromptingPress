@@ -4,6 +4,85 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.16.15] — 2026-08-26 — A concurrent edit can no longer erase a history snapshot (#823)
+
+**Two edits to the same page, close enough together to overlap, could cost you an undo step without a word of warning — and since v1.16.13 the step it cost you could be the preserved copy of a corrupted page.** The page history ring was rebuilt from a cached read inside the write lock, so a request that had read the page before waiting its turn rebuilt the ring from what it saw *before* waiting, and wrote that back over the entry the writer ahead of it had just added. The ring is the one structure in this theme whose entire job is losing nothing.
+
+The write lock was doing its job for everything else. `pp_update_composition()` serializes writes to a single page with a MySQL advisory lock, and inside that lock it already read two of the three metas it touches straight from the database — the version counter (#113) and the stored composition (#133) — for exactly this reason, each with a docblock saying so: *the pre-lock freshness check may have warmed a stale meta cache*. The history ring was the sibling that never got the same treatment. It was serialized against concurrent writes and read from a copy that predated them.
+
+### The interleaving, and what it cost
+
+No persistent object cache is needed to reach it, which is why this is a real defect rather than a note about exotic configurations. WordPress's default object cache is per-request, and `update_metadata()`'s `wp_cache_delete()` only clears the *writing* process's copy. Nor does the warm-up have to be deliberate: `update_meta_cache()` loads **every** meta key for a post in one query, so any earlier `get_post_meta()` on that page — `pp_get_composition_result()` runs on essentially every path that leads to a write — warms the ring too. On the restore path it is guaranteed, because `lib/actions.php` reads the ring immediately before calling the writer.
+
+```
+request B                     request A                 the _pp_composition_history row
+───────────────────────       ─────────────────────     ───────────────────────────────
+reads the page                                          [ e1 ]        B's cache: [ e1 ]
+  (whole meta row warms)
+blocks in GET_LOCK
+                              takes the lock
+                              pushes e2                 [ e1, e2 ]    B's cache: still [ e1 ]
+                              releases
+acquires the lock
+re-reads version + composition FROM THE DB (correctly)
+rebuilds the ring from its STALE cache, appends e3
+                                                        [ e1, e3 ]    ← e2 is gone, silently
+```
+
+**Measured on the unfixed writer**, staging that exact interleaving over a page that was authored, corrupted, and repaired: three writes pushed three entries and the ring came back holding **two**, with **zero** preserved-bytes entries. After the fix the same interleaving yields three entries, one of them the preserved bytes, byte for byte.
+
+That last part is why this shipped as a must-fix rather than a follow-up. Since #818 a repair write over a page whose stored bytes cannot be read preserves those bytes on the ring instead of destroying them, and that slot is frequently the only recoverable copy in existence. It was rescued at the repair write and dropped one ordinary concurrent write later, with no error, no log line, and nothing on any surface to say a recovery had just been thrown away.
+
+### The fix
+
+`_pp_read_composition_history_locked()` reads the ring row directly, inside the same lock, over the handle the lock wrapper captured. Four details are load-bearing:
+
+- **The database handle comes from `pp_composition_db_handle()`**, the single owner of the "can we do an uncached read at all?" question since #767, with its four-clause guard. A partial handle (several test doubles implement `get_var` and nothing else) yields an empty table name and a query no one should trust. This is also why the new reader takes no `$wpdb` parameter where its two siblings do: one handle, one owner, no second source of truth.
+- **`ORDER BY meta_id ASC`**, matching the authoritative reader #767 added. `_pp_composition_history` is single-valued by convention, not by schema, and `get_post_meta($id, $k, true)` returns the *first* row in meta_id order. Carrying the ordering is what makes this reader answer with the same row the cached path answers with; omitting it would be the behavior change.
+- **`maybe_unserialize()`**, the step `get_metadata()` takes on the cached path. A ring row stored as a PHP-serialized array — an importer, a post-duplicator, `wp post meta update --format=json` — is a readable ring to `get_post_meta()` and opaque bytes to a raw column read. Without this the two readers would disagree about which entries exist, which is the disagreement this reader was added to remove.
+- **One normalizer.** `pp_get_composition_history()`'s decode-and-drop loop moved into `_pp_normalize_history_ring()` and both readers call it, so the cached and authoritative readers cannot drift on which entries are readable. A drift there would itself be a silent loss: the rebuild would drop exactly the entries only the other reader can see.
+
+**Stated plainly, because the honest version is narrower than "fixed":** this closes the stale-read window when the uncached read *succeeds*. `$wpdb->get_var()` returns null both for "no row" and for a failed query (#212), so a failed read falls back to the cached ring rather than treating a database error as an empty ring — that would wipe up to ten entries on the very write meant to preserve one, a fresh data-loss path opened by a data-loss fix. On a failed read the code behaves exactly as it did before this release.
+
+**The same wipe can arrive through a read that succeeds, and that one is now closed too.** A ring row that is *present but not a list* — a truncated write, an encoding fault — normalizes to an empty ring, and an empty ring is what the rebuild would then persist: one entry where ten stood. `_pp_composition_history` is the row most exposed to this. It shares a column and a writer with `_pp_composition`, whose rows demonstrably do go undecodable in production (that is why #818 exists), and it carries up to ten compositions where `_pp_composition` carries one. The new reader is the only place in the codebase holding the raw ring bytes, so it is the only place that can tell "no row" from "damaged row" — absence appends, damage falls back to the cache.
+
+**And neither degradation is silent any more.** Both fallbacks write one line naming the page and the reason. A fix whose premise is "the only recoverable copy of those bytes" must not fail quietly back into the bug it closes: without a breadcrumb, a killed query on this one SELECT during a live interleaving is indistinguishable in the logs from a healthy write. This is the same call the ring's encode guard already made one screen below it (*"a breadcrumb is not a posture"*), applied to the branch that had skipped it. The no-handle branch is deliberately not logged — it is the unit-context path and cannot occur in production, so a line there would fire on every write in the test suite and say nothing about a live site.
+
+### Why the test suite could not have caught this, and what was built instead
+
+`tests/bootstrap.php` stubs `update_postmeta_cache()` as an explicit no-op: *"the harness reads meta straight out of the store with no cache layer, so priming is a no-op."* Every test in this repo therefore runs as if the meta cache did not exist, and **no** stale-cache bug of this class can fail any of them. A green suite was never evidence here, and the verification had to be designed rather than assumed.
+
+What the harness does model, since v1.16.14, is a real postmeta table with a per-key divergence: one bucket stands for the database row, another for the possibly-stale cache. The new tests use it to stage the interleaving as a pair of requests actually produces it — request A really performs the repair write, the ring it commits is moved into the row bucket, the cache is restored to the copy B warmed before A landed, and then B writes. Fourteen tests cover the interleaving end to end, the same interleaving through the real `update_composition` action, the same one through `restore_composition` (the path where the stale warm-up is *guaranteed* rather than likely, because `lib/actions.php` reads the ring immediately before calling the writer), the opposite direction (a cache holding *more* than the row), eviction at the ring bound following the authoritative ring rather than the cached one, reader parity over every stored shape the normalizer distinguishes, a serialized row, an absent row, a damaged row and an empty one told apart, both degradations across all four capability clauses, and the query's row ordering and its position between `GET_LOCK` and `RELEASE_LOCK`. **Eleven of the fourteen fail or error against the unfixed writer.** The three that pass against it are deliberate guard pins for behavior that must not move — the ring bound, and the two degradations, which unfixed code satisfies trivially by never reading the database at all.
+
+The tests are named for what they are — cache-divergence simulations in one process, not concurrency tests — and each carries the premise assertions that make it fail loudly if the harness ever stops modelling the disagreement, rather than passing while testing nothing.
+
+### What this deliberately does not touch
+
+- **#825** — the two older `_locked` readers still issue an unordered `LIMIT 1`. Noted in the new reader's docblock, not fixed here.
+- **#821** — a ring write that fails still leaves the composition overwrite to proceed. That is a posture decision (fail closed vs report), not a line.
+- **#828** (filed from this work) — the entry's `hash` is still read from the cache in the same block. Provenance rather than a checksum, and named as lower-stakes in #823's own notes.
+- **#830** (filed from this work) — wpdb's errno-2006 auto-reconnect silently releases the connection-scoped advisory lock, so the rest of the write runs unlocked. Pre-existing across the whole critical section; this release states it as an assumption in the reader's docblock instead of asserting the opposite.
+- **#831** (filed from this work) — the test harness's staged database-row bucket is never updated by writes, which can manufacture this very symptom against a correct writer.
+- **#829** (filed from this work) — `restore_composition` still resolves `steps_back` / `history_index` against a cached ring read outside the lock, so a concurrent write can shift which snapshot a selector means. Not data loss, and a different axis from this fix: which ring the writer *rebuilds* from is settled here; which entry the operator *selected* is not.
+
+### Fixed
+
+- The composition history ring is read authoritatively inside the write lock (`_pp_read_composition_history_locked()`), so a concurrent write can no longer silently drop a ring entry — including the preserved-bytes entry #818 rescues for a corrupt page (#823).
+
+### Changed
+
+- `pp_get_composition_history()`'s normalization moved into `_pp_normalize_history_ring()`, shared by the cached and authoritative readers. Same output for every input; the extraction exists so the two cannot drift.
+
+### Tests
+
+- `tests/CompositionHistoryLockedReadTest.php` — fourteen pins over the staged two-request interleaving (direct writer, `update_composition` action, and `restore_composition`), reader parity across every stored shape, serialized and absent rows, ring bounding and eviction order, a damaged row versus an empty one, the no-handle and failed-read degradations, and the authoritative read's row ordering and in-lock position.
+
+### Docs
+
+- Corrected four comments this change made stale: the `wpdb` stub's list of direct postmeta point-lookups (`tests/bootstrap.php`), `pp_get_composition_result_authoritative()`'s "two `_locked` readers" paragraph and the ordering claim inside it, `pp_composition_db_handle()`'s caller enumeration, and the `@param` provenance lines on `pp_history_entry_is_raw()` / `_pp_history_entries_for_storage()`.
+
+---
+
 ## [v1.16.14] — 2026-08-26 — A corrupt page is repairable from the CLI again (#767)
 
 **The refusal that told you to run a command the next gate refused now names a route that runs.** On a page whose stored composition cannot be read, WP-CLI had no repair path at all: `wp pp apply preflight --post_id=N` failed closed on exactly that state and told you to repair the page first, while `wp pp action execute update_composition --post_id=N` refused for want of a completed preflight and told you to run preflight first. The two instructions pointed at each other, so the only pages the gates could not preflight were also the only pages the CLI could not repair. Repair worked from the dashboard editor and from the AJAX entry point, which left every SSH-first and chat-first operator stranded on a browser.
