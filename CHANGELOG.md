@@ -4,6 +4,103 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.16.17] — 2026-08-26 — The chat and the editor stop calling a corrupt page empty (#750)
+
+**Two surfaces read a page nobody could decode and reported "no components". The model is now told the truth, and so is the operator standing in the repair surface.** #725 fixed `inspect-composition`; #748 fixed the six `composition_required` refusals. These were the two that were left, and they were left deliberately: each needed its own decision about what to SAY, which is a chat call and an editor call rather than a read-path one.
+
+The defect was one line on each half. `pp_ai_page_context()` read the composition through `pp_get_composition()`, the accessor that degrades a corrupt row to `[]`, and threw the classification away one line before the only consumer that could have used it. The composition editor loaded the stored bytes into a pane that blanked two of them and fatally rejected two more.
+
+### The chat half, and the carve-out it takes off the shelf
+
+`v1.16.16` shipped ruling D-1's chat carve-out: a proposal whose ONLY step is `update_composition` or `restore_composition`, on a page already classified corrupt, is admitted through the #749 batch refusal. That entry disclosed the limitation plainly — "the model is not yet told to author the repair this change admits" — and it was not a small one. **The route existed and nothing in the model's context named it**, so on the first turn the model read `Composition: []`, concluded the page was blank, and proposed `add_component`, which the #748 gate correctly refused. Measured that way, the carve-out was inert until an operator worked out the shape by hand.
+
+`pp_ai_page_context()` now reads `pp_get_composition_result()` and carries the classification on a new `composition_error` key; `pp_ai_format_messages()` branches on it and renders a corruption block INSTEAD of the component index and the `[]` composition dump. The two arms are exclusive by construction: printing `[]` under the diagnosis would hand the model the exact sentence the diagnosis exists to contradict. Verbatim, what the model now reads on such a page:
+
+> Composition: UNREADABLE — no component list can be shown for this page.
+> Page 234: composition data integrity error (unexpected_shape). The stored _pp_composition is not a valid composition list — treat as corrupted, not empty.
+> Nothing on this page can be targeted by component_index, and every band-level verb (add_component, update_component, remove_component, reorder_components, style_component) is refused on it while the stored value is unreadable — as is any other step naming this page, including page-level ones like publish_page or update_page_title. The one change admitted here is the repair, and it must travel ALONE: a proposal whose ONLY step is update_composition carrying the whole replacement array, or restore_composition (#756, ruling D-1). Put a second step beside it and the whole proposal is refused again. Ask the operator what this page should contain before you send one — the stored content cannot be read back, so a replacement you invent is authored content, not a repair. Repair it with ONE whole-composition write — `update_composition` (a JSON array of components) or `restore_composition` — which on WP-CLI (`wp pp action execute`) needs no preflight on a page in this state (#767); the dashboard composition editor does the same job. The repair write preserves the unreadable bytes on the page's history ring (#818); read them afterwards with `wp pp operate composition-history --post_id=234`.
+
+The first sentence and the last two are not written there: they are `pp_composition_integrity_message()` and `pp_corrupt_repair_route_message()`, the same functions the CLI, the refusals and the editor call. Ruling R-C is one noun set on every surface, so only the middle paragraph is caller-local, matching the shape `_pp_batch_unreadable_target_error()` already ships.
+
+The refusal is stated at the gate's real breadth rather than at the band level alone, because `_pp_batch_unreadable_targets()` collects the post id off EVERY step: a proposal that merely publishes the corrupt page is refused too, and a half-true list would have earned the model a refusal its context did not predict. `patch` is deliberately not named — it is refused as well, but it is a CLI surface, not a verb a chat proposal can carry.
+
+"Ask the operator first" reconciles this issue's original framing (do not author over it) with ruling D-1 (the repair IS the sanctioned write). Both hold: the admitted write is a deliberate whole-composition replacement, and since the stored content cannot be read back, a replacement the model invents is authored content over recoverable bytes.
+
+A genuinely blank page is untouched by all of this and still renders `[]`. "Empty" stays reserved for empty.
+
+### The editor half, where the filed defect had already moved
+
+The issue described the add-component handler coercing a corrupt buffer to `[]` and replacing the pane. Premise-checked against current main, that path had closed: #745's load gate refuses a corrupt buffer at boot and forces JSON-only mode, so the accordion — and the dropdown — never render on such a page. What had NOT closed is what the operator is told when it happens.
+
+**Before:** the corrupt page got #745's structural-drift notice. "Accordion unavailable for this composition. Opening this composition in the accordion editor would change its structure." A diff table with one meaningless row (empty path, absent to absent). A "Copy as GitHub Issue" button. Nothing named the classification, nothing said the page was corrupted rather than merely awkward, nothing named the repair, and the one call to action invited a bug report against the theme for a state that is a corrupt row.
+
+**After:** a corrupt stored composition is checked FIRST, before the drift gate, and gets its own notice: the classification in the header, the shared integrity sentence, and a repair line that names the in-surface action ("This editor is one of the repair surfaces, so you can fix it here: replace the JSON below with a valid composition array and save...") followed by the shared route. No diff table, no issue button. The drift notice is untouched for the drift classes (#605/#745/#805) it actually describes, and a page that saves into a drift-unsafe composition swaps notices rather than keeping the stale one.
+
+The classification is computed in PHP and shipped to the client as `ppAdminEditor.compositionIntegrity`; the client renders it and never re-derives it. A second implementation of "is this corrupt?" is a second spelling of it, which is the whole reason the diagnosis and the route are single-owned functions.
+
+### Four ways the editor was showing a blank pane for a page that is not blank
+
+All pre-existing, all found while making the notice truthful, all fatal to this issue's own acceptance criterion:
+
+- **The stored JSON scalar `0`.** `if ($raw)` skipped the re-encode and `esc_textarea($raw ?: '')` finished the job: the string `'0'` and the int `0` both opened as an empty editor. The pristine-blank lie in its purest form.
+- **A `_pp_composition` row holding a PHP array.** `get_post_meta()` unserializes on the way out, so a row written by an importer or `wp post meta update … --format=json` came back as an array, and `json_decode(array)` is a TypeError on PHP 8. The composition editor — the one repair surface #767 verified as working — died with a fatal before rendering anything at all.
+- **A value `wp_json_encode()` cannot encode.** It returns `false`, and `(string) false` is `''`.
+- **Bytes that are not valid UTF-8.** `esc_textarea()` passes explicit flags to `htmlspecialchars()`, so PHP 8's `ENT_SUBSTITUTE` default does not apply and invalid UTF-8 escapes to the empty string. Truncated or binary-garbage bytes are a real `decode_error` shape, so the pane went blank for exactly the corruption that is hardest to reason about.
+
+`pp_composition_editor_text()` now owns the per-shape decision — decode only strings, re-encode anything else as JSON, treat exactly the values the classifier calls absent as blank — and `_pp_composition_editor_displayable()` guarantees the result survives the escaper. "Exactly the values the classifier calls absent" is literal: the predicate moved into `lib/wp.php` as `pp_composition_value_is_absent()` and both callers ask it, so the one decision this repo single-owns for compositions does not get a second spelling in the editor.
+
+**Invalid bytes are transcribed, not substituted, and that distinction is a data-safety one.** The obvious implementation swaps each bad byte for `?`, and on a latin-1 title from an importer — `{"title":"caf\xE9"}`, a `decode_error` row — that produces `{"title":"caf?"}`, which is VALID JSON, a valid list, and saves cleanly. The one action the notice tells the operator to take would have silently replaced a character of their content and reported it as a repair. Each invalid byte is now rendered as `\xNN`, which is not a valid JSON escape, so the transcription cannot parse and the save is refused until the operator writes a real composition. Valid multibyte runs pass through untouched. The exact bytes stay on the history ring either way (#818).
+
+### The add-component guard, and why it is not the siblings' guard
+
+The handler no longer coerces. It also does not simply `return` like its five siblings, and the difference is the point: those address an EXISTING band by index, so "not an array" and "nothing to do" are the same answer for them, while insert is the one operation that is legitimate on a page with nothing in it. `JSON.parse('')` throws, and the `[]` fallback is how the first component reaches a new page. `bufferAsComponentList()` splits the case the coercion merged — blank or whitespace-only gives `[]`, a list gives the list, anything else refuses and says what it found ("Nothing was added: the editor pane holds a JSON object, not a composition list"). Ruling R-C in one function.
+
+### The state transition that had to be earned, not assumed
+
+The corruption notice clears when a composition is actually WRITTEN, never on "the request succeeded". `wp_ajax_pp_publish_page` skips the composition write when the posted composition is empty and publishes anyway, so an author who clears the pane on a corrupt page and hits Publish gets `ok` back over an untouched corrupt row. Clearing there would have dropped them into an empty accordion sitting on the exact bytes the notice was about — the pristine-blank lie, restored by the one control that says the work is done. That server-side behaviour is filed as #835 rather than changed here.
+
+### Two configurations that would have been left behind
+
+The corruption branch runs OUTSIDE the editor's `if (cm)` guard. An author who turns on "Disable syntax highlighting while editing" in their WordPress profile has no CodeMirror instance, and every other boot path needs one — so gating the notice on it too would have left exactly that author staring at a blank editor for a corrupt page, in the one configuration nobody looks at.
+
+For the same author the notice also withholds the in-surface promise. The editor's Save and Publish handlers both open with `if (!cm) return;`, so they are silent no-ops in that mode (pre-existing, filed as #837); telling them to "fix it here and save" would have put a fresh lie where this change just removed an old one. They are pointed at the routes that do run instead.
+
+### Scope boundaries
+
+The chat half is the STATIC page context only. The conversation re-entry loop — what the model is told after a refusal comes back — is #704 and is not touched. The chat's proposal CARD still renders a corrupt page's current state as `from: []` (it reads the degrading accessor in `update_composition`'s preview), which is the last chat surface that contradicts the prompt; filed as #836, escalated there because this change is what makes that card reachable. Also not touched: #822 (undo-card message discarding), #813 (a `null` entry in `items[]` throwing at editor boot — unaffected, since a list is classified readable and reaches the same path as before), #833, #797.
+
+No CSS changed. No accepted grammar, validation rule, capability, nonce or gate changed: every enforcement decision this release describes was already enforced, and what changed is what gets said about it.
+
+### Deviations from the filed issue
+
+- Half B's filed defect ("add component coerces a non-array to `[]` and destroys it") was already unreachable with corrupt stored bytes, closed by #745's load gate. The guard still landed, as defence-in-depth, but the real remaining lie was the notice's wording — which the issue did not name.
+- Half A's suggested shape ("emit the integrity sentence plus an instruction not to author over it") is here, plus the repair route, which ruling D-1 and #756 made both possible and necessary after the issue was filed.
+- Four pane-level bugs (`'0'`, the PHP-array fatal, unencodable values, invalid UTF-8) were not in the issue at all. They are in scope because the acceptance criterion is that a corrupt page is PRESENTED as corrupt, and for those shapes the editor presented nothing or died.
+
+### Fixed
+
+- `pp_ai_page_context()` (`lib/ai-context.php`) reads `pp_get_composition_result()` and carries the classification on `composition_error`; `pp_ai_format_messages()` renders `_pp_ai_page_context_corrupt_block()` instead of the component index and the `[]` composition on a corrupt page. The cached reader is deliberate and documented: this builds context (a reader), and only a gate needs `pp_get_composition_result_authoritative()`.
+- The composition editor boots into JSON-only mode with a corruption notice naming the classification and the repair, checked BEFORE the serialization-invariant gate, and outside the `if (cm)` guard so the no-CodeMirror configuration gets it too.
+- `pp_composition_editor_text()` replaces the inline pane-building block: only strings are decoded, everything else is re-encoded as JSON with `JSON_INVALID_UTF8_SUBSTITUTE`, and `_pp_composition_editor_displayable()` transcribes invalid bytes as `\xNN` so the result survives `esc_textarea()` without ever becoming saveable. Fixes a blank pane for a stored `'0'` / `0`, a fatal `TypeError` for an array-shaped row, and a blank pane for unencodable or non-UTF-8 values.
+- The add-component handler refuses a buffer that is not a composition list instead of replacing it, while still adding the first component to a genuinely blank page.
+- The corruption state clears only when a composition was actually written, not on any successful save.
+- `pp_composition_value_is_absent()` (`lib/wp.php`) is the single owner of "is this stored value a blank page", extracted from `pp_classify_composition_value()` and shared with the editor.
+- `mountNotice()` and `forceJsonOnlyMode()` (`assets/js/pp-admin-editor.js`) are shared by both notices, so the mount point, the narrow-pane breakpoint and the JSON-only switch have one owner each rather than two copies.
+
+### Docs
+
+- `AI_CONTEXT.md`: two new sections describing the chat's page context and the editor on an unreadable page; the `inspect-composition` paragraph no longer says the chat "degrades that section rather than failing"; the canonical Admin-editor paragraph names the corruption gate that now runs before the serialization gate, and what it takes to lift it.
+- `pp_inspect_composition()`'s docblock (`lib/operate.php`) no longer records the chat's `is_wp_error` branch as DEAD — the chat is honest by its own read now, and that branch is defensive.
+- `pp_corrupt_repair_route_message()`'s docblock (`lib/wp.php`) carries a current caller census (six, not four) split by whether the route is actionable where it renders, since its scoping rule is only checkable against that list.
+
+### Tests
+
+- `tests/AiContextTest.php`: the rendered system message is asserted, not the context array — the #719 lesson. Four corrupt shapes (JSON object, undecodable string, non-string scalar, JSON `null`) each name their classification, carry both shared sentences verbatim, name the single-step repair, and never print the `[]` composition block or the component index; three blank shapes still print `[]` and no corruption wording; a healthy page still prints its component index.
+- `tests/CompositionEditorCorruptBootTest.php` (new): the pane text per stored shape, including the four blank-pane bugs and the fatal; that a transcribed non-UTF-8 row cannot be saved as a composition; the integrity payload's classification, its use of the two shared sentences, and its withheld promise in the no-CodeMirror configuration; and two source-reading tripwires, because both PHP helpers are reached from code no test can call (a page callback and an `admin_enqueue_scripts` closure) and unwiring either would leave every other assertion green.
+- `tests/js/pp-editor-corrupt-boot.test.js` (new): the real editor booted under jsdom — JSON-only mode with no accordion and no insert dropdown, the classification and route in the notice, no diff table or issue button, the raw bytes left in the pane, the same for `decode_error`, the hidden view toggle unable to paint an accordion, the no-CodeMirror path, a payload naming no classification ignored, both save buttons clearing the notice, a publish that wrote nothing NOT clearing it, a drift-unsafe repair swapping to the drift notice, the #745 drift fixture still getting its own notice with diff paths, and the insert guard across blank, whitespace-only, list, object, `null`, number, string, boolean and unparseable buffers.
+
+---
+
 ## [v1.16.16] — 2026-08-26 — The chat surface can repair the page it refuses (#756)
 
 **A refusal that tells an operator how to get unstuck now names a route that works from where they are standing.** #749 refuses a whole chat proposal, before step 1, when any page it names has a stored composition nobody can read, and its message prescribes the fix: one full `update_composition`, or `restore_composition`. On the chat surface that instruction could not be followed. The chat client posts every proposal, one step or many, to the batch endpoint, so the prescribed repair carried the same `post_id` into the same gate and came back refused with the very code it was meant to clear. The operator was told to do X, did X, and was told again to do X.

@@ -37,6 +37,14 @@
     var currentView  = 'accordion';      // 'accordion' or 'json'
     var invariantBlocked = false;
     var lastInvariantResult = null;
+    // Stored-composition classification (#750), decided in PHP by the one classifier and
+    // shipped here: null on a readable page, else {error, message, repair}. The client
+    // renders it and never re-derives it — a second implementation of "is this corrupt?"
+    // would be the second spelling #650/#652 exists to prevent.
+    var storedIntegrity = (ppAdminEditor.compositionIntegrity && ppAdminEditor.compositionIntegrity.error)
+        ? ppAdminEditor.compositionIntegrity
+        : null;
+    var corruptionBlocked = false;
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -488,6 +496,13 @@
      */
     function renderAccordion(expandedMap) {
         if (!cm) return;
+        // Corruption is checked FIRST and separately from the invariant (#750): both end in
+        // JSON-only mode, but they are different states with different notices, and the
+        // stored row's classification outranks a round-trip prediction about it.
+        if (corruptionBlocked) {
+            showCorruptionNotice(storedIntegrity);
+            return;
+        }
         if (invariantBlocked) {
             showSerializationNotice(lastInvariantResult);
             return;
@@ -830,6 +845,72 @@
         });
     }
 
+    /**
+     * The buffer as a component list, or null when the insert must be refused (#750).
+     *
+     *   blank / whitespace-only   ->  []         a genuinely empty page; the insert proceeds
+     *   a JSON list               ->  that list  the insert proceeds
+     *   anything else             ->  null       refused, and the author is told what is there
+     *
+     * The five SIBLING structural handlers (move up, move down, delete, style, field edit)
+     * all guard with a plain `if (!Array.isArray(parsed)) return;`, and this one used to
+     * COERCE instead — `catch { parsed = []; }` then `if (!Array.isArray(parsed)) parsed = [];`
+     * — so one use of the dropdown replaced whatever the pane held with a single-band list,
+     * and the save that followed landed ok:true because a list is a list.
+     *
+     * It could not simply copy the siblings' guard, and that is why this function exists.
+     * The siblings address an EXISTING band by index, so "not an array" and "nothing to do"
+     * are the same answer for them. Insert is the one operation that is legitimate on a page
+     * with nothing in it: `JSON.parse('')` throws, and the `[]` fallback is how the first
+     * component is added to a new page. Merging those two cases is what made the coercion
+     * look reasonable. Splitting them is ruling R-C in one function: "empty" means empty, and
+     * everything else has to say what it actually is.
+     *
+     * Since #745 (and #750's boot gate above it) a corrupt buffer normally cannot reach here
+     * at all — the accordion, and therefore the dropdown, is never rendered in JSON-only
+     * mode. This stays because "unreachable" is a property of the current call graph, not of
+     * this handler, and the cost of being wrong about that is the pane's only copy of the
+     * author's work.
+     */
+    function bufferAsComponentList() {
+        var text = cm.getValue();
+        if (!text || !text.trim()) return [];
+
+        // Both channels carry the whole refusal, deliberately. The error bar is the visible
+        // one but it is not durable: the standing 300ms validation writes its own message
+        // over it on the next keystroke, and that message ("Composition must be a JSON
+        // array.") describes the same fault while saying nothing about what the dropdown
+        // just did. The live region is where "nothing was added" survives.
+        var parsed;
+        try {
+            parsed = JSON.parse(text);
+        } catch (e) {
+            var invalid = 'Nothing was added: the editor pane is not valid JSON, so there is no'
+                + ' component list to add to. Fix the JSON below, then try again.';
+            showErrors([invalid]);
+            announce(invalid);
+            return null;
+        }
+
+        if (!Array.isArray(parsed)) {
+            var wrongShape = 'Nothing was added: the editor pane holds a ' + describeJsonValue(parsed)
+                + ', not a composition list. A composition is a JSON array of components —'
+                + ' fix the JSON below, then try again.';
+            showErrors([wrongShape]);
+            announce(wrongShape);
+            return null;
+        }
+
+        return parsed;
+    }
+
+    /** A short, honest name for what a decoded non-list value is, for the message above. */
+    function describeJsonValue(value) {
+        if (value === null) return 'JSON null';
+        if (Array.isArray(value)) return 'JSON array';
+        return 'JSON ' + typeof value;
+    }
+
     function initAccordionEvents() {
         var $container = $('#pp-accordion-view');
 
@@ -923,9 +1004,8 @@
                 else starter[k] = '';
             });
 
-            var parsed;
-            try { parsed = JSON.parse(cm.getValue()); } catch (e) { parsed = []; }
-            if (!Array.isArray(parsed)) parsed = [];
+            var parsed = bufferAsComponentList();
+            if (parsed === null) return;
             parsed.push({ component: name, props: starter });
 
             isSyncingFromAccordion = true;
@@ -1252,19 +1332,9 @@
                     finally { isSyncingFromAccordion = false; }
                 }
 
-                if (invariantBlocked) {
-                    var inv = logic.checkSerializationInvariant(cm.getValue(), components);
-                    if (inv.safe) {
-                        clearSerializationNotice();
-                        setSaveStatus('is-saved', 'Drift resolved');
-                    } else {
-                        lastInvariantResult = inv;
-                        showSerializationNotice(inv);
-                        setSaveStatus('is-saved', 'Draft saved');
-                    }
-                } else {
-                    setSaveStatus('is-saved', 'Draft saved');
-                }
+                // `true`: the draft handler refuses an empty composition outright ('Invalid
+                // JSON.'), so a success here always means a composition was written.
+                setSaveStatus('is-saved', resettleBlockedStateAfterSave(true) || 'Draft saved');
                 setTimeout(function () { setSaveStatus('', ''); }, 3000);
             } else {
                 setSaveStatus('is-error', saveErrorMessage(res.data, 'Save failed.'));
@@ -1359,19 +1429,13 @@
 
                 $('#pp-status-badge').remove();
 
-                if (invariantBlocked) {
-                    var inv = logic.checkSerializationInvariant(cm.getValue(), components);
-                    if (inv.safe) {
-                        clearSerializationNotice();
-                        setSaveStatus('is-saved', 'Drift resolved');
-                    } else {
-                        lastInvariantResult = inv;
-                        showSerializationNotice(inv);
-                        setSaveStatus('is-saved', wasPublished ? 'Updated' : 'Published');
-                    }
-                } else {
-                    setSaveStatus('is-saved', wasPublished ? 'Updated' : 'Published');
-                }
+                // `value !== ''`: the publish handler skips the composition write on an
+                // empty pane and publishes anyway, so success alone does not mean the
+                // stored composition was replaced.
+                setSaveStatus(
+                    'is-saved',
+                    resettleBlockedStateAfterSave(value !== '') || (wasPublished ? 'Updated' : 'Published')
+                );
                 setTimeout(function () { setSaveStatus('', ''); }, 3000);
             } else {
                 setSaveStatus('is-error', saveErrorMessage(res.data, wasPublished ? 'Update failed.' : 'Publish failed.'));
@@ -1486,18 +1550,92 @@
 
     // ── Serialization invariant notice ──────────────────────────────────────
 
-    function showSerializationNotice(invariant) {
-        console.error('Serialization invariant failed:', invariant.diffs);
-
-        // Force JSON-only mode
+    /**
+     * JSON-only mode: the accordion is gone and the raw pane is the only editor.
+     *
+     * Shared by the two states that need it (#750). The serialization invariant reaches it
+     * when opening the accordion WOULD change the composition; the corruption notice reaches
+     * it because there is no composition to open. Same mechanism, and it stayed one function
+     * so a future third caller cannot half-apply it — a hidden accordion with a visible
+     * toggle is a route straight back into the form this mode exists to keep closed.
+     */
+    function forceJsonOnlyMode() {
         $('#pp-accordion-view').hide();
         $('#pp-json-view').show();
         currentView = 'json';
         $('#pp-view-toggle').hide();
         if (cm) cm.refresh();
+    }
 
+    /** Widths below this get the notice's stacked layout instead of its diff table. */
+    var NARROW_PANE_PX = 400;
+
+    /**
+     * Put a pane-level notice on screen, replacing whatever notice is already there (#750).
+     *
+     * Shared by both notices for the reason forceJsonOnlyMode() is shared: the mount is a
+     * three-part rule — replace-or-insert-after-the-header, then re-query, then apply the
+     * narrow-pane class — and a second copy of it drifts one part at a time. There is only
+     * ever ONE notice mounted: the two states are mutually exclusive (corruption is checked
+     * first and wins), and replaceWith is what keeps that true when one supersedes the other.
+     *
+     * @param  {string} html  The notice markup, already escaped by its builder.
+     * @return {?Object} The mounted notice, or null when there is no editor pane.
+     */
+    function mountNotice(html) {
         var $pane = $('.pp-pane--editor');
-        if (!$pane.length) return;
+        if (!$pane.length) return null;
+
+        var $existing = $pane.find('.pp-serialization-error');
+        if ($existing.length) {
+            $existing.replaceWith(html);
+        } else {
+            $pane.find('.pp-pane-header').after(html);
+        }
+
+        var $notice = $pane.find('.pp-serialization-error');
+        if ($pane[0].offsetWidth < NARROW_PANE_PX) {
+            $notice.addClass('pp-serialization-error--narrow');
+        } else {
+            $notice.removeClass('pp-serialization-error--narrow');
+        }
+        return $notice;
+    }
+
+    /**
+     * The notice for a page whose STORED composition could not be read (#750).
+     *
+     * Not a variant of the serialization notice below, and the difference is the point.
+     * That one reports a predicted round-trip mismatch: it lists diff paths, and its "Copy as
+     * GitHub Issue" button is right, because a composition the accordion would mangle is a
+     * defect in this editor. This one reports a stored row that is not a composition at all.
+     * There is no diff to show (the invariant's own answer for this input is a single row of
+     * nulls), and the honest next step is a repair, not a bug report — so it renders the
+     * classification and the route, and no button.
+     *
+     * Every interpolation goes through esc(). Today's inputs are a fixed classification word
+     * and sentences built from an int post id, so nothing here is author-controlled; the
+     * escaping is uniformity, so that no injection point in this file is the one a reader has
+     * to reason about individually.
+     */
+    function showCorruptionNotice(integrity) {
+        if (!integrity) return;
+
+        forceJsonOnlyMode();
+
+        mountNotice(
+            '<div class="pp-serialization-error" data-pp-corrupt="' + esc(integrity.error) + '">' +
+            '<div class="pp-serialization-error__header">\u26A0 The stored composition on this page is corrupted (' + esc(integrity.error) + ')</div>' +
+            '<div class="pp-serialization-error__subtext">' + esc(integrity.message) + '</div>' +
+            '<div class="pp-serialization-error__subtext">' + esc(integrity.repair) + '</div>' +
+            '</div>'
+        );
+    }
+
+    function showSerializationNotice(invariant) {
+        console.error('Serialization invariant failed:', invariant.diffs);
+
+        forceJsonOnlyMode();
 
         // Build diff table rows + card markup
         var diffs = invariant.diffs || [];
@@ -1528,21 +1666,8 @@
             '<button type="button" class="pp-toolbar-btn pp-copy-issue-btn">Copy as GitHub Issue</button>' +
             '</div>';
 
-        var $existing = $pane.find('.pp-serialization-error');
-        if ($existing.length) {
-            $existing.replaceWith(html);
-        } else {
-            $pane.find('.pp-pane-header').after(html);
-        }
-
-        // Narrow-pane check
-        var paneWidth = $pane[0].offsetWidth;
-        var $notice = $pane.find('.pp-serialization-error');
-        if (paneWidth < 400) {
-            $notice.addClass('pp-serialization-error--narrow');
-        } else {
-            $notice.removeClass('pp-serialization-error--narrow');
-        }
+        var $notice = mountNotice(html);
+        if (!$notice) return;
 
         // Copy as GitHub Issue button
         $notice.find('.pp-copy-issue-btn').off('click').on('click', function () {
@@ -1591,10 +1716,60 @@
         });
     }
 
+    /**
+     * After a save that landed: is the editor still blocked, and by what? (#750)
+     *
+     * One question, two callers (Save draft, Publish/Update), and since #750 two blocked
+     * states that both end in JSON-only mode. When a composition was actually WRITTEN,
+     * corruption is over: the write went through pp_execute_action('update_composition'),
+     * which validates the whole replacement and refuses a non-list container outright
+     * (#724), so whatever is stored now IS a composition. Whether the ACCORDION can safely
+     * open it is a different question, and the only one still worth asking — so both states
+     * converge on the same invariant re-check, and a page that was corrupt and saves into a
+     * drift-unsafe composition swaps notices instead of keeping the stale one.
+     *
+     *   was blocked, now safe    -> notice cleared, accordion back, status names what settled
+     *   was blocked, still unsafe-> the DRIFT notice (never the corruption one), status normal
+     *   was not blocked          -> nothing touched
+     *
+     * `compositionWritten` IS LOAD-BEARING, and "the request succeeded" is not a substitute
+     * for it. `wp_ajax_pp_publish_page` (lib/admin.php) SKIPS the composition write when the
+     * posted composition is empty — `if ($raw !== '')` — and then publishes and returns
+     * success. An author who clears the pane on a corrupt page and hits Publish therefore
+     * gets ok back while the corrupt row is untouched, and clearing on that would drop them
+     * into an empty accordion sitting on the exact bytes the notice was about: the
+     * pristine-blank lie, restored by the one control that says the work is done. So the
+     * corruption block is only lifted by evidence that a composition replaced it.
+     *
+     * @param {boolean} compositionWritten  Did this request actually carry a composition?
+     * @returns {?string} A status label when the block cleared, else null (caller's own).
+     */
+    function resettleBlockedStateAfterSave(compositionWritten) {
+        if (!invariantBlocked && !corruptionBlocked) return null;
+        if (corruptionBlocked && !compositionWritten) return null;
+
+        var wasCorrupt = corruptionBlocked;
+        corruptionBlocked = false;
+        storedIntegrity = null;
+
+        var inv = logic.checkSerializationInvariant(cm.getValue(), components);
+        if (inv.safe) {
+            clearSerializationNotice();
+            return wasCorrupt ? 'Composition repaired' : 'Drift resolved';
+        }
+
+        invariantBlocked = true;
+        lastInvariantResult = inv;
+        showSerializationNotice(inv);
+        return null;
+    }
+
     function clearSerializationNotice() {
         $('.pp-serialization-error').remove();
         invariantBlocked = false;
         lastInvariantResult = null;
+        // The corruption state is NOT cleared here: resettleBlockedStateAfterSave() owns that
+        // transition, because only it knows whether a composition was actually written (#750).
         $('#pp-json-view').hide();
         $('#pp-accordion-view').show();
         currentView = 'accordion';
@@ -1614,8 +1789,32 @@
         initPublishButton();
         $('#pp-save-btn').on('click', doSaveDraft);
 
-        // Invariant check before rendering accordion
-        if (cm) {
+        // Corruption check, then invariant check, then the accordion (#750).
+        //
+        //   stored row corrupt?  --yes--> corruption notice   (classification + repair route)
+        //          |no
+        //   round-trip unsafe?   --yes--> serialization notice (diff paths + issue button)
+        //          |no
+        //   render the accordion
+        //
+        // Order is load-bearing. The invariant ALSO refuses a corrupt buffer — a non-list
+        // fails buildAccordionData, an undecodable string fails JSON.parse — so without this
+        // branch first, a corrupt page lands in JSON-only mode wearing the wrong story: told
+        // its structure would drift, not that its stored composition is unreadable, and
+        // pointed at a bug report instead of a repair. Both gates close; only one of them
+        // tells the truth about THIS state.
+        //
+        // The corruption branch sits OUTSIDE the `if (cm)` guard on purpose. An author who
+        // turned off the syntax-highlighting editor in their WordPress profile
+        // (`cmDisabled`) gets a null `cm`, and everything below needs one — but the
+        // corruption notice does not: it is rendered from a payload PHP already computed,
+        // and forceJsonOnlyMode() null-guards its one cm call. Gating it on `cm` would have
+        // left exactly that configuration looking at a blank editor for a corrupt page,
+        // which is the presentation this whole issue removes.
+        if (storedIntegrity) {
+            corruptionBlocked = true;
+            showCorruptionNotice(storedIntegrity);
+        } else if (cm) {
             var invariant = logic.checkSerializationInvariant(cm.getValue(), components);
             if (!invariant.safe) {
                 invariantBlocked = true;

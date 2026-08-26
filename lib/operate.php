@@ -2705,16 +2705,20 @@ function pp_component_schema_report(string $component): array|WP_Error {
  * returns the classification itself as the WP_Error CODE — `unexpected_shape` /
  * `decode_error`, the same two words `operate inspect`, `check page`, `validate site` and
  * (since #724) the write path all use for this state. Both existing callers already
- * branch on is_wp_error, so nothing needed rewiring — but only ONE of them is actually
- * reached, and saying so is the point of this paragraph. The CLI turns the error into
+ * branch on is_wp_error, so nothing needed rewiring. The CLI turns the error into
  * `WP_CLI::error` (a non-zero exit and a readable line, instead of a reassuring `[]`);
- * that is the surface #725 fixes. The AI chat context builder's is_wp_error branch
- * (lib/ai-context.php) is DEAD: `pp_ai_page_context()` reads the composition through
- * `pp_get_composition()`, which degrades a corrupt row to `[]`, and the builder's
- * `!empty($page_ctx['composition'])` guard then skips the call to this function
- * entirely — so on a corrupt page the chat is still told the page is blank. That half is
- * NOT fixed here: it needs a decision about what the system prompt should say, which is
- * a chat-surface call rather than a read-path one. Filed rather than assumed fixed.
+ * that is the surface #725 fixes.
+ *
+ * THE CHAT HALF IS FIXED TOO, SINCE #750, AND NOT BY THIS FUNCTION. Between #725 and #750
+ * the chat context builder's is_wp_error branch was DEAD: `pp_ai_page_context()` read
+ * through `pp_get_composition()`, which degrades a corrupt row to `[]`, and the builder's
+ * `!empty($page_ctx['composition'])` guard then skipped the call to this function entirely,
+ * so on a corrupt page the model was told the page was blank. #750 moved that read onto
+ * pp_get_composition_result() and gave the builder its own corruption branch, which renders
+ * the classification and the repair route BEFORE reaching this call. So the chat is now
+ * honest by its own read, and this function's WP_Error is not what makes it so — the
+ * is_wp_error branch there is defensive, for a row that changes between two reads in one
+ * request. It has one live consumer, the CLI.
  *
  * The message is the shared integrity sentence plus this surface's own next action. The
  * diagnosis is single-owned (pp_composition_integrity_message) so a new spelling of

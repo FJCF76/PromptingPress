@@ -518,9 +518,40 @@ function pp_ai_format_params(array $params): string {
  * moved before the user applied it. It is app-managed (the chat UI threads it back on
  * write) — the model never sets or increments it.
  *
+ * A CORRUPT ROW IS NOT AN EMPTY PAGE, AND THIS IS THE READ THAT USED TO SAY IT WAS (#750).
+ * This read went through pp_get_composition(), the legacy accessor that degrades a corrupt
+ * or wrong-shaped stored value to `[]` (lib/wp.php). The classification was thrown away
+ * here, one line before the only consumer that could have used it, so the system prompt
+ * showed the model `[]` and the model authored into a page it had been told was blank —
+ * the same wrong conclusion #725 removed from `inspect-composition` and #748 from the
+ * `composition_required` refusal, reached through the third door. Measured consequence:
+ * the model proposed `add_component` (correctly refused) instead of the repair #756 had
+ * just made reachable, which left that carve-out INERT on the first turn.
+ *
+ * `composition_error` carries the classification — null, `unexpected_shape` or
+ * `decode_error` — and `composition` STAYS `[]` when it is set, exactly as
+ * pp_get_composition_result() returns it. That pairing is deliberate rather than
+ * contradictory: `[]` there is "nothing could be read", never "nothing is stored". THE ONE
+ * RULE FOR ANY FUTURE CONSUMER: read `composition_error` FIRST, and never present
+ * `composition` as the page's content while it is non-null. The single consumer today is
+ * pp_ai_format_messages() below, which renders the corruption instead of the empty list.
+ *
+ * READS THE CACHED CLASSIFIER, DELIBERATELY. This builds CONTEXT — it is a reader, not a
+ * gate — so it takes the same cached read every diagnostic surface takes
+ * (pp_get_composition_result), not the uncached pp_get_composition_result_authoritative()
+ * that exists for gate-opening decisions only (its docblock states the asymmetry). Same
+ * choice, same reason, as _pp_batch_unreadable_targets() (lib/actions.php), which uses the
+ * cached reader to decide what a refusal is ABOUT and the authoritative one only where an
+ * exemption is granted. A cached classification that has gone stale mid-request describes
+ * the page one moment out of date; a gate opened on one would be a vulnerability. The
+ * cache-vs-row divergence class itself is recorded in #833.
+ *
  * @param int $post_id  WordPress post ID.
- * @return array  ['id' => int, 'title' => string, 'status' => string, 'composition' => array,
- *                'composition_version' => int]
+ * @return array  [] when the post does not exist — the caller's `if ($page_ctx)` guard is
+ *                what that shape is for, and `composition_error` is absent from it, not
+ *                null. Otherwise ['id' => int, 'title' => string, 'status' => string,
+ *                'composition' => array, 'composition_error' => ?string,
+ *                'composition_version' => int].
  */
 function pp_ai_page_context(int $post_id): array {
     $post = get_post($post_id);
@@ -528,11 +559,14 @@ function pp_ai_page_context(int $post_id): array {
         return [];
     }
 
+    $stored = pp_get_composition_result($post_id);
+
     return [
         'id'                  => $post_id,
         'title'               => $post->post_title,
         'status'              => $post->post_status,
-        'composition'         => pp_get_composition($post_id),
+        'composition'         => $stored['composition'],
+        'composition_error'   => $stored['error'],
         'composition_version' => pp_get_composition_marker($post_id)['version'],
     ];
 }
@@ -829,8 +863,69 @@ function _pp_adjacent_background_annotations(array $composition): array {
 // ── Message Formatting ─────────────────────────────────────────────────────
 
 /**
+ * What the system prompt says about a page whose stored composition cannot be read (#750).
+ *
+ * SHARED DIAGNOSIS + SHARED ROUTE + A CALLER-LOCAL LEAD-IN, which is the shape ruling R-C
+ * (#748) fixes for every surface and the shape _pp_batch_unreadable_target_error()
+ * (lib/actions.php) already ships. The diagnosis sentence is
+ * pp_composition_integrity_message()'s, so the model reads the same two nouns
+ * (`unexpected_shape` / `decode_error`) the CLI prints, the refusals carry and the docs
+ * teach; the route is pp_corrupt_repair_route_message()'s, so "how this page gets repaired"
+ * has one spelling. Only the middle paragraph is local, because only it is specific to
+ * "you are a model about to propose a change to this page".
+ *
+ * THE MIDDLE PARAGRAPH IS THE HALF #756 COULD NOT SHIP. Ruling D-1 admits a lone
+ * `update_composition` / `restore_composition` step through the #749 batch refusal, but the
+ * model could not aim for a route it was never told existed — it was told the page was
+ * empty. Three things have to be here or the carve-out stays inert: the classification,
+ * that band-level verbs are refused, and that the repair must travel ALONE.
+ *
+ * THE REFUSAL IS STATED AT THE GATE'S REAL BREADTH, not at the band level alone.
+ * _pp_batch_unreadable_targets() (lib/actions.php) collects the post id off EVERY step, so a
+ * proposal that merely publishes or renames the corrupt page is refused too. Naming only the
+ * band verbs would have been an accurate half-truth that earns the model a refusal the
+ * prompt did not predict. `patch` is deliberately NOT named: it is refused as well, but it
+ * is a CLI/PHP surface (`wp pp operate patch`), not a verb a chat proposal can carry, and
+ * listing it would teach the model a word that is not in its own vocabulary.
+ *
+ * "Ask the operator first" is the reconciliation between this issue's original framing
+ * ("instruct the model not to author over it") and ruling D-1 ("the repair IS the sanctioned
+ * write"). Both hold: the admitted write is a deliberate whole-composition replacement, and
+ * since the stored content cannot be read back, a replacement the model invents is not a
+ * repair — it is authored content over recoverable bytes, which is the failure this whole
+ * issue family exists to stop.
+ *
+ * @param  int    $post_id  The page whose stored composition was classified.
+ * @param  string $error    The classification: 'decode_error' or 'unexpected_shape'.
+ * @return string           The block, newline-terminated, ready to append to the prompt.
+ */
+function _pp_ai_page_context_corrupt_block(int $post_id, string $error): string {
+    return "Composition: UNREADABLE — no component list can be shown for this page.\n"
+        . pp_composition_integrity_message($post_id, $error) . "\n"
+        . 'Nothing on this page can be targeted by component_index, and every band-level verb'
+        . ' (add_component, update_component, remove_component, reorder_components,'
+        . ' style_component) is refused on it while the stored value is unreadable — as is'
+        . ' any other step naming this page, including page-level ones like publish_page or'
+        . ' update_page_title.'
+        . ' The one change admitted here is the repair, and it must travel ALONE: a proposal'
+        . ' whose ONLY step is update_composition carrying the whole replacement array, or'
+        . ' restore_composition (#756, ruling D-1). Put a second step beside it and the whole'
+        . ' proposal is refused again. Ask the operator what this page should contain before'
+        . ' you send one — the stored content cannot be read back, so a replacement you invent'
+        . ' is authored content, not a repair. '
+        . pp_corrupt_repair_route_message($post_id) . "\n";
+}
+
+/**
  * Formats messages for OpenAI-compatible chat completions API.
  * Prepends the system prompt as the first message.
+ *
+ * THE PAGE-CONTEXT SECTION HAS TWO SHAPES, NOT ONE (#750). A page whose stored composition
+ * cannot be read gets the corruption block above instead of the component index and the
+ * composition JSON. It cannot get both: `[]` is what the degrading accessor returns for a
+ * corrupt row, so printing that block underneath the diagnosis would hand the model the
+ * exact sentence the diagnosis exists to contradict. A GENUINELY blank page is untouched by
+ * this branch and still renders `[]` — "empty" stays reserved for empty (ruling R-C).
  *
  * @param string $system        System prompt text.
  * @param array  $conversation  Array of ['role' => string, 'content' => string].
@@ -845,7 +940,6 @@ function pp_ai_format_messages(string $system, array $conversation, ?int $page_i
     if ($page_id) {
         $page_ctx = pp_ai_page_context($page_id);
         if ($page_ctx) {
-            $comp_json = wp_json_encode($page_ctx['composition'], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
             $system_content .= "\n\n## Current Page Context\n";
             $system_content .= "Page: {$page_ctx['title']} (ID: {$page_ctx['id']}, status: {$page_ctx['status']})\n";
             // Concurrency baseline (#404): the version the composition below was read at.
@@ -853,34 +947,50 @@ function pp_ai_format_messages(string $system, array $conversation, ?int $page_i
             // not manage it; just propose changes against the composition as shown.
             $system_content .= "Composition version: {$page_ctx['composition_version']} (concurrency baseline — managed by the app, not you)\n";
 
-            // Component index summary for unambiguous targeting
-            if (!empty($page_ctx['composition'])) {
-                $inspect_data = pp_inspect_composition($page_id);
-                if (is_wp_error($inspect_data)) {
-                    $inspect_data = null;
-                }
+            if ($page_ctx['composition_error'] !== null) {
+                // Unreadable stored composition (#750): the corruption IS the page context,
+                // and this branch is what keeps the `[]` composition block off a corrupt
+                // page. The two arms are exclusive by construction — see the docblock.
+                $system_content .= _pp_ai_page_context_corrupt_block(
+                    $page_ctx['id'],
+                    $page_ctx['composition_error']
+                );
+            } else {
+                $comp_json = wp_json_encode($page_ctx['composition'], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
 
-                $system_content .= "Components (use component_index to target):\n";
-                foreach ($page_ctx['composition'] as $idx => $item) {
-                    $target = ($inspect_data && isset($inspect_data[$idx])) ? $inspect_data[$idx] : null;
-                    $summary = _pp_summarize_component($item, $target);
-                    $system_content .= "  [{$idx}] {$summary}\n";
-                }
+                // Component index summary for unambiguous targeting
+                if (!empty($page_ctx['composition'])) {
+                    // Defensive, not dead (#750): the corruption arm above already covers
+                    // every classification this read can report, so a WP_Error here means the
+                    // row changed between two reads in one request. Degrade to the plain
+                    // summary rather than fabricate targets.
+                    $inspect_data = pp_inspect_composition($page_id);
+                    if (is_wp_error($inspect_data)) {
+                        $inspect_data = null;
+                    }
 
-                // Adjacent same-background hint (#378): flag consecutive bands whose
-                // resolved backgrounds match so the AI treats the "two touching
-                // colored bands" case as a structural fact, not an inference (#377
-                // owns the fusing heuristic these lines point at).
-                $adjacency = _pp_adjacent_background_annotations($page_ctx['composition']);
-                if ($adjacency) {
-                    $system_content .= "Adjacent bands sharing a background (fuse candidates — zero the facing paddings/margins to close the seam):\n";
-                    foreach ($adjacency as $line) {
-                        $system_content .= "  {$line}\n";
+                    $system_content .= "Components (use component_index to target):\n";
+                    foreach ($page_ctx['composition'] as $idx => $item) {
+                        $target = ($inspect_data && isset($inspect_data[$idx])) ? $inspect_data[$idx] : null;
+                        $summary = _pp_summarize_component($item, $target);
+                        $system_content .= "  [{$idx}] {$summary}\n";
+                    }
+
+                    // Adjacent same-background hint (#378): flag consecutive bands whose
+                    // resolved backgrounds match so the AI treats the "two touching
+                    // colored bands" case as a structural fact, not an inference (#377
+                    // owns the fusing heuristic these lines point at).
+                    $adjacency = _pp_adjacent_background_annotations($page_ctx['composition']);
+                    if ($adjacency) {
+                        $system_content .= "Adjacent bands sharing a background (fuse candidates — zero the facing paddings/margins to close the seam):\n";
+                        foreach ($adjacency as $line) {
+                            $system_content .= "  {$line}\n";
+                        }
                     }
                 }
-            }
 
-            $system_content .= "Composition:\n```json\n{$comp_json}\n```";
+                $system_content .= "Composition:\n```json\n{$comp_json}\n```";
+            }
         }
     }
 

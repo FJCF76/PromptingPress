@@ -1324,6 +1324,165 @@ class AiContextTest extends TestCase
         $this->assertStringContainsString('applies when layout = "cover"', $slot);
     }
 
+    // ── Unreadable stored composition (#750) ──────────────────────────────
+    //
+    // Every assertion below is made against the RENDERED system message — the string the
+    // provider is actually sent — not against pp_ai_page_context()'s array or any registry
+    // value. That is the #719 lesson: a context key that exists and never reaches the prompt
+    // is a key the model does not have. `renderedFor()` is the only way these tests read the
+    // prompt, so no pin here can pass on a value that stopped being rendered.
+    //
+    //   stored `_pp_composition`          classification      what the prompt must say
+    //   -------------------------------   ------------------  --------------------------
+    //   '{"1":{...}}'  (JSON object)      unexpected_shape    corruption block, no `[]`
+    //   'not json at{'                    decode_error        corruption block, no `[]`
+    //   5              (non-string)       unexpected_shape    corruption block, no `[]`
+    //   '[]' / absent                     none (blank)        `[]`, no corruption wording
+    //   '[{"component":"hero"}]'          none (healthy)      component index + JSON
+
+    /** The rendered system message for a page seeded with $stored. */
+    private function renderedFor(int $post_id, $stored): string
+    {
+        $GLOBALS['_pp_test_store']['posts'][$post_id] = [
+            'post_type'   => 'page',
+            'post_title'  => 'Corrupt Page',
+            'post_status' => 'publish',
+        ];
+        if ($stored !== null) {
+            $GLOBALS['_pp_test_store']['post_meta'][$post_id]['_pp_composition'] = $stored;
+        }
+
+        $messages = pp_ai_format_messages('System', [['role' => 'user', 'content' => 'Fix it']], $post_id);
+        return $messages[0]['content'];
+    }
+
+    public function testPageContextCarriesTheClassificationInsteadOfSilentlyDegrading(): void
+    {
+        $GLOBALS['_pp_test_store']['posts'][70] = [
+            'post_type'   => 'page',
+            'post_title'  => 'Corrupt',
+            'post_status' => 'publish',
+        ];
+        $GLOBALS['_pp_test_store']['post_meta'][70]['_pp_composition'] = '{"1":{"component":"hero"}}';
+
+        $ctx = pp_ai_page_context(70);
+        $this->assertSame('unexpected_shape', $ctx['composition_error']);
+        // The degraded list is still `[]` — the contract is that a consumer reads the
+        // classification first and never presents this as the page's content.
+        $this->assertSame([], $ctx['composition']);
+    }
+
+    public function testPageContextReportsNoClassificationForAReadablePage(): void
+    {
+        $GLOBALS['_pp_test_store']['posts'][71] = [
+            'post_type'   => 'page',
+            'post_title'  => 'Fine',
+            'post_status' => 'publish',
+        ];
+        $GLOBALS['_pp_test_store']['post_meta'][71]['_pp_composition'] = '[{"component":"hero"}]';
+
+        $ctx = pp_ai_page_context(71);
+        $this->assertNull($ctx['composition_error']);
+        $this->assertCount(1, $ctx['composition']);
+    }
+
+    /**
+     * @dataProvider corruptStoredValues
+     */
+    public function testTheRenderedPromptNamesTheClassificationOnACorruptPage($stored, string $classification): void
+    {
+        $system = $this->renderedFor(72, $stored);
+
+        $this->assertStringContainsString($classification, $system);
+        $this->assertStringContainsString('treat as corrupted, not empty', $system);
+        $this->assertStringContainsString('UNREADABLE', $system);
+    }
+
+    /**
+     * @dataProvider corruptStoredValues
+     */
+    public function testTheRenderedPromptNeverShowsAnEmptyCompositionOnACorruptPage($stored, string $classification): void
+    {
+        $system = $this->renderedFor(73, $stored);
+
+        // The exact block the model used to read as "this page has no components".
+        $this->assertStringNotContainsString("Composition:\n```json\n[]\n```", $system);
+        $this->assertStringNotContainsString('Components (use component_index to target)', $system);
+    }
+
+    /**
+     * @dataProvider corruptStoredValues
+     */
+    public function testTheRenderedPromptNamesTheSingleStepRepairRoute($stored, string $classification): void
+    {
+        $system = $this->renderedFor(74, $stored);
+
+        // The three facts that make #756's carve-out reachable from the first turn.
+        $this->assertStringContainsString('update_composition', $system);
+        $this->assertStringContainsString('restore_composition', $system);
+        $this->assertStringContainsString('ONLY step', $system);
+        $this->assertStringContainsString('#756', $system);
+        // And that the partial edits it might otherwise reach for are refused.
+        $this->assertStringContainsString('add_component', $system);
+        $this->assertStringContainsString('refused', $system);
+    }
+
+    /**
+     * The wording is the shared owners', not a fourth spelling (ruling R-C). Compare the
+     * rendered prompt against what those functions themselves return, so a caller-local
+     * rewrite of either sentence fails here.
+     */
+    public function testTheCorruptionWordingComesFromTheSharedOwners(): void
+    {
+        $system = $this->renderedFor(75, '{"1":{"component":"hero"}}');
+
+        $this->assertStringContainsString(pp_composition_integrity_message(75, 'unexpected_shape'), $system);
+        $this->assertStringContainsString(pp_corrupt_repair_route_message(75), $system);
+    }
+
+    public static function corruptStoredValues(): array
+    {
+        return [
+            'json object'       => ['{"1":{"component":"hero"},"3":{"component":"cta"}}', 'unexpected_shape'],
+            'undecodable json'  => ['not json at{', 'decode_error'],
+            'non-string scalar' => [5, 'unexpected_shape'],
+            'json null literal' => ['null', 'unexpected_shape'],
+        ];
+    }
+
+    /**
+     * A genuinely blank page is NOT corrupt, and nothing about this change may make it read
+     * as if it were — "empty" stays reserved for empty (ruling R-C).
+     *
+     * @dataProvider blankStoredValues
+     */
+    public function testAGenuinelyBlankPageStillRendersAnEmptyComposition($stored): void
+    {
+        $system = $this->renderedFor(76, $stored);
+
+        $this->assertStringContainsString("Composition:\n```json\n[]\n```", $system);
+        $this->assertStringNotContainsString('UNREADABLE', $system);
+        $this->assertStringNotContainsString('integrity error', $system);
+    }
+
+    public static function blankStoredValues(): array
+    {
+        return [
+            'empty string' => [''],
+            'absent meta'  => [null],
+            'empty list'   => ['[]'],
+        ];
+    }
+
+    public function testAHealthyPageStillRendersItsComponentIndex(): void
+    {
+        $system = $this->renderedFor(77, '[{"component":"hero","props":{"title":"Welcome"}}]');
+
+        $this->assertStringContainsString('Components (use component_index to target)', $system);
+        $this->assertStringContainsString('[0] hero', $system);
+        $this->assertStringNotContainsString('UNREADABLE', $system);
+    }
+
     /**
      * Extracts just the adjacency-hint lines from the system content so a negative
      * assertion about them can't be fooled by the component index (which also
