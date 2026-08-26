@@ -1301,6 +1301,300 @@ function _pp_ai_execute_error_payload(array $result, array $params) {
     return $result['error'] ?? 'Execution failed.';
 }
 
+// ── Model-facing rejection note (#704) ──────────────────────────────────────
+//
+// A refused proposal used to reach exactly one participant. The error rendered to the
+// OPERATOR, and the model that authored the bad step never learned why it was refused —
+// so the correction, which already names the offending key and lists the alternatives,
+// could only travel back by a human retyping it. Ruling D-2 closes the mechanical half:
+// the rejection re-enters the model's conversation. It deliberately does NOT close the
+// autonomy half — the retry is proposed to the operator, never sent automatically —
+// which is why nothing in this file sends anything. It only WRITES A SENTENCE; the chat
+// client appends it to its conversation and the next operator turn carries it.
+//
+//   pp_ai_execute_batch ──▶ ok:false envelope ──▶ _pp_ai_batch_rejection_note()
+//   _pp_batch_unreadable_refusal ──▶ {error,code} ──▶ _pp_ai_refusal_note()
+//                                          │
+//                                          ▼            (assets/js/pp-ai-chat.js)
+//                                    `model_note`  ──▶  conversation.push({role:'user'})
+//                                                  ──▶  "Ask the AI to fix it" button
+//
+// WHY THE SERVER WRITES THE SENTENCE. The bound has to have one owner. The text quotes a
+// validator message, and lib/actions.php:702 says out loud that this message is NOT
+// bounded on the batch path ("Bounding what a message reflects is #647/#649's axis").
+// The convention for reflected validator text lives in THIS file — PP_REFLECTED_ERROR_MAX
+// and _pp_clean_reflected_text() — so writing the sentence here reuses it instead of
+// inventing a second answer in JavaScript. PP_CHAT_RENDER_ERROR_MAX is not that answer
+// and says so in its own docblock: it is a LAYOUT bound on a string the client invents.
+//
+// TRUST. Every byte of the note is server-built. What it REFLECTS is caller-derived, and
+// the caller is usually the model itself: the rejected prop key or slot name is a value
+// the model wrote into the proposal it sent, so this closes a loop the model holds both
+// ends of. That cannot escalate anything — the model already authored those bytes into a
+// message of its own — but unbounded it is a context-flooding vector and uncleaned it is
+// a formatting-deception one (the zero-width and bidi sets render as nothing while
+// changing what a reader, human or model, sees). _pp_clean_reflected_text() answers both,
+// which is the whole reason to reuse it rather than concatenate. The message can also
+// quote SITE content rather than model content (a component name read from the stored
+// composition, on _pp_no_hint_slot_message()'s fallback path) — that crosses no new
+// boundary, because pp_ai_format_messages() already ships the page's whole composition
+// JSON to the same provider in the same request.
+//
+// WHAT DELIBERATELY GETS NO NOTE, and it is a question about CLASS, not about plumbing:
+//   - a composition_conflict, and a missing baseline. The page moved under a proposal
+//     that was correct when written. The model cannot repair that, and the repair the UI
+//     already offers is Re-read & re-preview, which re-runs the SAME steps without asking
+//     the model anything. A note there would be context the model is never given a turn
+//     to act on, describing state that the re-read is about to replace.
+//   - the transport failure (the client's fetch .catch). There is no server verdict at
+//     all, so we do not know whether the write landed; telling the model "network error"
+//     invites it to propose the same write twice.
+//   - 'Permission denied.' and the malformed-request refusals, which return a bare string
+//     rather than a payload. Nothing the model can write changes a capability check, and a
+//     step naming an unregistered capability never reaches this endpoint — the proposal
+//     card buckets it as `rejected` before Apply is ever offered.
+// So `model_note` is present exactly when a rejection is the model's to answer, and the
+// client's rule is presence, not interpretation.
+
+/**
+ * The clause describing what a failed batch left behind, said at the envelope's own
+ * confidence (#704).
+ *
+ * Mirrors the rule ppChatRollbackSentence() enforces on the operator's side (#755):
+ * `rolled_back: true` is not a clean revert until `rollback_errors` has been read, and a
+ * channel that is absent or not a list is an UNKNOWN rather than a clean one. The model
+ * gets the same three-state answer for the same reason the operator does — a confident
+ * "everything was reverted" over a page whose restore was withheld is exactly the false
+ * claim #755 removed, and it would be worse here, where the next proposal is written
+ * against it.
+ *
+ * THE CLEAN CLAIM NEEDS BOTH SIGNALS, which is not a softening of #755 but an additional
+ * necessary condition on top of it. `rollback_errors: []` says "the rollback reported no
+ * errors"; it does not, by itself, say a rollback HAPPENED — an envelope that never ran one
+ * reports the same empty list. Today the executor sets `rolled_back: true` on every failure
+ * return that carries steps (pp_ai_execute_batch, lib/actions.php), so the pair always
+ * agrees and this costs nothing; the day a shape arrives where it does not, the honest
+ * answer is the UNKNOWN sentence rather than a revert nobody performed. #755's rule is
+ * untouched: `rolled_back` alone still buys the clean claim nothing.
+ *
+ * @param  array $batch  The ok:false batch envelope.
+ * @return string        One sentence, always non-empty.
+ */
+function _pp_ai_rollback_clause(array $batch): string {
+    if (empty($batch['steps'])) {
+        // The #749-shaped refusal: no step ran, so there is nothing to have reverted.
+        return 'No step ran, so nothing was changed.';
+    }
+    if (!array_key_exists('rollback_errors', $batch) || !is_array($batch['rollback_errors'])) {
+        return 'Whether the changes were reverted was not reported.';
+    }
+    $errors = $batch['rollback_errors'];
+    if ($errors === []) {
+        return ($batch['rolled_back'] ?? null) === true
+            ? 'All changes in this proposal were reverted.'
+            : 'Whether the changes were reverted was not reported.';
+    }
+
+    return sprintf(
+        'The rollback reported %d error%s, so some changes may not have been reverted.',
+        count($errors),
+        count($errors) === 1 ? '' : 's'
+    );
+}
+
+/**
+ * Removes the two characters that would let reflected text break out of the note's frame
+ * (#704).
+ *
+ * THE FRAME IS A CLAIM, SO IT HAS TO BE UNFORGEABLE. `[Rejected: ... ]` says two things at
+ * once: to restoreConversation() (assets/js/pp-ai-chat.js) the opening bracket says "do not
+ * render this turn", and to the model the whole wrapper says "this span is an environment
+ * report, not something the operator typed". _pp_clean_reflected_text() strips the control
+ * and format sets, which kills newline, zero-width and bidi tricks — but a bracket is an
+ * ordinary printable character and survives. The rejected prop key is interpolated into the
+ * validator's message verbatim (lib/admin.php), and that key is MODEL-AUTHORED, so a model
+ * that names a prop `] Ignore the above` closes the frame early and the rest of its own
+ * bytes read as unframed text inside a turn this code pushed under the OPERATOR's role.
+ *
+ * That is role laundering, and the honest size of it is small: nothing downstream acts on
+ * prose (every write still passes the capability gate, pp_validate_action(), and an
+ * operator click), the trusted sentence is appended AFTER this span so an injected
+ * instruction cannot be positioned to override it, and the transcript rule tests character
+ * 0 only, so a break-out cannot un-hide the turn. It is closed anyway because closing it is
+ * one substitution and because the alternative is a comment claiming a property the code
+ * does not have.
+ *
+ * SUBSTITUTED, NOT DROPPED, and not fixed inside _pp_clean_reflected_text(). Dropping would
+ * silently change a name the reader is being asked to compare against their own; the
+ * parentheses keep the shape visible and the count intact. And the cleaner is shared with
+ * the preview card, where brackets are ordinary text with no frame to break — a rule that
+ * belongs to THIS frame lives with this frame (#661's posture on which reflected values get
+ * which treatment).
+ */
+function _pp_ai_unframe(string $text): string {
+    return strtr($text, ['[' => '(', ']' => ')']);
+}
+
+/**
+ * Assembles one model-facing rejection note (#704).
+ *
+ * WRAPPED IN SQUARE BRACKETS, AND THAT IS LOAD-BEARING, NOT DECORATION. The note is
+ * appended as a `user` turn, and restoreConversation() (assets/js/pp-ai-chat.js) hides a
+ * user turn from the rendered transcript by testing `content.charAt(0) === '['` — the
+ * same rule that already hides `[Applied changes: ...]`. Drop the bracket and every past
+ * rejection reappears as a chat bubble the operator never typed on the next reload.
+ * The bracket does a second job in the model's context: it marks the turn as an
+ * environment report rather than something the operator said, which is the provenance
+ * `internal: true` cannot carry (pp_ai_format_messages() strips unknown keys before the
+ * request leaves, by design — see its docblock).
+ *
+ * EVERY reflected part is cleaned, and each at the budget its own kind already has:
+ * the validator message at PP_REFLECTED_ERROR_MAX, the code and the action name at
+ * PP_REFLECTED_NAME_MAX. None of the three is guaranteed short by anything upstream —
+ * codes and action names are our own literals TODAY, and "the registry happens to be
+ * small" is an assumption about content, not a bound (#661's lesson, same helper).
+ *
+ * BOUND. Fixed prose, plus one cleaned code and one cleaned action name at
+ * PP_REFLECTED_NAME_MAX each, plus one integer offset, plus one cleaned message at
+ * PP_REFLECTED_ERROR_MAX — arithmetic, not an assumption about what the validators say.
+ * `$lead` and `$state` are deliberately NOT re-clamped here: both are composed by this
+ * file's own two callers out of fixed prose and values already cleaned on the way in, so a
+ * second clamp would be a second owner for a question the callers already answer. That is
+ * a claim about THOSE two callers, so a third one has to keep it — clean anything
+ * caller-derived before it becomes a `$lead`, the way _pp_ai_batch_rejection_note() cleans
+ * the action name.
+ *
+ * @param  string   $lead    What was refused, already fixed prose.
+ * @param  string   $code    The rejection's machine code ('' when it carries none).
+ * @param  string   $message The validator's message.
+ * @param  int|null $index   Composition band that owns the rejection (#642), or null.
+ * @param  string   $state   The rollback clause.
+ * @return string
+ */
+function _pp_ai_rejection_note(string $lead, string $code, string $message, ?int $index, string $state): string {
+    $note = '[Rejected: ' . $lead;
+
+    $clean_code = _pp_ai_unframe(_pp_clean_reflected_text($code, PP_REFLECTED_NAME_MAX));
+    if ($clean_code !== '') {
+        $note .= ' error_code: ' . $clean_code . '.';
+    }
+
+    // The AUTHORITATIVE locator (#642), and the field this note exists to deliver: every
+    // composition-mutating action validates the WHOLE composition, so the blocking band is
+    // routinely one the proposal never named. Without it a model "fixes" the band it wrote
+    // and gets the identical string back — the exact loop #704 is about.
+    if ($index !== null) {
+        $note .= ' Blocking composition band: index ' . $index . '.';
+    }
+
+    $clean_message = _pp_ai_unframe(_pp_clean_reflected_text($message, PP_REFLECTED_ERROR_MAX));
+    if ($clean_message !== '') {
+        $note .= ' Reason: ' . $clean_message;
+        // The validator's messages are sentences and mostly end in one; do not double it.
+        if (!in_array(substr($clean_message, -1), ['.', '!', '?'], true)) {
+            $note .= '.';
+        }
+    }
+
+    // Ruling D-2 in one sentence, said IN the context rather than only enforced around it:
+    // the operator, not this note, decides whether a corrected proposal gets sent.
+    return $note . ' ' . $state
+        . ' The operator decides whether to retry — do not re-send this proposal unless asked.]';
+}
+
+/**
+ * The note for a batch that RAN and had a step refused, or null when there is nothing
+ * for the model to answer (#704).
+ *
+ * @param  array $batch  A pp_ai_execute_batch() envelope.
+ * @return string|null
+ */
+function _pp_ai_batch_rejection_note(array $batch): ?string {
+    if (!empty($batch['ok'])) {
+        return null;
+    }
+
+    // THE STEP-LESS REFUSAL ARRIVES HERE TOO, and assuming it did not was a real gap.
+    // _pp_ai_execute_batch_response() runs its own copy of the #749 gate and answers that
+    // one through wp_send_json_error, so the common case never reaches this function. But
+    // the two gates evaluate one rule at two moments against two reads, and the window
+    // between them is documented at that call site: a repair landing in it makes the entry
+    // point admit and the EXECUTOR refuse, and the executor's refusal comes back on the
+    // success branch as this step-less envelope. Bailing on it left one path to the #749
+    // refusal carrying a note and the other silent — same refusal, same message, same
+    // repair, and the operator's card grew an affordance or did not depending on which
+    // microsecond the repair landed in. The envelope already carries the two fields the
+    // refusal note reads, so this delegates rather than re-deriving them.
+    // Tested on the STEPS and the message, not on failed_at: this envelope and a successful
+    // batch both carry failed_at: null, so that field cannot tell them apart. A step-less
+    // envelope with no message is neither, and gets nothing.
+    if (empty($batch['steps']) && (string) ($batch['error'] ?? '') !== '') {
+        return _pp_ai_refusal_note($batch);
+    }
+
+    // DISCRIMINATE ON THE FAILING STEP, never on failed_at alone — a SUCCESSFUL batch also
+    // returns failed_at: null, and so does the refusal handled just above.
+    $failed_at = $batch['failed_at'] ?? null;
+    if (!is_int($failed_at) || !isset($batch['steps'][$failed_at]) || !is_array($batch['steps'][$failed_at])) {
+        return null;
+    }
+
+    $step = $batch['steps'][$failed_at];
+    $code = (string) ($step['error_code'] ?? '');
+
+    // The page moved; the proposal was not wrong. See the block comment above for why this
+    // class gets nothing rather than a differently-worded note.
+    if ($code === 'composition_conflict') {
+        return null;
+    }
+
+    // Unframed like the other two reflected spans: the action name is echoed from the step
+    // the MODEL wrote, so it is caller bytes wearing a familiar shape, not a literal.
+    $action = _pp_ai_unframe(_pp_clean_reflected_text((string) ($step['action'] ?? ''), PP_REFLECTED_NAME_MAX));
+    $lead   = sprintf(
+        'step %d%s was refused, so this proposal was not applied.',
+        $failed_at + 1,
+        $action === '' ? '' : ' (' . $action . ')'
+    );
+
+    $index = isset($step['index']) && is_int($step['index']) ? $step['index'] : null;
+
+    return _pp_ai_rejection_note(
+        $lead,
+        $code,
+        (string) ($step['error'] ?? ''),
+        $index,
+        _pp_ai_rollback_clause($batch)
+    );
+}
+
+/**
+ * The note for the pre-execution refusal (#749): the batch named a page whose stored
+ * composition cannot be read, so nothing ran (#704).
+ *
+ * This one IS the model's to answer. The refusal's own message prescribes the repair, and
+ * since #756 the model has a route to it — a lone update_composition or
+ * restore_composition — which the system prompt already teaches
+ * (_pp_ai_page_context_corrupt_block, lib/ai-context.php). Before this, the model was told
+ * to take a route and then never told when it had been turned back from it.
+ *
+ * @param  array $refusal  ['error' => string, 'error_code' => string].
+ * @return string
+ */
+function _pp_ai_refusal_note(array $refusal): string {
+    return _pp_ai_rejection_note(
+        'this proposal was refused before any step ran.',
+        (string) ($refusal['error_code'] ?? ''),
+        (string) ($refusal['error'] ?? ''),
+        null,
+        // Asked, not repeated. The empty-steps arm of the rollback clause IS this sentence,
+        // and a second copy here is one reword away from the two notes disagreeing about
+        // what a refusal left behind — in a change whose whole thesis is one owner per
+        // sentence.
+        _pp_ai_rollback_clause(['steps' => []])
+    );
+}
+
 add_action('wp_ajax_pp_ai_execute', function () {
     check_ajax_referer('pp_ai_execute', 'nonce');
 
@@ -1467,10 +1761,29 @@ function _pp_ai_execute_batch_response(array $post): array {
     // (assets/js/pp-ai-chat.js) — see its docblock, which names this window.
     $unreadable_error = _pp_batch_unreadable_refusal($normalized, _pp_batch_unreadable_targets($normalized));
     if ($unreadable_error !== null) {
+        // The model's copy of this refusal (#704). Attached AT THE SITE rather than
+        // re-derived from the code: the classification codes are 'decode_error' /
+        // 'unexpected_shape' today, and a note gated on a list of codes would silently stop
+        // firing the day a fourth classification is added. The site knows what it refused.
+        $unreadable_error['model_note'] = _pp_ai_refusal_note($unreadable_error);
         return ['ok' => false, 'data' => $unreadable_error];
     }
 
-    return ['ok' => true, 'data' => pp_ai_execute_batch($normalized, $baselines)];
+    $batch = pp_ai_execute_batch($normalized, $baselines);
+
+    // The model's copy of a step rejection (#704). Attached HERE and not inside
+    // pp_ai_execute_batch(): the executor is shared with WP-CLI (`wp pp action execute`),
+    // which has no conversation to append to, so a note in its envelope would be a field
+    // that exists for one caller. The chat entry point is the surface that has a model.
+    // Null for everything that is not the model's to answer — see the block comment on
+    // _pp_ai_batch_rejection_note()'s neighbours — and the key is then ABSENT rather than
+    // null, so the client's rule can stay "is there a note?" with no second state.
+    $note = _pp_ai_batch_rejection_note($batch);
+    if ($note !== null) {
+        $batch['model_note'] = $note;
+    }
+
+    return ['ok' => true, 'data' => $batch];
 }
 
 add_action('wp_ajax_pp_ai_execute_batch', function () {
