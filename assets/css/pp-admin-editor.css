@@ -493,6 +493,75 @@ body.pp-workspace-page #wpfooter {
     font-style: italic;
 }
 
+/* Display-only row sub-fields (#805)
+ *
+ * A sub-key the schema declares `array` or `object` renders read-only, showing the
+ * stored value as JSON. One note per array field (not per row) names those sub-keys
+ * and points at the JSON view; a row whose value is unset renders no control at all.
+ *
+ * IT IS A COLUMN IN ITS OWN RIGHT, not a wrapped row. The base .pp-accordion-field is
+ * a flex ROW with a fixed 120px label column, which is right for a one-line string and
+ * wrong for a JSON value: the editor pane is resizable, and between roughly 300px
+ * (where .pp-accordion--narrow stacks everything) and about 600px that label column
+ * leaves a list rendering three characters per line. Measured at a 375px pane before
+ * this rule existed, `["one","two"]` wrapped as `["on` / `e","` / `two`.
+ *
+ * Declaring the direction rather than relying on `flex-wrap: wrap` matters because the
+ * narrow block below is MORE specific (1,2,0 against 1,1,0) and would otherwise flip
+ * this field to `column` while its children still carried a 100% flex-BASIS — which in
+ * a column is a HEIGHT, and would wrap children into columns the moment the field's
+ * height became definite. Same reason every child is `flex: none`: the base label rule
+ * is `flex: 0 0 120px`, which in a column means a 120px-tall label.
+ *
+ *   ┌─────────────────────────────────────────────┐
+ *   │ bullets                                     │  label
+ *   │ ["one","two"]                      (dashed) │  value, full width, sized to fit
+ *   └─────────────────────────────────────────────┘
+ */
+#pp-workspace .pp-accordion-field--display-only {
+    flex-direction: column;
+    align-items: stretch;
+}
+
+#pp-workspace .pp-accordion-field--display-only label,
+#pp-workspace .pp-accordion-field--display-only textarea {
+    flex: none;
+}
+
+#pp-workspace .pp-accordion-field--display-only label {
+    margin-bottom: 2px;
+}
+
+/* The shared textarea rule sets min-height 80px for prose fields; a JSON value sized
+   to its own content does not need it. `resize: vertical` is INHERITED from that rule
+   on purpose rather than turned off: past the row cap, dragging is how a value gets
+   read in full.
+   The DASHED BORDER is the inert cue and has to carry it alone, so it gets its own
+   color: the shared border #2d2d4e measures 1.36:1 against the card, where a broken
+   1px line is not reliably distinguishable from a solid one. #6b7280 is already in
+   this file's palette and measures 3.69:1. No background override — a recessed fill
+   tested at 1.05:1 against the editable fill, which is no signal at all.
+   No `cursor` override either: the I-beam is correct, because selecting and copying
+   the value into the JSON view is the whole affordance this control is built for. */
+#pp-workspace .pp-accordion-field--display-only textarea {
+    min-height: 0;
+    border-style: dashed;
+    border-color: #6b7280;
+    color: #cbd5e1;
+}
+
+#pp-workspace .pp-accordion-field__note {
+    margin: 2px 0 0;
+    font-size: 11px;
+    font-style: italic;
+    color: #9ca3af;
+}
+
+/* The field-level note sits between the array label and the rows. */
+#pp-workspace .pp-accordion-array-note {
+    margin: -2px 0 6px;
+}
+
 /* Array items */
 #pp-workspace .pp-accordion-array {
     padding-left: 128px; /* 120px label + 8px gap */

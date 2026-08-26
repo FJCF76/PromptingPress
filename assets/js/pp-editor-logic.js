@@ -399,9 +399,14 @@ function serializeAccordionData(components) {
  *
  *   EVERY ROW `{}`. syncAccordionToJson assigns `item[sk]` for every sub-key
  *   whose control it resolves, and an emptied text field still yields `{sk: ''}`.
- *   So `{}` means no control resolved — the permanent state of a pass-through
- *   array, whose items have no schema `items` spec and render no sub-field
- *   controls at all.
+ *   So `{}` means no READABLE control resolved. Two causes reach it: a pass-through
+ *   array, whose items have no schema `items` spec and render no sub-field controls
+ *   at all, and — since #805 — an `items` spec whose declared sub-keys are ALL
+ *   containers, since a display-only control carries no data-field and so resolves
+ *   to nothing. The answer is right for both: there is nothing on screen to have
+ *   edited, so the stored value stands. No shipped schema is all-container today
+ *   (grid and section both mix strings in), so the second cause is a trap named
+ *   before it is sprung rather than a live case.
  *
  *   ROWS MISSING. A read holding fewer rows than were stored lost some; the
  *   no-rows case is just its extreme. Rows are rendered from the stored value,
@@ -478,23 +483,51 @@ function wouldLoseArrayData(newItems, origItems) {
  *   stored "plain" / 1   read {title:'', body:''}  -> nothing had a control, keep the stored
  *   stored {}            read {title:'', body:''}  -> nothing to lose, take the read
  *
+ * Since #805 "had a control" is the honest phrasing rather than "was declared": a
+ * declared CONTAINER sub-key is on screen but not readable, so it too reads back
+ * absent — and reconcileSubFieldTypes restores it before this function runs, which is
+ * what keeps the test below meaning what it says. See `unreadableKeys`.
+ *
  * The `{foo:'bar'}` row is why the test is the stored item's own KEYS and not
  * its type. A row can be a perfectly ordinary object and still hold keys the
  * schema does not declare — the accordion renders a control per DECLARED
  * sub-key, so those keys are never on screen, read back as absent, and would be
  * dropped by a rule that only asked whether the original was an object.
  *
- * @param {Array<Object>} newItems  - Items read from the DOM
+ * `unreadableKeys` NAMES THE SUB-KEYS THAT NEVER HAD A READABLE CONTROL (#805).
+ * Since #805 a sub-key declaring a container renders read-only, so the DOM read does
+ * not carry it and reconcileSubFieldTypes puts the STORED value back before this
+ * function runs. Without this parameter that restored value would then read as
+ * CONTENT, and this function would conclude the author had typed something:
+ *
+ *     stored  {title:'A', bullets:['x'], foo:'bar'}   `foo` is undeclared — no control
+ *     read    {title:''}                              the author cleared the title
+ *     +restore{title:'', bullets:['x']}               bullets was never on screen
+ *              └─ NOT content. Counting it as content makes this row look edited,
+ *                 the read wins, and `foo` is dropped — a value the author never
+ *                 saw, silently discarded by a control they never touched.
+ *
+ * So the emptiness test ignores these keys, and the row is judged on what the author
+ * could actually have typed into. The KEY test below needs no such exclusion: the
+ * restore has already put every stored container key back into the read, so it is
+ * only ever asked about keys that genuinely had no control and no restore — which is
+ * exactly the undeclared-key case it exists for.
+ *
+ * @param {Array<Object>} newItems  - The DOM read as settled by reconcileSubFieldTypes,
+ *                        not the raw read: since #805 that predecessor has already put
+ *                        back every stored sub-key no control could carry.
  * @param {*}             origItems - Original field value (from CodeMirror JSON)
+ * @param {string[]}      [unreadableKeys] - Sub-keys that render without a readable
+ *                        control, so their presence in the read is a restore, not an edit.
  * @returns {{items: Array, restored: number[]}} `items` is what to write;
  *          `restored` lists the indices that kept their stored value.
  */
-function reconcileArrayItems(newItems, origItems) {
+function reconcileArrayItems(newItems, origItems, unreadableKeys) {
     if (!Array.isArray(origItems)) return { items: newItems, restored: [] };
 
     var restored = [];
     var items = newItems.map(function (item, i) {
-        if (i < origItems.length && readCannotRepresent(item, origItems[i])) {
+        if (i < origItems.length && readCannotRepresent(item, origItems[i], unreadableKeys)) {
             restored.push(i);
             return origItems[i];
         }
@@ -504,9 +537,9 @@ function reconcileArrayItems(newItems, origItems) {
 }
 
 /** Whether a row's read carries nothing the stored item could have produced. */
-function readCannotRepresent(readItem, origItem) {
+function readCannotRepresent(readItem, origItem, unreadableKeys) {
     // Anything typed is content, and content is always the author's.
-    if (!readAllEmpty(readItem)) return false;
+    if (!readAllEmpty(readItem, unreadableKeys)) return false;
     // No control ever showed a non-object, so there was nothing to clear.
     if (!isPlainObject(origItem)) return true;
     // An object is clearable only through the keys that got a control.
@@ -534,13 +567,206 @@ function hasStoredContent(origItems) {
  * reaches that case first today, so this only decides it for a MIXED read — some
  * rows keyless, some not — where the same reasoning applies row by row.
  */
-function readAllEmpty(item) {
-    return Object.keys(item).every(function (k) { return item[k] === ''; });
+function readAllEmpty(item, unreadableKeys) {
+    var ignored = unreadableKeys || [];
+    return Object.keys(item).every(function (k) {
+        // A key restored by reconcileSubFieldTypes was never a resolved control, so
+        // it says nothing about what the author did — see reconcileArrayItems.
+        if (ignored.indexOf(k) !== -1) return true;
+        return item[k] === '';
+    });
+}
+
+/**
+ * The sub-keys of a schema `items` declaration that render without a readable
+ * control (#805). One derivation, two consumers: the sync passes it to
+ * reconcileArrayItems so a restored value is not mistaken for an edit, and it is the
+ * same question the builder asks per sub-key when it decides what to render.
+ */
+function displayOnlySubKeys(subSchema) {
+    if (!isPlainObject(subSchema)) return [];
+    return Object.keys(subSchema).filter(function (sk) {
+        return subFieldIsDisplayOnly(subSchema[sk]);
+    });
 }
 
 /** An object an author could have edited field by field — not an array, not null. */
 function isPlainObject(value) {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/** Declarations the row controls cannot round-trip at all, so they are shown read-only. */
+var DISPLAY_ONLY_SUBFIELD_TYPES = ['array', 'object'];
+
+/**
+ * Declarations whose text read is taken back VERBATIM, as the author typed it.
+ *
+ * Named for the READ rule rather than for the control, because `number` also renders
+ * as a text control and the difference is entirely in what the sync does with the
+ * text. A reader who took this list to mean "renders as text" would add `number` to
+ * it and silently disable the preservation reconcileSubFieldTypes exists for.
+ */
+var VERBATIM_READ_SUBFIELD_TYPES = ['string', 'enum'];
+
+/**
+ * WHICH CONTROL A ROW SUB-KEY GETS, decided by the type its schema DECLARES (#805).
+ *
+ * Until #805 buildArrayFieldHtml built every sub-key as `type: 'string'` whatever the
+ * schema said, so a `bullets` array rendered as `one,two`, a `style` object as
+ * `[object Object]` and an `image_id` number as `123` — and syncAccordionToJson read
+ * all three back as those strings, replacing the stored value on any unrelated edit in
+ * the same row. The two container shapes are refused at write since #744, which is what
+ * made a page using them unsaveable through the accordion at all.
+ *
+ * One rule, three classes, TOTAL over every declaration so a type name nobody has
+ * written yet still gets a defined answer:
+ *
+ *     declared        control                    the sync
+ *     ──────────────  ─────────────────────────  ────────────────────────────────────
+ *     string, enum    text input / textarea      reads it back (unchanged behaviour)
+ *     array, object   READ-ONLY display + note   never reads it; keeps what was stored
+ *     anything else   text input                 reads it, but keeps what was stored
+ *     (number, …)                                when the text was not edited
+ *     undeclared      no control at all          not ours — reconcileArrayItems settles it
+ *
+ * WHY CONTAINERS ARE READ-ONLY RATHER THAN PARSED BACK. A text box cannot carry a list
+ * or a map: whatever an author typed into one would have to be guessed at, and guessing
+ * is the thing this family refuses to do. Read-only is the honest control — it shows
+ * the real value, says why it cannot be edited here, and points at the JSON view, which
+ * edits the buffer directly. That is display without destruction; the rest of the
+ * accordion keeps working on the same page.
+ *
+ * WHY A NUMBER KEEPS ITS TEXT BOX. A text box CAN carry a number faithfully, so making
+ * it read-only would remove an edit affordance that works today on three shipped
+ * components for no gain. What it cannot do is survive an unrelated edit, and that is
+ * settled by comparing the read against what was RENDERED rather than by parsing:
+ * unchanged text means the control was not touched, so the stored value stands. Parsing
+ * the text back into a number instead would need `is_numeric()` in JS — see
+ * nonContainerValueDiffs for why there is no exact mirror of it, and why an
+ * approximation would be the editor inventing its own idea of a valid number.
+ *
+ * @param {Object} subDef The schema `items` entry for one sub-key.
+ */
+function subFieldIsDisplayOnly(subDef) {
+    return !!subDef && DISPLAY_ONLY_SUBFIELD_TYPES.indexOf(subDef.type) !== -1;
+}
+
+/** A sub-key a text control can SHOW faithfully but cannot READ BACK as its own type. */
+function subFieldIsTypedScalar(subDef) {
+    if (!subDef || !subDef.type) return false;
+    if (subFieldIsDisplayOnly(subDef)) return false;
+    return VERBATIM_READ_SUBFIELD_TYPES.indexOf(subDef.type) === -1;
+}
+
+/**
+ * The text a control was RENDERED with, which is what an untouched read hands back.
+ *
+ * escapeHtml() coerces null and undefined to '' and everything else through String(),
+ * and `.val()` returns the decoded character, so this is the exact round-trip. It goes
+ * through textForm() rather than String() directly because String() can THROW on a
+ * parsed-JSON object carrying a non-callable own `toString` — see textForm's docblock.
+ *
+ * ONE SHAPE WHERE RENDER-THEN-READ IS NOT IDENTITY, stated rather than papered over: a
+ * stored STRING under a non-string declaration that contains CR or LF. The HTML value
+ * sanitization algorithm strips line breaks from a text `<input>`, and a `<textarea>`
+ * normalizes CRLF to LF, so a stored `"42\r\n"` reads back as `"42"` and the comparison
+ * calls an untouched control edited. What follows is exactly the pre-#805 behaviour for
+ * that one value — the read wins and the buffer takes the sanitized text — so nothing
+ * is made worse by this rule; that shape is simply not rescued by it. Normalizing here
+ * to catch it would mean deciding which whitespace differences are meaningful inside a
+ * stored value, which is a rule nobody has made, and comparing against the render
+ * exists precisely so this code does not have to make one.
+ */
+function renderedTextFor(value) {
+    if (value === null || value === undefined) return '';
+    return textForm(value);
+}
+
+/**
+ * Merge a DOM read of an array field with the value it was rendered from, SUB-KEY by
+ * sub-key, so a control that could not carry its stored value never replaces it (#805).
+ *
+ * The third member of the row-guard family, and deliberately its own function. Each
+ * one answers a question at its own grain, and folding them together would mean one
+ * rule having to answer all three:
+ *
+ *   wouldLoseArrayData      whole FIELD — did the read represent the stored value at all?
+ *   reconcileArrayItems     one ROW     — could the author have produced this row by editing?
+ *   reconcileSubFieldTypes  one SUB-KEY — was this value ever on screen to be edited?
+ *
+ * IT RUNS BETWEEN THE OTHER TWO, and neither side of that is cosmetic:
+ *
+ *   read ──> wouldLoseArrayData ──> reconcileSubFieldTypes ──> reconcileArrayItems
+ *                  │                        │                          │
+ *      judges the RAW read, so its   puts back what no control    still sees every key
+ *      three tests keep their        ever showed                  it used to see
+ *      exact meaning
+ *
+ * AFTER the whole-field veto so that veto's inputs are unchanged by this function.
+ * BEFORE the row settle because readCannotRepresent() asks whether every key the stored
+ * row had was on screen to be cleared — and a read-only container sub-key is NOT in the
+ * read. Running this second would make that test answer "the read cannot represent this
+ * row" for a row whose text fields the author legitimately CLEARED, restore the whole
+ * row, and silently discard the clearing.
+ *
+ * NEVER FABRICATES. A sub-key the stored row does not have is not restored, so a value
+ * the author never wrote does not appear because a control existed for it.
+ *
+ * A KEY MISSING FROM THE READ is treated as unedited whatever its class: no control
+ * resolved, so nothing showed it, so there was nothing to change.
+ *
+ * ROW IDENTITY IS POSITIONAL, the same premise reconcileArrayItems already documents:
+ * every structural row handler settles pending edits first and then rewrites the buffer
+ * and re-renders (pp-admin-editor.js, the array add and remove handlers), and there is
+ * no row-reorder control, so the read and the value it is merged against always come
+ * from the same render.
+ *
+ * @param {Array<Object>} newItems  - Items read from the DOM
+ * @param {*}             origItems - Original field value (from CodeMirror JSON)
+ * @param {Object}        subSchema - The prop's `items` declaration
+ * @returns {{items: Array, restored: Array<{index: number, key: string}>}}
+ */
+function reconcileSubFieldTypes(newItems, origItems, subSchema) {
+    if (!Array.isArray(origItems) || !isPlainObject(subSchema)) {
+        return { items: newItems, restored: [] };
+    }
+
+    var restored = [];
+    var items = newItems.map(function (item, i) {
+        if (i >= origItems.length) return item;
+        var origRow = origItems[i];
+        if (!isPlainObject(origRow)) return item;
+
+        var merged = null;
+        Object.keys(subSchema).forEach(function (sk) {
+            // Never fabricate: a key the author did not write stays unwritten.
+            if (!(sk in origRow)) return;
+
+            var subDef = subSchema[sk];
+            var keep;
+            if (subFieldIsDisplayOnly(subDef)) {
+                keep = true;
+            } else if (subFieldIsTypedScalar(subDef)) {
+                keep = !(sk in item) || item[sk] === renderedTextFor(origRow[sk]);
+            } else {
+                keep = !(sk in item);
+            }
+            if (!keep) return;
+
+            if (!merged) merged = copyRow(item);
+            merged[sk] = origRow[sk];
+            restored.push({ index: i, key: sk });
+        });
+        return merged || item;
+    });
+    return { items: items, restored: restored };
+}
+
+/** A shallow copy of a read row, so this family keeps its no-mutation contract. */
+function copyRow(item) {
+    var out = {};
+    Object.keys(item).forEach(function (k) { out[k] = item[k]; });
+    return out;
 }
 
 /**
@@ -675,7 +901,7 @@ function checkSerializationInvariant(jsonString, componentRegistry) {
     // word is an overload — the structure round-trips fine and a VALUE is what would
     // change — kept as-is because it is user-facing copy this check does not own.)
     //
-    // Two members so far, one call each:
+    // Three members so far, one call each:
     //
     //   #605  an unadvertised stored ENUM value. A <select> built from the
     //         advertised `values` has no matching option, so .val() returns the
@@ -690,8 +916,15 @@ function checkSerializationInvariant(jsonString, componentRegistry) {
     //         back as that text, so a stored `false` becomes the STRING "false" —
     //         which #707 accepts at write, turning (for a link prop) a dead button
     //         into a live link to /false on a band the author never opened.
+    //
+    //   #805  a stored value that is not a container under an items[] sub-field the
+    //         schema declares `type: "array"` or `type: "object"`. The CONTROL half of
+    //         #805 stops a well-formed list or map being flattened by a read, so only
+    //         the malformed shape is left here — and that one the write path refuses
+    //         too (#744), so the author has to see the real value to fix it.
     diffs = diffs.concat(unadvertisedEnumDiffs(jsonString, componentRegistry));
     diffs = diffs.concat(nonStringValueDiffs(jsonString, componentRegistry));
+    diffs = diffs.concat(nonContainerValueDiffs(jsonString, componentRegistry));
 
     if (diffs.length === 0) {
         return { safe: true };
@@ -833,6 +1066,47 @@ function forEachDeclaredProp(jsonString, componentRegistry, callback) {
 }
 
 /**
+ * Walk every STORED items[] SUB-FIELD together with its own sub-schema declaration.
+ *
+ * The nested half of forEachDeclaredProp, extracted for the same reason that one was:
+ * two guards now need exactly this walk (#745's string rule and #805's container
+ * rule), and two copies is how two guards start disagreeing about which rows they
+ * even look at — silently, because each one's tests only exercise its own copy.
+ *
+ *   forEachDeclaredProp ──> array-typed prop ──> each row ──> each DECLARED sub-key
+ *                                  │                 │
+ *                    only a stored ARRAY has     only a plain OBJECT row has
+ *                    rows to walk                sub-keys to judge
+ *
+ * BOTH BOUNDARIES avoid double-reporting a value another guard already settles, and
+ * they are the boundaries #745 established: a non-array under an array-typed prop
+ * makes wouldLoseArrayData fire (it renders no rows at all), and a non-object row
+ * makes reconcileArrayItems restore that row. Reporting those here too would take a
+ * value that is already safe and lock the whole page over it.
+ *
+ * Callers get (subDef, storedValue, path) and contribute nothing but their own
+ * predicate. A sub-key the schema does not declare never reaches the callback: it gets
+ * no control at all, so it has no declared type for any guard to judge it against.
+ *
+ * @param {string}   jsonString        Raw composition JSON.
+ * @param {Array}    componentRegistry Component schemas.
+ * @param {Function} callback          (subDef, storedValue, path) => void
+ */
+function forEachDeclaredSubField(jsonString, componentRegistry, callback) {
+    forEachDeclaredProp(jsonString, componentRegistry, function (def, stored, path) {
+        if (def.type !== 'array' || !def.items || !Array.isArray(stored)) return;
+        stored.forEach(function (row, rowIdx) {
+            if (!isPlainObject(row)) return;
+            Object.keys(row).forEach(function (sk) {
+                var sub = def.items[sk];
+                if (!sub) return;
+                callback(sub, row[sk], path + '[' + rowIdx + '].' + sk);
+            });
+        });
+    });
+}
+
+/**
  * Stored values a text control cannot represent, under props the schema declares
  * `type: "string"` (#745).
  *
@@ -884,44 +1158,122 @@ function forEachDeclaredProp(jsonString, componentRegistry, callback) {
  *   composition may not declare (#223). A composable `boolean` prop would need this
  *   rule extended, not merely inherited.
  *
- * THE NESTED WALK descends only into a stored value that IS an array, and only
- * into elements that ARE plain objects. Both boundaries avoid double-reporting a
- * value another guard already settles: a non-array under an array-typed prop makes
- * wouldLoseArrayData fire (it renders no rows at all), and a non-object row makes
- * reconcileArrayItems restore that row. Reporting those here too would take a value
- * that is already safe and lock the whole page over it. Sub-fields declaring
- * something other than `string` are likewise out, and this is the boundary most
- * worth being precise about: buildArrayFieldHtml hardcodes `type: 'string'` for
- * every row sub-key whatever the schema declares, so a stored `bullets` array
- * renders as `a,b` and a stored `style` object as `[object Object]`, and both read
- * back as those strings. Neither row guard rescues them — the read carries CONTENT,
- * so reconcileArrayItems takes it. That is a wider defect than this rule describes
- * and it is tracked as its own issue (#805); reporting it HERE would lock the page
- * without fixing the control that cannot show the value. Nested `enum` sub-keys are
- * out for the same reason and are tracked in #646.
+ * THE NESTED WALK is forEachDeclaredSubField, whose docblock carries the two
+ * boundaries it enforces (a stored value that IS an array, elements that ARE plain
+ * objects). Sub-fields declaring something other than `string` are not this rule's:
+ *
+ *   `array` / `object`  -> nonContainerValueDiffs (#805), which reports only a stored
+ *                          value that VIOLATES the declaration. A well-formed one is
+ *                          no longer in danger: since #805 those sub-keys render
+ *                          read-only and are never read back off the DOM.
+ *   `number`            -> nobody's, deliberately. See nonContainerValueDiffs for why
+ *                          `is_numeric()` has no exact JS mirror, and why
+ *                          reconcileSubFieldTypes makes the guard unnecessary.
+ *   `enum`              -> nobody's yet; the authoring gap (free text instead of a
+ *                          <select>) is tracked in #646.
  *
  * @param {string} jsonString        Raw composition JSON.
  * @param {Array}  componentRegistry Component schemas.
  * @returns {Array} deepDiff-shaped entries, empty when nothing would drift.
  */
 function nonStringValueDiffs(jsonString, componentRegistry) {
+    // TWO WALKS, so the diffs come out grouped by DEPTH: every top-level prop across
+    // every band, then every nested sub-field across every band. Before #805 extracted
+    // the nested walk this was one interleaved pass and a band's two depths came out
+    // adjacent. Nothing downstream depends on the order — the notice table and the
+    // issue markdown both label every row with its own component index and path — and
+    // the alternative is keeping a private copy of the walk to preserve a grouping no
+    // reader asked for.
     var out = [];
     forEachDeclaredProp(jsonString, componentRegistry, function (def, stored, path) {
-        if (def.type === 'string') {
-            if (!satisfiesStringDeclaration(stored)) out.push(textFormDiff(path, stored));
-            return;
-        }
+        if (def.type !== 'string') return;
+        if (!satisfiesStringDeclaration(stored)) out.push(textFormDiff(path, stored));
+    });
+    forEachDeclaredSubField(jsonString, componentRegistry, function (sub, stored, path) {
+        if (sub.type !== 'string') return;
+        if (satisfiesStringDeclaration(stored)) return;
+        out.push(textFormDiff(path, stored));
+    });
+    return out;
+}
 
-        if (def.type !== 'array' || !def.items || !Array.isArray(stored)) return;
-        stored.forEach(function (row, rowIdx) {
-            if (!isPlainObject(row)) return;
-            Object.keys(row).forEach(function (sk) {
-                var sub = def.items[sk];
-                if (!sub || sub.type !== 'string') return;
-                if (satisfiesStringDeclaration(row[sk])) return;
-                out.push(textFormDiff(path + '[' + rowIdx + '].' + sk, row[sk]));
-            });
-        });
+/**
+ * Whether a stored value satisfies a declared CONTAINER type — `array` or `object`.
+ *
+ * The exact inverse of the write path's rule, the same way satisfiesStringDeclaration
+ * mirrors the string arm: #744 added `_pp_schema_container_value_is_valid()`
+ * (lib/admin.php), which accepts `null`, `''` and `is_array()` and refuses every other
+ * scalar. A value this returns false for is a value the write path REFUSES.
+ *
+ * ONE TEST COVERS BOTH TYPES because PHP has one shape for both — a JSON list and a
+ * JSON map both decode to a PHP array under `json_decode($json, true)` — so what the
+ * PHP predicate actually decides is "container or scalar?". `typeof value === 'object'`
+ * with the null guard is that same question in JS: it admits both `[]` and `{}` and
+ * refuses every scalar. Map-vs-list is deliberately nobody's rule here, exactly as
+ * #744's docblock records; the shared style-slot engine owns a list handed to a style
+ * field, with its own message.
+ *
+ * `null` and `''` are the unset sentinels, kept BECAUSE the write path keeps them: they
+ * are how an omitted value stays on its declared default, and a guard that disagreed
+ * with the write path about the sentinel would lock the accordion on pages that save
+ * fine.
+ */
+function satisfiesContainerDeclaration(value) {
+    // The sentinels first, so the container test is left saying only what it means.
+    // (`typeof null === 'object'`, which is why the order is load-bearing rather than
+    // stylistic — testing the sentinels afterwards would need a second null guard.)
+    if (value === null || value === '') return true;
+    return typeof value === 'object';
+}
+
+/**
+ * Stored values a row's controls cannot represent, under items[] sub-fields the schema
+ * declares `type: "array"` or `type: "object"` (#805).
+ *
+ * The third sibling of unadvertisedEnumDiffs and nonStringValueDiffs, and the narrow
+ * half of #805. The wide half lives in the CONTROLS: a sub-key declaring a container
+ * now renders read-only and is never read back (see subFieldIsDisplayOnly and
+ * reconcileSubFieldTypes), so a WELL-FORMED `bullets: ["one","two"]` survives a sync
+ * and keeps its accordion. That is the whole point of splitting the two halves:
+ *
+ *     stored bullets      what the accordion does                 why
+ *     ──────────────────  ──────────────────────────────────────  ─────────────────────
+ *     ["one","two"]       renders read-only, preserves it         VALID — the page is
+ *                         (full accordion stays available)        fine, only the CONTROL
+ *                                                                 was wrong
+ *     "one,two"           refuses the whole composition into      DRIFT — the write path
+ *                         JSON-only mode, naming the path         refuses it too (#744)
+ *
+ * Reporting the well-formed row here would lock the accordion forever on every page
+ * using two shipped features (`grid.items[].bullets`, per-item `style`) to protect
+ * values that were never in danger once the control stopped destroying them. Reporting
+ * only the malformed one is the same rule #745 applies one type over: the value
+ * VIOLATES its declaration, the write path refuses it, and the author needs to see the
+ * real value to fix it.
+ *
+ * THE `number` LEG IS DELIBERATELY ABSENT, and this is #745's own recorded boundary
+ * rather than an oversight. Refusing a stored non-number under a `number` declaration
+ * would need `is_numeric()` in JS, and there is no exact mirror: PHP accepts `"1e5"`,
+ * `" 5"`, `".5"` and `"5."` while rejecting `"0x1A"`, and `Number()` disagrees on most
+ * of them. Writing an approximation would give the editor its own private idea of what
+ * a `number` prop accepts — the drift #614 extracted the PHP predicate to prevent — and
+ * it would either lock pages that save fine or miss ones that do not. It costs nothing
+ * to leave out: reconcileSubFieldTypes preserves a `number` sub-key's stored value
+ * whatever it is whenever the control was not edited, so nothing is laundered either way.
+ *
+ * @param {string} jsonString        Raw composition JSON.
+ * @param {Array}  componentRegistry Component schemas.
+ * @returns {Array} deepDiff-shaped entries, empty when nothing would drift.
+ */
+function nonContainerValueDiffs(jsonString, componentRegistry) {
+    var out = [];
+    forEachDeclaredSubField(jsonString, componentRegistry, function (sub, stored, path) {
+        // Asks the CONTROL rule which declarations are containers rather than
+        // re-spelling the pair: a fourth container type must arm the read-only control
+        // and this guard together, and two copies is how they would come to disagree.
+        if (!subFieldIsDisplayOnly(sub)) return;
+        if (satisfiesContainerDeclaration(stored)) return;
+        out.push(textFormDiff(path, stored));
     });
     return out;
 }
@@ -1020,10 +1372,19 @@ var _logic = {
     serializeAccordionData:         serializeAccordionData,
     wouldLoseArrayData:             wouldLoseArrayData,
     reconcileArrayItems:            reconcileArrayItems,
+    reconcileSubFieldTypes:         reconcileSubFieldTypes,
+    displayOnlySubKeys:             displayOnlySubKeys,
+    subFieldIsDisplayOnly:          subFieldIsDisplayOnly,
+    subFieldIsTypedScalar:          subFieldIsTypedScalar,
+    // Exported while its sibling satisfiesStringDeclaration is not, deliberately: the
+    // string arm is one line and is fully pinned through nonStringValueDiffs, while
+    // this one mirrors a PHP predicate and earns a direct truth table of its own.
+    satisfiesContainerDeclaration:  satisfiesContainerDeclaration,
     deepDiff:                       deepDiff,
     checkSerializationInvariant:    checkSerializationInvariant,
     unadvertisedEnumDiffs:          unadvertisedEnumDiffs,
     nonStringValueDiffs:            nonStringValueDiffs,
+    nonContainerValueDiffs:         nonContainerValueDiffs,
     formatDiffsForIssue:            formatDiffsForIssue,
     getCollapsedRowPreview:         getCollapsedRowPreview,
 };

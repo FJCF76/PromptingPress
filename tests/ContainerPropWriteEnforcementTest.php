@@ -409,6 +409,89 @@ class ContainerPropWriteEnforcementTest extends TestCase
     }
 
     /**
+     * THE #805 LOCKOUT, AND ITS LIFT, MEASURED AT THIS RULE (Section 14.1).
+     *
+     * This rule is what made the accordion editor unusable on a page holding a list
+     * or a per-item style. The editor built every items[] sub-field as a TEXT control
+     * whatever the schema declared, and read it back with .val(), so one unrelated
+     * edit in the row turned `["Fast","Honest"]` into `"Fast,Honest"` and a style map
+     * into `"[object Object]"` — shapes this rule (correctly) refuses. The author
+     * could neither save nor preview, and the flattening happened before the write
+     * path ever saw the value.
+     *
+     *   before #805   row read off the DOM ──> {bullets: "Fast,Honest"}  ──> REFUSED
+     *   after  #805   row read off the DOM ──> {bullets: ["Fast","Honest"]} ──> ok
+     *
+     * Pinned HERE, in PHP, and not only in the JS pins that drive the real editor:
+     * a JS test can assert what the editor emits, but only the shipped validator can
+     * answer whether the write path takes it. The two shapes are asserted as a PAIR
+     * through `update_composition` — the action the editor's save actually routes
+     * through (see the write-path comment above it) — so the accepted half cannot
+     * quietly start passing for a reason unrelated to the shape.
+     *
+     * `image_id` rides along as the third measured sub-key: it is declared `number`,
+     * the editor used to hand back the STRING "42", and `is_numeric()` accepts that
+     * deliberately (#707), so it was never a lockout — it was a silent type rewrite.
+     * The assertion is on the TYPE, which is the part that changed.
+     */
+    public function testUpdateCompositionTakesTheRowShapeTheAccordionNowEmits(): void
+    {
+        $post_id = pp_create_page('Editor round-trip', 'draft');
+        pp_update_composition($post_id, [
+            ['component' => 'grid', 'props' => ['items' => [['title' => 'Card A']]]],
+        ]);
+
+        // What the accordion emitted BEFORE #805 after an edit to the row's title,
+        // ONE SUB-KEY AT A TIME. A single row carrying all three flattened values
+        // would prove almost nothing: the validator stops at the first failure, so
+        // the pin could not say WHICH declaration refused, and disabling the `array`
+        // leg entirely would leave it green on the `object` leg's refusal.
+        $flattened = [
+            'bullets' => ['Fast,Honest', 'must be an array'],
+            'style'   => ['[object Object]', 'must be an object'],
+        ];
+        foreach ($flattened as $field => $case) {
+            [$scalar, $shape_message] = $case;
+            $result = pp_execute_action('update_composition', [
+                'post_id'     => $post_id,
+                'composition' => [['component' => 'grid', 'props' => ['items' => [[
+                    'title' => 'Card A2',
+                    $field  => $scalar,
+                ]]]]],
+            ]);
+
+            $this->assertFalse($result['ok'], "the flattened $field is the #744 refusal that locked the accordion out");
+            $this->assertSame('invalid_prop_value', $result['error_code']);
+            $this->assertStringContainsString($field, $result['error']);
+            $this->assertStringContainsString($shape_message, $result['error']);
+            $this->assertSame(
+                'Card A',
+                pp_get_composition($post_id)[0]['props']['items'][0]['title'],
+                'a refused write must not have landed the edited title either'
+            );
+        }
+
+        // What it emits after #805: the sub-fields no control could carry are kept
+        // as they were stored, so only the edited field differs.
+        $preserved = pp_execute_action('update_composition', [
+            'post_id'     => $post_id,
+            'composition' => [['component' => 'grid', 'props' => ['items' => [[
+                'title'    => 'Card A2',
+                'bullets'  => ['Fast', 'Honest'],
+                'style'    => ['--grid-item-bg' => '#111111'],
+                'image_id' => 42,
+            ]]]]],
+        ]);
+        $this->assertTrue($preserved['ok'], $preserved['error'] ?? 'the preserved row must be accepted');
+
+        $item = pp_get_composition($post_id)[0]['props']['items'][0];
+        $this->assertSame('Card A2', $item['title']);
+        $this->assertSame(['Fast', 'Honest'], $item['bullets']);
+        $this->assertSame(['--grid-item-bg' => '#111111'], $item['style']);
+        $this->assertIsInt($item['image_id'], 'a number sub-key must survive the editor as a number');
+    }
+
+    /**
      * update_composition refuses the same shape and leaves the stored composition
      * untouched — a rejected write must not be a partial write.
      */

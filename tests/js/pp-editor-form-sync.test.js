@@ -618,10 +618,13 @@ describe('a stored value renders as itself and reads back as itself', () => {
         const parsed = await editAndSync($, scalarControl($, 'title'), 'Heading edited', getBuffer);
 
         expect(parsed[0].props.title).toBe('Heading edited');
-        // Read back as the STRING '0' rather than the number 0 — that coercion is the
-        // separate, still-open pass-through/number laundering, not this rule. What
-        // this pin defends is that the value was not BLANKED.
-        expect(parsed[0].props.items[0].count).toBe('0');
+        // Read back as the NUMBER 0. Until #805 this pin asserted the string '0'
+        // and called the coercion "separate, still-open" — that is the laundering
+        // #805 closed: the control still renders `0` as text, but an unedited read
+        // is now settled against what was RENDERED, so the stored value stands
+        // rather than its own text form. The original point of the pin, that the
+        // value was not BLANKED, is unchanged and still asserted by it.
+        expect(parsed[0].props.items[0].count).toBe(0);
         expect(parsed[0].props.items[0].title).toBe('A');
     });
 });
@@ -1523,5 +1526,434 @@ describe('a pending edit settles before the view toggle reads the buffer', () =>
 
         expect(getWrites()).toBe(before);
         expect('subheading' in JSON.parse(getBuffer())[0].props).toBe(false);
+    });
+});
+
+// ─── #805: a row sub-field keeps its declared type through an unrelated edit ──
+//
+// TYPED_ROW mirrors what components/grid/schema.json actually ships: alongside
+// string sub-keys, a `bullets` declaring `array`, an `image_id` declaring
+// `number`, and a `style` declaring `object`. Before #805 buildArrayFieldHtml
+// built all four as text controls, so ONE edit to the row's title flattened
+// bullets to "one,two", stringified image_id to "123", and destroyed style into
+// "[object Object]" — and the first two of those the write path REFUSES since
+// #744, which is what made a page using them unsaveable through the accordion.
+const TYPED_ROW = [
+    {
+        name: 'card',
+        templateOwned: false,
+        schema: {
+            props: {
+                title: { type: 'string', required: false },
+                items: {
+                    type: 'array', required: false,
+                    items: {
+                        title:    { type: 'string', required: false },
+                        bullets:  { type: 'array',  required: false },
+                        image_id: { type: 'number', required: false },
+                        style:    { type: 'object', required: false },
+                    },
+                },
+            },
+        },
+    },
+];
+
+/**
+ * ONE container sub-key, which is what components/section/schema.json actually
+ * ships: `panel_items` declares a `style` and nothing else the accordion cannot
+ * edit. Without it the singular arm of the note sentence is never rendered by any
+ * test, while being the arm a real operator meets.
+ */
+const SINGLE_CONTAINER_ROW = [
+    {
+        name: 'card',
+        templateOwned: false,
+        schema: {
+            props: {
+                panel_items: {
+                    type: 'array', required: false,
+                    items: {
+                        label: { type: 'string', required: false },
+                        style: { type: 'object', required: false },
+                    },
+                },
+            },
+        },
+    },
+];
+
+/** Three container sub-keys, for the comma-and-`and` join. */
+const THREE_CONTAINER_ROW = [
+    {
+        name: 'card',
+        templateOwned: false,
+        schema: {
+            props: {
+                items: {
+                    type: 'array', required: false,
+                    items: {
+                        title:  { type: 'string', required: false },
+                        one:    { type: 'array',  required: false },
+                        two:    { type: 'object', required: false },
+                        three:  { type: 'array',  required: true },
+                    },
+                },
+            },
+        },
+    },
+];
+
+const TYPED_ROW_JSON = JSON.stringify([
+    {
+        component: 'card',
+        props: {
+            items: [
+                {
+                    title:    'Card A',
+                    bullets:  ['one', 'two'],
+                    image_id: 123,
+                    style:    { '--grid-item-bg': '#fff' },
+                },
+            ],
+        },
+    },
+]);
+
+/** The read-only display controls, in document order. */
+function displayOnlyControls($) {
+    return $('#pp-accordion-view .pp-accordion-field--display-only textarea');
+}
+
+describe('a row sub-field keeps its declared type through an unrelated edit (#805)', () => {
+    it('leaves bullets a list, image_id a number and style an object', async () => {
+        const { $, getBuffer } = await bootEditor(TYPED_ROW_JSON, TYPED_ROW);
+
+        const parsed = await editAndSync($, rowControl($, 'title', 0), 'Card A2', getBuffer);
+        const row = parsed[0].props.items[0];
+
+        // The edit itself lands.
+        expect(row.title).toBe('Card A2');
+        // Its neighbours are untouched, as VALUES and as TYPES. toEqual alone
+        // would pass on "one,two" for neither, but toBe on image_id is what
+        // separates 123 from "123" — the shape #707 accepts at write, so nothing
+        // downstream would have refused it.
+        expect(row.bullets).toEqual(['one', 'two']);
+        expect(Array.isArray(row.bullets)).toBe(true);
+        expect(row.image_id).toBe(123);
+        expect(row.style).toEqual({ '--grid-item-bg': '#fff' });
+    });
+
+    it('produces a row the write path can accept, which is the #744 lockout lifted', async () => {
+        // The PHP-side proof lives in tests/php/test-composition-validation.php;
+        // this is the JS half of the same claim — that what the accordion now
+        // emits for these two sub-keys is a container rather than a scalar, which
+        // is the whole of what _pp_schema_container_value_is_valid() asks.
+        const { $, getBuffer } = await bootEditor(TYPED_ROW_JSON, TYPED_ROW);
+
+        const parsed = await editAndSync($, rowControl($, 'title', 0), 'Card A2', getBuffer);
+        const row = parsed[0].props.items[0];
+
+        expect(typeof row.bullets).toBe('object');
+        expect(typeof row.style).toBe('object');
+        expect(typeof row.bullets).not.toBe('string');
+        expect(typeof row.style).not.toBe('string');
+    });
+
+    it('shows the stored value as JSON in a read-only control the sync cannot reach', async () => {
+        const { $ } = await bootEditor(TYPED_ROW_JSON, TYPED_ROW);
+
+        // No control carries these names, so findByCompField can never resolve
+        // one — the property that makes the display safe rather than merely
+        // read-only, since .val() answers on a readonly control too.
+        expect(controls($, 'bullets').length).toBe(0);
+        expect(controls($, 'style').length).toBe(0);
+
+        const $display = displayOnlyControls($);
+        expect($display.length).toBe(2);
+        expect($display.eq(0).val()).toBe('["one","two"]');
+        expect($display.eq(1).val()).toBe('{"--grid-item-bg":"#fff"}');
+        expect($display.eq(0).attr('readonly')).toBeDefined();
+    });
+
+    it('tells the author why the field is not editable and where it is, once', async () => {
+        const { $ } = await bootEditor(TYPED_ROW_JSON, TYPED_ROW);
+
+        const notes = $('#pp-accordion-view .pp-accordion-field__note')
+            .map(function () { return $(this).text(); }).get();
+
+        // ONE note for the field, not one per row: "bullets is a list" is a fact
+        // about the SCHEMA, so a copy under every card says nothing new the second
+        // time and a screen reader would read it once per row.
+        expect(notes).toHaveLength(1);
+        expect(notes[0]).toBe('bullets (list) and style (object) are edited in the JSON view.');
+
+        // Every display-only control points at that one note. getElementById rather
+        // than an id selector: the control id is composed from the prop name and the
+        // sub-key ("...items.bullets..."), and a dot is STRUCTURAL in a selector —
+        // the same hazard findByCompField avoids by comparing attributes instead of
+        // interpolating them.
+        const targets = displayOnlyControls($)
+            .map(function () { return $(this).attr('aria-describedby'); }).get();
+        expect(targets).toHaveLength(2);
+        targets.forEach((id) => {
+            expect(document.getElementById(id).textContent).toBe(notes[0]);
+        });
+    });
+
+    it('names the field in the note even when no row holds a value for it', async () => {
+        // The discoverability half of rendering nothing for an unset value: the
+        // author still learns `bullets` exists and where it is authored.
+        const json = JSON.stringify([
+            { component: 'card', props: { items: [{ title: 'Card A' }] } },
+        ]);
+        const { $ } = await bootEditor(json, TYPED_ROW);
+
+        expect(displayOnlyControls($).length).toBe(0);
+        expect($('#pp-accordion-view .pp-accordion-field__note').text())
+            .toBe('bullets (list) and style (object) are edited in the JSON view.');
+    });
+
+    it('still lets the author clear every editable field of the row', async () => {
+        // The regression the ORDER of the two reconcilers exists to prevent. A
+        // read-only sub-key is absent from the DOM read, so if the stored value
+        // were put back AFTER reconcileArrayItems, its per-row test ("was every
+        // key the stored row had on screen to be cleared?") would answer no,
+        // restore the WHOLE row, and silently discard this clearing.
+        const { $, getBuffer } = await bootEditor(TYPED_ROW_JSON, TYPED_ROW);
+
+        rowControl($, 'title', 0).val('');
+        const parsed = await editAndSync($, rowControl($, 'image_id', 0), '', getBuffer);
+        const row = parsed[0].props.items[0];
+
+        expect(row.title).toBe('');
+        expect(row.image_id).toBe('');
+        // ...while the values no control ever showed are still there.
+        expect(row.bullets).toEqual(['one', 'two']);
+        expect(row.style).toEqual({ '--grid-item-bg': '#fff' });
+    });
+
+    it('still keeps an undeclared sub-key when every editable field is cleared', async () => {
+        // The trap in the ORDER. A read-only container is absent from the DOM read, so
+        // reconcileSubFieldTypes puts the stored value back before the row guard runs
+        // — and if the row guard counted that restored value as CONTENT, this row
+        // would look edited, the read would win, and `foo` (undeclared, never on
+        // screen, and the shape AI_RULES documents as load-bearing) would be dropped
+        // by a control the author never touched. The guard is told which sub-keys had
+        // no readable control so it judges the row on what could actually be typed in.
+        const json = JSON.stringify([
+            { component: 'card', props: { items: [{ title: 'Card A', bullets: [], foo: 'bar' }] } },
+        ]);
+        const { $, getBuffer } = await bootEditor(json, TYPED_ROW);
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+        rowControl($, 'title', 0).val('');
+        const parsed = await editAndSync($, rowControl($, 'image_id', 0), '', getBuffer);
+        const row = parsed[0].props.items[0];
+
+        expect(row.foo).toBe('bar');
+        expect(row.bullets).toEqual([]);
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining('data-loss guard fired'));
+    });
+
+    it('lands a deliberate edit to a number sub-key as typed', async () => {
+        // The accepted limitation, pinned rather than left to be discovered: the
+        // control is a text box, so an edited image_id lands as the STRING "456".
+        // is_numeric() accepts it at write (#707 left the number arm alone
+        // deliberately), and this is exactly what the editor did before #805 —
+        // no new accepted value, no new refusal. What changed is that an
+        // UNTOUCHED image_id is no longer rewritten, which is the test above.
+        const { $, getBuffer } = await bootEditor(TYPED_ROW_JSON, TYPED_ROW);
+
+        const parsed = await editAndSync($, rowControl($, 'image_id', 0), '456', getBuffer);
+
+        expect(parsed[0].props.items[0].image_id).toBe('456');
+    });
+
+    it('never invents a sub-field the stored row did not have', async () => {
+        const json = JSON.stringify([
+            { component: 'card', props: { items: [{ title: 'Card A' }] } },
+        ]);
+        const { $, getBuffer } = await bootEditor(json, TYPED_ROW);
+
+        const parsed = await editAndSync($, rowControl($, 'title', 0), 'Card A2', getBuffer);
+        const row = parsed[0].props.items[0];
+
+        expect('bullets' in row).toBe(false);
+        expect('style' in row).toBe(false);
+    });
+
+    it('renders no control for an unset value, and still preserves it', async () => {
+        // The shape the "+ Add item" handler creates: it seeds every declared
+        // sub-key with '', which the write path accepts as "leave this on its
+        // default". A read-only box showing nothing, captioned, on every row of a
+        // section whose rows almost never carry a style, is taller than the two
+        // short inputs this replaced — a regression dressed as honesty. The value
+        // still has to survive the sync as the sentinel it is.
+        const json = JSON.stringify([
+            { component: 'card', props: { items: [{ title: '', bullets: '', image_id: '', style: '' }] } },
+        ]);
+        const { $, getBuffer } = await bootEditor(json, TYPED_ROW);
+
+        expect(displayOnlyControls($).length).toBe(0);
+
+        const parsed = await editAndSync($, rowControl($, 'title', 0), 'Card A', getBuffer);
+        const row = parsed[0].props.items[0];
+        expect(row.bullets).toBe('');
+        expect(row.style).toBe('');
+    });
+
+    it('reads the note as a singular sentence when one sub-key is affected', async () => {
+        // The shipped shape: section.panel_items declares exactly one container
+        // sub-key, so this is the sentence a real operator meets most often.
+        const json = JSON.stringify([
+            { component: 'card', props: { panel_items: [{ label: 'Uptime', style: { '--x': '#fff' } }] } },
+        ]);
+        const { $ } = await bootEditor(json, SINGLE_CONTAINER_ROW);
+
+        expect($('#pp-accordion-view .pp-accordion-field__note').text())
+            .toBe('style (object) is edited in the JSON view.');
+    });
+
+    it('joins three affected sub-keys with commas and a final and', async () => {
+        const json = JSON.stringify([
+            { component: 'card', props: { items: [{ title: 'A', three: ['x'] }] } },
+        ]);
+        const { $ } = await bootEditor(json, THREE_CONTAINER_ROW);
+
+        expect($('#pp-accordion-view .pp-accordion-field__note').text())
+            .toBe('one (list), two (object) and three (list) are edited in the JSON view.');
+    });
+
+    it('marks a required container sub-key like every other required field', async () => {
+        // No shipped schema declares one today, so without this the TRUE arm of the
+        // required marker ships unpinned and a schema that adds one tomorrow would
+        // render an unmarked required field with nothing to catch it.
+        const json = JSON.stringify([
+            { component: 'card', props: { items: [{ title: 'A', three: ['x'] }] } },
+        ]);
+        const { $ } = await bootEditor(json, THREE_CONTAINER_ROW);
+
+        const $required = $('#pp-accordion-view .pp-accordion-field--display-only.pp-accordion-field--required');
+        expect($required.length).toBe(1);
+        expect($required.find('label').text()).toBe('three');
+    });
+
+    it('sizes the read-only control to its value, with a floor and a cap', async () => {
+        // The control exists to be READ, and a textarea's resize grip is mouse-only,
+        // so the rows a keyboard author gets are the value they can see.
+        const long = Array.from({ length: 40 }, (_, i) => 'entry-number-' + i);
+        const json = JSON.stringify([
+            {
+                component: 'card',
+                props: {
+                    items: [
+                        { title: 'A', bullets: ['x'] },
+                        { title: 'B', bullets: long },
+                    ],
+                },
+            },
+        ]);
+        const { $ } = await bootEditor(json, TYPED_ROW);
+
+        const rows = displayOnlyControls($).map(function () { return $(this).attr('rows'); }).get();
+        expect(rows[0]).toBe('2');                 // floor: a short value still gets two
+        expect(rows[1]).toBe('8');                 // cap: a very long one stops growing
+        expect(Number(rows[1])).toBeGreaterThan(Number(rows[0]));
+    });
+
+    it('seeds a row added through the real + Add item button with no display-only control', async () => {
+        // The fixture-free version of the unset case: the add handler is what
+        // actually creates a row with '' in every declared sub-key, so this asserts
+        // against the handler rather than against a fixture's idea of it.
+        const { $, getBuffer } = await bootEditor(TYPED_ROW_JSON, TYPED_ROW);
+        const before = displayOnlyControls($).length;
+
+        $('#pp-accordion-view .pp-array-add-btn').trigger('click');
+
+        expect($('#pp-accordion-view .pp-accordion-array-item').length).toBe(2);
+        expect(displayOnlyControls($).length).toBe(before);
+        expect($('#pp-accordion-view .pp-accordion-field__note').length).toBe(1);
+
+        const parsed = await editAndSync($, rowControl($, 'title', 1), 'Card B', getBuffer);
+        const added = parsed[0].props.items[1];
+        expect(added.title).toBe('Card B');
+        expect(added.bullets).toBe('');
+        expect(added.style).toBe('');
+    });
+
+    it('renders a control only for the rows that hold a value', async () => {
+        // The measured case: section.panel_items declares a `style` on every row and
+        // almost no row has one. Only the row that carries a value gets a box.
+        const json = JSON.stringify([
+            {
+                component: 'card',
+                props: {
+                    items: [
+                        { title: 'A' },
+                        { title: 'B', bullets: ['b'] },
+                        { title: 'C' },
+                    ],
+                },
+            },
+        ]);
+        const { $ } = await bootEditor(json, TYPED_ROW);
+
+        expect($('#pp-accordion-view .pp-accordion-array-item').length).toBe(3);
+        expect(displayOnlyControls($).length).toBe(1);
+        expect(displayOnlyControls($).eq(0).val()).toBe('["b"]');
+    });
+
+    it('does not graft a preserved value onto the wrong row when one is removed', async () => {
+        // Row identity is positional, and that only holds because every
+        // structural handler settles pending edits first and then re-renders. If
+        // it ever stopped holding, this is where it would show: row 1's bullets
+        // would follow row 0's index into the survivor.
+        const json = JSON.stringify([
+            {
+                component: 'card',
+                props: {
+                    items: [
+                        { title: 'A', bullets: ['a'] },
+                        { title: 'B', bullets: ['b'] },
+                    ],
+                },
+            },
+        ]);
+        const { $, getBuffer } = await bootEditor(json, TYPED_ROW);
+
+        await editThen(rowControl($, 'title', 1), 'B2', () => {
+            $('#pp-accordion-view .pp-array-remove-btn').eq(0).trigger('click');
+        });
+
+        const items = JSON.parse(getBuffer())[0].props.items;
+        expect(items).toHaveLength(1);
+        expect(items[0].title).toBe('B2');
+        expect(items[0].bullets).toEqual(['b']);
+    });
+
+    it('refuses the composition into JSON mode when a container sub-key holds a scalar', async () => {
+        // The other half of #805, and the one that IS #745's idiom: a stored
+        // value that violates its declaration is drift, the write path refuses
+        // it too (#744), and no control can show the author what is wrong — so
+        // the composition routes to the editor that can fix it, naming the path.
+        const json = JSON.stringify([
+            { component: 'card', props: { items: [{ title: 'A', bullets: 'one,two' }] } },
+        ]);
+        const blocked = await bootBlocked(json, TYPED_ROW);
+
+        expect(blocked.accordionHidden).toBe(true);
+        expect(blocked.jsonShown).toBe(true);
+        expect(blocked.paths).toContain('[0].props.items[0].bullets');
+    });
+
+    it('keeps the accordion for a well-formed list, which is why the refusal is narrow', async () => {
+        // The premise the whole mechanism rests on: `bullets: ["one","two"]` is
+        // what the schema ASKS for. Reporting it as drift would have locked every
+        // correct page using two shipped features out of the accordion forever.
+        const { $ } = await bootEditor(TYPED_ROW_JSON, TYPED_ROW);
+
+        expect($('.pp-serialization-error').length).toBe(0);
+        expect($('#pp-accordion-view .pp-accordion-array-item').length).toBe(1);
     });
 });
