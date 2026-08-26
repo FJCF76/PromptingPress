@@ -4,6 +4,31 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.17.0] — 2026-08-26 — Chat & Repair Surface Truth: everything the theme knows reaches the operator and the model, bounded and actionable, and every corrupt page has a working repair route (#654, #715, #661, #662, #666, #663, #667, #655, #712, #755, #742, #745, #744, #805, #748, #818, #767, #823, #756, #750, #704)
+
+Rollup of the v1.16.1–v1.16.18 patch train (milestone 20, gate Part 1.9998). Twenty-one landings in eighteen iterations across three arcs. Every entry below retains its full engineering detail in the per-patch entries that follow; this rollup states the shape of the release and, plainly, what changes in behavior.
+
+**The theme in one paragraph.** v1.16.0 made stored states safe; this release makes the last unlit surfaces truthful and gives corruption a sanctioned way out. Before it, the chat could render an 11,000-character error wall, freeze a whole proposal on one broken step, claim "all changes reverted" without reading the rollback report, and tell the model a corrupt page was empty; the accordion editor silently laundered stored values on round-trip; a `decode_error` repair destroyed the only recoverable copy of the page; and a corrupt page had exactly zero working repair routes outside the dashboard editor. All of that is closed, pinned, and — for the repair arc — walked end to end.
+
+### The three arcs
+
+- **Chat rendering truth (v1.16.1–v1.16.7):** reporting payloads bounded at the ratified 100+tail with the card heading carrying the true total and the O(N²) locator path made O(N) (#654/#715); the 11,309-char no-hint message reduced 41× to a bounded, actionable sentence (#661); prose renders as prose and long tokens wrap at 375px (#662/#666); one throwing step can no longer freeze a proposal (#663); the error card cannot contradict itself — the renderer reads the classifiers' own predicates (#667); the undo card is band-aware with CLI-idiom locators and an honest truncation notice, and a rolled-back batch's locator is nulled rather than pointing into a discarded composition (#655/#712); "all changes have been reverted" is said only when the rollback report is explicitly clean (#755).
+- **Write/render residuals (v1.16.8–v1.16.11):** the faq JSON-LD can never contain "Array" and agrees with the visible accordion by pinned contract — retiring a v1.16.0 known issue (#742); the accordion editor no longer launders untouched stored values (refuse-at-load into the JSON view, everything named) (#745); a scalar where a declared array or object belongs is rejected at both depths, completing the declared-type write surface started by #707 (#744); and the editor's sub-field controls stopped flattening containers — valid pages keep the full accordion, only genuinely invalid values route to JSON (#805, lifting the transient #744 accordion lockout within this same release).
+- **The corrupt-page repair arc (v1.16.12–v1.16.18):** six more surfaces stop calling corrupt pages "has none yet" (#748); repairing a corrupted page can no longer destroy the only copy of what was there — undecodable priors are preserved on the history ring in a recoverable, checksummed form (#818), concurrency-honestly (#823); the maintainer-ruled narrow repair carve-out is live — `update_composition`/`restore_composition` on corrupt-classified pages proceed without the preflight the page cannot pass, fully validated, on the CLI (#767) and as a single-step chat proposal (#756); the model is told the truth about corrupt pages and pointed at the sanctioned route (#750); and a rejected step's error now re-enters the model's context, bounded, with the retry proposed to the operator — never sent automatically (#704).
+
+### ⚠️ Behavior changes, stated plainly
+
+1. **A scalar in a declared array/object field is rejected (v1.16.10, #744).** `grid.items[].bullets: "text"` used to validate and render nothing; it now returns `invalid_prop_value` naming the field. Stored values keep rendering.
+2. **The preflight requirement has one narrow, deliberate exception (v1.16.14, #767).** On a page whose stored composition is classified corrupt — and only there — `update_composition`/`restore_composition` proceed without a covering preflight, with the replacement still fully validated. This is an escape hatch for pages the gates cannot preflight, not a general bypass; a healthy page without preflight still refuses, pinned.
+3. **The chat appends hidden bracketed turns** (`[Rejected: …]` on refusals, alongside the existing `[Applied changes: …]`) to the model conversation; they never render in the transcript.
+4. **The editor refuses at load** (into the JSON view, with the path and values named) on compositions it cannot round-trip faithfully — instead of silently rewriting them on save (v1.16.9, #745).
+
+### Known residuals, pinned with owners
+
+The proposal card renders a corrupt page's repair as `from: []` — now on the operator's approval gate, the arc's one remaining lie (#836); the mid-batch conflict exit still says "Nothing was applied." without reading the rollback report (#797); a concurrency-truth cluster on the ring and refusal reads (#829 selector-outside-lock, #830 auto-reconnect lock release, #833 cache-vs-row classification); Save/Publish are silent no-ops when syntax highlighting is disabled (#837); and the editor-corruption pool (#809 default-flood and siblings). Each is a filed issue with a measured repro.
+
+---
+
 ## [v1.16.18] — 2026-08-26 — A refused proposal finally reaches the model that wrote it (#704)
 
 **The correction existed, was precise, named the offending key and listed the alternatives — and then went to the one participant who could not act on it. It now goes to both, and the retry is still the operator's to give.**
