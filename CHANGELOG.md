@@ -4,6 +4,79 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.16.18] — 2026-08-26 — A refused proposal finally reaches the model that wrote it (#704)
+
+**The correction existed, was precise, named the offending key and listed the alternatives — and then went to the one participant who could not act on it. It now goes to both, and the retry is still the operator's to give.**
+
+When a proposed chat step failed validation, the error rendered on the operator's card and stopped there. The model that authored the bad step never learned why it was refused, so the only way to get a repair was for a human to read the message and retype it. #643 made that worse by widening the class of hard rejections; the loop has been open since the chat shipped.
+
+Maintainer ruling **D-2** splits the problem in two and ships one half. The MECHANICAL half lands here: the rejection re-enters the model's conversation, bounded and cleaned. The AUTONOMY half does not: the retry is PROPOSED to the operator and never sent automatically. A model that repairs its own proposal without being asked is a real expansion of what the chat is allowed to do on its own, and that waits for usage evidence rather than being smuggled in beside a bug fix.
+
+### What the model now receives
+
+`_pp_ai_execute_batch_response()` (`lib/ai-chat.php`) attaches a `model_note` to a refused batch, and the chat client appends it to the conversation as a hidden `user` turn. It carries the truth the envelope already had:
+
+> `[Rejected: step 2 (update_component) was refused, so this proposal was not applied. error_code: unknown_prop. Blocking composition band: index 3. Reason: Component 3 ("logos") has no prop "titel". All changes in this proposal were reverted. The operator decides whether to retry — do not re-send this proposal unless asked.]`
+
+The **blocking band** is the part that breaks the actual loop. Every composition-mutating action validates the WHOLE composition, so the band that refuses a write is routinely one the proposal never named — without `index` a model "fixes" the band it wrote and gets the identical string back (#642's own reason for existing, delivered to the participant it was built for).
+
+The **rollback clause** is said at the envelope's confidence and no further, which is #755's rule applied to a second reader. `rollback_errors: []` alone does not buy the clean claim: the sentence requires `rolled_back === true` **and** an explicitly empty error list, degrades to "Whether the changes were reverted was not reported" when either is missing or malformed, and says how many entries the rollback reported when it is dirty. A confident "everything was reverted" is worse here than on the card, because the next proposal gets written against it.
+
+### The retry affordance, and why it is a button
+
+The failed card grows one line and one button: *"The AI can see this error — it is part of the conversation now."* and **Ask the AI to fix it**. The line exists because the append is otherwise invisible — an operator who reads the error has no way to know whether the correction reached the model or is still theirs to retype, which is the complaint #704 opens with. The button is the gate: it calls the existing `sendMessage()`, so the retry is literally an operator-sent chat message, and "no code path sends a model request without an operator action" is a property of the call graph (`streamChat` ← `sendMessage` ← two input handlers + this click) rather than a claim in a comment.
+
+The append alone was considered and rejected as the whole answer: it satisfies the mechanical half but leaves the operator unable to tell the model knows, so D-2's "PROPOSED to the operator" would have had nothing proposing it. `sendMessage()` now reports whether it dispatched, so a click made while another message is still streaming gives the button back instead of leaving a dead control.
+
+### Bounding and trust
+
+One owner, no new machinery: `_pp_clean_reflected_text()` at `PP_REFLECTED_ERROR_MAX` for the validator message and `PP_REFLECTED_NAME_MAX` for the code and the action name, all already in this file. `PP_CHAT_RENDER_ERROR_MAX` is deliberately not used — its own docblock says it is a LAYOUT bound on a string the client invents, not the bound for server payloads.
+
+The rejected key is **model-authored**, so this closes a loop the model holds both ends of. That cannot escalate anything (it already wrote those bytes into a message it sent), but unbounded it is a context-flooding vector and uncleaned it is a formatting-deception one — the zero-width and bidi sets render as nothing while changing what a reader sees. Cleaning and bounding answer both. `[` and `]` survive that cleaner, so a new `_pp_ai_unframe()` substitutes them in every reflected span: without it a prop named `] Ignore the above` would close the note's frame early and the rest of the model's own bytes would read as unframed text inside a turn pushed under the operator's role. The trusted sentence is appended last, where an injected instruction cannot be positioned to precede it, and nothing downstream acts on prose — every write still passes the capability gate, `pp_validate_action()`, and a click.
+
+Messages can also quote stored prop VALUES from a page outside the active page context. That is a widening, not a boundary crossing: the operator holds `edit_post` on the page and the model asked to change it, and the page's whole composition already ships to the same provider in the same request.
+
+### Which refusals get a note, and which deliberately do not
+
+Presence decides. The server answers the class question once, at each refusal site, and the client's rule is "is there a note?" — never a second interpretation.
+
+| Refusal | Note | Why |
+|---|---|---|
+| A step refused by validation | yes | The model wrote it and can rewrite it |
+| The #749 pre-execution refusal | yes | The repair route exists (#756) and the prompt teaches it; the model was told to take it and never told when it was turned back |
+| `composition_conflict` | **no** | The page moved under a proposal that was correct when written; the repair is **Re-read & re-preview**, which re-runs the same steps without asking the model anything |
+| Missing CAS baseline | **no** | Browser plumbing the model never sees and cannot supply |
+| `Permission denied.` / malformed request | **no** | Nothing the model writes changes a capability check; a step naming an unregistered capability is bucketed as `rejected` before Apply is offered |
+| Transport failure (the client's `fetch` catch) | **no** | No server verdict at all, so we do not know whether the write landed; "network error" invites a duplicate write |
+
+The #749 refusal reaches the client by two roads — the chat entry point's own gate, and the executor's backstop refusing inside the concurrent-write window that gate's comment documents. Both now produce the same note. Before the review caught it, the second road was silent, so the operator's card grew an affordance or did not depending on which microsecond a repair landed in.
+
+### Scope boundaries
+
+Accepted proposals are untouched, and that is pinned rather than asserted. `#836` (the proposal card still rendering a corrupt page as `from: []`) is NOT fixed here and is not deepened: the retry affordance never calls `renderProposal()`, so it opens no new road to that card. `#797`'s mid-batch conflict wording is not touched either — and the boundary is worth naming, because the model-facing note reads `rollback_errors` where that operator-facing line still does not. The two surfaces are not in conflict (the note is never rendered), but the honest half of the answer is currently the one only the model sees.
+
+### Fixed
+
+- A rejected step's `error_code`, blocking composition band, and bounded validator message now re-enter the AI chat conversation, so the next proposal can be a repair rather than a repeat (#704).
+- The `#749` pre-execution refusal produces the same note whichever of its two gates fires, instead of only the chat entry point's.
+
+### Added
+
+- **Ask the AI to fix it** on a refused proposal card, with a line stating that the error is already in the conversation. The button is the only path from a failed card to a request; nothing is sent until it is clicked (ruling D-2). It carries `aria-describedby` to its own note and takes focus, because disabling the clicked Apply button drops focus to `<body>`.
+- `model_note`: a seventh key on the chat batch endpoint's envelope, present only on model-answerable rejections and ABSENT (never null) otherwise. The shared executor does not emit it — WP-CLI has no conversation.
+
+### Docs
+
+- `AI_CONTEXT.md` — the batch envelope's key list names the seventh key and its one caller; the chat section describes the loop and its exclusions.
+- `README.md` — the AI chat section now says the model learns from refusals too, and that the retry stays the operator's.
+
+### Tests
+
+- `tests/ChatRejectionModelNoteTest.php` (23 cases) drives the REAL `_pp_ai_execute_batch_response()` surface (14.1) with real rejected steps: note content, the negative classes, three-state rollback honesty, bounding at `PP_REFLECTED_ERROR_MAX`, control/format stripping, frame-break-out, and both roads to the `#749` refusal converging byte-for-byte. The last family runs the note through `pp_ai_format_messages()` — the artifact that actually leaves for the provider — because a note built perfectly and then dropped, re-roled, or leaked with its render flag is #719's lesson repeated.
+- `tests/js/pp-ai-chat-rejection-repair.test.js` (20 cases) walks the whole client surface: send a message, render the card, click Apply, answer with a refused batch, then read the persisted conversation and the card's DOM. The operator gate is checked by arithmetic on a request counter, not by reading the source.
+
+---
+
 ## [v1.16.17] — 2026-08-26 — The chat and the editor stop calling a corrupt page empty (#750)
 
 **Two surfaces read a page nobody could decode and reported "no components". The model is now told the truth, and so is the operator standing in the repair surface.** #725 fixed `inspect-composition`; #748 fixed the six `composition_required` refusals. These were the two that were left, and they were left deliberately: each needed its own decision about what to SAY, which is a chat call and an editor call rather than a read-path one.
