@@ -4,6 +4,69 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.16.14] — 2026-08-26 — A corrupt page is repairable from the CLI again (#767)
+
+**The refusal that told you to run a command the next gate refused now names a route that runs.** On a page whose stored composition cannot be read, WP-CLI had no repair path at all: `wp pp apply preflight --post_id=N` failed closed on exactly that state and told you to repair the page first, while `wp pp action execute update_composition --post_id=N` refused for want of a completed preflight and told you to run preflight first. The two instructions pointed at each other, so the only pages the gates could not preflight were also the only pages the CLI could not repair. Repair worked from the dashboard editor and from the AJAX entry point, which left every SSH-first and chat-first operator stranded on a browser.
+
+Maintainer ruling D-1 approved a carve-out and this release implements the CLI half of it. Five shipped documents and three refusal messages were also prescribing a repair route that was two-thirds false; all of them now name only routes that execute.
+
+### The carve-out, and exactly how narrow it is
+
+Quoting the ruling, because the narrowness is the design:
+
+> "APPROVED: the narrow corrupt-page repair carve-out. Scope, verbatim-tight: (1) applies ONLY when the stored composition is ALREADY classified corrupt (the unexpected_shape/decode_error read-path classification); (2) ONLY for the two whole-composition verbs `update_composition` / `restore_composition`; (3) the incoming replacement STILL passes full validation before write. This is NOT a general preflight bypass — it is an escape hatch for the exact class of pages the current gates cannot preflight."
+
+**Stated as a security change, plainly: an authenticated operator who can already run `wp pp` on the server can now perform a fully-validated whole-composition write on a corrupt-classified page without first running `wp pp apply preflight`. That is the entire delta.** No other action, no other page state, no other command, and no other surface changes. A healthy page without a preflight is refused exactly as before; a blank page is refused exactly as before; `update_component` and every other band-level action on the same corrupt page is refused exactly as before.
+
+**Two gates lift, for that case only:**
+
+| Gate | Status |
+|---|---|
+| Preflight **coverage** (#96) | Lifted for the two verbs on a corrupt-classified page |
+| Preflight **freshness** (#113) | Lifted with it — and it is unsatisfiable, not merely waived: its baseline is recorded *by* the preflight this page cannot pass |
+
+**Everything else holds, on the carve-out path as everywhere else:** the run token and its 2-hour expiry, the `INSPECT`-first ordering, `pp_validate_action()` (which for `update_composition` is a full whole-composition validation of the array you send), the `composition_required` precondition, `restore_composition`'s report-never-block contract (#233) and its `history_entry_not_restorable` refusal on a preserved-bytes ring slot (#818), the per-post advisory write lock, and the write-time compare-and-swap (#13).
+
+**Condition (3) reads as "still", not "newly", and the two verbs do not validate alike.** `update_composition` faces full validation, unchanged. `restore_composition` faces the #233 contract, unchanged — it replays a snapshot verbatim and reports rule violations in `findings` rather than blocking, because undo is wired to it and a restore that current rules refuse would fail exactly when a user most needs it. Making restore validate its snapshot on this path would break that invariant, and the ruling names `restore_composition` in condition (2) knowing it. So the carve-out changes nothing about what any verb validates: nothing it admits can write a composition the same verb would not have written on a preflighted page. The only thing removed is the preflight requirement.
+
+**The gate cannot be opened by a stale value.** The classification is read from the database, not the WordPress object cache. WordPress warms a post's whole meta row in one query, so a concurrent repair can leave a request holding a cached copy that still says "corrupt" while the row is healthy — and reading that would admit a preflight-free write to a page that is fine. Three things make the two readers agree, and each of them is a way the gate could otherwise have been opened by something other than a corrupt page:
+
+- `maybe_unserialize()`, the step `get_post_meta()` takes on the cached path. `_pp_composition` normally holds JSON, but nothing enforces it — any caller handing an array to `update_post_meta()` (an importer, a post-duplicator plugin, `wp post meta update --format=json`) stores a PHP-serialized row, which is a healthy list to every other surface and undecodable bytes to a raw column read.
+- `ORDER BY meta_id ASC`, the row `get_post_meta(single)` returns, so a duplicated meta key cannot open the carve-out on the strength of a row nothing else reads.
+- A usable database handle. If the read cannot be authoritative, the carve-out refuses rather than falling back to the cached answer. Degrading is right for a reader and wrong for a gate.
+
+**And it cannot outlive the state that opened it.** The classification is a point-in-time answer, so the carve-out threads a live compare-and-swap baseline into the write, read *before* the classification — the statement order is the guarantee, and it is commented as such. Taken the other way round, a repair landing between the two reads would hand back the post-repair version, the in-lock check would match it, and the write would land on a now-healthy composition. As written, every interleaving fails closed: a repair landing before or between the reads makes the classification read healthy so the carve-out never opens, and one landing after it makes `pp_update_composition()`'s in-lock compare-and-swap reject with `composition_conflict`. Retrying is then the ordinary path, because the page is healthy and `apply preflight` works on it.
+
+**It also does not unlock anything else.** A carve-out admission records no preflight coverage, so the next band-level edit on that same page in the same run is still refused until a real preflight runs.
+
+### Fixed
+
+- **The circular repair route on the CLI (#767).** `wp pp action execute update_composition` and `wp pp action execute restore_composition` now run on a corrupt-classified page without a covering preflight. The route end to end is `wp pp operate inspect`, then the write — no preflight step. The unreadable bytes are preserved on the page's history ring by the repair write (#818) and readable afterwards with `wp pp operate composition-history --post_id=N`.
+
+### Changed
+
+- **Four refusal messages now name a route that runs, and they name it identically.** The repair route is single-owned by `pp_corrupt_repair_route_message()`, a sibling of the diagnosis sentence `pp_composition_integrity_message()` and single-owned for the same reason: #650/#652 established that one state described in two vocabularies is how an operator repairs the wrong thing, and ruling D-1 makes the route uniform too. Callers keep their own lead-in and append the shared tail. The four are the `composition_required` refusal (which reverses the deliberate silence #748 shipped — its only stated reason was the circularity this release removes), the `apply preflight` fail-closed message (which renders runnable commands, since it is the one caller holding a run token), `pp_inspect_composition()`'s tail (reconciling the divergence #748 recorded), and the #749 batch refusal.
+- **The route sentence is in the future tense, deliberately.** All four surfaces render *before* any repair has run, so the history ring does not hold the unreadable bytes yet. Three of the four already said "preserved by the repair write"; the fourth said "the bytes are preserved", which would have sent an operator to an empty `composition-history` listing.
+
+### Docs
+
+- **Five documents were prescribing a repair route two-thirds of which was false**, all with the same sentence: "`wp pp action execute`, `pp_patch_composition()`, or the dashboard composition editor". `pp_patch_composition()` / `wp pp operate patch` is refused on a corrupt page by the `composition_required` precondition (#748), and a field selector cannot reshape a container in any case; the `wp pp action execute` half was this issue's circularity. Only the dashboard editor was true. Corrected in `ai-instructions/playbook-inspect-fix.md`, `ai-instructions/operating-loop.md`, `AI_CONTEXT.md`, `docs/reference-apply-cli.md`, and `docs/operating-loop-safety.md`, each now naming the two CLI verbs and the editor, and each stating that `pp_patch_composition()` is not a repair route.
+- `docs/reference-apply-cli.md` gains a "Corrupt-page repair without a preflight" section with the three conditions, the gates that lift and hold, the security framing above, and a worked command sequence. `docs/operating-loop-safety.md`'s gate-inventory table gains a row for the carve-out and a row recording that `pp_patch_composition()` as a repair route does not exist.
+
+### Tests
+
+- `tests/CorruptPageRepairCarveOutTest.php` (new). Organized as ADMITS / REFUSES / HOLDS plus two named hazards, because for a carve-out the negative tests are the ones that matter. Pins the real command surface (`PP_Action_Command::execute`) as well as the gate functions: a corrupt page repairs with no preflight; a healthy page and a blank page still refuse; every non-allowlisted action still refuses on the same corrupt page; validation runs BEFORE the waiver, so an invalid replacement is refused and the corrupt bytes are untouched; an object-shaped replacement cannot be used to re-create the state the carve-out repairs; `restore_composition` still refuses a preserved-bytes slot and still replays a rule-breaking snapshot verbatim; a carve-out admission writes no run state and unlocks no later action; a stale corrupt cache over a healthy row does not open the gate, and a stale healthy cache over a corrupt row still does; a concurrent repair makes the carve-out write conflict rather than clobber.
+- `tests/CompositionShapeTrustTest.php`: the #748 no-route pin is deliberately reversed and its docblock records why, plus a new pin that the BLANK refusal did not inherit the route flip.
+- `tests/bootstrap.php`: the shared `wpdb` stub now models direct postmeta point-lookups instead of answering null for all of them. It previously made every `$wpdb`-installed test model an EMPTY postmeta table, so the in-lock composition version always read 0 — invisible until this release threaded a real compare-and-swap baseline, at which point a CAS assertion could pass for the wrong reason. Non-scalar values render with `maybe_serialize()` (what WordPress actually writes) rather than JSON, so the serialized-row divergence above is reproducible in a unit test instead of hidden by the harness. `prepare()` also substitutes `%d` and `%s` in order rather than `%s` only.
+
+### For the drift audit
+
+- The double authoritative read (one per gate) is deliberate and commented at the call site: each gate answers to the state at its own moment, and threading one cached classification through both would trade a safe refusal for a preflight-free write.
+- The carve-out keys on an explicit two-classification allowlist rather than `!$stored['ok']`, so a classification added later cannot silently become a preflight bypass.
+- The `expected_version` threading, the four-clause database-handle guard, the marker/classification statement order, and the row-vs-cache divergence are each pinned by a test that fails when the mechanism is removed. Three of those pins exist because review mutation analysis showed the mechanism could be deleted with the whole suite still green.
+- Condition (3) of the ruling is implemented as "still", not "newly" — see the paragraph above. This is the one place the implementation departs from a literal reading of the ruling's words, and it does so to keep the #233 invariant that `restore_composition` is never blocked by current validation rules. Recorded here rather than decided quietly.
+- Filed, not fixed: #825 (the pre-existing in-lock composition read selects an unordered row, so a duplicate `_pp_composition` meta row can disagree with every other surface) and #826 (`pp_composition_pages()`'s static cache is never invalidated, making the suite order-dependent and letting a request serve a stale page list).
+
 ## [v1.16.13] — 2026-08-26 — Repairing a corrupt page no longer destroys the only copy of what was there (#818)
 
 **The documented fix for a corrupt page was a full `update_composition` write. That write is what deleted the evidence. Composition writes now preserve stored bytes they cannot read, instead of dropping them on the floor, so a repair and a recovery are no longer the same irreversible act.**
