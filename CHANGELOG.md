@@ -4,6 +4,63 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.16.12] — 2026-08-26 — Six edit surfaces stop calling a corrupt page empty (#748)
+
+**Every component-level edit on a page whose stored composition cannot be read used to answer "post N has none yet. Populate it first with `update_composition`" — an instruction to overwrite the only copy of the recoverable bytes. Those six surfaces now name the corruption instead, in the same two words every other surface uses. "Empty" is once again reserved for a page that really is empty.**
+
+`pp_action_composition_precondition()` (`lib/operate.php`) is the single gate that refuses a component-level action on a page with no usable composition. It read through `pp_get_composition()`, the legacy accessor that degrades an unreadable stored `_pp_composition` to `[]`, so a page whose row is a JSON object or does not decode at all was indistinguishable from a brand-new blank page — and the refusal said so, by name, with the destroying next step attached. That is the same wrong conclusion #725 removed from the read path, reached through a different door: the gate fails CLOSED, so nothing was ever corrupted by the bug itself, but an agent told the page is blank authors over it at the next opportunity. The gate now reads through `pp_get_composition_result()`, the single decode-and-classify owner, and says which of the two states it found.
+
+### The surface inventory, re-derived
+
+Six, matching the count in #748's body — re-derived from the predicate's callers rather than copied from it, and now derived again inside the test suite so a new action cannot join the gate unnoticed:
+
+| Surface | Reached through |
+|---|---|
+| `add_component`, `remove_component`, `reorder_components`, `update_component`, `style_component` | `pp_validate_action()` (`lib/actions.php`) — inherited by every executor caller: the in-admin AI chat, WP-CLI `action execute`, the batch executor |
+| `wp pp operate patch` | `pp_patch_composition()` step 2a (`lib/operate.php`), on both the mutating and `--preview` paths |
+
+The five are exactly the page/section-scoped actions that do not set `requires_composition => false`. `pp_register_action()` defaults that flag to TRUE, so the inventory can grow silently; `CompositionShapeTrustTest` now filters the live registry and asserts the set equals those five, and fails the day a sixth action inherits the gate.
+
+### The noun contract
+
+One state, one vocabulary (#650/#652). Which word appears where is now a rule rather than an accident:
+
+| Stored `_pp_composition` | Gate | What the refusal says |
+|---|---|---|
+| non-empty valid list | OPEN | — |
+| absent, empty string, or `[]` | CLOSED | "post N **has none yet**. Populate it first with `update_composition` (or restore it), then retry." Unchanged, byte for byte. |
+| JSON object, non-string scalar, or undecodable | CLOSED | The shared integrity sentence — `composition data integrity error (unexpected_shape\|decode_error) … treat as **corrupted, not empty**` — built by `pp_composition_integrity_message()`, the same builder `wp pp check page`, `operate inspect-composition` (#725) and the batch refusal (#749) use. |
+
+"Empty" now means empty. No new spelling of either state was coined; the corrupt branch appends only a local tail naming the refused action.
+
+**The `error_code` stays `composition_required` on both closed branches.** #748's ruling is message-level, `error_code` is documented machine-facing surface for these six actions (`AI_CONTEXT.md`), and a caller keying on it should not have to relearn the gate to read a better sentence. This is a deliberate divergence from #749's batch refusal, which returns the classification AS its code — that surface had no prior code to preserve.
+
+**The corrupt refusal prescribes no repair route, deliberately.** #767 measured that "repair it with a full `update_composition`" is circular on the CLI: `apply preflight` fails closed on a corrupt page while `action execute update_composition` refuses for want of preflight coverage. Until that is ruled, this gate names the classification and points at `wp pp check page`, which runs from anywhere. The breadcrumb also promises only what it delivers — on this state `check page` prints the same sentence and returns, so the tail says the command "reports the same classification against the stored page" rather than claiming a fuller report that does not exist.
+
+### Fixed
+
+- **`pp_action_composition_precondition()`** (`lib/operate.php`) reads `pp_get_composition_result()` and branches on the classification. **Which inputs open the gate is unchanged, by construction rather than by care**: `pp_get_composition()` IS `pp_get_composition_result($post_id)['composition']` (`lib/wp.php`), and every `!ok` classification carries `composition => []`, so the old and new predicates agree on every input. This release changes what the refusal SAYS, never when it fires — the fail-closed contract of #358/#387 is untouched.
+
+### Docs
+
+- **`AI_CONTEXT.md`** records the two-state refusal against the #358/#387 precondition: the code either way, the two sentences, and the instruction not to populate over the second one. It also states plainly what "recoverable" is worth per classification (an `unexpected_shape` row decodes and can often be reshaped by hand; a `decode_error` row may not decode at all), so the advice is not stronger than the truth.
+- **`docs/operating-loop-safety.md`**'s gate-classification table notes the distinction on the `composition_required` row, and that the gate itself is unchanged.
+- `lib/actions.php`'s shared-validator comment and `pp_inspect_composition()`'s "a fourth spelling" ordinal (now "a new spelling", the count-free idiom its sibling already used) are reconciled with the new call site.
+
+### Tests
+
+- **`tests/CompositionShapeTrustTest.php`** — the pins #751 left for this fix are flipped deliberately, not loosened. `testComponentLevelActionsStillCallACorruptPageEmptyPending748` (which asserted `has none yet` on a corrupt page with an in-test note that #748 would flip it) is replaced by a matrix that drives all six surfaces — seven entries, since `operate patch` contributes both its preview and mutating paths — against both corruption classes and all three blank states (absent meta, empty-string meta, stored `[]`). Each corrupt case asserts the shared integrity sentence, the absence of `has none yet` and `Populate it first`, the page-specific `wp pp check page` breadcrumb, and that the raw `_pp_composition` bytes are unchanged after the refusal.
+- The blank refusal's wording is pinned as a byte-for-byte literal, so a refactor that tidies the two messages into one builder cannot reword the case that was never broken.
+- An equivalence test drives all four stored states and asserts BOTH the expected open/closed answer AND agreement with the pre-#748 predicate expression, each row asserting its own premise first — an equivalence alone would pass vacuously if a seed silently failed to land, since both sides read the same classifier.
+- Section 14.1 (authoring path): all three classes are driven through `pp_execute_action()`, the entry point the chat AJAX and batch executor both use, asserting the envelope's `error`/`error_code` and that nothing was written. The blank case asserts the RAW meta rather than reading through `pp_get_composition()` — the accessor this issue exists to stop trusting would answer `[]` for a corrupt row too.
+- Full suite: 4115 PHP tests / 21351 assertions green (10 warnings, 2 deprecations, 0 skips — unchanged from an unmodified tree), 1512 JS tests across 25 files green.
+
+### Deliberately not in this release
+
+- **#750** (the AI chat context builder and the composition editor's add-component handler still read a corrupt page as blank) is gated on its own ruling about what the chat should say, and keeps its own issue.
+- **#767** (the circular CLI repair route) is untouched: no preflight gating changed here, and no message in this release prescribes a route that issue has not settled. The consequence is recorded rather than hidden — `pp_inspect_composition()` still ends its report on the same state by naming `update_composition`, so the two surfaces currently differ on what to DO while agreeing on what the state IS. Reconciling the advice belongs to #767.
+- **#792** (`index: null` conflation) is out of scope.
+
 ## [v1.16.11] — 2026-08-26 — A row sub-field keeps the type its schema declares (#805)
 
 **One edit to a card's title used to flatten that card's `bullets` into `"one,two"`, stringify its `image_id`, and destroy its `style` into `"[object Object]"` — and since v1.16.10 the write path refused the first two, so a page using them could not be saved or previewed through the accordion at all. The controls now match the declared types, the accordion route is open again, and nothing is rewritten behind the author's back.**
