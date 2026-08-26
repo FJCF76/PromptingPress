@@ -4,7 +4,7 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
-## [v1.17.1] — 2026-08-26 — The undo that crashed: an object-shaped history slot is preserved, not replayed (#841)
+## [v1.17.1] — 2026-08-27 — The undo that crashed: an object-shaped history slot is preserved, not replayed (#841)
 
 **A page whose stored composition was a JSON object got filed on the history ring as a restorable snapshot. Selecting it crashed the command instead of restoring anything — on the exact route the release notes tell you to take.**
 
@@ -70,7 +70,8 @@ The classification key, the read-side answer for existing rings, the pins and th
 - Rings written before this release are reclassified on read, so an already-stored mis-filed slot refuses with `history_entry_not_restorable` instead of raising an uncaught TypeError — on the CLI and through `pp_ai_execute_batch()` alike.
 - The reclassification encodes with `json_encode()`, not `wp_json_encode()`: WP's wrapper coerces a payload it cannot represent and reports success, which for a recovery payload is the silent-substitution failure #818 chose base64 to avoid.
 - A ring row carrying both a non-list `composition` and an unreadable `raw_b64` no longer loses both halves — the bytes are decoded before the branch, so a failed decode falls through to the object rather than consuming the row.
-- A row whose payload cannot be re-encoded keeps its slot (zero-byte preserved-bytes entry) and logs, instead of being dropped and then deleted from storage by the next write.
+- A row whose payload cannot be re-encoded keeps its slot (zero-byte preserved-bytes entry) and logs, instead of being dropped and then deleted from storage by the next write. It lists with `raw_bytes: 0` and refuses like any other preserved-bytes slot; the log line names the page so the row can still be read out of `_pp_composition_history` by hand.
+- The `history_entry_not_restorable` message now says the byte count is "as this ring holds them" and points at the listing for which byte views are exact, so a pre-1.17.1 slot's re-encoded length is not read as a measurement of the page's own bytes.
 
 ### Docs
 
