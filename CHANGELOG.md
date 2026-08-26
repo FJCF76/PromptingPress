@@ -6,7 +6,7 @@ All notable changes to PromptingPress are documented here.
 
 ## [v1.16.12] — 2026-08-26 — Six edit surfaces stop calling a corrupt page empty (#748)
 
-**Every component-level edit on a page whose stored composition cannot be read used to answer "post N has none yet. Populate it first with `update_composition`" — an instruction to overwrite the only copy of the recoverable bytes. Those six surfaces now name the corruption instead, in the same two words every other surface uses. "Empty" is once again reserved for a page that really is empty.**
+**Every component-level edit on a page whose stored composition cannot be read used to answer "post N has none yet. Populate it first with `update_composition`" — an instruction to overwrite the only copy of the recoverable bytes. Those six surfaces now name the corruption instead, in the same two words the diagnostics already use for it. "Empty" is once again reserved for a page that really is empty.**
 
 `pp_action_composition_precondition()` (`lib/operate.php`) is the single gate that refuses a component-level action on a page with no usable composition. It read through `pp_get_composition()`, the legacy accessor that degrades an unreadable stored `_pp_composition` to `[]`, so a page whose row is a JSON object or does not decode at all was indistinguishable from a brand-new blank page — and the refusal said so, by name, with the destroying next step attached. That is the same wrong conclusion #725 removed from the read path, reached through a different door: the gate fails CLOSED, so nothing was ever corrupted by the bug itself, but an agent told the page is blank authors over it at the next opportunity. The gate now reads through `pp_get_composition_result()`, the single decode-and-classify owner, and says which of the two states it found.
 
@@ -44,7 +44,7 @@ One state, one vocabulary (#650/#652). Which word appears where is now a rule ra
 ### Docs
 
 - **`AI_CONTEXT.md`** records the two-state refusal against the #358/#387 precondition: the code either way, the two sentences, and the instruction not to populate over the second one. It also states plainly what "recoverable" is worth per classification (an `unexpected_shape` row decodes and can often be reshaped by hand; a `decode_error` row may not decode at all), so the advice is not stronger than the truth.
-- **`docs/operating-loop-safety.md`**'s gate-classification table notes the distinction on the `composition_required` row, and that the gate itself is unchanged.
+- **`docs/operating-loop-safety.md`**'s two-classes-of-gate table notes the distinction on the `composition_required` row, and that the gate itself is unchanged.
 - `lib/actions.php`'s shared-validator comment and `pp_inspect_composition()`'s "a fourth spelling" ordinal (now "a new spelling", the count-free idiom its sibling already used) are reconciled with the new call site.
 
 ### Tests
