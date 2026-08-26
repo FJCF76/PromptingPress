@@ -44,7 +44,7 @@ stored bullets      what the accordion does                  why
 
 ### The #744 accordion lockout is lifted
 
-**This retires the "⚠️ The accordion editor cannot save or preview a page that uses `grid.items[].bullets` or a per-item `style` until #805 lands" line from the v1.16.10 notes.** That warning is now spent: the sync hands the write path a real array and a real map, so the container rule accepts them, and both the AJAX save and the AJAX preview go through. Pinned in PHP, not only in JS — `ContainerPropWriteEnforcementTest::testUpdateCompositionTakesTheRowShapeTheAccordionNowEmits()` runs the pre-#805 flattened row and the post-#805 preserved row through the real `update_composition` as a pair, because only the shipped validator can answer whether the write path takes it.
+**Superseded by this entry:** the v1.16.10 (#744) entry below carries a ⚠️ line stating that the accordion editor cannot save or preview a page using `grid.items[].bullets` or a per-item `style` "until #805 lands". That line is left exactly as written, per the convention #606 followed for #575 and #576 and #745 followed for #509 — it describes what shipped at the time and is not rewritten. This entry is the correction: #805 has landed, and the warning is spent. That warning is now spent: the sync hands the write path a real array and a real map, so the container rule accepts them, and both the AJAX save and the AJAX preview go through. Pinned in PHP, not only in JS — `ContainerPropWriteEnforcementTest::testUpdateCompositionTakesTheRowShapeTheAccordionNowEmits()` runs the pre-#805 flattened row and the post-#805 preserved row through the real `update_composition` as a pair, because only the shipped validator can answer whether the write path takes it.
 
 ### Operator-facing
 
