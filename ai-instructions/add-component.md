@@ -373,8 +373,9 @@ promises the already-stored document will render, and named `restore_composition
 as that mechanism. `restore_composition`'s actual contract is narrower: it restores the
 snapshot verbatim and **reports findings** rather than blocking on it. (Since #818 one
 precondition can refuse it outright: a ring slot holding preserved bytes rather than a
-composition. That is a statement about the slot, not about the snapshot's contents — every
-slot that carries a composition still replays verbatim.) It does not promise that
+composition — and since #841 "a composition" means a LIST, so a slot holding a JSON object
+is a preserved-bytes slot too. That is a statement about the slot, not about the snapshot's
+contents — every slot that carries a composition still replays verbatim.) It does not promise that
 what it restores still paints. Keeping a name alive because an old document might replay
 it is exactly the legacy tolerance the governing ruling names as a NON-GOAL, so the slot
 map was removed outright (#603), the prop map followed it (#604), the last legacy value
