@@ -842,6 +842,109 @@ class ChatBatchCorruptRepairCarveOutTest extends TestCase
     }
 
     /**
+     * THE ENVELOPE #797 RENDERS IS ONE THIS SURFACE ACTUALLY PRODUCES.
+     *
+     * The chat's conflict card used to answer a mid-batch conflict with the flat sentence
+     * "Nothing was applied." while never reading `rollback_errors`. Fixing the card is a
+     * client change, and a client test can only prove the card renders whatever it is
+     * handed — so the reachability half is proved HERE, on the surface the card reads,
+     * because a payload nobody can produce is a fix nobody needs.
+     *
+     * BOTH HALVES OUT OF ONE FIXTURE, and neither is arranged for convenience:
+     *
+     *   the conflict   the repair carries a baseline one version behind the page, so
+     *                  pp_update_composition()'s CAS refuses it and the step comes back
+     *                  `composition_conflict` at an integer `failed_at`. That is the exact
+     *                  shape ppChatBatchHitConflict() claims (assets/js/pp-ai-chat.js).
+     *   the entry      the page is still corrupt at snapshot time, so it is named in
+     *                  `snapshot['unreadable']` and the rollback WITHHOLDS its composition
+     *                  rather than writing a stand-in over the only recoverable copy
+     *                  (#749/#756). The withhold is reported through `rollback_errors`.
+     *
+     * No competing write lands here, and that is the difference from the test above. There,
+     * a repair heals the page before the executor runs, so `snapshot['unreadable']` is empty
+     * and the rollback is clean; here the page stays unreadable, which is the only way the
+     * conflict and the withheld restore meet in one envelope. The executor does not
+     * special-case a conflicting step — it reaches the same failure return and runs the same
+     * `_pp_restore_batch_snapshot()` — which is why the pairing exists at all.
+     *
+     * WHICH OF THE THREE PRODUCERS THIS STAGES, because they are not interchangeable and the
+     * channel does not distinguish them. This is the #756 one — already unreadable when the
+     * batch snapshotted it — chosen because it is the pairing reachable from a single-step
+     * batch. Read the ENVELOPE SHAPE as the general result and the entry text as this
+     * producer's: the case #797's own report is written around is the #749 one (a page
+     * readable at capture, unreadable mid-batch, while a DIFFERENT page conflicts at the
+     * failing step), which produces the same `failed_at` + `composition_conflict` +
+     * non-empty `rollback_errors` shape with a different sentence inside it. Worth knowing
+     * that for THIS producer the withhold costs nothing that was ever owed (see
+     * `_pp_restore_batch_snapshot()`), so a card keyed on the channel alone calls it a
+     * rollback failure — the channel carrying two meanings on one opaque string is #855,
+     * not decided here.
+     *
+     * So: `rolled_back: true`, and NOT clean. A consumer that reads the flag and skips the
+     * report tells the operator every change was reverted while this page sits there holding
+     * mid-batch state.
+     */
+    public function testAConflictingRepairComesBackWithAWithheldRollbackToReport(): void
+    {
+        $post_id = $this->corruptPage('Conflicted repair', 'NOT_VALID_JSON{{{');
+        $steps   = [$this->repairStep($post_id)];
+        $stale   = $this->version($post_id) - 1;
+
+        // PREMISE: a baseline the CAS will actually refuse. A version below zero would be
+        // normalized away to "no baseline at all" (_pp_normalize_version_baseline), turning
+        // this into an unconditional write that succeeds — the test would then pass while
+        // proving nothing.
+        $this->assertGreaterThanOrEqual(1, $stale, 'premise: the stale baseline is a real one');
+        // PREMISE: and the batch is inside the carve-out, so it RUNS rather than being
+        // refused before step 1 — a refusal has failed_at === null and could never be the
+        // shape under test.
+        $this->assertSame($post_id, _pp_batch_corrupt_repair_admitted($steps), 'premise: admitted while corrupt');
+
+        $resp = $this->throughChat($steps, [$post_id => $stale]);
+
+        $this->assertTrue($resp['ok'], 'the batch was admitted and ran; the failure is the step\'s');
+        $batch = $resp['data'];
+
+        // The conflict half, read the way the client reads it: off the FAILING STEP, never
+        // off a batch-level code, which a step failure does not carry.
+        $this->assertFalse($batch['ok']);
+        $this->assertSame(0, $batch['failed_at']);
+        $this->assertSame('composition_conflict', $batch['steps'][0]['error_code']);
+
+        // The half the card used to discard.
+        $this->assertTrue($batch['rolled_back']);
+        $this->assertCount(1, $batch['rollback_errors'], '#797: rolled_back is not clean until you read this');
+        $this->assertStringContainsString(
+            'could not be read when this batch snapshotted them',
+            $batch['rollback_errors'][0]
+        );
+        $this->assertStringContainsString(
+            (string) $post_id,
+            $batch['rollback_errors'][0],
+            'the entry names the page, which is what the card can now show'
+        );
+
+        // STILL KEYED AS A LIST, which is what decides the shape on the wire: a
+        // key-preserving edit upstream (an array_filter, an unset) would leave a gap here
+        // and make wp_json_encode emit a JSON OBJECT instead of an array. The client refuses
+        // to call a non-list channel clean, so the day that happens the card goes quiet
+        // rather than lying — but the honest shape is the one that lets it report at all.
+        // Asserted on the PHP array, since this surface returns it directly with no encode.
+        $this->assertSame(
+            [0],
+            array_keys($batch['rollback_errors']),
+            'the channel must stay a list, or wp_json_encode emits an object downstream'
+        );
+
+        $this->assertSame(
+            'NOT_VALID_JSON{{{',
+            get_post_meta($post_id, '_pp_composition', true),
+            'and the only recoverable copy of those bytes is still there'
+        );
+    }
+
+    /**
      * THE RACE THE ROLLBACK PAIRING EXISTS FOR, driven end to end rather than at the
      * restorer. A competing repair lands between the SNAPSHOT and the write: the capture is
      * the corrupt page's `[]`, this batch's write then loses the compare-and-swap, and the

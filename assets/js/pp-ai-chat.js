@@ -175,11 +175,174 @@ function ppChatBatchHitConflict(batch) {
 }
 
 /**
+ * The half of the conflict message that is true on every path that reaches it (#797).
+ *
+ * Byte-identical to the opening of the sentence this file has always shown. Split out
+ * because the CAUSE is one fact and what the batch LEFT BEHIND is another, and only the
+ * second one depends on evidence.
+ */
+var PP_CHAT_CONFLICT_CAUSE = 'This page changed while the proposal was pending (another tab, agent, or editor).';
+
+/**
+ * The two claims the conflict card may close with, one owner each (#797).
+ *
+ * Named rather than returned inline because ppChatConflictOutcome() reaches the clean claim
+ * down two different arms — nothing ran, and everything ran and came back — and two literal
+ * copies of the strongest sentence in this file is how one of them gets reworded alone.
+ * The clean claim's text is byte-identical to the one this card has always shown.
+ *
+ * The other is the sentence form of ppChatRollbackSentence()'s clause (#755), deliberately
+ * the same words: the transcript line and this card describe one fact, and a second dialect
+ * for it is how a reader learns to distrust both. It stands alone as a sentence because the
+ * entries it refers to render in a separate element below, not after a colon.
+ */
+var PP_CHAT_CONFLICT_NOTHING_APPLIED = ' Nothing was applied.';
+var PP_CHAT_CONFLICT_NOT_ALL_REVERTED = ' Some changes could not be reverted.';
+
+/**
+ * What a conflicting batch left behind, as the clause the conflict card ends with (#797).
+ *
+ * "Nothing was applied." IS THE STRONGEST CLAIM THIS FILE MAKES, and it used to be
+ * unconditional. Two different failures route here (executeProposal), and only one of them
+ * had earned it:
+ *
+ *   !resp.success, error_code composition_conflict | missing_expected_version
+ *       The CAS gate refused the batch before step 1. Nothing ran. The claim is true, and
+ *       the payload is an error envelope with no `steps` (_pp_ai_execute_error_payload and
+ *       the baseline mandate, lib/ai-chat.php).
+ *
+ *   ppChatBatchHitConflict(batch)
+ *       A step FAILED on a conflict, so earlier steps in that batch executed and were then
+ *       rolled back. The executor does not special-case a conflicting step — it reaches the
+ *       same failure return, runs the same _pp_restore_batch_snapshot(), and ships the same
+ *       `rollback_errors` (pp_ai_execute_batch, lib/actions.php). When that channel carries
+ *       entries, a page is still holding mid-batch state and "Nothing was applied." is the
+ *       #755 lie in stronger words.
+ *
+ * SAME RULE AS #755, APPLIED TO THIS EXIT. The clean claim needs the report to be
+ * explicitly clean — present, a list, and empty — plus a rollback that actually happened.
+ * An absent or non-list channel is an UNKNOWN and says nothing rather than saying "clean":
+ * `$errors` in _pp_restore_batch_snapshot() is a JSON list only because it is built with
+ * `$errors[] =` and `array_merge`, and any key-preserving edit upstream makes
+ * wp_json_encode emit an OBJECT. Failing open there is how the fixed bug walks back in.
+ *
+ * HOW STRONG THE CLEAN CLAIM ACTUALLY IS, stated so the gating above is not read as more
+ * than it is. `rollback_errors` reports what the ROLLBACK could not restore, which is
+ * bounded by what the SNAPSHOT covered: `_pp_snapshot_batch_targets()` captures options only
+ * for `update_site_option` (lib/actions.php), and `import_media`'s attachment is excluded on
+ * purpose. A step that writes site state outside that capture — a redirect, an imported
+ * attachment — is neither rolled back nor reported, so an empty channel is silent about it
+ * and "Nothing was applied." is exactly as strong as the snapshot's coverage and no
+ * stronger. That gap is the server's, it predates this exit and is shared with the #755 one,
+ * and it is filed (#854, and #857 for a restore that fails without saying so) rather than
+ * papered over here. What this function guarantees is narrower and worth having on its own:
+ * the claim is never made OVER a report that contradicts it.
+ *
+ * WHY `rolled_back` IS ALSO REQUIRED, and it is an extra condition rather than a softening:
+ * `rollback_errors: []` says the rollback reported no errors; it does not say a rollback
+ * HAPPENED. Steps that ran and were never reverted are the one shape where "Nothing was
+ * applied." would be false with a clean report. Today's executor sets rolled_back: true on
+ * every failure return that carries steps, so the pair always agrees and this costs
+ * nothing. This mirrors _pp_ai_rollback_clause() (lib/ai-chat.php), which answers the same
+ * question for the model, so the two participants cannot be told different stories.
+ *
+ * A REPORTED ENTRY OUTRANKS EVERY OTHER ARM, which is #755's ordering applied here rather
+ * than a new one. The obvious spelling asks "did anything run?" first and only consults the
+ * channel inside the executed arm — and that re-opens the bug for the payload that matters
+ * most, because "did anything run?" is answered by a field that can be malformed while the
+ * channel is intact. A payload carrying entries is evidence that something ran and did not
+ * come back, whatever the rest of it says, so it can never reach the clean claim.
+ *
+ * THE NOTHING-RAN ARM ASKS THE SERVER'S OWN QUESTION, and asks it in three parts because
+ * `steps` is exactly as forgeable as the channel beside it. `empty($batch['steps'])` is how
+ * lib/ai-chat.php discriminates a refusal from an executed failure, twice, so the shape is
+ * borrowed rather than coined — but PRESENT-AND-UNRECOGNIZABLE is a third state that PHP's
+ * `empty()` folds into the refusal and a client must not:
+ *
+ *   no `steps` key at all   ->  a pre-execution refusal. Every envelope
+ *                               pp_ai_execute_batch() returns sets `steps`; the two error
+ *                               payloads routed here (composition_conflict,
+ *                               missing_expected_version — lib/ai-chat.php) carry none.
+ *                               Nothing ran, and the claim is true.
+ *   present, not a list     ->  UNKNOWN, and no claim. `$results` is a JSON list only
+ *                               because it is built with `$results[] =` (lib/actions.php);
+ *                               one key-preserving edit upstream makes wp_json_encode emit
+ *                               an OBJECT, and reading that as "no steps" would hand the
+ *                               STRONGEST sentence to a batch that ran. Same hazard the
+ *                               channel beside it already fails closed on, same answer.
+ *                               DEFENSE IN DEPTH RATHER THAN A LIVE PATH, said plainly
+ *                               because this function's whole subject is claims outrunning
+ *                               their evidence: executeProposal() runs `batch.steps.forEach`
+ *                               before it ever asks whether the batch conflicted, so today a
+ *                               non-list `steps` throws THERE and the operator gets a
+ *                               stack-shaped string instead of this card (#853). This arm is
+ *                               what that guard will need on the day it lands, and until
+ *                               then it is reachable only by calling this function directly.
+ *   present, empty list     ->  the #749 refusal's own spelling of "no step ran".
+ *
+ * FAIL-CLOSED ON A MISSING ARGUMENT, which is the whole reason the payload is threaded in
+ * rather than defaulted. A caller that forgets it passes `undefined`, which is not an
+ * object, so it gets the cause and no claim — the operator loses a true sentence instead of
+ * being handed a false one. Both call sites are pinned; the guard is what makes a third one
+ * safe.
+ *
+ * @param  {object|null} payload  The batch envelope, or the pre-execution error payload.
+ * @param  {object}      report   ppChatRollbackErrorReport()'s answer for that payload.
+ * @return {string}               '' or a leading-space clause completing the message.
+ */
+function ppChatConflictOutcome(payload, report) {
+    if (!payload || typeof payload !== 'object') return '';
+
+    // Evidence first. `reported` is only ever above zero when the channel was a readable
+    // list, so this arm already implies everything the readability test below asks.
+    if (report && report.reported > 0) {
+        return PP_CHAT_CONFLICT_NOT_ALL_REVERTED;
+    }
+
+    // OWN PROPERTY, not `in`: wp-admin loads third-party JS in this realm, and a polluted
+    // `Object.prototype.steps` would make every pre-execution refusal answer this test yes
+    // and lose its true claim. The direction is safe, but silently disabling an arm is not
+    // how it should be found. Same idiom the rest of this file uses.
+    if (!Object.prototype.hasOwnProperty.call(payload, 'steps')) return PP_CHAT_CONFLICT_NOTHING_APPLIED;
+    if (!Array.isArray(payload.steps)) return '';
+    if (payload.steps.length === 0) return PP_CHAT_CONFLICT_NOTHING_APPLIED;
+
+    if (!report || !report.readable) return '';
+
+    // `rolledBack` is the report's already-coerced answer (#755), not a second read of the
+    // envelope: asking `batch.rolled_back` again here would be the two-answers-one-question
+    // shape the one-report rule exists to prevent.
+    return report.rolledBack ? PP_CHAT_CONFLICT_NOTHING_APPLIED : '';
+}
+
+/**
  * The single user-facing conflict message. One message, one affordance
  * (Re-read & re-preview) — never a blind retry that re-sends the stale write.
+ *
+ * The affordance is unchanged by #797 on purpose: naming what stayed dirty is additive
+ * truth, not a redesign of what the operator may do next. Whether Re-read & re-preview is
+ * the right offer when a page could not be rolled back is a repair-route question, and it
+ * travels with #756 / #767. Note what that leaves open, since this card is now the only
+ * place the report exists: spending the affordance removes the card and the report with it
+ * (#856).
+ *
+ * THE TWO ARGUMENTS ARE ONE FACT, NOT TWO, and passing a mismatched pair is the one misuse
+ * that fails quietly: `report` must be ppChatRollbackErrorReport(payload) for the SAME
+ * payload. That is the one-report rule showConflictState() enforces by computing it there
+ * and handing it to both surfaces. Omitting it (`ppChatConflictMessage(batch)`) is not an
+ * error either — it withholds the closing claim, so the card ends after the cause with
+ * nothing anywhere saying why. Fail-closed by design, silent by consequence; the call site
+ * is pinned so the silence is not how anyone finds out.
+ *
+ * @param  {object|null} payload  The batch envelope, or the pre-execution error payload.
+ *                                Never optional: `null` is the VALUE meaning "no evidence",
+ *                                and an omitted argument reads the same way on purpose.
+ * @param  {object|null} report   ppChatRollbackErrorReport()'s answer for THAT payload.
+ * @return {string}               The whole message: cause, plus a closing claim when the
+ *                                evidence supports one.
  */
-function ppChatConflictMessage() {
-    return 'This page changed while the proposal was pending (another tab, agent, or editor). Nothing was applied.';
+function ppChatConflictMessage(payload, report) {
+    return PP_CHAT_CONFLICT_CAUSE + ppChatConflictOutcome(payload, report);
 }
 
 /**
@@ -314,12 +477,12 @@ function ppChatRollbackErrorReport(batch) {
  * this clause belongs to, and a line ending in ':' with nothing after it inside its own
  * container reads as truncated. Both halves therefore stand alone.
  *
- * SCOPE, so the next reader does not over-read this. Making the channel honest here does
- * NOT make it honest on every failure exit. `ppChatBatchHitConflict()` returns earlier,
- * into `showConflictState()`, which rebuilds the card and says "Nothing was applied." — a
- * stronger claim than this one, made on a path that can carry entries, since the executor
- * rolls back on a conflicting step exactly as it does on any other. That is #797, filed
- * and deliberately not fixed here.
+ * SCOPE, so the next reader does not over-read this. This clause belongs to the
+ * executed-failure exit only. The other two answer the same question in their own words and
+ * are now held to the same rule (#797): `showConflictState()` ends its message with
+ * ppChatConflictOutcome(), which withholds "Nothing was applied." unless the report is
+ * explicitly clean; the #749 up-front refusal asserts no revert at all, because no step ran.
+ * No exit reaches an affirmative all-clear without the channel saying so.
  */
 function ppChatRollbackSentence(report) {
     if (!report || !report.readable) return '';
@@ -1367,9 +1530,16 @@ function ppChatAppendUndoFindings(card, findings) {
 /**
  * Names the pages and menus a failed batch's rollback did NOT restore (#755).
  *
- * The companion to ppChatBatchRollbackSentence(): that clause tells the transcript the
+ * The companion to ppChatRollbackSentence(): that clause tells the transcript the
  * revert was not clean, and this puts WHICH things stayed dirty, and why, in the proposal
  * card the operator is already looking at. Report-only — nothing here blocks or retries.
+ *
+ * TWO CALLERS SINCE #797, and the sentence beside it differs while these rows do not. The
+ * executed-failure exit pairs it with ppChatRollbackSentence(); showConflictState()
+ * rebuilds its card and pairs it with the conflict message's own closing clause. Both hand
+ * over a report computed once from the same channel, so the two cards disagree about
+ * wording only, never about what the rollback reported. Placement is why the conflict card
+ * appends its action row first: the insert below targets `.pp-ai-proposal-actions`.
  *
  * WHY THE CARD AND NOT THE TRANSCRIPT LINE. `.pp-ai-status` is `text-align: center` with
  * no width clamp (assets/css/pp-ai-chat.css), which is right for a one-line notice and
@@ -1392,7 +1562,9 @@ function ppChatAppendUndoFindings(card, findings) {
  *          │                     │
  *          │                     └─▶ N ──▶ heading (reported count, + "showing the first")
  *          │                                 └─▶ 5 rows inline ──▶ <details> for the rest
- *          └──▶ (same report) ──▶ ppChatRollbackSentence() ──▶ transcript line
+ *          │
+ *          ├──▶ (same report) ──▶ ppChatRollbackSentence()   ──▶ transcript line   [exit 3]
+ *          └──▶ (same report) ──▶ ppChatConflictOutcome()    ──▶ card message      [exit 1]
  *
  * THE ROWS GO THROUGH ppChatAppendValidationItems ON PURPOSE, and the adapter is one
  * line: each string becomes `{ message: <string> }`. That object carries no `index` and
@@ -2588,7 +2760,12 @@ function ppChatAppendValidationItems(container, items, className) {
                 // the operator round a loop that ends where it started.
                 if (ppChatIsCompositionConflict(resp.data)
                     || (resp.data && resp.data.error_code === 'missing_expected_version')) {
-                    showConflictState(card, steps, pageId);
+                    // The payload travels so the card can say whether anything ran (#797).
+                    // Both refusals here are pre-execution and carry no `steps`, which is
+                    // exactly the evidence "Nothing was applied." rests on — passing them
+                    // is what keeps that true sentence, rather than a default that would
+                    // also hand it to an executed batch.
+                    showConflictState(card, steps, pageId, resp.data);
                 } else {
                     // The model's copy of the refusal, and the operator's way to spend it
                     // (#704). Both are gated on the server having written a note, which is
@@ -2636,9 +2813,12 @@ function ppChatAppendValidationItems(container, items, className) {
 
             // A conflict at the failed step means another writer moved the page
             // mid-proposal; the batch rolled back. Offer Re-read & re-preview, not
-            // a blind retry (#404).
+            // a blind retry (#404). The envelope goes with it: earlier steps in this
+            // batch DID run, so whether the rollback got them all back is a question
+            // only `rollback_errors` answers, and this card used to assert the answer
+            // without asking (#797).
             if (ppChatBatchHitConflict(batch)) {
-                showConflictState(card, steps, pageId);
+                showConflictState(card, steps, pageId, batch);
                 return;
             }
 
@@ -2761,20 +2941,61 @@ function ppChatAppendValidationItems(container, items, className) {
 
     /**
      * Composition-conflict state (#404): the page changed while the proposal was
-     * pending, so nothing was applied. Renders one message and one affordance,
-     * Re-read & re-preview — re-fetch the page's fresh baseline, then re-render
-     * the proposal so it previews against current state and the user confirms
-     * again. Never a blind retry that re-sends the stale write with a bumped
-     * version (that would turn the CAS into an auto-overwrite button).
+     * pending. Renders one message and one affordance, Re-read & re-preview —
+     * re-fetch the page's fresh baseline, then re-render the proposal so it
+     * previews against current state and the user confirms again. Never a blind
+     * retry that re-sends the stale write with a bumped version (that would turn
+     * the CAS into an auto-overwrite button).
+     *
+     * WHAT THE ROLLBACK LEFT BEHIND IS PART OF THE STATE (#797). This renderer wipes the
+     * card, so it is the one place a producible envelope's `rollback_errors` could reach a
+     * surface and be discarded — and the sentence it drew in their place was the flat
+     * "Nothing was applied." Both halves of the honest answer now come from the same
+     * channel #755 wired into the executed-failure exit: the message's closing clause, and
+     * the section naming which pages did not roll back and why.
+     *
+     * ONE REPORT, BOTH SURFACES, inherited rather than re-derived. The channel is walked
+     * once per render and the same answer feeds the message and the section, which is what
+     * makes "the card cannot contradict the sentence" a property of the code. Reusing
+     * ppChatAppendRollbackErrors() also means this exit invents no second vocabulary for
+     * the same fact: same heading, same budget, same five-inline-plus-disclosure selection.
+     *
+     * Final DOM order, with the order each part is BUILT in — the two differ, and the
+     * difference is the contract:
+     *
+     *   ┌ card (rebuilt) ───────────────────────────────────┐
+     *   │ message   cause + outcome clause          built 1 │
+     *   │ rollback disclosure, when there is one    built 3 │
+     *   │ ┌ .pp-ai-proposal-actions ────────────────────┐   │
+     *   │ │ Re-read & re-preview                        │   │  built 2
+     *   │ └─────────────────────────────────────────────┘   │
+     *   └───────────────────────────────────────────────────┘
+     *
+     * THE ACTION ROW IS BUILT FIRST SO THE DISCLOSURE CAN LAND ABOVE IT. That is why build
+     * order 2 sits below DOM position 3: ppChatAppendRollbackErrors() places itself by
+     * looking for `.pp-ai-proposal-actions` and inserting BEFORE it, falling back to
+     * appendChild when it finds none. Append the two in reading order and the fallback
+     * fires, dropping the explanation underneath the button it explains.
+     *
+     * @param {HTMLElement}   card     The proposal's card.
+     * @param {Array}         steps    The proposal's steps, for the re-preview.
+     * @param {number|string} pageId   The page to re-read.
+     * @param {object|null}   payload  The batch envelope for an executed conflict, or the
+     *                                 pre-execution error payload. Never optional: `null`
+     *                                 is the VALUE meaning "no evidence". See
+     *                                 ppChatConflictOutcome() for why an omitted one
+     *                                 withholds the claim rather than asserting it.
      */
-    function showConflictState(card, steps, pageId) {
+    function showConflictState(card, steps, pageId, payload) {
         card.innerHTML = '';
         card.classList.add('pp-ai-proposal-conflict');
+
+        var rollback = ppChatRollbackErrorReport(payload);
 
         var msg = document.createElement('div');
         msg.className = 'pp-ai-status pp-ai-status-error';
         msg.setAttribute('role', 'alert');
-        msg.textContent = ppChatConflictMessage();
+        msg.textContent = ppChatConflictMessage(payload, rollback);
         card.appendChild(msg);
 
         var actions = document.createElement('div');
@@ -2809,6 +3030,9 @@ function ppChatAppendValidationItems(container, items, className) {
         });
         actions.appendChild(rereadBtn);
         card.appendChild(actions);
+        // After the action row exists, so the section lands above it rather than under the
+        // button (#797). Draws nothing when the report is clean or unreadable.
+        ppChatAppendRollbackErrors(card, rollback);
         messagesEl.scrollTop = messagesEl.scrollHeight;
     }
 
@@ -3572,6 +3796,7 @@ if (typeof module !== 'undefined' && module.exports) {
         batchHitConflict: ppChatBatchHitConflict,
         batchWasRefusedUpFront: ppChatBatchWasRefusedUpFront,
         conflictMessage: ppChatConflictMessage,
+        conflictOutcome: ppChatConflictOutcome,
         rollbackErrorReport: ppChatRollbackErrorReport,
         rollbackSentence: ppChatRollbackSentence,
         appendRollbackErrors: ppChatAppendRollbackErrors,

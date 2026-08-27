@@ -9,7 +9,9 @@
  *   isCompositionConflict — detect the structured conflict error payload
  *   batchHitConflict      — detect a batch that failed on a conflict step
  *   batchWasRefusedUpFront — detect the step-less #749 refusal envelope
- *   conflictMessage       — the single user-facing conflict message
+ *   conflictMessage       — the single user-facing conflict message, whose closing claim
+ *                           is now evidence-gated (#797); the state machine behind it lives
+ *                           in pp-ai-chat-conflict-rollback.test.js
  */
 
 const { JSDOM } = require('jsdom');
@@ -44,6 +46,7 @@ const {
     batchHitConflict,
     batchWasRefusedUpFront,
     conflictMessage,
+    rollbackErrorReport,
 } = require('../../assets/js/pp-ai-chat.js');
 
 describe('buildBatchBaselines', function () {
@@ -162,10 +165,23 @@ describe('batchWasRefusedUpFront', function () {
 });
 
 describe('conflictMessage', function () {
+    /** The pre-execution refusals: an error payload, no `steps`, so no step ran. */
+    const PRE_EXEC = { error: 'Page changed.', error_code: 'composition_conflict' };
+
     test('is a single non-empty message naming the cause and that nothing applied', function () {
-        const msg = conflictMessage();
+        const msg = conflictMessage(PRE_EXEC, rollbackErrorReport(PRE_EXEC));
         expect(typeof msg).toBe('string');
         expect(msg).toMatch(/changed/i);
         expect(msg).toMatch(/nothing was applied/i);
+    });
+
+    // The claim needs evidence, not a default (#797). A caller that forgets the payload
+    // loses the sentence rather than asserting it over a batch that may have left a page
+    // dirty — the fail-closed direction, checked here because it is the whole reason the
+    // argument is threaded through showConflictState() instead of defaulted.
+    test('withholds the clean claim when given no evidence at all', function () {
+        expect(conflictMessage()).toBe(conflictMessage(null, null));
+        expect(conflictMessage()).toMatch(/changed/i);
+        expect(conflictMessage()).not.toMatch(/nothing was applied/i);
     });
 });

@@ -48,6 +48,7 @@ const {
     appendRollbackErrors,
     batchWasRefusedUpFront,
     batchHitConflict,
+    conflictMessage,
     ROLLBACK_ERRORS_MAX
 } = require('../../assets/js/pp-ai-chat.js');
 
@@ -381,18 +382,21 @@ describe('the #749 up-front refusal stays a distinct rendering', () => {
 });
 
 /**
- * The conflict envelope is real, carries entries, and is NOT rendered here (#797).
+ * The conflict envelope is real, carries entries, and now reaches a surface (#797).
  *
- * `ppChatBatchHitConflict()` returns earlier in executeProposal(), into showConflictState(),
- * which rebuilds the card and says "Nothing was applied." The executor does not special-case
- * a conflicting step — it reaches the same failure return and runs the same
- * _pp_restore_batch_snapshot() — so this shape is producible and carries the report.
+ * This described a BOUNDARY while #755 owned one of the three failure exits: the report
+ * layer answered correctly for a conflicting batch, and only the routing was missing —
+ * `ppChatBatchHitConflict()` returned earlier, into showConflictState(), which rebuilt the
+ * card and said "Nothing was applied." The executor does not special-case a conflicting
+ * step (it reaches the same failure return and runs the same _pp_restore_batch_snapshot(),
+ * lib/actions.php), so the shape was always producible and always discarded.
  *
- * Pinned so the boundary is explicit rather than accidental: the report layer already
- * answers correctly for this payload, and only the ROUTING is missing. Whoever fixes #797
- * should find this test and change the last assertion, not discover the gap again.
+ * The routing exists now, so the last assertion flipped rather than the test being deleted.
+ * What is kept from the boundary version is the premise it established: this payload is one
+ * the predicate claims and the report layer reads. The rendering itself is pinned end to
+ * end, through the real card, in pp-ai-chat-conflict-rollback.test.js.
  */
-describe('a conflicting batch that did not roll back cleanly (#797 boundary)', () => {
+describe('a conflicting batch that did not roll back cleanly (#797)', () => {
     const conflictBatch = {
         ok: false,
         steps: [{ ok: false, error_code: 'composition_conflict', error: 'Version mismatch.' }],
@@ -406,9 +410,23 @@ describe('a conflicting batch that did not roll back cleanly (#797 boundary)', (
         expect(batchHitConflict(conflictBatch)).toBe(true);
     });
 
-    it('already reports honestly at the report layer, so only the routing is missing', () => {
+    it('reports honestly at the report layer', () => {
         expect(rollbackErrorReport(conflictBatch).shown).toEqual([MENU]);
         expect(sentenceFor(conflictBatch)).toBe(DIRTY_SENTENCE);
+    });
+
+    // THE FLIPPED ASSERTION, and only it. The conflict exit no longer claims a clean revert
+    // over a channel that reported one.
+    //
+    // Deliberately does NOT also call appendRollbackErrors() here to "show the entries
+    // render": that helper is the #755 report layer this diff does not touch, so such an
+    // assertion passes byte-identically against pre-fix source and restates what the test
+    // above already checked — a decoration that would make this look like a routing pin
+    // without being one. The routing, and the card it produces, are pinned end to end in
+    // pp-ai-chat-conflict-rollback.test.js.
+    it('no longer lets the conflict exit call this rollback clean', () => {
+        expect(conflictMessage(conflictBatch, rollbackErrorReport(conflictBatch)))
+            .not.toMatch(/nothing was applied/i);
     });
 });
 
