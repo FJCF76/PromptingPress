@@ -672,14 +672,20 @@ class ChatBatchCorruptRepairCarveOutTest extends TestCase
     }
 
     /**
-     * THE OTHER DIRECTION, safe for a different reason and pinned so the asymmetry is
-     * deliberate rather than lucky. The row is corrupt but this request's cache says
-     * healthy, so the DETECTOR reports nothing — there is no refusal for the carve-out to
-     * lift, and the batch proceeds exactly as it would have before #756. The exemption is
-     * never reached (an empty map cannot equal [$post_id]), so the authoritative read
-     * cannot open anything on its own.
+     * THE OTHER DIRECTION, WHICH WAS THE HOLE (#833). This test used to pin the opposite
+     * outcome, and the behaviour it pinned is the bug: with the row corrupt and this
+     * request's cache stale-healthy, the cached DETECTOR reported nothing, so there was no
+     * refusal at all — a batch of any shape ran against a page whose stored bytes nobody
+     * could decode, and its rollback baseline was captured from the stale copy.
+     *
+     * Since #833 the detector reads the row too, so this direction refuses like the other
+     * one. What survives from the old test is the ASYMMETRY it was written to pin: the
+     * carve-out still cannot be opened by the detector alone, and the two halves reaching
+     * the same source is what makes "agreement" cheap rather than lucky. The lone repair is
+     * covered by the sibling test below; here the batch is a SECOND step alongside it, the
+     * shape ruling D-1 never admits.
      */
-    public function testAStaleHealthyCacheOverACorruptRowNeitherRefusesNorExempts(): void
+    public function testAStaleHealthyCacheOverACorruptRowNowRefusesLikeTheOtherDirection(): void
     {
         $post_id = $this->healthyPage('Cache says healthy');
         $GLOBALS['_pp_test_store']['wpdb_postmeta'][$post_id]['_pp_composition'] = 'NOT_VALID_JSON{{{';
@@ -687,11 +693,55 @@ class ChatBatchCorruptRepairCarveOutTest extends TestCase
         $this->assertTrue(pp_get_composition_result($post_id)['ok'], 'premise: the cache says healthy');
         $this->assertFalse(pp_get_composition_result_authoritative($post_id)['ok'], 'premise: the row says corrupt');
 
+        $steps = [
+            $this->repairStep($post_id),
+            ['type' => 'action', 'name' => 'publish_page', 'params' => ['post_id' => $post_id]],
+        ];
+        $this->assertSame(
+            [$post_id => 'decode_error'],
+            _pp_batch_unreadable_targets($steps),
+            'the detector reads the row, so it reports the page the cache called healthy'
+        );
+        $refusal = _pp_batch_unreadable_refusal($steps, _pp_batch_unreadable_targets($steps));
+        $this->assertNotNull($refusal, 'and a two-step batch is refused — the carve-out admits one step or none');
+        $this->assertSame('decode_error', $refusal['error_code'], 'reported as the ROW classifies it');
+    }
+
+    /**
+     * THE LONE REPAIR STILL GETS THROUGH THAT DIVERGENCE, which is the reason the fix could
+     * not simply refuse harder (#833). Both halves of the gate now read the row: the row
+     * says corrupt, so the detector reports the page AND the carve-out admits it, and the
+     * exemption's "the map must name exactly the admitted page" test passes. Before #833
+     * this proposal also went through, but for the wrong reason — nothing had classified
+     * the page at all.
+     *
+     * STOPS AT THE GATE deliberately: driving the write would exercise the bootstrap's
+     * frozen-staged-row hazard rather than this issue, and what is under test here is which
+     * batches the gate admits.
+     */
+    public function testAStaleHealthyCacheOverACorruptRowStillAdmitsTheLoneRepair(): void
+    {
+        $post_id = $this->healthyPage('Cache says healthy, row does not');
+        $GLOBALS['_pp_test_store']['wpdb_postmeta'][$post_id]['_pp_composition'] = 'NOT_VALID_JSON{{{';
+
         $steps = [$this->repairStep($post_id)];
-        $this->assertSame([], _pp_batch_unreadable_targets($steps), 'the detector reports nothing');
+        // THE DETECTOR ASSERTION IS THE ONE THAT DISTINGUISHES THIS FROM THE BUG. Before
+        // #833 the refusal below was also null — not because the exemption lifted it, but
+        // because nothing had classified the page at all. Without this line the test passes
+        // against the code it exists to pin against.
+        $this->assertSame(
+            [$post_id => 'decode_error'],
+            _pp_batch_unreadable_targets($steps),
+            'the detector names the page the row calls corrupt'
+        );
+        $this->assertSame(
+            $post_id,
+            _pp_batch_corrupt_repair_admitted($steps),
+            'the admission reads the row and finds the page repairable'
+        );
         $this->assertNull(
             _pp_batch_unreadable_refusal($steps, _pp_batch_unreadable_targets($steps)),
-            'so there is no refusal here at all — an absence, not an exemption'
+            'and the refusal lifts for it, because both halves now name the same page'
         );
     }
 

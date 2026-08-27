@@ -1578,10 +1578,30 @@ function _pp_ai_batch_rejection_note(array $batch): ?string {
  * (_pp_ai_page_context_corrupt_block, lib/ai-context.php). Before this, the model was told
  * to take a route and then never told when it had been turned back from it.
  *
+ * EXCEPT WHEN THE REFUSAL IS ABOUT THE READ (#833), and this is the same CLASS question the
+ * block comment above answers for composition_conflict, a missing baseline, a transport
+ * failure and a capability denial: none of those is repaired by the model rewriting its
+ * proposal, so none of them gets a note. A batch blocked because the gate could not reach
+ * the database row is squarely that class — it is a site fault, and the branch that renders
+ * it was written specifically NOT to prescribe a repair, because nothing has shown the page
+ * to be damaged. Handing the model a note here would also hand the operator the repair
+ * affordance the client attaches to any note (offerRepair, assets/js/pp-ai-chat.js), whose
+ * payload teaches the lone whole-composition write: on a page that may be perfectly healthy,
+ * and against a fault the write cannot fix.
+ *
+ * NOT A CODE LIST, which the call site's own comment rightly warns against. The test is the
+ * single constant that OWNS "this is a statement about the read, not about the page", so
+ * this asks the owner rather than re-deriving a set that a fourth classification would fall
+ * out of silently.
+ *
  * @param  array $refusal  ['error' => string, 'error_code' => string].
- * @return string
+ * @return string|null     Null when the refusal is not the model's to answer.
  */
-function _pp_ai_refusal_note(array $refusal): string {
+function _pp_ai_refusal_note(array $refusal): ?string {
+    if (($refusal['error_code'] ?? '') === PP_BATCH_TARGET_UNVERIFIABLE) {
+        return null;
+    }
+
     return _pp_ai_rejection_note(
         'this proposal was refused before any step ran.',
         (string) ($refusal['error_code'] ?? ''),
@@ -1753,19 +1773,31 @@ function _pp_ai_execute_batch_response(array $post): array {
     //
     // ONE RULE IS NOT ONE ANSWER, and the gap is a concurrent write rather than drift.
     // The two gates evaluate that shared rule at two moments, against two `unreadable`
-    // maps built by two reads (this one's detector, the executor's own capture), and the
-    // carve-out's classification read is authoritative and uncached at each. So a repair
-    // landing between them can make this gate admit and the executor refuse. Nothing
+    // maps built by two reads (this one's detector, the executor's own capture), and
+    // since #833 BOTH sides of each — the refusal's classification and the carve-out's —
+    // read the database row, so neither gate can be answered by a stale cached copy. Two
+    // authoritative reads at two moments still see two moments: a repair landing between
+    // them can make this gate admit and the executor refuse. Nothing
     // runs and nothing is written; the executor's step-less envelope arrives on the
     // SUCCESS branch, which is the shape ppChatBatchWasRefusedUpFront() exists to render
     // (assets/js/pp-ai-chat.js) — see its docblock, which names this window.
     $unreadable_error = _pp_batch_unreadable_refusal($normalized, _pp_batch_unreadable_targets($normalized));
     if ($unreadable_error !== null) {
         // The model's copy of this refusal (#704). Attached AT THE SITE rather than
-        // re-derived from the code: the classification codes are 'decode_error' /
-        // 'unexpected_shape' today, and a note gated on a list of codes would silently stop
-        // firing the day a fourth classification is added. The site knows what it refused.
-        $unreadable_error['model_note'] = _pp_ai_refusal_note($unreadable_error);
+        // re-derived from the code, and #833 is the argument arriving: the codes were
+        // 'decode_error' / 'unexpected_shape', and are now also 'composition_unverifiable'
+        // — which is not even a classification, but a statement that the gate could not
+        // reach the row to make one. A note gated on a list of codes would have stopped
+        // firing for it silently. The site knows what it refused; the list does not.
+        //
+        // WHICH REFUSALS EARN A NOTE IS THE NOTE OWNER'S CALL, not this site's: the read
+        // failure is a site fault the model cannot repair, so _pp_ai_refusal_note() declines
+        // it and the key stays ABSENT rather than null — the shape the client's "is there a
+        // note?" rule already expects.
+        $note = _pp_ai_refusal_note($unreadable_error);
+        if ($note !== null) {
+            $unreadable_error['model_note'] = $note;
+        }
         return ['ok' => false, 'data' => $unreadable_error];
     }
 

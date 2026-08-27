@@ -20,6 +20,16 @@ class ActionsTest extends TestCase
             'options'   => [],
             'next_id'   => 100,
         ];
+        // A DATABASE HANDLE, because the #749 batch gate reads the postmeta row and fails
+        // closed without one (#833). Production always has one; without it every batch
+        // below would be refused before its first step and prove nothing.
+        $GLOBALS['wpdb'] = new PP_Lockable_Wpdb();
+    }
+
+    protected function tearDown(): void
+    {
+        unset($GLOBALS['wpdb']);
+        parent::tearDown();
     }
 
     // ── Registry tests ─────────────────────────────────────────────────────
@@ -6303,6 +6313,31 @@ class ActionsTest extends TestCase
         $this->assertTrue($batch['rolled_back']);
         $overrides = pp_get_token_overrides();
         $this->assertSame('#111111', $overrides['--color-accent']);
+    }
+
+    /**
+     * A TOKEN WRITE INSIDE A BATCH KEEPS THE OVERRIDES IT DID NOT NAME, which is a pin on
+     * the HARNESS as much as on the writer (#833). This file installs a $wpdb handle so the
+     * batch gate can read the composition row, and a handle also routes
+     * _pp_read_token_overrides_locked_strict() from the cached option to the DATABASE row.
+     * A double that answers "no row" there hands the writer an empty map, which it treats as
+     * "start fresh" — every override set before the write disappears, silently and greenly,
+     * because the one existing token test in this file uses a single key. Two keys make the
+     * loss visible.
+     */
+    public function testBatchTokenWriteKeepsTheOverridesItDidNotName(): void
+    {
+        pp_set_token_override('--color-accent', '#111111');
+        pp_set_token_override('--color-ink', '#222222');
+
+        $batch = pp_ai_execute_batch([
+            ['type' => 'apply', 'name' => 'update_design_token', 'params' => ['token' => '--color-accent', 'value' => '#ff0000']],
+        ]);
+
+        $this->assertTrue($batch['ok']);
+        $overrides = pp_get_token_overrides();
+        $this->assertSame('#ff0000', $overrides['--color-accent'], 'the named token was written');
+        $this->assertSame('#222222', $overrides['--color-ink'] ?? null, 'and the one beside it survived');
     }
 
     public function testBatchRollsBackFontUrlsOnLaterFailure(): void

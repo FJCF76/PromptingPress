@@ -868,8 +868,17 @@ function pp_execute_action(string $name, array $params): array {
  * CANNOT be read under 'unreadable' (#749). Two consumers, and they are opposite
  * ends of the same guarantee: pp_ai_execute_batch() refuses the whole batch when it
  * is non-empty (except for the one carve-out batch, #756), and since that carve-out
- * _pp_restore_batch_snapshot() reads it too — a page listed here had no readable
- * composition to capture, so its snapshot is a stand-in and is never written back.
+ * _pp_restore_batch_snapshot() reads it too — a page listed here has no snapshot worth
+ * writing back, so its composition never is.
+ *
+ * THE LISTING AND THE CAPTURE COME FROM DIFFERENT READS SINCE #833, and the invariant
+ * only runs one way now. A page NOT listed here was read clean by both the cached and the
+ * authoritative reader, so its captured composition is a real one — that direction is
+ * load-bearing and is why the gate keeps its cached check. A page that IS listed may still
+ * have a real composition captured beside it: the entry can come from the ROW while the
+ * capture came from a healthy cached copy the row has moved past. Neither shape is a
+ * rollback baseline, which is why the restorer withholds on the listing rather than on
+ * what the captured value looks like.
  *
  * @param  array $steps  Each: ['type' => 'action'|'apply', 'name' => string, 'params' => array]
  * @return array          Snapshot bundle. The state keys go to
@@ -908,22 +917,37 @@ function _pp_snapshot_batch_targets(array $steps): array {
                 // is recorded in $unreadable, which refuses the whole batch before
                 // any step runs (pp_ai_execute_batch) for every batch EXCEPT the
                 // one-step corrupt-page repair ruling D-1 admits (#756). On that
-                // path the value stored below IS the degrading accessor's `[]`, a
-                // stand-in for bytes nobody could decode — so it reaches
-                // _pp_restore_batch_snapshot(), which refuses to write back the
-                // composition of any page named in $unreadable. Capture honestly,
-                // record what the capture is worth, and let the restorer decide.
+                // path the value stored below is worth less than it looks: usually
+                // it is the degrading accessor's `[]`, a stand-in for bytes nobody
+                // could decode, and since #833 it can instead be a composition read
+                // from a CACHED copy the database row has already moved past. Both
+                // reach _pp_restore_batch_snapshot(), which refuses to write back
+                // the composition of any page named in $unreadable — so neither is
+                // ever written anywhere. Capture honestly, record what the capture
+                // is worth, and let the restorer decide.
                 //
-                // ONE READ decides both, deliberately. Classifying in a separate
-                // pass would leave a window — however small — in which the row
-                // flips corrupt between "is it readable?" and "capture it", and
-                // the capture would then be a degraded `[]` that the map says is
-                // fine: the original bug, rebuilt out of two honest reads. The
-                // value stored below and the verdict beside it come from the same
-                // pp_get_composition_result() call, so they cannot disagree.
+                // ONE READ DECIDES THE CAPTURE AND HALF THE VERDICT, deliberately.
+                // Reading the stored value in a separate pass from classifying it
+                // would leave a window — however small — in which the row flips
+                // corrupt between "is it readable?" and "capture it", and the
+                // capture would then be a degraded `[]` that the map says is fine:
+                // the original bug, rebuilt out of two honest reads. The value
+                // stored below and the CACHED half of the verdict beside it come
+                // from the same pp_get_composition_result() call.
+                //
+                // THE OTHER HALF IS THE ROW (#833), and the capture stays CACHED on
+                // purpose. Since #833 a target is only "readable" when the database
+                // row classifies clean too — the gate fails closed rather than trust
+                // a cached copy a concurrent write may have made stale. What is NOT
+                // read from the row is the captured VALUE: the rollback baseline has
+                // to be the state this batch's own steps execute against, and every
+                // step reads through the cache. Because a healthy verdict still
+                // requires the cached read to be healthy, the captured value can
+                // never be the degrading accessor's `[]` while the map says fine.
                 $stored = pp_get_composition_result($post_id);
-                if (!$stored['ok']) {
-                    $unreadable[$post_id] = $stored['error'];
+                $reason = _pp_batch_target_refusal_reason($post_id, $stored);
+                if ($reason !== null) {
+                    $unreadable[$post_id] = $reason;
                 }
                 $posts[$post_id] = [
                     'title'       => $post->post_title,
@@ -990,9 +1014,12 @@ function _pp_snapshot_batch_targets(array $steps): array {
     return [
         'posts'           => $posts,
         'created_posts'   => [], // filled in as create_page steps succeed
-        // {post_id => 'unexpected_shape'|'decode_error'} for every named page whose
-        // stored composition could not be read (#749). Non-empty means the batch is
-        // refused before step 1; see pp_ai_execute_batch().
+        // {post_id => reason} from _pp_batch_target_refusal_reason(), for every named
+        // page that blocks the batch (#749): a classification ('unexpected_shape' /
+        // 'decode_error') when the stored composition could not be read, or
+        // PP_BATCH_TARGET_UNVERIFIABLE when the row could not be reached to check (#833,
+        // NOT a statement about the page). Non-empty means the batch is refused before
+        // step 1; see pp_ai_execute_batch().
         'unreadable'      => $unreadable,
         'site_options'    => $site_options,
         'custom_css'      => $custom_css,
@@ -1040,6 +1067,154 @@ function _pp_batch_step_post_id(array $step): ?int {
 }
 
 /**
+ * The reason a batch target BLOCKS the batch, and it is not always a classification (#833).
+ *
+ * Two of the three values this returns are stored-value classifications — `unexpected_shape`
+ * / `decode_error`, the same vocabulary every other surface prints. The third is not: it says
+ * the read itself could not be trusted. Keep them distinguishable at every consumer; a
+ * "we could not check" rendered as "your page is corrupt" sends an operator to repair bytes
+ * that were never shown to be broken.
+ */
+const PP_BATCH_TARGET_UNVERIFIABLE = 'composition_unverifiable';
+
+/**
+ * Why this batch target blocks the batch, or null when it may proceed (#833).
+ *
+ * THE SINGLE OWNER OF THE #749 GATE'S CLASSIFICATION SOURCE, and it exists because the
+ * three sites that ask the question — the chat entry point's detector, the snapshotter's
+ * capture, and the rollback's live re-classify — used to ask it of the OBJECT CACHE while
+ * the carve-out beside them read the database row. That split is what #833 records: a
+ * request that warms `_pp_composition` and then loses a race to a concurrent write holds a
+ * healthy CACHED copy over a corrupt ROW, and every cached classifier reported "readable"
+ * for a page whose stored bytes nobody could decode. The refusal never fired, the rollback
+ * baseline was captured from the stale copy, and a later step's failure wrote it back.
+ *
+ * MAINTAINER RULING (#833, 2026-08-27): the refusal is a GATE, and gates classify through
+ * the AUTHORITATIVE read, failing CLOSED when no authoritative read is possible — the
+ * asymmetry #767 recorded on pp_composition_db_handle() (degrading is right for a reader,
+ * refusing is right for a gate). The carve-out already reads the row; this is the other half
+ * of the same gate learning to read it too.
+ *
+ * THE CACHED CHECK STAYS, AND IT IS LOAD-BEARING RATHER THAN LEFTOVER. What this function
+ * adds is a REQUIREMENT that the row read clean; it removes nothing. The refusal set is a
+ * strict superset of what it was, which matters for two reasons:
+ *
+ *   1. #756 pins the cache-corrupt/row-healthy direction as a refusal, and that pin is
+ *      about the batch, not only about the carve-out. Dropping it would be a behaviour
+ *      change the ruling did not ask for.
+ *   2. It is what keeps _pp_snapshot_batch_targets()'s stored-value invariant true. That
+ *      function captures the composition from the CACHED read (unchanged here — the
+ *      rollback baseline must stay the state the batch's own steps execute against, and
+ *      every step reads through the cache). If a healthy verdict could be reached while
+ *      the cached read was corrupt, the captured value would be the degrading accessor's
+ *      `[]` under a map that says "fine", and the rollback would write that `[]` over a
+ *      readable row. That is #749's data loss, rebuilt out of a mixed-source gate.
+ *
+ * FAIL CLOSED WHENEVER THE ROW CANNOT BE READ, which is two cases and not one. With no
+ * usable $wpdb (pp_composition_db_handle) there is nothing to ask — a unit-context and
+ * exotic-host path, since production WordPress always has a handle. With a handle whose
+ * QUERY failed there is an answer that cannot be trusted, and that case is reachable in
+ * production under exactly the load that produces the race this gate exists for. Both
+ * block, and neither is spelled as corruption: PP_BATCH_TARGET_UNVERIFIABLE says the read
+ * failed, not the page.
+ *
+ * ONE CACHED READ, PASSED IN. The caller supplies the cached result it already holds
+ * instead of this re-reading it, so the snapshotter's verdict and the value it stores still
+ * come from the SAME call. Splitting them would reopen the window that function's own
+ * comment describes: a row flipping corrupt between "is it readable?" and "capture it".
+ *
+ * ORDER IS DELIBERATE: the cached verdict first, so a target that already refused today
+ * refuses with exactly the code it did before, and the extra row read is spent only on the
+ * common path where the cache says healthy — one indexed point-SELECT per named page per
+ * gate evaluation.
+ *
+ * DO NOT MEMOIZE THE ROW READ, and the temptation is real because the gate is evaluated
+ * twice per chat proposal. The only reason this stopped trusting pp_get_composition_result()
+ * is that a request-scoped copy warmed early goes stale under a concurrent write; a
+ * request-scoped cache of this answer would rebuild that hole with a different cache. The
+ * per-post dedup the callers already do WITHIN one evaluation is the safe kind and the only
+ * kind. What is being spent is a handful of indexed point reads per proposal, in a request
+ * that already paid for a model round trip.
+ *
+ * @param  int   $post_id  The named page.
+ * @param  array $cached   The caller's own pp_get_composition_result() result for it.
+ * @return string|null     'unexpected_shape' | 'decode_error' | PP_BATCH_TARGET_UNVERIFIABLE,
+ *                          or null when the target may proceed.
+ */
+function _pp_batch_target_refusal_reason(int $post_id, array $cached): ?string {
+    // READ THE ENVELOPE DEFENSIVELY, because this is a gate and the alternative default is
+    // "proceed". Every caller passes pp_get_composition_result()'s own return, which always
+    // carries both keys — but a shape this function cannot read is a state it cannot
+    // classify, and a missing `error` beside a false `ok` must not fall out of the bottom as
+    // null (which every caller reads as "this target may proceed").
+    if (empty($cached['ok'])) {
+        $cached_reason = $cached['error'] ?? null;
+        return is_string($cached_reason) && $cached_reason !== ''
+            ? $cached_reason
+            : PP_BATCH_TARGET_UNVERIFIABLE;
+    }
+
+    $handle = pp_composition_db_handle();
+    if ($handle === null) {
+        return PP_BATCH_TARGET_UNVERIFIABLE;
+    }
+
+    $row = pp_get_composition_result_authoritative($post_id);
+
+    // A FAILED READ IS NOT A BLANK PAGE (#212 posture, applied at this gate). $wpdb->get_var()
+    // returns null for "no row" AND for a query that errored — a killed query, a lock-wait
+    // timeout, a gone-away connection — and the authoritative reader maps null to '', which
+    // classifies as a genuinely blank page: ok, proceed. That is the right degradation for a
+    // READER and a fail-OPEN here, reachable under exactly the contention that produces the
+    // race this gate exists for. `last_error` is flushed at the start of every query, so a
+    // non-empty one belongs to the read just issued. Same disambiguation the two sibling
+    // authoritative readers make (_pp_read_composition_history_locked,
+    // _pp_read_token_overrides_locked_strict), and the reason it is made HERE rather than
+    // inside the shared reader: the reader's other consumers want a value, and this one wants
+    // a verdict — an unanswerable question is a block, not a blank page.
+    if (!empty($handle->last_error)) {
+        return PP_BATCH_TARGET_UNVERIFIABLE;
+    }
+
+    if (!$row['ok']) {
+        return $row['error'];
+    }
+
+    return null;
+}
+
+/**
+ * The shared first sentence for a blocked batch target (#833).
+ *
+ * pp_composition_integrity_message() is the one owner of "this page's stored composition is
+ * corrupt", and it says so in those words — "treat as corrupted, not empty". True for the
+ * two classifications, and a lie for PP_BATCH_TARGET_UNVERIFIABLE, which is a fact about
+ * the READ. This is the fork, single-owned so the three surfaces that render a blocked
+ * target (the two refusals and the rollback's withhold notice) cannot spell it three ways.
+ *
+ * A FOURTH CLASSIFICATION LANDS IN THE `else` BY DEFAULT, and that is stated rather than
+ * guarded so the next person meets the decision instead of inheriting it: anything
+ * pp_classify_composition_value() starts returning arrives here and is narrated as
+ * "treat as corrupted, not empty", with a whole-composition repair prescribed beside it on
+ * the refusal surface. That is right for a classification about STORED BYTES and wrong for
+ * anything else, so adding one is a deliberate act that has to revisit this fork.
+ *
+ * @param  int    $post_id  The blocked page.
+ * @param  string $reason   From _pp_batch_target_refusal_reason().
+ * @return string
+ */
+function _pp_batch_target_state_message(int $post_id, string $reason): string {
+    if ($reason === PP_BATCH_TARGET_UNVERIFIABLE) {
+        return "Page {$post_id}: this page's stored composition could not be VERIFIED"
+            . ' (no authoritative database read was available), so it is treated as'
+            . ' unreadable. This is a statement about the read, not a finding about the'
+            . ' page — nothing here says the stored composition is corrupt.';
+    }
+
+    return pp_composition_integrity_message($post_id, $reason);
+}
+
+/**
  * The post targets of a batch whose stored composition CANNOT be read (#749).
  *
  * For callers that need the verdict WITHOUT building a snapshot bundle — today
@@ -1047,9 +1222,10 @@ function _pp_batch_step_post_id(array $step): ?int {
  * ever reaches the executor. _pp_snapshot_batch_targets() does NOT call this: it
  * classifies from its own capture read so the stored value and the verdict come
  * from one read (see the comment there). Both derive the answer from
- * pp_get_composition_result(), the single classify owner, and both render it
- * through _pp_batch_unreadable_target_error(), the single wording owner, so the
- * two refusals cannot spell one state two ways.
+ * _pp_batch_target_refusal_reason(), the single owner of the gate's classification
+ * SOURCE since #833 — authoritative, failing closed — and both render it through
+ * _pp_batch_unreadable_target_error(), the single wording owner, so the two
+ * refusals cannot spell one state two ways.
  *
  * Read-only. The post gate is character-for-character the snapshotter's own —
  * any step carrying a top-level numeric post_id for a post that exists — and
@@ -1088,7 +1264,8 @@ function _pp_batch_step_post_id(array $step): ?int {
  * which page a multi-corrupt batch names is deterministic, not incidental.
  *
  * @param  array $steps  Each: ['type' => ..., 'name' => ..., 'params' => array]
- * @return array         {post_id => 'unexpected_shape'|'decode_error'}; [] when all readable.
+ * @return array         {post_id => reason}, each reason from
+ *                        _pp_batch_target_refusal_reason(); [] when every target may proceed.
  */
 function _pp_batch_unreadable_targets(array $steps): array {
     $unreadable = [];
@@ -1106,9 +1283,9 @@ function _pp_batch_unreadable_targets(array $steps): array {
         if (!get_post($post_id)) {
             continue; // never snapshotted, so never restored over
         }
-        $stored = pp_get_composition_result($post_id);
-        if (!$stored['ok']) {
-            $unreadable[$post_id] = $stored['error'];
+        $reason = _pp_batch_target_refusal_reason($post_id, pp_get_composition_result($post_id));
+        if ($reason !== null) {
+            $unreadable[$post_id] = $reason;
         }
     }
 
@@ -1131,15 +1308,19 @@ function _pp_batch_unreadable_targets(array $steps): array {
  * exists to prevent, one layer in. Tests may call it to assert wording; nothing
  * else should call it at all.
  *
- * The CODE is the classification itself — `unexpected_shape` / `decode_error` —
- * matching pp_inspect_composition() (#725), `operate inspect`, `check page`,
- * `validate site` and the write path (#724). The MESSAGE is the shared integrity
- * sentence (pp_composition_integrity_message) plus this surface's own next
- * action; the diagnosis is single-owned so a new spelling of one state cannot
- * appear here, and only the repair tail is local because only it is specific to
- * "your multi-step proposal was refused".
+ * The CODE is usually the classification itself — `unexpected_shape` /
+ * `decode_error` — matching pp_inspect_composition() (#725), `operate inspect`,
+ * `check page`, `validate site` and the write path (#724). Since #833 there is one
+ * more, PP_BATCH_TARGET_UNVERIFIABLE, and it is NOT a classification: it says the
+ * gate could not reach the row to check. It earns its own branch below rather than
+ * a shared sentence, because every word of the corrupt-page advice is wrong for a
+ * page that was never shown to be corrupt. The MESSAGE is the shared state sentence
+ * (_pp_batch_target_state_message) plus this surface's own next action; the
+ * diagnosis is single-owned so a new spelling of one state cannot appear here, and
+ * only the tail is local because only it is specific to "your multi-step proposal
+ * was refused".
  *
- * @param  array $unreadable  {post_id => classification} from _pp_batch_unreadable_targets().
+ * @param  array $unreadable  {post_id => reason} from _pp_batch_unreadable_targets().
  * @return array|null         ['error' => string, 'error_code' => string], or null when readable.
  */
 function _pp_batch_unreadable_target_error(array $unreadable): ?array {
@@ -1152,8 +1333,26 @@ function _pp_batch_unreadable_target_error(array $unreadable): ?array {
     }
     $error = $unreadable[$post_id];
 
+    // THE UNVERIFIABLE REASON GETS ITS OWN TAIL (#833), because the shared repair route
+    // below is advice for a page whose bytes are known to be broken. Here nothing is known
+    // to be broken: the gate could not reach the database to check. Prescribing a
+    // whole-composition rewrite would tell an operator to overwrite a page that may be
+    // perfectly healthy — the opposite of what a fail-closed refusal is for.
+    if ($error === PP_BATCH_TARGET_UNVERIFIABLE) {
+        return [
+            'error'      => _pp_batch_target_state_message($post_id, $error)
+                . ' This proposal was refused before any step ran, so nothing was changed:'
+                . ' a batch is rolled back by writing its snapshot over the stored'
+                . ' composition, and a snapshot taken from a state nobody could confirm is'
+                . ' not safe to write anywhere. Try again; if it keeps happening, the site'
+                . ' cannot reach its database the way this gate needs to, which is a site'
+                . ' problem rather than a problem with this page or this proposal.',
+            'error_code' => $error,
+        ];
+    }
+
     return [
-        'error'      => pp_composition_integrity_message($post_id, $error)
+        'error'      => _pp_batch_target_state_message($post_id, $error)
             . ' This proposal was refused before any step ran, so nothing was changed:'
             . ' rolling it back would have to write over those bytes. Repair the page'
             . ' FIRST, in a proposal of its OWN — a single step, nothing alongside it'
@@ -1283,7 +1482,8 @@ function _pp_batch_corrupt_repair_admitted(array $steps): ?int {
  * somebody else extends an unrelated parser is not a narrow carve-out.
  *
  * @param  array $steps       The batch's steps, for the carve-out test.
- * @param  array $unreadable  {post_id => classification} from the caller's detector.
+ * @param  array $unreadable  {post_id => reason} from the caller's detector, each reason
+ *                             from _pp_batch_target_refusal_reason().
  * @return array|null         ['error' => string, 'error_code' => string], or null when
  *                             the batch may proceed.
  */
@@ -1515,9 +1715,11 @@ function _pp_recreate_menu_item(int $menu_id, object $item, int $parent_id): ?in
  * @return string[]         Anything that could NOT be restored — the menu layer, and
  *                           any page whose composition restore was withheld: because
  *                           the live stored value became unreadable mid-batch (#749),
- *                           or because it was ALREADY unreadable when this batch
- *                           snapshotted it, which since #756 is reachable through the
- *                           corrupt-page repair carve-out. Empty when clean.
+ *                           because the row could not be read authoritatively at all
+ *                           (#833, fail closed), or because it was ALREADY unreadable
+ *                           when this batch snapshotted it, which since #756 is
+ *                           reachable through the corrupt-page repair carve-out.
+ *                           Empty when clean.
  */
 function _pp_restore_batch_snapshot(array $snapshot): array {
     $errors = [];
@@ -1534,9 +1736,12 @@ function _pp_restore_batch_snapshot(array $snapshot): array {
         // is checked FIRST because it is a fact about the CAPTURE, which no later read
         // can change. #749 made the whole batch refuse in this state, so the only way a
         // page reaches the rollback with an entry in 'unreadable' is the corrupt-page
-        // repair carve-out — and there the captured value is the degrading accessor's
-        // `[]`, a stand-in for bytes nobody could decode, not a composition the page
-        // ever had.
+        // repair carve-out — and there the captured value is never a composition this
+        // page is KNOWN to hold: usually the degrading accessor's `[]`, a stand-in for
+        // bytes nobody could decode, and since #833 possibly a cached copy the database
+        // row has already moved past (the map can now name a page the cached read called
+        // healthy). Neither is a rollback baseline, which is why the notice below stops
+        // at what the batch established rather than describing the bytes.
         //
         // The live re-classify below cannot cover this case, and the difference is the
         // reason both guards exist. It asks whether the TARGET is readable NOW, and on
@@ -1554,11 +1759,11 @@ function _pp_restore_batch_snapshot(array $snapshot): array {
         // stored bytes alone IS the honest restore, whether they are still the corrupt
         // ones or a repair that outlived the batch. Every other field still rolls back.
         if (isset($snapshot['unreadable'][$post_id])) {
-            $errors[] = pp_composition_integrity_message($post_id, $snapshot['unreadable'][$post_id])
+            $errors[] = _pp_batch_target_state_message($post_id, $snapshot['unreadable'][$post_id])
                 . ' Its composition was NOT rolled back, and that is the safe outcome:'
                 . ' the stored bytes could not be read when this batch snapshotted them,'
-                . ' so the snapshot holds a stand-in rather than a composition this page'
-                . ' ever had. Writing it back would destroy whatever is there now —'
+                . ' so the snapshot is not a composition this page is known to hold.'
+                . ' Writing it back would destroy whatever is there now —'
                 . ' the unreadable bytes, or a repair that landed during the batch.'
                 . ' Re-read the page to see which. Every other field was rolled back.';
         //
@@ -1578,10 +1783,27 @@ function _pp_restore_batch_snapshot(array $snapshot): array {
         // whether today's rules like it. What is checked is the TARGET: whether the
         // bytes about to be overwritten can still be read. A restore that current
         // rules dislike still goes through; only a write onto unreadable bytes waits.
-        } elseif (($stored = pp_get_composition_result($post_id))['ok']) {
+        //
+        // THE RE-CLASSIFY IS THE GATE'S, SOURCE AND ALL (#833). It asks the same question
+        // the refusal asks, so it reads the same way: the row, failing closed with no
+        // handle. Asking the object cache here would have re-opened the hole one step
+        // later — within a request the cache it reads is the one already warmed at
+        // snapshot time, so on installs without a persistent object cache it echoed the
+        // snapshot-time verdict rather than live state, and a row that went corrupt
+        // mid-batch was written straight over.
+        } elseif (($reason = _pp_batch_target_refusal_reason($post_id, pp_get_composition_result($post_id))) === null) {
             pp_update_composition($post_id, $state['composition']);
+        } elseif ($reason === PP_BATCH_TARGET_UNVERIFIABLE) {
+            // ITS OWN SENTENCE (#833), for the same reason the refusal has one: the
+            // notice below states a FACT about the stored bytes ("changed to an
+            // unreadable state"), and here nothing about the bytes is known. Only the
+            // outcome is shared — the composition write is withheld either way.
+            $errors[] = _pp_batch_target_state_message($post_id, $reason)
+                . ' Its composition was NOT rolled back: writing the snapshot over a stored'
+                . ' state nobody could confirm risks destroying a copy this batch never read.'
+                . ' Every other field on this page was rolled back.';
         } else {
-            $errors[] = pp_composition_integrity_message($post_id, $stored['error'])
+            $errors[] = _pp_batch_target_state_message($post_id, $reason)
                 . ' Its composition was NOT rolled back: the stored bytes changed to an'
                 . ' unreadable state during this batch, and restoring the snapshot over them'
                 . ' would destroy the only recoverable copy. Every other field on this page'
@@ -1700,7 +1922,10 @@ function _pp_restore_batch_snapshot(array $snapshot): array {
  * chat entry point (lib/ai-chat.php) — reached only after that gate passes.
  *
  * Refuses the whole batch, before step 1, when any page it names has a stored
- * composition that cannot be READ (#749) — see the fail-closed block below. That
+ * composition that cannot be READ (#749) — see the fail-closed block below. Since #833
+ * the same envelope also carries `composition_unverifiable`, which is not a finding about
+ * any page: it means the gate could not reach the database row to check one, so it blocked
+ * rather than classify from a copy a concurrent write may have left stale. That
  * refusal is the one ok:false envelope with no failing step, and the only return
  * carrying 'error' / 'error_code' at the batch level. Exactly one batch shape is
  * exempt (#756, ruling D-1): a SINGLE update_composition / restore_composition step

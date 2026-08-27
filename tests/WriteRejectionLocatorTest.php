@@ -42,11 +42,15 @@ class WriteRejectionLocatorTest extends TestCase
         $GLOBALS['_pp_test_store'] = [
             'post_meta' => [], 'posts' => [], 'options' => [], 'next_id' => 100, 'custom_css' => '',
         ];
+        // A DATABASE HANDLE, because the #749 batch gate reads the postmeta row and fails
+        // closed without one (#833). Production always has one; without it every batch
+        // below would be refused before its first step and prove nothing.
+        $GLOBALS['wpdb'] = new PP_Lockable_Wpdb();
     }
 
     protected function tearDown(): void
     {
-        unset($GLOBALS['_pp_test_store']);
+        unset($GLOBALS['_pp_test_store'], $GLOBALS['wpdb']);
         parent::tearDown();
     }
 
