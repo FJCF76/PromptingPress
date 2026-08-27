@@ -4124,14 +4124,55 @@ function pp_generate_component_id(): string {
  * as version 0, so a legacy/never-written page accepts $expected_version === 0 and initializes
  * to version 1.
  *
- * @param int      $post_id           WordPress post ID.
- * @param array    $composition       Array of component objects.
- * @param int|null $expected_version  The version the caller based its edit on, or null to
- *                                    skip the compare-and-swap.
+ * IN-LOCK PRECONDITION (#829), the fourth parameter and the newest of the three gates this
+ * critical section applies. The CAS above answers "did the page move since you read it?";
+ * this answers whatever question only the caller can ask, and it must be asked from INSIDE
+ * the lock or the answer is a guess. It exists because `restore_composition` resolves
+ * `steps_back` / `history_index` against a ring read taken BEFORE the lock: the writer
+ * cannot know what a selector means, and the action cannot open this lock, so the seam is
+ * a callable the action supplies and this function evaluates in the one place where the
+ * ring cannot move. See _pp_restore_target_still_addressed() (lib/actions.php).
+ *
+ * THE CONTRACT ON THAT CALLABLE, stated because a hook inside a critical section is a
+ * footgun if it is left to taste:
+ *   - It is evaluated AFTER the CAS and BEFORE any write. The CAS block reads the version
+ *     and returns; it writes nothing. So a refusal here leaves the composition, both
+ *     markers and the history ring exactly as they were, exactly as a CAS rejection does.
+ *   - It RECEIVES the authoritative in-lock history ring, already read and normalized, so it
+ *     never has to issue its own read — the rebuild below reuses the same array, one read per
+ *     lock hold. Take the ring as a parameter; do not re-read it.
+ *   - It returns true to proceed, or a WP_Error to refuse. The WP_Error is returned to the
+ *     caller verbatim — this function does not re-wrap or re-code it, because the caller is
+ *     the only party that knows what its own precondition means.
+ *   - It is READ-ONLY. It must not write meta, mutate globals, or perform work proportional
+ *     to anything: every microsecond it takes is a microsecond this post's write lock is
+ *     held against every other writer.
+ *   - It MUST NOT THROW. The declared return is true|WP_Error, and an exception is neither:
+ *     it propagates out of this function to the caller, which is expecting a value. The lock
+ *     itself is safe either way (_pp_with_advisory_lock releases in a `finally`), so this is
+ *     a contract rule rather than a leak.
+ *   - It MUST NOT RE-ENTER this writer, or otherwise take this post's composition lock. It
+ *     already runs inside that lock.
+ *   - There is no third state, and it FAILS CLOSED. Only a literal true proceeds; a WP_Error
+ *     refuses with that error; anything else refuses with `composition_precondition_invalid`,
+ *     because a falsy non-WP_Error returned from here would read as SUCCESS to every caller's
+ *     is_wp_error() check, over a write that never happened.
+ * Null (the default) skips the gate entirely — and skips the ring read with it, so a caller
+ * that supplies no precondition pays nothing at all.
+ *
+ * @param int           $post_id           WordPress post ID.
+ * @param array         $composition       Array of component objects.
+ * @param int|null      $expected_version  The version the caller based its edit on, or null to
+ *                                         skip the compare-and-swap.
+ * @param callable|null $in_lock_precondition  Optional read-only gate evaluated inside the
+ *                                         lock, after the CAS and before any write. Receives
+ *                                         the authoritative in-lock history ring (array).
+ *                                         Returns true to proceed or a WP_Error to refuse.
  * @return true|WP_Error  true on write; WP_Error('composition_conflict') on a version
- *                        mismatch; WP_Error('composition_lock_failed') on lock-acquire failure.
+ *                        mismatch; the precondition's own WP_Error when it refuses;
+ *                        WP_Error('composition_lock_failed') on lock-acquire failure.
  */
-function pp_update_composition(int $post_id, array $composition, ?int $expected_version = null) {
+function pp_update_composition(int $post_id, array $composition, ?int $expected_version = null, ?callable $in_lock_precondition = null) {
     // Hash the canonical PRE-stable-id form, before the id-injection loop below mutates
     // the array. (pp_composition_content_hash also strips ids defensively, so the two are
     // belt-and-suspenders — the hash is stable across the id round-trip either way.)
@@ -4159,7 +4200,7 @@ function pp_update_composition(int $post_id, array $composition, ?int $expected_
 
     $json = wp_json_encode($composition, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 
-    return _pp_with_composition_lock($post_id, function ($wpdb) use ($post_id, $json, $hash, $expected_version) {
+    return _pp_with_composition_lock($post_id, function ($wpdb) use ($post_id, $json, $hash, $expected_version, $in_lock_precondition) {
         // Read the version fresh from the DB inside the lock (bypassing the meta cache the
         // pre-lock freshness check may have warmed). Absent → 0, so the first write is v1.
         $current_version = _pp_read_composition_version_locked($wpdb, $post_id);
@@ -4177,6 +4218,58 @@ function pp_update_composition(int $post_id, array $composition, ?int $expected_
                 . 'Another writer (a CLI action, the dashboard editor, or the AI chat) modified it. '
                 . 'Re-read the current composition and re-apply your change. [composition_conflict]'
             );
+        }
+
+        // The caller's own in-lock precondition (#829). Placed HERE — after the CAS, before
+        // the ring read and every write below — for three reasons, all of them load-bearing:
+        //
+        //   NOTHING HAS BEEN WRITTEN YET. The only statement above it inside this lock is a
+        //   version READ, so a refusal here is exactly as clean as a CAS rejection: the
+        //   composition, both markers and the ring are untouched, and $composition itself is
+        //   this function's own by-value copy, so even the caller's array is unmutated.
+        //
+        //   THE CAS ANSWERS FIRST. A stale baseline means "the page moved under you", which
+        //   subsumes every narrower precondition and is the error the caller already knows
+        //   how to retry. Running a precondition ahead of it would report the narrower cause
+        //   for a wider failure.
+        //
+        //   IT IS INSIDE THE LOCK. That is the whole point (#823's lesson applied to a
+        //   caller's own question rather than to this writer's ring read): a precondition
+        //   evaluated before the lock is a statement about a moment that has already passed.
+        //
+        // ONE AUTHORITATIVE RING READ PER LOCK HOLD, shared with the rebuild below. The
+        // precondition needs the ring and so does the rebuild, and nothing between them can
+        // change it — this lock is what stops that. Reading twice would decode the whole row
+        // twice inside the critical section, which at the composition size ceiling is tens of
+        // milliseconds of json_decode that every concurrent writer to this post waits for.
+        // Sharing also makes the two consumers see the SAME ring structurally, rather than two
+        // reads that merely cannot disagree, and lets a degraded read log once instead of twice.
+        //
+        // Read HERE and not at the top of the mutator: the rebuild's read is conditional on a
+        // prior composition existing, so hoisting it unconditionally would add a query to every
+        // first write and every create_page. Null precondition, null cost.
+        //
+        // Returned verbatim. See this function's docblock for the callable's full contract.
+        $locked_history = null;
+        if ($in_lock_precondition !== null) {
+            $locked_history = _pp_read_composition_history_locked($post_id);
+            $precondition   = $in_lock_precondition($locked_history);
+            // STRICTLY true TO PROCEED, and the strictness is the #200 lesson rather than
+            // fussiness. `is_wp_error($precondition)` alone would let a precondition that
+            // returned null or false fall through to `return $precondition` below, handing
+            // _pp_with_composition_lock() a falsy NON-WP_Error — which every caller's
+            // `if (is_wp_error($result))` reads as SUCCESS, over a write that never happened.
+            // That is precisely the ok:true-over-a-non-write shape #829 exists to close, so
+            // this gate must not be able to manufacture it. A contract violation fails CLOSED.
+            if ($precondition !== true) {
+                return is_wp_error($precondition) ? $precondition : new WP_Error(
+                    'composition_precondition_invalid',
+                    'The in-lock precondition for post ' . $post_id . ' returned '
+                    . gettype($precondition) . ' rather than true or a WP_Error; the write was '
+                    . 'skipped because a precondition that cannot be read cannot be trusted. '
+                    . 'This is a caller bug. [composition_precondition_invalid]'
+                );
+            }
         }
 
         $next_version = $current_version + 1;
@@ -4255,7 +4348,10 @@ function pp_update_composition(int $post_id, array $composition, ?int $expected_
             // on GET_LOCK would otherwise rebuild the ring from its pre-lock copy and drop
             // whatever the writer it waited for had just pushed — including, since #818, a
             // preserved-bytes entry that is the only recoverable copy of a corrupt page.
-            $history   = _pp_read_composition_history_locked($post_id);
+            // Already read above when a precondition ran (#829); otherwise read now. Either
+            // way it is ONE read of the authoritative row per lock hold. `[]` is a real ring
+            // value, so the coalesce tests null and not emptiness.
+            $history   = $locked_history ?? _pp_read_composition_history_locked($post_id);
             $history[] = $entry;
             $max = pp_composition_history_max();
             if (count($history) > $max) {

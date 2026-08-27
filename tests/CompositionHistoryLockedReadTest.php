@@ -60,7 +60,9 @@
  *     survives a stale-cached writer's rebuild
  *   the same interleaving through the REAL action surface (Section 14.1)
  *   and through restore_composition, the one path where the stale warm-up is GUARANTEED
- *     rather than likely (lib/actions.php reads the ring immediately before the write)
+ *     rather than likely (lib/actions.php reads the ring immediately before the write) —
+ *     since #829 that restore REFUSES the shifted selector instead of replaying it, so what
+ *     this file pins there is that the two fixes compose (see the test's own docblock)
  *   the opposite direction: a cache holding MORE than the row does not resurrect it
  *   eviction at the ring bound follows the authoritative ring, not the cached one
  *   the two readers agree, entry for entry, over every stored shape the normalizer sees
@@ -227,6 +229,31 @@ class CompositionHistoryLockedReadTest extends TestCase
         return array_values(array_filter(pp_get_composition_history($post_id), 'pp_history_entry_is_raw'));
     }
 
+    /**
+     * The same question asked of a STORED ring value rather than of the cached reader — for a
+     * refusal, where the request's cache still holds its own pre-divergence copy and the ring
+     * worth talking about is the one the concurrent writer committed. One owner for "the raw
+     * entries on a ring", parameterized by which ring is being asked.
+     *
+     * @param mixed $stored_ring  A stored `_pp_composition_history` value.
+     */
+    private function rawEntriesOnRow($stored_ring): array
+    {
+        return array_values(array_filter(_pp_normalize_history_ring($stored_ring), 'pp_history_entry_is_raw'));
+    }
+
+    /** The stored state a refusal must leave untouched: composition, both markers, the ring. */
+    private function storedState(int $post_id): array
+    {
+        $meta = $GLOBALS['_pp_test_store']['post_meta'][$post_id] ?? [];
+        return [
+            'composition' => $meta['_pp_composition'] ?? null,
+            'version'     => $meta['_pp_composition_version'] ?? null,
+            'hash'        => $meta['_pp_composition_hash'] ?? null,
+            'ring'        => $meta['_pp_composition_history'] ?? null,
+        ];
+    }
+
     // ── 1. The measured defect ───────────────────────────────────────────────
 
     /**
@@ -329,14 +356,22 @@ class CompositionHistoryLockedReadTest extends TestCase
      * resolve the selector, and then calls pp_update_composition() on the next lines. If any
      * single surface had to be covered, it is this one.
      *
-     * STATED LIMIT, and it is a different axis from this issue: the SELECTOR still resolves
-     * against the cached ring, so `steps_back=1` here means the newest entry B could see, not
-     * the newest entry that exists. That is why the restored composition below is the
-     * ORIGINAL bands and not A's repair. #823 is about the ring the write REBUILDS, and after
-     * the fix a restore can no longer destroy the preserved bytes on its way through — which
-     * is the part that was unrecoverable.
+     * THE STATED LIMIT THIS TEST CARRIED IS NOW CLOSED, and the assertions below moved with
+     * it (#829). Until then the SELECTOR still resolved against the cached ring, so
+     * `steps_back=1` here meant the newest entry B could SEE rather than the newest entry that
+     * EXISTS, and this test pinned the consequence: `ok: true`, with the ORIGINAL bands
+     * replayed instead of the slot the selector actually named. That false success is the
+     * defect #829 closes — execute now confirms the addressed entry against the authoritative
+     * ring inside the lock and refuses when they disagree.
+     *
+     * WHAT #823 STILL OWNS HERE is the ring, and it now holds a fortiori: a refused restore
+     * writes nothing at all, so the preserved bytes it would have stepped over cannot be
+     * erased on the way through. The rebuild path this file exists to protect is exercised by
+     * the tests above; this one pins that the two fixes compose — the restore surface refuses
+     * rather than replaying, AND the entry a concurrent writer committed is still on the ring
+     * afterwards. See CompositionRestoreSelectorLockTest for #829's own coverage.
      */
-    public function testTheRestorePathPreservesTheConcurrentEntryToo(): void
+    public function testTheRestorePathRefusesAShiftedSelectorAndLeavesTheConcurrentEntryIntact(): void
     {
         $post_id       = $this->pageWithHistory();
         $b_warmed_ring = $this->storedRing($post_id);
@@ -348,20 +383,29 @@ class CompositionHistoryLockedReadTest extends TestCase
 
         $this->stageDivergence($post_id, $a_committed_ring, $b_warmed_ring);
         $this->assertNotSame($b_warmed_ring, $a_committed_ring, 'premise: the row and the cache genuinely disagree');
+        $stored_before = $this->storedState($post_id);
 
         $result = pp_execute_action('restore_composition', ['post_id' => $post_id, 'steps_back' => 1]);
-        $this->assertTrue($result['ok'], 'the restore itself must still land');
+        $this->assertFalse($result['ok'], 'the selector no longer names the entry it was resolved against');
+        $this->assertSame('history_target_shifted', $result['error_code']);
+
+        // ASSERTED AS "NOTHING MOVED", NOT AS "THE ROW STILL SAYS X". The staged ROW is frozen
+        // by construction — nothing in the harness ever writes that bucket — so reading it back
+        // would assert a value no implementation could disturb, and would hold just as green
+        // against the unfixed writer. What actually distinguishes a refusal from a write here
+        // is that the request's own stored state is untouched, so compare THAT across the call.
+        $this->assertSame($stored_before, $this->storedState($post_id), 'a refused restore writes NOTHING');
         $this->settle($post_id);
 
-        $raw = $this->rawEntries($post_id);
-        $this->assertCount(1, $raw, 'a restore must not erase the preserved bytes it stepped over');
-        $this->assertSame(self::CORRUPT_BYTES, $raw[0]['raw']);
+        // The preserved entry is therefore still the newest authoritative slot, unerased,
+        // because the write that would have stepped over it never happened.
+        $this->assertCount(1, $this->rawEntriesOnRow($a_committed_ring), 'the preserved bytes survive a refusal');
 
-        // The selector resolved against the CACHED ring — see the stated limit above.
+        // And the page still holds A's repair: a refusal writes nothing.
         $this->assertSame(
-            ['band-1', 'band-2'],
+            ['repaired'],
             array_column(array_column(pp_get_composition($post_id), 'props'), 'id'),
-            'restore replayed the snapshot its selector saw'
+            'the refused restore left the page exactly as the concurrent writer left it'
         );
     }
 

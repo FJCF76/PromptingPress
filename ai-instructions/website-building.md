@@ -57,6 +57,16 @@ write is rejected with `composition_conflict` and nothing is applied. This is pr
 not a failure to route around: re-read the page for its current state, then re-propose
 against it. Never retry the same write hoping it lands.
 
+A `restore_composition` has a THIRD posture, because what moved is the history ring rather
+than the page. Your `steps_back` / `history_index` is resolved against the ring you read and
+confirmed against the authoritative ring inside the write lock; if another writer recorded a
+state on the page in between, the entry your selector names is no longer the entry you chose,
+so the restore is refused with `history_target_shifted` and nothing is written. Do not re-read
+the PAGE and retry the same selector — re-read the RING (`wp pp operate composition-history`,
+or the undo affordance that produced the selector) and select again. `steps_back` is relative,
+so every concurrent write changes what it means; prefer a `history_index` from the current
+listing when re-proposing.
+
 That rule is about `composition_conflict` specifically. `composition_lock_failed` is the
 opposite case and the opposite advice: the writer could not take the page's lock, so it
 stored NOTHING and no state moved. Retrying the identical call is the correct response.
@@ -70,6 +80,7 @@ Stop and ask the user before proceeding when:
 - Two components of the same type exist without IDs (ambiguous targeting)
 - Custom CSS conflicts are detected in the system prompt
 - A composition write is rejected with `composition_conflict` (the page changed under you — re-read and re-propose)
+- A restore is rejected with `history_target_shifted` (the history ring changed under you — re-read the RING and re-select, preferring a `history_index` from the current listing)
 - A styling change requires writing to a surface not listed in the mutation map above
 - The requested change would require a CSS feature not supported by the theme (`:has()`, `@container`, `backdrop-filter`, `mask-image` — note `color-mix(in srgb, ...)` IS allowed, for token-adaptive shadows and fades in components.css)
 

@@ -526,9 +526,12 @@ function pp_action_composition_precondition(array $action, ?int $post_id) {
  *
  *   update_composition   full pp_validate_composition() of the incoming array, unchanged.
  *   restore_composition  the #233 contract, unchanged: it replays a snapshot VERBATIM and
- *                        REPORTS rule violations in `findings` rather than blocking. Its one
- *                        precondition is #818's `history_entry_not_restorable` on a
- *                        preserved-bytes ring slot, which is not a validation veto either.
+ *                        REPORTS rule violations in `findings` rather than blocking. Its two
+ *                        preconditions are #818's `history_entry_not_restorable` on a
+ *                        preserved-bytes ring slot and #829's `history_target_shifted` when a
+ *                        concurrent write moved what the selector names. Neither is a
+ *                        validation veto: both are statements about WHICH SLOT was selected,
+ *                        not judgments on its contents.
  *
  * A literal reading of condition (3) — "make restore validate its snapshot on this path" —
  * would break the invariant #233 exists for: restore is never blocked by current validation
