@@ -736,6 +736,10 @@ One row class is an exception to "the true bytes", and it is the one written bef
 
 After a proposal that changes a page's composition applies, the chat renders an **"Undo these changes"** link (parity with the token "Reset to default" link). It calls `restore_composition` with `steps_back` equal to the number of composition mutations in the proposal, walking the ring back to the state before the proposal. It appears only when the proposal's composition mutations all target a single page.
 
+**A refused restore prints the server's reason (#822).** The link reads `Undo failed` and the card grows one row beneath it: `Undo failed: ` followed by the message `restore_composition` refused with, verbatim. Every refusal class this link can meet arrives that way — `history_entry_not_restorable`, `history_target_shifted`, `no_history`, `history_out_of_bounds`, `composition_lock_failed`, a missing CAS baseline, and permission refusals — because the single-execute AJAX handler collapses every non-`composition_conflict` failure to its message string, so there is no code for the card to switch on and the message is the whole answer. Two exceptions, both deliberate: a `composition_conflict` keeps its own `Page changed — undo not applied` line and prints no row (#859 asks whether it should), and a TRANSPORT failure keeps the bare `Undo failed` because no server message exists to print.
+
+The refusal that makes this matter is `history_entry_not_restorable`. Repair a corrupt page from the chat and the newest ring slot holds that page's original undecodable bytes (#818), so the link's `steps_back: 1` names exactly that slot. The refusal is then the only place a chat-only operator is told the bytes survived the repair, and it names `wp pp operate composition-history --post_id=<id>` as the way to read them. The link cannot re-select a different slot — see the troubleshooting entry in [How to apply and roll back](howto-apply-and-rollback.md#troubleshooting) for the route out.
+
 ---
 
 ## `wp pp readiness` — classified findings (#496)
