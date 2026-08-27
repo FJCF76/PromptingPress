@@ -4,6 +4,56 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.17.7] — 2026-08-27 — a refused undo says why, so an operator learns their bytes survived the repair (#822)
+
+**"Undo failed" was the whole message.** After a proposal that changes a page's composition applies, the chat's post-apply card offers **"Undo these changes"**. It calls `restore_composition`, and its response handling had exactly three outcomes: success, a `composition_conflict` with its own sentence, and everything else collapsed to those two words. `resp.data` — the server's actual explanation — was read by nothing.
+
+**One of those refusals is the entire payoff of #818, and it was the one being discarded.** When a chat-driven repair lands over a corrupt page, the write no longer destroys the page's undecodable bytes; it preserves them as the newest entry on the history ring. The undo link's `steps_back` is the number of composition mutations in the proposal, so on a one-step repair `steps_back: 1` names exactly that preserved-bytes entry and the restore is refused with `history_entry_not_restorable`. That refusal's message is the **only** place a chat-only operator is ever told the bytes still exist, and it names the command that reads them: `wp pp operate composition-history --post_id=N`. An operator who repaired a corrupt page and then clicked Undo saw two words and was left believing the repair had destroyed their prior state — by the fix that had just preserved it.
+
+Since #829 a second class reaches the same branch. `history_target_shifted` means a concurrent write moved what the selector names, nothing was written, and the way forward is to re-read the ring and prefer a `history_index` from the fresh listing. That advice was being discarded too.
+
+**Outcome by code, before and after.**
+
+| The server refused with | Before | After |
+|---|---|---|
+| `history_entry_not_restorable` (#818) | `Undo failed` | `Undo failed` + the message naming the preserved bytes, their size, and `wp pp operate composition-history --post_id=N` |
+| `history_target_shifted` (#829) | `Undo failed` | `Undo failed` + the message: nothing was written, what the selector now names, and to re-select from a fresh listing |
+| `no_history`, `history_out_of_bounds` | `Undo failed` | `Undo failed` + the server's sentence |
+| `composition_lock_failed` | `Undo failed` | `Undo failed` + the server's sentence |
+| `missing_expected_version` (#404) | `Undo failed` | `Undo failed` + the sentence telling the operator to re-read the page |
+| `Permission denied.` and malformed-request refusals | `Undo failed` | `Undo failed` + the server's sentence |
+| `composition_conflict` (#404) | `Page changed — undo not applied` | unchanged — intercepted before this branch (#859) |
+| success | `Changes undone ✓` + findings | unchanged, byte for byte |
+| transport failure (the `.catch`) | `Undo failed` | unchanged — no server message exists, so the generic sentence is the whole truth |
+
+**There is no per-code switch in the browser, and that is the wire's doing rather than a shortcut.** `_pp_ai_execute_error_payload()` returns the structured envelope for `composition_conflict` and `$result['error']` as a bare STRING for every other failure, so these refusals arrive carrying no `error_code` at all. Rendering the message IS the code-aware behavior, and the messages already self-identify where the code matters — `history_target_shifted` ends by naming itself in brackets. Re-deriving a classification from text the client did not build would be a second opinion about a failure the server classified once.
+
+**Nothing is rebuilt, invented, or restyled.** The messages are single-owner and already written for the operator; the card renders them. The link keeps saying "Undo failed" — whether the failed states deserve their own vocabulary is #664's question — and the reason lands in one row beneath it, because the two messages that matter are around 370 and 690 characters and each ends in a shell command. The row leads with `Undo failed: `, reusing the link's own words, because the server's sentence never says whether the undo happened and the link's label is announced to nobody: it is a plain anchor in no live region, so for a screen-reader operator that row is the entire outcome. Placement and class are inherited from the card's existing renderers, and no CSS changed. The row was rendered at 375 and 1280 against the real stylesheet, in the real admin page, before it shipped.
+
+The row deliberately does **not** go through the shared validation-row builder. That builder prefixes `[type] index N: ` parsed off the item, which is the locator surface #793 is filed against; a refusal owns no band, so the row is one `textContent` assignment with no locator and nothing for a message to forge. Every producer reachable from this path was traced: all of them build their message from server literals and integers, so no author-, model-, or stored bytes reach the DOM here. The message is bounded at 4096 characters, the server's own number for a reflected error, and both PHP suites now assert the live refusals fit inside it AND that the number still equals the server's — by reading the constant out of the JavaScript rather than restating it. A bound that could cut these messages would remove exactly the sentence the fix exists to show, since both put their actionable half last.
+
+**Scope.** The failure path's message truth, and nothing else. The success path is untouched and pinned byte-identical. The conflict branch is untouched, with its exclusion recorded in the code rather than left to be re-derived. The transport `.catch` keeps its generic sentence on purpose, and a test now aborts the request to prove no row appears there. The double-arrow diff line (#852), the unstripped finding locator (#793), the conflict card's deletion on Re-read (#856), the failed-state vocabulary (#664) and the bare failure row's missing padding (#791, whose fourth tenant this row is and whose first multi-line one) were inventoried and left alone.
+
+**Found while working here, filed rather than folded in.** #859 — the conflict arm discards its own server sentence, the one refusal class with a documented next step. #860 — two of the undo link's three failure exits announce nothing to assistive technology. #861 — `pointer-events: none` is not a disable, so keyboard Enter re-fires the undo and reset links and duplicates a write request; measured in Chromium, and the reason the new row rewrites itself instead of stacking.
+
+### Fixed
+
+- The chat's undo card renders the server's refusal instead of discarding it, so an operator who repairs a corrupt page and then clicks Undo learns their original bytes were preserved and how to read them (#822).
+
+### Tests
+
+- `tests/js/pp-ai-chat-undo-failure.test.js` — new. Both refusal classes, the structured `missing_expected_version` arm, every payload shape that must draw nothing rather than an empty red bar, the bound and its headroom, `textContent`-only rendering, the absence of a locator prefix, and the rewrite-don't-stack guard. 13 of its first 14 tests fail on the unfixed tree.
+- `tests/e2e/ai-chat.spec.ts` — two new cases. One drives the whole flow against real WordPress with no admin-ajax mock (corrupt the page, repair it from the chat, click Undo, read the card); on the unfixed client that card ends at "Undo failed" and the test fails there. The other aborts the request to pin the transport arm's deliberate silence.
+- `tests/ChatUndoBoundTrait.php` — new. The PHP side of the card's rendering contract: the bound is read out of the shipped script, held equal to the server's own `PP_REFLECTED_ERROR_MAX`, and required to keep real headroom over each live message. It also carries a sub-second tripwire for the one line that fixes this issue, which lives inside the chat script's DOM-ready closure where no unit test in either language can reach it — deleting that line left both suites green before this landed.
+- `tests/CompositionHistoryRawPreservationTest.php`, `tests/CompositionRestoreSelectorLockTest.php` — the client boundary for each refusal class, driven through the real `pp_ai_execute` handler on seeded real state, asserting the payload is a STRING carrying the actionable clause.
+- `tests/AiChatHandlersTest.php` — `_pp_ai_execute_error_payload()` gets its first direct test: the two-shape invariant the card's two rendering arms depend on, so a third structured shape fails here rather than silently reverting the card.
+
+### Docs
+
+- `docs/reference-apply-cli.md`, `docs/howto-apply-and-rollback.md` — the undo card's section now says what the link does when the restore is refused, not only when it succeeds, and the preserved-bytes troubleshooting entry gains the chat operator's route out (the link cannot re-select, so ask the AI for a `restore_composition` step naming a `history_index`).
+
+---
+
 ## [v1.17.6] — 2026-08-27 — the conflict card stops claiming "Nothing was applied." without reading the rollback report (#797)
 
 **All three of the chat's batch-failure exits now honor one rule, which completes #755.** That issue found the chat telling operators every change had been reverted while a page sat there still holding mid-batch state, and fixed it — on one of three exits. The exit it did not reach makes the *stronger* claim: `showConflictState()` rebuilds the card from scratch and says **"This page changed while the proposal was pending (another tab, agent, or editor). Nothing was applied."** Nothing on that path ever read `rollback_errors`.

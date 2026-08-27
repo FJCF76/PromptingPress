@@ -164,7 +164,7 @@ wp pp apply restore-composition --run-id=$RUN
 
 It reverts exactly the pages this run touched to their pre-run content and leaves pages changed by other runs alone.
 
-**In the AI chat:** after a proposal that edits a page's components applies, click **"Undo these changes"** on the result card. It walks that page's history back to the state before the proposal.
+**In the AI chat:** after a proposal that edits a page's components applies, click **"Undo these changes"** on the result card. It walks that page's history back to the state before the proposal. If the server refuses the restore, the card shows the refusal beneath the link — `Undo failed:` followed by the server's own reason and what to do next — rather than only saying it failed (#822). The two refusals you are most likely to see there are the preserved-bytes one and the concurrent-write one, both covered in Troubleshooting below.
 
 ## Troubleshooting
 
@@ -179,6 +179,8 @@ Preflight fails closed rather than freezing a rollback point it can't trust. Thr
 
 **`History entry N (steps_back M) holds stored bytes that did not decode to a composition`**
 That ring slot is not a composition snapshot — it holds the bytes a repair write replaced on a corrupt page (undecodable, a valid-JSON scalar, or a valid-JSON object), kept so the repair could not destroy the only copy of them (#818, #841). Nothing is wrong and the repair did not lose them. Read the bytes with `wp pp operate composition-history --post_id=<id>` (`raw_base64` is the exact copy, `raw_sha256` verifies it — exact for every slot written by 1.17.1 and later; a slot an older release mis-filed as an object-shaped snapshot is reclassified on read and hands back that object re-encoded, not the page's own bytes), then pass a larger `steps_back` — or the `history_index` of a row showing `restorable: true` — to roll the page back to a real composition.
+
+Since #822 this message also reaches the AI chat, on the "Undo these changes" card, and a chat operator has a different route out: that link computes its own `steps_back` from the proposal and offers no way to change it, so re-selecting is not something the card can do. Read the bytes with `wp pp operate composition-history --post_id=<id>` as above, then ask the AI for a `restore_composition` step naming a `history_index` from that listing — a proposal can address any slot the link cannot.
 
 **`Refusing to apply: run "..." has no usable rollback snapshot`**
 The run has no snapshot to undo to, so `execute`/`reset` won't mutate. Re-run `wp pp operate inspect` then `wp pp apply preflight --run-id=$RUN` to establish a fresh, reversible baseline.

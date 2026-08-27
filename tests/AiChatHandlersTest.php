@@ -1311,6 +1311,76 @@ class AiChatHandlersTest extends TestCase
         $this->assertSame(1, $resp['data']['versions'][$new_id]);
     }
 
+    /**
+     * THE FAILURE-PAYLOAD SHAPE THE CHAT CARD NOW DEPENDS ON (#822).
+     *
+     * Since #822 the chat's undo card RENDERS the server's refusal instead of collapsing it to
+     * two words, and it reads that payload through two arms: a non-empty STRING, or a plain
+     * object carrying a non-empty `error`. Anything else draws nothing, which on this surface
+     * means an operator is told an undo failed and never told why — the exact bug #822 closes.
+     *
+     * The invariant that keeps those two arms complete lives HERE, in the one builder every
+     * single-execute failure passes through: `composition_conflict` is the only code that
+     * returns an ARRAY, and every other failure returns its message as a string. A third
+     * structured shape — or an array keyed `message` instead of `error` — would silently
+     * revert the card while every test in the #822 change stayed green, because those tests
+     * assert two INSTANCES of this rule rather than the rule.
+     *
+     * `_pp_ai_execute_error_payload()` had no direct test before this; it was only ever cited
+     * in comments.
+     */
+    public function testExecuteErrorPayloadKeepsTheTwoShapesTheChatCardCanRender(): void
+    {
+        $id = $this->seedPage('Payload shape', [['component' => 'hero', 'props' => ['title' => 'A']]]);
+
+        // Every non-conflict failure collapses to its message STRING.
+        $plain = _pp_ai_execute_error_payload(
+            ['ok' => false, 'error' => 'Nothing to restore.', 'error_code' => 'no_history'],
+            ['post_id' => $id]
+        );
+        $this->assertIsString($plain, 'the card renders this arm as text');
+        $this->assertNotSame('', $plain, 'an empty string draws no row at all');
+
+        // A missing `error` key must still not produce something unreadable.
+        $this->assertIsString(_pp_ai_execute_error_payload(
+            ['ok' => false, 'error_code' => 'no_history'],
+            ['post_id' => $id]
+        ));
+
+        // The one structured shape, and its `error` is what the card's object arm reads.
+        $conflict = _pp_ai_execute_error_payload(
+            ['ok' => false, 'error' => 'The page changed.', 'error_code' => 'composition_conflict'],
+            ['post_id' => $id, 'expected_version' => 0]
+        );
+        $this->assertIsArray($conflict);
+        $this->assertSame('composition_conflict', $conflict['error_code']);
+        $this->assertIsString($conflict['error']);
+        $this->assertNotSame('', $conflict['error']);
+    }
+
+    /**
+     * The OTHER array payload the chat can receive, held to the same rule (#404, #822).
+     *
+     * `missing_expected_version` is built in `_pp_ai_execute_response()` rather than the
+     * payload builder above, and `ppChatIsCompositionConflict()` does not match it — so it
+     * reaches the undo card's generic branch as an object, and the card reads `.error`. The
+     * existing tests for this refusal assert only its `error_code`.
+     */
+    public function testMissingBaselineRefusalCarriesTextTheChatCardCanRender(): void
+    {
+        $id = $this->seedPage('Baseline text', [['component' => 'hero', 'props' => ['title' => 'A']]]);
+
+        $resp = _pp_ai_execute_response([
+            'type' => 'action', 'name' => 'restore_composition',
+            'params' => ['post_id' => $id, 'steps_back' => 1],
+        ]);
+
+        $this->assertFalse($resp['ok']);
+        $this->assertSame('missing_expected_version', $resp['data']['error_code']);
+        $this->assertIsString($resp['data']['error']);
+        $this->assertNotSame('', $resp['data']['error']);
+    }
+
     public function testSingleExecuteHostileExpectedVersionRejectedByValidation(): void
     {
         // The single-execute mandate checks baseline PRESENCE; a malformed non-integer
