@@ -493,8 +493,10 @@ pp_get_component('mycomponent', [
 > `template_owned_component` on every write-time path, and it will be dropped from the catalog
 > the AI reads. `restore_composition` is the one deliberate exception (#233): it replays stored
 > history, so it writes the chrome and reports it as a finding rather than refusing the restore.
-> (It can still refuse for a reason unrelated to validation — a ring slot holding preserved bytes
-> rather than a composition, #818 — but no validation rule ever vetoes what it replays.)
+> (It can still refuse for two reasons unrelated to validation — a ring slot holding preserved
+> bytes rather than a composition (#818), and a concurrent write that moved what your selector
+> names, refused with `history_target_shifted` so you re-select rather than replay a snapshot you
+> did not choose (#829) — but no validation rule ever vetoes what it replays.)
 >
 > The drift guards in `tests/NavReadinessTest.php` read `base.php` back and fail if you forget.
 > Calling it from any other template (`front-page.php`, `single.php`, …) needs none of this.
