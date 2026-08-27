@@ -4,6 +4,54 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.17.2] — 2026-08-27 — A restore can no longer replay a different snapshot than the one you picked (#829)
+
+**`restore_composition` resolved `steps_back` / `history_index` against a ring read taken BEFORE the write lock, so a concurrent write could move what your selector meant. The restore then replayed a snapshot you never chose and reported `ok: true`.**
+
+This is the selection half of the read window #823 closed for the ring rebuild. The lock that serializes composition writes does not open until `pp_update_composition()`, and restore did all of its choosing above that line: read the ring through the object cache, resolve the selector against that copy, look up the entry, and only then call the writer. Anything that wrote to the page in between changed which entry the selector named, and nothing checked. `steps_back` is the common case and the worse one, because it is RELATIVE — it counts backwards from the newest entry, so *every* concurrent write changes its meaning.
+
+Measured on the staged-divergence harness, through the real action: with the authoritative ring holding one more entry than the caller's cached copy, `steps_back=1` named the snapshot `third`, and the call returned **`ok: true` having written `second`** — neither the entry the selector named nor the one the operator had listed. After the fix the same interleaving returns `ok: false` with `history_target_shifted` and the page is untouched.
+
+**What changed.** Execute still PICKS against the ring the caller read — that is the ring the operator listed and the one `preview` reported on, so it is the right ring to choose from. It now also CONFIRMS that pick inside the write lock, against `_pp_read_composition_history_locked()` (the authoritative in-lock reader #823 added for the rebuild). The selector is re-resolved there through the same shared resolver all three stages use, and the entry it names must be the entry that was addressed. Agreement writes. Disagreement refuses with `history_target_shifted` and writes nothing — not the composition, not either freshness marker, not a ring push.
+
+**Why confirming, and not simply re-resolving in the lock.** Re-resolving a relative selector against a moved ring hands back whatever `steps_back=1` means *now*, which is the entry the concurrent writer just pushed. That is literally the outcome this issue is about, reached by a different route. Resolution authority alone does not buy selection honesty; both halves are required, so the fix compares.
+
+**Why execute only, and not all three stages.** `validate` and `preview` do not write. Taking the per-post write lock in a read-only stage would serialize every preview of a busy page against its writers and still guarantee nothing, since the ring can move between any preview and its execute regardless of how the preview read it. What an operator actually needs is that execute writes the snapshot preview named or refuses — which is what this is, and it turns preview/execute agreement from an assumption into an enforced one. A pin asserts preview stays lock-free and still succeeds on a shifted ring.
+
+**One refusal code, not four.** When the ring has moved, the in-lock re-resolution can also fail as `no_history`, `history_out_of_bounds`, or `history_entry_not_restorable`. Returning those would name the wrong state: the operator did not select an empty ring or a preserved-bytes slot, the ring moved underneath them. Every disagreement is `history_target_shifted`, and the authoritative reason travels in the message as a code. Those three keep their meaning at validate and preview, where they describe the selector the operator actually sent against the ring they actually saw.
+
+**The mechanism.** `pp_update_composition()` gains an optional fourth parameter: a read-only precondition evaluated inside the per-post lock, after the compare-and-swap and before any write. The writer cannot know what a selector means and the action cannot open the lock, so the seam is a callable the action supplies. It receives the authoritative ring already read, and the rebuild reuses that same array — **one ring read per lock hold**, not two, because decoding a ten-entry row twice inside a critical section is time every concurrent writer to that post waits through. Null precondition, null cost: the read only happens when a precondition exists.
+
+The gate fails closed. Only a literal `true` proceeds; a `WP_Error` refuses with that error; anything else refuses with `composition_precondition_invalid`. That strictness is load-bearing rather than fussy — a precondition returning `null` or `false` would otherwise propagate a falsy non-`WP_Error` out of the writer, which every caller's `is_wp_error()` check reads as SUCCESS over a write that never happened, which is the exact false-success shape this release closes.
+
+**Ordering is unchanged.** The compare-and-swap still answers first: a stale `expected_version` means "the page moved under you", which subsumes a moved selector and is the error callers already know how to retry. Pinned, so the #13 contract is not quietly reordered.
+
+**#233 is untouched.** This says nothing about any snapshot's contents. It says the slot named is not the slot addressed — a precondition failure of the same species as `no_history` and `history_out_of_bounds`, exactly like #818's. Every ring entry carrying a composition still restores verbatim and still reports its findings, however illegal today's rules find it.
+
+**Stated limit, and it is real.** The authoritative reader falls back to the cached ring when there is no usable database handle or when the read fails — returning "empty" there would wipe up to ten ring slots on the rebuild path, which is a data-loss fix opening a data-loss path. The fallback returns the same cached ring the caller already resolved against, so the confirmation agrees by construction and the restore behaves as it did before this release. The guarantee therefore holds whenever the authoritative read succeeds, and a database blip degrades to the old behavior rather than refusing every restore on the site. That the envelope cannot say which mode it ran in is filed as #844; the `from` side of the change record is still a pre-lock cached read, filed as #845.
+
+**Operator gain:** a restore can no longer silently replay a different snapshot than the one you addressed. If the ring moved, you are told, nothing is written, and you re-select — preferring a `history_index` from the fresh listing, which stays stable until the ring evicts.
+
+### Fixed
+
+- **`restore_composition` confirms its selector inside the write lock (#829).** The entry resolved before the lock must still be the entry the selector names against the authoritative ring, or the restore is refused with `history_target_shifted` and nothing is written. Closes a false success in the one verb the product sanctions for repair.
+- **The refusal reaches the surfaces that meet it.** It travels through the chat batch executor as a refused step, and the code is taught in the AI action catalog (built from `description`, the #719 rule) — the chat's "Undo these changes" link is the caller most likely to hit a shifted ring.
+- **One authoritative ring read per lock hold.** The confirmation and the ring rebuild now share a single read instead of decoding the same row twice inside the critical section.
+- **A malformed in-lock precondition fails closed** with `composition_precondition_invalid` rather than returning a falsy value that reads as success.
+
+### Docs
+
+- `docs/reference-apply-cli.md` — `history_target_shifted` added to the restore error list; the precondition section now names both preconditions and states the degraded-read limit.
+- `docs/howto-apply-and-rollback.md` — a rollback walkthrough now covers the ring-moved refusal and when to prefer `history_index` over `steps_back`.
+- `docs/operating-loop-safety.md` — the #823 gate row no longer describes selection as uncovered, and the carve-out row lists the new refusal.
+- `docs/AI_IMPLEMENTATION_RECIPES.md`, `AI_CONTEXT.md`, `ai-instructions/website-building.md`, `ai-instructions/add-component.md` — restore's precondition count corrected from one to two throughout, the `pp_update_composition()` signature row updated for the fourth parameter, and the chat's concurrency taxonomy gains a third case with its own posture (re-read the RING, not the page).
+
+### Tests
+
+- `tests/CompositionRestoreSelectorLockTest.php` — new. 22 tests over the staged-divergence harness: the measured defect through the real action surface for both selectors, the ring emptied / shrunk / shifted-onto-preserved-bytes arms, the precision pin (a concurrent push that does NOT move the selector still restores), uncontended byte-identity for both selectors, no-write-on-refusal, the in-lock read, CAS-answers-first, both degradation paths, the whole-entry comparison against two entries with identical compositions, and the writer-level precondition contract. 12 of 22 are red against the unfixed resolver; the 10 that stay green are guard pins for behavior that must not move.
+- `tests/CompositionHistoryLockedReadTest.php` — the restore-path test's "STATED LIMIT" docblock described this exact hole as open. Rewritten to the new contract, asserting the refusal and that nothing was written.
+- `tests/CorruptPageRepairCarveOutTest.php` — docblock corrected: restore has two preconditions, and the second is reachable inside the carve-out.
+
 ## [v1.17.1] — 2026-08-27 — The undo that crashed: an object-shaped history slot is preserved, not replayed (#841)
 
 **A page whose stored composition was a JSON object got filed on the history ring as a restorable snapshot. Selecting it crashed the command instead of restoring anything — on the exact route the release notes tell you to take.**
