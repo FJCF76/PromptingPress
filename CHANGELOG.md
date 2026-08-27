@@ -4,6 +4,64 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.17.5] — 2026-08-27 — the operator's approval gate stops calling a corrupt page empty (#836)
+
+**This closes the arc's last lie.** #725 stopped `inspect-composition` answering `[]` for a page it could not read. #748 stopped the band-level actions calling such a page blank when they refused. #750 stopped the chat's system prompt describing it as empty to the model. Each removed one instance of ruling R-C's violation — *a corrupt page is never described as empty* — and one instance survived all three: the diff the operator reads **before clicking Apply**.
+
+`update_composition` and `restore_composition` built their envelope's `changes[].from` (and preview's `before`) with `pp_get_composition()`, which is literally `pp_get_composition_result($id)['composition']` — and a `!ok` classification always carries `composition => []`. So the before side of a repair reported that the page had contained nothing. Those two verbs are the only composition actions declaring `requires_composition => false`, which is precisely why the #748 precondition gate — the thing that refuses every *other* composition action on a corrupt page before it can build a diff — never fired on them.
+
+**#750 turned a dormant gap into the expected path, and that is what made this urgent.** Before it, the model was told the page was blank, so it proposed `add_component`, which #748 refused; no `update_composition` proposal was ever generated for a corrupt page and the `from: []` never rendered. After it, the corruption block instructs the model to send exactly one whole-composition repair step and #756's carve-out admits it. The card therefore rendered "Full composition replacement: 0 → N components" with an empty removed-types list, on the last human checkpoint before a whole-composition replacement lands over recoverable bytes — while the corruption block in the same conversation asked the operator what the page should contain. They answered that question reading a card saying it currently contained nothing.
+
+### Fixed
+
+- **One owner builds the before state, and four call sites read through it (#836).** `_pp_composition_before_state()` (`lib/actions.php`) replaces the `pp_get_composition()` call in `update_composition`'s preview and execute and `restore_composition`'s preview and execute. On an `ok` classification it returns `$result['composition']` — the identical expression the old accessor evaluated — so the healthy and blank envelopes are unchanged. On `!ok` it returns an honest marker instead.
+- **The marker, and why it lives inside `from`.** `['unreadable' => true, 'classification' => <the classifier's noun>, 'message' => <the shared integrity sentence>]`. `from => null` was the obvious alternative and is the wrong one: null already MEANS "there was no prior value" on `create_page`, on `create_redirect`'s execute and on the derived-token changes in `lib/apply.php`, so it would have re-enacted this same bug one type over. A sibling key (`from_error` beside an emptied `from`) fails the same way for a different reader — a consumer reading `from` and not the sibling still gets the lie, which is today's fail-open exactly. An object in `from` is fail-safe: nothing can mistake it for a list, including a consumer that never heard of this change.
+- **Both rendering surfaces, enumerated and pinned.** The server value is the single root, and exactly two surfaces render it. The **chat proposal card** (`assets/js/pp-ai-chat.js`) draws the diagnosis as an amber `pp-ai-step-warning` notice above the summary and suppresses the added / removed / reordered / content-changed lines, each of which answers "what is different" — a question with no answer when the before side could not be read, and whose computation against a coerced `[]` is exactly how the card came to show an empty removed list for a page full of bytes. `restore_composition` draws through the generic diff-line renderer instead, which now reads `unreadable (<classification>)` with the sentence beneath rather than JSON-stringifying the marker and truncating it at 80 characters. The **WP-CLI envelope** (`wp pp action preview|execute`) needed no change of its own: `_pp_cli_emit_json()` prints the envelope verbatim, so it became honest the moment the value did. The v1.17.0 smoke saw `from: []` there as well as on the card, which is the evidence the root was shared rather than chat-only.
+- **No new vocabulary anywhere.** The classification is passed through from `pp_classify_composition_value()` and the sentence comes from `pp_composition_integrity_message()` — the two single owners #650/#652 exist to protect. The JS prints `message` verbatim and never composes prose; the PHP tests assert it against its owner rather than against a literal.
+
+### Envelope compatibility
+
+- **`changes[].from` was never list-shaped envelope-wide, and that is checkable rather than rhetorical.** It is per-action shaped and always has been: `null` (`create_page`), a status string (`publish_page`), a token value (`lib/apply.php`), and an associative **object** on both redirect actions, which carry `['to' => …, 'code' => …]`. A consumer assuming list-ness of an arbitrary `from` was already wrong on shipped actions. A regression test asserts the shipped object-in-`from` case directly.
+- **Every consumer was audited, and the list is short.** In PHP: `array_column($result['changes'], 'token')` twice in `lib/cli.php` and a `count()` on the same array, all on token-scoped actions that never see a composition envelope; and `_pp_cli_emit_json()`, a JSON sink. In JS: the chat card, which already gated its composition renderer on `Array.isArray(change.from)` and so degraded rather than broke. The envelope's `before` field has no production reader in PHP or JS at all. Nothing passes the envelope through `apply_filters`, so there is no plugin surface on it.
+- **Documented in the established idiom.** `docs/reference-apply-cli.md` carries a ⚠️ breaking-change note with the state table and the instruction to branch on `unreadable` before treating `from` as a list; `AI_CONTEXT.md` records it in the #725/#750/#818 paragraph; `ai-instructions/playbook-inspect-fix.md` teaches the agent the positive half of the rule it already stated negatively ("do not treat `[]` from any surface as permission to overwrite").
+
+### The line that must hold
+
+A fix reporting the marker everywhere would have replaced one lie with another, so the negative half is pinned on all four call sites, split per verb so a mutation local to either is caught rather than masked by the other's coverage:
+
+| stored `_pp_composition` | `changes[].from` |
+|---|---|
+| absent, blank, or the literal `[]` | `[]` — a blank page's truth, unchanged |
+| a valid JSON list | that list, byte-identical to the pre-#836 envelope |
+| `decode_error` / `unexpected_shape` | the marker |
+
+### Reader posture, stated rather than assumed
+
+The helper reads through the **cached** `pp_get_composition_result()` and does **not** call `pp_composition_db_handle()`, so it is not a sixth consumer of that capability census. That follows the #750 precedent: this is a context/display read, and no machine gate consumes the value — it reaches `before` and `changes[].from`, nothing reads either, and the write is still governed by the `expected_version` CAS. Execute reads it *before* `pp_update_composition()` runs, so no post-write read exists to go stale. What that does **not** claim: the card is a human gate, and tightening it against a stale cache is a concurrency question tracked separately as #845. Switching this read to the uncached path would be the wrong shape of fix for it.
+
+### Not in scope, deliberately
+
+- **The overwrite itself is not re-gated.** Ruling D-1 (#767/#756) *admits* these two verbs on a corrupt page as the repair route, and #818 preserves the bytes on the ring. #836 is about the approval view, not the lock.
+- **No preserved-bytes or repair-route line on the card.** `pp_corrupt_repair_route_message()` owns that sentence, and its #756 paragraph deliberately declines to cover the chat-proposal route — an operator reading this marker is looking at that very proposal, so reciting the CLI commands for it would be advice about a surface they are not on. Extracting its preservation tail into a new owner would touch a six-caller census in a change about a diff card.
+- **No CSS.** The notice reuses `pp-ai-step-warning`, an existing in-step class already applied to bare divs elsewhere in the same file, so no rendered pin moved.
+
+### Tests
+
+- **`tests/CompositionBeforeStateTruthTest.php`** (new, 15 tests / 172 assertions): the marker on all four call sites and on preview's `before`; both classifications, including `unexpected_shape` reached by the raw-non-string-scalar branch as well as by the JSON-object branch; the blank and healthy negatives per verb; the CLI sink driven for real and decoded back, including on stored bytes that are not valid UTF-8 (the input `JSON_INVALID_UTF8_SUBSTITUTE` exists for, where an ASCII-clean fixture proves only the easy half); the marker's exact key set, since the JS fixtures are hand-built and a rename would otherwise pass both suites; and the opted-out census **derived from the action registry** rather than from a typed list, so a future action opting out of the #748 gate fails this test instead of shipping an unrouted `from`.
+- **JS** (`pp-ai-chat-proposal`, `pp-ai-chat-preview-render-isolation`): the predicate's positives and five negative shapes, the summary's suppression and its separate `notice` key, both renderers, `textContent`-never-`innerHTML`, and the regression pins that every non-marker payload takes exactly the branch it took before.
+- Red-proven in a copied tree with only the changed source reverted: 6 of the new PHP tests and 13 of the new JS tests fail against pre-fix code; the rest are regression pins that correctly pass in both.
+
+### Hardening found in review
+
+- **The marker branch is gated on `change.path === 'composition'`, not on shape alone.** `changes[].from` carries author- and model-controlled data on the per-prop diff paths (`_pp_diff_props` / `_pp_diff_style` build it out of stored prop and style values, which are free-form), so a stored prop shaped like the marker satisfies the predicate on its own. Ungated, planting one would have replaced a real before-value with a fake corruption notice carrying attacker-chosen text — this bug wearing a disguise, on the surface whose entire job is telling the truth about the before state. Pinned.
+- **The predicate requires a non-empty string `classification` as well as `message`.** Requiring a noun is not enumerating which one: which classifications exist stays `pp_classify_composition_value()`'s to say, so a third noun added there still renders as a corruption notice. Without the clause a marker missing the key painted the literal text `unreadable (undefined)` on the approval gate.
+
+### Rendered
+
+Both card variants were rendered in headless Chromium at 375 and 1280 across five states — corrupt, genuinely blank, a healthy diff, restore-on-corrupt, and a stress case with a nine-digit page id and a single band — and inspected. No clipping, no horizontal overflow, and the blank and healthy cards are unchanged.
+
+---
+
 ## [v1.17.4] — 2026-08-27 — every in-lock composition read names the same row, and the ring entry's marker comes from it (#825, #828)
 
 **`pp_update_composition()` makes four reads inside its per-post write lock. Two of them could name a postmeta row nothing else in the system reads, and a third asked the object cache. All four now agree with `get_post_meta($id, $key, true)` and with each other.**
