@@ -539,12 +539,14 @@ function pp_ai_format_params(array $params): string {
  * READS THE CACHED CLASSIFIER, DELIBERATELY. This builds CONTEXT — it is a reader, not a
  * gate — so it takes the same cached read every diagnostic surface takes
  * (pp_get_composition_result), not the uncached pp_get_composition_result_authoritative()
- * that exists for gate-opening decisions only (its docblock states the asymmetry). Same
- * choice, same reason, as _pp_batch_unreadable_targets() (lib/actions.php), which uses the
- * cached reader to decide what a refusal is ABOUT and the authoritative one only where an
- * exemption is granted. A cached classification that has gone stale mid-request describes
- * the page one moment out of date; a gate opened on one would be a vulnerability. The
- * cache-vs-row divergence class itself is recorded in #833.
+ * that exists for gate-opening decisions only (its docblock states the asymmetry). The
+ * OPPOSITE choice, for the opposite reason, from _pp_batch_target_refusal_reason()
+ * (lib/actions.php): that one is the #749 refusal's source owner, and since #833 it reads
+ * the row and fails closed with no handle, because it decides whether a write may proceed.
+ * A cached classification that has gone stale mid-request describes the page one moment out
+ * of date, which is the honest cost of a context block; a GATE resting on one is the
+ * vulnerability #833 recorded. Nothing here gates anything, so the staleness is disclosed
+ * and accepted rather than paid for with a per-request query.
  *
  * @param int $post_id  WordPress post ID.
  * @return array  [] when the post does not exist — the caller's `if ($page_ctx)` guard is
