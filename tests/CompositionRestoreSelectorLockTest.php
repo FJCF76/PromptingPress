@@ -92,9 +92,14 @@ use PHPUnit\Framework\TestCase;
 // alone would fatal on the missing class, and a rename on either side would break the suite
 // the moment the load order stopped being alphabetically lucky.
 require_once __DIR__ . '/CompositionHistoryLockedReadTest.php';
+// The chat-card rendering contract this file's #822 test shares with
+// CompositionHistoryRawPreservationTest — required explicitly for the same load-order reason.
+require_once __DIR__ . '/ChatUndoBoundTrait.php';
 
 class CompositionRestoreSelectorLockTest extends TestCase
 {
+    use ChatUndoBoundTrait;
+
     /** Undecodable bytes — the #818 preserved-entry trigger. */
     private const CORRUPT_BYTES = '{"component":';
 
@@ -592,6 +597,78 @@ class CompositionRestoreSelectorLockTest extends TestCase
         $this->assertFalse($batch['ok'], 'the batch reports a refused step');
         $this->assertSame('history_target_shifted', $batch['steps'][0]['error_code']);
         $this->assertSame(0, $batch['failed_at'], 'and stops on it like any refused step');
+    }
+
+    /**
+     * THE UNDO LINK'S OWN CHANNEL, WHICH IS NOT THE BATCH ONE (#822). Section 14.1: the chat's
+     * "Undo these changes" affordance posts a SINGLE `pp_ai_execute` — type `action`, name
+     * `restore_composition`, `steps_back` derived from the proposal's composition mutations —
+     * so the handler under test here is `_pp_ai_execute_response()`, not the batch executor
+     * pinned above.
+     *
+     * WHAT THIS PINS is the shape and content of what reaches the browser, because that is
+     * where the reason was being dropped: the card rendered "Undo failed" and discarded
+     * `resp.data`. `_pp_ai_execute_error_payload()` (lib/ai-chat.php) returns the structured
+     * envelope for `composition_conflict` and the bare message STRING for everything else, so
+     * a shift arrives as a string carrying no `error_code` — the client renders it as text.
+     * An array here would fall through that arm and the card would silently go back to two
+     * words, so the shape is asserted as hard as the content.
+     */
+    public function testTheChatUndoChannelDeliversTheShiftRefusalAsAMessage(): void
+    {
+        $post_id = $this->pageWithTwoPriorStates();
+        $this->stageConcurrentPush($post_id, [
+            ['component' => 'hero', 'props' => ['id' => 'a-wrote-this']],
+        ]);
+        $state_before = $this->storedState($post_id);
+
+        $undo = _pp_ai_execute_response([
+            'type'   => 'action',
+            'name'   => 'restore_composition',
+            'params' => [
+                'post_id'          => $post_id,
+                'steps_back'       => 1,
+                'expected_version' => pp_get_composition_marker($post_id)['version'],
+            ],
+        ]);
+        $this->settle($post_id);
+
+        $this->assertFalse($undo['ok']);
+        $this->assertIsString(
+            $undo['data'],
+            'the client renders this branch as text; an array here would fall through its string arm'
+        );
+        $this->assertStringContainsString('Nothing was written.', $undo['data']);
+        $this->assertStringContainsString(
+            'wp pp operate composition-history --post_id=' . $post_id,
+            $undo['data'],
+            'the route back to a current listing is what the operator does next'
+        );
+        $this->assertStringContainsString('[history_target_shifted]', $undo['data']);
+
+        $this->assertSame($state_before, $this->storedState($post_id), 'a refused restore writes NOTHING');
+    }
+
+    /**
+     * THE CLIENT'S BOUND MUST NOT BE ABLE TO CUT THIS MESSAGE (#822), and this is the LONGER
+     * of the two refusals the undo link can meet — so it is the one the headroom assertion
+     * bites on first. See ChatUndoBoundTrait for why a PHP test reads the chat script at all;
+     * CompositionHistoryRawPreservationTest makes the same assertions for
+     * `history_entry_not_restorable`.
+     */
+    public function testTheShiftRefusalFitsTheChatCardsBound(): void
+    {
+        $post_id = $this->pageWithTwoPriorStates();
+        $this->stageConcurrentPush($post_id, [
+            ['component' => 'hero', 'props' => ['id' => 'a-wrote-this']],
+        ]);
+
+        $result = pp_execute_action('restore_composition', ['post_id' => $post_id, 'steps_back' => 1]);
+        $this->settle($post_id);
+
+        $this->assertSame('history_target_shifted', $result['error_code']);
+        $this->assertChatUndoCardCanRenderWhole($result['error']);
+        $this->assertChatUndoBoundTracksTheServer();
     }
 
     /**

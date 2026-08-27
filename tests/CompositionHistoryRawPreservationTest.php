@@ -147,9 +147,15 @@ if (!class_exists('WP_CLI')) {
 }
 
 require_once dirname(__DIR__) . '/lib/cli.php';
+// The chat-card rendering contract this file's #822 tests share with
+// CompositionRestoreSelectorLockTest. Required explicitly for the same reason lib/cli.php is:
+// nothing autoloads tests/, so running this file alone must not depend on load order.
+require_once __DIR__ . '/ChatUndoBoundTrait.php';
 
 class CompositionHistoryRawPreservationTest extends TestCase
 {
+    use ChatUndoBoundTrait;
+
     /** The exact undecodable bytes from the filed repro. */
     private const CORRUPT_BYTES = '{"component":';
 
@@ -956,6 +962,118 @@ class CompositionHistoryRawPreservationTest extends TestCase
         $this->assertFalse($batch['ok'], 'the batch reports a refused step, it does not crash');
         $this->assertSame('history_entry_not_restorable', $batch['steps'][0]['error_code']);
         $this->assertSame(0, $batch['failed_at'], 'and the batch stops on it like any refused step');
+    }
+
+    /**
+     * THE CHANNEL THAT HAD TO CARRY THE MESSAGE, AND DID NOT (#822). Section 14.1: both calls
+     * below are the ones the chat's own JavaScript makes, through the handler behind
+     * `wp_ajax_pp_ai_execute`, not a helper-only slice.
+     *
+     *   1. the operator repairs the corrupt page from the chat  -> update_composition
+     *      (this is the write that pushes the preserved-bytes entry, #818)
+     *   2. the post-apply card offers "Undo these changes"      -> restore_composition,
+     *      steps_back: 1 — which now names that entry, and is refused
+     *
+     * WHAT THIS PINS is the CLIENT BOUNDARY, because that is where the message was being
+     * dropped. `_pp_ai_execute_error_payload()` (lib/ai-chat.php) returns the structured
+     * envelope for `composition_conflict` and the bare message STRING for everything else, so
+     * `resp.data` here is a string carrying no `error_code` — which is why the fix is
+     * "render what arrived" rather than a per-code switch in the browser. If this ever
+     * becomes an array, the client's string arm stops matching and the card silently goes
+     * back to two words, so the SHAPE is asserted as hard as the content.
+     *
+     * And the content is asserted by CLAUSE, not verbatim: the route to the bytes is the half
+     * that matters, and a copy edit elsewhere in the sentence should not fail a test.
+     */
+    public function testTheChatUndoChannelDeliversThePreservedBytesRefusalAsAMessage(): void
+    {
+        $post_id  = $this->corruptedPage();
+        $baseline = pp_get_composition_marker($post_id)['version'];
+
+        // 1. The repair, exactly as the chat sends it (CAS baseline included — the #404
+        //    mandate refuses a composition-mutating action without one).
+        $repair = _pp_ai_execute_response([
+            'type'   => 'action',
+            'name'   => 'update_composition',
+            'params' => [
+                'post_id'          => $post_id,
+                'composition'      => $this->repairBands(),
+                'expected_version' => $baseline,
+            ],
+        ]);
+        $this->assertTrue($repair['ok'], 'premise: the chat-driven repair lands');
+        $ring = pp_get_composition_history($post_id);
+        $this->assertSame(
+            self::CORRUPT_BYTES,
+            end($ring)['raw'],
+            'premise: the newest ring slot is now the preserved bytes, which is what makes the undo hit this'
+        );
+
+        // 2. The undo link's request, with the baseline the card refreshed from the repair
+        //    response (assets/js/pp-ai-chat.js reads composition_version off it).
+        $undo = _pp_ai_execute_response([
+            'type'   => 'action',
+            'name'   => 'restore_composition',
+            'params' => [
+                'post_id'          => $post_id,
+                'steps_back'       => 1,
+                'expected_version' => $repair['data']['composition_version'],
+            ],
+        ]);
+
+        $this->assertFalse($undo['ok']);
+        $this->assertIsString(
+            $undo['data'],
+            'the client renders this branch as text; an array here would fall through its string arm'
+        );
+        $this->assertStringContainsString(
+            'wp pp operate composition-history --post_id=' . $post_id,
+            $undo['data'],
+            'the route to the preserved bytes is the half of the message the card exists to show'
+        );
+        $this->assertStringContainsString('preserved rather than discarded', $undo['data']);
+        $this->assertStringContainsString('select an earlier entry', $undo['data']);
+
+        // The refusal wrote nothing: the repair still stands.
+        $this->assertSame('Repaired', pp_get_composition($post_id)[0]['props']['title']);
+    }
+
+    /**
+     * THE CLIENT'S BOUND MUST NOT BE ABLE TO CUT THIS MESSAGE, AND MUST STAY THE SERVER'S OWN
+     * NUMBER (#822). See ChatUndoBoundTrait for why a PHP test reads the chat script at all.
+     *
+     * The actionable clause sits at the END of this sentence, so a cut anywhere takes exactly
+     * the thing #818 added — and nothing on the JavaScript side can notice, because the client
+     * only ever sees whatever length it is handed. The fixture is a DELIBERATELY LARGE corrupt
+     * payload so the byte count in the message is a realistic worst case rather than the
+     * 13-byte one the other tests use.
+     *
+     * CompositionRestoreSelectorLockTest makes the same assertions for the other refusal the
+     * undo link can meet (`history_target_shifted`, the longer of the two).
+     */
+    public function testThePreservedBytesRefusalFitsTheChatCardsBound(): void
+    {
+        $post_id = $this->corruptedPage(str_repeat('{"component":', 200));
+        pp_update_composition($post_id, $this->repairBands());
+
+        $result = pp_execute_action('restore_composition', ['post_id' => $post_id, 'steps_back' => 1]);
+
+        $this->assertSame('history_entry_not_restorable', $result['error_code']);
+        $this->assertChatUndoCardCanRenderWhole($result['error']);
+        $this->assertChatUndoBoundTracksTheServer();
+    }
+
+    /**
+     * THE ONE LINE THAT FIXES #822 IS OTHERWISE UNREACHABLE FROM THE FAST LOOP.
+     *
+     * The renderer call in the undo link's failure branch lives inside the chat script's
+     * DOM-ready closure, which no vitest case can enter — deleting it leaves both unit suites
+     * green and only the Playwright spec red. This is the sub-second tripwire for that
+     * deletion; see ChatUndoBoundTrait for what it asserts and why exactly-once matters.
+     */
+    public function testTheChatUndoCardStillRoutesTheRefusalToItsRenderer(): void
+    {
+        $this->assertChatUndoFailureRendererIsWired();
     }
 
     // ── 4b. Rings written BEFORE the fix ─────────────────────────────────────

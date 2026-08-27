@@ -1528,6 +1528,223 @@ function ppChatAppendUndoFindings(card, findings) {
 }
 
 /**
+ * The bound this card puts on a refused undo's message, in characters (#822).
+ *
+ * THE SERVER'S OWN NUMBER FOR THIS SPECIES. `PP_REFLECTED_ERROR_MAX` (lib/ai-chat.php) is
+ * 4096, and it is what `_pp_clean_reflected_text()` allows a reflected WP_Error message on
+ * the PREVIEW path. The EXECUTE path this card reads does not pass through that helper —
+ * `_pp_ai_execute_error_payload()` returns `$result['error']` verbatim — so this is the only
+ * bound the undo refusal ever meets. Spelling it with the server's number keeps one answer
+ * to "how long may a reflected error be" instead of coining a second.
+ *
+ * IT HAS TO OUTRUN THE MESSAGES, or the bound defeats the fix it belongs to. Both refusals
+ * this exists for put their ACTIONABLE half LAST: `history_entry_not_restorable` ends with
+ * `wp pp operate composition-history --post_id=N` and "select an earlier entry", and
+ * `history_target_shifted` ends with that same command plus the steps_back/history_index
+ * advice. A cut anywhere before the end therefore removes exactly the sentence the operator
+ * needs. Measured at ~370 and ~690 characters, so this is roughly six times the longest
+ * thing the path can deliver — and the PHP side ASSERTS they fit rather than leaving that
+ * headroom to be re-measured by hand (CompositionHistoryRawPreservationTest and
+ * CompositionRestoreSelectorLockTest both read this constant out of this file).
+ */
+var PP_CHAT_UNDO_ERROR_MAX = 4096;
+
+/**
+ * The undo link's failed label, and the row's opening words (#822).
+ *
+ * ONE OWNER, BECAUSE THE TWO HAVE TO AGREE OUT LOUD. Three places now say this: the link on
+ * the refusal branch, the link in the transport `.catch`, and the announced row, which leads
+ * with it because the SERVER'S SENTENCE DOES NOT SAY WHETHER THE UNDO HAPPENED. The refusal
+ * opens "History entry 0 (steps_back 1) holds stored bytes that did not decode to a
+ * composition…" — the outcome is four clauses in, and for a screen-reader operator the label
+ * on the link is not announced at all (a plain anchor in `.pp-ai-post-apply-links` is inside
+ * no live region). Leading with the outcome is also this card's own convention: every other
+ * status block on it opens with one ("✓ All changes applied successfully.", "⚠ N changes
+ * could not be reverted:").
+ *
+ * It reuses the words the link has always shown rather than coining a failed-state
+ * vocabulary; whether these states deserve their own words is #664's question, not this one's.
+ */
+var PP_CHAT_UNDO_FAILED_LABEL = 'Undo failed';
+
+/**
+ * The refusal row's identity, so the renderer can find the one it already drew (#822).
+ *
+ * A HOOK, NOT A STYLE — no rule in assets/css/pp-ai-chat.css selects it, and none should:
+ * the row's appearance comes from `pp-ai-step-failed`, which it wears alongside this. It
+ * exists because `.pp-ai-step-failed` is not a usable handle (the rollback report draws its
+ * heading and every row with that class on this same card), so "is my row already here?"
+ * needs a name only this renderer answers to.
+ */
+var PP_CHAT_UNDO_FAILURE_CLASS = 'pp-ai-undo-failure';
+
+/**
+ * The server's reason for refusing an undo, bounded, or null when it sent nothing usable
+ * (#822).
+ *
+ * TWO SHAPES ARRIVE HERE, and the order is the wire's, not a preference. `wp_ajax_pp_ai_execute`
+ * hands `_pp_ai_execute_response()`'s payload straight to `wp_send_json_error()`, and
+ * `_pp_ai_execute_error_payload()` (lib/ai-chat.php) returns a STRUCTURED array for exactly one
+ * code — `composition_conflict`, which the caller's conflict branch has already taken — and
+ * `$result['error']` as a bare STRING for every other refusal. So:
+ *
+ *   history_entry_not_restorable  (#818) ─┐
+ *   history_target_shifted        (#829) ─┤
+ *   no_history / history_out_of_bounds   ─┼─► a STRING          ─► rendered
+ *   composition_lock_failed              ─┤
+ *   'Permission denied.' and friends     ─┘
+ *   missing_expected_version      (#404) ──► { error, error_code } ─► `.error` rendered
+ *   composition_conflict          (#404) ──► never reaches here (ppChatIsCompositionConflict)
+ *
+ * THERE IS NO PER-CODE SWITCH TO WRITE, and that is a property of the wire rather than a
+ * shortcut. The string arm carries no `error_code` at all, and the messages already
+ * self-identify where the code matters — `history_target_shifted` ends by naming itself in
+ * brackets (lib/actions.php). Re-deriving a classification from text this file did not build
+ * would be a second opinion about a failure the server already classified once, which is the
+ * hazard ppChatModelNote() is written against.
+ *
+ * "USABLE" IS THE FILE'S EXISTING QUESTION, ASKED ONCE. ppChatIsNonEmptyString() is the one
+ * answer to "is this text this card can print", and it deliberately accepts whitespace —
+ * trimming here would give the same question a second answer and move a contract #775 owns.
+ * Nothing reachable sends whitespace anyway: every message on this path is a server literal.
+ *
+ * NOT FOLDED IN WITH THE TRANSCRIPT LINE that reads the same field for a failed BATCH
+ * (`'Error: ' + ((resp.data && resp.data.error) || resp.data || 'Unknown error')`,
+ * executeProposal). They ask one question and give two different answers to the unusable
+ * case: that line prints 'Unknown error' as a status message, this returns null so the card
+ * draws NOTHING rather than an empty red bar under a link that already says "Undo failed".
+ * Sharing a reader would have to pick one of those, and picking this one would change what
+ * an unreadable batch payload prints on a path #749 owns. Two readers, stated, beats one
+ * reader that silently moves someone else's surface.
+ *
+ * The truncation idiom is the file's (ppChatPreviewRenderErrorText, ppChatFormatDiffValue,
+ * and _pp_clean_reflected_text on the PHP side): cut to max - 3 and mark it, so the result
+ * never exceeds the stated budget.
+ *
+ * @param  {*}             data  resp.data from a failed pp_ai_execute.
+ * @return {string|null}         The message to draw, or null for "say nothing".
+ */
+function ppChatUndoFailureText(data) {
+    var raw = null;
+
+    if (ppChatIsNonEmptyString(data)) {
+        raw = data;
+    } else if (ppChatIsPlainObject(data) && ppChatIsNonEmptyString(data.error)) {
+        raw = data.error;
+    }
+
+    if (raw === null) {
+        return null;
+    }
+
+    if (raw.length > PP_CHAT_UNDO_ERROR_MAX) {
+        raw = raw.substring(0, PP_CHAT_UNDO_ERROR_MAX - 3) + '...';
+    }
+
+    return raw;
+}
+
+/**
+ * Renders WHY an undo was refused, beneath the link that says it was (#822).
+ *
+ * The link keeps saying "Undo failed" and this says what the server said. Splitting it that
+ * way is not decoration: the two messages that make this issue worth fixing are ~370 and
+ * ~690 characters and each ends in a shell command, and the link is a two-to-four word status
+ * affordance sitting in a row beside "View Page →". Putting a paragraph in the link text
+ * would destroy the row; putting the paragraph nowhere is the bug.
+ *
+ * WHAT THE PRESERVED-BYTES MESSAGE IS. After a chat-driven repair of a corrupt page, the
+ * newest ring slot holds the page's ORIGINAL undecodable bytes rather than a composition
+ * (#818), so the undo link's `steps_back: 1` selects it and the restore is refused. That
+ * refusal is the ONLY place a chat-only operator is ever told the bytes survived the repair
+ * at all, and it names `wp pp operate composition-history --post_id=N` as the way to read
+ * them. Discarding it left the operator believing their prior state was destroyed by the
+ * fix that preserved it.
+ *
+ * PLACEMENT AND CLASS ARE INHERITED, NOT INVENTED. ppChatAppendUndoFindings() above appends
+ * a `role="status"` section to this same card on the SUCCESS path (and
+ * `.pp-ai-proposal-card [role="status"]` already carries its spacing), and
+ * ppChatAppendRollbackErrors() renders failure rows as bare `pp-ai-step-failed` divs. So
+ * this reuses both and adds no CSS. The row was rendered at 375 and 1280 against the real
+ * stylesheet before it was written: the prose wraps at its spaces inside the card's
+ * `max-width: 90%`, nothing overflows, and the class's lack of padding as a bare div is a
+ * property it already has on every rollback row beside it — pre-existing, shared, and not
+ * silently fixed here (filed separately).
+ *
+ * IT DOES NOT GO THROUGH THE SHARED ROW BUILDER, deliberately. ppChatValidationItemRow()
+ * prefixes `[type] index N: ` parsed off the item, which is the locator surface #793 is filed
+ * against. A refusal is not a finding and owns no band, so it renders as one `textContent`
+ * assignment with no prefix — there is nothing here for a message to forge, because no
+ * locator is drawn. `textContent` is also the only write: the payload is a server string and
+ * never becomes markup.
+ *
+ * IT LEADS WITH THE OUTCOME, because the server's sentence does not contain it. The refusal
+ * opens "History entry 0 (steps_back 1) holds stored bytes that did not decode to a
+ * composition…"; whether the undo HAPPENED is four clauses in, and to a screen-reader
+ * operator it is nowhere at all — `undoLink.textContent = 'Undo failed'` mutates a plain
+ * anchor in `.pp-ai-post-apply-links`, which is inside no live region and announces nothing.
+ * So this row is the entire non-visual reading of the outcome, and every other status block
+ * on this card already opens with one. The prefix is PP_CHAT_UNDO_FAILED_LABEL, the words the
+ * link itself shows, so nothing new is coined.
+ *
+ * ONE ROW PER CARD, AND IT NEEDS A REAL GUARD — the obvious reason it does not is wrong.
+ * `undoLink.style.pointerEvents = 'none'`, set before the fetch, looks like a single-shot
+ * latch and is not one: `pointer-events: none` removes an anchor as a MOUSE target while
+ * leaving it focusable, and a keyboard operator pressing Enter still dispatches `click`
+ * (measured in Chromium, not assumed). Without this branch a second activation would stack a
+ * second ~370-to-690-character row on the card and re-announce it — to precisely the operator
+ * who reached the link by keyboard. Rewriting the existing row instead is also the better
+ * answer than suppressing the second call: the row then reflects the LATEST refusal, and
+ * because it is a mutation of a region already in the DOM it announces again, which is what
+ * someone who just re-activated the link is waiting to hear. Re-enabling the link, and the
+ * duplicate request that costs, is the sibling "Reset to default" link's problem too and is
+ * filed rather than changed here.
+ *
+ * INSERTED EMPTY, THEN FILLED — AND THAT ORDER IS THE ANNOUNCEMENT. A live region that
+ * enters the DOM already holding its text is the classic case assistive technology does not
+ * read: screen readers register the region on insertion and announce subsequent MUTATIONS,
+ * so building the node, setting `textContent`, and appending last would leave the row silent
+ * for exactly the operator who most needs it read aloud. The two sibling appenders above
+ * build-then-append, and they get away with it because their card still says the outcome in
+ * text the user can find; here the row IS the payload. Do not "tidy" these statements back
+ * into declaration order.
+ *
+ * SILENT WHEN THERE IS NOTHING TO SAY. A payload this file cannot read draws no section at
+ * all, which is the same choice ppChatRenderPreviewError() makes about fragments it cannot
+ * narrate: there is no vocabulary here for "the server sent something I could not read", and
+ * inventing one is #664's question. The link's own "Undo failed" still tells the operator the
+ * undo did not happen.
+ *
+ * @param  {Element} card  The post-apply proposal card.
+ * @param  {*}       data  resp.data from the failed pp_ai_execute.
+ * @return {Element|null}  The row, existing or new, or null when nothing was drawn.
+ */
+function ppChatAppendUndoFailure(card, data) {
+    var text = ppChatUndoFailureText(data);
+
+    if (!card || text === null) {
+        return null;
+    }
+
+    var line = PP_CHAT_UNDO_FAILED_LABEL + ': ' + text;
+    var row  = card.querySelector('.' + PP_CHAT_UNDO_FAILURE_CLASS);
+
+    if (row) {
+        row.textContent = line;
+        return row;
+    }
+
+    row = document.createElement('div');
+    row.className = 'pp-ai-step-failed ' + PP_CHAT_UNDO_FAILURE_CLASS;
+    row.setAttribute('role', 'status');
+    row.setAttribute('aria-live', 'polite');
+    card.appendChild(row);
+    row.textContent = line;
+
+    return row;
+}
+
+/**
  * Names the pages and menus a failed batch's rollback did NOT restore (#755).
  *
  * The companion to ppChatRollbackSentence(): that clause tells the transcript the
@@ -3224,15 +3441,40 @@ function ppChatAppendValidationItems(container, items, className) {
                         }
                         ppChatAppendUndoFindings(card, (resp.data && resp.data.findings) || []);
                     } else if (ppChatIsCompositionConflict(resp.data)) {
+                        // DELIBERATELY UNCHANGED, AND THE ASYMMETRY IS RECORDED RATHER THAN
+                        // ACCIDENTAL (#822). This payload also carries an `error` sentence
+                        // ("…Re-read the current composition and re-apply your change.
+                        // [composition_conflict]") that this arm still discards. #822 is
+                        // scoped to the branch that had NO sentence at all, and its own
+                        // Expected names this arm as the register to match — so widening it
+                        // here would be re-deciding a branch the issue treats as settled.
+                        // The conflict class is also the one the batch surface answers with a
+                        // whole affordance (showConflictState), not a line of prose, so what
+                        // this card should offer is a design question rather than a rendering
+                        // one. Filed, not folded in.
                         undoLink.textContent = 'Page changed — undo not applied';
                         undoLink.className = 'pp-ai-link-error';
                     } else {
-                        undoLink.textContent = 'Undo failed';
+                        // The label says the undo did not happen; the row beneath says why
+                        // (#822). Every refusal that reaches here carries the server's
+                        // sentence — including #818's, which is the only place an operator
+                        // learns a repaired page's original bytes were PRESERVED and how to
+                        // read them back. Discarding it here was discarding most of what
+                        // #818 added.
+                        undoLink.textContent = PP_CHAT_UNDO_FAILED_LABEL;
                         undoLink.className = 'pp-ai-link-error';
+                        ppChatAppendUndoFailure(card, resp.data);
                     }
                 })
                 .catch(function () {
-                    undoLink.textContent = 'Undo failed';
+                    // NO ROW HERE, AND THAT IS THE POINT OF THE SPLIT. This arm is a
+                    // transport failure — the request never came back with a payload, so
+                    // there is no server message to render and the generic sentence is the
+                    // whole truth available. Reaching for `resp` would be reaching for a
+                    // variable that does not exist on this path. Pinned by the transport
+                    // case in tests/e2e/ai-chat.spec.ts, which aborts the request and asserts
+                    // this card draws NO refusal row, so the split cannot be "tidied" away.
+                    undoLink.textContent = PP_CHAT_UNDO_FAILED_LABEL;
                     undoLink.className = 'pp-ai-link-error';
                 });
             });
@@ -3781,6 +4023,11 @@ if (typeof module !== 'undefined' && module.exports) {
         getStatusMessage: ppChatGetStatusMessage,
         appendValidationItems: ppChatAppendValidationItems,
         appendUndoFindings: ppChatAppendUndoFindings,
+        undoFailureText: ppChatUndoFailureText,
+        appendUndoFailure: ppChatAppendUndoFailure,
+        UNDO_ERROR_MAX: PP_CHAT_UNDO_ERROR_MAX,
+        UNDO_FAILED_LABEL: PP_CHAT_UNDO_FAILED_LABEL,
+        UNDO_FAILURE_CLASS: PP_CHAT_UNDO_FAILURE_CLASS,
         findingClass: ppChatFindingClass,
         findingBand: ppChatFindingBand,
         findingLocator: ppChatFindingLocator,

@@ -77,6 +77,35 @@ function compositionVersion(id: number): number {
   return 0;
 }
 
+/**
+ * Replaces a page's stored composition with bytes that do not decode, WITHOUT going through
+ * `update_post_meta` (#822 fixture).
+ *
+ * The route matters. `_pp_composition`'s registered `sanitize_callback` (lib/admin.php) blanks
+ * anything that does not decode to an array, so `wp post meta update` cannot produce this
+ * state — it would silently store `''` and the fixture would be an empty page, not a corrupt
+ * one. A direct `$wpdb->update` is also how the state arises for real: a corrupt row comes
+ * from something OTHER than this theme's writer (an external plugin, a botched migration, a
+ * half-finished import), which is exactly what "bytes nobody can decode" means.
+ */
+function corruptComposition(id: number): void {
+  const raw = wpCli(
+    `wp eval 'global $wpdb; echo (int) $wpdb->update($wpdb->postmeta, ["meta_value" => "{\\"component\\":"], ["post_id" => ${id}, "meta_key" => "_pp_composition"]);'`,
+  );
+  // THE FIXTURE ASSERTS ITS OWN EFFECT. `$wpdb->update()` returns 0 when the row is absent
+  // (a change to createPage's seeding), when the key is renamed, or when the value already
+  // matches — all of which would leave a perfectly healthy page and send the test's real
+  // failure 40 lines downstream, into an assertion about the chat card. Parsed the way
+  // compositionVersion() parses, so a wp-env banner line can never be read as the count.
+  const lines = raw.split('\n').map((l) => l.replace(/\x1b\[[0-9;]*m/g, '').trim());
+  const rows = lines.filter((l) => /^-?\d+$/.test(l)).pop();
+  if (rows !== '1') {
+    throw new Error(
+      `corruptComposition(${id}) updated ${rows ?? 'no'} rows, expected 1 — the fixture did not corrupt the page`,
+    );
+  }
+}
+
 type SseEvent = Record<string, unknown>;
 
 function sseBody(events: SseEvent[]): string {
@@ -314,6 +343,119 @@ test.describe('AI Chat — streaming & apply (mock SSE)', () => {
     expect(afterUndo).toHaveLength(2);
     expect(afterUndo.map((c: { component: string }) => c.component)).toEqual(['hero', 'section']);
     expect(afterUndo[1].props.title).toBe('Remove Me');
+  });
+
+  test('Undo after a corrupt-page repair renders WHY the restore was refused (#822)', async ({ page }) => {
+    // THE FLOW THIS PINS, end to end, against real WordPress — no admin-ajax mock, so the
+    // repair, the history ring, the refusal and the message are all the server's own:
+    //
+    //   corrupt page  ──▶ chat repairs it (update_composition, the #756 carve-out)
+    //                        └─▶ the write PRESERVES the undecodable bytes as the newest
+    //                            ring entry (#818) instead of destroying them
+    //                     ──▶ the post-apply card offers "Undo these changes"
+    //                     ──▶ steps_back: 1 now names that preserved-bytes entry
+    //                     ──▶ restore is refused: history_entry_not_restorable
+    //
+    // Before #822 the card rendered that refusal as the two words "Undo failed" and dropped
+    // the message — which is the ONLY place a chat-only operator is ever told the bytes
+    // survived and how to read them. On the unfixed client this test fails at the last two
+    // assertions with an otherwise identical card.
+    pageId = createPage('E2E Chat Undo Refusal');
+    corruptComposition(pageId);
+    const baselineVersion = compositionVersion(pageId);
+
+    await gotoChat(page, pageId);
+    await mockStream(page, [
+      {
+        done: true,
+        page_baseline: { post_id: pageId, version: baselineVersion },
+        proposal: {
+          steps: [
+            {
+              type: 'action',
+              name: 'update_composition',
+              description: 'Repair the page composition',
+              params: {
+                post_id: pageId,
+                composition: [{ component: 'hero', props: { title: 'Repaired' } }],
+              },
+            },
+          ],
+        },
+      },
+    ]);
+
+    await page.fill('#pp-ai-input', 'Repair this page');
+    await page.click('#pp-ai-send');
+
+    const applyBtn = page.locator('.pp-ai-proposal-apply');
+    await expect(applyBtn).toBeVisible({ timeout: 10000 });
+    await applyBtn.click();
+
+    // The repair landed, so the card offers the undo affordance exactly as it does after any
+    // composition proposal — the operator has no way to know this one cannot be undone.
+    const undoLink = page.locator('.pp-ai-post-apply-links a').last();
+    await expect(undoLink).toHaveText('Undo these changes', { timeout: 10000 });
+
+    await undoLink.click();
+    await expect(undoLink).toHaveText('Undo failed', { timeout: 10000 });
+
+    const card = page.locator('.pp-ai-proposal-card').last();
+    await expect(card).toContainText('preserved rather than discarded');
+    await expect(card).toContainText(
+      `wp pp operate composition-history --post_id=${pageId}`,
+    );
+    // The row leads with the outcome, because the server's sentence never says whether the
+    // undo happened and the link's label is announced to nobody.
+    await expect(card.locator('.pp-ai-undo-failure')).toHaveCount(1);
+    await expect(card.locator('.pp-ai-undo-failure')).toContainText('Undo failed:');
+  });
+
+  test('a transport failure keeps the generic sentence and draws no refusal row (#822)', async ({ page }) => {
+    // THE DELIBERATE ASYMMETRY, PINNED. The `.catch` arm has no server payload to render —
+    // the request never came back — so it keeps the two-word label and must NOT grow a row.
+    // Nothing else can reach this branch: the renderer is inside the chat script's DOM-ready
+    // closure, so no vitest case can drive it, which is how an "obvious symmetry fix" would
+    // otherwise land a row on a card whose request failed in transit.
+    pageId = createPage('E2E Chat Undo Transport');
+    const baselineVersion = compositionVersion(pageId);
+
+    await gotoChat(page, pageId);
+    await mockStream(page, [
+      {
+        done: true,
+        page_baseline: { post_id: pageId, version: baselineVersion },
+        proposal: {
+          steps: [
+            {
+              type: 'action',
+              name: 'update_component',
+              description: 'Update hero title',
+              params: { post_id: pageId, component_index: 0, props: { title: 'Transport' } },
+            },
+          ],
+        },
+      },
+    ]);
+
+    await page.fill('#pp-ai-input', 'Rename the hero');
+    await page.click('#pp-ai-send');
+
+    const applyBtn = page.locator('.pp-ai-proposal-apply');
+    await expect(applyBtn).toBeVisible({ timeout: 10000 });
+    await applyBtn.click();
+
+    const undoLink = page.locator('.pp-ai-post-apply-links a').last();
+    await expect(undoLink).toHaveText('Undo these changes', { timeout: 10000 });
+
+    // Kill the transport only now, so the apply above ran against real WordPress.
+    await page.route('**/admin-ajax.php', (route) => route.abort('failed'));
+
+    await undoLink.click();
+    await expect(undoLink).toHaveText('Undo failed', { timeout: 10000 });
+
+    const card = page.locator('.pp-ai-proposal-card').last();
+    await expect(card.locator('.pp-ai-undo-failure')).toHaveCount(0);
   });
 
   test('Cancel discards a previewed proposal without applying', async ({ page }) => {
