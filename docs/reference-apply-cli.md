@@ -146,6 +146,30 @@ A page with no composition and a page with a *corrupted* composition both look e
 
 When it is non-`null`, `smells` is `[]` (the corrupt row can't be walked for smells) — read the integrity field, not the empty smell list, to decide the page is broken. The rendering paths are unaffected: `pp_get_composition()` still degrades any corrupt or non-list row to `[]`, so templates never fatal on a bad row; only these read/validate surfaces surface the distinction. `wp pp check page`, `wp pp validate site`, and `wp pp validate page` report the same integrity error rather than "no composition."
 
+### The before side of a repair write says so too (#836)
+
+⚠️ **Breaking change in 1.17.5 (#836):** on a page classified `decode_error` or `unexpected_shape`, `update_composition` and `restore_composition` report a **marker object** where they used to report `[]`. **Branch on `unreadable` before treating `from` as a list.**
+
+Those two verbs are the repair route (see the carve-out above), so they are the only two composition actions that ever run on a corrupt page — every other one is refused by the `composition_required` precondition (#748) before it builds a diff at all. Until 1.17.5 they built their before side through `pp_get_composition()`, the accessor the paragraph above describes as degrading a corrupt row to `[]`, so the receipt for a repair said the page had contained nothing. That is the same claim `inspect-composition` stopped making in #725 and the chat prompt stopped making in #750, arriving through the last surface still making it — and on the chat card it sits on the operator's approval gate, beside a prompt telling them the page is corrupt.
+
+The affected fields are `changes[].from` on both `wp pp action preview` and `wp pp action execute`, and the preview envelope's `before`:
+
+```json
+{ "path": "composition",
+  "from": { "unreadable": true,
+            "classification": "decode_error",
+            "message": "Page 234: composition data integrity error (decode_error). The stored _pp_composition is not a valid composition list — treat as corrupted, not empty." },
+  "to": [ { "component": "hero", "props": { "title": "Recovered" } } ] }
+```
+
+| stored `_pp_composition` | `changes[].from` |
+|---|---|
+| absent, blank, or the literal `[]` | `[]` — a blank page's truth, unchanged |
+| a valid JSON list | that list, unchanged |
+| `decode_error` / `unexpected_shape` | the marker object above |
+
+`classification` is the same noun `composition_decode_error` carries, from the same owner, and `message` is the sentence `wp pp check page` prints. Neither is a new vocabulary. A consumer that never learns about the marker still cannot mistake it for a composition: a composition is always a JSON **list** and the marker is always a JSON **object**. Note that `changes[].from` was never list-shaped envelope-wide — it already carries `null`, plain strings, and objects on other actions — so branch on the action you called, as before.
+
 ---
 
 ## Subcommand summary
