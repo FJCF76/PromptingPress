@@ -2339,6 +2339,139 @@ function _pp_action_error(string $name, string $scope, string $error, string $er
 }
 
 /**
+ * The BEFORE side of a whole-composition write, told truthfully (#836).
+ *
+ * WHAT THIS REPLACES AND WHY IT IS THE LAST INSTANCE OF THAT BUG. The four sites below
+ * built `changes[].from` (and preview's `before`) with `pp_get_composition()`, the legacy
+ * array-only accessor. That accessor IS `pp_get_composition_result($post_id)['composition']`
+ * (lib/wp.php), and a `!ok` classification always carries `composition => []` — so a page
+ * whose stored bytes will not decode was described to the operator as a page containing
+ * nothing. Same class as #725/#748/#750, ruling R-C: a corrupt page is never described as
+ * empty.
+ *
+ * WHY IT REACHES A HUMAN DECISION rather than only a log line. `update_composition` and
+ * `restore_composition` are the only two composition actions declaring
+ * `requires_composition => false` (they POPULATE, so requiring a composition would strand
+ * the page), which is exactly why the #748 precondition gate — the thing that refuses every
+ * OTHER composition action on a corrupt page before it can build a `from` — never fires
+ * here. And since #750 the chat's corruption block instructs the model to propose exactly
+ * one of these two verbs on such a page, and #756's carve-out admits it. So the false
+ * before-state does not sit in a diagnostic: it sits on the APPROVAL GATE, the last human
+ * checkpoint before a whole-composition replacement lands over recoverable bytes.
+ *
+ *   THE FOUR SITES, all of which now read through here:
+ *     update_composition   preview   `before` + changes[0].from
+ *     update_composition   execute   changes[0].from
+ *     restore_composition  preview   `before` + changes[0].from
+ *     restore_composition  execute   changes[0].from
+ *
+ *   THE TWO SURFACES that render what they carry:
+ *     the chat proposal card   assets/js/pp-ai-chat.js (the approval gate)
+ *     `wp pp action preview|execute`   lib/cli.php — prints the envelope through
+ *                                      _pp_cli_emit_json() verbatim, so once the VALUE is
+ *                                      honest that surface is honest with no change of
+ *                                      its own. The v1.17.0 smoke saw `from: []` there as
+ *                                      well as on the card, which is the evidence that
+ *                                      this root was shared rather than chat-only.
+ *
+ * BLANK IS NOT CORRUPT, AND `[]` IS STILL THE RIGHT ANSWER FOR ONE OF THEM. A page with
+ * absent meta, and a page storing the literal `"[]"`, both classify `ok` with an empty
+ * list — `[]` is their TRUTH, not a degradation, and they keep it. Only `!ok` produces the
+ * marker. On every `ok` input this returns exactly what `pp_get_composition()` returned, so
+ * the healthy and blank envelopes are byte-identical to their pre-#836 form.
+ *
+ * THE MARKER SHAPE, and why it lives IN `from` rather than beside it.
+ *
+ *   ['unreadable' => true, 'classification' => <the classifier's error noun>,
+ *    'message' => pp_composition_integrity_message(...)]
+ *
+ * The classification is passed through from pp_classify_composition_value() (lib/wp.php)
+ * rather than matched against a list, so lib/wp.php stays the only place the nouns are
+ * enumerated — today `decode_error` and `unexpected_shape`, named here as examples and not
+ * as a closed set. The chat predicate takes the same posture for the same reason: it
+ * REQUIRES a classification and never checks WHICH one.
+ *
+ * NAME COLLISION WORTH KNOWING BEFORE YOU GREP: `unreadable` also appears in this file as
+ * a batch-snapshot key (_pp_batch_target_refusal_reason's neighbourhood), where it is a
+ * MAP of post_id => classification string rather than a boolean. The two are unrelated
+ * shapes in unrelated envelopes; neither is being renamed, because both are shipped.
+ *
+ * `from => null` was the obvious alternative and is the wrong one: null already MEANS
+ * "there was no prior value" on shipped actions (`create_page`, `create_redirect`'s
+ * execute, the derived-token changes in lib/apply.php), so it would re-enact this very bug
+ * one type over — a real state degraded to a benign-looking one. A sibling key
+ * (`from_error` beside an emptied `from`) fails the same way for a different reader: a
+ * consumer that reads `from` and not the sibling still gets the lie, which is precisely
+ * today's fail-open. An object in `from` is fail-SAFE — it cannot be mistaken for a list by
+ * anything, including a consumer that never heard of this change.
+ *
+ * ENVELOPE COMPATIBILITY, stated rather than assumed. `changes[].from` was never "a
+ * composition array" envelope-wide; it is per-action shaped and always has been — `null`
+ * (create_page), a status string (publish_page), a token value (lib/apply.php), and an
+ * ASSOCIATIVE OBJECT on both redirect actions, which carry `['to' => ..., 'code' => ...]`.
+ * A consumer assuming list-ness of an arbitrary `from` is already wrong on shipped
+ * actions. The audited consumers: `array_column($result['changes'], 'token')` twice in
+ * lib/cli.php (token actions only, never a composition envelope), `count()` on the same
+ * array, `_pp_cli_emit_json()` (a JSON sink — an object encodes and prints), and the chat
+ * card, which ALREADY gated its composition renderer on `Array.isArray(change.from)` and
+ * so degrades rather than breaks. The envelope `before` field has no production reader in
+ * PHP or JS at all.
+ *
+ * NO SECOND SPELLING. The classification comes from pp_classify_composition_value() via
+ * the cached reader, and the sentence from pp_composition_integrity_message() — the two
+ * single owners #650/#652 exist to protect. This function invents no vocabulary; the JS
+ * that renders the marker prints `message` verbatim rather than composing prose of its own.
+ *
+ * IT DOES NOT NAME THE REPAIR ROUTE, deliberately, and the reason is in that function's
+ * own text rather than in a general rule. pp_corrupt_repair_route_message() (lib/wp.php)
+ * owns the sentence, and its #756 paragraph explicitly declines to cover the third route
+ * ruling D-1 opened — a chat proposal whose only step is one of these two verbs — because
+ * a route sentence has to be true on every surface that prints it. An operator reading
+ * THIS marker is looking at that very proposal, so reciting the CLI commands for it would
+ * be advice about a surface they are not on. The claim that IS single-owned there ("a
+ * whole-composition write repairs this page, and here is what it costs") is left where it
+ * lives; nothing is re-spelled here.
+ *
+ * A CACHED READ, and that is the recorded posture rather than an oversight. This is a
+ * CONTEXT/DISPLAY read (the #750 precedent: a reader, not a gate), so it goes through
+ * pp_get_composition_result() and does NOT call pp_composition_db_handle() — it is not a
+ * sixth consumer of that capability census. No MACHINE gate consumes this value: it
+ * reaches `before` and `changes[].from` and nothing else reads either, so no
+ * authorization, enforcement or write decision turns on it, and the write itself is still
+ * governed by the `expected_version` CAS. The one ordering that matters is already right:
+ * execute reads this BEFORE pp_update_composition() runs, so no post-write read exists to
+ * go stale.
+ *
+ * BE PRECISE ABOUT WHAT THAT DOES NOT SAY, because the card IS a gate — a human one. A
+ * stale object-cache entry could paint this marker over a page whose stored bytes are
+ * healthy, and the operator's Apply click is fed by that. It is not a regression (the
+ * pre-#836 read used the same cache and answered "0 components", which is strictly worse)
+ * and the CAS still refuses the write if the page moved underneath, but "display" is a
+ * claim about which MACHINE decisions consume the value, not a claim that nothing acts on
+ * it. Tightening the human gate is a concurrency question, tracked as #845, and switching
+ * this read to the uncached path is exactly the wrong shape of fix for it — that would
+ * make a display read the sixth consumer of a census built for gate-opening decisions.
+ *
+ * @param  int $post_id  The page whose stored composition is being replaced.
+ * @return array  The stored list, or the unreadable marker.
+ */
+function _pp_composition_before_state(int $post_id): array {
+    $stored = pp_get_composition_result($post_id);
+
+    if ($stored['ok']) {
+        return $stored['composition'];
+    }
+
+    $error = (string) $stored['error'];
+
+    return [
+        'unreadable'     => true,
+        'classification' => $error,
+        'message'        => pp_composition_integrity_message($post_id, $error),
+    ];
+}
+
+/**
  * Extracts the optional optimistic-locking baseline (#13) from an action's params.
  *
  * Returns the `expected_version` the caller based its edit on as an int, or null when the
@@ -2907,14 +3040,19 @@ pp_register_action('update_composition', [
     },
     'preview' => function (array $params): array {
         $params['composition'] = pp_normalize_composition($params['composition']);
-        $current = pp_get_composition($params['post_id']);
+        // NOT pp_get_composition() (#836). This action is admitted on a page whose stored
+        // composition will not decode, so the before side has to be able to SAY that
+        // instead of degrading it to []. See _pp_composition_before_state().
+        $current = _pp_composition_before_state($params['post_id']);
         return _pp_action_preview('update_composition', 'page', ['post_id' => $params['post_id']], $current, $params['composition'], [
             ['path' => 'composition', 'from' => $current, 'to' => $params['composition']],
         ]);
     },
     'execute' => function (array $params): array {
         $params['composition'] = pp_normalize_composition($params['composition']);
-        $current = pp_get_composition($params['post_id']);
+        // Read BEFORE the write below, so the receipt reports the state this call replaced
+        // and no cached value can go stale under it (#836).
+        $current = _pp_composition_before_state($params['post_id']);
         $result = pp_update_composition($params['post_id'], $params['composition'], _pp_action_expected_version($params));
         if (is_wp_error($result)) {
             return _pp_action_error('update_composition', 'page', $result->get_error_message(), $result->get_error_code());
@@ -3684,7 +3822,10 @@ pp_register_action('restore_composition', [
         return true;
     },
     'preview' => function (array $params): array {
-        $current = pp_get_composition($params['post_id']);
+        // NOT pp_get_composition() (#836): restore opts out of the #358 gate too, so it is
+        // reachable on a page whose stored composition will not decode, and the before side
+        // must name that rather than show []. See _pp_composition_before_state().
+        $current = _pp_composition_before_state($params['post_id']);
         $history = pp_get_composition_history($params['post_id']);
         $idx     = _pp_resolve_history_target($history, $params);
         // validate() already gated this; guard defensively so preview never indexes null.
@@ -3729,7 +3870,8 @@ pp_register_action('restore_composition', [
         return $preview;
     },
     'execute' => function (array $params): array {
-        $current = pp_get_composition($params['post_id']);
+        // Read BEFORE the write below, for the same two reasons as the preview above (#836).
+        $current = _pp_composition_before_state($params['post_id']);
         $history = pp_get_composition_history($params['post_id']);
         $idx     = _pp_resolve_history_target($history, $params);
         if (is_wp_error($idx)) {

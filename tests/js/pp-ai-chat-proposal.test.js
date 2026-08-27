@@ -53,6 +53,7 @@ const {
     getErrorStepClass,
     getStatusMessage,
     buildCompositionSummary,
+    isUnreadableComposition,
 } = require('../../assets/js/pp-ai-chat.js');
 
 // ─── getImpactWarning (server-driven from window.ppAiChat.impact_warnings) ────
@@ -1042,6 +1043,163 @@ describe('buildCompositionSummary', function () {
         var result = buildCompositionSummary(null, null);
         expect(result.fromCount).toBe(0);
         expect(result.toCount).toBe(0);
+    });
+});
+
+// ─── the unreadable-composition marker (#836) ─────────────────────────────────
+
+// String.fromCharCode over a literal or a \u escape: the source stays pure ASCII, so
+// nothing in the toolchain can silently rewrite the character it asserts on.
+const PP_ARROW = String.fromCharCode(0x2192);
+
+/**
+ * The marker's SHAPE as _pp_composition_before_state() (lib/actions.php) builds it.
+ *
+ * The message is a deliberately synthetic placeholder, NOT a copy of the real sentence.
+ * pp_composition_integrity_message() (lib/wp.php) is its single owner (#650/#652), and
+ * nothing in the JS under test parses it — the renderers print it verbatim — so copying
+ * the real bytes here would add a second spelling to buy nothing. The PHP side asserts
+ * the sentence against its owner (tests/CompositionBeforeStateTruthTest.php); this side
+ * asserts only that whatever the server sends arrives on the card intact.
+ */
+function unreadableFrom(classification) {
+    return {
+        unreadable: true,
+        classification: classification || 'decode_error',
+        message: 'SERVER SENTENCE PLACEHOLDER for ' + (classification || 'decode_error')
+    };
+}
+
+describe('isUnreadableComposition', function () {
+    test('accepts the marker the server actually sends', function () {
+        expect(isUnreadableComposition(unreadableFrom('decode_error'))).toBe(true);
+        expect(isUnreadableComposition(unreadableFrom('unexpected_shape'))).toBe(true);
+    });
+
+    // The four negatives below are the whole reason this is a named predicate rather than
+    // an inline conjunction: each one is a payload that would get PRIVILEGED rendering if
+    // the check were looser, and privileged rendering of a real composition means the
+    // operator loses the diff they were about to approve.
+
+    test('rejects a LIST that happens to carry an unreadable property', function () {
+        // typeof [] === 'object' in JS, so the !Array.isArray clause is load-bearing.
+        var list = [{ component: 'hero' }];
+        list.unreadable = true;
+        list.message = 'x';
+        expect(isUnreadableComposition(list)).toBe(false);
+    });
+
+    test('rejects a marker that cannot say what is wrong', function () {
+        // The renderers print `message`. Without it the card would paint an empty line
+        // where the diagnosis belongs, which is a quieter version of the bug being fixed.
+        expect(isUnreadableComposition({ unreadable: true, classification: 'decode_error' })).toBe(false);
+        expect(isUnreadableComposition({ unreadable: true, classification: 'decode_error', message: '' })).toBe(false);
+        expect(isUnreadableComposition({ unreadable: true, classification: 'decode_error', message: 42 })).toBe(false);
+    });
+
+    test('rejects a marker that names no classification', function () {
+        // ppChatRenderDiffLine prints this field into its short label, so an absent key
+        // would paint the literal text "unreadable (undefined)" on the approval gate.
+        // Requiring SOME noun is not the same as enumerating which — see the test below.
+        expect(isUnreadableComposition({ unreadable: true, message: 'x' })).toBe(false);
+        expect(isUnreadableComposition({ unreadable: true, classification: '', message: 'x' })).toBe(false);
+        expect(isUnreadableComposition({ unreadable: true, classification: {}, message: 'x' })).toBe(false);
+        expect(isUnreadableComposition({ unreadable: true, classification: 7, message: 'x' })).toBe(false);
+    });
+
+    test('rejects a truthy-but-not-true unreadable flag', function () {
+        expect(isUnreadableComposition({ unreadable: 'yes', message: 'x' })).toBe(false);
+        expect(isUnreadableComposition({ unreadable: 1, message: 'x' })).toBe(false);
+    });
+
+    test('rejects the ordinary values a change side already carries', function () {
+        expect(isUnreadableComposition([])).toBe(false);
+        expect(isUnreadableComposition(null)).toBe(false);
+        expect(isUnreadableComposition(undefined)).toBe(false);
+        expect(isUnreadableComposition('publish')).toBe(false);
+        // A redirect record — an associative object already shipped in a change side.
+        expect(isUnreadableComposition({ to: '/new', code: 301 })).toBe(false);
+    });
+
+    test('does NOT enumerate the classifications', function () {
+        // Which classifications exist is pp_classify_composition_value()'s to say
+        // (lib/wp.php, single owner since #144/#767). A third noun added there must still
+        // render as a corruption notice here, not fall back to a raw JSON blob.
+        expect(isUnreadableComposition(unreadableFrom('some_future_classification'))).toBe(true);
+    });
+});
+
+describe('buildCompositionSummary on an unreadable before side', function () {
+    test('refuses to call a corrupt page a page with zero components', function () {
+        var result = buildCompositionSummary(
+            unreadableFrom('decode_error'),
+            [{ component: 'hero', props: {} }, { component: 'cta', props: {} }]
+        );
+
+        // The exact string the escalation on #836 quotes as the lie on the approval gate.
+        expect(result.lines[0]).not.toContain('0 ' + PP_ARROW);
+        expect(result.lines[0]).toBe('Full composition replacement: unreadable ' + PP_ARROW + ' 2 components');
+    });
+
+    test('says what is wrong in the server\'s own words', function () {
+        var from = unreadableFrom('unexpected_shape');
+        var result = buildCompositionSummary(from, [{ component: 'hero', props: {} }]);
+
+        // VERBATIM: a sentence composed in JS would be the second spelling #650/#652 exist
+        // to prevent, on the one surface where the operator decides.
+        expect(result.notice).toBe(from.message);
+        // And SEPARATE from `lines`, because a row of the summary is styled exactly like
+        // "+ Added: hero", and this is the one thing on the card that must not be.
+        expect(result.lines).not.toContain(from.message);
+    });
+
+    test('carries no notice on any ordinary summary', function () {
+        expect(buildCompositionSummary([], [{ component: 'hero' }]).notice).toBeNull();
+        expect(buildCompositionSummary([{ component: 'hero' }], [{ component: 'cta' }]).notice).toBeNull();
+        expect(buildCompositionSummary(null, null).notice).toBeNull();
+    });
+
+    test('reports no adds, removes, reorders or content changes', function () {
+        // Each of those answers "what is different", which has no answer when the before
+        // side could not be read. Reporting them against a coerced [] is how the card came
+        // to show an empty removed-types list on a page full of bytes.
+        var result = buildCompositionSummary(
+            unreadableFrom('decode_error'),
+            [{ component: 'hero', props: { title: 'New' } }, { component: 'cta', props: {} }]
+        );
+        var text = result.lines.join('\n');
+
+        expect(text).not.toContain('+ Added');
+        expect(text).not.toContain('Removed');
+        expect(text).not.toContain('reordered');
+        expect(text).not.toContain('Content changes');
+    });
+
+    test('still lists what the page WILL contain, and counts it', function () {
+        var result = buildCompositionSummary(
+            unreadableFrom('decode_error'),
+            [{ component: 'hero', props: {} }, { component: 'cta', props: {} }]
+        );
+
+        expect(result.toCount).toBe(2);
+        expect(result.lines.join('\n')).toContain('Components: hero ' + PP_ARROW + ' cta');
+    });
+
+    test('reports the before count as unknown, not as zero', function () {
+        var result = buildCompositionSummary(unreadableFrom('decode_error'), []);
+
+        // 0 is a blank page's count and this state is not one. Nothing shipped reads
+        // fromCount, so this pins the honest value before a future reader arrives.
+        expect(result.fromCount).toBeNull();
+    });
+
+    test('leaves every non-marker before side on the counting path', function () {
+        // The regression pin for the other 99% of proposals: a real list, an empty list
+        // and a null all behave exactly as they did before #836.
+        expect(buildCompositionSummary([], [{ component: 'hero' }]).lines[0])
+            .toBe('Full composition replacement: 0 ' + PP_ARROW + ' 1 components');
+        expect(buildCompositionSummary([{ component: 'hero' }], [{ component: 'hero' }]).fromCount).toBe(1);
+        expect(buildCompositionSummary(null, null).fromCount).toBe(0);
     });
 });
 

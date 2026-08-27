@@ -341,22 +341,126 @@ function ppChatFormatDiffValue(val) {
 }
 
 /**
+ * True when a change's `from` side is the server's unreadable-composition marker (#836).
+ *
+ * The server sends this instead of `[]` for the before side of a whole-composition write
+ * on a page whose stored composition will not decode (`_pp_composition_before_state()`,
+ * lib/actions.php). The distinction it protects is the one the whole #725/#748/#750 family
+ * exists for: a genuinely blank page still sends `[]`, because `[]` is its truth, and this
+ * predicate must never claim one is the other.
+ *
+ * WHAT IT CHECKS, and each clause earns its place:
+ *
+ *   an object          — the marker is one; a list never is
+ *   NOT an array       — load-bearing, not pedantry. `typeof [] === 'object'` in JS, and a
+ *                        JSON payload can carry an array with named properties. Without
+ *                        this a list wearing an `unreadable` property would be routed to
+ *                        the corruption branch and the operator would lose a real diff.
+ *   unreadable === true — strict, so the string "true" or 1 does not qualify
+ *   a non-empty string `message` — the renderers PRINT this field. A marker without it
+ *                        would paint an empty line where the diagnosis belongs, which is a
+ *                        quieter version of the bug being fixed, so a payload that cannot
+ *                        say what is wrong is not treated as a marker at all and takes the
+ *                        ordinary path instead.
+ *   a non-empty string `classification` — the same argument, one field over.
+ *                        ppChatRenderDiffLine() prints this one into its short label, and
+ *                        an absent key there paints the literal text "unreadable
+ *                        (undefined)" on the approval gate.
+ *
+ * REQUIRING a classification is NOT the same as ENUMERATING one, and the distinction is
+ * the whole reason the clause is written this way. Which classifications exist is
+ * `pp_classify_composition_value()`'s to say (lib/wp.php) and it is the single owner of
+ * that decision (#144/#767); listing today's two nouns here would put a second copy of the
+ * classifier's vocabulary in a file that cannot be edited in the same breath as the
+ * classifier, so a third noun added there would render as a raw JSON blob instead of a
+ * corruption notice. Demanding that SOME noun is present costs none of that.
+ *
+ * BOTH DIRECTIONS MATTER, and only one of them is about lists. "The marker is never
+ * mistaken for a composition" is free — an `ok` classification is always a JSON list
+ * (pp_classify_composition_value only returns ok when pp_is_list holds), and this refuses
+ * arrays outright. The converse — "nothing else is ever mistaken for the marker" — is NOT
+ * a property of this predicate and must not be asked of it: `changes[].from` carries
+ * author- and model-controlled data on other paths (`_pp_diff_props` / `_pp_diff_style`
+ * build it straight out of stored prop and style values, which are free-form), so a stored
+ * prop shaped like this marker would satisfy every clause above. That is why the CALLERS
+ * gate on `change.path === 'composition'` — the only path the server ever sends a marker
+ * on — rather than trusting shape alone. Widening a caller without that gate would let a
+ * planted prop value hide a real before-state behind a fake corruption notice, which is
+ * this bug wearing a disguise.
+ */
+function ppChatIsUnreadableComposition(val) {
+    return !!val
+        && typeof val === 'object'
+        && !Array.isArray(val)
+        && val.unreadable === true
+        && typeof val.message === 'string'
+        && val.message !== ''
+        && typeof val.classification === 'string'
+        && val.classification !== '';
+}
+
+/**
  * Builds a human-readable summary of a composition replacement.
  * Compares from/to arrays by component type to identify adds, removes,
  * reorders, and content changes.
  *
- * Returns an object: { lines: string[], fromCount: number, toCount: number }
+ * Returns an object: { lines: string[], notice: string|null, fromCount: number|null,
+ * toCount: number }
+ *
+ * THE UNREADABLE BEFORE SIDE (#836) IS NOT A DIFF, so it does not get diffed. When the
+ * server sends the unreadable marker instead of a list, this reports the corruption and
+ * the count it will be replaced WITH, and stops. Every other line below \u2014 added, removed,
+ * reordered, content changes \u2014 answers "what is different", a question with no answer when
+ * the before side could not be read; computing them against the `[]` this used to coerce
+ * the marker into is exactly how the card came to say "0 \u2192 N components" with an
+ * empty removed list on a page full of bytes.
+ *
+ * `notice` IS SEPARATE FROM `lines`, and that is a hierarchy decision rather than a
+ * structural one. The card's whole job on this state is to stop an operator overwriting
+ * bytes they cannot see, and a sentence pushed into `lines` renders as one more unstyled
+ * row of the summary \u2014 typographically identical to "+ Added: hero" on a routine diff.
+ * Measured against the card's own family, that inverts the hierarchy: a mistyped style-slot
+ * name paints an amber `pp-ai-step-warning` step, while "this page's stored contents cannot
+ * be read" painted plain grey, because a corrupt-before preview SUCCEEDS and so carries
+ * none of the failed/impossible/fixable classes. Handing the notice back on its own key
+ * lets ppChatRenderCompositionDiff() give it that existing amber treatment without any new
+ * CSS and without touching the sentence.
+ *
+ * `fromCount` is null in that case, not 0. Nothing in the shipped card reads it (only
+ * `toCount` is, for the raw-JSON disclosure label), but 0 is the count of a blank page and
+ * this state is not one \u2014 an unknown reported as a number is the same lie one layer down.
+ *
+ * The corruption sentence is the SERVER'S, printed verbatim from `from.message`. It is
+ * built by pp_composition_integrity_message() (lib/wp.php), the single owner of how this
+ * state is said out loud; a sentence composed here would be the second spelling #650/#652
+ * exist to prevent.
  */
 function ppChatBuildCompositionSummary(from, to) {
-    var fromArr = Array.isArray(from) ? from : [];
     var toArr = Array.isArray(to) ? to : [];
+    var toTypes = toArr.map(function (c) { return (c && c.component) || '(unknown)'; });
+    var headline = 'Full composition replacement: ';
+    var componentList = 'Components: ' + toTypes.join(' \u2192 ');
+
+    if (ppChatIsUnreadableComposition(from)) {
+        return {
+            lines: [
+                headline + 'unreadable \u2192 ' + toArr.length + ' components',
+                '',
+                componentList
+            ],
+            notice: from.message,
+            fromCount: null,
+            toCount: toArr.length
+        };
+    }
+
+    var fromArr = Array.isArray(from) ? from : [];
     var lines = [];
 
-    lines.push('Full composition replacement: ' + fromArr.length + ' \u2192 ' + toArr.length + ' components');
+    lines.push(headline + fromArr.length + ' \u2192 ' + toArr.length + ' components');
 
     // Build type lists
     var fromTypes = fromArr.map(function (c) { return (c && c.component) || '(unknown)'; });
-    var toTypes = toArr.map(function (c) { return (c && c.component) || '(unknown)'; });
 
     // Count occurrences
     var fromCounts = {};
@@ -414,9 +518,9 @@ function ppChatBuildCompositionSummary(from, to) {
 
     // Component list
     lines.push('');
-    lines.push('Components: ' + toTypes.join(' \u2192 '));
+    lines.push(componentList);
 
-    return { lines: lines, fromCount: fromArr.length, toCount: toArr.length };
+    return { lines: lines, notice: null, fromCount: fromArr.length, toCount: toArr.length };
 }
 
 function ppChatShouldShowMultiStepWarning(steps) {
@@ -806,15 +910,60 @@ function ppChatGetStatusMessage(data) {
  * it and is itself unit-tested directly. Every name it reads — `document`,
  * ppChatFormatDiffValue — is already module-scope, so nothing IIFE-local was lost in
  * the move.
+ *
+ * IT HANDLES THE UNREADABLE MARKER TOO (#836), and that is not defensive coding — it is
+ * the only renderer `restore_composition` ever reaches. The composition-summary branch in
+ * ppChatRenderPreviewResult() is scoped to `update_composition`, so a restore proposal —
+ * the OTHER verb ruling D-1 admits on a corrupt page — draws its card here. Left alone,
+ * ppChatFormatDiffValue() would JSON-stringify the marker and truncate it at 80
+ * characters, which buries the diagnosis mid-object and can cut the sentence in half.
+ *
+ * THE `path` CLAUSE IS A SECURITY GATE, not a tidiness check, and it must not be dropped
+ * as redundant with the predicate. `changes[].from` carries author- and model-controlled
+ * data on other paths — `_pp_diff_props()` / `_pp_diff_style()` build it straight out of
+ * stored prop and style values, and a prop value is free-form (the meta sanitize callback
+ * only requires a decodable JSON array; no rule constrains a prop's inner shape). So a
+ * stored prop or style value shaped like the marker satisfies every clause of
+ * ppChatIsUnreadableComposition() on its own. Without this clause, planting one would
+ * replace a real before-value with a fake corruption notice carrying attacker-chosen text
+ * — hiding the before-state on the surface whose entire job is telling the truth about it,
+ * which is this bug wearing a disguise. `composition` is the only path the server ever
+ * sends a marker on, and the only other producer of that path sends a plain string
+ * (`add_component`'s "N components"), so the clause costs nothing.
+ *
+ * THE VISUAL SPLIT: a SHORT label on the from side, the sentence on its own line beneath,
+ * and the amber `pp-ai-step-warning` on the sentence rather than on the label. Three
+ * reasons, all of them rendered and looked at rather than reasoned about:
+ *   - `.pp-ai-step-diff-from` is styled `text-decoration: line-through`
+ *     (assets/css/pp-ai-chat.css), an idiom meaning "this value was replaced". Struck
+ *     through is the wrong claim to make about a diagnosis, so the marker's label does
+ *     NOT take that class — and a ~140-character struck-through paragraph would have been
+ *     unreadable regardless, which is why the label is short and the sentence is not in it.
+ *   - dropping the class also drops its `::after` arrow, leaving this line with the ONE
+ *     arrow the text node below supplies instead of the two every other diff line renders.
+ *     That duplication is pre-existing and is NOT fixed here; it is simply not inherited
+ *     onto the line an operator reads before approving an overwrite.
+ *   - `pp-ai-step-warning` is this card family's existing in-step notice class, already
+ *     used on bare divs elsewhere in this file, so the weight costs no new CSS and moves
+ *     no rendered pin.
+ * The label reuses the two nouns already in play — `unreadable` and the server's own
+ * classification — and composes no new sentence; the diagnosis is the server's, verbatim.
  */
 function ppChatRenderDiffLine(change) {
     var div = document.createElement('div');
     var label = document.createTextNode(change.path + ': ');
     div.appendChild(label);
 
+    var unreadable = change.path === 'composition'
+        && ppChatIsUnreadableComposition(change.from);
+
     var fromSpan = document.createElement('span');
-    fromSpan.className = 'pp-ai-step-diff-from';
-    fromSpan.textContent = ppChatFormatDiffValue(change.from);
+    if (!unreadable) {
+        fromSpan.className = 'pp-ai-step-diff-from';
+    }
+    fromSpan.textContent = unreadable
+        ? 'unreadable (' + change.from.classification + ')'
+        : ppChatFormatDiffValue(change.from);
     div.appendChild(fromSpan);
 
     div.appendChild(document.createTextNode(' \u2192 '));
@@ -824,6 +973,15 @@ function ppChatRenderDiffLine(change) {
     toSpan.textContent = ppChatFormatDiffValue(change.to);
     div.appendChild(toSpan);
 
+    if (unreadable) {
+        // textContent, never innerHTML: the sentence carries a page id and a
+        // classification derived from stored data, and this card is not a markup surface.
+        var note = document.createElement('div');
+        note.className = 'pp-ai-step-warning';
+        note.textContent = change.from.message;
+        div.appendChild(note);
+    }
+
     return div;
 }
 
@@ -831,9 +989,26 @@ function ppChatRenderDiffLine(change) {
  * Renders an update_composition diff: a prose summary plus the raw JSON in a disclosure.
  *
  * Module scope for the same reason as ppChatRenderDiffLine above.
+ *
+ * THE NOTICE IS DRAWN FIRST AND CARRIES WEIGHT (#836). When the before side could not be
+ * read, ppChatBuildCompositionSummary() hands the diagnosis back on its own `notice` key
+ * instead of as another row of `lines`, and it lands here as an amber
+ * `pp-ai-step-warning` div ABOVE the summary. Both halves of that are deliberate on a
+ * surface whose only job is stopping an operator overwriting bytes they cannot see: the
+ * alarm should come before the mechanics, and it should not look like "+ Added: hero".
+ * Nothing about the sentence changes — `pp-ai-step-warning` is an existing class used on
+ * bare divs elsewhere in this file, so this needs no CSS at all.
  */
 function ppChatRenderCompositionDiff(diffArea, change) {
     var summary = ppChatBuildCompositionSummary(change.from, change.to);
+
+    if (summary.notice) {
+        var notice = document.createElement('div');
+        notice.className = 'pp-ai-step-warning';
+        // textContent, never innerHTML — the sentence is built from stored data.
+        notice.textContent = summary.notice;
+        diffArea.appendChild(notice);
+    }
 
     // Summary section
     var summaryDiv = document.createElement('div');
@@ -1012,8 +1187,16 @@ function ppChatRenderPreviewResult(stepEl, diffArea, step, result) {
 
         if (result && result.success && result.data && result.data.changes) {
             result.data.changes.forEach(function (change) {
+                // The `from` clause admits the unreadable marker alongside a list (#836):
+                // the summary renderer is the surface that says "Full composition
+                // replacement", which is the claim an operator approves, so a corrupt
+                // before side has to reach it rather than fall through to the generic
+                // line. Every OTHER payload takes exactly the branch it took before —
+                // `to` must still be a list, and a `from` that is neither a list nor the
+                // marker still goes to ppChatRenderDiffLine().
                 if (step.name === 'update_composition' && change.path === 'composition' &&
-                    Array.isArray(change.from) && Array.isArray(change.to)) {
+                    Array.isArray(change.to) &&
+                    (Array.isArray(change.from) || ppChatIsUnreadableComposition(change.from))) {
                     ppChatRenderCompositionDiff(diffArea, change);
                 } else {
                     diffArea.appendChild(ppChatRenderDiffLine(change));
@@ -3379,6 +3562,7 @@ if (typeof module !== 'undefined' && module.exports) {
         findingLocator: ppChatFindingLocator,
         undoFindingsTail: ppChatUndoFindingsTail,
         buildCompositionSummary: ppChatBuildCompositionSummary,
+        isUnreadableComposition: ppChatIsUnreadableComposition,
         detectPageId: ppChatDetectPageId,
         findPageById: ppChatFindPageById,
         shouldSuggestPageSwitch: ppChatShouldSuggestPageSwitch,

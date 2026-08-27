@@ -170,6 +170,164 @@ describe('ppChatRenderPreviewResult — terminal states', () => {
         expect(s.diff.querySelector('.pp-ai-step-diff-from')).toBeNull();
     });
 
+    // ── the unreadable-composition marker on the approval gate (#836) ───────────
+    //
+    // These four drive the REAL per-step entry point, because #836 is a routing bug as
+    // much as a wording one: the branch that draws the "Full composition replacement"
+    // claim used to require `Array.isArray(change.from)`, so a corrupt before side could
+    // not reach it even once the server started telling the truth.
+
+    it('routes a corrupt before side to the composition renderer, not the generic line', () => {
+        const s = newStep({ name: 'update_composition' });
+        const failure = renderPreviewResult(s.el, s.diff, s.step, {
+            success: true,
+            data: {
+                changes: [{
+                    path: 'composition',
+                    from: {
+                        unreadable: true,
+                        classification: 'decode_error',
+                        message: 'Page 7: composition data integrity error (decode_error).',
+                    },
+                    to: [{ component: 'hero' }, { component: 'cta' }],
+                }],
+            },
+        });
+
+        expect(failure).toBeNull();
+        expect(s.diff.querySelector('.pp-ai-composition-summary')).not.toBeNull();
+        // The lie #836 was filed about, named exactly so a regression cannot hide.
+        expect(s.diff.textContent).not.toContain('replacement: 0 ' + ARROW);
+        expect(s.diff.textContent).toContain('Full composition replacement: unreadable ' + ARROW + ' 2 components');
+        // The diagnosis carries WEIGHT rather than sitting in the summary. On a card whose
+        // job is stopping a destructive approval, a corruption notice styled identically to
+        // "+ Added: hero" is the pre-#836 card with better words.
+        const notice = s.diff.querySelector('.pp-ai-step-warning');
+        expect(notice).not.toBeNull();
+        expect(notice.textContent).toBe('Page 7: composition data integrity error (decode_error).');
+        expect(notice.parentNode).toBe(s.diff);
+        // ...and it is drawn ABOVE the summary: the alarm before the mechanics.
+        expect(notice.nextElementSibling.className).toBe('pp-ai-composition-summary');
+        // The disclosure still describes what WILL be written, and is never empty (#667).
+        expect(s.diff.querySelector('.pp-ai-composition-raw summary').textContent).toContain('2 components');
+    });
+
+    it('tells the truth on a restore_composition card too, through the generic line', () => {
+        // restore_composition is the OTHER verb ruling D-1 admits on a corrupt page, and
+        // the composition-summary branch is scoped to update_composition — so this card is
+        // drawn by ppChatRenderDiffLine(), which would otherwise JSON-stringify the marker
+        // and truncate it at 80 characters, cutting the diagnosis in half.
+        const s = newStep({ name: 'restore_composition' });
+        // A synthetic placeholder, not a copy of the real sentence: the sentence has one
+        // owner in PHP (#650/#652) and nothing here parses it.
+        const message = 'SERVER SENTENCE PLACEHOLDER, long enough that a truncating '
+            + 'renderer would have to cut it somewhere before this clause ends.';
+        const failure = renderPreviewResult(s.el, s.diff, s.step, {
+            success: true,
+            data: {
+                changes: [{
+                    path: 'composition',
+                    from: { unreadable: true, classification: 'unexpected_shape', message: message },
+                    to: [{ component: 'hero' }],
+                }],
+            },
+        });
+
+        expect(failure).toBeNull();
+        // The label is SHORT and, deliberately, NOT in `.pp-ai-step-diff-from`: that class
+        // is styled line-through, an idiom meaning "this value was replaced", which is the
+        // wrong visual claim to make about a diagnosis.
+        expect(s.diff.querySelector('.pp-ai-step-diff-from')).toBeNull();
+        expect(s.diff.textContent).toContain('unreadable (unexpected_shape)');
+        // The sentence lands uncut, and carries the same weight as on the summary card.
+        const notice = s.diff.querySelector('.pp-ai-step-warning');
+        expect(notice).not.toBeNull();
+        expect(notice.textContent).toBe(message);
+        expect(s.diff.textContent).not.toContain('...');
+    });
+
+    it('never renders a marker-shaped value on a path the server cannot send one on', () => {
+        // THE SPOOFING PIN. `changes[].from` carries author- and model-controlled data on
+        // the per-prop diff paths (_pp_diff_props / _pp_diff_style build it out of stored
+        // prop values, which are free-form). Shape alone is therefore not proof: a stored
+        // prop shaped like the marker satisfies every clause of the predicate. If the
+        // renderer trusted it, a planted value would replace a real before-value with a
+        // fake corruption notice carrying attacker-chosen text — this bug in a disguise.
+        const s = newStep({ name: 'update_component' });
+        renderPreviewResult(s.el, s.diff, s.step, {
+            success: true,
+            data: {
+                changes: [{
+                    path: 'composition[0].props.title',
+                    from: { unreadable: true, classification: 'PLANTED', message: 'PLANTED NOTICE' },
+                    to: 'New title',
+                }],
+            },
+        });
+
+        // It renders as the ordinary value it is: JSON in the struck-through from-span.
+        expect(s.diff.querySelector('.pp-ai-step-warning')).toBeNull();
+        expect(s.diff.querySelector('.pp-ai-step-diff-from')).not.toBeNull();
+        expect(s.diff.textContent).not.toContain('unreadable (PLANTED)');
+        expect(s.diff.querySelector('.pp-ai-step-diff-from').textContent).toContain('PLANTED NOTICE');
+    });
+
+    it('leaves a real composition diff on exactly the path it took before', () => {
+        // The regression pin for the routing change: `to` must still be a list, and a
+        // `from` that is neither a list nor the marker still goes to the generic line.
+        const s = newStep({ name: 'update_composition' });
+        renderPreviewResult(s.el, s.diff, s.step, {
+            success: true,
+            data: {
+                changes: [{ path: 'composition', from: { to: '/new', code: 301 }, to: [{ component: 'hero' }] }],
+            },
+        });
+
+        expect(s.diff.querySelector('.pp-ai-composition-summary')).toBeNull();
+        expect(s.diff.querySelector('.pp-ai-step-diff-from')).not.toBeNull();
+    });
+
+    it('never prints the word undefined when a marker names no classification', () => {
+        // The predicate requires a non-empty string classification precisely so this
+        // payload takes the ordinary path instead of painting "unreadable (undefined)".
+        const s = newStep({ name: 'restore_composition' });
+        renderPreviewResult(s.el, s.diff, s.step, {
+            success: true,
+            data: {
+                changes: [{
+                    path: 'composition',
+                    from: { unreadable: true, message: 'SERVER SENTENCE PLACEHOLDER' },
+                    to: [{ component: 'hero' }],
+                }],
+            },
+        });
+
+        expect(s.diff.textContent).not.toContain('undefined');
+        expect(s.diff.querySelector('.pp-ai-step-warning')).toBeNull();
+    });
+
+    it('renders the marker as text, never as markup', () => {
+        // The sentence carries a page id and a classification derived from stored data.
+        const s = newStep({ name: 'restore_composition' });
+        renderPreviewResult(s.el, s.diff, s.step, {
+            success: true,
+            data: {
+                changes: [{
+                    path: 'composition',
+                    from: {
+                        unreadable: true,
+                        classification: 'decode_error',
+                        message: '<img src=x onerror=alert(1)>corrupted',
+                    },
+                    to: [{ component: 'hero' }],
+                }],
+            },
+        });
+
+        expect(s.diff.querySelector('img')).toBeNull();
+        expect(s.diff.textContent).toContain('<img src=x onerror=alert(1)>corrupted');
+    });
+
     it('renders a classified error and reports the failure', () => {
         const s = newStep();
         const failure = renderPreviewResult(s.el, s.diff, s.step, FIXABLE_RESULT);
