@@ -481,9 +481,11 @@ class CorruptPageRepairCarveOutTest extends TestCase
      * Condition (3) for `restore_composition` is NOT "the snapshot passes validation" — that
      * would break #233, the invariant that restore reports and never blocks, which exists so
      * undo cannot fail exactly when a user most needs it. State it as it actually is: the
-     * carve-out changes nothing about what restore accepts. Its one precondition is #818's —
-     * a ring slot holding preserved BYTES has no composition to replay and is refused with
-     * `history_entry_not_restorable`, on a carve-out page like anywhere else.
+     * carve-out changes nothing about what restore accepts. Its preconditions are #818's — a
+     * ring slot holding preserved BYTES has no composition to replay and is refused with
+     * `history_entry_not_restorable`, on a carve-out page like anywhere else — and, since #829,
+     * `history_target_shifted` when a concurrent write moves what the selector names. Neither
+     * judges the snapshot's CONTENTS, which is why neither touches #233.
      */
     public function testRestoreStillRefusesAPreservedBytesSlotInsideTheCarveOut(): void
     {

@@ -3216,9 +3216,10 @@ function _pp_write_findings_for(int $post_id): array {
  * Returns the resolved absolute index, or a WP_Error when the ring is empty, the
  * selector is out of range, or the entry it names is not replayable.
  *
- * THE ONE CHOKEPOINT for all three stages of the restore contract — validate, preview
- * and execute each resolve through here — which is why the #818 raw-entry refusal lives
- * here rather than being spelled three times. A raw entry holds prior stored BYTES that
+ * THE ONE CHOKEPOINT for every resolution the restore contract performs — validate,
+ * preview and execute each resolve through here, and since #829 so does execute's
+ * confirming re-resolution inside the write lock — which is why the #818 raw-entry refusal
+ * lives here rather than being spelled four times. A raw entry holds prior stored BYTES that
  * did not decode to a composition (see pp_get_composition_history), so there is nothing
  * to replay: the refusal is a PRECONDITION failure of the same species as `no_history`
  * and `history_out_of_bounds` below it.
@@ -3305,6 +3306,119 @@ function _pp_reject_unreplayable_history_entry(array $history, int $idx, array $
     );
 }
 
+/**
+ * Confirms, from INSIDE the write lock, that the selector still names the entry this
+ * restore resolved before the lock (#829).
+ *
+ * THE HOLE THIS CLOSES, and it is a SELECTION hole rather than a durability one. Execute
+ * resolves `steps_back` / `history_index` against pp_get_composition_history() — the CACHED
+ * reader — and only afterwards calls pp_update_composition(), which is where the per-post
+ * advisory lock opens. A concurrent write landing in that window pushes a ring entry, and
+ * the selector's meaning moves with it:
+ *
+ *     request B                    request A            `_pp_composition_history` row
+ *     ────────────────────         ─────────────        ─────────────────────────────
+ *     lists the ring, picks                             [ e1, e2 ]
+ *       steps_back=1  (= e2)
+ *     resolves against its
+ *       warm cached copy [e1,e2]
+ *                                  pushes e3            [ e1, e2, e3 ]
+ *     writes                                            ← steps_back=1 now means e3
+ *
+ * B replayed e2 and reported `ok: true`. Both readings of that are bad: e2 is not what
+ * `steps_back=1` means any more, and e3 is not what the operator chose. So the fix is not
+ * "re-resolve inside the lock" on its own — re-resolving a RELATIVE selector against a moved
+ * ring hands back e3, which is precisely "whichever snapshot the ring held after a
+ * concurrent write". Both halves are required: resolve AUTHORITATIVELY (through
+ * _pp_read_composition_history_locked(), the same in-lock reader #823 gave the rebuild), and
+ * require that resolution to name the entry the operator actually addressed. Agreement makes
+ * `ok: true` mean what it says. Disagreement is refused, and nothing is written.
+ *
+ * WHY EXECUTE ONLY, AND NOT ALL THREE STAGES. Validate and preview do not write, so opening
+ * the write lock in them would serialize every preview of a hot page against its writers and
+ * still guarantee nothing — the ring can move between a preview and its execute no matter how
+ * the preview read it. What the operator needs is not a locked preview; it is that execute
+ * writes the snapshot the preview named or refuses. That is what this is, and it makes the
+ * preview/execute agreement ENFORCED rather than assumed.
+ *
+ * WHY CONTENT EQUALITY IS IDENTITY HERE. Both rings come from the one normalizer
+ * _pp_normalize_history_ring(), which builds every entry as
+ * ['timestamp','version','hash'] + ['composition'|'raw'] — deterministic key order,
+ * deterministic types — so a strict `===` is a sound deep comparison and the strictest
+ * honest one available. It cannot be fooled by a duplicate, either: `version` is the
+ * writer's pre-write version counter (pp_update_composition), which is strictly monotonic
+ * per post, so two entries minted by the writer can never carry the same one.
+ *
+ * ONE REFUSAL CODE, NOT FOUR. When the ring has moved, the in-lock re-resolution can fail in
+ * three further ways — the ring emptied (`no_history`), it shrank past the selector
+ * (`history_out_of_bounds`), or the slot the selector NOW names holds preserved bytes
+ * (`history_entry_not_restorable`). Returning those codes here would name the wrong state:
+ * the operator did not select a preserved-bytes slot, the ring moved under them, and the read
+ * path and the write path have to name the same state the same way (#650/#652/#725). So every
+ * disagreement is `history_target_shifted` and the authoritative reason travels in the
+ * message. Those three codes keep their meaning at validate and preview, where they describe
+ * the selector the operator actually sent against the ring they actually saw.
+ *
+ * PRECONDITION, NOT VALIDATION — so #233 is untouched. This says nothing about the contents
+ * of any snapshot; it says the slot named is not the slot addressed. Same species as
+ * `no_history` and `history_out_of_bounds`. Every entry carrying a composition still restores
+ * verbatim and still reports whatever today's rules make of it.
+ *
+ * STATED LIMIT, inherited from the reader and honest about it: when there is no usable
+ * database handle, or the authoritative read FAILS, _pp_read_composition_history_locked()
+ * falls back to the cached ring (returning [] there would wipe up to ten slots — see its
+ * docblock). The fallback then agrees with the caller's own cached read by construction, so
+ * this gate passes and the restore behaves exactly as it did before #829. The window is
+ * closed when the authoritative read succeeds, and not otherwise; a database blip degrades
+ * to the old behavior rather than refusing every restore. The degraded read logs a line.
+ *
+ * THE RING ARRIVES AS A PARAMETER, read once by pp_update_composition() inside the lock and
+ * shared with the ring rebuild that follows. Re-reading it here would decode the whole row a
+ * second time inside the critical section — tens of milliseconds at the composition size
+ * ceiling, paid by every concurrent writer to this post — and would leave the confirmation and
+ * the rebuild looking at two reads rather than provably the same one.
+ *
+ * @param array $params     Action params (post_id, and the selector to re-resolve).
+ * @param array $addressed  The normalized ring entry the pre-lock resolution selected.
+ * @param array $locked     The authoritative in-lock ring, from pp_update_composition().
+ * @return true|WP_Error
+ */
+function _pp_restore_target_still_addressed(array $params, array $addressed, array $locked) {
+    $post_id = (int) $params['post_id'];
+    $idx     = _pp_resolve_history_target($locked, $params);
+
+    if (!is_wp_error($idx) && $locked[$idx] === $addressed) {
+        return true;
+    }
+
+    // ONE PRESCRIPTION, WHICH IS WHY THE SIBLING'S CODE TRAVELS AND ITS PROSE DOES NOT.
+    // _pp_resolve_history_target()'s refusals are written for an operator who SELECTED that
+    // slot, so they close with their own advice ("select an earlier entry"). Splicing that in
+    // whole would hand back two prescriptions, the first of which is the one this refusal
+    // deliberately does not give — the operator did not select this slot, the ring moved onto
+    // it. Carry the authoritative CODE plus a short neutral clause; the outer message owns the
+    // instruction.
+    $reason = is_wp_error($idx)
+        ? sprintf('that selector no longer resolves at all (%s).', $idx->get_error_code())
+        : sprintf('that selector now names a different entry (index %d of %d).', $idx, count($locked));
+
+    return new WP_Error(
+        'history_target_shifted',
+        sprintf(
+            'The composition history of page %1$d changed while this restore was being prepared, so '
+            . 'the entry you selected is no longer the entry your selector names. Nothing was written. '
+            . 'Against the ring as it now stands, %2$s Another writer (a CLI action, the dashboard '
+            . 'editor, or the AI chat) recorded a state on this page in the meantime. Re-read the ring '
+            . 'with `wp pp operate composition-history --post_id=%1$d` and select again: steps_back '
+            . 'counts backwards from the newest entry, so it names a different snapshot after every '
+            . 'concurrent write, while a history_index taken from the current listing stays stable '
+            . 'until the ring evicts. [history_target_shifted]',
+            $post_id,
+            $reason
+        )
+    );
+}
+
 pp_register_action('restore_composition', [
     'scope'          => 'page',
     'mutates_composition' => true,
@@ -3323,8 +3437,8 @@ pp_register_action('restore_composition', [
     // The chat's "Undo these changes" link is the surface most likely to select a
     // preserved-bytes slot, so declaring the refusal only in the declarative record
     // would leave the one caller that hits it untaught.
-    'description' => 'Restores a page composition to a prior version recorded in its history ring. Select the target with steps_back (1 = most recent prior state, the default) or history_index (absolute 0-based). history_index takes precedence. A ring slot may instead hold stored bytes that did not decode to a composition — a composition is a JSON ARRAY, so bytes that were unparseable, or valid JSON that is a scalar or a JSON OBJECT, are not one. Those are preserved so that repairing a corrupt page cannot destroy the only copy of what was there; selecting that slot is refused with history_entry_not_restorable — read the bytes with `wp pp operate composition-history --post_id=<id>` and select an earlier entry.',
-    'semantics'   => 'Rewrite. The composition is replaced with a prior snapshot captured before an earlier write. Restore is itself a conflict-checked write (records its own history entry), so it can be undone in turn. A ring slot can instead hold stored bytes that did not decode to a composition (a decode_error page, or either sub-case of unexpected_shape — a valid-JSON scalar, or a valid-JSON object), preserved so that repairing a corrupt page cannot destroy the only copy of what was there; selecting that slot is refused with history_entry_not_restorable — read the bytes with `wp pp operate composition-history --post_id=<id>` and select an earlier entry to roll back.',
+    'description' => 'Restores a page composition to a prior version recorded in its history ring. Select the target with steps_back (1 = most recent prior state, the default) or history_index (absolute 0-based). history_index takes precedence. A ring slot may instead hold stored bytes that did not decode to a composition — a composition is a JSON ARRAY, so bytes that were unparseable, or valid JSON that is a scalar or a JSON OBJECT, are not one. Those are preserved so that repairing a corrupt page cannot destroy the only copy of what was there; selecting that slot is refused with history_entry_not_restorable — read the bytes with `wp pp operate composition-history --post_id=<id>` and select an earlier entry. The selector is also confirmed against the ring at write time: if another writer records a state on the page between your selection and the write, the entry your selector names is no longer the entry you chose, so the restore is refused with history_target_shifted and nothing is written — re-read the ring and select again, preferring a history_index from the fresh listing because steps_back is relative and moves with every concurrent write.',
+    'semantics'   => 'Rewrite. The composition is replaced with a prior snapshot captured before an earlier write. Restore is itself a conflict-checked write (records its own history entry), so it can be undone in turn. A ring slot can instead hold stored bytes that did not decode to a composition (a decode_error page, or either sub-case of unexpected_shape — a valid-JSON scalar, or a valid-JSON object), preserved so that repairing a corrupt page cannot destroy the only copy of what was there; selecting that slot is refused with history_entry_not_restorable — read the bytes with `wp pp operate composition-history --post_id=<id>` and select an earlier entry to roll back. Selection is resolved against the ring the caller read and CONFIRMED against the authoritative ring inside the write lock (#829): a concurrent write that moves what the selector names is refused with history_target_shifted rather than replayed, so whenever that authoritative read succeeds ok:true means the snapshot that was addressed and never whichever snapshot the ring held afterwards. If the authoritative read is not possible or fails, it logs and degrades to the pre-confirmation behavior rather than refusing, so the guarantee is conditional on that read.',
     'params'      => [
         'post_id'          => ['type' => 'int', 'required' => true],
         'steps_back'       => ['type' => 'int', 'required' => false],
@@ -3402,8 +3516,25 @@ pp_register_action('restore_composition', [
         // rewritten: chrome, retired slot names, retired prop names and a stored
         // `variant` all restore exactly as snapshotted and are reported below (#233).
         // Restore never blocks; it tells the operator what is dead.
-        $target = pp_normalize_composition($history[$idx]['composition']);
-        $result = pp_update_composition($params['post_id'], $target, _pp_action_expected_version($params));
+        //
+        // $addressed IS THE ANSWER `ok: true` WILL BE CLAIMING (#829). The resolution above
+        // ran against the CACHED ring, which is right for picking (it is the ring the
+        // operator listed and the ring preview reported on) and worthless as a guarantee: the
+        // per-post write lock does not open until pp_update_composition() below. So the entry
+        // itself is carried into the lock and confirmed there against the authoritative ring.
+        // pp_normalize_composition() is a pure function of that entry — it strips empty style
+        // arrays and nothing else — so once the two entries are proven identical, the bytes
+        // written here are the bytes the authoritative ring holds.
+        $addressed = $history[$idx];
+        $target    = pp_normalize_composition($addressed['composition']);
+        $result    = pp_update_composition(
+            $params['post_id'],
+            $target,
+            _pp_action_expected_version($params),
+            static function (array $locked) use ($params, $addressed) {
+                return _pp_restore_target_still_addressed($params, $addressed, $locked);
+            }
+        );
         if (is_wp_error($result)) {
             return _pp_action_error('restore_composition', 'page', $result->get_error_message(), $result->get_error_code());
         }
