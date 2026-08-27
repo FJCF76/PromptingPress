@@ -1100,12 +1100,12 @@ if (!class_exists('wpdb')) {
                 return $GLOBALS['_pp_test_store']['wpdb_guid_map'][$m[1]] ?? null;
             }
             // Direct postmeta point-lookups — the reads that deliberately BYPASS the
-            // object cache. Four exist: _pp_read_composition_version_locked(),
-            // _pp_read_composition_json_locked() and _pp_read_composition_history_locked()
-            // (all three inside the write lock, #133/#818/#823) and
-            // pp_get_composition_result_authoritative() (#767).
+            // object cache. Five exist: _pp_read_composition_version_locked(),
+            // _pp_read_composition_json_locked(), _pp_read_composition_history_locked()
+            // and _pp_read_composition_hash_locked() (all four inside the write lock,
+            // #133/#818/#823/#828) and pp_get_composition_result_authoritative() (#767).
             //
-            // This branch used to be absent, so all three answered NULL here and any test
+            // This branch used to be absent, so all of them answered NULL here and any test
             // installing this stub silently modelled an EMPTY postmeta table. That was
             // invisible while the only caller asked "is there prior state?" — but #767
             // threads a real compare-and-swap baseline, and a version column that always
@@ -1174,14 +1174,20 @@ if (!class_exists('wpdb')) {
  *     the meta store unless a test stages a row-vs-cache divergence under
  *     ['wpdb_postmeta']), prepare(), and the guid lookup.
  *
- * FOUR FILES KEEP THEIR OWN SUBCLASS, and the census is here so "shared" stays checkable:
+ * FIVE FILES KEEP THEIR OWN SUBCLASS, and the census is here so "shared" stays checkable:
  * CompositionHistoryLockedReadTest's records every query and can fail one meta key;
+ * CompositionLockedReadRowIdentityTest's (PP_RowIdentity_Wpdb, #825/#828) does that and one
+ * thing this class deliberately cannot — it models MULTIPLE rows for a single
+ * (post_id, meta_key) and RESOLVES the SELECT's ORDER BY / LIMIT / OFFSET tail against them,
+ * which is what makes a duplicated-key disagreement measurable instead of grep-able;
  * ChatBatchCorruptRepairCarveOutTest's, CorruptPageRepairCarveOutTest's and
- * ChatRejectionModelNoteTest's are named separately, by that convention, so neither file's
+ * ChatRejectionModelNoteTest's are named separately, by that convention, so no file's
  * harness can drift into another's expectations. Those three predate this class and are
  * deliberately NOT reparented onto it — the point of a per-file harness is that widening
  * this one cannot silently widen theirs. The visible difference today is the wp_options
- * modelling below, which only this class has and none of them needs.
+ * modelling below, which only this class has and none of them needs — note that
+ * PP_RowIdentity_Wpdb lacks it too, so a test there that touched the in-lock token-override
+ * read would silently discard overrides.
  */
 class PP_Lockable_Wpdb extends wpdb
 {

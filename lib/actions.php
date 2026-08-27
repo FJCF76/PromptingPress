@@ -1167,9 +1167,10 @@ function _pp_batch_target_refusal_reason(int $post_id, array $cached): ?string {
     // classifies as a genuinely blank page: ok, proceed. That is the right degradation for a
     // READER and a fail-OPEN here, reachable under exactly the contention that produces the
     // race this gate exists for. `last_error` is flushed at the start of every query, so a
-    // non-empty one belongs to the read just issued. Same disambiguation the two sibling
+    // non-empty one belongs to the read just issued. Same disambiguation the three sibling
     // authoritative readers make (_pp_read_composition_history_locked,
-    // _pp_read_token_overrides_locked_strict), and the reason it is made HERE rather than
+    // _pp_read_composition_hash_locked, _pp_read_token_overrides_locked_strict), and the
+    // reason it is made HERE rather than
     // inside the shared reader: the reader's other consumers want a value, and this one wants
     // a verdict — an unanswerable question is a block, not a blank page.
     if (!empty($handle->last_error)) {
