@@ -44,12 +44,22 @@
  * update_meta_cache() would — so the assertion can be AGREEMENT with get_post_meta(),
  * which is the actual invariant, rather than "this double returned index 0".
  *
- * Eleven of the thirteen tests here are red against the unfixed readers. The two that pass
- * both before and after are the deliberate guard pins for behaviour that must NOT move:
- * testAnUncontendedWriteProducesTheSameEntryItProducedBefore (the behaviour-neutral claim
- * #828 makes) and
- * testTheEntryRecordsTheMarkerOfTheStateItPreservesNotTheStateThatReplacedIt (the read must
- * stay ahead of the marker write it sits three lines above).
+ * THIRTEEN of the eighteen tests here are red against the unfixed readers. The five that
+ * pass both before and after are deliberate, and each pins something that must NOT move:
+ *
+ *   testAnUncontendedWriteProducesTheSameEntryItProducedBefore    #828's behaviour-neutral claim
+ *   testTheEntryRecordsTheMarkerOf…NotTheStateThatReplacedIt      the read stays ahead of the
+ *                                                                marker write three lines below
+ *   testAFailedMarkerReadInsideARealWriteMintsTheCachedMarker…    the #212 floor: degrading is
+ *                                                                no worse than the cached read
+ *                                                                it replaced, which is exactly
+ *                                                                why it passes before AND after
+ *   testTheDoubleModelsTheQueryTailRatherThanGreppingFor…         the harness's own self-test
+ *   testAPartialHandleStillReachesTheDbBranchInTheTwoOlder…       pre-existing behaviour, filed
+ *                                                                as #849 rather than changed
+ *
+ * Keep that split honest when adding a test: a new test that passes against the unfixed
+ * readers and is NOT one of these is a test that measures nothing.
  *
  * ALSO PINNED, AND DELIBERATELY NOT FIXED: neither `_pp_read_composition_version_locked()`
  * nor `_pp_read_composition_json_locked()` distinguishes a FAILED query from an absent row
@@ -793,8 +803,11 @@ class CompositionLockedReadRowIdentityTest extends TestCase
     // ── 4. The query shape ───────────────────────────────────────────────────
 
     /**
-     * THE ORDERING, PINNED AS A STATIC PROPERTY OF EACH QUERY, for the four locked readers at
-     * once. The behavioural tests above already measure the consequence; this pin catches the
+     * THE ORDERING, PINNED AS A STATIC PROPERTY OF EACH QUERY, for the four locked COMPOSITION
+     * readers at once — composition, not every in-lock authoritative reader:
+     * _pp_read_token_overrides_locked_strict() is a sibling in posture but reads a wp_options
+     * row, where the duplicate-key question this pin is about does not arise.
+     * The behavioural tests above already measure the consequence; this pin catches the
      * case they structurally cannot — a reader whose SELECT loses the ordering while the
      * double above (which decides by reading the query text) is edited in the same commit to
      * match. One pin over four readers rather than four separate pins: the invariant is "all
