@@ -4,6 +4,38 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.17.6] — 2026-08-27 — the conflict card stops claiming "Nothing was applied." without reading the rollback report (#797)
+
+**All three of the chat's batch-failure exits now honor one rule, which completes #755.** That issue found the chat telling operators every change had been reverted while a page sat there still holding mid-batch state, and fixed it — on one of three exits. The exit it did not reach makes the *stronger* claim: `showConflictState()` rebuilds the card from scratch and says **"This page changed while the proposal was pending (another tab, agent, or editor). Nothing was applied."** Nothing on that path ever read `rollback_errors`.
+
+The claim is false exactly where it matters most. `ppChatBatchHitConflict()` matches a batch whose **failing step** carried `composition_conflict`, which means earlier steps in that batch executed and were rolled back. The executor does not special-case a conflicting step — it reaches the same failure return and runs the same `_pp_restore_batch_snapshot()` — so that envelope carries `rolled_back: true` and a `rollback_errors` list describing what the rollback could not put back. The card discarded it twice over: the sentence never consulted it, and `card.innerHTML = ''` meant the disclosure had nowhere to land even if it had.
+
+**Measured, before and after, on a staged conflict whose rollback withheld a page.** A batch admitted through the #756 corrupt-page repair carve-out, carrying a baseline one version stale, comes back `failed_at: 0`, failing step `error_code: composition_conflict`, `rolled_back: true`, and one `rollback_errors` entry naming the page and why its composition was not restored. Before: the card read "Nothing was applied.", with the entry rendered nowhere. After: it reads "Some changes could not be reverted." and the entry is drawn in the card. That envelope is now pinned server-side (`ChatBatchCorruptRepairCarveOutTest`) so the payload the card renders is one this surface provably produces, not one assumed to exist.
+
+**The claim is now gated on evidence, in the direction that fails safe.** "Nothing was applied." survives only where it is earned: a report that is present, a list, empty, and paired with a rollback that happened; or a payload that never carried `steps` at all, which is how the two **pre-execution** refusals routed to this same renderer arrive (a conflict caught before step 1, and a missing baseline). For those nothing ran and the sentence was always true — a fix that simply deleted it would have traded one false statement for a lost true one. Everything else withholds the claim rather than asserting it: an absent or non-list `rollback_errors`, a `steps` field that is present but not a list, a rollback nobody performed. A reported entry outranks every other arm, so no malformed field can route around the evidence.
+
+Wording is reused, not invented. The dirty sentence is #755's clause in sentence form, and a test holds the two to the same words so one card cannot drift from the other. The entries render through the adapter #755 landed (`ppChatAppendRollbackErrors` → `ppChatAppendValidationItems`), inheriting its heading, its 100-entry display budget, and its five-inline-plus-disclosure selection rather than coining a second vocabulary for the same fact.
+
+**Scope.** The conflict-specific affordance is untouched: **Re-read & re-preview** still sits on the card, and this change adds truth beside it rather than redesigning what the operator may do next. Whether re-reading is the right offer when a page's bytes cannot be decoded stays with #756 / #767, and the state vocabulary stays with #664. The third exit (the #749 up-front refusal) was inventoried and needed no change — no step ran, so it asserts no revert at all.
+
+**Known limits, stated rather than implied.** `rollback_errors` reports what the rollback could not restore, which is bounded by what the snapshot captured — so the clean sentence is exactly as strong as that coverage and no stronger. Steps writing outside it (a redirect, an imported attachment) are filed as #854, a restore that fails without saying so as #857, and the channel carrying three producers with two different meanings as #855. Two more found while working here: #853 (a non-list `steps` throws before any failure exit can render) and #856 (spending Re-read deletes the only copy of the report). None is a regression; each is a claim this change declined to make on evidence it does not have.
+
+### Fixed
+
+- The conflict exit no longer asserts a clean revert over a `rollback_errors` channel that contradicts it, and renders the entries it used to discard (#797).
+
+### Tests
+
+- `tests/js/pp-ai-chat-conflict-rollback.test.js` — new. Drives the real batch surface end to end (send → preview → Apply → conflict envelope) and reads the card the operator would see, because the bug was a missing call and helper tests cannot see one. Covers the claim's full state machine, the two pre-execution refusals that keep the claim, the disclosure and its ordering above the action row, the surviving affordance, and source tripwires for the wiring.
+- `tests/js/pp-ai-chat-rollback-errors.test.js` — the #755 boundary test that pinned this gap now pins the fix instead of the bug.
+- `tests/ChatBatchCorruptRepairCarveOutTest.php` — proves the conflict-plus-withheld-rollback envelope is producible through the real chat entry point.
+
+### Docs
+
+- `docs/operating-loop-safety.md`, `docs/reference-apply-cli.md`, `AI_CONTEXT.md` — the three places describing the conflict card now say what it claims and when, rather than only which affordance it shows.
+
+---
+
 ## [v1.17.5] — 2026-08-27 — the operator's approval gate stops calling a corrupt page empty (#836)
 
 **This closes the arc's last lie.** #725 stopped `inspect-composition` answering `[]` for a page it could not read. #748 stopped the band-level actions calling such a page blank when they refused. #750 stopped the chat's system prompt describing it as empty to the model. Each removed one instance of ruling R-C's violation — *a corrupt page is never described as empty* — and one instance survived all three: the diff the operator reads **before clicking Apply**.
