@@ -4,6 +4,47 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.17.3] — 2026-08-27 — the batch refusal reads the database row, and fails closed when it cannot (#833)
+
+**A chat proposal that named a page whose stored composition had gone corrupt could walk straight past the refusal that exists to protect it, because the refusal asked the object cache while the carve-out beside it asked the database.** Both halves of that gate now read the row, and neither may be answered by a copy a concurrent write left stale.
+
+The #749 refusal stops a multi-step proposal before its first step whenever it names a page whose stored composition cannot be decoded. It has to: a batch is rolled back by writing its snapshot back, and a snapshot of undecodable bytes is a degraded stand-in that would overwrite the only recoverable copy. The check itself, though, classified through `get_post_meta()`. WordPress warms a post's whole meta row in one query, so any earlier read in the same request populates `_pp_composition` in the request-local cache, and a concurrent write landing after that warm-up leaves the cached copy healthy while the row is corrupt.
+
+**Measured on a staged interleaving** (cached copy healthy, row `decode_error`), through the real chat handler: before, the detector returned `[]`, no refusal fired, and a two-step proposal ran to completion with its rollback baseline captured from the stale copy. After, the same proposal is refused before step 1 with `error_code: decode_error`, and the page is untouched — including the `publish_page` step that used to land. Eleven cases in the new pin file fail against the pre-change code.
+
+The corrupt bytes still survived on the history ring (#818), so this was a lost refusal rather than lost data. But the refusal is a gate, and a gate a stale cache can skip is not one.
+
+### Fixed
+
+- **The #749 batch refusal classifies from the database row (#833).** `_pp_batch_target_refusal_reason()` (lib/actions.php) is the single owner of the gate's classification source, and all three sites that ask the question use it: the chat entry point's detector, the snapshotter's capture-and-classify, and the rollback's live re-classify. Fixing only the detector would have left the executor — the backstop for every non-chat caller — admitting what the entry point refused.
+- **The gate fails closed when the row cannot be read, which is two cases and not one.** With no usable `$wpdb` handle (`pp_composition_db_handle()`), every named target blocks: a unit-context and exotic-host path, since production WordPress always has a handle. With a handle whose QUERY failed, it blocks too — `$wpdb->get_var()` returns null for "no row" AND for a killed query, a lock-wait timeout or a gone-away connection, and the authoritative reader maps null to a genuinely blank, readable page. Trusting that at a gate was a fail-OPEN reachable under exactly the contention that produces the race. Same `#212` disambiguation the two sibling authoritative readers already make.
+- **The block is not spelled as corruption.** Both cases report `composition_unverifiable`, a statement about the READ: it does not claim the stored composition is broken, and it prescribes no repair, because nothing has shown the page to be damaged. It also earns the model no note (#704: a note is present exactly when a rejection is the model's to answer, and a database the gate cannot reach is a site fault in the same class as a conflict or a transport failure) — which also keeps the chat client from offering a repair affordance whose payload teaches a whole-composition overwrite.
+- **The rollback's live re-classify reads the row too.** Asking the object cache there echoed the snapshot-time verdict on installs without a persistent object cache, which is the same hole one step later. A page whose row goes corrupt mid-batch has its composition write withheld and reported through `rollback_errors`.
+
+### Unchanged, deliberately
+
+- **Every refusal that fired before still fires, with the code it always used.** The pre-existing cached check stays as an ADDED requirement rather than an alternative source: a target must read clean BOTH ways. That keeps the cache-corrupt/row-healthy refusal #756 pinned, and it is what lets the snapshotter keep capturing its rollback baseline from the cached read — the state the batch's own steps execute against. A healthy verdict therefore still guarantees the captured value is a real composition and never the degrading accessor's `[]`.
+- **The #756 carve-out is untouched, and slightly tighter.** A lone `update_composition` / `restore_composition` step on a page the row calls corrupt is still admitted; on the stale-healthy-cache interleaving it is now admitted under a real classification instead of running with none at all.
+- **Cost, measured as query count rather than claimed.** One indexed point-SELECT per DISTINCT named page per gate evaluation — two per page for a chat proposal, which evaluates the gate at the entry point and again inside the executor. The read is skipped entirely when the cached classification already refuses, so refusals cost nothing new, and a test pins that the count scales with pages rather than with steps. The row read is deliberately NOT memoized: a request-scoped cache of the answer would rebuild the exact staleness this change removes.
+
+### Scope
+
+The #749 refusal's classification source and its pins. Not touched: the unordered in-lock reads (#825); making batch STEP execution read authoritatively; and the pre-existing rollback hazard where a readable-but-stale cached baseline is written over a row a concurrent writer advanced — that is #405, still open, and this change neither widens nor closes it.
+
+### Tests
+
+- `tests/BatchGateAuthoritativeClassifyTest.php` (new) — the staged interleaving end to end through the real chat handler and through the executor; the snapshot bundle's verdict-vs-capture split; the rollback's row-based re-classify; fail-closed on a missing handle and on a failed read, at both gates and at the rollback withhold; the unverifiable refusal's wording and its absent model note; a no-page batch with no handle; the preserved cache-corrupt/row-healthy refusal; a healthy-page batch carrying no refusal keys; and the query-count pins.
+- `tests/ChatBatchCorruptRepairCarveOutTest.php` — the pin that recorded "a stale healthy cache neither refuses nor exempts" was recording the bug; it now records the refusal, and a sibling pins that the lone repair still gets through that divergence.
+- `tests/bootstrap.php` — `PP_Lockable_Wpdb`, the shared "this context has a database" double, installed by the test files whose batches must reach the gate's authoritative read. It models the `wp_options` row as well as the postmeta one, because a handle also routes in-lock token reads to the database, and a double answering "no row" there would make those files' token writes silently lossy.
+
+### Docs
+
+- `docs/operating-loop-safety.md` — the #749 refusal, rollback-withhold and carve-out rows now state which reader each half of the gate uses.
+- `AI_CONTEXT.md` — the batch paragraph names the row-based detection and the fail-closed reason.
+- `lib/ai-context.php` — the page-context block records that it reads the cached classifier for the opposite reason: it builds context, it does not gate.
+
+---
+
 ## [v1.17.2] — 2026-08-27 — A restore can no longer replay a different snapshot than the one you picked (#829)
 
 **`restore_composition` resolved `steps_back` / `history_index` against a ring read taken BEFORE the write lock, so a concurrent write could move what your selector meant. The restore then replayed a snapshot you never chose and reported `ok: true`.**
