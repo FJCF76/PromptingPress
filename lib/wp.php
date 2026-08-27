@@ -577,6 +577,10 @@ function pp_get_composition_result(int $post_id): array {
  *                                              a GATE may not be opened by a value that
  *                                              might be stale, and the cached read is
  *                                              exactly the value it might be.
+ *   _pp_batch_target_refusal_reason()          the same posture since #833, on the other
+ *                                              half of the same gate: it blocks the target
+ *                                              (PP_BATCH_TARGET_UNVERIFIABLE) rather than
+ *                                              classify it from a value that might be stale.
  *
  * That asymmetry is the point, and it is why the check lives here rather than inline in
  * either: if the reader silently degraded while the gate kept trusting it, the cache-staleness
@@ -625,19 +629,36 @@ function pp_composition_db_handle(): ?object {
  * the cached reader, so a row this one calls corrupt and they call healthy opens the
  * carve-out on a page the coverage gate considers perfectly preflightable.
  *
- * THE #749 BATCH GATE NOW USES BOTH READERS IN ONE DECISION (#756), which looks like the
- * configuration this docblock calls the bug and is not, so the resolution is recorded here
- * rather than left to be re-derived. `_pp_batch_unreadable_targets()` classifies through
- * the CACHED reader to decide which pages the refusal is about;
- * `_pp_batch_corrupt_repair_admitted()` reaches this one to decide which page is EXEMPT.
- * The exemption requires BOTH to call the page corrupt — the cached map must name exactly
- * the page this reader admits — so a disagreement can only ever refuse:
+ * THE #749 BATCH GATE READS THE ROW ON BOTH SIDES SINCE #833, and the history is worth
+ * keeping because the intermediate state looked reasonable and was not. Until #833 the
+ * refusal half (`_pp_batch_unreadable_targets()`, and the snapshotter's own copy)
+ * classified through the CACHED reader while the exemption half
+ * (`_pp_batch_corrupt_repair_admitted()`) reached this one. The exemption required BOTH to
+ * call the page corrupt, so the EXEMPTION could only ever fail closed — but the REFUSAL
+ * could not, and that was the hole: with a stale healthy cache over a corrupt row the
+ * cached map came back empty, so there was no refusal to lift and the batch simply ran.
  *
- *   cache corrupt, row healthy   this reader declines, the exemption closes, batch refused.
- *   cache healthy, row corrupt   the cached map is empty, so there was no refusal to lift.
+ * Since #833 both halves require this reader (`_pp_batch_target_refusal_reason()`, the
+ * gate's single source owner), and both fail closed when pp_composition_db_handle() returns
+ * null. The refusal ALSO keeps its pre-existing cached check, as an added requirement
+ * rather than an alternative source — a target must read clean BOTH ways — so:
  *
- * The gate opens on agreement and on nothing else, which is the same posture the CLI
- * consumer has; only the batch surface has two readers to reconcile.
+ *   cache corrupt, row healthy   refused, exactly as before (#756 pins this direction).
+ *   cache healthy, row corrupt   refused; this is the direction #833 closed.
+ *   no usable handle             refused on both halves; nothing may be admitted unread.
+ *
+ * The #756 exemption still sits on top of that table rather than inside it: a lone
+ * update_composition / restore_composition step on a page this reader calls corrupt is
+ * ADMITTED, in row two as much as anywhere else. That is the point of reading the row on
+ * both sides — the refusal and the exemption now name the same page for the same reason,
+ * where before row two produced neither.
+ *
+ * "Agreement" is therefore no longer a reconciliation of two verdicts about what is
+ * stored: the row decides that, and the cached read survives only as a second condition
+ * that can add a refusal and never remove one. What that buys is stated where it is
+ * relied upon — the snapshotter captures its rollback baseline from the cached read, so a
+ * healthy verdict has to mean the cached read was healthy too, or the baseline could be
+ * the degrading accessor's `[]` under a map that says fine.
  *
  *   maybe_unserialize()   get_post_meta() unserializes on the way out (get_metadata ->
  *                         maybe_unserialize), a direct column read does not. `_pp_composition`

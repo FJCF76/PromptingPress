@@ -58,6 +58,16 @@ final class WriteEnvelopeFindingsTest extends TestCase
             'options'   => [],
             'next_id'   => 100,
         ];
+        // A DATABASE HANDLE, because the #749 batch gate reads the postmeta row and fails
+        // closed without one (#833). Production always has one; without it every batch
+        // below would be refused before its first step and prove nothing.
+        $GLOBALS['wpdb'] = new PP_Lockable_Wpdb();
+    }
+
+    protected function tearDown(): void
+    {
+        unset($GLOBALS['wpdb']);
+        parent::tearDown();
     }
 
     /** A hero whose overlay slot is inert: the slot paints only under layout "cover". */

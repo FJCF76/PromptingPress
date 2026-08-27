@@ -1158,6 +1158,66 @@ if (!class_exists('wpdb')) {
     }
 }
 
+/**
+ * The shared "this context HAS a database" double (#833).
+ *
+ * Since #833 the #749 batch gate classifies its targets from the postmeta ROW and fails
+ * CLOSED when pp_composition_db_handle() returns null — so a test that runs a batch with no
+ * global $wpdb now gets a refusal, correctly, and proves nothing about the batch it meant to
+ * exercise. Production WordPress always has a handle; these tests need one too.
+ *
+ * Two behaviours, both inherited-plus-minimal:
+ *   GET_LOCK is GRANTED, because the bare stub above answers every lock query with NULL and
+ *     pp_update_composition() then skips the write entirely — a test whose fixtures stop
+ *     landing is worse than one that refuses.
+ *   everything else is the shared stub's: the postmeta point-lookup model (which AGREES with
+ *     the meta store unless a test stages a row-vs-cache divergence under
+ *     ['wpdb_postmeta']), prepare(), and the guid lookup.
+ *
+ * FOUR FILES KEEP THEIR OWN SUBCLASS, and the census is here so "shared" stays checkable:
+ * CompositionHistoryLockedReadTest's records every query and can fail one meta key;
+ * ChatBatchCorruptRepairCarveOutTest's, CorruptPageRepairCarveOutTest's and
+ * ChatRejectionModelNoteTest's are named separately, by that convention, so neither file's
+ * harness can drift into another's expectations. Those three predate this class and are
+ * deliberately NOT reparented onto it — the point of a per-file harness is that widening
+ * this one cannot silently widen theirs. The visible difference today is the wp_options
+ * modelling below, which only this class has and none of them needs.
+ */
+class PP_Lockable_Wpdb extends wpdb
+{
+    /**
+     * Present because the in-lock token-override read interpolates it
+     * (_pp_read_token_overrides_locked_strict, lib/wp.php) and an undefined property there
+     * renders an empty table name behind a PHP warning.
+     */
+    public string $options = 'wp_options';
+
+    public function get_var(string $query)
+    {
+        if (str_contains($query, 'GET_LOCK')) {
+            return '1';
+        }
+        // The option row, modelled the way the shared stub models the postmeta row: it
+        // AGREES with the option store, so installing this double never changes what an
+        // in-lock read returns. Without it that read answers "no row", which the writer
+        // coerces to "start fresh" — a token write in these files would silently discard
+        // every override set before it.
+        if (preg_match("/option_name = '([^']+)'/", $query, $m)) {
+            $value = $GLOBALS['_pp_test_store']['options'][$m[1]] ?? null;
+            if ($value === null) {
+                return null;
+            }
+            return is_scalar($value) ? (string) $value : maybe_serialize($value);
+        }
+        return parent::get_var($query);
+    }
+
+    public function query(string $query)
+    {
+        return 1; // RELEASE_LOCK
+    }
+}
+
 if (!function_exists('get_page_template_slug')) {
     function get_page_template_slug($post = null): string {
         return $GLOBALS['_pp_test_store']['page_template_slug'] ?? 'composition.php';
