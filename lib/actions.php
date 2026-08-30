@@ -699,7 +699,9 @@ function _pp_action_validation_error_envelope(string $name, WP_Error $validation
         // (a component name, a prop key), and an author who writes `Component 9 ("x")`
         // into one of those can put a second band-shaped phrase in the sentence. Read
         // this field, not the prose, when the answer has to be machine-trustworthy.
-        // (Bounding what a message reflects is #647/#649's axis, not this field's.)
+        // (#647/#649 bounded the reflected KEYS and VALUES in those messages, but a
+        // stored component NAME is still reflected verbatim, so the ambiguity this
+        // field exists to resolve is unchanged.)
         'index'      => pp_composition_error_index($validation),
     ];
 }
@@ -3430,9 +3432,12 @@ const PP_WRITE_FINDINGS_MAX_STORED_BYTES = 1048576;
  *   WriteEnvelopeFindingsTest pins that reachability so this note cannot rot back into
  *   the comfortable version.
  *
- *   Capping what a MESSAGE reflects is still not this helper's axis — it is the uniform
- *   bounding #647/#649 owns, it applies equally to `wp pp check page` and restore's
- *   report, and the #687 addendum records it as a separate ruling.
+ *   Capping what a MESSAGE reflects is still not this helper's axis. #647/#649 landed
+ *   that bounding for reflected keys and values (64 and 100 characters), so a single
+ *   finding can no longer be arbitrarily long on those spans — but a stored component
+ *   NAME is still reflected verbatim, which is what keeps a duplicate-id message O(N).
+ *   That bounding applies equally to `wp pp check page` and restore's report, and the
+ *   #687 addendum records it as a separate ruling.
  *
  * The tail is the "and N more" contract _pp_render_undeclared_prop_keys() already uses
  * (lib/admin.php): the count it names is the TRUE total, so a truncated report never

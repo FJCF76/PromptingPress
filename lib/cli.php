@@ -280,8 +280,12 @@ function _pp_cli_post_id_arg_error(array $assoc_args, string $command): ?string 
     }
 
     if (!_pp_cli_is_canonical_post_id($raw)) {
-        $raw = (string) $raw;
-        return 'Invalid --post_id "' . $raw . '" for ' . _pp_cli_wp_command($command) . '. ' . PP_CLI_POST_ID_RULE . ' only — slugs and URLs are not resolved. ' . $shape;
+        // Quoted back so the operator sees what was READ — and routed through the file's
+        // printable owner first (#647), because what was read is raw argv and this sentence
+        // goes to a terminal. A canonical id is byte-identical through it; an ANSI or bidi
+        // sequence typed into --post_id is not re-emitted as one.
+        $shown = _pp_cli_printable((string) $raw);
+        return 'Invalid --post_id "' . $shown . '" for ' . _pp_cli_wp_command($command) . '. ' . PP_CLI_POST_ID_RULE . ' only — slugs and URLs are not resolved. ' . $shape;
     }
 
     return null;
@@ -382,6 +386,13 @@ function _pp_cli_positional_page_arg_error(array $args, array $assoc_args = []):
 
     $extra      = (string) $args[3];
     $wp_command = 'wp ' . $command;
+    // The stray token is raw argv and every branch below quotes it back to a terminal, one
+    // of them twice and ending on an instruction the operator is meant to act on (#647).
+    // Stripped ONCE here rather than at each interpolation so no branch can be added later
+    // without it. The composed corrected command below deliberately keeps using $extra: it
+    // is gated on _pp_cli_is_canonical_post_id(), so only decimal digits can reach it, and
+    // the predicate — not this strip — is what makes that line safe to print.
+    $shown      = _pp_cli_printable($extra);
 
     // The page is already addressed, so the stray token is not a page address —
     // do not lecture about --post_id or compose an address out of it, and never
@@ -397,12 +408,12 @@ function _pp_cli_positional_page_arg_error(array $args, array $assoc_args = []):
             && _pp_cli_is_canonical_post_id($assoc_args['post_id']))
         || _pp_cli_addressed_by_other_flag($command, $assoc_args);
     if ($addressed) {
-        return _pp_cli_wp_command($command) . ' got an unexpected positional argument ("' . $extra . '"). '
+        return _pp_cli_wp_command($command) . ' got an unexpected positional argument ("' . $shown . '"). '
             . 'This command takes flags only; the target is already addressed. '
-            . 'Remove "' . $extra . '" and re-run.';
+            . 'Remove "' . $shown . '" and re-run.';
     }
 
-    $message = _pp_cli_wp_command($command) . ' takes no positional page argument (got "' . $extra . '"). '
+    $message = _pp_cli_wp_command($command) . ' takes no positional page argument (got "' . $shown . '"). '
         . 'Address the page with the flag form: `' . $wp_command . ' --post_id=<id>`.';
 
     // The ONLY place a refusal composes a command the operator is told to RUN, so
@@ -629,7 +640,13 @@ function _pp_cli_run_id_error(array $assoc_args): ?string {
         return '--run-id is required. Run `wp pp operate inspect` first to get a run token.';
     }
     if (!pp_operate_valid_run_id($assoc_args['run-id'])) {
-        return '--run-id must be a valid UUID v4. Got: "' . $assoc_args['run-id'] . '"';
+        // Raw argv, quoted back to a terminal, and this branch is reached PRECISELY
+        // because the value failed the UUID test — so nothing upstream has vouched for
+        // its bytes (#647). The `Got:` echo is the whole point of the message, so it is
+        // stripped rather than dropped. Every OTHER `$run_id` echo in this file is safe
+        // without a guard: they run after pp_operate_valid_run_id() passed, which admits
+        // hex and hyphens only.
+        return '--run-id must be a valid UUID v4. Got: "' . _pp_cli_printable((string) $assoc_args['run-id']) . '"';
     }
     return null;
 }
@@ -1223,7 +1240,11 @@ class PP_Schema_Command extends WP_CLI_Command {
 
         $report = pp_component_schema_report((string) $args[0]);
         if (is_wp_error($report)) {
-            WP_CLI::error($report->get_error_message());
+            // The message is `Unknown component "%s". Available: ...` (lib/operate.php),
+            // built from the UNREGISTERED name — i.e. raw argv, echoed because it matched
+            // nothing (#647). The sibling resolver sinks in this file (operate inspect /
+            // patch) already wrap for exactly this reason.
+            WP_CLI::error(_pp_cli_printable($report->get_error_message()));
         }
 
         // The `$raw_unicode` argument is the ONE deviation from the escaped-by-default
@@ -1448,7 +1469,11 @@ class PP_Apply_Command extends WP_CLI_Command {
             $wanted = array_merge([$token], $family);
             $scope  = array_values(array_intersect($touched, $wanted));
             if (empty($scope)) {
-                WP_CLI::success('Token "' . $token . '" was not changed by run "' . $run_id . '"; nothing to restore.');
+                // `$token` is raw argv and this branch is the one where it intersected
+                // NOTHING the run touched, so no lookup has vouched for it (#647). A
+                // SUCCESS line is still a terminal sink. `$run_id` needs no guard: it is
+                // past pp_operate_valid_run_id().
+                WP_CLI::success('Token "' . _pp_cli_printable((string) $token) . '" was not changed by run "' . $run_id . '"; nothing to restore.');
                 return;
             }
         } else {
@@ -1906,13 +1931,33 @@ function _pp_cli_finding_line(array $finding): string {
 }
 
 /**
- * Makes an arbitrary stored string safe to print as one CLI line (#622).
+ * Makes an arbitrary untrusted string safe to print as one CLI line (#622, widened #647).
  *
- * Strips Unicode control and format characters. On invalid UTF-8 — where the `/u`
- * pattern refuses to run — it falls back to a byte-wise strip rather than discarding the
- * string: the readable part of a finding names the component, the prop and the rule, and
- * throwing all of that away over one bad byte would leave the operator with a diagnostic
- * that diagnoses nothing.
+ * TWO INPUT CLASSES, not one. #622 wrote this for STORED strings — raw-written
+ * `_pp_composition` data reaching a terminal. Since #647 it is also the owner for raw
+ * CALLER ARGV at the refusal sites that quote a flag value back before anything has
+ * vouched for it (`--post_id`, `--run-id`, `--token`, the playbook name, the readiness
+ * finding key, the stray positional), and for option values read back as prose. If you
+ * are adding a sink that prints text this theme did not author, it belongs here.
+ *
+ * Strips Unicode control and format characters. Note it STRIPS ONLY — unlike the
+ * admin and chat owners it applies no length bound, because a terminal line is not a
+ * budgeted payload; callers that need a cap bound before calling.
+ *
+ * On invalid UTF-8 — where the `/u` pattern refuses to run — it REPAIRS the encoding and
+ * re-runs the SAME pattern rather than discarding the string or falling back to a weaker
+ * one. Keeping the string matters: the readable part of a finding names the component,
+ * the prop and the rule, and throwing all of that away over one bad byte would leave the
+ * operator with a diagnostic that diagnoses nothing. Keeping the same PATTERN matters
+ * more, and is the #647 correction: this used to fall back to a byte-wise
+ * `[\x00-\x1f\x7f]` strip, which removed C0 and DEL but not `\p{Cf}` (the bidi and
+ * zero-width set) and not the C1 range including 0x9b, the 8-bit CSI. Since `/u` refuses
+ * to run on one malformed byte ANYWHERE in the subject, appending a single 0xff
+ * downgraded the guard for the whole string — measured, and pinned in
+ * tests/ReflectedTextInventoryTest.php with the two vectors that demonstrated it.
+ *
+ * All three reflection owners now answer "what is clean" with the same pattern and the
+ * same repair, which is the property that makes one definition true rather than aspired to.
  *
  * @param  string $text
  * @return string
@@ -1920,10 +1965,47 @@ function _pp_cli_finding_line(array $finding): string {
 function _pp_cli_printable(string $text): string {
     $clean = preg_replace('/[\p{Cc}\p{Cf}]+/u', ' ', $text);
     if ($clean === null) {
-        $clean = preg_replace('/[\x00-\x1f\x7f]+/', ' ', $text);
+        // REPAIR AND RE-RUN THE SAME PATTERN, which is what both sibling owners already
+        // do (_pp_clean_reflected_text, _pp_schema_value_for_message). This used to fall
+        // back to a byte-wise `[\x00-\x1f\x7f]+` strip, and that was a SECOND, WEAKER
+        // definition of "clean" on exactly the input that most warrants the strong one:
+        // it removed C0 and DEL but not \p{Cf} — the bidi and zero-width set — and not
+        // the C1 range, including 0x9b, the 8-bit CSI a terminal honours like ESC-[.
+        // `/u` refuses to run on ONE malformed byte ANYWHERE in the subject, so appending
+        // a single 0xff to a value downgraded the guard for the whole string.
+        $clean = preg_replace('/[\p{Cc}\p{Cf}]+/u', ' ', mb_convert_encoding($text, 'UTF-8', 'UTF-8'));
     }
 
+    // Reachable, not ceremony: the retry uses the same /u pattern, so a PCRE failure that
+    // is not an encoding problem (backtrack limit) returns null again.
     return $clean === null ? '(unprintable)' : $clean;
+}
+
+/**
+ * Makes the Custom CSS conflict rows printable as a table (#647).
+ *
+ * NO NEW SANITIZATION SEMANTICS — the owner is _pp_cli_printable() above and this only
+ * applies it to the one column that carries text the theme did not author. It exists at
+ * all because the same table is printed by TWO commands (`pp check conflicts` and
+ * `pp validate site`), and a second inline copy of the mapping is how two sinks drift
+ * into disagreeing about which columns are trusted. Same shape as _pp_cli_finding_line():
+ * a renderer that delegates.
+ *
+ * `selector` is read out of the site's own Custom CSS (pp_check_custom_css_conflicts,
+ * lib/guardrails.php), which is stored text under nobody's validation. `component` is
+ * resolved from the theme's own class list, so it is theme-authored and passes through.
+ *
+ * Applied HERE and not in the producer on purpose: the same rows also feed an admin
+ * notice, which is an HTML sink with an HTML escape, not a terminal one.
+ *
+ * @param  array $conflicts  Rows from pp_check_custom_css_conflicts().
+ * @return array             The same rows, printable.
+ */
+function _pp_cli_printable_conflict_rows(array $conflicts): array {
+    return array_map(static function (array $row): array {
+        $row['selector'] = _pp_cli_printable((string) ($row['selector'] ?? ''));
+        return $row;
+    }, $conflicts);
 }
 
 class PP_Check_Command extends WP_CLI_Command {
@@ -1945,7 +2027,7 @@ class PP_Check_Command extends WP_CLI_Command {
         }
 
         WP_CLI::warning(count($conflicts) . ' conflict(s) found:');
-        WP_CLI\Utils\format_items('table', $conflicts, ['selector', 'component']);
+        WP_CLI\Utils\format_items('table', _pp_cli_printable_conflict_rows($conflicts), ['selector', 'component']);
     }
 
     /**
@@ -2013,8 +2095,20 @@ class PP_Check_Command extends WP_CLI_Command {
         if (!empty($generated)) {
             WP_CLI::warning(count($generated) . ' component(s) without a durable component_id:');
             foreach ($generated as $g) {
-                $shown = $g['id'] !== '' ? $g['id'] : '(none)';
-                WP_CLI::line("  - {$g['component']} at index {$g['index']} (id: {$shown}): auto-generated ids are regenerated by a full update_composition re-apply. Add an explicit `id` prop to target this component durably.");
+                // The component NAME is a stored string from a composition this command
+                // exists to inspect precisely because it never passed write validation
+                // (#622), and its neighbours in this same body already route through
+                // _pp_cli_finding_line() -> _pp_cli_printable() — the inconsistency was
+                // inside one foreach (#647). $index is an int.
+                //
+                // The id is wrapped for the same reason inspect-composition's static message
+                // is: it cannot carry hostile bytes TODAY (pp_find_generated_component_ids()
+                // only reports an id that is empty or matches the generated `pp-<hex8>`
+                // shape), and the day that classifier widens, this sink must already be the
+                // one that strips rather than the one that forwards.
+                $name  = _pp_cli_printable((string) $g['component']);
+                $shown = $g['id'] !== '' ? _pp_cli_printable((string) $g['id']) : '(none)';
+                WP_CLI::line("  - {$name} at index {$g['index']} (id: {$shown}): auto-generated ids are regenerated by a full update_composition re-apply. Add an explicit `id` prop to target this component durably.");
             }
         }
 
@@ -2023,7 +2117,10 @@ class PP_Check_Command extends WP_CLI_Command {
             $rows = [];
             foreach ($warnings as $w) {
                 $rows[] = [
-                    'component' => $w['component'],
+                    // format_items writes straight to stdout, so a table CELL is a terminal
+                    // sink like any other line and takes the same owner (#647). Indices are
+                    // ints; the issue text is a literal.
+                    'component' => _pp_cli_printable((string) $w['component']),
                     'indices'   => implode(', ', $w['indices']),
                     'issue'     => 'Duplicate component type without authored IDs (ambiguous targeting)',
                 ];
@@ -2109,7 +2206,7 @@ class PP_Validate_Command extends WP_CLI_Command {
         if (!empty($conflicts)) {
             $pass = false;
             WP_CLI::warning(count($conflicts) . ' conflict(s):');
-            WP_CLI\Utils\format_items('table', $conflicts, ['selector', 'component']);
+            WP_CLI\Utils\format_items('table', _pp_cli_printable_conflict_rows($conflicts), ['selector', 'component']);
         } else {
             WP_CLI::line('OK: No Custom CSS conflicts.');
         }
@@ -2123,7 +2220,11 @@ class PP_Validate_Command extends WP_CLI_Command {
         } else {
             foreach ($pages as $page) {
                 $post_id     = $page['id'];
-                $title       = $page['title'] ?? '(untitled)';
+                // The post TITLE is stored site data and every branch below prints it (#647).
+                // Wrapped once, where it is read, so the three sinks under it cannot disagree
+                // — and so an ANSI sequence in a page title cannot dress up the line that
+                // says the OTHER pages are fine.
+                $title       = _pp_cli_printable((string) ($page['title'] ?? '(untitled)'));
                 $result      = pp_get_composition_result($post_id);
                 if (!$result['ok']) {
                     // Corrupt row must fail validation, not report clean (issue
@@ -2150,7 +2251,10 @@ class PP_Validate_Command extends WP_CLI_Command {
                         WP_CLI::line(_pp_cli_finding_line($e) . ' (would be rejected on write)');
                     }
                     foreach ($warnings as $w) {
-                        WP_CLI::line("  - {$w['component']} at indices " . implode(', ', $w['indices']) . ' (no authored IDs — ambiguous targeting; add explicit `id` props)');
+                        // Stored component name, sitting between two loops whose lines already
+                        // go through _pp_cli_finding_line() (#647). Indices are ints.
+                        $named = _pp_cli_printable((string) $w['component']);
+                        WP_CLI::line("  - {$named} at indices " . implode(', ', $w['indices']) . ' (no authored IDs — ambiguous targeting; add explicit `id` props)');
                     }
                     foreach ($smells as $s) {
                         WP_CLI::line(_pp_cli_finding_line($s));
@@ -2209,7 +2313,11 @@ class PP_Validate_Command extends WP_CLI_Command {
         if (!empty($result['warnings'])) {
             WP_CLI::line(count($result['warnings']) . ' warning(s):');
             foreach ($result['warnings'] as $w) {
-                WP_CLI::line('  - [' . $w['check'] . '] ' . $w['message']);
+                // pp_post_apply_validate() builds these messages by interpolating the STORED
+                // component name, id and media path into them (lib/post-apply-validate.php),
+                // so this line has the same content class as a composition finding and takes
+                // the same owner (#647). `check` is a rule literal.
+                WP_CLI::line('  - [' . $w['check'] . '] ' . _pp_cli_printable((string) $w['message']));
             }
         }
 
@@ -2220,7 +2328,8 @@ class PP_Validate_Command extends WP_CLI_Command {
 
         WP_CLI::line(count($result['errors']) . ' error(s):');
         foreach ($result['errors'] as $e) {
-            WP_CLI::line('  - [' . $e['check'] . '] ' . $e['message']);
+            // Same content class as the warning loop above (#647).
+            WP_CLI::line('  - [' . $e['check'] . '] ' . _pp_cli_printable((string) $e['message']));
         }
         WP_CLI::warning("Page {$post_id}: rendered validation failed.");
         WP_CLI::halt(1);
@@ -2282,8 +2391,12 @@ class PP_Operate_Command extends WP_CLI_Command {
         $checklists = pp_operate_checklists();
 
         if (!isset($checklists[$playbook])) {
+            // The name is quoted back BEFORE any membership test has vouched for it, so it is
+            // raw argv reaching a terminal — the same class as the --post_id refusal above,
+            // and it takes the same owner (#647). `$available` is theme-authored keys.
+            $shown     = _pp_cli_printable((string) $playbook);
             $available = implode(', ', array_keys($checklists));
-            WP_CLI::error("Unknown playbook '{$playbook}'. Available: {$available}");
+            WP_CLI::error("Unknown playbook '{$shown}'. Available: {$available}");
         }
 
         _pp_cli_emit_json($checklists[$playbook]);
@@ -2437,7 +2550,12 @@ class PP_Operate_Command extends WP_CLI_Command {
 
         $result = pp_patch_composition($post_id, $selector, $value, $preview, $expected_version);
         if (is_wp_error($result)) {
-            WP_CLI::error($result->get_error_message());
+            // These messages interpolate BOTH halves of the untrusted set: the caller's own
+            // --target selector ("No component of type \"%s\"...") and stored component ids
+            // ("Matching IDs: %s"), from lib/operate.php's resolver. Its sibling sink in this
+            // same class — inspect_composition() — already wraps for exactly this reason, and
+            // that one only reflects a literal (#647).
+            WP_CLI::error(_pp_cli_printable($result->get_error_message()));
         }
 
         // Refresh the freshness baseline (#113) after a successful apply (not preview).
@@ -2939,7 +3057,10 @@ class PP_Readiness_Command {
         $current = pp_current_configuration_finding_keys();
         if (!in_array($key, $current, true)) {
             $available = empty($current) ? '(none currently present)' : implode(', ', $current);
-            WP_CLI::error('Not an acknowledgeable configuration finding: "' . $key . '". '
+            // Pre-membership-test echo of raw argv (#647). The SUCCESS message below keeps
+            // using $key unwrapped on purpose: it is only reached once the key has matched
+            // pp_current_configuration_finding_keys(), i.e. once it is a theme-authored key.
+            WP_CLI::error('Not an acknowledgeable configuration finding: "' . _pp_cli_printable($key) . '". '
                 . 'Only currently-present configuration findings can be acknowledged (integrity drift → `wp pp readiness rebaseline`; capability gaps → install the tool). '
                 . 'Available: ' . $available);
         }
@@ -2974,13 +3095,21 @@ class PP_Readiness_Command {
 
         $acks = pp_acknowledged_findings();
         if (!isset($acks[$key])) {
-            WP_CLI::error('Finding "' . $key . '" is not acknowledged; nothing to reverse.');
+            // Same pre-membership echo as `acknowledge` (#647): this branch is exactly the
+            // one where $key matched nothing, so nothing has vouched for its bytes.
+            WP_CLI::error('Finding "' . _pp_cli_printable($key) . '" is not acknowledged; nothing to reverse.');
         }
 
         unset($acks[$key]);
         update_option('pp_acknowledged_findings', $acks);
 
-        WP_CLI::success('Un-acknowledged "' . $key . '". If the underlying condition still holds it will report as an active warning again.');
+        // WRAPPED, unlike `acknowledge`'s success line, and the asymmetry is the point
+        // (#647). That one is reached only after $key matched
+        // pp_current_configuration_finding_keys() — theme-authored constants. THIS one is
+        // vouched for by `isset($acks[$key])` against the pp_acknowledged_findings OPTION,
+        // which is stored site data under nobody's validation, so membership here proves
+        // the key was stored, not that it is printable.
+        WP_CLI::success('Un-acknowledged "' . _pp_cli_printable($key) . '". If the underlying condition still holds it will report as an active warning again.');
     }
 }
 
@@ -3083,7 +3212,12 @@ class PP_Integrity_Command {
         if ($stored_version !== PP_VERSION) {
             WP_CLI::warning(sprintf(
                 'Results are from version %s, current theme is %s — run `wp pp integrity check` to refresh.',
-                $stored_version,
+                // Read straight out of the pp_theme_integrity OPTION and printed as prose
+                // (#647). Only PP_VERSION ever writes it, but nothing enforces that shape
+                // at READ time, and the comparison above is what makes this line reachable
+                // with a value that is not PP_VERSION. PP_VERSION itself is a theme
+                // constant and needs no guard.
+                _pp_cli_printable((string) $stored_version),
                 PP_VERSION
             ));
         }

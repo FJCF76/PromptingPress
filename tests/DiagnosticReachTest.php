@@ -1055,13 +1055,34 @@ class DiagnosticReachTest extends TestCase
             'empty object key'         => ['', null, ''],
             'empty key in object'      => ['', ['' => 'a', 'x' => 'b'], 'key ""'],
 
-            // Hostile keys. The key is rendered WHOLE — no strip, no truncation, no
-            // escape — because bounding what a message reflects is #647/#649's axis and
-            // must stay uniform across this family rather than being decided one surface
-            // at a time. `key "a"b"` IS ambiguous to a reader; that is a recorded,
-            // deliberate limitation routed to #647/#649, not an oversight.
+            // Hostile keys, since #649. The key now goes through this file's own reflection
+            // owner (_pp_schema_value_for_message), so control and format characters are
+            // stripped and the length is bounded — while the helper's own quotes keep every
+            // well-formed row above byte-identical.
+            //
+            // An INTEGER key from a folded numeric object. Pinned because the conversion
+            // to _pp_schema_value_for_message() rests on the claim that the helper quotes
+            // a non-string scalar the same way the old sprintf did — `key "5"`, not
+            // `key 5`. A docblock asserting byte-identity is not evidence; this is.
+            'integer key in object'    => [5, [5 => 'a', 'x' => 'b'], 'key "5"'],
+            // The QUOTE row, and still deliberate: `key "a"b"` IS ambiguous to a reader.
+            // Bounding is #649's axis; the quoting GRAMMAR of the `key "..."` form is a
+            // different one and is not ruled on, so this keeps the spelling the ~23 sibling
+            // `Component "%s"` messages share rather than inventing a one-off escape for one
+            // member of the family. A recorded limitation, not an oversight.
             'key containing a quote'   => ['a"b', ['a"b' => 1, 'z' => 2], 'key "a"b"'],
-            'key with control chars'   => ["a\tb", ["a\tb" => 1, 'z' => 2], "key \"a\tb\""],
+            // The tab is \p{Cc}. It used to reach the envelope intact; now it does not.
+            'key with control chars'   => ["a\tb", ["a\tb" => 1, 'z' => 2], 'key "ab"'],
+            // A bidi override renders as nothing while reordering everything after it — the
+            // exact case two different keys can present identically to a reader deciding
+            // whether the key they wrote is the key that was rejected.
+            'key with a bidi override' => ["a\u{202E}b", ["a\u{202E}b" => 1, 'z' => 2], 'key "ab"'],
+            // Bounded, and MARKED so the truncation is visible rather than silent.
+            'over-long key'            => [
+                str_repeat('k', 300),
+                [str_repeat('k', 300) => 1, 'z' => 2],
+                'key "' . str_repeat('k', PP_REFLECTED_VALUE_MAX_LENGTH) . '..."',
+            ],
         ];
     }
 
@@ -1253,27 +1274,76 @@ class DiagnosticReachTest extends TestCase
     }
 
     /**
-     * THE DEFERRAL, recorded in the suite rather than only in a docblock. The key is
-     * reflected VERBATIM — unbounded and unstripped — which is what the six sibling rules
-     * have always done and what #634 was fenced to keep uniform rather than fix at two
-     * sites out of eight. Bounding it for the whole family is #649.
+     * THE DEFERRAL, CLOSED (#649). This test previously asserted the gap: a hostile
+     * `items[]` key was reflected VERBATIM — unbounded and unstripped — into the action
+     * envelope, uniform with the six sibling rules #634 was fenced to leave alone. Its own
+     * docblock said that when #649 landed it should be REWRITTEN to the new contract rather
+     * than deleted, because a rewritten test is the signal that the gap was closed on
+     * purpose. This is that rewrite.
      *
-     * Two surfaces, deliberately asserted apart: the CLI finding line IS sanitized
-     * (_pp_cli_printable), the action envelope is NOT. When #649 lands, this test should
-     * be rewritten to the new contract, not deleted — that is the signal that the gap was
-     * closed on purpose.
+     * The two surfaces are still asserted apart, and that is the point: the CLI line was
+     * always sanitized (_pp_cli_printable), the envelope was not. Now the ENVELOPE carries
+     * the guarantee at the source — so the CLI assertion below no longer proves anything on
+     * its own, and is kept as the statement that the two agree.
      */
-    public function testAHostileItemKeyIsStillReflectedVerbatimIntoTheEnvelopeUntil649(): void
+    public function testAHostileItemKeyIsDefangedInTheEnvelopeItself(): void
     {
         $key    = "aa\x1b[31m\nWARNING: fake";
         $errors = pp_validate_composition_errors([
             ['component' => 'grid', 'props' => ['items' => [$key => ['title' => 'X', 'link_url' => 'javascript:a']]]],
         ]);
 
-        $this->assertStringContainsString("\x1b", $errors[0]->get_error_message(), 'documented gap, not a claim that this is right (#649)');
+        $message = $errors[0]->get_error_message();
+        $this->assertStringNotContainsString("\x1b", $message, 'the escape byte must not survive into the envelope (#649)');
+        $this->assertStringNotContainsString("\n", $message, 'nor the newline that faked a second line of output');
+        // What is left is exactly what was always PRINTABLE. The escape byte is gone, so the
+        // terminal renders `[31m` as the four characters they are instead of switching to
+        // red — the remnant is legible, which is the honest outcome, not a second defect.
+        $this->assertStringContainsString('item key "aa[31mWARNING: fake"', $message, 'the readable part of the key still names it');
 
-        $line = _pp_cli_finding_line(['type' => 'invalid_prop_value', 'index' => 0, 'message' => $errors[0]->get_error_message()]);
-        $this->assertStringNotContainsString("\x1b", $line, 'the CLI surface strips it today');
+        $line = _pp_cli_finding_line(['type' => 'invalid_prop_value', 'index' => 0, 'message' => $message]);
+        $this->assertStringNotContainsString("\x1b", $line, 'and the CLI surface, which always stripped, still agrees');
         $this->assertStringNotContainsString("\n", $line);
+    }
+
+    /**
+     * A hostile key is BOUNDED as well as stripped, and the bound is the one this file's
+     * own owner applies to the VALUES in the same message (#649 joining #647's convention).
+     *
+     * The repro from the issue, measured: a 300-character key used to be echoed whole, so
+     * the locator alone was longer than the sentence it was meant to locate.
+     */
+    public function testALongItemKeyIsBoundedByTheSameOwnerAsTheValues(): void
+    {
+        $key    = str_repeat('k', 300);
+        $errors = pp_validate_composition_errors([
+            ['component' => 'grid', 'props' => ['items' => [$key => ['title' => 'X', 'link_url' => 'javascript:a']]]],
+        ]);
+
+        $message = $errors[0]->get_error_message();
+        $this->assertStringNotContainsString($key, $message, 'the whole key must not be echoed back');
+        $this->assertStringContainsString(
+            'item key "' . str_repeat('k', PP_REFLECTED_VALUE_MAX_LENGTH) . '..."',
+            $message,
+            'cut at the shared bound and MARKED, so the reader knows the key continues'
+        );
+    }
+
+    /**
+     * Invalid UTF-8 in a key is REPAIRED, not forwarded and not thrown away.
+     *
+     * The lone continuation byte makes the `/u` pattern refuse to run, which is the case
+     * where a weaker second definition of "clean" would quietly let the whole zero-width and
+     * bidi set through. The owner re-runs the SAME pattern on repaired bytes instead.
+     */
+    public function testAnInvalidUtf8ItemKeyIsRepairedRatherThanForwarded(): void
+    {
+        $errors = pp_validate_composition_errors([
+            ['component' => 'grid', 'props' => ['items' => ["a\x80b\u{202E}c" => ['title' => 'X', 'link_url' => 'javascript:a']]]],
+        ]);
+
+        $message = $errors[0]->get_error_message();
+        $this->assertStringNotContainsString("\u{202E}", $message, 'the bidi override must not survive the repair path');
+        $this->assertSame($message, mb_convert_encoding($message, 'UTF-8', 'UTF-8'), 'and the message is valid UTF-8');
     }
 }

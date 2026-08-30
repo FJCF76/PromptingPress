@@ -70,10 +70,12 @@ trait ChatUndoBoundTrait
      * The bound is the server's own number for this species, and stays it.
      *
      * `PP_REFLECTED_ERROR_MAX` is what `_pp_clean_reflected_text()` allows a reflected WP_Error
-     * on the PREVIEW path. The EXECUTE path the undo card reads does not pass through that
-     * helper — `_pp_ai_execute_error_payload()` reflects `$result['error']` verbatim — so the
-     * client's constant is the only bound this message ever meets, and it is only "one answer"
-     * while the two match.
+     * on the PREVIEW path. Since #647 the EXECUTE path the undo card reads goes through the
+     * SAME helper — `_pp_ai_execute_error_payload()` no longer reflects `$result['error']`
+     * verbatim — so the server now bounds this message too, and the client's constant is the
+     * bound the CARD renders under rather than the only bound in the system. Keeping the two
+     * equal is what makes "one answer to how long may a reflected error be" true across the
+     * wire; #793 owns the client half.
      */
     private function assertChatUndoBoundTracksTheServer(): void
     {
