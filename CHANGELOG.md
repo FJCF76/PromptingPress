@@ -4,6 +4,75 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.17.9] — 2026-08-30 — the chat stops rendering server error text at whatever length it arrives (#793)
+
+**A validator message can be arbitrarily long, and until now the chat drew all of it.** The findings report is capped at 100 entries, but that is a count bound and its own docblock says so — a single entry can reflect a stored component name verbatim, and `duplicate_component_id` names every colliding index inside ONE message, so that message grows with the band count. Nothing between the database and the DOM shortened it. A pathological page could put a message into the transcript long enough to push the card it belonged to off the top of the scroller, which is the failure #663 fixed for one string and left open for the others.
+
+This release puts a ceiling on the five places the chat renders server-supplied error text. It adds no sanitizer, and that omission is the point rather than an oversight.
+
+### What was left of #793, and why it was this
+
+#793 was filed against the chat's finding rows and asked for two things: a JavaScript twin of `_pp_cli_printable()` (a `\p{Cc}\p{Cf}` strip, so the card cleans what the terminal cleans), and a note that a stored value can forge a second band locator. **Its scope shrank on both halves before this release, and neither shrank because of a decision made here.**
+
+The **strip** was answered in v1.17.8 (#647/#649), which took the alternative #793's own body offered — "whether the fix belongs in the JS or in the server's message builder so every consumer inherits it" — and put it in the server's builder. That release also recorded why the JavaScript twin must NOT be written: a second definition of "clean" could only drift from the first, and the client cannot repair invalid UTF-8 the way `_pp_clean_reflected_text()` does. So the half the issue body asks for out loud is now the half that is forbidden.
+
+What v1.17.8 deliberately left is written into the code it wrote. `_pp_ai_execute_error_payload()` (`lib/ai-chat.php`) says it: *"What the client still owns is the LENGTH it renders under (#793)."* `tests/ChatUndoBoundTrait.php` says it: *"#793 owns the client half."* This release is that half, and only that half.
+
+The **forgery** concern is untouched and is not closed by a length bound — truncation only ever removes from the end, so it can neither manufacture a locator nor move a forged one earlier. It needs a rendering decision (marking the card-generated locator as card-generated) and is now filed as #867 so the reference does not decay into a pointer at a closed issue that answered a different question.
+
+### Why a client bound is not redundant with the server
+
+Of the five sites, the server answers the length question for exactly **one** — the up-front batch refusal, whose message is composed from string literals and an integer post id, so it is bounded by construction rather than by a rule, and nothing pins that property. For the other four there is no answer at all:
+
+| Site | Producer | Server length bound |
+|---|---|---|
+| finding rows (`ppChatValidationItemRow`) | `_pp_composition_findings()` → `_pp_bounded_findings()` | none — a COUNT bound, and its docblock says "THIS IS A COUNT BOUND, AND ONLY A COUNT BOUND" |
+| batch envelope error | `_pp_action_error()` | none — stores `'error' => $error` verbatim |
+| failed-step error | `_pp_action_error()` | none — reflects `Unknown component: "%s"` with a stored name |
+| stream / provider error | `pp_ai_parse_error_response()` | none — a third party's body, tag-stripped and otherwise whole |
+
+Closing those server-side is #864, deferred pending a ruling on where the cleaning owner should live. Until it lands this is the only ceiling those strings meet, and after it lands this stays as the backstop for a payload that never came from this theme.
+
+### The bound, and the units decision
+
+`PP_CHAT_REFLECTED_ERROR_MAX = 4096`, a hand-copy of the server's `PP_REFLECTED_ERROR_MAX`, applied by `ppChatBoundReflectedText()`. Truncation reuses the idiom this repo already uses everywhere (`_pp_clean_reflected_text` on the PHP side, three functions on the JS side): cut to `max - 3` and mark with `...`. No new marker was invented.
+
+**Units, stated because the choice errs in a direction.** `String.length` counts UTF-16 code units; the server counts characters (`mb_strlen`). Every character is one or two code units, so `.length >= mb_strlen` and this bound is **stricter** than the server's, not looser: a message of 4096 astral-plane characters is 8192 code units and is cut here even though the server passed it. That trade is taken deliberately — code units are what the existing `PP_CHAT_UNDO_ERROR_MAX` comparison uses, counting code points would mean walking a hostile multi-megabyte string to decide whether to shorten it, and a validator message would have to be more than half non-BMP text to reach the gap at all. A defensive ceiling that errs toward cutting errs on the right side.
+
+**It measures non-strings too.** A `typeof` guard would have been a hole rather than a scoping decision: every call site coerces on its own (`'Error: ' + x`, `textContent = x`), so a payload of `{ error: [ ...a million strings... ] }` would pass the guard and then be stringified into the DOM at full length. A value whose rendered form FITS is returned as itself, so an object still renders `[object Object]` and `textContent = null` still renders empty rather than the word "null"; only an oversized value comes back as a string. A value whose own `toString` throws is handed straight back, so the call site throws exactly where it always threw.
+
+**The cut does not split a well-formed surrogate pair.** `substring` cuts by code unit, so on astral text the cut can land between the two halves of one character and leave a lone high surrogate rendering as U+FFFD immediately before the ellipsis. The guard drops that dangling unit. It is a single `if` and not a loop on purpose: text that ALREADY held lone surrogates can still end on one, and removing those would be cleaning input the cut did not orphan, which is sanitizing, which is server-owned. The three older bounds in the same file share the unguarded idiom and are not changed here (#866).
+
+### Two constants, one anchor
+
+`PP_CHAT_UNDO_ERROR_MAX` (#822) holds the same number and is left alone. They are separate names because they carry different contracts: the undo one promises headroom over two specific refusal messages and two PHPUnit classes assert it; this one promises nothing about its inputs, which is why they need a ceiling. Both are pinned equal to `PP_REFLECTED_ERROR_MAX` by tripwire, so they cannot drift from the server or from each other.
+
+### Scope boundaries
+
+Deliberately NOT bounded, each for a stated reason: `alternatives` (recorded as COLLAPSED-but-not-length-bounded by `_pp_no_hint_slot_message()`; changing it would contradict a recorded decision), the composition summary and raw-JSON disclosure and streamed model content (unbounded by design), `ppChatFormatDiffValue`'s scalar arm and `executeProposal`'s transport `.catch` (both real gaps, both a different species — filed as #868).
+
+**This is a rendering ceiling, not a denial-of-service control.** The full body still crosses the network and is fully materialised by `JSON.parse` before any bound runs. What it caps is DOM text size, layout cost, and transcript displacement.
+
+### Fixed
+
+- The chat's finding rows, the two batch error status lines, the failed-step status line and the streamed provider error now bound the server-supplied span they render at `PP_CHAT_REFLECTED_ERROR_MAX` (`assets/js/pp-ai-chat.js`).
+- A finding row bounds its locator and its message **separately**. Bounding the composed row would have let an oversized `type` consume the whole budget and cut the validator message away entirely — the display dishonesty #793 exists to prevent, reappearing as its own fix. `ppChatFindingLocator()` gates `index` to a finite non-negative integer but tests `type` only for being non-empty, so the locator is not the safe half it looks like.
+- `handleStreamError()` bounds what it DISPLAYS and classifies on what ARRIVED. A provider can return a body long enough that the phrase earning the "Settings > Connectors" link sits past the cut; testing the truncated copy would have silently dropped the one affordance that fixes the error being reported.
+
+### Docs
+
+- `docs/reference-apply-cli.md`: corrected a claim that went stale at v1.17.8 — the undo row's budget is no longer described as applying "on the preview path", because since #647 the server bounds that payload too, making the client constant the length the card renders under rather than the only bound in the system. Added the chat card's new rendering ceiling to the findings section, with the pointer that `wp pp check page --post_id=N` still prints a truncated message whole.
+- `AI_CONTEXT.md`: the O(N) `duplicate_component_id` message is still unbounded on the wire and in every CLI report; only the chat's rendering of it is capped. A `...` in a card means the card shortened it, never that the payload was short.
+- `assets/js/pp-ai-chat.js`: two pre-existing docblocks corrected. `PP_CHAT_UNDO_ERROR_MAX` no longer claims `_pp_ai_execute_error_payload()` "returns `$result['error']` verbatim" or that its bound is "the only bound the undo refusal ever meets" — both went false at v1.17.8. `PP_CHAT_RENDER_ERROR_MAX` now names `_pp_no_hint_slot_message()` for the `alternatives` claim and points at the new ceiling.
+
+### Tests
+
+- `tests/js/pp-ai-chat-reflected-bound.test.js` (new, 22 cases): the helper's boundary, cut, marker, surrogate guard and non-string handling; that it does NOT strip control or format characters; and the real row builder driven through `appendValidationItems` with oversized message, oversized `type`, non-string message, absent and null message, and a markup canary.
+- `tests/ChatReflectedTextBoundTest.php` (new, 13 cases): a PHPUnit tripwire reading the shipped JavaScript, in the pattern `tests/ChatUndoBoundTrait.php` established. Pins the constant against `PP_REFLECTED_ERROR_MAX`, pins both client constants equal, pins each of the five call sites **anchored on its consuming expression** so a dead helper call beside an unbounded render cannot satisfy the grep, pins that the Connectors classification still reads the raw text, pins that the undo card is not double-bounded, and pins the ABSENCE of a JavaScript character-class sanitizer so the twin ruled out in v1.17.8 cannot be reintroduced by someone who reads #793's body without the ruling beside it. Needed because `addStatusMessage`, `executeProposal` and `handleStreamError` are inside the chat script's DOM-ready closure and no vitest test can reach them.
+
+  Two of its assertions exist because the first drafts of the others were **measured to be false greens**. Forbidding the single spelling `ppChatBoundReflectedText(errorText).indexOf` left `errorText = ppChatBoundReflectedText(errorText)` on the following line free to reproduce the exact bug the test is named for, with both suites still green; and asserting that a render site is WIRED said nothing about a later line overwriting the same sink with the raw value. The file now bans the reassignment and requires each renderer to write its element once, scoped to the function body because both sink names are legitimately written twice at file scope. Its regexes were also loosened off local variable names and off the literal `3`, so a pure rename, a reordered comparison, an extracted marker constant, or an ES2021 numeric separator no longer turn it red — a tripwire that fires on reformatting teaches maintainers to delete tripwires.
+- `tests/e2e/ai-chat.spec.ts` (3 new): the real chat surface driven with an oversized failed-step error (asserting the bounded span sits between the prefix and the rollback sentence, so neither piece of theme prose is lost), an oversized up-front batch refusal (a different status-line branch, and otherwise the one call site with no behavioural coverage in any suite), and an oversized provider error whose Connectors phrase falls past the cut (asserting the text is truncated AND the link still renders).
+
 ## [v1.17.8] — 2026-08-30 — one answer to "what may a message echo back", applied to every server surface that echoes (#647, #649)
 
 **The theme already had three definitions of "safe to echo back". What it did not have was a rule about where they get used.** Text the theme did not author — a flag value typed at a terminal, a component name read out of a composition that never passed write validation, a page title, a Custom CSS selector — travels into messages an operator and the chat AI both read. Three helpers existed to make that text printable, each already the single owner for its surface. Some sinks called them. Neighbouring sinks, inside the same function body, did not. Which sink you hit decided whether a stored ANSI escape reached your terminal, and that was an accident of which loop the value happened to be in.

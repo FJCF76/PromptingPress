@@ -282,6 +282,136 @@ test.describe('AI Chat — streaming & apply (mock SSE)', () => {
     expect(JSON.parse(stepsField![1])).toHaveLength(2);
   });
 
+  /**
+   * PP_CHAT_REFLECTED_ERROR_MAX, as the chat script declares it. Restated here rather
+   * than imported because this spec drives a browser, not the module — the copy is held
+   * honest from the other side: tests/ChatReflectedTextBoundTest.php reads the shipped
+   * script and asserts the constant equals the server's PP_REFLECTED_ERROR_MAX.
+   */
+  const REFLECTED_ERROR_MAX = 4096;
+
+  test('an oversized failed-step error is bounded on the real chat surface (#793)', async ({ page }) => {
+    // The authoring-path drive for #793. The exported helper is unit-tested, but the line
+    // that CALLS it lives inside the DOM-ready closure and no vitest test can reach it —
+    // this walks the actual flow: propose, preview, Apply, read what the transcript drew.
+    //
+    // The payload is the shape #864's deferred sinks can really deliver. `_pp_action_error()`
+    // (lib/actions.php) stores `'error' => $error` verbatim, so a validator message like
+    // `Unknown component: "%s"` reflects a stored component name that never passed write
+    // validation, at whatever length it was stored.
+    pageId = createPage('E2E Chat Oversized Step Error');
+    await gotoChat(page, pageId);
+    await mockStream(page, [
+      {
+        done: true,
+        proposal: {
+          steps: [
+            { type: 'action', name: 'update_component', description: 'Update hero title', params: { post_id: pageId, component_index: 0, props: { title: 'A' } } },
+          ],
+        },
+      },
+    ]);
+
+    const hostile = `Unknown component: "${'A'.repeat(REFLECTED_ERROR_MAX * 3)}".`;
+
+    await mockAjax(page, {
+      pp_ai_preview: previewOkResponse,
+      pp_ai_execute_batch: () => ({
+        success: true,
+        data: {
+          ok: false,
+          steps: [{ ok: false, error: hostile }],
+          failed_at: 0,
+          rolled_back: true,
+          rollback_errors: [],
+        },
+      }),
+    });
+
+    await page.fill('#pp-ai-input', 'Update the title');
+    await page.click('#pp-ai-send');
+
+    const applyBtn = page.locator('.pp-ai-proposal-apply');
+    await expect(applyBtn).toBeVisible({ timeout: 10000 });
+    await applyBtn.click();
+
+    const status = page.locator('#pp-ai-messages > .pp-ai-status-error').last();
+    await expect(status).toContainText('Error on step 1:', { timeout: 10000 });
+
+    const rendered = (await status.textContent()) || '';
+
+    // The line is theme prose, then the ONE bounded server span, then more theme prose:
+    //
+    //   'Error on step 1: '  +  <bounded server error>  +  ppChatRollbackSentence()
+    //   └── prefix ────────┘     └── the budget ─────┘     └── the outcome ────────┘
+    //
+    // Only the middle is server-supplied, and only the middle is counted against the
+    // budget — the same rule PP_CHAT_RENDER_ERROR_MAX states for its own prefix. The span
+    // ends at the truncation marker, and the hostile fixture contains no other '...'.
+    const prefix  = 'Error on step 1: ';
+    const spanEnd = rendered.indexOf('...') + 3;
+    const span    = rendered.slice(prefix.length, spanEnd);
+
+    expect(rendered.startsWith(prefix)).toBe(true);
+    expect(span.length).toBe(REFLECTED_ERROR_MAX);
+    expect(span.endsWith('...')).toBe(true);
+
+    // And the reason the bound has to sit on the span rather than on the whole line: the
+    // sentence that says whether anything survived comes AFTER the reflected text. Bound
+    // the line and a long enough error would push the operator's actual outcome off the end.
+    expect(rendered.endsWith('— all changes in this proposal have been reverted.')).toBe(true);
+
+    // Un-bounded, this line would have been ~12k characters of a single repeated letter,
+    // pushing the step card it belongs to off the top of the transcript.
+    expect(rendered.length).toBeLessThan(hostile.length);
+  });
+
+  test('an oversized up-front batch refusal is bounded on the real chat surface (#793)', async ({ page }) => {
+    // The up-front refusal reaches a DIFFERENT status line from the failed-step case above:
+    // `!resp.success` with a bare `data`, rather than a step envelope. Both are inside the
+    // DOM-ready closure and unreachable from vitest, and the PHPUnit tripwire proves only that
+    // the call is WIRED, not that it takes effect — so without this case the branch has no
+    // behavioural coverage in any suite.
+    pageId = createPage('E2E Chat Oversized Refusal');
+    await gotoChat(page, pageId);
+    await mockStream(page, [
+      {
+        done: true,
+        proposal: {
+          steps: [
+            { type: 'action', name: 'update_component', description: 'Update hero title', params: { post_id: pageId, component_index: 0, props: { title: 'A' } } },
+          ],
+        },
+      },
+    ]);
+
+    const hostile = `Refused: ${'C'.repeat(REFLECTED_ERROR_MAX * 3)}`;
+
+    await mockAjax(page, {
+      pp_ai_preview: previewOkResponse,
+      // No error_code, so this takes the generic status-message path rather than the
+      // conflict affordance — the branch this test exists for.
+      pp_ai_execute_batch: () => ({ success: false, data: { error: hostile } }),
+    });
+
+    await page.fill('#pp-ai-input', 'Update the title');
+    await page.click('#pp-ai-send');
+
+    const applyBtn = page.locator('.pp-ai-proposal-apply');
+    await expect(applyBtn).toBeVisible({ timeout: 10000 });
+    await applyBtn.click();
+
+    const status = page.locator('#pp-ai-messages .pp-ai-status-error').last();
+    await expect(status).toContainText('Error: Refused:', { timeout: 10000 });
+
+    const rendered = (await status.textContent()) || '';
+    const prefix = 'Error: ';
+
+    expect(rendered.length - prefix.length).toBe(REFLECTED_ERROR_MAX);
+    expect(rendered.endsWith('...')).toBe(true);
+    expect(rendered.length).toBeLessThan(hostile.length);
+  });
+
   test('remove_component proposal then Undo restores the removed section (#133)', async ({ page }) => {
     pageId = createPage('E2E Chat Undo');
     // Seed a two-component composition so the removed section is observable and
@@ -548,6 +678,39 @@ test.describe('AI Chat — streaming & apply (mock SSE)', () => {
     const errBody = page.locator('.pp-ai-msg-assistant .pp-ai-msg-error');
     await expect(errBody).toContainText('no remaining credits', { timeout: 10000 });
     await expect(errBody.locator('a')).toHaveCount(0);
+  });
+
+  test('an oversized provider error is bounded for display but still earns its Connectors link (#793)', async ({ page }) => {
+    // The subtlest half of #793, and the reason the bound is applied to the ASSIGNMENT
+    // rather than to handleStreamError's parameter. A provider can return a very long
+    // error body — pp_ai_parse_error_response() (lib/ai-provider.php) tag-strips it and
+    // bounds nothing — and the phrase that earns the "Settings > Connectors" link can sit
+    // past the cut. Classifying on the truncated copy would silently drop the one
+    // affordance that fixes the error being reported. So: bound what is shown, classify
+    // on what arrived.
+    pageId = createPage('E2E Chat Oversized Provider Error');
+    await gotoChat(page, pageId);
+
+    const filler = 'B'.repeat(REFLECTED_ERROR_MAX * 2);
+    await mockStream(page, [
+      { error: `Provider error: ${filler} rejected the API key. Check Settings > Connectors.` },
+    ]);
+
+    await page.fill('#pp-ai-input', 'Hello');
+    await page.click('#pp-ai-send');
+
+    const errBody = page.locator('.pp-ai-msg-assistant .pp-ai-msg-error');
+    await expect(errBody).toContainText('Provider error:', { timeout: 10000 });
+
+    // The link is appended AFTER the bounded text node, so read the text node rather than
+    // the element's whole textContent (which would include the link's own label).
+    const shown = await errBody.evaluate((el) => el.firstChild?.textContent || '');
+    expect(shown.length).toBe(REFLECTED_ERROR_MAX);
+    expect(shown.endsWith('...')).toBe(true);
+    // The clause that earns the link was cut from the display...
+    expect(shown).not.toContain('Settings > Connectors');
+    // ...and the link is there anyway, because the classification read the raw string.
+    await expect(errBody.locator('a')).toHaveText('Settings > Connectors');
   });
 
   test('genuine network failure during streaming falls back to the AJAX chat endpoint', async ({ page }) => {

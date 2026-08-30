@@ -1219,10 +1219,15 @@ function ppChatRenderCompositionDiff(diffArea, change) {
  * this, so on a genuine renderer bug the operator reads the whole reason.
  *
  * The budget covers THIS sentence, not the whole card. A step's normal error path still
- * renders `raw_error` and `alternatives` at whatever length the server sent (bounded
- * there, by PP_REFLECTED_ERROR_MAX), and a successful update_composition preview still
- * renders its full JSON in a disclosure. Bounding the one string this file invents is
- * not a claim that the card is bounded everywhere.
+ * renders `raw_error` at whatever length the server sent (bounded there, by
+ * PP_REFLECTED_ERROR_MAX) and `alternatives` at whatever length it sent them (collapsed
+ * there, but deliberately NOT length-bounded — see _pp_no_hint_slot_message(),
+ * lib/ai-chat.php), and a successful
+ * update_composition preview still renders its full JSON in a disclosure. Bounding the one
+ * string this file invents is not a claim that the card is bounded everywhere; the sites
+ * that render SERVER error text carry their own ceiling since #793
+ * (PP_CHAT_REFLECTED_ERROR_MAX), and this budget stays separate from it because this
+ * sentence is not reflected text — it is this file describing its own failure.
  */
 var PP_CHAT_RENDER_ERROR_MAX = 200;
 
@@ -1531,11 +1536,15 @@ function ppChatAppendUndoFindings(card, findings) {
  * The bound this card puts on a refused undo's message, in characters (#822).
  *
  * THE SERVER'S OWN NUMBER FOR THIS SPECIES. `PP_REFLECTED_ERROR_MAX` (lib/ai-chat.php) is
- * 4096, and it is what `_pp_clean_reflected_text()` allows a reflected WP_Error message on
- * the PREVIEW path. The EXECUTE path this card reads does not pass through that helper —
- * `_pp_ai_execute_error_payload()` returns `$result['error']` verbatim — so this is the only
- * bound the undo refusal ever meets. Spelling it with the server's number keeps one answer
- * to "how long may a reflected error be" instead of coining a second.
+ * 4096, and it is what `_pp_clean_reflected_text()` allows a reflected WP_Error message.
+ * When #822 wrote this, the EXECUTE path the card reads did NOT pass through that helper —
+ * `_pp_ai_execute_error_payload()` reflected `$result['error']` verbatim — so this was the
+ * only bound the undo refusal ever met. Since #647 that payload goes through the helper too
+ * (lib/ai-chat.php), so this is now the bound the CARD RENDERS UNDER rather than the only
+ * bound in the system. Spelling it with the server's number keeps one answer to "how long
+ * may a reflected error be" instead of coining a second, which is what
+ * tests/ChatUndoBoundTrait.php asserts. The general client-side ceiling for server error
+ * text this file renders is PP_CHAT_REFLECTED_ERROR_MAX (#793), below.
  *
  * IT HAS TO OUTRUN THE MESSAGES, or the bound defeats the fix it belongs to. Both refusals
  * this exists for put their ACTIONABLE half LAST: `history_entry_not_restorable` ends with
@@ -1672,8 +1681,9 @@ function ppChatUndoFailureText(data) {
  * silently fixed here (filed separately).
  *
  * IT DOES NOT GO THROUGH THE SHARED ROW BUILDER, deliberately. ppChatValidationItemRow()
- * prefixes `[type] index N: ` parsed off the item, which is the locator surface #793 is filed
- * against. A refusal is not a finding and owns no band, so it renders as one `textContent`
+ * prefixes `[type] index N: ` parsed off the item, which is the locator surface the forgery
+ * concern is filed against — raised in #793 and, since #793 closed on its LENGTH half only,
+ * still open as #867. A refusal is not a finding and owns no band, so it renders as one `textContent`
  * assignment with no prefix — there is nothing here for a message to forge, because no
  * locator is drawn. `textContent` is also the only write: the payload is a server string and
  * never becomes markup.
@@ -1984,6 +1994,144 @@ function ppChatAppendRepairAffordance(card, onRetry) {
 }
 
 /**
+ * The ceiling this file puts on the server ERROR spans it renders, in UTF-16 code units (#793).
+ *
+ * Not a claim about every server-supplied span on screen, and the superlative is avoided
+ * deliberately: `alternatives` is server-supplied, is rendered by this file, and is bounded
+ * on NEITHER side — _pp_no_hint_slot_message() (lib/ai-chat.php) records that it is merely
+ * COLLAPSED and still ships every declared name at full length. This covers the five error
+ * sites listed below.
+ *
+ * THE SERVER'S OWN NUMBER FOR THIS SPECIES, for the same reason PP_CHAT_UNDO_ERROR_MAX
+ * above is: `PP_REFLECTED_ERROR_MAX` (lib/ai-chat.php) is what `_pp_clean_reflected_text()`
+ * allows a reflected validator message, so spelling it here keeps ONE answer to "how long
+ * may a reflected error be" instead of coining a second. tests/ChatReflectedTextBoundTest.php
+ * asserts the two are equal, so the copy cannot drift from its source.
+ *
+ * WHY A SECOND CONSTANT RATHER THAN REUSING THE UNDO ONE. They hold the same number and
+ * anchor to the same server constant, but they carry different contracts.
+ * PP_CHAT_UNDO_ERROR_MAX's docblock argues headroom over two specific refusals (~370 and
+ * ~690 characters) and two PHP test classes assert those messages fit it with room to
+ * spare. That is a promise about the undo card's own messages. This one makes no such
+ * promise: its sites carry validator text whose length nobody can bound in advance, which
+ * is precisely why they need a ceiling.
+ *
+ * WHY THE CLIENT BOUNDS AT ALL, when #647 moved reflected-text cleaning to the server.
+ * Character-class cleaning IS server-owned and this file must never coin a second
+ * definition of it (v1.17.8 recorded that decision explicitly). LENGTH is a different
+ * question, and of the five sites this helper serves the server answers it for exactly one
+ * — the up-front batch refusal, whose message _pp_batch_target_state_message()
+ * (lib/actions.php) composes from string literals and an integer post id, so it is bounded
+ * BY CONSTRUCTION rather than by a rule, and nothing pins that property. For the other four
+ * there is no answer at all:
+ *
+ *   - `_pp_action_error()` (lib/actions.php) stores `'error' => $error` verbatim, so the
+ *     batch envelope's error and every `steps[i].error` reflect validator messages —
+ *     including `Unknown component: "%s"` with a stored component name — uncapped;
+ *   - `_pp_bounded_findings()` (lib/actions.php) is a COUNT bound and says so in its own
+ *     docblock ("THIS IS A COUNT BOUND, AND ONLY A COUNT BOUND"), so `findings[].message`
+ *     has no length ceiling either — `duplicate_component_id` alone enumerates every
+ *     colliding index in ONE entry, so that entry grows with the band count;
+ *   - `pp_ai_parse_error_response()` (lib/ai-provider.php) returns a third party's error
+ *     body, tag-stripped and otherwise whole.
+ *
+ * Closing those on the server is #864, deferred pending a ruling on where the cleaning
+ * owner should live. Until then this is the only ceiling those strings meet, and even
+ * after #864 lands it stays as the backstop for a payload that never came from this theme.
+ * It bounds what is RENDERED; it does not make the response smaller on the wire.
+ *
+ * UNITS, AND THE DIRECTION OF THE ERROR. `String.length` counts UTF-16 code units; the
+ * server counts characters (`mb_strlen`). Every character is one or two code units, so
+ * `.length >= mb_strlen` and this bound is STRICTER than the server's, not looser: a
+ * message of 4096 astral-plane characters is 8192 code units and gets cut here even though
+ * the server passed it. That is the trade this takes, deliberately and in both directions:
+ * code units are what the existing PP_CHAT_UNDO_ERROR_MAX comparison uses, counting code
+ * points would mean walking a hostile multi-megabyte string to decide whether to shorten
+ * it, and a validator message would have to be more than half non-BMP text to reach the
+ * gap at all. A defensive ceiling that errs toward cutting is the right side to err on.
+ */
+var PP_CHAT_REFLECTED_ERROR_MAX = 4096;
+
+/**
+ * Bounds one server-supplied span to PP_CHAT_REFLECTED_ERROR_MAX (#793).
+ *
+ * The truncation idiom is this file's and the server's alike (ppChatUndoFailureText,
+ * ppChatPreviewRenderErrorText, ppChatFormatDiffValue, and _pp_clean_reflected_text on the
+ * PHP side): cut to `max - 3` and mark it, so the result never exceeds the stated budget.
+ * No new marker is invented.
+ *
+ * IT DOES NOT SANITIZE, and that is the point rather than an omission. #647 ruled that
+ * control- and format-character stripping is single-owned by the server
+ * (`_pp_clean_reflected_text`), because a second definition of "clean" in JavaScript could
+ * only drift from it and because the client cannot repair invalid UTF-8. This adds the one
+ * thing the server does not do for these payloads. tests/ChatReflectedTextBoundTest.php
+ * pins the absence of a JS strip so the twin cannot be reintroduced by a later good idea.
+ *
+ * IT MEASURES NON-STRINGS TOO, and returning them untouched would have been a hole rather
+ * than a scoping decision. Every call site coerces on its own — `'Error: ' + x`,
+ * `textContent = x` — so a payload of `{ error: [ ...a million strings... ] }` would pass
+ * a `typeof` guard, be handed back whole, and then be stringified into the DOM by the call
+ * site at full length. The ceiling has to sit where the LENGTH is decided, which is after
+ * coercion, not before it.
+ *
+ * WHAT IT DOES NOT CHANGE, and this is the load-bearing half: a value that FITS is returned
+ * AS ITSELF, not as its string form. So an object still renders `[object Object]`, a number
+ * still concatenates as a number, and `textContent = null` still renders empty rather than
+ * the word "null". Only a value whose rendered form EXCEEDS the budget comes back as a
+ * string, because at that point there is nothing to preserve. What a non-string element
+ * MEANS in a chat payload stays #775's contract question; this answers only how long it may
+ * be. And a value whose own `toString` throws is handed straight back, so the call site
+ * throws exactly where it always threw instead of throwing one frame earlier here.
+ *
+ * THE SURROGATE GUARD is not decoration. `substring` cuts by code unit, so a cut can land
+ * between a high and a low surrogate and leave a lone high surrogate as the last unit,
+ * which renders as U+FFFD immediately before the ellipsis — a bound that produces
+ * malformed display text on exactly the non-ASCII input it exists to contain. Dropping a
+ * dangling high surrogate only shortens the result, so the budget still holds. The older
+ * bounds in this file share the unguarded idiom; they are not changed here (#866).
+ *
+ * IT UNDOES A SPLIT; IT DOES NOT CLEAN THE INPUT, and the single `if` rather than a loop is
+ * that distinction, not an oversight. If the text ALREADY contained lone surrogates, a cut
+ * landing just after one still ends on one — and that character was malformed before this
+ * function saw it. Walking backwards until the tail is well-formed would mean deleting
+ * input characters the cut did not orphan, which is sanitizing, which #647 placed on the
+ * server and forbade here. So the guarantee is exactly: this never SPLITS a well-formed
+ * pair. Repairing malformed input is `_pp_clean_reflected_text()`'s job, upstream.
+ *
+ * @param  {*} text  A span the server supplied.
+ * @return {*}       The value unchanged when its rendered form fits (or cannot be taken);
+ *                   otherwise a string of at most PP_CHAT_REFLECTED_ERROR_MAX code units.
+ */
+function ppChatBoundReflectedText(text) {
+    if (text === null || text === undefined) {
+        return text;
+    }
+
+    var rendered;
+
+    try {
+        rendered = (typeof text === 'string') ? text : String(text);
+    } catch (e) {
+        // A throwing toString/valueOf, or a Symbol. The call site's own coercion throws on
+        // these too; handing the value back keeps that failure where it already was.
+        return text;
+    }
+
+    if (rendered.length <= PP_CHAT_REFLECTED_ERROR_MAX) {
+        return text;
+    }
+
+    var cut  = rendered.substring(0, PP_CHAT_REFLECTED_ERROR_MAX - 3);
+    var last = cut.charCodeAt(cut.length - 1);
+
+    if (last >= 0xD800 && last <= 0xDBFF) {
+        cut = cut.substring(0, cut.length - 1);
+    }
+
+    return cut + '...';
+}
+
+/**
  * The composition offset a finding owns, or null when it owns none (#622, #655).
  *
  * The one place "does this finding name a band?" is answered, so the selection below and
@@ -2029,11 +2177,41 @@ function ppChatFindingLocator(item) {
  * above the fold and anonymous below it — the disclosure is where the SECOND, THIRD and
  * fourth findings of an already-shown band land, which is exactly where "which band is
  * this?" is hardest to answer.
+ *
+ * BOTH HALVES ARE BOUNDED, SEPARATELY (#793), because both are server-supplied and
+ * neither may starve the other. `message` has no server ceiling at all (see
+ * PP_CHAT_REFLECTED_ERROR_MAX). The locator looks safer and is only half so: its `index`
+ * is gated to a finite non-negative integer by ppChatFindingBand(), but its `type` is
+ * tested only for being a NON-EMPTY string. Every one of the ~45 emitters in lib/admin.php
+ * and lib/guardrails.php passes a string literal, which is what keeps a `type` short in
+ * practice, and nothing on this side enforces it.
+ *
+ * SEPARATELY, NOT AS ONE COMPOSED SPAN, and the difference is display honesty rather than
+ * arithmetic. Bounding `locator + message` as a single span would let an oversized `type`
+ * consume the whole budget and cut the validator message away entirely — the row would
+ * show a plausible-looking locator and hide the actionable half, which is the failure #793
+ * exists to prevent wearing a different hat. Two spans mean a hostile `type` costs the
+ * reader the locator and nothing else. The row is then at most twice the budget, which is
+ * bounded, which is the property that matters.
+ *
+ * WHERE THIS FILE'S OWN PUNCTUATION LANDS, since the status sites answer it the other way.
+ * There, `'Error: '` is theme prose sitting OUTSIDE the budget. Here the locator's glue —
+ * `[`, `]`, ` index `, `: `, about two dozen characters — is INSIDE it, because it is not a
+ * separable prefix: it is interleaved with `type`, and the span that has to be bounded is
+ * whatever ppChatFindingLocator() returns. Two dozen characters against 4096 do not earn a
+ * second budget to separate them.
+ *
+ * WHAT IS NOT FIXED HERE, so the #793 reference above is not read as a claim: this bounds
+ * the locator's LENGTH and does nothing about the FORGED-locator half of the same issue — a
+ * stored `message` containing the literal text `[invalid_prop_value] index 99:` still
+ * renders as a convincing second locator mid-row. That half needs a rendering decision
+ * (marking the card-generated locator as card-generated), not a bound, and is #867.
  */
 function ppChatValidationItemRow(item, className) {
     var div = document.createElement('div');
     div.className = className;
-    div.textContent = ppChatFindingLocator(item) + item.message;
+    div.textContent = ppChatBoundReflectedText(ppChatFindingLocator(item))
+        + ppChatBoundReflectedText(item.message);
 
     return div;
 }
@@ -2989,7 +3167,10 @@ function ppChatAppendValidationItems(container, items, className) {
                     // how 'Permission denied.' and the malformed-request refusals get
                     // neither — see ppChatModelNote(). Card first, alert second (#755).
                     offerRepair(card, ppChatModelNote(resp.data));
-                    addStatusMessage('Error: ' + ((resp.data && resp.data.error) || resp.data || 'Unknown error'), true);
+                    // The 'Error: ' prefix is this file's prose and is not counted against
+                    // the budget — the same rule PP_CHAT_RENDER_ERROR_MAX states for its
+                    // own prefix. Only the server's span is bounded (#793).
+                    addStatusMessage('Error: ' + ppChatBoundReflectedText((resp.data && resp.data.error) || resp.data || 'Unknown error'), true);
                 }
                 return;
             }
@@ -3055,7 +3236,7 @@ function ppChatAppendValidationItems(container, items, className) {
                     el.classList.add('pp-ai-step-skipped');
                 });
                 offerRepair(card, ppChatModelNote(batch));
-                addStatusMessage('Error: ' + (batch.error || 'Unknown error'), true);
+                addStatusMessage('Error: ' + ppChatBoundReflectedText(batch.error || 'Unknown error'), true);
                 return;
             }
 
@@ -3073,7 +3254,7 @@ function ppChatAppendValidationItems(container, items, className) {
             // off-screen its own warning. Append, then announce.
             var rollback = ppChatRollbackErrorReport(batch);
             var failedResult = batch.steps[batch.failed_at];
-            var message = 'Error on step ' + (batch.failed_at + 1) + ': ' + (failedResult.error || 'Unknown error');
+            var message = 'Error on step ' + (batch.failed_at + 1) + ': ' + ppChatBoundReflectedText(failedResult.error || 'Unknown error');
             message += ppChatRollbackSentence(rollback);
             ppChatAppendRollbackErrors(card, rollback);
             offerRepair(card, ppChatModelNote(batch));
@@ -3804,7 +3985,13 @@ function ppChatAppendValidationItems(container, items, className) {
         msgBody.classList.remove('pp-ai-msg-streaming');
         msgBody.classList.add('pp-ai-msg-error');
 
-        msgBody.textContent = errorText;
+        // BOUNDED FOR DISPLAY ONLY (#793). The classification below reads `errorText`, not
+        // this, and the order is load-bearing: a provider can return a multi-megabyte error
+        // body (pp_ai_parse_error_response() tag-strips it and bounds nothing), and if the
+        // phrase that earns the Connectors link sits past the cut, testing the truncated
+        // copy would silently drop the one affordance that fixes the problem being reported.
+        // Bound what is shown; classify on what arrived.
+        msgBody.textContent = ppChatBoundReflectedText(errorText);
 
         // COUPLED: must match wording in pp_ai_parse_error_response() and "not configured" messages.
         // Skip for quota errors — those direct the user to switch providers above, not Connectors.
@@ -4025,6 +4212,8 @@ if (typeof module !== 'undefined' && module.exports) {
         appendUndoFindings: ppChatAppendUndoFindings,
         undoFailureText: ppChatUndoFailureText,
         appendUndoFailure: ppChatAppendUndoFailure,
+        boundReflectedText: ppChatBoundReflectedText,
+        REFLECTED_ERROR_MAX: PP_CHAT_REFLECTED_ERROR_MAX,
         UNDO_ERROR_MAX: PP_CHAT_UNDO_ERROR_MAX,
         UNDO_FAILED_LABEL: PP_CHAT_UNDO_FAILED_LABEL,
         UNDO_FAILURE_CLASS: PP_CHAT_UNDO_FAILURE_CLASS,
