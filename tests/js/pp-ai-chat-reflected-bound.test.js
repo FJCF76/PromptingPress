@@ -335,6 +335,24 @@ describe('a hostile finding rendered through the real row builder', function () 
         expect(row.textContent).toBe('[unknown_prop] index 1: Component "hero" has an unknown prop "headline".');
     });
 
+    it('renders a finding with no message exactly as it did before the bound', function () {
+        // The helper's null/undefined early return is tested directly above, but the ROW is
+        // where a reader would ever see it, and the two-span composition is the code that
+        // preserves it. `'[type] index N: ' + undefined` produced this string before #793 and
+        // must still: the bound is not licence to change what an off-contract finding renders.
+        appendValidationItems(container, [{ type: 'unknown_prop', index: 1 }], classFor);
+
+        expect(container.querySelector('.pp-ai-validation-item').textContent)
+            .toBe('[unknown_prop] index 1: undefined');
+    });
+
+    it('renders a finding whose message is null exactly as it did before the bound', function () {
+        appendValidationItems(container, [{ type: 'unknown_prop', index: 1, message: null }], classFor);
+
+        expect(container.querySelector('.pp-ai-validation-item').textContent)
+            .toBe('[unknown_prop] index 1: null');
+    });
+
     it('still renders a post-apply item that carries no locator at all', function () {
         // Those items have no `type`, so the locator is '' and the row is the message alone
         // — the path that must be unchanged by composing the two halves before bounding.

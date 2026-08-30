@@ -51,8 +51,10 @@ class ChatReflectedTextBoundTest extends \PHPUnit\Framework\TestCase
      */
     public function testTheClientBoundIsTheServersOwnNumber(): void
     {
+        // `[\d_]+` rather than `\d+`: an ES2021 numeric separator (`4_096`) is the same number
+        // and must not read as a different one, or as no declaration at all.
         $matched = preg_match(
-            '/(?:var|let|const)\s+PP_CHAT_REFLECTED_ERROR_MAX\s*=\s*(\d+)\s*;/',
+            '/(?:var|let|const)\s+PP_CHAT_REFLECTED_ERROR_MAX\s*=\s*([\d_]+)\s*;/',
             $this->chatScriptSource(),
             $m
         );
@@ -60,7 +62,7 @@ class ChatReflectedTextBoundTest extends \PHPUnit\Framework\TestCase
         $this->assertSame(1, $matched, 'the chat script must still declare the bound this test reads');
         $this->assertSame(
             PP_REFLECTED_ERROR_MAX,
-            (int) $m[1],
+            (int) str_replace('_', '', $m[1]),
             'PP_CHAT_REFLECTED_ERROR_MAX claims to be the server\'s reflected-error budget; keep them equal or drop that claim'
         );
     }
@@ -76,12 +78,16 @@ class ChatReflectedTextBoundTest extends \PHPUnit\Framework\TestCase
     {
         $src = $this->chatScriptSource();
 
-        preg_match('/(?:var|let|const)\s+PP_CHAT_REFLECTED_ERROR_MAX\s*=\s*(\d+)\s*;/', $src, $reflected);
-        preg_match('/(?:var|let|const)\s+PP_CHAT_UNDO_ERROR_MAX\s*=\s*(\d+)\s*;/', $src, $undo);
+        preg_match('/(?:var|let|const)\s+PP_CHAT_REFLECTED_ERROR_MAX\s*=\s*([\d_]+)\s*;/', $src, $reflected);
+        preg_match('/(?:var|let|const)\s+PP_CHAT_UNDO_ERROR_MAX\s*=\s*([\d_]+)\s*;/', $src, $undo);
 
         $this->assertNotEmpty($reflected, 'the reflected-text bound must still be declared');
         $this->assertNotEmpty($undo, 'the undo bound must still be declared');
-        $this->assertSame((int) $undo[1], (int) $reflected[1], 'both client bounds copy PP_REFLECTED_ERROR_MAX; they cannot hold different numbers');
+        $this->assertSame(
+            (int) str_replace('_', '', $undo[1]),
+            (int) str_replace('_', '', $reflected[1]),
+            'both client bounds copy PP_REFLECTED_ERROR_MAX; they cannot hold different numbers'
+        );
     }
 
     /** The helper exists exactly once, and is the only thing that owns the truncation. */
@@ -106,13 +112,18 @@ class ChatReflectedTextBoundTest extends \PHPUnit\Framework\TestCase
     {
         $src = $this->chatScriptSource();
 
+        // Both patterns are name-agnostic on purpose. Pinning the local `cut` would make a pure
+        // rename a red test, which is the "teaches maintainers to delete tripwires" failure this
+        // file's own header warns about. The cut pattern also accepts `- MARKER.length`, so
+        // extracting the marker into a named constant — a strict improvement, and the
+        // deduplication this repo prefers — is not blocked by its own tripwire.
         $this->assertSame(
             1,
-            preg_match_all('/PP_CHAT_REFLECTED_ERROR_MAX\s*-\s*3/', $src),
-            'the cut must be to max - 3, the convention shared with _pp_clean_reflected_text'
+            preg_match_all('/PP_CHAT_REFLECTED_ERROR_MAX\s*-\s*(?:3|\w+\.length)/', $src),
+            'the cut must be to max minus the marker length, the convention shared with _pp_clean_reflected_text'
         );
         $this->assertMatchesRegularExpression(
-            "/return\s+cut\s*\+\s*'\.\.\.'/",
+            "/return\s+\w+\s*\+\s*'\.\.\.'/",
             $src,
             "the marker must stay '...', the convention every other bound in this repo uses"
         );
@@ -133,8 +144,11 @@ class ChatReflectedTextBoundTest extends \PHPUnit\Framework\TestCase
      */
     public function testTheCutGuardsAgainstSplittingASurrogatePair(): void
     {
+        // Name-agnostic and order-agnostic: the assertion is that the guard tests the
+        // high-surrogate RANGE, not that it spells the comparison in one particular direction
+        // with one particular local variable.
         $this->assertMatchesRegularExpression(
-            '/0xD800\s*&&\s*last\s*<=\s*0xDBFF/i',
+            '/0x[dD]800[\s\S]{0,60}0x[dD]BFF|0x[dD]BFF[\s\S]{0,60}0x[dD]800/',
             $this->chatScriptSource(),
             'the high-surrogate guard on the cut must still be there (#793)'
         );
@@ -224,6 +238,81 @@ class ChatReflectedTextBoundTest extends \PHPUnit\Framework\TestCase
             0,
             preg_match_all('/ppChatBoundReflectedText\(\s*errorText\s*\)\s*\.\s*indexOf/', $src),
             'classifying on the bounded copy would drop the Connectors link off the end of a long provider error'
+        );
+
+        // PIN THE PROPERTY, NOT ONE SPELLING OF IT. The assertion above forbids exactly one
+        // way to write the defect and nothing else, which measured out as a FALSE GREEN:
+        // inserting `errorText = ppChatBoundReflectedText(errorText);` on the line AFTER the
+        // render reproduces this bug in full — every `indexOf` below then reads the truncated
+        // copy — and the whole PHPUnit and vitest suites stay green. Only the Playwright case
+        // catches it, and the reason this file exists is to catch it in the sub-second loop.
+        //
+        // Reassignment is the general shape of that defect, so reassignment is what is banned:
+        // the parameter must reach the classification as it arrived.
+        $this->assertSame(
+            0,
+            preg_match_all('/errorText\s*=\s*ppChatBoundReflectedText/', $src),
+            'errorText must never be reassigned to its bounded copy; the classification below it reads that variable (#793)'
+        );
+
+        // And within the renderer, the sink may be written ONCE. Wiring the bound and then
+        // overwriting the element with the raw text on the next line reverts the render while
+        // leaving every pattern in this file satisfied — presence of a call is not the same
+        // claim as effect of it.
+        //
+        // Scoped to the function body rather than the file, because both sink names are
+        // legitimately written twice at file scope: `msgBody.textContent` also carries the
+        // streamed assistant text (which is model prose, not reflected error text, and is
+        // deliberately unbounded), and `div.textContent` also builds the status line.
+        $this->assertSame(
+            1,
+            preg_match_all('/msgBody\.textContent\s*=/', $this->functionBody($src, 'handleStreamError', '    ')),
+            'handleStreamError must write its element exactly once, or a later write can undo the bound'
+        );
+        $this->assertSame(
+            1,
+            preg_match_all('/div\.textContent\s*=/', $this->functionBody($src, 'ppChatValidationItemRow', '')),
+            'the finding row must write its element exactly once, or a later write can undo the bound'
+        );
+    }
+
+    /**
+     * One function's body, so a "written exactly once" claim can be scoped to the renderer that
+     * owns the sink rather than to every use of that variable name in a 4000-line file.
+     *
+     * Closes on the first line that is a lone `}` at the function's own indent, which is this
+     * file's consistent style. Deliberately not a brace counter: a test that reimplements a
+     * JavaScript parser is a second thing to get wrong.
+     */
+    private function functionBody(string $src, string $name, string $indent): string
+    {
+        $matched = preg_match(
+            '/function\s+' . preg_quote($name, '/') . '\s*\([^)]*\)\s*\{(.*?)\n' . preg_quote($indent, '/') . '\}/s',
+            $src,
+            $m
+        );
+
+        $this->assertSame(1, $matched, sprintf('%s() must still be declared for this contract to be checkable', $name));
+
+        return $m[1];
+    }
+
+    /**
+     * The undo card keeps its OWN ceiling and is not quietly double-bounded.
+     *
+     * `ppChatUndoFailureText()` is deliberately outside the new helper: it carries its own
+     * constant and its own headroom promise (#822). Routing it through
+     * `ppChatBoundReflectedText()` as a "consistency" tidy-up would be invisible today, because
+     * the two constants hold the same number and the second pass is a no-op — and would become
+     * a real behaviour change the moment either constant moved. Cheap to forbid, expensive to
+     * discover later.
+     */
+    public function testTheUndoCardIsNotRoutedThroughThisBound(): void
+    {
+        $this->assertSame(
+            0,
+            preg_match_all('/ppChatBoundReflectedText\s*\(\s*ppChatUndoFailureText/', $this->chatScriptSource()),
+            'the undo card owns its own ceiling (PP_CHAT_UNDO_ERROR_MAX, #822); do not double-bound it'
         );
     }
 

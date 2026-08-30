@@ -366,6 +366,52 @@ test.describe('AI Chat — streaming & apply (mock SSE)', () => {
     expect(rendered.length).toBeLessThan(hostile.length);
   });
 
+  test('an oversized up-front batch refusal is bounded on the real chat surface (#793)', async ({ page }) => {
+    // The up-front refusal reaches a DIFFERENT status line from the failed-step case above:
+    // `!resp.success` with a bare `data`, rather than a step envelope. Both are inside the
+    // DOM-ready closure and unreachable from vitest, and the PHPUnit tripwire proves only that
+    // the call is WIRED, not that it takes effect — so without this case the branch has no
+    // behavioural coverage in any suite.
+    pageId = createPage('E2E Chat Oversized Refusal');
+    await gotoChat(page, pageId);
+    await mockStream(page, [
+      {
+        done: true,
+        proposal: {
+          steps: [
+            { type: 'action', name: 'update_component', description: 'Update hero title', params: { post_id: pageId, component_index: 0, props: { title: 'A' } } },
+          ],
+        },
+      },
+    ]);
+
+    const hostile = `Refused: ${'C'.repeat(REFLECTED_ERROR_MAX * 3)}`;
+
+    await mockAjax(page, {
+      pp_ai_preview: previewOkResponse,
+      // No error_code, so this takes the generic status-message path rather than the
+      // conflict affordance — the branch this test exists for.
+      pp_ai_execute_batch: () => ({ success: false, data: { error: hostile } }),
+    });
+
+    await page.fill('#pp-ai-input', 'Update the title');
+    await page.click('#pp-ai-send');
+
+    const applyBtn = page.locator('.pp-ai-proposal-apply');
+    await expect(applyBtn).toBeVisible({ timeout: 10000 });
+    await applyBtn.click();
+
+    const status = page.locator('#pp-ai-messages .pp-ai-status-error').last();
+    await expect(status).toContainText('Error: Refused:', { timeout: 10000 });
+
+    const rendered = (await status.textContent()) || '';
+    const prefix = 'Error: ';
+
+    expect(rendered.length - prefix.length).toBe(REFLECTED_ERROR_MAX);
+    expect(rendered.endsWith('...')).toBe(true);
+    expect(rendered.length).toBeLessThan(hostile.length);
+  });
+
   test('remove_component proposal then Undo restores the removed section (#133)', async ({ page }) => {
     pageId = createPage('E2E Chat Undo');
     // Seed a two-component composition so the removed section is observable and
