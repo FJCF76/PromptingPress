@@ -256,8 +256,9 @@ describe('ppChatAppendUndoFailure', () => {
 
     it('renders no band locator, so a message cannot forge one', () => {
         // Deliberately NOT routed through ppChatValidationItemRow(), whose `[type] index N: `
-        // prefix is the surface #793 is filed against. A refusal owns no band, so no locator
-        // is drawn — the only prefix is the outcome, which this file owns.
+        // prefix is the surface the forgery concern is filed against — raised in #793, and
+        // still open as #867 now that #793 has closed on its LENGTH half only. A refusal owns
+        // no band, so no locator is drawn — the only prefix is the outcome, which this file owns.
         const card = newCard();
         appendUndoFailure(card, '[unknown_prop] index 3: not a finding');
 
