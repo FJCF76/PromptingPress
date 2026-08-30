@@ -756,12 +756,34 @@ function pp_normalize_composition(array $items): array {
  *
  * Typed `int|string` because a PHP array key is exactly that — the callers all read a
  * `foreach` key, so the `gettype()` arm the inline copies carried was unreachable. The
- * signature states the assumption instead of branching on it. The key is rendered WHOLE:
- * no truncation, no control-character strip, exactly what the six sibling rules always
- * did. Bounding what a message reflects is #647/#649's business and stays uniform across
- * the family until then — including the quoting grammar of the `key "..."` form, so a key
- * containing a double quote renders ambiguously here on purpose rather than inventing a
- * one-off escape this family's other members would not share.
+ * signature states the assumption instead of branching on it.
+ *
+ * THE KEY IS BOUNDED, AND BY THIS FILE'S OWN OWNER (#649). It used to be rendered WHOLE —
+ * no truncation, no strip — which left a 300-character key echoed entire and an ANSI byte
+ * inside a stored key reaching the action envelope, the editor save response and the chat
+ * reply intact (only the CLI was covered, by _pp_cli_finding_line()). It now goes through
+ * _pp_schema_value_for_message(), the same helper the VALUES in these messages use, so key
+ * and value carry ONE bound and ONE sanitization rule instead of two.
+ *
+ * THAT HELPER SUPPLIES THE QUOTES, which is why the `sprintf('key "%s"')` literal quotes
+ * came off with the conversion rather than being kept around it: `key "aa"` is
+ * BYTE-IDENTICAL for every well-formed key — including an integer key from a folded numeric
+ * object (`key "5"`) and the degenerate empty key (`key ""`). What changes is only what was
+ * never legible anyway: control and format characters are stripped, a key past
+ * PP_REFLECTED_VALUE_MAX_LENGTH is cut and marked, and invalid UTF-8 is repaired.
+ *
+ * WHY NOT _pp_clean_reflected_text(), which is the chat side's owner for the same job: it
+ * lives in lib/ai-chat.php, which functions.php loads ONLY under is_admin(). This function
+ * is reached under WP-CLI (`wp pp check page` -> pp_validate_composition_errors()), where
+ * that file is not loaded at all, so calling it here would be a fatal undefined function on
+ * exactly the never-validated data these commands exist to inspect. Same convention, the
+ * owner that is actually in scope.
+ *
+ * STILL NOT ESCAPED, and still on purpose: a key containing a double quote renders
+ * ambiguously (`key "a"b"`). Bounding is this axis; QUOTING GRAMMAR is a different one and
+ * is not ruled on, so this keeps the family's shared spelling rather than inventing a
+ * one-off escape the sibling messages would not share. Pinned as a recorded limitation in
+ * tests/DiagnosticReachTest.php::itemIndexLabelProvider().
  *
  * TWO DIFFERENT GUARDS, because there are two different ways to lose the discriminator.
  * A FORGOTTEN argument is caught by the SIGNATURE: `$container` is required and
@@ -780,7 +802,7 @@ function pp_normalize_composition(array $items): array {
  */
 function _pp_item_index_label(int|string $index, ?array $container): string {
     return ($container !== null && !pp_is_list($container))
-        ? sprintf('key "%s"', $index)
+        ? 'key ' . _pp_schema_value_for_message($index)
         : (string) $index;
 }
 
@@ -1261,9 +1283,16 @@ const PP_REFLECTED_VALUE_MAX_LENGTH = 100;
  * The value is AUTHOR-SUPPLIED and reaches a terminal (WP_CLI::error writes the
  * validator message raw), an action envelope, and the editor's save response, so it
  * gets the same treatment the file's other reflection helpers give reflected input:
- * control and format characters stripped, length bounded. Same bound and the same
- * invalid-UTF-8 retry as _pp_render_undeclared_prop_keys() — one definition of
- * "safe to echo back", not a second, weaker one.
+ * control and format characters stripped, length bounded.
+ *
+ * SAME STRIP as _pp_render_undeclared_prop_keys(), NOT the same bound or the same
+ * degenerate spelling, and the difference is worth naming because since #647 the two
+ * helpers meet inside a single message. Both strip exactly \p{Cc}\p{Cf}, so "which
+ * characters may be echoed back" has one definition. They differ where they should:
+ * this one caps at PP_REFLECTED_VALUE_MAX_LENGTH (100), supplies its own quotes and
+ * REPAIRS invalid UTF-8; the key renderer caps at PP_UNDECLARED_KEY_MAX_LENGTH (64),
+ * emits bare, and degrades an undecodable key to `(unprintable key)`. A value is
+ * arbitrary content, a key is an identifier — one rule about characters, two budgets.
  *
  * @param mixed $value Raw authored value.
  */
@@ -1997,7 +2026,31 @@ function pp_validate_composition_errors(array $items, ?int $limit = null): array
                             sprintf(
                                 'Component "%s" has no prop "%s". Available props: %s',
                                 $name,
-                                $prop_name,
+                                // THE KEY IS BOUNDED, BY THE SAME RENDERER THE NESTED TWIN USES
+                                // (#647, harmonizing the asymmetry #643's RULE 5 recorded).
+                                // This gate echoed `$prop_name` RAW while the items[] rule one
+                                // level down passed the identical species of key through
+                                // _pp_render_undeclared_prop_keys() — and RULE 5's own docblock
+                                // named that "a known gap in the WIDER surface, not a standard
+                                // to level down to, so harmonizing the two means bounding #147,
+                                // never unbounding this". This is that bounding.
+                                //
+                                // The renderer emits the key BARE, so the format string keeps
+                                // its literal quotes and a well-formed key is BYTE-IDENTICAL —
+                                // `has no prop "subtitle"` reads exactly as it always did. Its
+                                // docblock already committed to staying safe for a one-key list,
+                                // which is how RULE 5 calls it too.
+                                //
+                                // TWO ROWS ARE NOT BYTE-IDENTICAL, named here rather than only
+                                // in the suite: a key past PP_UNDECLARED_KEY_MAX_LENGTH (64) is
+                                // cut and marked, and an EMPTY key now reads
+                                // `has no prop "(unprintable key)"` instead of `has no prop ""`.
+                                // The empty spelling is RULE 5's existing answer, adopted rather
+                                // than re-decided — inventing a third spelling for the top-level
+                                // case is the split this harmonization exists to end, and an
+                                // empty string is not a legitimate prop key on any authoring
+                                // path. Pinned in tests/ReflectedTextInventoryTest.php.
+                                _pp_render_undeclared_prop_keys([(string) $prop_name]),
                                 $available
                             )
                         );
@@ -2042,12 +2095,17 @@ function pp_validate_composition_errors(array $items, ?int $limit = null): array
                         $errors[] = _pp_composition_item_error($i,
                             'invalid_prop_value',
                             sprintf(
-                                'Component "%s" prop "%s" must be an integer between %d and %d; got "%s".',
+                                'Component "%s" prop "%s" must be an integer between %d and %d; got %s.',
                                 $name,
                                 $prop_name,
                                 $min,
                                 $max,
-                                is_scalar($value) ? (string) $value : gettype($value)
+                                // #647: the bare cast this used to carry was the LAST rejection
+                                // path in this function reflecting an author value without the
+                                // shared bound. It quotes for itself, so the literal quotes came
+                                // off with it — `got "13"` is byte-identical, `got false` is the
+                                // row the helper's docblock exists to make honest.
+                                _pp_schema_value_for_message($value)
                             )
                         );
                     }
@@ -2126,11 +2184,15 @@ function pp_validate_composition_errors(array $items, ?int $limit = null): array
                         $errors[] = _pp_composition_item_error($i,
                             'invalid_prop_value',
                             sprintf(
-                                'Component "%s" prop "%s" must be one of: %s; got "%s".',
+                                'Component "%s" prop "%s" must be one of: %s; got %s.',
                                 $name,
                                 $prop_name,
                                 implode(', ', $prop_def['values']),
-                                is_scalar($value) ? (string) $value : gettype($value)
+                                // #647, same conversion as the numeric-bounds path above: one
+                                // bound and one sanitization rule on every rejection path, so a
+                                // strict-enum refusal cannot be the one that echoes 200 KB of
+                                // author bytes into an envelope the nested rules already bound.
+                                _pp_schema_value_for_message($value)
                             )
                         );
                     }
@@ -2950,18 +3012,32 @@ function pp_validate_composition_errors(array $items, ?int $limit = null): array
                     //                             that rule, so "is this an object?" has one
                     //                             definition rather than two copies.
                     //
-                    // REFLECTION IS DELIBERATELY STRICTER THAN #147's, not merely equal to
-                    // it. The KEY is caller/stored data, so it goes through the bounded
-                    // renderer #622/#633 built for exactly that (control/format characters
-                    // stripped, 64-char cap, `(unprintable key)` for a non-UTF-8 key). The
-                    // top-level gate still echoes its `$prop_name` RAW — that asymmetry is a
-                    // known gap in the WIDER surface, not a standard to level down to, so
-                    // harmonizing the two means bounding #147, never unbounding this. The
+                    // REFLECTION IS BOUNDED ON BOTH SIDES SINCE #647/#649. The KEY is
+                    // caller/stored data, so it goes through the bounded renderer #622/#633
+                    // built for exactly that (control/format characters stripped, 64-char
+                    // cap, `(unprintable key)` for a non-UTF-8 key). This rule was STRICTER
+                    // THAN #147's for two releases — the top-level gate echoed its
+                    // `$prop_name` RAW — and the asymmetry was recorded here as "a known gap
+                    // in the WIDER surface, not a standard to level down to, so harmonizing
+                    // the two means bounding #147, never unbounding this". #647 harmonized it
+                    // in that direction: the top-level gate now calls the SAME renderer. The
                     // AVAILABLE list is schema-derived and is emitted plainly, matching the
                     // top-level gate; it needs no `(none)` fallback because the empty case
-                    // is the first guard above. The LOCATOR stays _pp_item_index_label()
-                    // (#634): rendered whole, never cast, bounding deferred to #647/#649 so
-                    // the whole family stays uniform until that lane lands.
+                    // is the first guard above. The LOCATOR is _pp_item_index_label(), which
+                    // #649 routed through _pp_schema_value_for_message().
+                    //
+                    // SO THIS MESSAGE NOW CARRIES ONE CHARACTER-CLASS RULE AND TWO CAPS, which
+                    // is worth stating precisely rather than rounding off to "one rule". The
+                    // KEY and the LOCATOR both strip exactly \p{Cc}\p{Cf}, so no span this
+                    // message reflects can carry a control or format character. They do NOT
+                    // share a budget or a degenerate spelling: a key is cut at
+                    // PP_UNDECLARED_KEY_MAX_LENGTH (64) and reads `(unprintable key)` when it
+                    // cleans to nothing, while a locator is cut at
+                    // PP_REFLECTED_VALUE_MAX_LENGTH (100), quotes itself, and REPAIRS invalid
+                    // UTF-8 rather than degrading. The split is deliberate — a key is an
+                    // identifier, a locator stands in for arbitrary content — and each half
+                    // keeps the answer the sibling rule that already owned it gives, which is
+                    // what stops this message inventing a third one.
                     //
                     // ORDER IS DELIBERATE. It runs AFTER the declared-field loop so a
                     // missing required field still wins first-error document order, exactly

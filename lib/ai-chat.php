@@ -547,9 +547,13 @@ function _pp_clean_reflected_text(string $text, int $max_length): string {
  * shape but never for size. Reusing the existing constant and helper keeps one
  * owner for the question of how long a reflected name may be.
  *
- * The hinted branch above is deliberately left exactly as it was. WHICH reflected
- * values get cleaned across ALL branches is a separate question with its own owner
- * (#647/#649); answering it halfway from here would pre-empt it.
+ * The hinted branch above is STILL left exactly as it was, and after #647 that is a
+ * recorded outcome rather than a deferral. #647 inventoried the server's reflection
+ * sinks and converted the ones that own their own sink — this file's two AJAX error
+ * payloads among them. The hinted branch is not one of those: it interpolates
+ * `$component_name` into composed prose, which is the composed-message cluster #864
+ * carries, together with the editor save response's sites. Left for that ruling, not
+ * for want of noticing.
  *
  * BOUND. At most 2 + PP_FRIENDLY_SLOT_SAMPLE_MAX cleaned names of
  * PP_REFLECTED_NAME_MAX each, plus fixed prose — arithmetic, not an assumption
@@ -1165,7 +1169,14 @@ add_action('wp_ajax_pp_ai_preview', function () {
             return;
         }
 
-        wp_send_json_error($result->get_error_message());
+        // THE PREVIEW PATH'S GENERAL BRANCH, cleaned like its execute twin (#647). The
+        // branch above ships _pp_build_friendly_error(), which routes every name and
+        // message it reflects through this same owner; this fallthrough shipped the
+        // validator message RAW. Same endpoint family, same `data` field, same renderer
+        // in assets/js/pp-ai-chat.js — so whether a stored ANSI or bidi sequence quoted
+        // by a validator message reached the chat card was a detail of which rejection
+        // branch the request happened to take.
+        wp_send_json_error(_pp_clean_reflected_text($result->get_error_message(), PP_REFLECTED_ERROR_MAX));
     }
 
     wp_send_json_success($result);
@@ -1243,7 +1254,10 @@ function _pp_ai_execute_response(array $post): array {
     }
 
     if (is_wp_error($result)) {
-        return ['ok' => false, 'data' => $result->get_error_message()];
+        // The OTHER of this endpoint's two error sources, cleaned like the payload one
+        // below (#647). Both land in the same `data` field and are rendered by the same
+        // client code, so one of them being raw made the guarantee un-statable.
+        return ['ok' => false, 'data' => _pp_clean_reflected_text($result->get_error_message(), PP_REFLECTED_ERROR_MAX)];
     }
 
     if (!$result['ok']) {
@@ -1279,26 +1293,45 @@ function _pp_ai_execute_response(array $post): array {
  * live version that beat it), so the chat UI can render the Re-read & re-preview
  * state instead of a generic failure string. The current version is read fresh
  * from the marker at conflict time — the writer is never touched. Every other
- * failure collapses to its message string (unchanged behavior).
+ * failure collapses to its message string.
+ *
+ * BOTH SHAPES CARRY A CLEANED MESSAGE (#647) — see the comment on the first statement.
+ * The message's MEANING is unchanged; only bytes that were never legible are.
  *
  * @param array $result  The failed action/apply result array.
  * @param array $params  The executed params (source of expected_version + post_id).
  * @return string|array
  */
 function _pp_ai_execute_error_payload(array $result, array $params) {
+    // CLEANED ONCE, FOR BOTH ARMS (#647). The PREVIEW path runs every validator message it
+    // echoes through _pp_clean_reflected_text() at PP_REFLECTED_ERROR_MAX; this, the EXECUTE
+    // path, reflected `$result['error']` VERBATIM. Same endpoint, same `data` field, same
+    // renderer in assets/js/pp-ai-chat.js — so a stored ANSI or bidi sequence quoted by a
+    // validator message reached the chat card on one path and not the other, and which path
+    // a step took was a detail of whether it had been previewed or applied.
+    //
+    // ON THE SERVER SIDE OF THE WIRE, deliberately. A second strip in JavaScript would be a
+    // second definition of "clean" that could only drift from this one, and the client
+    // cannot repair invalid UTF-8 the way this helper does. What the client still owns is
+    // the LENGTH it renders under (#793) — and that bound is the server's own number, which
+    // is what tests/ChatUndoBoundTrait.php pins.
+    //
+    // The fields AROUND it need nothing: an integer version and a literal code.
+    $error = _pp_clean_reflected_text((string) ($result['error'] ?? 'Execution failed.'), PP_REFLECTED_ERROR_MAX);
+
     if (($result['error_code'] ?? '') === 'composition_conflict') {
         $current = null;
         if (isset($params['post_id']) && is_numeric($params['post_id'])) {
             $current = pp_get_composition_marker((int) $params['post_id'])['version'];
         }
         return [
-            'error'            => $result['error'] ?? 'Execution failed.',
+            'error'            => $error,
             'error_code'       => 'composition_conflict',
             'expected_version' => _pp_action_expected_version($params),
             'current_version'  => $current,
         ];
     }
-    return $result['error'] ?? 'Execution failed.';
+    return $error;
 }
 
 // ── Model-facing rejection note (#704) ──────────────────────────────────────
