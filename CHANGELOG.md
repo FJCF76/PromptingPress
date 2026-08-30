@@ -4,6 +4,96 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.17.8] — 2026-08-30 — one answer to "what may a message echo back", applied to every server surface that echoes (#647, #649)
+
+**The theme already had three definitions of "safe to echo back". What it did not have was a rule about where they get used.** Text the theme did not author — a flag value typed at a terminal, a component name read out of a composition that never passed write validation, a page title, a Custom CSS selector — travels into messages an operator and the chat AI both read. Three helpers existed to make that text printable, each already the single owner for its surface. Some sinks called them. Neighbouring sinks, inside the same function body, did not. Which sink you hit decided whether a stored ANSI escape reached your terminal, and that was an accident of which loop the value happened to be in.
+
+This release applies **one idiom across the whole server-side inventory**: every sink that renders caller- or stored-influenced text routes it through the existing owner for that surface. No new sanitizer, no new constant, no second definition of "clean".
+
+| Surface | Owner it now routes through |
+|---|---|
+| `lib/cli.php` human channel | `_pp_cli_printable()` — runs of `\p{Cc}\p{Cf}` collapse to one space |
+| `lib/admin.php` validator values | `_pp_schema_value_for_message()` — strip, 100-char bound, UTF-8 repair, supplies its own quotes |
+| `lib/admin.php` validator keys | `_pp_render_undeclared_prop_keys()` — strip, 64-char bound, `(unprintable key)` |
+| `lib/ai-chat.php` responses | `_pp_clean_reflected_text()` — strip, bound in CHARACTERS, UTF-8 repair |
+
+### The inventory, in full
+
+**Converted — caller argv.** The `--post_id` value refusal; both branches of the positional-page refusal (the already-addressed one echoes the stray token twice and ends on an instruction the operator is told to run — the inventory's highest-value conversion); the `--run-id` UUID refusal; `wp pp schema <component>`'s unknown-name refusal; `operate token-restore`'s `--token`; `operate checklist`'s unknown playbook; `readiness acknowledge`'s unmatched finding key. Every one of these quotes a value back **before** any membership test has vouched for it — that is precisely why the branch was reached.
+
+**Converted — stored site data.** `check page`'s generated-id line and its ambiguous-targeting table; the Custom CSS conflicts table, printed by two commands through one new delegating row renderer; `validate site`'s per-page post title, read once where all three branches below it pick it up; `validate page`'s rendered-finding messages, which interpolate stored component names and media paths; `operate patch`'s resolver error, which reflects both the caller's `--target` and stored component ids; `readiness unacknowledge`'s success line; the `pp_theme_integrity` stored version.
+
+**Converted — validator messages.** The `#379` numeric-bounds rejection and the strict-enum rejection, the last two paths in `pp_validate_composition_errors()` still using a bare cast. Both now name a rejected `false` as `false` rather than as `""` — the exact case the helper's docblock was written to deny. The `#147` top-level unknown-prop gate now bounds its key through the same renderer the nested `#643` rule already used; that asymmetry was recorded in `lib/admin.php`'s own comments as "harmonizing the two means bounding #147, never unbounding this", and this is that harmonization.
+
+**Converted — AJAX error payloads.** `_pp_ai_execute_error_payload()` reflected `$result['error']` verbatim while the preview path cleaned everything it echoed; and the preview handler's own general branch shipped its validator message raw while the branch beside it went through `_pp_build_friendly_error()`. Both now use the same owner, so which rejection branch a request took no longer decides whether the chat card receives hostile bytes. The strip lands **server-side**, deliberately: a second strip in JavaScript would be a second definition of "clean" that could only drift, and the client cannot repair invalid UTF-8.
+
+**Already guarded, left alone.** Every sink reached through `_pp_cli_finding_line()`; `inspect-composition`'s wrapped literal; `_pp_build_friendly_error()`'s names and messages; the `#643` nested unknown-field rule; `#717`'s `_pp_cli_emit_json` machine channel, which is a JSON sink and not a prose one.
+
+**No guard needed, and the reason matters.** The composed corrected command in the positional refusal is the only refusal that hands an operator a line to **run**, and it keeps using the raw token: it is gated on `_pp_cli_is_canonical_post_id()`, which is `ctype_digit` plus an integer round-trip, so only decimal digits reach it. The predicate is what makes that line safe; adding a strip would imply otherwise. `readiness acknowledge`'s **success** line also stays raw — it is reached only once the key matched a theme-authored constant. Its `unacknowledge` twin was converted, because that one is vouched for only by membership in a stored option.
+
+### The key bounding (#649)
+
+`_pp_item_index_label()` renders the `item key "N"` locator. It reflected the stored array key whole — a 300-character key made the locator longer than the sentence it was locating, and an ANSI byte inside a stored key reached the action envelope, the editor save response and the chat reply intact (only the CLI was covered). It now goes through `_pp_schema_value_for_message()`, the same helper the **values** in those messages use, so the locator, the key and the value in one message share one bound and one rule instead of three.
+
+It uses the `admin.php` owner rather than the chat one for a load-order reason, not a preference: `lib/ai-chat.php` is loaded only under `is_admin()` (`functions.php:27`), and this function is reached under WP-CLI, where calling it would be a fatal on exactly the never-validated data those commands exist to inspect.
+
+### Meaning is byte-identical
+
+Well-formed text renders exactly as it did. The helper supplies the quotes the format strings used to carry, so `got "sunset"`, `has no prop "subtitle"` and `key "5"` are unchanged — including the integer key from a folded numeric object and the degenerate empty key `key ""`. The strongest evidence is negative: **no existing message assertion in `SchemaValidationTest`, `WriteRejectionLocatorTest`, `ActionsTest` or `CompositionFindingsBoundsTest` needed touching.**
+
+Two cases are deliberately **not** byte-identical, both pinned as choices rather than accidents:
+
+- text containing control or format characters renders stripped — that is the entire point;
+- an **empty** top-level prop key now renders `has no prop "(unprintable key)"` instead of `has no prop ""`, adopting the spelling the nested rule has always used. Inventing a third spelling for the top-level case is the split this axis exists to end, and an empty string is not a legitimate prop key on any authoring path.
+
+### The CLI owner's own malformed-input path was wrong, and is fixed here
+
+**This is a behavior change to sinks that predate this issue, so it is called out rather than folded in.** `_pp_cli_printable()` strips `\p{Cc}\p{Cf}` with a `/u` pattern, and `/u` refuses to run on a single malformed byte **anywhere** in the subject. The old answer to that was a byte-wise fallback, `[\x00-\x1f\x7f]` — a second, weaker definition of "clean", reached by exactly the input that most warrants the strong one. It removed C0 and DEL but **not** `\p{Cf}` (the bidi and zero-width set) and **not** the C1 range, including `0x9b`, the 8-bit CSI a terminal honours just like `ESC-[`.
+
+Measured: `"safe" . "\xff" . "\u{202E}" . "evil"` came back with the bidi override intact. Appending one invalid byte downgraded the guard for the whole string — on every sink in the file, including the ones `#622` shipped.
+
+It now does what both sibling owners already did: repair the encoding with `mb_convert_encoding()`, re-run the **same** pattern, and fall through to `(unprintable)` only if that also fails.
+
+**What changes for existing `#622` sinks.** Well-formed input is **byte-identical** — it never reaches the retry, and no pre-existing message assertion in the suite moved. Malformed input is now **strictly more defanged**: text that previously kept its bidi, zero-width and C1 characters loses them, and the invalid bytes themselves become the standard substitution character. The readable part of the string still survives, which is why the owner repairs rather than discarding — a diagnostic that names nothing diagnoses nothing. Both bypass vectors are pinned as regression tests.
+
+With this, all three reflection owners answer "what is clean" with the same pattern and the same repair, which is what makes "one definition" true rather than aspirational.
+
+**Not fixed, and recorded as such:** the quoting grammar. A key containing a double quote still renders ambiguously (`key "a"b"`). Bounding is this axis; escaping is a different one, and the `~23` sibling `Component "%s"` messages share that spelling. `U+2028`/`U+2029` and homoglyphs also survive, because they are not in `\p{Cc}\p{Cf}` and widening the owners' character class would change every surface at once.
+
+### Scope
+
+Server side only. **`#793` still owns the client half**, and this release makes its remaining job small and specific: the server now bounds both the execute and preview error payloads at `PP_REFLECTED_ERROR_MAX` and strips them, so `#793` is left with the render bound at `assets/js/pp-ai-chat.js` — where the same field is `textContent`-rendered with no length cap, and where the units differ (JS `.length` counts UTF-16 units; the server bounds with `mb_strlen`, in characters). The constant tripwire in `tests/ChatUndoBoundTrait.php` is respected: no constant moved, only its now-stale docblock.
+
+The **AJAX/editor composed-message cluster is deliberately deferred to #864** — the `wp_send_json_error` sites in `lib/admin.php` and two nested chat payload fields. Every other channel now honours the idiom completely; that one honours it on the execute and preview error payloads and not yet on composed messages. It was deferred rather than improvised because it is the first part of this axis with no in-scope owner: `lib/admin.php` is always loaded and the chat owner is not, so closing it means either a cross-file dependency or a traversal helper, and both are owner-architecture decisions that deserve one ruling for the whole channel. `#864` states that question.
+
+Also inventoried and left alone: the `~23` sibling `Component "%s"` messages that reflect a stored component name (this issue treats that family's spelling as the reference point, not the target), and `_pp_render_undeclared_prop_keys()`'s missing byte-prebound, which is an amplification guard rather than a reflection conversion.
+
+### Notes
+
+The branch carried an **inherited draft** from an interrupted session. It was audited hunk by hunk against the issues rather than trusted: every load-order and predicate claim in it was independently verified before adoption, and none was discarded. The conversions beyond it — the `#147` key, six re-derived scalar sinks, and the preview-path payload — came from re-deriving the inventory, as the ruling directs.
+
+### Fixed
+
+- Reflected author values in the numeric-bounds and strict-enum validator messages now route through `_pp_schema_value_for_message()`, so a rejected `false` is named `false` and a 200 KB value is bounded (#647).
+- The top-level unknown-prop gate bounds its reflected key through the same renderer as the nested rule (#647, #147).
+- Nested `items[]` key locators are bounded and stripped (#649).
+- Sixteen `lib/cli.php` sinks route caller argv and stored site data through `_pp_cli_printable()`, including two `format_items` tables whose cells were previously unobservable by any test (#647).
+- The chat execute and preview error payloads are cleaned server-side, closing a divergence where the same message was cleaned on one path and raw on the other (#647).
+- `_pp_cli_printable()`'s invalid-UTF-8 fallback no longer strips a narrower character class than its main path, so one malformed byte can no longer smuggle bidi, zero-width or C1 characters through any CLI sink (#647).
+
+### Tests
+
+- New `tests/ReflectedTextInventoryTest.php` pins every conversion, driving the real command objects rather than the helpers beneath them, plus the byte-identity and no-guard-needed properties.
+- New `tests/WpCliFormatItemsStub.php` — a capturing stub for the namespaced `WP_CLI\Utils\format_items()`, which no test could previously observe.
+- `tests/DiagnosticReachTest.php`'s recorded deferral is rewritten to the new contract rather than deleted, and gains integer-key, bidi, over-long and invalid-UTF-8 key cases.
+- An authoring-path test drives `update_component` end to end and asserts the envelope carries no hostile bytes from either a key or a value (Section 14.1).
+
+### Docs
+
+- `AI_CONTEXT.md` and `docs/reference-apply-cli.md` no longer describe message-reflection bounding as a pending axis, and now state precisely what is bounded and what still reflects a stored component name verbatim.
+
+---
+
 ## [v1.17.7] — 2026-08-27 — a refused undo says why, so an operator learns their bytes survived the repair (#822)
 
 **"Undo failed" was the whole message.** After a proposal that changes a page's composition applies, the chat's post-apply card offers **"Undo these changes"**. It calls `restore_composition`, and its response handling had exactly three outcomes: success, a `composition_conflict` with its own sentence, and everything else collapsed to those two words. `resp.data` — the server's actual explanation — was read by nothing.
