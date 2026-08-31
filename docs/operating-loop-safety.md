@@ -143,7 +143,8 @@ with it. Re-reading now leaves the card in the transcript with its affordance sp
 renders the fresh proposal beneath it, on exactly the evidence the claim above is gated on: a
 card that reported something is kept, a card whose report was clean or unreadable is removed
 as before, so a conflict that really did leave nothing behind still leaves nothing behind.
-What survives is the transcript, not the database — a reload or New Chat clears it, as it
+What survives is the card on screen, not anything stored: no transcript
+line is written and nothing is persisted, so a reload or New Chat clears it exactly as it
 clears every other card. The writer's
 own null-skips-CAS back-compat is untouched — the mandate lives in the chat entry points'
 contracts. This shipped per the baseline-lifecycle design on
