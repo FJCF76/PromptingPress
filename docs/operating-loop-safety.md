@@ -135,7 +135,17 @@ likely to leave something behind. The rollback now removes what its own batch cr
 names whatever it could not, so the empty report the claim depends on means nothing survived
 rather than nothing was covered. The two pre-execution refusals
 routed to the same renderer — a conflict caught before step 1, and a missing baseline — keep
-the claim, because for them nothing ran. The writer's
+the claim, because for them nothing ran. **And since #856 the report outlives the button
+that used to delete it.** This card is the only place it exists — the exit writes no
+transcript line, the model gets no note for this class, and nothing about a proposal card is
+stored — so spending the affordance used to take the names of the pages that stayed dirty
+with it. Re-reading now leaves the card in the transcript with its affordance spent and
+renders the fresh proposal beneath it, on exactly the evidence the claim above is gated on: a
+card that reported something is kept, a card whose report was clean or unreadable is removed
+as before, so a conflict that really did leave nothing behind still leaves nothing behind.
+What survives is the card on screen, not anything stored: no transcript
+line is written and nothing is persisted, so a reload or New Chat clears it exactly as it
+clears every other card. The writer's
 own null-skips-CAS back-compat is untouched — the mandate lives in the chat entry points'
 contracts. This shipped per the baseline-lifecycle design on
 [#392](https://github.com/FJCF76/PromptingPress/issues/392) (v1.2.0 gate).
