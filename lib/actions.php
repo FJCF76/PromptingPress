@@ -1930,6 +1930,84 @@ function _pp_recreate_menu_item(int $menu_id, object $item, int $parent_id): ?in
 }
 
 /**
+ * The shared sentence for one per-page field a rollback could not put back (#857).
+ *
+ * SINGLE-OWNED BECAUSE FOUR CALL SITES SHARE IT, and four hand-copies of a sentence is
+ * how two of them end up saying different things about the same outcome. The four
+ * per-page restores (title, slug, status, SEO metadata) fail for one reason and have one
+ * consequence, so they get one shape; the writes whose failure means something else
+ * (a composition, an option, a deletion) keep their own wording.
+ *
+ * NOTHING STORED IS REFLECTED HERE — not the title, not the slug, not the value. The
+ * entry names the page by ID and says which field, and that is deliberate: this string
+ * reaches the chat card, and the server-side owner of reflected-text cleaning lives in
+ * lib/ai-chat.php with an OPEN ownership question for cross-file consumers (#864). A
+ * rollback report is the wrong place to settle that, and an operator who is told which
+ * page and which field can read the value on the page itself.
+ *
+ * @param  int    $post_id  The page whose field did not roll back.
+ * @param  string $what     The field, named as an operator would name it.
+ * @param  string $advice   What the operator should do about it.
+ * @return string
+ */
+function _pp_restore_field_failure_message(int $post_id, string $what, string $advice): string {
+    return sprintf(
+        'Page %d: its %s was NOT rolled back: the restoring write was refused, so the'
+        . ' value this batch wrote is still stored. %s',
+        $post_id,
+        $what,
+        $advice
+    );
+}
+
+/**
+ * Writes a restore only when it would actually change something, and reports whether the
+ * restored state is intact (#857).
+ *
+ * WHY COMPARING FIRST IS CORRECTNESS, NOT OPTIMIZATION. update_option() and
+ * delete_option() return false for a write that was REFUSED and for a write that had
+ * nothing to do — an unchanged value, an already-absent row — and PHP cannot tell those
+ * apart from the return alone. Reporting on the bare return would put a survivor on the
+ * channel for every option a batch merely NAMED without changing, which is the mirror of
+ * the silence this issue removes: a false entry on the one channel the operator is told
+ * to trust. Comparing first removes the ambiguity, so past the guard a false return is a
+ * refused write, because there was a real difference to write.
+ *
+ * #854 established this shape for the redirect map and its comment deferred the rest of
+ * the writes here by name. This is that generalization, single-owned so the four
+ * ambiguous-return writes (a whitelisted site option, its delete, the design-token
+ * overrides, the custom font URLs) cannot drift apart.
+ *
+ * TWO LIMITS, STATED, both inherited from #854 rather than introduced here.
+ *
+ * FIRST, this trusts the writer's return. A filter that silently rewrites or
+ * short-circuits the value (pre_update_option_*, sanitize_option_*) still reports success,
+ * because the write DID happen and returned true. Verifying a write by reading it back is a
+ * different posture that no restore in this function takes, and adopting it for these four
+ * alone would settle the write-verification question the concurrency cluster owns.
+ *
+ * SECOND, the read and the write are not atomic. A concurrent request that changes the same
+ * option between them can turn a needed write into a no-op (reported as a refusal) or an
+ * unneeded one into a real write. The window is microseconds inside a single rollback and
+ * no restore in this function holds a lock or a compare-and-swap — #854 states the same
+ * lost-update limit for the redirect map. Closing it is the concurrency cluster's axis, not
+ * this one's; naming it here keeps the empty channel's claim honest about its own edges.
+ *
+ * @param  mixed    $current  The live value, read in the shape $target is expressed in.
+ * @param  mixed    $target   The value the rollback wants stored. Strict-compared.
+ * @param  callable $writer   Performs the write. Returns falsy when it was refused.
+ * @return bool               True when the target state is stored — either it already
+ *                            was (no write attempted) or the write succeeded. False
+ *                            ONLY when a genuinely-needed write was refused.
+ */
+function _pp_restore_write_if_changed($current, $target, callable $writer): bool {
+    if ($current === $target) {
+        return true; // verified-unnecessary: nothing to restore, nothing to report
+    }
+    return (bool) $writer();
+}
+
+/**
  * Restores every snapshotted post/option to its pre-batch state, and permanently
  * removes what this same batch CREATED — a page from a create_page step, a redirect
  * row, an imported attachment. None of those existed before the batch started, so
@@ -1973,9 +2051,11 @@ function _pp_recreate_menu_item(int $menu_id, object $item, int $parent_id): ?in
  * @param array $snapshot  Bundle from _pp_snapshot_batch_targets(), with
  *                          'created_posts', 'created_attachments' and
  *                          'redirects_written' populated as steps succeeded.
- * @return string[]         Anything that could NOT be restored or removed, as SEVEN
- *                           distinct sentences — a reader keying on the message needs
- *                           all of them: (1) the menu layer, one entry per item it
+ * @return string[]         Anything that could NOT be restored or removed, as the distinct
+ *                           sentences enumerated below — a reader keying on the message
+ *                           needs all of them, and the count is deliberately NOT stated
+ *                           here because it drifted twice (it said SEVEN through two
+ *                           changes that added classes): (1) the menu layer, one entry per item it
  *                           could not recreate; a page whose composition restore was
  *                           withheld because (2) the live stored value became
  *                           unreadable mid-batch (#749), (3) the row could not be read
@@ -1983,11 +2063,44 @@ function _pp_recreate_menu_item(int $menu_id, object $item, int $parent_id): ?in
  *                           ALREADY unreadable when this batch snapshotted it (#756,
  *                           the corrupt-page repair carve-out); and since #854, (5) a
  *                           redirect row whose restoring write was refused, (6) an
- *                           imported attachment that could not be deleted, and (7) an
+ *                           imported attachment that could not be deleted, (7) an
  *                           imported attachment whose ID no longer addresses an
- *                           attachment, refused rather than force-deleted. Empty when
- *                           clean — and since #854 that empty is worth what it claims
- *                           for every step class the executor can run.
+ *                           attachment, refused rather than force-deleted, and (8) an
+ *                           imported attachment left in place because some page on this
+ *                           batch kept a composition that may reference it — which since
+ *                           #857 a REFUSED composition write reaches as well as a withheld
+ *                           one, so this entry has two causes rather than one.
+ *
+ *                           SINCE #857 EVERY RESTORE WRITE THIS FUNCTION MAKES IS ALSO
+ *                           ON THE CHANNEL, which is what finally makes the empty array
+ *                           mean what the envelope says it means. The writes used to be
+ *                           fire-and-forget: a refused write left the applied state in
+ *                           place and reported nothing. Now each one adds its own
+ *                           sentence — (9) a page this batch CREATED whose delete was
+ *                           refused, (10) a composition restore whose write was refused
+ *                           (distinct from the three withholds above: there the write is
+ *                           never attempted), (11) a page title, (12) a slug, (13) a
+ *                           post status or (14) an SEO-metadata restore whose write was
+ *                           refused, (15) a slug that landed DIFFERENT from the snapshot
+ *                           because the requested one was taken, (16) a whitelisted site
+ *                           option whose restoring write or delete was refused, (17) the
+ *                           design-token overrides, (18) the custom font URLs, and (19)
+ *                           the Custom CSS — including the case where the Custom CSS post
+ *                           itself is gone and there is nowhere to put the snapshot back.
+ *
+ *                           Empty when clean — and since #854 + #857 that empty is worth
+ *                           what it claims for every step class the executor can run AND
+ *                           for every write THIS FUNCTION makes.
+ *
+ *                           BE EXACT ABOUT THE SECOND HALF, because "the rollback" is
+ *                           wider than this function. The menu layer it delegates to,
+ *                           _pp_restore_menu_state(), still has unchecked writes of its
+ *                           own — set_theme_mod() for the location assignments, and every
+ *                           wp_delete_post() inside pp_clear_nav_menu_items() — so a menu
+ *                           restore can still fail more quietly than the rest. It reports
+ *                           the items it could not RECREATE, which is why it was already
+ *                           a producer here, and that is not the same guarantee. Tracked
+ *                           separately; #857 stops at this function's own writes.
  */
 function _pp_restore_batch_snapshot(array $snapshot): array {
     $errors = [];
@@ -1996,8 +2109,42 @@ function _pp_restore_batch_snapshot(array $snapshot): array {
     // nothing points at the files it is about to delete — see the block that reads this.
     $withheld_pages = [];
 
+    // ── pages this batch created (#854 deletes them, #857 checks that it worked) ──
+    //
+    // TWO FALSY RETURNS, ONE MEANING EACH — the same split the attachment loop at the end
+    // of this function makes, and for the same reason. Core reads the row first
+    // (`$post = $wpdb->get_row(...); if (!$post) return $post;`), so wp_delete_post()
+    // returns NULL when there is no post at that ID and FALSE when the delete was refused
+    // (a pre_delete_post short-circuit, an unregistered post type, an unhealthy DB). Core
+    // never reports this as a WP_Error, so a failure is only visible through the return —
+    // which this loop used to discard, leaving a page the batch created live on the site
+    // behind rollback_errors: [].
+    //
+    // NULL IS NOT A SURVIVOR. Something else already removed the page; there is nothing
+    // left to report and reporting it would be a false entry on the channel this change
+    // exists to make trustworthy. Folding null into the failure branch is the tempting
+    // spelling and it is the #855 mirror-bug.
+    //
+    // ONE ASSUMPTION, STATED: that the ID still addresses the page this batch created.
+    // WordPress does not reissue post IDs, and creation and rollback happen inside one
+    // request, so the window is not reachable through the shipped path. No post_type guard
+    // is added here — unlike the attachment loop, where #854 added one because
+    // force-deleting a non-attachment would destroy a page. Here the ID came from this
+    // batch's own create_page step, and a type guard would be a new refusal branch this
+    // issue's recorded decision does not describe.
     foreach ($snapshot['created_posts'] as $created_post_id) {
-        wp_delete_post($created_post_id, true);
+        $deleted_page = wp_delete_post($created_post_id, true);
+        if ($deleted_page === null) {
+            continue; // already gone: nothing deleted, nothing survived, nothing to report
+        }
+        if (!$deleted_page) {
+            $errors[] = sprintf(
+                'Page %d was created by this batch and could NOT be deleted during the'
+                . ' rollback, so it is still on the site. Everything else was rolled back,'
+                . ' which means this page may now be empty or half-built. Delete it by hand.',
+                (int) $created_post_id
+            );
+        }
     }
 
     foreach ($snapshot['posts'] as $post_id => $state) {
@@ -2030,6 +2177,24 @@ function _pp_restore_batch_snapshot(array $snapshot): array {
         // unreadable, so there is no pre-batch composition to return it to: leaving the
         // stored bytes alone IS the honest restore, whether they are still the corrupt
         // ones or a repair that outlived the batch. Every other field still rolls back.
+        // READ THE LIVE POST ONCE, BEFORE THE COMPOSITION CHAIN, AND GUARD THE ID (#857).
+        // Two consumers below need to know whether this page still exists: the refused
+        // composition write, and the four field restores. Both must stay silent for a page
+        // that no longer exists — nothing survived, so naming a survivor would be a false
+        // entry on the channel this change exists to make trustworthy.
+        //
+        // THE is_numeric GUARD IS THE SAME ONE THE ATTACHMENT LOOP CARRIES, and for the same
+        // reason: get_post() falls back to the GLOBAL $post when handed a falsy argument, so a
+        // hand-built bundle whose 'posts' map carries key 0 would otherwise get a truthy post
+        // here — whatever page the current request happens to be rendering — and every check
+        // below would run against it. This function's own docblock invites hand-built bundles,
+        // and _pp_batch_step_post_id() accepts a numeric 0, so the guard belongs here.
+        //
+        // NOT hoisted above the withhold branches, deliberately. Those report a fact about the
+        // SNAPSHOT (#749/#756/#833) that is worth stating whether or not the page still
+        // exists, and a bundle naming an absent page is exactly how they are exercised.
+        $live_post = (is_numeric($post_id) && (int) $post_id > 0) ? get_post((int) $post_id) : null;
+
         if (isset($snapshot['unreadable'][$post_id])) {
             $withheld_pages[] = $post_id;
             $errors[] = _pp_batch_target_state_message($post_id, $snapshot['unreadable'][$post_id])
@@ -2065,7 +2230,41 @@ function _pp_restore_batch_snapshot(array $snapshot): array {
         // snapshot-time verdict rather than live state, and a row that went corrupt
         // mid-batch was written straight over.
         } elseif (($reason = _pp_batch_target_refusal_reason($post_id, pp_get_composition_result($post_id))) === null) {
-            pp_update_composition($post_id, $state['composition']);
+            // THE WRITE IS ATTEMPTED HERE, so its refusal is a fourth outcome and not a
+            // fourth withhold (#857). The three branches below decline to write and say
+            // so; this one writes and, until now, discarded the answer — a lock it could
+            // not acquire left the batch's composition in place under an empty report.
+            //
+            // AND IT JOINS $withheld_pages, which is the load-bearing half. That list
+            // means "this page still holds the composition THIS BATCH wrote", and a
+            // refused write has exactly that property: pp_update_composition() is
+            // all-or-nothing by contract — "Lock-acquire failure returns a WP_Error and
+            // writes NOTHING — never a silent non-atomic write" (lib/wp.php) — so on a
+            // WP_Error the stored composition is provably the mid-batch one. The
+            // attachment loop reads this list to refuse a delete that would leave that
+            // composition pointing at media which no longer exists. Reporting the failed
+            // write without joining the list would name the page and then dangle it.
+            //
+            // NO WP_Error MESSAGE IS REFLECTED, same reasoning as
+            // _pp_restore_field_failure_message(): this string reaches the chat card and
+            // the reflected-text owner question is open (#864).
+            $restored = pp_update_composition($post_id, $state['composition']);
+            // GATED ON THE PAGE STILL EXISTING, like the four field restores below. A page
+            // deleted inside the batch window classifies as readable-and-empty here, so the
+            // write is attempted against a post that is gone; reporting its refusal would
+            // tell the operator to re-read a page that is not there, AND would push it onto
+            // $withheld_pages, which makes the attachment loop refuse and name every file
+            // this batch imported. One false entry becomes several.
+            if (is_wp_error($restored) && $live_post) {
+                $withheld_pages[] = $post_id;
+                $errors[] = sprintf(
+                    'Page %d: its composition was NOT rolled back: the restoring write was'
+                    . ' refused, so the page still holds the composition this batch wrote.'
+                    . ' This is different from the withheld cases above: the rollback tried'
+                    . ' and could not. Re-read the page and restore it from its history.',
+                    $post_id
+                );
+            }
         } elseif ($reason === PP_BATCH_TARGET_UNVERIFIABLE) {
             $withheld_pages[] = $post_id;
             // ITS OWN SENTENCE (#833), for the same reason the refusal has one: the
@@ -2084,10 +2283,97 @@ function _pp_restore_batch_snapshot(array $snapshot): array {
                 . ' would destroy the only recoverable copy. Every other field on this page'
                 . ' was rolled back.';
         }
-        pp_update_page_title($post_id, $state['title']);
-        pp_update_page_slug($post_id, $state['slug']);
-        wp_update_post(['ID' => $post_id, 'post_status' => $state['status']], true);
-        pp_update_seo_meta($post_id, $state['seo_meta']);
+        // ── the four other per-page fields (#857) ────────────────────────────────
+        //
+        // EVERY ONE OF THESE RETURNS true|WP_Error, string|WP_Error (the slug) or
+        // int|WP_Error (the status), so unlike the option writes below there is nothing to
+        // disambiguate: a WP_Error IS a refused write and nothing else. No compare-first
+        // guard is needed on three of the four, and none is added — comparing would change
+        // WHEN those writes happen, which this issue does not ask for. The slug is the
+        // exception, for a reason spelled out at its call.
+        //
+        // A PAGE THAT NO LONGER EXISTS IS NOT A SURVIVOR, the same rule the created-pages
+        // loop applies on a NULL return. All four writes resolve the post first (core's
+        // wp_update_post answers WP_Error('invalid_post') for a missing ID when $wp_error is
+        // true; pp_update_seo_meta carries its own get_post check), so a page deleted inside
+        // the batch window refuses all four. Reporting that would put FOUR sentences on the
+        // channel telling an operator to go and fix fields on a page that is not there —
+        // four false entries, the #855 mirror-bug, on the one channel this change exists to
+        // make trustworthy. Nothing was restored because nothing survived: the batch's edits
+        // to that page went with the page.
+        if (!$live_post) {
+            continue;
+        }
+        if (is_wp_error(pp_update_page_title($post_id, $state['title']))) {
+            $errors[] = _pp_restore_field_failure_message(
+                $post_id,
+                'title',
+                'Set the previous title back by hand.'
+            );
+        }
+        // THE SLUG HAS A SECOND FAILURE MODE, and it is the reason this helper returns the
+        // landed slug rather than a bool: WordPress de-duplicates post_name inside
+        // wp_update_post() (wp_unique_post_slug suffixes -2, -3 on collision), so the write
+        // can SUCCEED and store something other than what the rollback asked for. Discarding
+        // the return hid that completely — the page came back on a different permalink under
+        // a clean report.
+        //
+        // COMPARED AGAINST sanitize_title($state['slug']), which is exactly what
+        // pp_update_page_slug() itself asked core for. Comparing against the raw captured
+        // slug instead would false-alarm on any stored post_name that is not already in
+        // sanitized form. And the untouched-slug case cannot false-alarm either: uniqueness
+        // excludes the post being updated, so re-writing a page's own current slug always
+        // returns that same slug.
+        //
+        // THE ONE COMPARE-FIRST GUARD AMONG THE FOUR, because this helper REFUSES an empty
+        // slug outright (`sanitize_title` reduces to '' → WP_Error('invalid_slug')) rather
+        // than treating it as a value. A page can legitimately hold no post_name — an
+        // unsaved draft, a page created before a slug was assigned — and its snapshot then
+        // captures ''. Attempting that write unconditionally turns "this page never had a
+        // slug and still doesn't" into a reported rollback failure on every such page. So
+        // the write is skipped when the stored slug already IS the target, which is the
+        // same verified-unnecessary rule the option writes use. A batch that DID set a
+        // slug on a page that had none still reports: live and target differ, the write is
+        // attempted, and the refusal is real.
+        // RE-READ THE STORED SLUG HERE, rather than reusing the $live_post fetched before the
+        // composition chain. The title write above can CHANGE post_name: core's
+        // wp_insert_post() derives one from the title when the stored slug is empty and the
+        // status is not draft/pending/auto-draft. Comparing against the pre-title-write copy
+        // would then skip a slug write that was needed, and report nothing.
+        $target_slug   = sanitize_title($state['slug']);
+        $stored_slug   = (string) (get_post($post_id)->post_name ?? '');
+        $restored_slug = $stored_slug === $target_slug
+            ? $target_slug
+            : pp_update_page_slug($post_id, $state['slug']);
+        if (is_wp_error($restored_slug)) {
+            $errors[] = _pp_restore_field_failure_message(
+                $post_id,
+                'slug (permalink)',
+                'Set the previous slug back by hand.'
+            );
+        } elseif ($restored_slug !== $target_slug) {
+            $errors[] = sprintf(
+                'Page %d: its slug (permalink) was rolled back to a DIFFERENT value than the'
+                . ' snapshot held: the previous slug was already taken, so WordPress stored'
+                . ' a de-duplicated one. The page is reachable, but not at its original URL.'
+                . ' Check the page\'s permalink and free the conflicting slug if you need it.',
+                $post_id
+            );
+        }
+        if (is_wp_error(wp_update_post(['ID' => $post_id, 'post_status' => $state['status']], true))) {
+            $errors[] = _pp_restore_field_failure_message(
+                $post_id,
+                'published/draft status',
+                'Set the previous status back by hand.'
+            );
+        }
+        if (is_wp_error(pp_update_seo_meta($post_id, $state['seo_meta']))) {
+            $errors[] = _pp_restore_field_failure_message(
+                $post_id,
+                'SEO metadata',
+                'Check the page\'s SEO fields and set them back by hand.'
+            );
+        }
     }
 
     foreach ($snapshot['site_options'] as $key => $baseline) {
@@ -2129,10 +2415,57 @@ function _pp_restore_batch_snapshot(array $snapshot): array {
         // verbatim: an ABSENT baseline is restored by deleting the row, an EXPLICIT ''
         // baseline is written as '' (distinct outcomes, #291), and every other value
         // is written raw.
+        //
+        // READ THE LIVE ROW WITH THE SNAPSHOTTER'S OWN SENTINEL (#857), because the whole
+        // point of the #291 (exists, value) shape is that ABSENT and '' are different
+        // outcomes — and get_option()'s default would collapse them right back together
+        // here. A fresh object can never equal a stored value, so identity inequality is a
+        // reliable presence test. Without it a stored false, a stored '' and a missing row
+        // all look alike, and the guard below would skip a delete that was genuinely
+        // needed or report a refusal for a row that was already gone.
+        $live_sentinel = new \stdClass();
+        $live_raw      = get_option($key, $live_sentinel);
+        $live_present  = $live_raw !== $live_sentinel;
+        // Compared as the (string) the snapshotter captured. Every whitelisted option
+        // stores a scalar string, so a non-scalar live value is a hand-written row: it
+        // compares unequal to any captured string and the restore proceeds, which is the
+        // right degradation — write the trusted baseline over the unrecognized shape.
+        $live_value = ($live_present && is_scalar($live_raw)) ? (string) $live_raw : null;
+
         if (!$exists) {
-            delete_option($key);
-        } else {
-            update_option($key, $value);
+            // Target is NO ROW. delete_option() returns false both for a refused delete
+            // and for a row that was not there, so the presence test is what makes the
+            // report honest — see _pp_restore_write_if_changed()'s docblock.
+            $restored_option = _pp_restore_write_if_changed(
+                $live_present,
+                false,
+                static function () use ($key) {
+                    return delete_option($key);
+                }
+            );
+            if (!$restored_option) {
+                $errors[] = sprintf(
+                    'The site setting "%s" was NOT rolled back: it did not exist before this'
+                    . ' batch and the row could not be removed, so the value this batch wrote'
+                    . ' is still live. Clear it by hand.',
+                    $key
+                );
+            }
+            continue;
+        }
+        $restored_option = _pp_restore_write_if_changed(
+            $live_value,
+            $value,
+            static function () use ($key, $value) {
+                return update_option($key, $value);
+            }
+        );
+        if (!$restored_option) {
+            $errors[] = sprintf(
+                'The site setting "%s" was NOT rolled back: its previous value could not be'
+                . ' written, so the value this batch wrote is still live. Set it back by hand.',
+                $key
+            );
         }
     }
 
@@ -2182,9 +2515,9 @@ function _pp_restore_batch_snapshot(array $snapshot): array {
     //
     // ONE LIMIT, STATED. This trusts update_option()'s return the way the rest of this
     // function does; a filter that silently rewrites the value would still report success.
-    // The verification posture for every write in here is #857's question, not this one's,
-    // and answering it differently for one new write than for the eight pre-existing ones
-    // would settle that issue by the back door.
+    // Since #857 that is the posture of EVERY write in here, not an exception this block
+    // makes: each one reports a refused write and none verifies by reading the value back.
+    // Read-back verification is the concurrency cluster's axis, not this function's.
     $redirect_baselines = $snapshot['redirects'] ?? [];
     $redirects_written  = $snapshot['redirects_written'] ?? [];
     if ($redirects_written !== []) {
@@ -2252,19 +2585,79 @@ function _pp_restore_batch_snapshot(array $snapshot): array {
         // no wp_update_custom_css_post() call anywhere else in this codebase
         // to stay consistent with) — the Custom CSS post's content IS the
         // Custom CSS.
+        //
+        // THE `if ($css_post)` USED TO HAVE NO ELSE (#857), and that silence was the
+        // sharpest of the lot: a batch that cleared the Custom CSS and then failed
+        // reported a clean revert while the site's entire stylesheet stayed deleted,
+        // because the post it needed to write back into had been removed mid-batch.
+        //
+        // THE TWO BRANCHES ASK DIFFERENT QUESTIONS, which is why only one compares.
+        // With a post present the write returns int|WP_Error — unambiguous, check it.
+        // With NO post there is nothing to write to at all, so the only honest question
+        // is whether anything was lost: wp_get_custom_css() reads '' when the post is
+        // absent, so comparing it to the snapshot separates "the CSS is gone and the
+        // snapshot had some" (report) from "there was none to begin with" (silent).
+        // Without that compare, every batch that merely NAMED clear_custom_css on a site
+        // with no Custom CSS would report a survivor.
         $css_post = wp_get_custom_css_post();
         if ($css_post) {
-            wp_update_post(['ID' => $css_post->ID, 'post_content' => $snapshot['custom_css']]);
+            $restored_css = wp_update_post(
+                ['ID' => $css_post->ID, 'post_content' => $snapshot['custom_css']],
+                true
+            );
+            if (is_wp_error($restored_css)) {
+                $errors[] = 'The site\'s Custom CSS was NOT rolled back: the restoring write'
+                    . ' was refused, so the CSS this batch left in place is still live.'
+                    . ' Restore it from Appearance → Customize → Additional CSS.';
+            }
+        } elseif (wp_get_custom_css() !== $snapshot['custom_css']) {
+            $errors[] = 'The site\'s Custom CSS was NOT rolled back: the Custom CSS post no'
+                . ' longer exists, so there was nowhere to write the previous stylesheet'
+                . ' back to. Re-add it under Appearance → Customize → Additional CSS.';
         }
     }
 
     if ($snapshot['token_overrides'] !== null) {
-        update_option('pp_token_overrides', $snapshot['token_overrides'], true);
+        // AMBIGUOUS RETURN, SO COMPARE FIRST (#857) — see
+        // _pp_restore_write_if_changed(). pp_get_token_overrides() has no cache of its own
+        // (a get_option() plus a non-array => [] degradation), and the snapshot was captured
+        // through that same reader, so the two are directly comparable. Comparing through
+        // the reader rather than against the raw row is what makes them so: a stored
+        // non-array reads as [] on both sides instead of comparing unequal forever.
+        $restored_tokens = _pp_restore_write_if_changed(
+            pp_get_token_overrides(),
+            $snapshot['token_overrides'],
+            static function () use ($snapshot) {
+                return update_option('pp_token_overrides', $snapshot['token_overrides'], true);
+            }
+        );
+        if (!$restored_tokens) {
+            $errors[] = 'The site\'s design token overrides were NOT rolled back: the'
+                . ' restoring write was refused, so the token values this batch applied are'
+                . ' still live and every page renders with them. Set them back by hand.';
+        }
+        // Invalidated unconditionally: the guard above can skip a WRITE, never a read,
+        // and a stale static cache after a rollback would be a second bug.
         pp_invalidate_design_tokens_cache();
     }
 
     if ($snapshot['font_urls'] !== null) {
-        pp_set_font_urls($snapshot['font_urls']);
+        // COMPARED IN THE SHAPE THE WRITER STORES, not the shape the snapshot holds:
+        // pp_set_font_urls() writes array_values($urls), so a captured list with
+        // non-sequential keys would compare unequal to its own stored form forever and
+        // the guard would write on every rollback. Normalize once, here.
+        $restored_fonts = _pp_restore_write_if_changed(
+            pp_get_font_urls(),
+            array_values($snapshot['font_urls']),
+            static function () use ($snapshot) {
+                return pp_set_font_urls($snapshot['font_urls']);
+            }
+        );
+        if (!$restored_fonts) {
+            $errors[] = 'The site\'s custom font URLs were NOT rolled back: the restoring'
+                . ' write was refused, so the fonts this batch applied are still loading on'
+                . ' every page. Set them back by hand.';
+        }
     }
 
     // ── attachments this batch imported (#854) ───────────────────────────────────
@@ -2308,13 +2701,13 @@ function _pp_restore_batch_snapshot(array $snapshot): array {
     // contract covers the FILES and the generated intermediate sizes as well as the row,
     // and calling it directly does not depend on core's internal delegation staying put.
     //
-    // ITS RETURN IS CHECKED, AND THE ONES ABOVE ARE NOT — which is not an inconsistency to
-    // tidy up here. That every other write in this function discards its result is a real
-    // defect with its own issue (#857), including the wp_delete_post() that removes a
-    // created PAGE at the top: a page whose delete is refused survives a rollback exactly
-    // as silently as the attachment did before this change. Fixing it here would mean
-    // rewriting eight call sites in the middle of a different issue's fix; #854 checks the
-    // write it is adding and leaves the rest named for the slot that owns them.
+    // ITS RETURN IS CHECKED, AND SINCE #857 SO IS EVERY OTHER WRITE IN THIS FUNCTION.
+    // #854 landed this loop's check first and named the inconsistency it was leaving: the
+    // wp_delete_post() that removes a created PAGE at the top discarded its return, so a
+    // page whose delete was refused survived a rollback exactly as silently as the
+    // attachment did before that change. #857 closed the remaining call sites on the same
+    // pattern, so the null-vs-false split below is now the shape the created-pages loop
+    // uses too, and neither is a local exception.
     foreach ($snapshot['created_attachments'] ?? [] as $attachment_id) {
         // RE-CHECK THE ID AT THE DELETER, not only at the recorder. get_post() falls back to
         // the GLOBAL $post when handed a falsy argument, so a bundle carrying 0/null/'' would
@@ -2476,13 +2869,19 @@ function _pp_restore_batch_snapshot(array $snapshot): array {
  *                          'rolled_back' (bool), 'rollback_errors' (string[] —
  *                          non-empty when the rollback itself could not fully
  *                          restore something; a consumer must not treat
- *                          rolled_back: true as clean without checking it. Since
- *                          #854 an EMPTY one is worth what it says: the rollback
- *                          now covers every step class that writes durable state,
- *                          including the redirect rows and the imported attachments
- *                          it used to leave behind without reporting them, so an
- *                          empty channel means nothing survived rather than meaning
- *                          nothing was looked at),
+ *                          rolled_back: true as clean without checking it. An EMPTY
+ *                          one is worth what it says, and that took TWO changes.
+ *                          #854 gave it COVERAGE: the rollback now reaches every
+ *                          step class that writes durable state, including the
+ *                          redirect rows and the imported attachments it used to
+ *                          leave behind without reporting them. #857 gave it
+ *                          VERIFICATION: every write _pp_restore_batch_snapshot()
+ *                          makes now checks its own return, where they were all
+ *                          fire-and-forget before, so a restore that FAILED can no
+ *                          longer report clean. Coverage without verification was
+ *                          only half the claim. Together they mean an empty channel
+ *                          says nothing survived, rather than saying nothing was
+ *                          looked at or nothing was checked),
  *                          'versions' ({post_id => composition_version} for every page a
  *                          composition-mutating or create_page step wrote — the chat UI
  *                          refreshes its per-page baselines from this (#404, A3))]

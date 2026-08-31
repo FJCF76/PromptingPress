@@ -697,8 +697,28 @@ if (!function_exists('wp_insert_post')) {
 }
 
 if (!function_exists('wp_update_post')) {
+    /**
+     * Test-controlled write refusal (#857): set
+     * $GLOBALS['_pp_test_unwritable_posts'][$post_id] = true to get the WP_Error real core
+     * returns when the update does not happen — a `wp_insert_post_data` filter handing back
+     * a WP_Error, a `pre_post_update` short-circuit, an unhealthy DB. Same opt-in,
+     * test-scoped shape as $GLOBALS['_pp_test_undeletable_posts'] and
+     * $GLOBALS['_pp_test_unwritable_options'], and inert when unset.
+     *
+     * Needed because the batch rollback now reports a per-page field it could not restore,
+     * and for a page that still EXISTS that branch has no other trigger: this stub succeeds
+     * for every existing post, so without the hook the failure path would be unpinnable and
+     * the report would ship untested. Honours $wp_error the way core does — WP_Error when
+     * the caller asked for one, 0 otherwise — so a caller that drops the second argument
+     * still sees a falsy return rather than a silently-successful write.
+     */
     function wp_update_post(array $args, bool $wp_error = false) {
         $id = $args['ID'] ?? 0;
+        if ($id && !empty($GLOBALS['_pp_test_unwritable_posts'][$id])) {
+            return $wp_error
+                ? new WP_Error('db_update_error', 'Could not update post in the database.')
+                : 0;
+        }
         // issue 137: ID 999 is the synthetic Custom CSS virtual post that
         // wp_get_custom_css_post() stubs below (not a real registered post,
         // mirroring WordPress's own hidden custom_css post type) — a write
@@ -759,7 +779,26 @@ if (!function_exists('update_option')) {
 }
 
 if (!function_exists('delete_option')) {
+    /**
+     * Test-controlled delete refusal + a delete counter, the same opt-in pair update_option()
+     * above carries (#857).
+     *
+     * Core returns false BOTH for a refused delete and for a row that was not there, exactly
+     * as update_option() does for a refused write and an unchanged value. The batch rollback
+     * has to tell those apart, so it tests presence before deleting — and the ONLY way to pin
+     * that guard is to count deletes: the stored state looks identical whether the guard ran
+     * or the delete ran and succeeded. Without the counter the rollback's already-absent
+     * boundary test passes whether or not the guard exists.
+     *
+     * Set $GLOBALS['_pp_test_unwritable_options'][$key] = true to refuse the delete WITHOUT
+     * removing the row — the same global update_option() reads, so one key configures both
+     * arms of an option's restore. Inert when unset.
+     */
     function delete_option(string $key): bool {
+        $GLOBALS['_pp_test_option_deletes'][$key] = ($GLOBALS['_pp_test_option_deletes'][$key] ?? 0) + 1;
+        if (!empty($GLOBALS['_pp_test_unwritable_options'][$key])) {
+            return false;
+        }
         unset($GLOBALS['_pp_test_store']['options'][$key]);
         return true;
     }
@@ -1291,6 +1330,17 @@ if (!function_exists('wp_delete_post')) {
         // reports this as a WP_Error, so a caller's failure branch can only be
         // exercised through a falsy return. Same opt-in, test-scoped shape as
         // $GLOBALS['_pp_test_user_caps'] and $GLOBALS['_pp_test_template_dir'] (#719).
+        //
+        // MIRRORS CORE'S THREE RETURNS SINCE #857, the way wp_delete_attachment's stub
+        // below already did: NULL when no post exists at that ID, FALSE when the delete
+        // did not happen, and the deleted post on success. Core's first two statements
+        // are `$post = $wpdb->get_row( ... ); if ( ! $post ) { return $post; }`, and
+        // $wpdb->get_row() answers null for "no row" — so a missing post is NULL, never
+        // false. The final `return false` here used to cover both, which mattered the
+        // moment a caller started splitting them: the batch rollback now reports a
+        // survivor for a REFUSED delete and stays silent for a page that is provably
+        // gone, and a stub collapsing the two would leave that false-alarm boundary
+        // green whichever way the code went.
         if (!empty($GLOBALS['_pp_test_undeletable_posts'][$post_id])) {
             return false;
         }
@@ -1313,7 +1363,7 @@ if (!function_exists('wp_delete_post')) {
                 }
             }
         }
-        return false;
+        return null; // no row at that ID — core's `if ( ! $post ) { return $post; }`
     }
 }
 
