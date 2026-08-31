@@ -4,6 +4,49 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.18.7] — 2026-08-31 — A keyboard operator can no longer fire the undo twice, and a diff row shows one arrow instead of two (#861, #852)
+
+**Two defects on the chat's post-apply and proposal cards, both invisible to the way each surface was being tested.** The "Undo these changes" and "Reset to default" links guarded a second activation with `pointer-events: none`, which is a mouse-only affordance — an anchor stays focusable, and pressing Enter on it still dispatches `click`, so a keyboard operator sent the write again. Separately, every generic diff row rendered two arrows between the before and after values, because the renderer appended one and a stylesheet rule painted another. Neither could be caught by the assertions each surface had: a dispatched click in a headless DOM never consults `pointer-events`, and pseudo-element `content` is invisible to `textContent`.
+
+The undo one had teeth. `restore_composition` travels with a compare-and-swap baseline, and the first activation spends it — so the second attempt was refused for a conflict the operator caused by pressing Enter twice, reported as though another writer had touched the page. On a gate whose subject is whether a rollback surface tells the truth, that is the surface inventing a concurrent writer. The reset link posts `reset_design_token`, which is idempotent, so its cost was a duplicate write rather than a wrong answer.
+
+### Fixed
+
+**#861 — `pointer-events: none` is not a disable.** Measured in headless Chromium on the shipped idiom: a mouse click gives **1** handler invocation, and two subsequent Enter presses give **3**. Against the fix, the same sequence plus a Space, a programmatic `.click()` and a synthetic dispatched `MouseEvent` gives **1**.
+
+Both links now run through one `ppChatOneShotLink(link, spentLabel, run)` helper that latches on a **private closure flag**, checked first — before anything is mutated and before any request leaves. The flag is deliberately not read back out of the DOM: an earlier draft used the `aria-disabled` attribute as the latch, which puts control state in an accessibility attribute where a later pass that normalises ARIA, or re-renders the link's attributes, would silently re-arm a write path. `aria-disabled="true"` is still **set**, because a screen reader has to be told the link is spent; it is simply not the thing the guard trusts. `pointer-events` is kept as the spent link's mouse affordance — it was never a disable, and dropping it would leave a dead link looking live.
+
+First-activation behaviour is unchanged: same request, same threaded CAS baseline, same success and failure labels and classes. A spent link stays spent through every branch including the failures and the transport `catch`, which is exactly what it did before — no branch ever restored `pointer-events` either.
+
+**The idiom was fixed family-wide, and the inventory is the evidence.** Those two anchors were the *only* `pointer-events`-as-disable sites in `assets/js/pp-ai-chat.js`. Every other one-shot affordance in the file — the #856 "Re-read & re-preview" button, Apply/Cancel, the repair affordance — is a real `<button>` using `disabled`, which browsers honour on the keyboard path too. The three `pointer-events` rules in `assets/css/pp-ai-chat.css` are decorative or loading-state, not disables. A source tripwire now holds that line: the file may contain exactly one `pointerEvents` write, and it must sit inside the helper.
+
+**#852 — every generic diff row rendered two arrows.** `ppChatRenderDiffLine()` appended a ` → ` text node and `.pp-ai-step-diff-from::after` painted another, so a row read `--color-accent: #111 →  → #222`. The corrupt-composition marker row escaped it by accident: that branch deliberately omits the struck-through class, so it never inherited the `::after`.
+
+**The CSS side was removed, not the JS side, and the reason is measured.** The filed issue proposed deleting the text node as a one-line change. That is wrong twice over. It would have left the marker row with **zero** arrows, since that row has no class to paint one. And on the generic rows it would have shipped two defects the previous behaviour did not have:
+
+| | arrows on screen | rendered spacing | `innerText` (what copies) |
+|---|---|---|---|
+| before | 2 (the bug) | `Old → New` | `Old → New` |
+| deleting the text node | 1 | `Old→New` cramped | `OldNew` |
+| **deleting the CSS rule** | **1** | **`Old → New`** | **`Old → New`** |
+
+A pseudo-element is not in the DOM, so its arrow is absent from `innerText` and from anything copied out of the card — the two values fuse. It also cannot space itself: Chromium computes `content: ' \2192 '` as `" →"`, dropping the trailing space, and `display: inline-block` strips what remains. Both were caught by rendering the card at 375 and 1280 and looking at it, not by an assertion. On the mixed card the difference was visible side by side: a properly spaced marker row sitting directly above a cramped generic row.
+
+So the renderer owns the separator for every row, and the stylesheet is out of the arrow business. Both row kinds now render identically, in pixels and in text. The one visible consequence is the arrow's colour, which follows the row's own ink (`#1d2327`) instead of the rule's lighter `#8c8f94`.
+
+### Scope
+
+The two issues and their pins. The #859 axis (#878/#879/#880) and the landed #855/#856 machinery were not touched. Converting the spent anchors to `<button disabled>` or `tabindex="-1"` was considered and deliberately not done: it changes focus behaviour beyond what the issue's accepted approach describes, and the latch already makes a second write impossible from every activation path.
+
+### Tests
+
+- `tests/js/pp-ai-chat-one-shot-links.test.js` (new) drives the **real** post-apply card — message, preview, Apply, then the links — and counts requests at the `fetch` seam. Repeated activation of either link sends exactly one `restore_composition` / `reset_design_token`. Covers the refusal branches, the transport `catch` on both links (the arm most likely to be "helpfully" re-armed later), and that clearing `aria-disabled` from outside does not re-arm the guard. Against the pre-fix source, 10 of its 16 tests fail — including `expected 3 to be 1`, reproducing the browser measurement exactly.
+- Two source tripwires: one `pointerEvents` write and it lives in the helper; both links bound through it and neither carrying a raw handler alongside.
+- `tests/js/pp-ai-chat-preview-render-isolation.test.js` counts arrows **per row** rather than per container — a single-change payload cannot tell the difference, and real previews are routinely multi-change — over multi-change, mixed marker-plus-generic, and arrow-inside-a-value fixtures. Plus a stylesheet assertion that `.pp-ai-step-diff-from::after` declares no arrow, which is the only way this suite can see the source of the original duplicate: jsdom does not implement pseudo-element computed style.
+- `tests/e2e/ai-chat.spec.ts` adds the two assertions only a real browser can make: focus the spent undo link, press Enter twice, and confirm no second request left the browser and the stored composition is unchanged; and count a diff row's arrows with `getComputedStyle(el, '::after')` resolving, asserting the separator is present in `innerText`.
+
+---
+
 ## [v1.18.6] — 2026-08-31 — A keyed `items` object is refused at the write path, and never takes a page down again (#738)
 
 **A schema-clean write could store a shape the renderer cannot walk, and the public page 500'd for it.** Sending `grid.props.items` as a JSON OBJECT — `{"first": {...}, "second": {...}}` — instead of a JSON array returned `ok:true` with no findings. The bytes persisted, and the page then died: `components/grid/grid.php` derived a card's step ordinal with `(string) ($index + 1)`, and a string array key plus an int is a PHP `TypeError` that `templates/composition.php` does not catch. This is closed from both ends. The write path now refuses the shape, and the renderer stopped depending on the array key, so a page that already stores one renders instead of 500-ing.
