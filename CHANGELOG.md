@@ -4,6 +4,101 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.18.5] — 2026-08-31 — A rollback that withheld on purpose no longer reads as a rollback that broke (#855)
+
+**`rollback_errors` had 23 producers and two meanings on one opaque string channel, so a refusal that cost nothing rendered as a failure.** Every consumer keys on the channel's SIZE — `ppChatRollbackSentence()`'s " — some changes could not be reverted.", `ppChatConflictOutcome()`'s withheld "Nothing was applied.", `_pp_ai_rollback_clause()`'s model sentence, and since #856 the conflict card's survival branch. That is right, and it stays. What was wrong is that the card drew every entry in the failure colour, including the entries whose own sentences say the opposite.
+
+The sharpest case is #756. A batch finds a page's stored composition undecodable, snapshots the degrading accessor's `[]`, and the corrupt-page repair carve-out (ruling D-1) admits it as a single step. The step fails, the rollback runs, and it WITHHOLDS the composition write — because there is no pre-batch composition to return the page to, so leaving the stored bytes alone IS the honest restore. `failed_at` is 0, nothing else ran, the page is byte-identical to before. The card said "1 change could not be reverted" and pointed the operator at recovery they did not need. That is the mirror image of the false reassurance #755 and #797 removed, out of the same channel.
+
+**Ruling T2 resolves it by tagging the entries, not by splitting the channel.** Each entry now carries a `kind`, the envelope gains an index-aligned `rollback_error_kinds`, and the renderer draws the kinds it knows while falling back to today's rendering for everything else.
+
+### The producer classification, all 23
+
+The discriminator, stated once so 23 sites can agree on it. **withheld** = the rollback DECIDED not to write or delete, as a protective policy; nothing was attempted and nothing broke. **failed** = a restore or removal was owed, was attempted (or was impossible), and did not happen. Both still COUNT — the rollback was not clean either way.
+
+| # | Producer | Kind | Why |
+|---|---|---|---|
+| 1 | #756: page already unreadable when snapshotted → composition withheld | `withheld` | No pre-batch composition exists to return it to; the snapshot is a stand-in for bytes nobody decoded |
+| 2 | #749: page went unreadable mid-batch → composition withheld | `withheld` | Writing the snapshot over them would destroy the only recoverable copy |
+| 3 | #833: row unverifiable → composition withheld | `withheld` | Nothing is known about the stored bytes; the gate fails closed rather than write blind |
+| 4 | #857: composition restoring write REFUSED | `failed` | The one composition branch that ATTEMPTED the write. Its sentence already said so: "the rollback tried and could not" |
+| 5 | Created page could not be deleted | `failed` | A removal was owed; the page is live on the site |
+| 6 | Page title restore refused | `failed` | Attempted, not landed |
+| 7 | Page slug restore refused | `failed` | Attempted, not landed |
+| 8 | Slug landed DE-DUPLICATED | `failed` | The write SUCCEEDED and the page still did not get its permalink back. The kind describes the RESTORE, not the write |
+| 9 | Post status restore refused | `failed` | Attempted, not landed |
+| 10 | SEO metadata restore refused | `failed` | Attempted, not landed |
+| 11 | Whitelisted site option write refused | `failed` | Attempted, not landed |
+| 12 | Whitelisted site option row could not be removed | `failed` | Attempted, not landed |
+| 13 | Redirect map write refused | `failed` | Attempted, not landed |
+| 14 | Custom CSS restoring write refused | `failed` | Attempted, not landed |
+| 15 | Custom CSS post gone, nowhere to write back | `failed` | NO write was attempted and it is still a failure: the stylesheet is lost, not protected |
+| 16 | Design-token overrides restore refused | `failed` | Attempted, not landed |
+| 17 | Custom font URLs restore refused | `failed` | Attempted, not landed |
+| 18 | Imported attachment NOT deleted: a page kept its mid-batch composition | `withheld` | Ruling T1's third clause is a REFUSAL. Deleting would break a live page; the file staying in the Media Library is the price |
+| 19 | Imported attachment ID no longer addresses an attachment → delete refused | `withheld` | Force-deleting would destroy something this batch never created, the one outcome T1 forbids |
+| 20 | Imported attachment could not be deleted | `failed` | A removal was owed and refused |
+| 21 | Menu list unavailable (`wp_get_nav_menus` failed) | `failed` | The layer could not READ what it needed |
+| 22 | Batch-created menu could not be deleted | `failed` | A removal was owed |
+| 23 | Menu item could not be recreated | `failed` | A restore was owed |
+
+**Five withholds, eighteen failures.** Producers 21-23 live in `_pp_restore_menu_state()` / `_pp_rebuild_menu_items()`, which return bare strings and are tagged together at the merge — honest because that layer has no policy-withhold branch at all. Producers 21 and 22 are unreachable in the test harness (its `wp_get_nav_menus()` is typed `: array`, and its `wp_delete_nav_menu()` cannot refuse a menu it just enumerated), so a source tripwire freezes that layer's producer count: a new one there has to be looked at where the kind is actually decided.
+
+**One kind reads narrower than it looks, and it is stated rather than glossed.** Producer 18 fires whenever any page landed on `$withheld_pages`, and #857's REFUSED composition write joins that list too. So the attachment refusal can be caused by a page that genuinely broke. The kind is still `withheld`, because it describes THIS entry's own decision — the delete was declined on purpose — and the page that caused it carries its own `failed` entry on the same channel.
+
+### The envelope shape, and the compat proof
+
+```
+rollback_errors      string[]   UNCHANGED — same strings, same order, same length
+rollback_error_kinds string[]   NEW, index-aligned, 'withheld' | 'failed'
+```
+
+**A parallel field, not objects on the existing channel, and the client is why.** `ppChatRollbackErrorReport()` filters members with `ppChatIsNonEmptyString()`. Objects fail that filter, so `total` and `shown` would collapse to 0 while `reported` stayed positive — and a **browser-cached old client against an updated server** would then draw an EMPTY card beside a "some changes could not be reverted" sentence. That is the #755 false-silence class, re-entered through the compatibility story. The cheaper cost was accepted instead: one short ASCII token per entry on a channel whose messages average an order of magnitude more.
+
+Alignment is structural, not disciplinary. `_pp_restore_batch_snapshot_report()` builds one list of `['kind','message']` entries; `_pp_rollback_messages()` and `_pp_rollback_kinds()` are two `array_map` projections of it, so the outputs have the same length because they are the same traversal. **Not `array_column()`**, which SKIPS a row missing the requested key — one malformed entry would silently shorten the kinds list and shift every kind onto the wrong message, in the direction of calling a failure a protection.
+
+`_pp_restore_batch_snapshot()` is kept as the message-only projection, and that is the compatibility proof rather than a courtesy: its ~30 existing call sites across `BatchRestoreWriteReturnTruthTest`, `BatchRollbackCreatedArtifactsTest`, `BatchRollbackCorruptSnapshotTest`, `BatchGateAuthoritativeClassifyTest`, `ChatBatchCorruptRepairCarveOutTest`, `ActionsTest`, `HeaderChromeTest` and `FooterChromeTest` read exactly what they read before, unmodified, and all pass. It has no production caller, which its docblock now says.
+
+### What the operator sees
+
+A `withheld` row draws with the existing `pp-ai-step-warning` treatment; everything else draws with `pp-ai-step-failed`, exactly as before. The section heading goes amber only when EVERY reported entry is a known withhold — one failure, one unrenderable member, one unrecognized kind, or a kinds list of the wrong length, and it stays red. **No CSS was written**: both classes already existed, and the per-item class form of `ppChatAppendValidationItems()` already existed for the restore findings (#622).
+
+**The words are untouched, and that is the ruling rather than an omission.** T2 keeps the wording half pooled on #664, so an all-withheld report still heads "N changes could not be reverted" — it counts, because bytes were left in a state the operator has to know about — over sentences the server already writes as "was NOT rolled back, and that is the safe outcome". One visible knock-on is named rather than hidden: passing a per-item class function makes the disclosure summary derive its noun from the hidden items' severities, so an all-withheld overflow reads "Show N more warnings" and a mixed one "Show N more issues". Those are that helper's own three nouns, and the all-failure case still reads "errors", byte for byte.
+
+**An old envelope renders byte-identically**, and that is pinned against HTML captured from the pre-change renderer rather than from what this change intended: a report with no `rollback_error_kinds` produces the exact same `innerHTML`, disclosure noun included. The same code path serves every degradation, which is T2's "falls back to today's rendering for unknown kinds".
+
+### What did not change
+
+Counts and presence. `reported`, `total` and `shown` are computed exactly as before, nothing filters or reorders the channel by kind, and every count-keyed consumer answers what it answered: the transcript clause, the conflict card's withheld "Nothing was applied.", `_pp_ai_rollback_clause()`'s model sentence, and #856's survival branch — whose source tripwire, which forbids a decider from peeking at entry text or order, still passes and now covers `kind` too.
+
+Out of scope by ruling: no channel split, no new operator vocabulary (#664), no entry reordering, no change to the model-facing sentence, and nothing touching #859's design axis. Three things the design pass surfaced were already filed and were left alone: prose rendering as monospace inside the disclosure (#778), severity flattening in a disclosure (#791), and the unwrapped inline finding row (#798).
+
+### Deviations and calls made without asking
+
+- **A wrong-length kinds list is discarded WHOLE**, rather than honoured for the entries it happens to cover. Stricter than "index-aligned" strictly requires; today's executor cannot produce a mismatch, so it costs nothing against real data and removes the mislabel class outright.
+- **`_pp_rollback_entry()` takes an untyped `$message`** and degrades a non-scalar to `''`. A `string` hint reads better and would throw a TypeError inside the reporter, on the failure path, where this report is the operator's only evidence — a fatal there replaces the whole survivor list with a stack trace. The entry keeps its slot, so the count that carries the dirty claim is unchanged.
+- **The three menu-layer producers share one tag at the merge** rather than the layer carrying its own kinds. It has no withhold branch today; a source tripwire fails if one is added.
+- **Rendered evidence was re-captured** after a review pass showed the first prototype used a 16px body while wp-admin is 13px, which overstated the size difference between the two row treatments. At 13px the real differentiators are background, an 8px inset and a border radius.
+
+### Fixed
+
+- `rollback_errors` entries are tagged at all 23 producers, and `pp_ai_execute_batch()` emits an index-aligned `rollback_error_kinds` on all three returns — the #749 refusal, the executed failure, and the clean batch (`lib/actions.php`).
+- The chat's rollback report draws a withheld entry with the warning treatment and a failed entry with the failure treatment, and pairs kinds at the SERVER's index so a member it cannot draw does not shift every kind after it (`assets/js/pp-ai-chat.js`).
+- Every degradation lands on the pre-#855 rendering, never a softer one: an unknown kind, an absent list, a non-array, a list of the wrong length, and a non-string member.
+
+### Docs
+
+- `AI_CONTEXT.md` documents `rollback_error_kinds` for the site-building AI: the five withheld producers, the index alignment, the always-present key, `failed` as the read for an unknown kind, and — explicitly — that it does not change what counts.
+- `docs/operating-loop-safety.md`'s rollback rows now point at `_pp_restore_batch_snapshot_report()`, where the branches actually live, and the withhold row records what #855 changed. Same retarget for `lib/wp.php`'s redirect-rollback flow diagram.
+
+### Tests
+
+- `tests/RollbackErrorKindsTest.php` (new, 27 cases): the kind of every reachable producer, the string-view projection, the two projections' equal length and list-ness over a KEYED input, the envelope key on all three returns, both kinds in ONE report through the real chat handler (Section 14.1), and four source tripwires — every append routes through `_pp_rollback_entry()`, `$entries` is touched only by its initializer/appends/return, the menu layer emits no kinds of its own and its producer count is frozen, and the PHP token matches the literal the client looks for.
+- `tests/js/pp-ai-chat-rollback-error-kinds.test.js` (new, 28 cases): the two treatments, mixed reports, index pairing across an unrenderable member, byte-identical old-envelope rendering, every degradation, the heading rule proven against a failure hiding past the display budget, and the counts and claims left untouched.
+- Suites: PHP 4521 tests / 23333 assertions, JS 1748 tests across 32 files. Warning and deprecation counts unchanged from the pre-change baseline.
+
+---
+
 ## [v1.18.4] — 2026-08-31 — The conflict card's rollback report outlives the button that used to delete it (#856)
 
 **One click destroyed the only copy of the report, and the card itself was what invited the click.** Since #797 a composition-conflict card names what the rollback could not put back — the page whose composition was withheld, the menu item that could not be recreated, and since #854/#857 a surviving redirect, a surviving attachment, a refused page delete, a de-duplicated slug, a site setting, the design tokens, the fonts, the Custom CSS. The card offers exactly one thing, **Re-read & re-preview**, and its handler read:
