@@ -678,3 +678,269 @@ describe('the batch-preview chain (source tripwire)', () => {
         expect(classified).toBeGreaterThan(rendered);
     });
 });
+
+/**
+ * ONE ARROW PER DIFF ROW (#852).
+ *
+ * THE BUG. Two independent sources put an arrow between a diff row's before and after
+ * values: ppChatRenderDiffLine() appended a ` → ` text node unconditionally, and
+ * `.pp-ai-step-diff-from::after` (assets/css/pp-ai-chat.css) paints one via `content`.
+ * Both fired, so every generic row rendered `--color-accent: #111 →  → #222` — confirmed
+ * in headless Chromium against the real stylesheet, generic=2 arrows, marker=1.
+ *
+ * WHY NOTHING CAUGHT IT, and why these pins are shaped the way they are. jsdom does not
+ * implement pseudo-element computed style: `getComputedStyle(el, '::after')` prints
+ * "Not implemented: Window's getComputedStyle() method: with pseudo-elements" and answers
+ * with the BASE element's style, so `.content` reads `"normal"` whether or not the rule
+ * exists. Every pin this renderer had read `textContent`, which cannot see `content`
+ * either. A duplicate arrow was therefore invisible to the entire unit suite by
+ * construction — not an oversight, a blind spot — and no amount of textContent assertion
+ * closes it.
+ *
+ * WHICH SIDE WAS REMOVED, AND WHY IT MATTERS TO THESE PINS. The CSS lost. A pseudo-element
+ * arrow is not in the DOM, so it is absent from `innerText` and from anything copied out of
+ * the card — the two values fused into `OldNew` — and it could not space itself either:
+ * Chromium computes `content: ' \2192 '` as `" →"` (trailing space dropped) and
+ * `display: inline-block` strips the rest, rendering a cramped `Old→New` directly beneath a
+ * properly spaced marker row on the same card. So the renderer now owns the arrow for every
+ * row, and these pins are shaped around that:
+ *
+ *   1. THE DOM HALF (here): EVERY row contributes exactly one arrow text node, whichever
+ *      branch it took. Red-proven — against the pre-#852 source the generic rows carried a
+ *      second arrow from the stylesheet that no textContent assertion could see.
+ *   2. THE STYLESHEET HALF (below): that `.pp-ai-step-diff-from::after` declares NO arrow.
+ *      jsdom cannot compute pseudo-element content, so it is asserted as a FACT ABOUT THE
+ *      FILE — the only way this suite can see the source of the original duplicate. Put an
+ *      arrow back in that rule and every row carrying the class renders two again, with
+ *      pin 1 still green.
+ *
+ * The count that neither half can make — arrows actually painted in a browser — is made
+ * in tests/e2e/ai-chat.spec.ts, in real Chromium, where a pseudo-element would resolve.
+ */
+describe('ppChatRenderDiffLine — exactly one arrow per row (#852)', () => {
+    /**
+     * Arrows ONE ROW contributes itself, as DOM text — the half jsdom can see.
+     *
+     * Direct text nodes only, and the precision is load-bearing twice over: a VALUE that
+     * happens to contain an arrow lives inside `.pp-ai-step-diff-from` / `-to`, and the
+     * marker row's diagnosis is a child `div`. Neither is a separator, and counting
+     * `textContent` would score both as one.
+     */
+    function rowTextArrows(row) {
+        return Array.prototype.slice.call(row.childNodes)
+            .filter((n) => n.nodeType === 3)
+            .reduce((n, t) => n + (t.textContent.match(/→/g) || []).length, 0);
+    }
+
+    /**
+     * Every arrow a row renders.
+     *
+     * Since #852 that is exactly its own text nodes — no class paints one any more. The
+     * class term is KEPT, scoring 0 by construction, because it is what makes this counter
+     * fail loudly if `.pp-ai-step-diff-from::after` ever comes back: the stylesheet pin at
+     * the bottom of this describe guards the rule, and this guards the count.
+     */
+    function rowArrows(row) {
+        return rowTextArrows(row) + (cssPaintsAnArrow() && row.querySelector('.pp-ai-step-diff-from') ? 1 : 0);
+    }
+
+    /** Whether the stylesheet currently paints an arrow via the from-span's `::after`. */
+    function cssPaintsAnArrow() {
+        const rule = diffFromAfterRule();
+        return rule !== null && /content\s*:\s*['"][^'"]*(?:\\2192|→)/.test(rule);
+    }
+
+    /** The body of `.pp-ai-step-diff-from::after`, or null when no such rule exists. */
+    function diffFromAfterRule() {
+        const css = fs.readFileSync(
+            path.resolve(__dirname, '../../assets/css/pp-ai-chat.css'),
+            'utf-8',
+        ).replace(/\/\*[\s\S]*?\*\//g, '');
+
+        const start = css.indexOf('.pp-ai-step-diff-from::after');
+        return start === -1 ? null : css.slice(start, css.indexOf('}', start));
+    }
+
+    /** The diff LINES in a container, ignoring anything that is not one. */
+    function diffRows(diff) {
+        return Array.prototype.slice.call(diff.children)
+            .filter((el) => el.querySelector('.pp-ai-step-diff-to'));
+    }
+
+    /** Arrows the whole container contributes as row-level text. */
+    function textNodeArrows(diff) {
+        return diffRows(diff).reduce((n, row) => n + rowTextArrows(row), 0);
+    }
+
+    it('draws exactly one arrow text node on a generic row', () => {
+        const s = newStep({ name: 'update_design_token' });
+        renderPreviewResult(s.el, s.diff, s.step, OK_RESULT);
+
+        expect(s.diff.querySelector('.pp-ai-step-diff-from')).not.toBeNull();
+        // One, from the renderer. Before #852 the stylesheet added a second that no
+        // assertion in this file could see — that is the bug, named exactly.
+        expect(textNodeArrows(s.diff)).toBe(1);
+        // And it is real text, so it survives copy-paste and a screen reader — the whole
+        // reason the CSS side lost rather than this one.
+        expect(s.diff.textContent).toContain('#111 → #222');
+    });
+
+    it('draws the arrow text node on a marker row too, on the same terms', () => {
+        const s = newStep({ name: 'restore_composition' });
+        renderPreviewResult(s.el, s.diff, s.step, {
+            success: true,
+            data: {
+                changes: [{
+                    path: 'composition',
+                    from: {
+                        unreadable: true,
+                        classification: 'decode_error',
+                        message: 'Page 7: composition data integrity error (decode_error).',
+                    },
+                    to: [{ component: 'hero' }],
+                }],
+            },
+        });
+
+        // #836's deliberate omission: the diagnosis is not struck through. Since #852 the
+        // class has nothing to do with the arrow either way — this row and a generic row
+        // get their separator from the same line of the renderer, which is the property
+        // that makes them render identically.
+        expect(s.diff.querySelector('.pp-ai-step-diff-from')).toBeNull();
+        expect(textNodeArrows(s.diff)).toBe(1);
+        expect(s.diff.textContent).toContain('unreadable (decode_error) → ');
+    });
+
+    it('gives both row kinds exactly one arrow, counting class and text node together', () => {
+        // The invariant itself, stated once over both branches rather than implied by the
+        // two cases above: arrow sources = (own text nodes) + (1 if the class is present).
+        const generic = newStep({ name: 'update_design_token' });
+        renderPreviewResult(generic.el, generic.diff, generic.step, OK_RESULT);
+
+        const marker = newStep({ name: 'restore_composition' });
+        renderPreviewResult(marker.el, marker.diff, marker.step, {
+            success: true,
+            data: {
+                changes: [{
+                    path: 'composition',
+                    from: { unreadable: true, classification: 'unexpected_shape', message: 'x' },
+                    to: [{ component: 'hero' }],
+                }],
+            },
+        });
+
+        expect(diffRows(generic.diff).map(rowArrows)).toEqual([1]);
+        expect(diffRows(marker.diff).map(rowArrows)).toEqual([1]);
+    });
+
+    it('gives EVERY row one arrow in a multi-change diff, not just the first', () => {
+        // PER ROW IS THE WHOLE CLAIM, and a single-change payload cannot test it. A real
+        // preview is routinely multi-change — `_pp_diff_props()` emits one change per
+        // changed prop — so a regression that gave only the FIRST row its separator would
+        // leave every other row bare while a container-level count still read 1.
+        const s = newStep({ name: 'update_design_token' });
+        renderPreviewResult(s.el, s.diff, s.step, {
+            success: true,
+            data: {
+                changes: [
+                    { path: '--color-accent', from: '#111', to: '#222' },
+                    { path: '--color-bg', from: '#333', to: '#444' },
+                    { path: '--color-fg', from: '#555', to: '#666' },
+                ],
+            },
+        });
+
+        const rows = diffRows(s.diff);
+        expect(rows).toHaveLength(3);
+        expect(rows.map(rowArrows)).toEqual([1, 1, 1]);
+        // Every one of them from the renderer, so every one of them is real text.
+        expect(rows.map(rowTextArrows)).toEqual([1, 1, 1]);
+    });
+
+    it('gives every row one arrow when a marker row and a generic row share a diff', () => {
+        // The mixed case, which is where a per-branch fix is most likely to go wrong: the
+        // two rows take OPPOSITE branches and must still agree on the count.
+        const s = newStep({ name: 'restore_composition' });
+        renderPreviewResult(s.el, s.diff, s.step, {
+            success: true,
+            data: {
+                changes: [
+                    {
+                        path: 'composition',
+                        from: { unreadable: true, classification: 'decode_error', message: 'x' },
+                        to: [{ component: 'hero' }],
+                    },
+                    { path: 'props.title', from: 'Old', to: 'New' },
+                ],
+            },
+        });
+
+        const rows = diffRows(s.diff);
+        expect(rows).toHaveLength(2);
+        expect(rows.map(rowArrows)).toEqual([1, 1]);
+        // Both from the SAME source now — that is the point of removing the CSS arrow.
+        // Before #852 these two rows on one card rendered differently: the marker row
+        // properly spaced, the generic row cramped and doubled.
+        expect(rows.map(rowTextArrows)).toEqual([1, 1]);
+    });
+
+    it('does not count an arrow inside a VALUE as the row separator', () => {
+        // A stored prop value is free-form and may contain the glyph. If the counter read
+        // `textContent` it would score this row as two and the pins would fight the data
+        // rather than the renderer.
+        const s = newStep({ name: 'update_component' });
+        renderPreviewResult(s.el, s.diff, s.step, {
+            success: true,
+            data: { changes: [{ path: 'props.title', from: 'a → b', to: 'c → d' }] },
+        });
+
+        const rows = diffRows(s.diff);
+        // One separator, whatever the values contain. The arrows inside the two spans are
+        // data; only the row's own text node is the separator.
+        expect(rows.map(rowArrows)).toEqual([1]);
+        expect(rows.map(rowTextArrows)).toEqual([1]);
+        // The values really did survive intact — the counter is precise, not blind.
+        expect(s.diff.textContent).toContain('a → b');
+        expect(s.diff.textContent).toContain('c → d');
+    });
+
+    it('keeps the stylesheet out of the arrow business', () => {
+        // THE STYLESHEET HALF, and the only way this suite can see the source of the
+        // original duplicate: jsdom does not implement pseudo-element computed style, so
+        // `.pp-ai-step-diff-from::after` is invisible to every DOM assertion above. It is
+        // therefore asserted as a fact about the FILE.
+        //
+        // If this fails, someone put the arrow back in CSS and every row carrying the class
+        // is rendering two again. The fix is to remove it from the stylesheet, not to
+        // relax this test — and not to drop the text node instead, which is the trade #852
+        // measured and rejected: a pseudo-element arrow is absent from `innerText` (the
+        // values fuse into `OldNew` when copied) and cannot space itself, because Chromium
+        // computes `content: ' \2192 '` as `" →"` and `display: inline-block` strips the
+        // rest, rendering a cramped `Old→New`.
+        expect(cssPaintsAnArrow()).toBe(false);
+
+        // Stronger than "no arrow": the rule should not exist at all. A surviving empty
+        // rule is where an arrow quietly comes back.
+        expect(diffFromAfterRule()).toBeNull();
+    });
+
+    it('still strikes through the from-span, and never the separator', () => {
+        // The one thing the class DOES own, unchanged by #852 — and the reason the arrow
+        // is appended outside the span rather than inside it.
+        const css = fs.readFileSync(
+            path.resolve(__dirname, '../../assets/css/pp-ai-chat.css'),
+            'utf-8',
+        ).replace(/\/\*[\s\S]*?\*\//g, '');
+
+        const start = css.indexOf('.pp-ai-step-diff-from {');
+        expect(start).toBeGreaterThan(-1);
+        expect(css.slice(start, css.indexOf('}', start))).toContain('line-through');
+
+        const s = newStep({ name: 'update_design_token' });
+        renderPreviewResult(s.el, s.diff, s.step, OK_RESULT);
+        const row = diffRows(s.diff)[0];
+        // The separator is a direct child of the row, not of the struck-through span.
+        expect(row.querySelector('.pp-ai-step-diff-from').textContent).not.toContain('→');
+        expect(rowTextArrows(row)).toBe(1);
+    });
+});

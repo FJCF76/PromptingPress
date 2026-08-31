@@ -1321,10 +1321,11 @@ function ppChatGetStatusMessage(data) {
  *     through is the wrong claim to make about a diagnosis, so the marker's label does
  *     NOT take that class — and a ~140-character struck-through paragraph would have been
  *     unreadable regardless, which is why the label is short and the sentence is not in it.
- *   - dropping the class also drops its `::after` arrow, leaving this line with the ONE
- *     arrow the text node below supplies instead of the two every other diff line renders.
- *     That duplication is pre-existing and is NOT fixed here; it is simply not inherited
- *     onto the line an operator reads before approving an overwrite.
+ *   - when #836 landed, dropping the class also dropped a second arrow the class painted
+ *     via `::after`, leaving this line with the ONE the text node supplies while every
+ *     other diff line rendered two. #852 has since removed that `::after` instead, so the
+ *     arrow now comes from the text node on EVERY row and the class no longer has anything
+ *     to do with it — this clause is history, not a live asymmetry.
  *   - `pp-ai-step-warning` is this card family's existing in-step notice class, already
  *     used on bare divs elsewhere in this file, so the weight costs no new CSS and moves
  *     no rendered pin.
@@ -1348,6 +1349,22 @@ function ppChatRenderDiffLine(change) {
         : ppChatFormatDiffValue(change.from);
     div.appendChild(fromSpan);
 
+    // THE ARROW, ONCE, FOR EVERY ROW (#852). This is the row's ONLY separator and the only
+    // thing that draws one: `.pp-ai-step-diff-from` used to carry an `::after` painting a
+    // second, so every generic row rendered `#111 \u2192  \u2192 #222` while the marker row \u2014 which
+    // deliberately does not take that class \u2014 rendered one. The CSS rule is gone; see
+    // assets/css/pp-ai-chat.css for why that side lost rather than this one.
+    //
+    // Keep it a DOM TEXT NODE and keep it unconditional. Pseudo-element `content` is not in
+    // the DOM, so it is absent from `innerText` and from anything copied out of the card \u2014
+    // the two values fused into `OldNew` \u2014 and it could not space itself either: Chromium
+    // computes `content: ' \2192 '` as `" \u2192"` and `display: inline-block` strips the rest,
+    // rendering a cramped `Old\u2192New`. A text node is read, copied and spaced like the values
+    // it separates, and it treats both branches identically.
+    //
+    // It sits OUTSIDE fromSpan deliberately: that span is `text-decoration: line-through`,
+    // and a struck-through arrow reads as part of the replaced value rather than as the
+    // separator between two of them.
     div.appendChild(document.createTextNode(' \u2192 '));
 
     var toSpan = document.createElement('span');
@@ -1923,18 +1940,23 @@ function ppChatUndoFailureText(data) {
  * on this card already opens with one. The prefix is PP_CHAT_UNDO_FAILED_LABEL, the words the
  * link itself shows, so nothing new is coined.
  *
- * ONE ROW PER CARD, AND IT NEEDS A REAL GUARD — the obvious reason it does not is wrong.
- * `undoLink.style.pointerEvents = 'none'`, set before the fetch, looks like a single-shot
- * latch and is not one: `pointer-events: none` removes an anchor as a MOUSE target while
- * leaving it focusable, and a keyboard operator pressing Enter still dispatches `click`
- * (measured in Chromium, not assumed). Without this branch a second activation would stack a
- * second ~370-to-690-character row on the card and re-announce it — to precisely the operator
- * who reached the link by keyboard. Rewriting the existing row instead is also the better
- * answer than suppressing the second call: the row then reflects the LATEST refusal, and
- * because it is a mutation of a region already in the DOM it announces again, which is what
- * someone who just re-activated the link is waiting to hear. Re-enabling the link, and the
- * duplicate request that costs, is the sibling "Reset to default" link's problem too and is
- * filed rather than changed here.
+ * ONE ROW PER CARD — AND SINCE #861 THIS BRANCH IS DEFENSIVE, NOT LOAD-BEARING. Read the
+ * history, because the reason changed and the code did not. This row-rewrite existed
+ * because `undoLink.style.pointerEvents = 'none'` LOOKED like a single-shot latch and was
+ * not one: `pointer-events: none` removes an anchor as a MOUSE target while leaving it
+ * focusable, so a keyboard operator pressing Enter still dispatched `click` (measured in
+ * Chromium, not assumed) and stacked a second ~370-to-690-character row on the card — on
+ * precisely the operator who reached the link by keyboard. #861 closed that: the link is
+ * now bound through ppChatOneShotLink(), which latches before it runs, so no production
+ * path can reach this function twice for one card (buildPostApplyCard() builds one undo
+ * link, and its handler is the only caller).
+ *
+ * The branch is KEPT rather than deleted, and the distinction matters to whoever edits it
+ * next: it is now defense-in-depth plus the contract this function offers its direct
+ * callers, including tests/js/pp-ai-chat-undo-failure.test.js, which calls it repeatedly on
+ * one card by design. Rewriting the existing row is still the better shape than appending —
+ * the row then reflects the LATEST refusal, and because it mutates a region already in the
+ * DOM it announces again — but nothing on the card depends on that any more.
  *
  * INSERTED EMPTY, THEN FILLED — AND THAT ORDER IS THE ANNOUNCEMENT. A live region that
  * enters the DOM already holding its text is the classic case assistive technology does not
@@ -1978,6 +2000,91 @@ function ppChatAppendUndoFailure(card, data) {
     row.textContent = line;
 
     return row;
+}
+
+/**
+ * The attribute a spent one-shot link carries, and the latch ppChatOneShotLink() reads.
+ *
+ * Named rather than spelled inline because it is read in one place and written in another,
+ * and a typo in either would silently restore the bug this exists to close.
+ */
+var PP_CHAT_LINK_SPENT_ATTR = 'aria-disabled';
+
+/**
+ * Binds a link that may be activated exactly ONCE (#861).
+ *
+ * WHAT WAS WRONG, MEASURED RATHER THAN REASONED ABOUT. Both post-apply links used to
+ * guard a second activation with `link.style.pointerEvents = 'none'`, set before the
+ * fetch and restored by no branch anywhere — so single-shot was plainly the intent. It
+ * is not one. `pointer-events: none` removes an element as a MOUSE target; it leaves an
+ * anchor focusable, and pressing Enter on a focused anchor still runs the activation
+ * behavior and dispatches `click`. In headless Chromium, on exactly this idiom: a mouse
+ * click gives 1 handler invocation, and two subsequent Enter presses give 3. The same
+ * measurement against this helper gives 1 across a mouse click, two Enters, a Space, a
+ * programmatic `.click()` and a synthetic dispatched MouseEvent.
+ *
+ * That mattered rather than being cosmetic because both links WRITE. `undoLink` POSTs
+ * `restore_composition` carrying a CAS baseline that the first activation already made
+ * stale, so a keyboard operator pressing Enter twice got a second restore attempt whose
+ * refusal blamed a conflict on nothing — the operator's own first press. `resetLink`
+ * POSTs `reset_design_token`, which is idempotent, so the cost there was a duplicate
+ * request rather than a wrong answer.
+ *
+ * THE LATCH IS THE GUARD; THE OTHER TWO ARE NOT. The early return on the closure's own
+ * `spent` flag is the whole of what makes a second activation impossible, and it is
+ * checked FIRST, before anything is mutated or sent.
+ *
+ * THE FLAG IS PRIVATE, AND THAT IS THE POINT. An earlier draft read the latch back out of
+ * the `aria-disabled` attribute, on the reasoning that one fact should have one home. That
+ * puts CONTROL state in an ACCESSIBILITY attribute, where it is writable by anything with
+ * a handle on the node and, more likely, where a future pass that normalises ARIA — or
+ * re-renders the link's attributes — would silently re-arm a write path. Nothing in this
+ * file does that today; the flag is private anyway, because the cost is one variable and
+ * the failure it prevents is a duplicate composition restore. `aria-disabled` is still
+ * SET, because a screen reader has to be told the link is spent; it is simply not the
+ * thing the guard trusts. The two are written together and never read apart.
+ *
+ * `pointerEvents` is kept because it is the spent link's existing MOUSE affordance and
+ * dropping it would leave a dead link looking live — it is not load-bearing for the
+ * guard, and it was never a disable.
+ *
+ * WHAT "SPENT" OWNS, precisely, because the word is easy to overclaim: activation, and
+ * nothing else. The callers' own `.then` / `.catch` branches still rewrite `textContent`
+ * and `className` afterwards to report the outcome, exactly as they did before, and a
+ * link stays spent through every one of those branches including the failures. That is
+ * today's behavior — no branch ever restored `pointerEvents` either — and it is
+ * preserved rather than revisited here.
+ *
+ * `run()` is invoked LAST, after the link is latched and relabelled, so a throw inside
+ * it cannot leave a half-spent link that a second Enter could re-enter. A throw there
+ * still leaves the link permanently spent with no request sent; that is byte-identical
+ * to what the pre-#861 handlers did with the same throw, and widening it is not this
+ * issue's question.
+ *
+ * @param {Element}  link        The anchor to bind. Mutated when activated.
+ * @param {string}   spentLabel  The label shown the moment it is activated.
+ * @param {Function} run         The work. Called once, ever, with no arguments.
+ */
+function ppChatOneShotLink(link, spentLabel, run) {
+    var spent = false;
+
+    link.addEventListener('click', function (e) {
+        e.preventDefault();
+
+        // FIRST, before any mutation or request. Every activation path lands here —
+        // mouse, Enter, Space, `.click()`, a dispatched event — because none of them
+        // consults `pointer-events` and all of them dispatch `click`.
+        if (spent) {
+            return;
+        }
+        spent = true;
+
+        link.textContent = spentLabel;
+        link.setAttribute(PP_CHAT_LINK_SPENT_ATTR, 'true');
+        link.style.pointerEvents = 'none';
+
+        run();
+    });
 }
 
 /**
@@ -3983,11 +4090,8 @@ function ppChatAppendValidationItems(container, items, className) {
             resetLink.href = '#';
             resetLink.textContent = 'Reset to default';
             resetLink.style.marginLeft = hasLinks ? '16px' : '0';
-            resetLink.addEventListener('click', function (e) {
-                e.preventDefault();
-                resetLink.textContent = 'Resetting\u2026';
-                resetLink.style.pointerEvents = 'none';
-
+            // One activation, ever \u2014 the latch, not `pointer-events` (#861).
+            ppChatOneShotLink(resetLink, 'Resetting\u2026', function () {
                 var resetData = new FormData();
                 resetData.append('action', 'pp_ai_execute');
                 resetData.append('nonce', config.executeNonce);
@@ -4027,11 +4131,9 @@ function ppChatAppendValidationItems(container, items, className) {
             undoLink.href = '#';
             undoLink.textContent = 'Undo these changes';
             undoLink.style.marginLeft = hasLinks ? '16px' : '0';
-            undoLink.addEventListener('click', function (e) {
-                e.preventDefault();
-                undoLink.textContent = 'Undoing…';
-                undoLink.style.pointerEvents = 'none';
-
+            // One activation, ever (#861). The stale-CAS double restore this closes is the
+            // reason the helper exists — see its docblock for the measurement.
+            ppChatOneShotLink(undoLink, 'Undoing…', function () {
                 var undoData = new FormData();
                 undoData.append('action', 'pp_ai_execute');
                 undoData.append('nonce', config.executeNonce);
@@ -4654,6 +4756,8 @@ if (typeof module !== 'undefined' && module.exports) {
         appendUndoFindings: ppChatAppendUndoFindings,
         undoFailureText: ppChatUndoFailureText,
         appendUndoFailure: ppChatAppendUndoFailure,
+        oneShotLink: ppChatOneShotLink,
+        LINK_SPENT_ATTR: PP_CHAT_LINK_SPENT_ATTR,
         boundReflectedText: ppChatBoundReflectedText,
         REFLECTED_ERROR_MAX: PP_CHAT_REFLECTED_ERROR_MAX,
         UNDO_ERROR_MAX: PP_CHAT_UNDO_ERROR_MAX,

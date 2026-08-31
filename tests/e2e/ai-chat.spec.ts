@@ -219,6 +219,58 @@ test.describe('AI Chat — streaming & apply (mock SSE)', () => {
     const applyBtn = page.locator('.pp-ai-proposal-apply');
     await expect(applyBtn).toBeVisible({ timeout: 10000 });
     await expect(applyBtn).toHaveText('Apply');
+
+    // EXACTLY ONE ARROW ON THE DIFF ROW (#852), counted where both sources are visible.
+    //
+    // Two independent things used to put an arrow between the before and after values: the
+    // renderer's own text node, and `.pp-ai-step-diff-from::after`, which painted one via
+    // `content`. Both fired, so this row rendered `props.title: Chat E2E →  → Updated
+    // Title`. No unit pin could see it: jsdom does not implement pseudo-element computed
+    // style, and `content` is invisible to `textContent`. Real Chromium resolves both, so
+    // this is the only place the actual rendered count can be asserted — and the only place
+    // a returning `::after` would be caught in the act of painting.
+    const diffArea = page.locator('.pp-ai-step-diff').first();
+    // WAIT FOR THE STATE BEING MEASURED, NOT THE CONTAINER. `.pp-ai-step-diff` is created
+    // by renderProposal() already visible, holding the 'Loading preview…' placeholder
+    // (assets/js/pp-ai-chat.js), so toBeVisible() on it is satisfied BEFORE the mocked
+    // preview response lands. `evaluate()` is a one-shot, non-retrying read — run it that
+    // early and there is no `.pp-ai-step-diff-from` to measure and the pin fails
+    // spuriously. Gate on the rendered from-span instead, which only exists once the
+    // preview has been drawn.
+    await expect(diffArea.locator('.pp-ai-step-diff-from')).toBeVisible({ timeout: 10000 });
+
+    const rows = await diffArea.evaluate((area) => {
+      // PER ROW, not per container. `.pp-ai-step-diff` holds one child div per change, and
+      // real previews are routinely multi-change (_pp_diff_props emits one per changed
+      // prop). Summing across the container would report "1 arrow" for a diff where only
+      // the first row got its separator.
+      return Array.from(area.children).map((row) => {
+        // Direct text nodes only: a VALUE containing an arrow lives inside a span, and the
+        // marker row's warning div is a child element. Neither is a separator.
+        const inText = Array.from(row.childNodes)
+          .filter((n) => n.nodeType === 3)
+          .reduce((n, t) => n + ((t.textContent || '').split('→').length - 1), 0);
+        const from = row.querySelector('.pp-ai-step-diff-from');
+        const painted = from
+          ? (getComputedStyle(from, '::after').content || '').split('→').length - 1
+          : 0;
+        return { inText, painted, total: inText + painted };
+      });
+    });
+
+    expect(rows).toHaveLength(1);
+    // The arrow comes from the renderer, and the stylesheet paints none.
+    expect(rows[0].inText).toBe(1);
+    expect(rows[0].painted).toBe(0);
+    // The property that matters, stated over every row: exactly one arrow, whoever drew it.
+    expect(rows.map((r) => r.total)).toEqual([1]);
+
+    // AND IT IS REAL TEXT, which is why the CSS side lost rather than this one (#852). A
+    // pseudo-element arrow is absent from innerText, so an operator copying this row out of
+    // the approval card got `Chat E2EUpdated Title` — two values fused on the surface whose
+    // job is telling them what is about to be overwritten. innerText, not textContent:
+    // textContent would pass even if the arrow were invisible to the rendered page.
+    expect(await diffArea.innerText()).toContain('Chat E2E → Updated Title');
   });
 
   test('renders Apply All for a multi-step proposal and applies via one atomic batch request', async ({ page }) => {
@@ -465,6 +517,16 @@ test.describe('AI Chat — streaming & apply (mock SSE)', () => {
     expect(afterRemove).toHaveLength(1);
     expect(afterRemove[0].component).toBe('hero');
 
+    // Count what actually leaves the browser, not what the card says about it (#861).
+    // A duplicate POST that happens to leave the label alone is exactly the failure a
+    // label-only assertion would wave through, and the duplicate is the whole bug.
+    let restoreRequests = 0;
+    page.on('request', (req) => {
+      if (req.method() === 'POST' && (req.postData() || '').includes('restore_composition')) {
+        restoreRequests++;
+      }
+    });
+
     // Click Undo → restore_composition walks the history ring back → section reappears.
     await undoLink.click();
     await expect(undoLink).toHaveText('Changes undone ✓', { timeout: 10000 });
@@ -473,6 +535,34 @@ test.describe('AI Chat — streaming & apply (mock SSE)', () => {
     expect(afterUndo).toHaveLength(2);
     expect(afterUndo.map((c: { component: string }) => c.component)).toEqual(['hero', 'section']);
     expect(afterUndo[1].props.title).toBe('Remove Me');
+
+    expect(restoreRequests).toBe(1);
+
+    // THE KEYBOARD HALF, in a real browser (#861). The spent link used to be guarded only
+    // by `pointer-events: none`, which removes it as a MOUSE target and leaves it
+    // focusable — so Enter still ran the activation behavior and POSTed a second restore
+    // carrying a CAS baseline the first one had already spent. The operator was then told
+    // the page had changed under them, about a page nobody else had touched.
+    //
+    // This is the assertion jsdom cannot make: it has no layout, so `pointer-events` is
+    // invisible to it and a dispatched click proves nothing about what the browser itself
+    // does with a real key press. Here the browser decides.
+    await undoLink.focus();
+    await expect(undoLink).toBeFocused();
+    await page.keyboard.press('Enter');
+    await page.keyboard.press('Enter');
+    // Give any request the guard failed to stop time to actually leave.
+    await page.waitForTimeout(1000);
+
+    // Still one request, still the success label, still the restored composition. On the
+    // pre-#861 client all three move: two more POSTs go out, the CAS gate refuses them,
+    // and the label flips to "Page changed — undo not applied".
+    expect(restoreRequests).toBe(1);
+    await expect(undoLink).toHaveText('Changes undone ✓');
+    await expect(undoLink).toHaveAttribute('aria-disabled', 'true');
+
+    const afterEnter = JSON.parse(wpCli(`wp post meta get ${pageId} _pp_composition`));
+    expect(afterEnter).toEqual(afterUndo);
   });
 
   test('Undo after a corrupt-page repair renders WHY the restore was refused (#822)', async ({ page }) => {
