@@ -746,15 +746,76 @@ class DiagnosticReachTest extends TestCase
         return [['component' => 'grid', 'props' => ['items' => ['aa' => $itemFields]]]];
     }
 
+    /**
+     * The one nested finding a locator case is about, out of a report that now also
+     * carries the CONTAINER refusal (#738).
+     *
+     * WHY THIS HELPER EXISTS, because the alternative reading of these tests is that they
+     * were weakened. Every object-keyed fixture in this file is a JSON object where the
+     * schema declares a list, and since #738 that container is itself refused — so a
+     * report that used to hold exactly one finding now holds two: the container rule's
+     * "prop items must be a list", plus the per-entry finding the test actually owns.
+     * `$errors[0]` is the container one, because the type pass runs before every nested
+     * rule.
+     *
+     * The CONTRACT these tests pin is unchanged and still fully asserted: when a nested
+     * rule speaks about an entry of an object-shaped container, it must name the stored
+     * KEY (`item key "aa"`) and never a fabricated position (`item 0`) — #634/#650/#652,
+     * bounded by #649. That claim was always about the nested message, never about its
+     * offset in the array. Asserting the offset was incidental precision; asserting the
+     * message is the claim. Each caller still asserts EXACTLY ONE finding matches, so a
+     * rule that stopped reporting, or started reporting twice, still fails here.
+     *
+     * WHAT MOVED, stated so it is not read as unchanged: on the WRITE path these shapes
+     * are now rejected by the container rule instead, because that path is
+     * first-error-wins. The write-path cases below assert that directly and then assert
+     * the honest locator on the READING surface, which is where an object-shaped
+     * container actually lives now (aged storage, `restore_composition`, raw meta) and
+     * where `wp pp check page` reads it.
+     *
+     * @param  WP_Error[] $errors The full collect-all report.
+     * @param  string     $needle The locator fragment this case owns.
+     * @return string             The matching message, for further assertions.
+     */
+    private function assertExactlyOneFindingContains(array $errors, string $needle): string
+    {
+        $matches = array_values(array_filter(
+            array_map(static fn (WP_Error $e): string => $e->get_error_message(), $errors),
+            static fn (string $m): bool => str_contains($m, $needle)
+        ));
+
+        $this->assertCount(
+            1,
+            $matches,
+            sprintf('exactly one finding must carry %s; report was: %s', $needle, implode(' | ', array_map(
+                static fn (WP_Error $e): string => $e->get_error_message(),
+                $errors
+            )))
+        );
+
+        return $matches[0];
+    }
+
+    /**
+     * The container refusal every object-keyed fixture in this file now also trips (#738).
+     *
+     * Asserted alongside the locator rather than ignored, so these tests state the whole
+     * report they receive. A future change that stopped refusing the container would
+     * otherwise pass here while silently reopening the write path this issue closed.
+     */
+    private function assertContainerRefusalIsAlsoReported(array $errors, string $prop = 'items'): void
+    {
+        $this->assertExactlyOneFindingContains($errors, sprintf('prop "%s" must be a list', $prop));
+    }
+
     public function testTheNestedLinkUrlLocatorNamesTheStoredKeyRatherThanFabricatingItemZero(): void
     {
         $errors = pp_validate_composition_errors(
             $this->stringKeyedGrid(['title' => 'X', 'link_url' => 'javascript:alert(1)'])
         );
 
-        $this->assertCount(1, $errors);
-        $message = $errors[0]->get_error_message();
-        $this->assertStringContainsString('item key "aa" field "link_url"', $message);
+        $this->assertContainerRefusalIsAlsoReported($errors);
+        $message = $this->assertExactlyOneFindingContains($errors, 'item key "aa" field "link_url"');
         $this->assertStringNotContainsString('item 0', $message, '(int) "aa" is 0, and there is no item 0');
     }
 
@@ -764,9 +825,8 @@ class DiagnosticReachTest extends TestCase
             $this->stringKeyedGrid(['title' => 'X', 'style' => ['--nope' => '1']])
         );
 
-        $this->assertCount(1, $errors);
-        $message = $errors[0]->get_error_message();
-        $this->assertStringContainsString('Component "grid" item key "aa" has no style slot', $message);
+        $this->assertContainerRefusalIsAlsoReported($errors);
+        $message = $this->assertExactlyOneFindingContains($errors, 'Component "grid" item key "aa" has no style slot');
         $this->assertStringNotContainsString('item 0', $message);
     }
 
@@ -783,12 +843,16 @@ class DiagnosticReachTest extends TestCase
             $this->stringKeyedGrid(['title' => 'X', 'style' => ['--grid-gap' => '2rem']])
         );
 
-        $this->assertCount(1, $errors);
-        $this->assertSame('invalid_style_slot', $errors[0]->get_error_code());
-        $this->assertStringContainsString(
-            'Component "grid" item key "aa" style slot "--grid-gap" is container-scoped',
-            $errors[0]->get_error_message()
+        $this->assertContainerRefusalIsAlsoReported($errors);
+        $this->assertExactlyOneFindingContains(
+            $errors,
+            'Component "grid" item key "aa" style slot "--grid-gap" is container-scoped'
         );
+        // The CODE still has to be the slot engine's, not the container rule's — a scope
+        // rejection that started arriving as `invalid_prop_value` would read as a type
+        // problem to every caller that branches on the code.
+        $codes = array_map(static fn (WP_Error $e): string => $e->get_error_code(), $errors);
+        $this->assertContains('invalid_style_slot', $codes);
     }
 
     /**
@@ -830,10 +894,18 @@ class DiagnosticReachTest extends TestCase
             ['component' => 'grid',  'props' => ['items' => ['aa' => ['title' => 'X', 'style' => ['--nope' => '1']]]]],
         ]);
 
-        $this->assertCount(3, $errors, 'one error per band');
-        foreach ($errors as $i => $error) {
-            $this->assertStringContainsString('item key "aa"', $error->get_error_message(), "band {$i} names the stored key");
-            $this->assertStringNotContainsString('item 0', $error->get_error_message());
+        // Six findings now, not three: each band trips its own nested rule AND the #738
+        // container refusal. The claim is about the three nested messages, so they are
+        // selected by the locator they must all share.
+        $this->assertCount(6, $errors, 'one nested error plus one container refusal per band');
+        $keyed = array_values(array_filter(
+            array_map(static fn (WP_Error $e): string => $e->get_error_message(), $errors),
+            static fn (string $m): bool => str_contains($m, 'item key')
+        ));
+        $this->assertCount(3, $keyed, 'one keyed locator per band');
+        foreach ($keyed as $i => $message) {
+            $this->assertStringContainsString('item key "aa"', $message, "band {$i} names the stored key");
+            $this->assertStringNotContainsString('item 0', $message);
         }
     }
 
@@ -857,13 +929,32 @@ class DiagnosticReachTest extends TestCase
 
         $this->assertFalse($result['ok']);
         $this->assertSame('invalid_prop_value', $result['error_code']);
-        $this->assertStringContainsString('item key "aa" field "link_url"', $result['error']);
+        // WHAT THE WRITE PATH SAYS CHANGED WITH #738, and the change is the point rather
+        // than a casualty. This container is a JSON object where the schema declares a
+        // list, so the write is now refused by the container rule — which runs before
+        // every nested rule and wins a first-error-wins path. The operator is told the
+        // one thing that actually blocks the write, and repairing it is a single
+        // re-send. Naming a dead link INSIDE a container the write will refuse anyway
+        // would be the two-round repair #621 exists to prevent, wearing the locator
+        // family's clothes.
+        $this->assertStringContainsString('prop "items" must be a list', $result['error']);
         $this->assertStringNotContainsString('item 0', $result['error']);
         $this->assertSame(
             wp_json_encode($before),
             $GLOBALS['_pp_test_store']['post_meta'][320]['_pp_composition'],
             'a rejected write stores nothing'
         );
+
+        // AND THE HONEST LOCATOR IS NOT LOST — it moved to the surface where an
+        // object-shaped container can still be found. #738 closes the write path, so the
+        // population that holds this shape is aged storage, restore_composition (#233)
+        // and raw meta, all of which are read by the collect-all engine. `item 0` must
+        // still never appear there.
+        $reported = pp_validate_composition_errors(
+            $this->stringKeyedGrid(['title' => 'X', 'link_url' => 'javascript:alert(1)'])
+        );
+        $message = $this->assertExactlyOneFindingContains($reported, 'item key "aa" field "link_url"');
+        $this->assertStringNotContainsString('item 0', $message);
     }
 
     /**
@@ -893,11 +984,25 @@ class DiagnosticReachTest extends TestCase
 
         $this->assertFalse($result['ok']);
         $this->assertSame('invalid_prop_value', $result['error_code']);
-        $this->assertStringContainsString('item key "0" field "link_url"', $result['error'],
-            'the locator must name the stored KEY of the dead card, flagged as a key');
-        // The exact failure the issue reports: `item 0` reads as "the first card", and the
-        // first card is the healthy one.
+        // Refused at the CONTAINER since #738 — see the sibling above for why that is the
+        // right message on a first-error-wins write path.
+        $this->assertStringContainsString('prop "items" must be a list', $result['error']);
         $this->assertStringNotContainsString('item 0 field', $result['error']);
+
+        // The #652 repro itself, on the reporting surface that still meets this shape.
+        // Keys {"1", "0"} both fold to integers at decode, so iteration POSITION 0 holds
+        // the entry keyed "1" — the healthy one — while the dead link sits at position 1
+        // under key "0". `item 0` would send a reader to the card that is fine.
+        $reported = pp_validate_composition_errors([
+            ['component' => 'grid', 'props' => ['items' => [
+                '1' => ['title' => 'Fine', 'link_url' => '/ok'],
+                '0' => ['title' => 'Bad',  'link_url' => 'javascript:alert(1)'],
+            ]]],
+        ]);
+        $message = $this->assertExactlyOneFindingContains($reported, 'field "link_url"');
+        $this->assertStringContainsString('item key "0" field "link_url"', $message,
+            'the locator must name the stored KEY of the dead card, flagged as a key');
+        $this->assertStringNotContainsString('item 0 field', $message);
     }
 
     /**
@@ -920,8 +1025,7 @@ class DiagnosticReachTest extends TestCase
         $errors = pp_validate_composition_errors([['component' => $component, 'props' => $props]]);
 
         $this->assertNotSame([], $errors, 'the fixture must actually trip the rule it is pinning');
-        $message = $errors[0]->get_error_message();
-        $this->assertStringContainsString($expected, $message);
+        $message = $this->assertExactlyOneFindingContains($errors, $expected);
         // The whole point: position 0 is what a bare key would have claimed.
         $this->assertStringNotContainsString('item 0 ', $message);
     }
@@ -967,8 +1071,8 @@ class DiagnosticReachTest extends TestCase
             ]]],
         ]);
 
-        $this->assertCount(1, $errors);
-        $this->assertStringContainsString('item key "5" field "link_url"', $errors[0]->get_error_message());
+        $this->assertContainerRefusalIsAlsoReported($errors);
+        $this->assertExactlyOneFindingContains($errors, 'item key "5" field "link_url"');
     }
 
     public function testTheCreatePagePathReportsTheHonestItemLocatorForAPerItemStyle(): void
@@ -979,10 +1083,19 @@ class DiagnosticReachTest extends TestCase
         ]);
 
         $this->assertFalse($result['ok']);
-        // Band 0 named by the write path since #642; the nested locator this test owns
-        // is still the honest `item key "aa"`, never the fabricated `item 0`.
-        $this->assertStringContainsString('Component 0 ("grid") item key "aa" has no style slot', $result['error']);
+        // Refused at the CONTAINER since #738, band 0 still named by the write path
+        // (#642). create_page is asserted separately from update_composition because the
+        // two build their params differently and only one of them was ever the repro.
+        $this->assertStringContainsString('Component 0 ("grid") prop "items" must be a list', $result['error']);
         $this->assertStringNotContainsString('item 0', $result['error']);
+
+        // The nested locator this test owns, on the reporting surface.
+        $reported = pp_validate_composition_errors(
+            $this->stringKeyedGrid(['title' => 'X', 'style' => ['--nope' => '1']])
+        );
+        $message = $this->assertExactlyOneFindingContains($reported, 'has no style slot');
+        $this->assertStringContainsString('Component "grid" item key "aa" has no style slot', $message);
+        $this->assertStringNotContainsString('item 0', $message);
     }
 
     /**
@@ -1293,7 +1406,11 @@ class DiagnosticReachTest extends TestCase
             ['component' => 'grid', 'props' => ['items' => [$key => ['title' => 'X', 'link_url' => 'javascript:a']]]],
         ]);
 
-        $message = $errors[0]->get_error_message();
+        // The KEY-BEARING finding, not $errors[0]: since #738 the container refusal comes
+        // first, and it deliberately reflects only the entry COUNT — no key text at all.
+        // That is the same choice #724 made one level up, and it means the bounding
+        // guarantee this test pins now has exactly one message to hold it to.
+        $message = $this->assertExactlyOneFindingContains($errors, 'item key');
         $this->assertStringNotContainsString("\x1b", $message, 'the escape byte must not survive into the envelope (#649)');
         $this->assertStringNotContainsString("\n", $message, 'nor the newline that faked a second line of output');
         // What is left is exactly what was always PRINTABLE. The escape byte is gone, so the
@@ -1320,7 +1437,7 @@ class DiagnosticReachTest extends TestCase
             ['component' => 'grid', 'props' => ['items' => [$key => ['title' => 'X', 'link_url' => 'javascript:a']]]],
         ]);
 
-        $message = $errors[0]->get_error_message();
+        $message = $this->assertExactlyOneFindingContains($errors, 'item key');
         $this->assertStringNotContainsString($key, $message, 'the whole key must not be echoed back');
         $this->assertStringContainsString(
             'item key "' . str_repeat('k', PP_REFLECTED_VALUE_MAX_LENGTH) . '..."',

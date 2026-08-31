@@ -1152,7 +1152,13 @@ function _pp_schema_scalar_value_is_valid($declared_type, $value): bool {
  * is deliberate, not an oversight. This rule applies the D-A reject-never-coerce
  * ruling (canonical text in #724's body) to the declared CONTAINER types — a scalar
  * is not a container — and it decides nothing about what a container may HOLD.
- * Map-vs-list and the contents of an item `style` object remain nobody's rule, the
+ * Map-vs-list WAS nobody's rule when this predicate landed; #738 closed half of it.
+ * A declared `array` must now be a JSON list, owned by _pp_schema_list_value_is_valid()
+ * just below, which runs as a SECOND STAGE after this one so a scalar keeps this
+ * predicate's message and a map gets that one's. The `object` leg is still unowned in
+ * both directions — a JSON list handed to an `object` field still passes here and is
+ * caught, if at all, downstream (see the paragraph after next, and #883). The contents
+ * of an item `style` object likewise remain nobody's rule, the
  * same "no decision exists" the RULE 3 comment records; the entry-shape question one
  * level up is owned by `item_type: "object"` (_pp_entry_is_object_shape), which is a
  * different rule with a different message. Widening this one to reject a list would
@@ -1201,6 +1207,155 @@ function _pp_schema_container_value_is_valid($declared_type, $value): bool {
         return $value === null || $value === '' || is_array($value);
     }
     return true;
+}
+
+/**
+ * True when $value satisfies the LIST half of a declared `type: "array"` (issue #738).
+ *
+ * The fourth sibling of _pp_schema_scalar_value_is_valid(),
+ * _pp_schema_enum_value_is_valid() and _pp_schema_container_value_is_valid(), called
+ * from the same two depths for the same reason they are: ONE definition, so the
+ * top-level prop pass and the nested items[] field pass cannot drift about whether
+ * `items: {"first": {...}}` is a list.
+ *
+ * WHAT IT FINISHES. The container predicate above decides "container or scalar?" and
+ * says so in its own docblock: a JSON OBJECT handed to a field declaring `array`
+ * passes it, because a JSON list and a JSON object both decode to a PHP array under
+ * `json_decode($json, true)`. That was the whole gap. Measured on main before this
+ * rule, through the real authoring surface:
+ *
+ *     write                                                     verdict   stored   rendered
+ *     ────────────────────────────────────────────────────────  ────────  ───────  ──────────
+ *     grid.items: {"first": {"title": "C1"}, "second": {...}}    ok:true   raw      500
+ *     grid.items: [{"title": "C1"}, {...}]                       ok:true   raw      the band
+ *
+ * The 500 is components/grid/grid.php's card loop: `$item['number'] ?? (string)
+ * ($index + 1)` on a string key raises "Unsupported operand types: string + int", and
+ * templates/composition.php calls pp_get_component() with no try/catch, so the whole
+ * PUBLIC page dies. `??` short-circuits, so a map whose every entry carries `number`
+ * renders fine — the page 500s the moment an author deletes one field. That is the
+ * v1.16.0 invariant inverted: the write path was manufacturing exactly the stored
+ * state the read path calls corrupt (pp_get_composition_result() classifies a decoded
+ * non-list as `unexpected_shape`), through the ordinary authoring path.
+ *
+ *     type      accepted                              rejected
+ *     ────────  ────────────────────────────────────  ────────────────────────
+ *     array     any NON-array, or pp_is_list()        a non-list array (a map)
+ *     object    everything                            —
+ *     (other)   everything                            —
+ *
+ * THERE IS NO SENTINEL COLUMN, deliberately, and the difference from the sibling table
+ * one function up is the whole staging contract. That predicate spells `$value === null
+ * || $value === ''` in its body, so null and '' are ITS sentinels. This one accepts every
+ * non-array — `false`, `42`, `"text"` included — because a scalar is not its business at
+ * all. Writing "unset sentinel: null, ''" here would describe a narrower function than
+ * the one below and be exactly the contract a direct unit test got written against.
+ * `[]` needs no row either: the empty array IS a list, so pp_is_list() accepts it.
+ *
+ * THE `object` LEG IS DELIBERATELY UNTOUCHED, and the asymmetry is the point rather
+ * than an oversight. Widening this to reject a LIST where an `object` is declared is
+ * the narrowing _pp_schema_container_value_is_valid()'s docblock explicitly rules a
+ * DIFFERENT ruling ("a shape no test has measured, not the one that was ruled on"), and
+ * a list reaching one of the two shipped `object` fields is already refused a few rules
+ * later by the shared style-slot engine, which reads its keys as slot names. This rule
+ * closes the direction that FATALS a page; it does not open the other one.
+ *
+ * REJECT, NEVER COERCE (ruling D-A, canonical text in #724's body). No array_values(),
+ * no reindexing, no stored-data migration — the same posture #724 applied to the
+ * COMPOSITION container one level up, applied here to a declared list one level down.
+ * The author's cards are not lost by this refusal; they were lost by the ACCEPTANCE,
+ * which stored a shape the renderer cannot walk.
+ *
+ * AND IT DOES NOT REPLACE THE RENDER GUARD. This closes the front door. What is already
+ * stored — pre-rule compositions, `restore_composition` (which reports and never blocks,
+ * #233), raw `_pp_composition` meta writes — reaches the renderer regardless, which is
+ * why components/grid/grid.php now derives the step ordinal from a positional counter
+ * instead of the array key. Two mechanisms, because neither covers the other.
+ *
+ * THE LIMIT, STATED SO IT IS NOT DISCOVERED LATER, and it is the same one #652 and #724
+ * recorded: `json_decode('{"0":"a","1":"b"}', true)` returns a PHP LIST. The keys ARE
+ * 0..n-1 in order, so pp_is_list() says list and this accepts it. That case is also the
+ * harmless one — key and position agree, so the renderer's arithmetic is correct — and
+ * it is not fixable at THIS layer rather than unfixable in principle: separating it
+ * would mean inspecting raw JSON TEXT, and every caller reaches pp_execute_action() with
+ * an already-decoded PHP array. `{}` decodes identically to `[]` for the same reason, so
+ * the empty container is accepted as the empty list it is indistinguishable from.
+ *
+ * SECOND STAGE, NEVER A STANDALONE `array` VALIDATOR — read this before adding a third
+ * call site. It answers ONE question: "given that this IS a container, is it a list?"
+ * A non-array returns TRUE here, because rejecting a scalar is
+ * _pp_schema_container_value_is_valid()'s job and reporting it twice would give an
+ * operator two messages for one defect. So the pair is ordered, not interchangeable:
+ *
+ *     container predicate FIRST   -> "must be an array; got string"   (a scalar)
+ *     this predicate SECOND       -> "must be a list, ... JSON object" (a map)
+ *
+ * Both shipped call sites run them in exactly that order, which is also what keeps the
+ * scalar message byte-identical to every version since #507. A future caller that reached
+ * for this one ALONE to enforce `type: "array"` would silently accept every scalar — the
+ * #744 defect reintroduced under a newer number. If that ever needs to be one call, merge
+ * the two predicates and their two messages deliberately; do not call this one on its own.
+ * Pinned by testAScalarIsStillTheContainerRulesToRefuse(), which asserts both halves of
+ * the ordering rather than only this one's answer.
+ *
+ * Returns true for every other declared type — the same not-applicable contract all
+ * three siblings carry, so a caller may hand it any declaration it walks.
+ *
+ * @param string|null $declared_type The schema `type` value, or null when undeclared.
+ * @param mixed       $value         Raw authored value.
+ */
+function _pp_schema_list_value_is_valid($declared_type, $value): bool {
+    if ($declared_type === 'array') {
+        return !is_array($value) || pp_is_list($value);
+    }
+    return true;
+}
+
+/**
+ * Renders "this one is a JSON object (N entries)." — the one clause every non-list
+ * refusal in this file shares (#724 at the composition container, #738 at a declared
+ * `array` prop and item field).
+ *
+ * ONE SPELLING, THREE CALL SITES, for the reason _pp_item_index_label() is one renderer
+ * for two locator depths: three literal copies of a sentence and its pluralizer is how
+ * three surfaces start describing one shape three ways, which is the drift #650/#652
+ * spent a whole iteration undoing. What each caller keeps is only the part that genuinely
+ * differs — its own subject ("The composition must be a list of components", `prop "x"
+ * must be a list`) and its own guidance sentence, because a composition and a prop take
+ * different example payloads.
+ *
+ * REFLECTS THE ENTRY COUNT AND NOTHING ELSE. No caller-supplied KEY text reaches an
+ * operator terminal through this clause, so the #633/#647/#649 reflected-value bounding
+ * question does not arise for it at all — exactly the choice #724 made when it wrote the
+ * sentence this extracts. An operator who needs the offending keys reads them from the
+ * payload they just sent, or from the per-entry findings, which carry bounded locators of
+ * their own.
+ *
+ * @param  array $value The non-list array being refused.
+ * @return string       `this one is a JSON object (N entries).`, ready to append.
+ */
+function _pp_json_object_shape_clause(array $value): string {
+    return sprintf(
+        'this one is a JSON object (%d %s).',
+        count($value),
+        count($value) === 1 ? 'entry' : 'entries'
+    );
+}
+
+/**
+ * Renders the "this is an object, not a list" half of a #738 refusal message.
+ *
+ * Shared by the two depths that emit it so the top-level prop message and the nested
+ * item-field message cannot drift into two vocabularies — the same reason
+ * _pp_item_index_label() is one renderer for two locator depths. The clause itself is
+ * shared one level wider still, with #724's composition-level refusal.
+ *
+ * @param  array $value The non-list array being refused.
+ * @return string       The trailing sentence pair, ready to append to a locator.
+ */
+function _pp_schema_list_shape_message(array $value): string {
+    return 'must be a list, but ' . _pp_json_object_shape_clause($value)
+        . ' Send it as an array ([...]), not an object with keys.';
 }
 
 /**
@@ -1791,12 +1946,13 @@ function pp_validate_composition_errors(array $items, ?int $limit = null): array
     if (!pp_is_list($items)) {
         return [new WP_Error(
             'unexpected_shape',
-            sprintf(
-                'The composition must be a list of components, but this one is a JSON object (%d %s). '
-                . 'Send the components as an array ([{"component": "hero", "props": {...}}, ...]), not an object.',
-                count($items),
-                count($items) === 1 ? 'entry' : 'entries'
-            )
+            // The leading clause comes from the shared renderer since #738, which added the
+            // same sentence one level down for a declared `array` prop. Two literal copies
+            // of one refusal spelling is the drift #650/#652 spent an iteration undoing;
+            // only the GUIDANCE half differs, because a composition and a prop take
+            // different example payloads. Byte-identical to every version since #724.
+            'The composition must be a list of components, but ' . _pp_json_object_shape_clause($items)
+            . ' Send the components as an array ([{"component": "hero", "props": {...}}, ...]), not an object.'
         )];
     }
 
@@ -2395,6 +2551,79 @@ function pp_validate_composition_errors(array $items, ?int $limit = null): array
                         // is reported once, here, and skipped everywhere underneath.
                         continue;
                     }
+                    // A DECLARED LIST MUST BE A LIST (#738), and this sits immediately
+                    // after the container test because it finishes that test's job: the
+                    // predicate above decides "container or scalar?", which a JSON OBJECT
+                    // passes, so `items: {"first": {...}}` was accepted, stored raw, and
+                    // then took the PUBLIC page down at components/grid/grid.php's
+                    // `(string) ($index + 1)` on a string key. The order matters for the
+                    // MESSAGE as much as the logic: a scalar still reads "must be an
+                    // array; got string", byte-identical to every version since #507,
+                    // because it never reaches this line.
+                    //
+                    // IT ADDS A FINDING AND STOPS NOTHING — no `continue`, unlike the
+                    // scalar arm above it, and the asymmetry is the load-bearing part.
+                    // A scalar container ends the walk because nothing underneath it can
+                    // be judged: there are no entries. A MAP has real entries, and every
+                    // rule beneath this one can judge them honestly, because
+                    // _pp_item_index_label() renders an object key as `key "first"` —
+                    // which is exactly what #634/#650/#652 built and #649 bounded. So the
+                    // entry loops below, the nested item-field pass, the per-item style
+                    // engine and the link_url walk all keep running and keep naming real
+                    // per-card defects at their honest keys.
+                    //
+                    // Suppressing them would have been the tidier-looking NO CASCADE move
+                    // and it would have been wrong twice over: it would leave that whole
+                    // locator family production-unreachable, and it would turn
+                    // `wp pp check page` on an aged stored map into a two-round repair
+                    // (fix the container, then discover the per-card defects) — the shape
+                    // #621's exhaustive reporting exists to prevent. These are separate
+                    // defects, not one defect in two vocabularies.
+                    //
+                    // THE ROLE SEGMENT IS `list-shape`, NOT `prop`, and that is a real bug
+                    // fix rather than tidiness. The #475 bounded-string family above
+                    // (`item_type: "string"`, plus its max_items and item_max_length
+                    // siblings) claims `prop/<prop>` and runs BEFORE this rule, so sharing
+                    // the namespace made the coarser defect invisible on exactly the two
+                    // props that family covers. Measured: `section.body_items: {"a": 1}`
+                    // reported only `items must be strings; got integer` — the operator
+                    // fixes the entry, re-sends, and only THEN learns the container is a
+                    // JSON object. A guaranteed two-round repair, which is #621's
+                    // misleading-repair-loop class.
+                    //
+                    // The per-item STYLE engine below already set this precedent for the
+                    // same reason (`item-style`), and its comment anticipated exactly this:
+                    // a suppressed diagnostic is the one failure mode the claim set must
+                    // never cause. Role segments are rule-owned literals, so they cannot
+                    // collide with an authored prop name.
+                    //
+                    // REORDERING WAS THE OTHER OPTION AND WAS DECLINED. This rule asks a
+                    // strictly coarser question than the #475 family and could have run
+                    // first, but _pp_claim_item_finding()'s docblock records that rule
+                    // ORDER is load-bearing — it is what makes the bounded families' more
+                    // precise messages win — so moving a block is a behaviour change for
+                    // every prop those rules cover, not a local fix. A distinct claim key
+                    // changes nothing except that both findings now survive.
+                    //
+                    // The WRITE path still reports whichever rule ran FIRST (budget 1,
+                    // first-error-wins): for a plain keyed object this rule, and for one
+                    // that ALSO holds a bad entry the bounded family's message. Both are
+                    // true, the write is refused either way, and the collect-all callers
+                    // (`wp pp check page`, restore findings, the rollback report) now name
+                    // both defects in one pass.
+                    if (!_pp_schema_list_value_is_valid($declared_type, $value)) {
+                        if (_pp_claim_item_finding($sink, 'list-shape', $prop_name)) {
+                            $errors[] = _pp_composition_item_error($i,
+                                'invalid_prop_value',
+                                sprintf(
+                                    'Component "%s" prop "%s" %s',
+                                    $name,
+                                    $prop_name,
+                                    _pp_schema_list_shape_message($value)
+                                )
+                            );
+                        }
+                    }
                     // Object-item arrays opt in with `item_type: "object"` (mirrors
                     // the #475 `item_type: "string"` convention). Every entry must be
                     // an object (a JSON object decodes to an associative array); a
@@ -2573,6 +2802,35 @@ function pp_validate_composition_errors(array $items, ?int $limit = null): array
                 if (!is_array($entries)) {
                     continue; // absent / scalar — the type pass above owns that error
                 }
+                // A NON-LIST CONTAINER IS NOT GATED OUT HERE, and that is a decision
+                // rather than an omission (#738). The container itself is now refused by
+                // the list rule in the type pass above, so the obvious move is this
+                // file's NO CASCADE convention: report the parent once, skip the rules
+                // beneath it. It is the wrong move HERE, and the reason is that the two
+                // depths differ in whether an honest answer exists.
+                //
+                // #724 could suppress at the BAND depth because inside a container that
+                // is not a composition there is no honest answer to "which band?" — the
+                // error payload has no key form, so _pp_composition_item_error() records
+                // `index: null` and a locator would have to be fabricated. At THIS depth
+                // the honest answer exists and was built on purpose: #634/#650/#652 made
+                // _pp_item_index_label() render an object key as `key "aa"` precisely so
+                // a map's entries could be named truthfully, and #649 bounded that key.
+                // Suppressing here would quietly revoke that ruling and leave its whole
+                // family production-unreachable.
+                //
+                // It is also worse for the operator. `wp pp check page` on an aged stored
+                // map is a REPORTING caller with no budget: under suppression it says
+                // "items must be a list" and nothing else, so repairing the container
+                // surfaces a second round of per-card defects — the two-round repair
+                // #621's exhaustive reporting exists to prevent. The per-entry findings
+                // are not a second vocabulary for the container defect; they are true,
+                // separately actionable statements about real cards, each honestly
+                // located. The WRITE path is unaffected either way: it is first-error-wins,
+                // and the list rule sits above every rule this gate governs, so a rejected
+                // write reports the container defect rather than one of these. (The bounded
+                // families higher up the per-item body can still legitimately win the
+                // message for the props they cover — see the list rule's own comment.)
                 // THE EFFECTIVE DECLARED-FIELD SET, hoisted per prop for RULE 5 (#643).
                 // Rules 1-4 and 6 iterate the DECLARATIONS, so each can ask `is_array($field_def)`
                 // one field at a time — the guard that separates a FIELD MAP from the
@@ -2876,6 +3134,54 @@ function pp_validate_composition_errors(array $items, ?int $limit = null): array
                             }
                             // Same depth accounting as RULE 3 above — a bare `continue`
                             // is the next FIELD of this entry (#621).
+                            continue;
+                        }
+                        // RULE 6b — a nested declared LIST must be a list (#738), the
+                        // second half of RULE 6 exactly as it is one level up. Same
+                        // predicate, same order (after the container test, so a scalar
+                        // field keeps its byte-identical "must be an array; got string"),
+                        // same claim key, same depth accounting.
+                        //
+                        // Only ONE shipped field is in its scope today — `grid.items[]
+                        // .bullets` is the single nested `type: "array"` declaration in
+                        // the registry — and the `object` fields beside it
+                        // (grid.items[].style, section.panel_items[].style) are untouched
+                        // for the reason the predicate's docblock gives. That is not an
+                        // argument for skipping the depth: the whole defect #744 closed
+                        // was one depth enforcing a declaration the other did not, and
+                        // re-opening it for a rule this file adds in the same breath
+                        // would be the same mistake wearing a newer number. Pinned by the
+                        // schema-driven inventory sweep in
+                        // tests/ListShapedPropWriteEnforcementTest, so a nested list
+                        // declaration landing tomorrow is covered the day it lands.
+                        //
+                        // IT DOES `continue` WHERE THE TOP-LEVEL RULE DELIBERATELY DOES
+                        // NOT, and the asymmetry is real rather than an oversight. Up there
+                        // a `continue` would have skipped every rule BENEATH the container —
+                        // the entry loops, the nested field pass, the style engine, the
+                        // link_url walk — and silenced honest per-entry findings. Here the
+                        // bare `continue` is RULE 3's depth accounting: it advances to the
+                        // next FIELD of this entry (#621), so the entry's other fields, the
+                        // other entries, and RULE 2's bullets-entry loop after this one all
+                        // still run. Same principle, not the same statement: report this
+                        // field once, judge nothing less.
+                        if ($field_type === 'array'
+                            && array_key_exists($field_name, $entry)
+                            && !_pp_schema_list_value_is_valid($field_type, $entry[$field_name])
+                        ) {
+                            if (_pp_claim_item_finding($sink, 'prop', $prop_name, $entry_index, $field_name)) {
+                                $errors[] = _pp_composition_item_error($i,
+                                    'invalid_prop_value',
+                                    sprintf(
+                                        'Component "%s" prop "%s" item %s field "%s" %s',
+                                        $name,
+                                        $prop_name,
+                                        _pp_item_index_label($entry_index, $entries),
+                                        $field_name,
+                                        _pp_schema_list_shape_message($entry[$field_name])
+                                    )
+                                );
+                            }
                             continue;
                         }
                         // RULE 4 — the field's own STRICT enum membership (#600).

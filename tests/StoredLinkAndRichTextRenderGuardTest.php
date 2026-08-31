@@ -1299,7 +1299,8 @@ class StoredLinkAndRichTextRenderGuardTest extends TestCase
      *
      * Every earlier sibling could only claim its own axis. #708's landing said so
      * explicitly: "not 'a band can no longer 500' — the corridor still holds #730, #733,
-     * #738, #739 and #740". Two of those five are this change. So this test carries ONE
+     * #738, #739 and #740". Two of those five are this change (#738 closed later, in its
+     * own iteration, from the write path AND the render path). So this test carries ONE
      * band holding a corrupt value on EVERY axis the family has landed, all at once:
      *
      *   __pp_style          corrupt (#708)   title / title_accent  corrupt (#706)

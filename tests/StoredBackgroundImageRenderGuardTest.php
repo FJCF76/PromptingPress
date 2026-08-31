@@ -97,7 +97,9 @@
  * props now degrades instead of 500ing; that combined case is pinned in
  * tests/StoredStyleAndItemsRenderGuardTest.php. The corridor is still not fully shut —
  * a band whose `button_url` or `body` is a stored array fatals through core's escapers
- * (#730), and #730, #733, #736, #738, #739 and #740 are the full open set on it.
+ * (#730), and #730, #733, #736, #739 and #740 are the full open set on it (#738, grid's
+ * ordinal arithmetic on a string items key, has since landed — write refusal plus a
+ * positional counter, see tests/StoredGridItemsMapRenderGuardTest.php).
  *
  * ASSERTED AFFIRMATIVELY, NEVER BY ABSENCE OF A FATAL. phpunit.xml sets
  * failOnWarning="false", and esc_html/esc_attr render a stored array as the literal

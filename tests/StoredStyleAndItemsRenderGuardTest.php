@@ -71,7 +71,8 @@
  *
  * WHAT THIS DOES NOT PROMISE. Not "a band can no longer 500". This closes the style door
  * and the grid-count door; the corridor still holds #730 (core's esc_url and
- * wp_kses_post, which DO fatal on arrays in production), #733, #738, #739 and #740. Two
+ * wp_kses_post, which DO fatal on arrays in production), #733, #739 and #740 (#738 has
+ * since landed — see tests/StoredGridItemsMapRenderGuardTest.php). Two
  * of those are worth naming here rather than leaving to the list below, because they
  * touch components this file sweeps and asserts "still renders" for:
  *
@@ -96,7 +97,7 @@
  *     never fataled at THIS boundary. It is not asserted as "renders", because writing
  *     that assertion uncovered a THIRD fatal one line below this issue's — grid's
  *     `(string) ($index + 1)`, which raises "Unsupported operand types: string + int" on
- *     a string key. Filed as #738; see testAWellFormedItemsListStillRenders() for the
+ *     a string key. Filed as #738, since landed; see testAWellFormedItemsListStillRenders() for the
  *     full statement of what that means for this guard's coverage.
  *   - Malformed ELEMENTS of a well-formed items list, which are NOT uniformly safe. A
  *     card's text-ish reads (title, text, label) reach esc_html() and degrade to the
@@ -593,9 +594,19 @@ class StoredStyleAndItemsRenderGuardTest extends TestCase
      *
      * Filed separately rather than fixed in passing: this issue's ruling names two
      * boundaries, and a third is a scope extension rather than an application of it. Filed
-     * as #738. Until that lands, the honest statement of this guard's coverage is that it
-     * makes every NON-ARRAY `items` safe and leaves array shapes exactly as it found them
-     * — including one that is still broken.
+     * as #738. At the time this file landed, the honest statement of this guard's coverage
+     * was that it makes every NON-ARRAY `items` safe and leaves array shapes exactly as it
+     * found them — including one that was still broken.
+     *
+     * #738 HAS SINCE LANDED, and the assertion this docblock was written to justify
+     * WITHHOLDING now exists — in tests/StoredGridItemsMapRenderGuardTest.php, the fifth
+     * file in this family, which renders a stored map both ways (entries with `number`
+     * and entries without) and compares the degraded band against the equivalent list.
+     * It stays there rather than moving here for the reason every fixture in this file
+     * carries exactly one corrupt axis: what THIS file measures is the count() and
+     * style-vars boundaries, and folding a second issue's shape into its fixtures is how
+     * a green file stops proving what its name claims. The case below is unchanged — a
+     * well-formed LIST is the control both files need.
      */
     public function testAWellFormedItemsListStillRenders(): void
     {
