@@ -173,11 +173,12 @@ class ChatReflectedTextBoundTest extends \PHPUnit\Framework\TestCase
     }
 
     /**
-     * The five sites, and what each one renders.
+     * The six sites, and what each one renders.
      *
-     * Three of them have NO server length bound at all today: `_pp_action_error()`
-     * (lib/actions.php) stores `'error' => $error` verbatim, so the batch envelope error and
-     * every `steps[i].error` reflect validator messages uncapped; `_pp_bounded_findings()` is a
+     * Four of them have NO server length bound at all today: `_pp_action_error()`
+     * (lib/actions.php) stores `'error' => $error` verbatim, so the batch envelope error, the
+     * #853 unreadable-envelope refusal that reflects the same field, and every
+     * `steps[i].error` reflect validator messages uncapped; `_pp_bounded_findings()` is a
      * COUNT bound by its own docblock, so `findings[].message` has no ceiling; and
      * `pp_ai_parse_error_response()` (lib/ai-provider.php) returns a third party's error body.
      * Closing those server-side is #864, deferred. Until it lands these are the only bounds
@@ -204,9 +205,26 @@ class ChatReflectedTextBoundTest extends \PHPUnit\Framework\TestCase
                 'the batch envelope error',
                 '/addStatusMessage\(\s*\'Error: \'\s*\+\s*ppChatBoundReflectedText\(\s*batch\.error\s*\|\|/',
             ],
+            // The fourth exit, added by #853: a batch that claims success over a `steps`
+            // nobody can read is refused rather than narrated, and its refusal renders the
+            // server's own `error` when the envelope carries one. Same rule as every other
+            // site here — a NEW render site of server-supplied text is a new place the bound
+            // has to be, and the only way that stays true is if it is listed.
+            // TOLERANT OF THE GUARD'S SPELLING, STRICT ABOUT THE BOUND, which is this file's
+            // own "pin the property, not one spelling of it" rule applied to a read that has
+            // to survive a possibly-absent envelope. `(batch && batch.error)`,
+            // `(batch || {}).error` and `batch?.error` all satisfy it; dropping the bound does
+            // not. The guard is still REQUIRED, because it is the only thing distinguishing
+            // this site from the unguarded envelope-error site above — an unguarded spelling
+            // here would match that entry instead and this one would go red, which is the
+            // right failure.
+            'the unreadable-envelope refusal' => [
+                'the unreadable-envelope refusal',
+                '/addStatusMessage\(\s*\'Error: \'\s*\+\s*ppChatBoundReflectedText\(\s*\(?\s*batch\s*(?:&&|\|\||\?)[^;]*error/',
+            ],
             'the failed-step error' => [
                 'the failed-step error',
-                '/message\s*=\s*\'Error on step \'[^;]*ppChatBoundReflectedText\(\s*failedResult\.error\s*\|\|/',
+                '/message\s*=\s*\'Error on step \'[^;]*ppChatBoundReflectedText\([^;]*failedResult[^;]*error/',
             ],
             'the stream / provider error' => [
                 'the stream error body',
