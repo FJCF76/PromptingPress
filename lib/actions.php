@@ -900,7 +900,7 @@ function pp_execute_action(string $name, array $params): array {
  * CANNOT be read under 'unreadable' (#749). Two consumers, and they are opposite
  * ends of the same guarantee: pp_ai_execute_batch() refuses the whole batch when it
  * is non-empty (except for the one carve-out batch, #756), and since that carve-out
- * _pp_restore_batch_snapshot() reads it too — a page listed here has no snapshot worth
+ * _pp_restore_batch_snapshot_report() reads it too — a page listed here has no snapshot worth
  * writing back, so its composition never is.
  *
  * THE LISTING AND THE CAPTURE COME FROM DIFFERENT READS SINCE #833, and the invariant
@@ -914,9 +914,9 @@ function pp_execute_action(string $name, array $params): array {
  *
  * @param  array $steps  Each: ['type' => 'action'|'apply', 'name' => string, 'params' => array]
  * @return array          Snapshot bundle. The state keys go to
- *                         _pp_restore_batch_snapshot(); 'unreadable' goes to
+ *                         _pp_restore_batch_snapshot_report(); 'unreadable' goes to
  *                         pp_ai_execute_batch()'s refusal gate AND to
- *                         _pp_restore_batch_snapshot()'s withhold branch.
+ *                         _pp_restore_batch_snapshot_report()'s withhold branch.
  */
 function _pp_snapshot_batch_targets(array $steps): array {
     $posts      = [];
@@ -942,7 +942,7 @@ function _pp_snapshot_batch_targets(array $steps): array {
                 $post = get_post($post_id);
                 // READ THROUGH THE CLASSIFIER, NEVER THE DEGRADING ACCESSOR (#749).
                 // pp_get_composition() returns [] for a corrupt row, and
-                // _pp_restore_batch_snapshot() writes the snapshot back
+                // _pp_restore_batch_snapshot_report() writes the snapshot back
                 // unconditionally — so snapshotting through it turned a rollback
                 // into an eraser: a page that was "corrupt but recoverable" came
                 // out of a rolled-back batch genuinely empty, behind a clean
@@ -957,7 +957,7 @@ function _pp_snapshot_batch_targets(array $steps): array {
                 // it is the degrading accessor's `[]`, a stand-in for bytes nobody
                 // could decode, and since #833 it can instead be a composition read
                 // from a CACHED copy the database row has already moved past. Both
-                // reach _pp_restore_batch_snapshot(), which refuses to write back
+                // reach _pp_restore_batch_snapshot_report(), which refuses to write back
                 // the composition of any page named in $unreadable — so neither is
                 // ever written anywhere. Capture honestly, record what the capture
                 // is worth, and let the restorer decide.
@@ -1010,7 +1010,7 @@ function _pp_snapshot_batch_targets(array $steps): array {
                 // collapse to the same captured '' (pp_site_option => (string)
                 // get_option($key, '')), so a rollback could not tell "delete the row"
                 // from "write ''". The per-key ['exists' => bool, 'value' => string]
-                // shape keeps them distinct for _pp_restore_batch_snapshot().
+                // shape keeps them distinct for _pp_restore_batch_snapshot_report().
                 //
                 // Capture stays WHITELIST-SCOPED, exactly as pp_site_option() gated it:
                 // only OUR options are ever read into the snapshot. A non-whitelisted
@@ -1145,7 +1145,7 @@ function _pp_batch_step_post_id(array $step): ?int {
  * NOT in pp_allowed_site_options(), so it can never arrive through the update_site_option
  * path either). A third one is a one-line edit HERE rather than a re-derivation somewhere
  * else. There is exactly one other writer of that option in the codebase and it is not a
- * step: _pp_restore_batch_snapshot()'s own rollback write, which exists to undo these two.
+ * step: _pp_restore_batch_snapshot_report()'s own rollback write, which exists to undo these two.
  *
  * IT NORMALIZES, AND THE NORMALIZER IS THE WRITERS' OWN. `from` is operator/model text and
  * arrives in whatever spelling was typed — "/old", "/old/", "https://site/old?x=1" all
@@ -1613,7 +1613,7 @@ function _pp_batch_unreadable_target_error(array $unreadable): ?array {
  * first-step exemption — "let step 1 repair the page, then carry on" — reopens #749's
  * data loss by a longer road: the snapshot of a corrupt page is the degraded `[]`
  * stand-in, so once step 1 REPAIRS the page a later step's failure rolls back over a
- * page that now reads fine, and _pp_restore_batch_snapshot() writes that `[]` straight
+ * page that now reads fine, and _pp_restore_batch_snapshot_report() writes that `[]` straight
  * over the operator's repair. #818 did not close this: it preserves the corrupt bytes
  * on the history ring, which is a different rescue — the repair is still erased, and
  * the page afterwards reads ok/empty rather than corrupt, so no surface flags it at all.
@@ -1623,7 +1623,7 @@ function _pp_batch_unreadable_target_error(array $unreadable): ?array {
  * step wrote nothing, so the page is still corrupt when the rollback re-classifies it
  * and the composition write is withheld. The window that does survive at one step is a
  * concurrent repair by another writer, and that one is closed in the rollback rather
- * than here — see _pp_restore_batch_snapshot(), which never writes back a composition
+ * than here — see _pp_restore_batch_snapshot_report(), which never writes back a composition
  * captured from an already-unreadable page.
  *
  * IT KNOWS NOTHING ABOUT THE REQUEST, inheriting that boundary from the shared
@@ -1762,6 +1762,15 @@ function _pp_snapshot_menu_state(): array {
  * existed (pre-existing menus keep their term ids, so restored location
  * assignments stay valid), and restores the location map.
  *
+ * EVERY STRING RETURNED HERE IS TAGGED PP_ROLLBACK_ERROR_FAILED by the caller
+ * (_pp_restore_batch_snapshot_report, #855), and that blanket tag is honest only because
+ * this layer has no policy-withhold branch: it reports a menu list it could not READ, a
+ * batch-created menu it could not DELETE, and items it could not RECREATE. A restore this
+ * layer DECLINES on purpose must not be reported through this return until the layer
+ * carries its own kinds — a bare string added here would be silently called a failure a
+ * thousand lines away. RollbackErrorKindsTest freezes this function's producer count so a
+ * new one has to be looked at.
+ *
  * @param array $state  Bundle from _pp_snapshot_menu_state().
  * @return string[]     Human-readable descriptions of anything that could
  *                       NOT be restored — empty when the restore was clean.
@@ -1850,7 +1859,10 @@ function _pp_menu_items_signature(array $items): string {
  * @param object[] $items  Raw items as returned by wp_get_nav_menu_items().
  * @return string[]         One entry per item that could NOT be recreated —
  *                           a rollback consumer must surface these, never
- *                           report a clean restore over them.
+ *                           report a clean restore over them. Reached by the batch
+ *                           rollback through _pp_restore_menu_state(), which tags every
+ *                           string it returns PP_ROLLBACK_ERROR_FAILED (#855); see that
+ *                           function's @return before adding a producer here.
  */
 function _pp_rebuild_menu_items(int $menu_id, array $items): array {
     $errors  = [];
@@ -2008,6 +2020,141 @@ function _pp_restore_write_if_changed($current, $target, callable $writer): bool
 }
 
 /**
+ * The two meanings `rollback_errors` has always carried on one opaque channel (#855).
+ *
+ * THE BUG THESE NAME. Every entry on that channel was a bare string, and the consumers
+ * key on the channel's SIZE — so a page whose composition restore was WITHHELD read
+ * exactly like a page whose restore was ATTEMPTED and refused. On the #756 producer that
+ * is a false alarm: the batch found the page unreadable, there is no pre-batch composition
+ * to return it to, and leaving the stored bytes alone IS the honest restore. The operator
+ * was steered toward recovery on a page nothing failed against — the mirror image of the
+ * false reassurance #755 and #797 removed, out of the same channel.
+ *
+ * THE CENSUS, ON ONE BASIS, because three different counts are countable here and they
+ * disagree. There are 23 PRODUCERS: the 20 tagged directly inside
+ * _pp_restore_batch_snapshot_report(), plus the menu layer's 3, which reach the channel as
+ * bare strings and are tagged together at the merge. There are 21 _pp_rollback_entry()
+ * CALL SITES (those 20, plus the one in the merge loop). And the executor's @return
+ * enumerates 19 distinct SENTENCES, because it collapses the menu layer into one. Five of
+ * the 23 are withholds. Any number in this file that does not name its basis is a number
+ * that will drift — the @return already drifted twice.
+ *
+ * THE DISCRIMINATOR, STATED ONCE, because 23 producers have to agree on it:
+ *
+ *   PP_ROLLBACK_ERROR_WITHHELD  the rollback DECIDED not to write or delete, as a
+ *                               protective policy, and its sentence says so. Nothing
+ *                               was attempted, nothing broke.
+ *   PP_ROLLBACK_ERROR_FAILED    a restore or a removal was owed, was attempted (or was
+ *                               impossible), and did not happen.
+ *
+ * BOTH STILL COUNT, and that is not a softening. The rollback was not clean either way —
+ * bytes were left in a state the operator has to know about — so `rollback_errors` stays
+ * the same size and every count-keyed consumer (ppChatRollbackSentence,
+ * ppChatConflictOutcome, the #856 survival branch, _pp_ai_rollback_clause) is untouched.
+ * The kind changes how an entry is DRAWN, never whether it is reported.
+ *
+ * NOT OPERATOR VOCABULARY. Ruling T2 keeps the wording half pooled on #664: these values
+ * are machine tokens for a renderer, and the sentence an operator reads is still the one
+ * the producer already wrote.
+ */
+const PP_ROLLBACK_ERROR_WITHHELD = 'withheld';
+const PP_ROLLBACK_ERROR_FAILED   = 'failed';
+
+/**
+ * One tagged entry for the rollback report (#855).
+ *
+ * THE ONLY WAY AN ENTRY IS BUILT, and that is the point rather than a convenience. The
+ * report has 23 producers; a channel where a kind is appended by hand at each of them is
+ * a channel where the twenty-fourth producer forgets, and a forgotten kind is silently
+ * indistinguishable from a deliberate `failed`. Routing every append through here makes
+ * "did this producer answer the kind question?" a thing the compiler asks, and
+ * RollbackErrorKindsTest's source tripwire is what keeps the routing honest.
+ *
+ * THE MESSAGE IS NOT TYPED, AND THAT IS THE ONE PLACE THIS FUNCTION DEGRADES RATHER THAN
+ * REFUSES. A `string` hint would document the contract better and would also mean a value
+ * this reporter did not author — the menu layer's return is the only such value, and this
+ * theme declares no strict_types, so an array or an object rather than a scalar — throws a
+ * TypeError INSIDE the rollback reporter. On the failure path. Where this report is the
+ * operator's only evidence of what survived. A fatal there replaces the whole survivor list
+ * with a stack trace, which is a strictly worse outcome than one unrenderable entry, so a
+ * non-scalar becomes '' instead: the entry still OCCUPIES ITS SLOT, so the COUNT that
+ * carries the dirty claim is unchanged, and the client drops an empty member from the drawn
+ * rows exactly as it drops any other unrenderable one while still counting it in `reported`.
+ *
+ * @param  string $kind     PP_ROLLBACK_ERROR_WITHHELD or PP_ROLLBACK_ERROR_FAILED.
+ * @param  mixed  $message  The sentence the operator reads. Unchanged by this issue.
+ *                           A non-scalar degrades to '' rather than throwing.
+ * @return array            ['kind' => string, 'message' => string]
+ */
+function _pp_rollback_entry(string $kind, $message): array {
+    return [
+        'kind'    => $kind,
+        'message' => is_scalar($message) ? (string) $message : '',
+    ];
+}
+
+/**
+ * The message half of a tagged rollback report (#855) — and the shared contract both
+ * halves are held to, stated once here for the pair.
+ *
+ * TWO PROJECTIONS OF ONE LIST, SO THEY CANNOT DISAGREE. `rollback_errors` and
+ * `rollback_error_kinds` travel as index-aligned lists on the envelope, and the whole
+ * value of the second is that entry `i` of one describes entry `i` of the other. Building
+ * them with array_map over a single source list makes that alignment structural: the two
+ * outputs have the same length because they are the same traversal, and both are LISTS
+ * because array_map over a list returns one — which is what keeps wp_json_encode emitting
+ * JSON arrays rather than objects (see the executor's envelope docblock).
+ *
+ * NOT array_column, DELIBERATELY. array_column SKIPS a row missing the requested key, so
+ * one malformed entry would silently shorten the kinds list and shift every kind after it
+ * onto the wrong message — the alignment contract broken quietly, in the direction of
+ * mislabelling a failure as a withhold. array_map cannot change the length, and the
+ * fallback below cannot produce a withhold it was not told about.
+ *
+ * TWO NAMED FUNCTIONS RATHER THAN ONE WITH A $key ARGUMENT, and the reason is the failure
+ * mode a stringly-typed projector has: a mistyped key is not an error, it is a full-length
+ * list of empty strings, and the card then draws "N changes could not be reverted" with no
+ * rows under it. Naming the two keeps the literal out of every call site, and puts each
+ * fallback beside the value it actually stands in for.
+ *
+ * @param  array $entries  Entries from _pp_restore_batch_snapshot_report().
+ * @return string[]        The operator-facing sentences. A list, exactly as long as
+ *                          $entries; an entry that cannot state a message contributes ''
+ *                          rather than shortening the channel, because the COUNT is what
+ *                          carries the dirty claim.
+ */
+function _pp_rollback_messages(array $entries): array {
+    return _pp_rollback_project($entries, 'message', '');
+}
+
+/**
+ * The kind half of a tagged rollback report (#855).
+ *
+ * FALLING BACK TO `failed` IS FALLING BACK TO TODAY. An entry that cannot state its kind
+ * gets the kind whose rendering is byte-identical to the pre-#855 card, which is the same
+ * answer the client gives an unknown kind and the same answer an old envelope gets. The
+ * unsafe direction — defaulting to `withheld` — would de-escalate a genuine failed revert
+ * into a protection, which is the one mistake this channel must not make.
+ *
+ * @param  array $entries  Entries from _pp_restore_batch_snapshot_report().
+ * @return string[]        PP_ROLLBACK_ERROR_* tokens, one per entry, in the same order.
+ */
+function _pp_rollback_kinds(array $entries): array {
+    return _pp_rollback_project($entries, 'kind', PP_ROLLBACK_ERROR_FAILED);
+}
+
+/**
+ * The shared walker behind the two projections above (#855). Private to them by
+ * convention: the key literals live here and at their two call sites, nowhere else.
+ */
+function _pp_rollback_project(array $entries, string $key, string $fallback): array {
+    return array_map(static function ($entry) use ($key, $fallback): string {
+        $value = is_array($entry) ? ($entry[$key] ?? null) : null;
+        return is_string($value) ? $value : $fallback;
+    }, array_values($entries));
+}
+
+/**
  * Restores every snapshotted post/option to its pre-batch state, and permanently
  * removes what this same batch CREATED — a page from a create_page step, a redirect
  * row, an imported attachment. None of those existed before the batch started, so
@@ -2051,11 +2198,27 @@ function _pp_restore_write_if_changed($current, $target, callable $writer): bool
  * @param array $snapshot  Bundle from _pp_snapshot_batch_targets(), with
  *                          'created_posts', 'created_attachments' and
  *                          'redirects_written' populated as steps succeeded.
- * @return string[]         Anything that could NOT be restored or removed, as the distinct
- *                           sentences enumerated below — a reader keying on the message
- *                           needs all of them, and the count is deliberately NOT stated
- *                           here because it drifted twice (it said SEVEN through two
- *                           changes that added classes): (1) the menu layer, one entry per item it
+ * @return array           One entry per thing that could NOT be restored or removed, each
+ *                           ['kind' => PP_ROLLBACK_ERROR_*, 'message' => string] and each
+ *                           built by _pp_rollback_entry() (#855). The MESSAGE half is the
+ *                           channel every consumer had before #855 —
+ *                           _pp_restore_batch_snapshot() is the projection that serves it,
+ *                           unchanged. The KIND half answers the question the sentences
+ *                           could only be PARSED for: whether the rollback declined on
+ *                           purpose (WITHHELD) or owed a write it did not land (FAILED).
+ *
+ *                           FIVE OF THE PRODUCERS BELOW ARE WITHHOLDS — (4), (7), (8) and
+ *                           the two other composition withholds at (2) and (3). Everything
+ *                           else is a failure, and NO COUNT IS STATED for that half on
+ *                           purpose: this docblock's own enumeration collapses the menu
+ *                           layer into one entry (1) while the constants' 23-producer census
+ *                           expands it into three, so any number written here is a number
+ *                           that disagrees with one of them. It is the same drift this
+ *                           enumeration already warns about below. The enumeration is the distinct
+ *                           sentences; a reader keying on the message needs all of them, and
+ *                           the count is deliberately NOT stated here because it drifted
+ *                           twice (it said SEVEN through two changes that added classes):
+ *                           (1) the menu layer, one entry per item it
  *                           could not recreate; a page whose composition restore was
  *                           withheld because (2) the live stored value became
  *                           unreadable mid-batch (#749), (3) the row could not be read
@@ -2102,8 +2265,8 @@ function _pp_restore_write_if_changed($current, $target, callable $writer): bool
  *                           a producer here, and that is not the same guarantee. Tracked
  *                           separately; #857 stops at this function's own writes.
  */
-function _pp_restore_batch_snapshot(array $snapshot): array {
-    $errors = [];
+function _pp_restore_batch_snapshot_report(array $snapshot): array {
+    $entries = [];
     // Pages whose composition restore was WITHHELD below (#749/#756/#833). Those pages keep
     // the composition THIS BATCH wrote, so the attachment cleanup at the end cannot assume
     // nothing points at the files it is about to delete — see the block that reads this.
@@ -2138,12 +2301,12 @@ function _pp_restore_batch_snapshot(array $snapshot): array {
             continue; // already gone: nothing deleted, nothing survived, nothing to report
         }
         if (!$deleted_page) {
-            $errors[] = sprintf(
+            $entries[] = _pp_rollback_entry(PP_ROLLBACK_ERROR_FAILED, sprintf(
                 'Page %d was created by this batch and could NOT be deleted during the'
                 . ' rollback, so it is still on the site. Everything else was rolled back,'
                 . ' which means this page may now be empty or half-built. Delete it by hand.',
                 (int) $created_post_id
-            );
+            ));
         }
     }
 
@@ -2197,13 +2360,20 @@ function _pp_restore_batch_snapshot(array $snapshot): array {
 
         if (isset($snapshot['unreadable'][$post_id])) {
             $withheld_pages[] = $post_id;
-            $errors[] = _pp_batch_target_state_message($post_id, $snapshot['unreadable'][$post_id])
+            // THE ENTRY #855 IS NAMED FOR. Nothing was owed here: the batch found this page
+            // unreadable, so there is no pre-batch composition to return it to. Tagged
+            // WITHHELD so the card draws the sentence below as the deliberate protection it
+            // describes rather than as a rollback that broke.
+            $entries[] = _pp_rollback_entry(
+                PP_ROLLBACK_ERROR_WITHHELD,
+                _pp_batch_target_state_message($post_id, $snapshot['unreadable'][$post_id])
                 . ' Its composition was NOT rolled back, and that is the safe outcome:'
                 . ' the stored bytes could not be read when this batch snapshotted them,'
                 . ' so the snapshot is not a composition this page is known to hold.'
                 . ' Writing it back would destroy whatever is there now —'
                 . ' the unreadable bytes, or a repair that landed during the batch.'
-                . ' Re-read the page to see which. Every other field was rolled back.';
+                . ' Re-read the page to see which. Every other field was rolled back.'
+            );
         //
         // RE-CLASSIFY BEFORE WRITING (#749), the second guard and a different question.
         // The snapshot and the rollback are two reads separated by every step the batch
@@ -2257,13 +2427,16 @@ function _pp_restore_batch_snapshot(array $snapshot): array {
             // this batch imported. One false entry becomes several.
             if (is_wp_error($restored) && $live_post) {
                 $withheld_pages[] = $post_id;
-                $errors[] = sprintf(
+                // FAILED, AND THE SENTENCE ALREADY SAID SO IN WORDS ("the rollback tried and
+                // could not"). #855 makes that machine-readable: this is the one composition
+                // branch where a write was attempted, so it is the one that is not a withhold.
+                $entries[] = _pp_rollback_entry(PP_ROLLBACK_ERROR_FAILED, sprintf(
                     'Page %d: its composition was NOT rolled back: the restoring write was'
                     . ' refused, so the page still holds the composition this batch wrote.'
                     . ' This is different from the withheld cases above: the rollback tried'
                     . ' and could not. Re-read the page and restore it from its history.',
                     $post_id
-                );
+                ));
             }
         } elseif ($reason === PP_BATCH_TARGET_UNVERIFIABLE) {
             $withheld_pages[] = $post_id;
@@ -2271,17 +2444,23 @@ function _pp_restore_batch_snapshot(array $snapshot): array {
             // notice below states a FACT about the stored bytes ("changed to an
             // unreadable state"), and here nothing about the bytes is known. Only the
             // outcome is shared — the composition write is withheld either way.
-            $errors[] = _pp_batch_target_state_message($post_id, $reason)
+            $entries[] = _pp_rollback_entry(
+                PP_ROLLBACK_ERROR_WITHHELD,
+                _pp_batch_target_state_message($post_id, $reason)
                 . ' Its composition was NOT rolled back: writing the snapshot over a stored'
                 . ' state nobody could confirm risks destroying a copy this batch never read.'
-                . ' Every other field on this page was rolled back.';
+                . ' Every other field on this page was rolled back.'
+            );
         } else {
             $withheld_pages[] = $post_id;
-            $errors[] = _pp_batch_target_state_message($post_id, $reason)
+            $entries[] = _pp_rollback_entry(
+                PP_ROLLBACK_ERROR_WITHHELD,
+                _pp_batch_target_state_message($post_id, $reason)
                 . ' Its composition was NOT rolled back: the stored bytes changed to an'
                 . ' unreadable state during this batch, and restoring the snapshot over them'
                 . ' would destroy the only recoverable copy. Every other field on this page'
-                . ' was rolled back.';
+                . ' was rolled back.'
+            );
         }
         // ── the four other per-page fields (#857) ────────────────────────────────
         //
@@ -2304,12 +2483,15 @@ function _pp_restore_batch_snapshot(array $snapshot): array {
         if (!$live_post) {
             continue;
         }
+        // ALL FOUR ARE FAILED-REVERTS, and one rule covers them: each one ATTEMPTED a write
+        // the rollback owed and did not land it. That is the whole of #855's discriminator —
+        // none of these declines on purpose, so none of them can be a withhold.
         if (is_wp_error(pp_update_page_title($post_id, $state['title']))) {
-            $errors[] = _pp_restore_field_failure_message(
+            $entries[] = _pp_rollback_entry(PP_ROLLBACK_ERROR_FAILED, _pp_restore_field_failure_message(
                 $post_id,
                 'title',
                 'Set the previous title back by hand.'
-            );
+            ));
         }
         // THE SLUG HAS A SECOND FAILURE MODE, and it is the reason this helper returns the
         // landed slug rather than a bool: WordPress de-duplicates post_name inside
@@ -2346,33 +2528,36 @@ function _pp_restore_batch_snapshot(array $snapshot): array {
             ? $target_slug
             : pp_update_page_slug($post_id, $state['slug']);
         if (is_wp_error($restored_slug)) {
-            $errors[] = _pp_restore_field_failure_message(
+            $entries[] = _pp_rollback_entry(PP_ROLLBACK_ERROR_FAILED, _pp_restore_field_failure_message(
                 $post_id,
                 'slug (permalink)',
                 'Set the previous slug back by hand.'
-            );
+            ));
         } elseif ($restored_slug !== $target_slug) {
-            $errors[] = sprintf(
+            // FAILED, not withheld, and the distinction is worth stating because this write
+            // SUCCEEDED. The kind describes the RESTORE, not the write: the rollback owed
+            // this page its previous permalink and the page did not get it back.
+            $entries[] = _pp_rollback_entry(PP_ROLLBACK_ERROR_FAILED, sprintf(
                 'Page %d: its slug (permalink) was rolled back to a DIFFERENT value than the'
                 . ' snapshot held: the previous slug was already taken, so WordPress stored'
                 . ' a de-duplicated one. The page is reachable, but not at its original URL.'
                 . ' Check the page\'s permalink and free the conflicting slug if you need it.',
                 $post_id
-            );
+            ));
         }
         if (is_wp_error(wp_update_post(['ID' => $post_id, 'post_status' => $state['status']], true))) {
-            $errors[] = _pp_restore_field_failure_message(
+            $entries[] = _pp_rollback_entry(PP_ROLLBACK_ERROR_FAILED, _pp_restore_field_failure_message(
                 $post_id,
                 'published/draft status',
                 'Set the previous status back by hand.'
-            );
+            ));
         }
         if (is_wp_error(pp_update_seo_meta($post_id, $state['seo_meta']))) {
-            $errors[] = _pp_restore_field_failure_message(
+            $entries[] = _pp_rollback_entry(PP_ROLLBACK_ERROR_FAILED, _pp_restore_field_failure_message(
                 $post_id,
                 'SEO metadata',
                 'Check the page\'s SEO fields and set them back by hand.'
-            );
+            ));
         }
     }
 
@@ -2444,12 +2629,12 @@ function _pp_restore_batch_snapshot(array $snapshot): array {
                 }
             );
             if (!$restored_option) {
-                $errors[] = sprintf(
+                $entries[] = _pp_rollback_entry(PP_ROLLBACK_ERROR_FAILED, sprintf(
                     'The site setting "%s" was NOT rolled back: it did not exist before this'
                     . ' batch and the row could not be removed, so the value this batch wrote'
                     . ' is still live. Clear it by hand.',
                     $key
-                );
+                ));
             }
             continue;
         }
@@ -2461,11 +2646,11 @@ function _pp_restore_batch_snapshot(array $snapshot): array {
             }
         );
         if (!$restored_option) {
-            $errors[] = sprintf(
+            $entries[] = _pp_rollback_entry(PP_ROLLBACK_ERROR_FAILED, sprintf(
                 'The site setting "%s" was NOT rolled back: its previous value could not be'
                 . ' written, so the value this batch wrote is still live. Set it back by hand.',
                 $key
-            );
+            ));
         }
     }
 
@@ -2570,12 +2755,12 @@ function _pp_restore_batch_snapshot(array $snapshot): array {
                     || ($patched_redirects[$from] ?? null) === ($current_redirects[$from] ?? null)) {
                     continue; // this row was already where the rollback wanted it
                 }
-                $errors[] = sprintf(
+                $entries[] = _pp_rollback_entry(PP_ROLLBACK_ERROR_FAILED, sprintf(
                     'The redirect for "%s" was NOT rolled back: the stored redirect map could'
                     . ' not be written, so this batch\'s change to that path is still live.'
                     . ' Check it with the list_redirects action and undo it by hand.',
                     $from
-                );
+                ));
             }
         }
     }
@@ -2606,14 +2791,23 @@ function _pp_restore_batch_snapshot(array $snapshot): array {
                 true
             );
             if (is_wp_error($restored_css)) {
-                $errors[] = 'The site\'s Custom CSS was NOT rolled back: the restoring write'
+                $entries[] = _pp_rollback_entry(
+                    PP_ROLLBACK_ERROR_FAILED,
+                    'The site\'s Custom CSS was NOT rolled back: the restoring write'
                     . ' was refused, so the CSS this batch left in place is still live.'
-                    . ' Restore it from Appearance → Customize → Additional CSS.';
+                    . ' Restore it from Appearance → Customize → Additional CSS.'
+                );
             }
         } elseif (wp_get_custom_css() !== $snapshot['custom_css']) {
-            $errors[] = 'The site\'s Custom CSS was NOT rolled back: the Custom CSS post no'
+            // FAILED even though no write was attempted: there was nowhere to attempt one.
+            // A withhold PROTECTS the stored bytes; here the stylesheet is already gone and
+            // the rollback could not bring it back, which is a loss, not a protection.
+            $entries[] = _pp_rollback_entry(
+                PP_ROLLBACK_ERROR_FAILED,
+                'The site\'s Custom CSS was NOT rolled back: the Custom CSS post no'
                 . ' longer exists, so there was nowhere to write the previous stylesheet'
-                . ' back to. Re-add it under Appearance → Customize → Additional CSS.';
+                . ' back to. Re-add it under Appearance → Customize → Additional CSS.'
+            );
         }
     }
 
@@ -2632,9 +2826,12 @@ function _pp_restore_batch_snapshot(array $snapshot): array {
             }
         );
         if (!$restored_tokens) {
-            $errors[] = 'The site\'s design token overrides were NOT rolled back: the'
+            $entries[] = _pp_rollback_entry(
+                PP_ROLLBACK_ERROR_FAILED,
+                'The site\'s design token overrides were NOT rolled back: the'
                 . ' restoring write was refused, so the token values this batch applied are'
-                . ' still live and every page renders with them. Set them back by hand.';
+                . ' still live and every page renders with them. Set them back by hand.'
+            );
         }
         // Invalidated unconditionally: the guard above can skip a WRITE, never a read,
         // and a stale static cache after a rollback would be a second bug.
@@ -2654,9 +2851,12 @@ function _pp_restore_batch_snapshot(array $snapshot): array {
             }
         );
         if (!$restored_fonts) {
-            $errors[] = 'The site\'s custom font URLs were NOT rolled back: the restoring'
+            $entries[] = _pp_rollback_entry(
+                PP_ROLLBACK_ERROR_FAILED,
+                'The site\'s custom font URLs were NOT rolled back: the restoring'
                 . ' write was refused, so the fonts this batch applied are still loading on'
-                . ' every page. Set them back by hand.';
+                . ' every page. Set them back by hand.'
+            );
         }
     }
 
@@ -2732,14 +2932,27 @@ function _pp_restore_batch_snapshot(array $snapshot): array {
         // Refusing costs an attachment that stays in the Media Library, which an operator
         // can delete in one click; the alternative costs a broken page and a deleted file.
         if ($withheld_pages !== []) {
-            $errors[] = sprintf(
+            // WITHHELD, and the second of the two classes #855 separates. Ruling T1's third
+            // clause is a REFUSAL: the delete is declined on purpose because performing it
+            // would break a page, and the file staying in the Media Library is the cost of
+            // that protection. No delete was attempted here.
+            //
+            // THE KIND DESCRIBES THIS ENTRY, NOT THE PAGE THAT CAUSED IT, and the difference
+            // is worth stating because $withheld_pages has TWO fillers. Three of its four
+            // branches are withholds; the fourth is the #857 REFUSED composition write, which
+            // is a failure and reports its own failed entry above. So the page this sentence
+            // points at may itself have broken — what did not break, and what was never
+            // attempted, is the delete this entry is about. The operator is never left
+            // guessing: the page's own entry is on the same channel, carrying its own kind.
+
+            $entries[] = _pp_rollback_entry(PP_ROLLBACK_ERROR_WITHHELD, sprintf(
                 'Media item %d was imported by this batch and was NOT deleted during the'
                 . ' rollback: a page on this batch could not have its composition rolled'
                 . ' back (see above), so it may still reference this media. Deleting it'
                 . ' could break that page. Remove it from the Media Library once the page'
                 . ' has been re-read.',
                 $attachment_id
-            );
+            ));
             continue;
         }
         $attachment = get_post($attachment_id);
@@ -2747,13 +2960,16 @@ function _pp_restore_batch_snapshot(array $snapshot): array {
             continue;
         }
         if (($attachment->post_type ?? '') !== 'attachment') {
-            $errors[] = sprintf(
+            // WITHHELD for the same reason as the branch above: a deliberate refusal that
+            // protects bytes this batch never created. The sentence already says "did NOT
+            // delete it" rather than "could not".
+            $entries[] = _pp_rollback_entry(PP_ROLLBACK_ERROR_WITHHELD, sprintf(
                 'Media item %d was imported by this batch, but the stored record for that ID'
                 . ' is no longer an attachment, so the rollback did NOT delete it: removing'
                 . ' it could destroy something this batch never created. Check it in the'
                 . ' Media Library.',
                 $attachment_id
-            );
+            ));
             continue;
         }
         // TWO FALSY RETURNS, ONE MEANING EACH. Core returns NULL when there is no row at
@@ -2768,12 +2984,12 @@ function _pp_restore_batch_snapshot(array $snapshot): array {
             continue; // already gone: nothing deleted, nothing survived, nothing to report
         }
         if (!$deleted) {
-            $errors[] = sprintf(
+            $entries[] = _pp_rollback_entry(PP_ROLLBACK_ERROR_FAILED, sprintf(
                 'Media item %d was imported by this batch and could NOT be deleted during the'
                 . ' rollback, so it is still in the Media Library. Remove it there if it'
                 . ' should not remain.',
                 $attachment_id
-            );
+            ));
         }
     }
 
@@ -2782,10 +2998,56 @@ function _pp_restore_batch_snapshot(array $snapshot): array {
         // of rollback errors and returned its list directly. A withheld composition
         // restore is a second producer, and dropping it here would hide exactly the
         // condition it exists to report.
-        return array_merge($errors, _pp_restore_menu_state($snapshot['menus']));
+        //
+        // TAGGED AT THE MERGE, AND THE RULE IS THE WHOLE JUSTIFICATION (#855). Every
+        // producer in the menu layer is a FAILED-revert: _pp_restore_menu_state() reports a
+        // menu list it could not READ, a batch-created menu it could not DELETE, and (via
+        // _pp_rebuild_menu_items) each item it could not RECREATE. Not one of them declines
+        // on purpose — the layer has no policy-withhold branch at all — so one mapping here
+        // is honest for all three, and giving that layer its own report shape would buy
+        // nothing today. IF A WITHHOLD IS EVER ADDED THERE, it must stop returning bare
+        // strings and carry its own kinds; this blanket tag is what would otherwise mislabel
+        // it as a failure. Pinned by RollbackErrorKindsTest.
+        //
+        // PASSED THROUGH RAW, because _pp_rollback_entry() owns the degradation. This is the
+        // only value the report tags that it did not author itself, and the guard belongs at
+        // the one helper every producer already routes through rather than duplicated here —
+        // see that function on why a non-scalar becomes '' instead of a TypeError.
+        foreach (_pp_restore_menu_state($snapshot['menus']) as $menu_error) {
+            $entries[] = _pp_rollback_entry(PP_ROLLBACK_ERROR_FAILED, $menu_error);
+        }
     }
 
-    return $errors;
+    return $entries;
+}
+
+/**
+ * The message-only view of the rollback report — the contract every consumer had before
+ * #855, unchanged (#755/#854/#857).
+ *
+ * A PURE PROJECTION, NEVER A SECOND ASSEMBLY. This function does not decide anything: it
+ * runs the report and drops the kinds. Two functions that each walked the snapshot and
+ * built their own list would be two implementations of a 23-branch decision, and they
+ * would drift — which is exactly the failure the kinds exist to make impossible one layer
+ * up. Everything that produces an entry lives in _pp_restore_batch_snapshot_report().
+ *
+ * KEPT BECAUSE THE STRING CONTRACT IS THE COMPAT PROOF. Ruling T2 is envelope-ADDITIVE,
+ * and "additive" has to mean something checkable: this function's callers — including the
+ * suites that drive every producer branch — read exactly what they read before, so a
+ * change to the shape of the report cannot quietly change the shape of the channel.
+ *
+ * IT HAS NO PRODUCTION CALLER, and that is worth stating so nobody adds one by accident.
+ * pp_ai_execute_batch() takes the REPORT and projects it twice; everything else in lib/ that
+ * names this function names it in a comment. A new caller that needs to say WHICH entries
+ * are withholds must call _pp_restore_batch_snapshot_report() — reaching for this one and
+ * then re-deriving kinds from the sentences is precisely the parsing #855 removed.
+ *
+ * @param  array $snapshot  Bundle from _pp_snapshot_batch_targets().
+ * @return string[]         Human-readable descriptions of anything the rollback did not
+ *                           fully restore or remove — empty when the restore was clean.
+ */
+function _pp_restore_batch_snapshot(array $snapshot): array {
+    return _pp_rollback_messages(_pp_restore_batch_snapshot_report($snapshot));
 }
 
 /**
@@ -2800,7 +3062,7 @@ function _pp_restore_batch_snapshot(array $snapshot): array {
  * learns which artifacts to remove (#854). A create_page's new page, an import_media's new
  * attachment and a create_redirect's new row have no pre-batch state to write back, so a
  * snapshot cannot express them: what a rollback needs is the knowledge that this batch made
- * them. All three are recorded HERE, as each step SUCCEEDS, and _pp_restore_batch_snapshot()
+ * them. All three are recorded HERE, as each step SUCCEEDS, and _pp_restore_batch_snapshot_report()
  * removes them.
  *
  * SUCCEEDS is the load-bearing word, and it is why recording happens here rather than in the
@@ -2846,7 +3108,7 @@ function _pp_restore_batch_snapshot(array $snapshot): array {
  * exempt (#756, ruling D-1): a SINGLE update_composition / restore_composition step
  * on a page already classified corrupt, which is the repair the refusal itself
  * prescribes. Nothing else about the refusal moves, and the exemption buys no
- * weakening of the rollback — _pp_restore_batch_snapshot() never writes back a
+ * weakening of the rollback — _pp_restore_batch_snapshot_report() never writes back a
  * composition captured from an unreadable page.
  *
  * DISCRIMINATE ON steps === [] OR error_code, NEVER ON failed_at ALONE: a
@@ -2875,13 +3137,31 @@ function _pp_restore_batch_snapshot(array $snapshot): array {
  *                          step class that writes durable state, including the
  *                          redirect rows and the imported attachments it used to
  *                          leave behind without reporting them. #857 gave it
- *                          VERIFICATION: every write _pp_restore_batch_snapshot()
+ *                          VERIFICATION: every write _pp_restore_batch_snapshot_report()
  *                          makes now checks its own return, where they were all
  *                          fire-and-forget before, so a restore that FAILED can no
  *                          longer report clean. Coverage without verification was
  *                          only half the claim. Together they mean an empty channel
  *                          says nothing survived, rather than saying nothing was
  *                          looked at or nothing was checked),
+ *                          'rollback_error_kinds' (string[] — since #855, one
+ *                          PP_ROLLBACK_ERROR_* token per rollback_errors entry, at the
+ *                          SAME index. ADDITIVE, and the older channel is byte-identical
+ *                          beside it: rollback_errors is still the same list of the same
+ *                          strings in the same order, so a consumer that never learns
+ *                          about kinds behaves exactly as it did. What the kind answers is
+ *                          the question those strings could only be PARSED for — whether
+ *                          the rollback DECLINED on purpose ('withheld': the #756/#749/#833
+ *                          composition withholds and the two attachment refusals, where
+ *                          nothing was attempted and nothing broke) or OWED a write it did
+ *                          not land ('failed': everything else). Both still count: the
+ *                          channel's size is unchanged and every count-keyed consumer is
+ *                          untouched — the kind decides how an entry is DRAWN, never
+ *                          whether it is reported. Present on every return, empty beside an
+ *                          empty channel, so an ABSENT key means an older server and
+ *                          nothing else. A kind this reader does not recognize, and a list
+ *                          that is missing or the wrong length, both degrade to the
+ *                          pre-#855 rendering rather than to a softer one),
  *                          'versions' ({post_id => composition_version} for every page a
  *                          composition-mutating or create_page step wrote — the chat UI
  *                          refreshes its per-page baselines from this (#404, A3))]
@@ -2915,14 +3195,15 @@ function pp_ai_execute_batch(array $steps, array $baselines = []): array {
     $unreadable_error = _pp_batch_unreadable_refusal($steps, $snapshot['unreadable']);
     if ($unreadable_error !== null) {
         return [
-            'ok'              => false,
-            'steps'           => [],
-            'failed_at'       => null,
-            'rolled_back'     => false,
-            'rollback_errors' => [],
-            'versions'        => [],
-            'error'           => $unreadable_error['error'],
-            'error_code'      => $unreadable_error['error_code'],
+            'ok'                   => false,
+            'steps'                => [],
+            'failed_at'            => null,
+            'rolled_back'          => false,
+            'rollback_errors'      => [],
+            'rollback_error_kinds' => [],
+            'versions'             => [],
+            'error'                => $unreadable_error['error'],
+            'error_code'           => $unreadable_error['error_code'],
         ];
     }
 
@@ -3110,27 +3391,36 @@ function pp_ai_execute_batch(array $steps, array $baselines = []): array {
         }
 
         if (empty($result['ok'])) {
-            $rollback_errors = _pp_restore_batch_snapshot($snapshot);
+            // ONE WALK, TWO ALIGNED LISTS (#855). The report is built once and projected
+            // twice, so `rollback_error_kinds[i]` describes `rollback_errors[i]` by
+            // construction rather than by two consumers agreeing to be careful.
+            $rollback_report = _pp_restore_batch_snapshot_report($snapshot);
             return [
-                'ok'              => false,
-                'steps'           => $results,
-                'failed_at'       => $i,
-                'rolled_back'     => true,
-                'rollback_errors' => $rollback_errors,
+                'ok'                   => false,
+                'steps'                => $results,
+                'failed_at'            => $i,
+                'rolled_back'          => true,
+                'rollback_errors'      => _pp_rollback_messages($rollback_report),
+                'rollback_error_kinds' => _pp_rollback_kinds($rollback_report),
                 // Everything rolled back, so no page's version survived this batch — the
                 // client must re-read context for a fresh baseline, not trust a partial map.
-                'versions'        => [],
+                'versions'             => [],
             ];
         }
     }
 
     return [
-        'ok'              => true,
-        'steps'           => $results,
-        'failed_at'       => null,
-        'rolled_back'     => false,
-        'rollback_errors' => [],
-        'versions'        => $mutated_versions,
+        'ok'                   => true,
+        'steps'                => $results,
+        'failed_at'            => null,
+        'rolled_back'          => false,
+        'rollback_errors'      => [],
+        // PRESENT ON EVERY RETURN, INCLUDING THE CLEAN ONES (#855). A key that appears only
+        // when there is something to say is a key a consumer has to guess about: absent
+        // would mean both "an older server" and "this server, nothing to report". Emitting
+        // the empty list beside the empty channel keeps "absent" meaning exactly one thing.
+        'rollback_error_kinds' => [],
+        'versions'             => $mutated_versions,
     ];
 }
 
@@ -3171,7 +3461,7 @@ function _pp_batch_step_composition_target(array $params, array $result): ?int {
  * Drops a failed batch step's band locator when the rollback is about to invalidate it
  * (#712 — the structural answer #642 deferred).
  *
- * THE PROBLEM. A batch is atomic: when a step fails, `_pp_restore_batch_snapshot()`
+ * THE PROBLEM. A batch is atomic: when a step fails, `_pp_restore_batch_snapshot_report()`
  * puts every target back to its pre-batch state. The failed step's envelope is returned
  * as-is, and its `index` was computed against the composition as THAT step saw it —
  * mid-batch. On a page `[healthyA, healthyB, badBand]` the batch
@@ -3202,7 +3492,7 @@ function _pp_batch_step_composition_target(array $params, array $result): ?int {
  *
  * WHY THE OTHER CASE IS KEPT. When no earlier step wrote this page, the batch did not
  * move its bands: the composition the failed step validated is the one
- * `_pp_restore_batch_snapshot()` writes back, so the offset still addresses the same
+ * `_pp_restore_batch_snapshot_report()` writes back, so the offset still addresses the same
  * band after the rollback. That is the guarantee — "this BATCH did not move them", not
  * "nothing in the universe did"; an out-of-band writer in the same window is what the
  * #404 CAS baseline answers, not this. Nulling every failed step's locator instead would
