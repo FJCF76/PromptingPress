@@ -4,6 +4,54 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.18.4] — 2026-08-31 — The conflict card's rollback report outlives the button that used to delete it (#856)
+
+**One click destroyed the only copy of the report, and the card itself was what invited the click.** Since #797 a composition-conflict card names what the rollback could not put back — the page whose composition was withheld, the menu item that could not be recreated, and since #854/#857 a surviving redirect, a surviving attachment, a refused page delete, a de-duplicated slug, a site setting, the design tokens, the fonts, the Custom CSS. The card offers exactly one thing, **Re-read & re-preview**, and its handler read:
+
+```js
+reader.then(function () {
+    card.remove();
+    renderProposal({ proposal: true, steps: freshSteps }, pageId);
+})
+```
+
+The report section is a child of `card`, so it went with it. There was no second copy anywhere: this exit never calls `addStatusMessage()`, so nothing reaches the transcript; `_pp_ai_batch_rejection_note()` returns `null` for `composition_conflict`, so nothing reaches the model or `saveState()`; and `restoreConversation()` replays messages only, so nothing survives a reload. The names of the pages still holding mid-batch state existed in exactly one DOM node, and the only affordance on the card deleted it.
+
+The handler now re-renders the fresh proposal FIRST and then SPENDS the affordance: the action row is removed and the card stays in the transcript, with the new proposal rendered beneath it. Order matters and is pinned both ways. `renderProposal()` is the half that can throw, and the chain's `catch` answers a throw by handing the button back and saying "Could not re-read the page. Try again." — spend first and that instruction is addressed to a button that is no longer on the page.
+
+**Survival is keyed on the same evidence the card's own claim is keyed on.** The card is kept when `report.reported > 0`, which is the test `ppChatConflictOutcome()` uses to withhold "Nothing was applied." and `ppChatRollbackSentence()` uses for its dirty clause. So the card outlives its affordance exactly as long as it says something about a dirty rollback, and no longer. Deliberately not `shown.length`: a report whose members are none of them renderable strings draws no rows but still costs the clean claim, and that sentence is then the whole of the evidence — keying on the rows would delete the card in precisely the case where the message is all that survived. An empty or unreadable report changes nothing at all: those cards are removed exactly as before, because a conflict that really did leave nothing behind has nothing to preserve and a spent card with no evidence would be residue above a proposal it has nothing to say about.
+
+### The shapes that were rejected
+
+- **Echo the entries into the transcript when the card is built.** Puts two copies of the same rows on screen at once, and `.pp-ai-status` is `text-align: center` with no width clamp while the wrap that makes long entries readable is scoped to `.pp-ai-preview-error-detail > div` inside `.pp-ai-proposal-card` — whose `max-width: 90%` is what makes `overflow-wrap: break-word` hold at all. A bare transcript element loses the wrap silently.
+- **Carry the report into the re-rendered proposal card.** Its heading reads "⚠ N changes could not be reverted:", which on a FRESH proposal card reads as a claim about the new proposal rather than about the batch that failed.
+- **A model-facing bookkeeping turn**, on the #704 `[Rejected:]` precedent. That would mean changing `_pp_ai_batch_rejection_note()`'s recorded decision that a conflict is not the model's to answer — a change to what reaches the model, not an implementation detail of this fix.
+
+### Boundaries this deliberately did not cross
+
+Whether **Re-read & re-preview** is even the right offer on this card, and what the card should SAY, is the open question in #859 (with the repair-route half in #756/#767). Nothing here answers it: the message is untouched, the affordance is untouched, and no new operator vocabulary is coined (#664 stays pooled). The entries stay opaque strings — counted and filtered, never read — so #855's `kind` tagging remains free to land on the channel rather than on the renderer, and a source tripwire now holds the new survival branch to that rule.
+
+Three things found while working here were filed rather than fixed: a re-preview whose preview fails still spends the affordance and can leave the transcript with no button at all (#878, pre-existing, reproduced identically on the previous commit), a spent conflict card is indistinguishable from a live one and the transcript now accumulates several `role="alert"` regions about past batches (#879), and New Chat during a re-read injects the old conversation's proposal, with a live Apply button, into the new one (#880, pre-existing).
+
+### Fixed
+
+- `showConflictState()`'s Re-read handler no longer removes a card whose rollback reported something; it removes the action row instead, and the card stays in the transcript with the fresh proposal below it (`assets/js/pp-ai-chat.js`).
+- The re-render now runs before the affordance is spent, so a throw inside it leaves the conflict card and its enabled button exactly as they were.
+
+### Docs
+
+- `docs/operating-loop-safety.md`, `docs/reference-apply-cli.md` and `AI_CONTEXT.md` say what the affordance leaves behind, and that survival is the transcript's lifetime rather than storage — a reload or New Chat still clears it, as it clears every other card.
+- `TODOS.md` records a P3: `report.reported > 0` is now spelled inline at three call sites and wants a shared predicate.
+
+### Tests
+
+- Seven behavioural pins in `tests/js/pp-ai-chat-conflict-rollback.test.js` drive the real surface through the click: the report stays reachable, every producer is still named, the fresh proposal still previews and offers Apply, the kept card carries no second click, a report that made a claim it could not draw is kept, the affordance survives a throwing re-render, and each cycle of conflict → re-read → conflict keeps its own report on its own card.
+- Three pins hold the other direction: a clean report, an unreadable channel and a pre-execution refusal each leave no residue.
+- Two source tripwires: the survival branch decides on the reported COUNT and reads neither the entries nor their order, and the re-render precedes the spend. The handler slice now fails loudly if the handler moves, rather than misreporting itself as a changed decider.
+- The file's `applyAndGetCard()` helper takes an explicit last match instead of `:last-of-type`, which selects nothing when the transcript's last div is not a proposal card and quietly handed back the FIRST card — harmless with one card, a trap now that multi-card transcripts are routine.
+
+---
+
 ## [v1.18.3] — 2026-08-31 — A rollback now checks every write it makes, so `rollback_errors: []` also means nothing FAILED silently (#857)
 
 **`_pp_restore_batch_snapshot()` discarded the return value of every write it performed.** It appended to the report for the cases it deliberately WITHHELD, and then fired every write it actually attempted into the void. A write that was REFUSED left the applied state in place and reported nothing, so the envelope came back:
