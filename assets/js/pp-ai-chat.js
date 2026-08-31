@@ -509,6 +509,34 @@ function ppChatConflictMessage(payload, report) {
 var PP_CHAT_ROLLBACK_ERRORS_MAX = 100;
 
 /**
+ * The one rollback kind this file draws differently (#855).
+ *
+ * MATCHES `PP_ROLLBACK_ERROR_WITHHELD` (lib/actions.php), and the pairing is prose rather
+ * than a shared constant because the two files do not share a module system. That is why
+ * the DEFAULT sits on the other side: everything this token does not match — the `failed`
+ * kind, a kind a newer server invented, an absent list, a list of the wrong length — draws
+ * the way the card has always drawn. A typo here degrades to "no withhold was recognized",
+ * never to "a failure was recognized as a withhold", which is the direction that would
+ * quietly soften a real failed revert.
+ */
+var PP_CHAT_ROLLBACK_KIND_WITHHELD = 'withheld';
+
+/**
+ * The row class for one adapted rollback entry (#855).
+ *
+ * DELIBERATELY NOT ppChatFindingClass(), which is defined about a thousand lines below,
+ * beside its own consumer, and answers the opposite way. That function serves the restore
+ * findings (#622), where an item with no recognizable severity is advisory, so it degrades
+ * to the WARNING class. Here the unrecognized case is an unknown kind — an older envelope,
+ * a newer server, a misaligned list — and Ruling T2 says an unknown kind renders as it does
+ * today, which is the FAILURE class. Same shape, inverted default, and merging them would
+ * make one of the two wrong. The reciprocal warning lives on ppChatFindingClass().
+ */
+function ppChatRollbackRowClass(item) {
+    return (item && item.severity === 'warning') ? 'pp-ai-step-warning' : 'pp-ai-step-failed';
+}
+
+/**
  * What a failed batch's rollback reported: `{ shown, total, reported, readable, rolledBack }`
  * (#755).
  *
@@ -533,6 +561,21 @@ var PP_CHAT_ROLLBACK_ERRORS_MAX = 100;
  *   total     how many of those are renderable strings. The heading's count.
  *   shown     the first PP_CHAT_ROLLBACK_ERRORS_MAX of them. The rows.
  *
+ * AND SINCE #855, TWO THINGS ABOUT WHAT THE ENTRIES MEAN — never about how many there are:
+ *
+ *   kinds     one token per `shown` entry, at the same index, read from the server's
+ *             index-aligned `rollback_error_kinds`. '' where the server said nothing this
+ *             file recognizes. Drives the ROW treatment.
+ *   withheld  how many of the REPORTED entries are renderable and carry the withheld kind.
+ *             Drives the HEADING treatment, and nothing else.
+ *
+ * NEITHER TOUCHES THE COUNTS, and that separation is the whole compatibility argument.
+ * `reported`, `total` and `shown` are computed exactly as before, so ppChatRollbackSentence,
+ * ppChatConflictOutcome and the #856 survival branch cannot change their answers no matter
+ * what the kinds say. A withheld entry still costs the clean claim: the rollback was not
+ * clean — bytes were left somewhere the operator must know about — and the kind only says
+ * whether leaving them was the deliberate, protective thing to do.
+ *
  * WHY `reported` AND NOT JUST `total`. Key the sentence on what is renderable and a
  * channel whose members are all unrenderable — `[{...}]`, `['']` — collapses to "nothing
  * was reported" and draws the byte-exact CLEAN sentence. That is precisely the #755 lie,
@@ -554,6 +597,8 @@ var PP_CHAT_ROLLBACK_ERRORS_MAX = 100;
 function ppChatRollbackErrorReport(batch) {
     var report = {
         shown: [],
+        kinds: [],
+        withheld: 0,
         total: 0,
         reported: 0,
         readable: false,
@@ -563,14 +608,50 @@ function ppChatRollbackErrorReport(batch) {
     var raw = batch && batch.rollback_errors;
     if (!Array.isArray(raw)) return report;
 
+    // THE KINDS ARE READ AS DEFENSIVELY AS THE MESSAGES, and for the same structural
+    // reason: this runs inside executeProposal()'s promise chain, whose catch renders
+    // `err.message` into the transcript, so a throw here would replace the honest report
+    // with a stack-shaped string. A missing key, a string, an object — anything that is not
+    // an array — becomes the empty list, and every kind lookup below then answers undefined,
+    // which is the unknown case, which is today's rendering.
+    //
+    // AND THE LENGTHS MUST MATCH, OR THE WHOLE LIST IS DISCARDED. This is the strictest
+    // reading of "index-aligned" and it is deliberate. A list of the wrong length means the
+    // server's alignment contract is broken; the entries it DOES cover are then covered on
+    // an assumption nothing has verified, and the cost of being wrong points one way — a
+    // real failed revert drawn as a harmless protection. Today's executor cannot produce a
+    // mismatch (both keys are projections of one traversal, lib/actions.php), so failing
+    // closed costs nothing against real data and removes the whole class.
+    var rawKinds = (batch && Array.isArray(batch.rollback_error_kinds)
+        && batch.rollback_error_kinds.length === raw.length)
+        ? batch.rollback_error_kinds
+        : [];
+
     report.readable = true;
     report.reported = raw.length;
 
     for (var i = 0; i < raw.length; i++) {
         if (!ppChatIsNonEmptyString(raw[i])) continue;
         report.total++;
+        // PAIRED AT THE ORIGINAL INDEX, BEFORE ANY FILTERING OR SLICING. The server aligns
+        // kind i with message i; `shown` drops unrenderable members and stops at the budget,
+        // so a kind list built by walking `shown` afterwards would be shifted by every drop —
+        // and a shifted kind does not fail loudly, it relabels a failed revert as a withhold.
+        // Read here, while `i` still means what the server meant by it.
+        var kind = ppChatIsNonEmptyString(rawKinds[i]) ? rawKinds[i] : '';
+        // COUNTED OVER EVERY REPORTED ENTRY, NOT OVER THE DRAWN ONES, because its only
+        // consumer asks a question about the whole report: is there anything here that is
+        // NOT a known withhold? A count taken over `shown` would answer that from the first
+        // hundred rows and miss a genuine failure sitting at row 101, painting the heading
+        // amber over a report that contains one. Unrenderable members never reach this line,
+        // so they can never be counted as withholds — which is what makes the strict
+        // `withheld === reported` test below fail closed on them too.
+        if (kind === PP_CHAT_ROLLBACK_KIND_WITHHELD) {
+            report.withheld++;
+        }
         if (report.shown.length < PP_CHAT_ROLLBACK_ERRORS_MAX) {
             report.shown.push(raw[i]);
+            report.kinds.push(kind);
         }
     }
 
@@ -1535,6 +1616,13 @@ function ppChatRenderPreviewResult(stepEl, diffArea, step, result) {
  * REJECTED by current rules; `severity: 'warning'` is advisory. Anything else (an
  * older payload, a missing key) degrades to the warning class rather than
  * over-escalating.
+ *
+ * IT HAS A NEAR-IDENTICAL TWIN WITH THE OPPOSITE DEFAULT, and neither may be folded into
+ * the other. ppChatRollbackRowClass() (#855) picks the same two classes from the same
+ * field, but its unrecognized case is an unknown rollback KIND — an older envelope, a
+ * newer server — which Ruling T2 says must render as it did before, i.e. the FAILURE
+ * class. De-escalating there would draw a real failed revert as a harmless protection.
+ * Two functions, two defaults, on purpose.
  */
 function ppChatFindingClass(item) {
     return (item && item.severity === 'error') ? 'pp-ai-step-failed' : 'pp-ai-step-warning';
@@ -1921,23 +2009,45 @@ function ppChatAppendUndoFailure(card, data) {
  * unbroken token would not. That gap is pre-existing and shared with every other finding
  * row on this card — filed as #798, not worked around here.
  *
- *   batch.rollback_errors ──▶ report {shown, total, reported, readable}
+ *   batch.rollback_errors      ──▶ report {shown, total, reported, readable,
+ *   batch.rollback_error_kinds ──▶         kinds, withheld}
  *          │                     │
  *          │                     ├─▶ nothing renderable ──▶ no section, no empty card
  *          │                     │
  *          │                     └─▶ N ──▶ heading (reported count, + "showing the first")
+ *          │                                 │        amber iff withheld === reported
  *          │                                 └─▶ 5 rows inline ──▶ <details> for the rest
+ *          │                                       amber per withheld row, red otherwise
  *          │
  *          ├──▶ (same report) ──▶ ppChatRollbackSentence()   ──▶ transcript line   [exit 3]
  *          └──▶ (same report) ──▶ ppChatConflictOutcome()    ──▶ card message      [exit 1]
  *
+ * TWO TREATMENTS SINCE #855, ONE VOCABULARY. `rollback_errors` carried two meanings on one
+ * opaque channel — a restore the rollback DECLINED to make (the #756/#749/#833 composition
+ * withholds and the two attachment refusals: nothing attempted, nothing broken) and a
+ * restore it OWED and did not land — and this card drew both in the failure colour, so a
+ * withhold that cost nothing read as a rollback failure. The server now tags each entry and
+ * this function draws the two apart: `pp-ai-step-warning` for a withhold,
+ * `pp-ai-step-failed` for everything else, INCLUDING every kind it does not recognize and
+ * every report that carries no kinds at all. The words are untouched — the withhold
+ * sentences already say "was NOT rolled back, and that is the safe outcome" — because T2
+ * leaves the wording half on #664.
+ *
  * THE ROWS GO THROUGH ppChatAppendValidationItems ON PURPOSE, and the adapter is one
- * line: each string becomes `{ message: <string> }`. That object carries no `index` and
- * no `type`, so ppChatFindingBand() answers null and ppChatFindingLocator() answers '' —
+ * line: each string becomes `{ message: <string>, severity: 'error'|'warning' }`. That
+ * object carries no `index` and no `type`, so ppChatFindingBand() answers null and
+ * ppChatFindingLocator() answers '' —
  * every entry lands in the "unlocated" group, which is never pooled, so the existing
  * selection yields five inline rows and the remainder behind "Show N more errors". Five
  * inline, the disclosure, and the #667 rule that it never opens on an empty set are all
  * inherited rather than re-implemented.
+ *
+ * WHAT THE PER-ITEM CLASS FORM COSTS, stated because it is the one visible knock-on. Passing
+ * a function rather than a fixed class makes ppChatAppendValidationItems derive the
+ * disclosure summary's noun from the hidden items' severities, so an all-withheld overflow
+ * now reads "Show N more warnings" and a mixed one "Show N more issues". Those are that
+ * helper's own three nouns (#622), not new vocabulary, and the all-failure case — which is
+ * every pre-#855 report and every old envelope — still reads "errors", byte for byte.
  *
  * That reuse is also a COUPLING, so it is stated rather than left to be discovered: these
  * strings are not validation findings, and this is the second consumer of a helper whose
@@ -1960,13 +2070,27 @@ function ppChatAppendRollbackErrors(card, report) {
     if (!card || !report || !report.shown.length) return;
 
     var shown = report.shown;
+    var kinds = report.kinds || [];
+    // EVERY REPORTED ENTRY IS A KNOWN WITHHOLD, or this is a failure report. Strict
+    // equality against `reported` — not "no failures among the drawn rows" — so the amber
+    // treatment needs the whole channel to agree: one failed entry, one unrenderable
+    // member, one kind from a newer server, one absent kinds list, and the heading is red
+    // exactly as it has always been.
+    var allWithheld = report.reported > 0 && report.withheld === report.reported;
 
     var section = document.createElement('div');
     section.setAttribute('role', 'status');
     section.setAttribute('aria-live', 'polite');
 
     var heading = document.createElement('div');
-    heading.className = 'pp-ai-step-failed';
+    heading.className = allWithheld ? 'pp-ai-step-warning' : 'pp-ai-step-failed';
+    // THE SENTENCE IS UNTOUCHED, AND THAT IS THE RULING, not an omission. T2 resolves #855
+    // by tagging the entries and drawing the kinds differently; it keeps the WORDING half
+    // pooled on #664 and adds no operator vocabulary. So a report of nothing but withholds
+    // still heads "N changes could not be reverted" — it counts, because the rollback was
+    // not clean — and what changed is that the heading and its rows now carry the warning
+    // treatment instead of the failure one, over sentences the server already writes as
+    // "was NOT rolled back, and that is the safe outcome".
     heading.textContent = '⚠ ' + report.reported + ' change'
         + (report.reported === 1 ? '' : 's')
         + ' could not be reverted'
@@ -1974,9 +2098,19 @@ function ppChatAppendRollbackErrors(card, report) {
         + ':';
     section.appendChild(heading);
 
-    ppChatAppendValidationItems(section, shown.map(function (message) {
-        return { message: message };
-    }), 'pp-ai-step-failed');
+    // THE ADAPTER CARRIES A SEVERITY, NOT THE KIND, and it is doing two jobs with one field.
+    // ppChatRollbackRowClass() reads it for the row's class, and ppChatAppendValidationItems
+    // reads it for the disclosure summary's noun — which is why the failed and unknown cases
+    // must both spell 'error' rather than leaving the field off. Omitting it would draw the
+    // right classes and then call an all-failure overflow "warnings", and the pre-#855 card
+    // said "errors" there. Kinds this file does not know land on 'error' with everything
+    // else, so an old envelope's disclosure is byte-identical too.
+    ppChatAppendValidationItems(section, shown.map(function (message, index) {
+        return {
+            message: message,
+            severity: kinds[index] === PP_CHAT_ROLLBACK_KIND_WITHHELD ? 'warning' : 'error'
+        };
+    }), ppChatRollbackRowClass);
 
     // ABOVE THE ACTION ROW, NOT AFTER IT. renderProposal() appends `.pp-ai-proposal-actions`
     // last, so a plain appendChild would drop this disclosure underneath a pair of
@@ -2359,10 +2493,12 @@ function ppChatValidationItemRow(item, className) {
  * Shows up to 5 inline; collapses the rest in a <details> disclosure (D6).
  *
  * `className` is either a fixed class string (the post-apply validation paths, whose
- * items are already split into an errors list and a warnings list, and — since #755 — the
- * batch rollback report, whose items are plain strings adapted to `{ message }` and are
- * all errors) or a function (item) -> class for a list that carries its own per-item
- * severity — today the restore findings (#622). In the per-item form the disclosure
+ * items are already split into an errors list and a warnings list) or a function
+ * (item) -> class for a list that carries its own per-item severity — the restore
+ * findings (#622) and, since #855, the batch rollback report, whose adapted items carry a
+ * severity derived from the server's `kind`. The rollback report used to be a fixed-class
+ * caller with items shaped `{ message }` and all of them errors; #855 is what moved it,
+ * because a withheld entry has to draw differently from a failed one. In the per-item form the disclosure
  * summary's noun is derived from the hidden items' own severities ("errors", "warnings",
  * or "issues" when they are mixed), never from the class string: calling a set that
  * contains errors "warnings" is the same misreport one level up.
@@ -3310,7 +3446,7 @@ function ppChatAppendValidationItems(container, items, className) {
                 return;
             }
 
-            var batch = resp.data; // { ok, steps: [...], failed_at, rolled_back, rollback_errors, versions }
+            var batch = resp.data; // { ok, steps: [...], failed_at, rolled_back, rollback_errors, rollback_error_kinds, versions }
             var applied = [];
 
             /*
@@ -3609,9 +3745,10 @@ function ppChatAppendValidationItems(container, items, className) {
      * would delete the card in precisely the case where the message is all that survived.
      *
      * ONE MORE THING THE KEY IS NOT: the entries. `rollback_errors` is opaque here — counted
-     * and filtered, never read — and #855 is about to tag those entries with a `kind`. A new
-     * decider that peeked at their text or their order is how that stays additive on the
-     * server and stops being additive here. Pinned as a source tripwire.
+     * and filtered, never read — and since #855 those entries carry a `kind` beside them
+     * (`rollback_error_kinds`). A new decider that peeked at their text, their order or their
+     * kind is how that stops being additive here, the way tagging them stayed additive on the
+     * server. Pinned as a source tripwire.
      *
      * An empty report earns none of this. A conflict that really did leave nothing behind has
      * nothing to preserve, and a spent card with no evidence on it would be residue sitting
@@ -4543,6 +4680,8 @@ if (typeof module !== 'undefined' && module.exports) {
         rollbackErrorReport: ppChatRollbackErrorReport,
         rollbackSentence: ppChatRollbackSentence,
         appendRollbackErrors: ppChatAppendRollbackErrors,
+        rollbackRowClass: ppChatRollbackRowClass,
+        ROLLBACK_KIND_WITHHELD: PP_CHAT_ROLLBACK_KIND_WITHHELD,
         modelNote: ppChatModelNote,
         appendRepairAffordance: ppChatAppendRepairAffordance,
         ROLLBACK_ERRORS_MAX: PP_CHAT_ROLLBACK_ERRORS_MAX

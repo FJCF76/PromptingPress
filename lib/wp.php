@@ -5083,7 +5083,7 @@ function pp_update_site_option(string $key, string $value) {
 //
 //   _pp_snapshot_batch_targets  ──▶ {norm_from => exists?, entry}   [lib/actions.php]
 //   create_redirect / remove_redirect ──▶ pp_redirects option
-//   step fails ──▶ _pp_restore_batch_snapshot ──▶ patch ONLY those keys back
+//   step fails ──▶ _pp_restore_batch_snapshot_report ──▶ patch ONLY those keys back
 //                                             └─ write refused? name the path in
 //                                                rollback_errors, never stay silent
 
