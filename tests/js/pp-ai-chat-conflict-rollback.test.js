@@ -116,6 +116,29 @@ const WITHHELD = 'Page 42: composition data integrity error (decode_error). The 
 /** The menu layer's producer shape — one entry per item it could not recreate. */
 const MENU = 'could not recreate menu item "Contact"';
 
+/**
+ * The two producers #854 added, in the shapes _pp_restore_batch_snapshot() builds them
+ * (lib/actions.php). They exist here because #854 is the issue that made this card's
+ * EMPTY report worth something: until it landed, a batch that created a redirect or
+ * imported an attachment reported `rollback_errors: []` while both survived, so the
+ * clean claim this file gates was gated on a channel that had never looked. Now the
+ * rollback deletes what its own batch created and NAMES whatever it could not — which
+ * only helps if the naming reaches the operator, and this is where that is checked.
+ *
+ * Nothing about the adapter changed to carry them: they are plain strings on the same
+ * channel, and they route through the same report, the same heading and the same budget
+ * as the two producers above. That is the property pinned below — a new producer needs no
+ * new client vocabulary, which is also what keeps #855's later `kind` tagging free to
+ * land on the channel rather than on the renderer.
+ */
+const SURVIVING_REDIRECT = 'The redirect for "/old-launch" was NOT rolled back: the stored '
+    + 'redirect map could not be written, so this batch\'s change to that path is still live. '
+    + 'Check it with the list_redirects action and undo it by hand.';
+
+const SURVIVING_ATTACHMENT = 'Media item 118 was imported by this batch and could NOT be '
+    + 'deleted during the rollback, so it is still in the Media Library. Remove it there if '
+    + 'it should not remain.';
+
 const CAUSE = 'This page changed while the proposal was pending (another tab, agent, or editor).';
 const CLEAN_CLAIM = 'Nothing was applied.';
 const DIRTY_CLAIM = 'Some changes could not be reverted.';
@@ -496,6 +519,61 @@ describe('a mid-batch conflict whose rollback left something behind', function (
         expect(messageText(card)).toBe(CAUSE);
         expect(rollbackSection(card)).toBeNull();
         expect(card.textContent).toContain('Re-read & re-preview');
+    });
+});
+
+// ─── #854's producers on the same channel ────────────────────────────────────
+
+describe('a rollback that could not remove what the batch created', function () {
+    test('names the surviving redirect and withholds the clean claim', async function () {
+        batchResponse = { success: true, data: conflictBatch([SURVIVING_REDIRECT]) };
+
+        const card = await applyAndGetCard();
+
+        expect(messageText(card)).not.toContain(CLEAN_CLAIM);
+        expect(messageText(card)).toContain(DIRTY_CLAIM);
+        expect(rowTexts(card)).toContain(SURVIVING_REDIRECT);
+        // The operator is told WHICH path is still live, not merely that something is.
+        expect(card.textContent).toContain('/old-launch');
+    });
+
+    test('names the surviving attachment and withholds the clean claim', async function () {
+        batchResponse = { success: true, data: conflictBatch([SURVIVING_ATTACHMENT]) };
+
+        const card = await applyAndGetCard();
+
+        expect(messageText(card)).not.toContain(CLEAN_CLAIM);
+        expect(messageText(card)).toContain(DIRTY_CLAIM);
+        expect(rowTexts(card)).toContain(SURVIVING_ATTACHMENT);
+        expect(card.textContent).toContain('Media item 118');
+    });
+
+    // ONE HEADING, ONE BUDGET, WHICHEVER PRODUCERS FILLED IT. The server enumerates seven
+    // distinct sentences on this channel (_pp_restore_batch_snapshot, lib/actions.php);
+    // three of them are fixtured in this file. The card's count is of ENTRIES, not of
+    // kinds, so a mixed report reads as one list rather than as sections per producer —
+    // which is what lets #855 add a `kind` to the entries later without the card growing a
+    // second shape, and why no number here needs to track the server's.
+    test('counts a mixed report as one list, whichever producers filled it', async function () {
+        batchResponse = {
+            success: true,
+            data: conflictBatch([WITHHELD, SURVIVING_REDIRECT, SURVIVING_ATTACHMENT])
+        };
+
+        const card = await applyAndGetCard();
+
+        expect(rowTexts(card)[0]).toBe('⚠ 3 changes could not be reverted:');
+        expect(rowTexts(card)).toContain(SURVIVING_REDIRECT);
+        expect(rowTexts(card)).toContain(SURVIVING_ATTACHMENT);
+    });
+
+    // The transcript line and the card are one fact in one dialect (#755/#797), and a new
+    // producer must not be the thing that splits them.
+    test('says the same dirty half in the transcript line', function () {
+        const payload = conflictBatch([SURVIVING_REDIRECT]);
+
+        expect(rollbackSentence(rollbackErrorReport(payload)))
+            .toBe(' — some changes could not be reverted.');
     });
 });
 

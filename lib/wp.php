@@ -5075,6 +5075,17 @@ function pp_update_site_option(string $key, string $value) {
 //   GET /old  ─(404)─▶ template_redirect ─▶ pp_resolve_redirect('/old')
 //                                   │                    │ match {to,code}
 //                                   └────────────────────▶ wp_safe_redirect(to)
+//
+// Inside a CHAT BATCH both writers are undone by a rollback (#854). The batch
+// snapshots the pp_redirects rows its steps NAME — per key, never the whole option,
+// so a row written by someone else during the batch window survives — and on failure
+// deletes a row the batch created or writes back the one it overwrote or removed:
+//
+//   _pp_snapshot_batch_targets  ──▶ {norm_from => exists?, entry}   [lib/actions.php]
+//   create_redirect / remove_redirect ──▶ pp_redirects option
+//   step fails ──▶ _pp_restore_batch_snapshot ──▶ patch ONLY those keys back
+//                                             └─ write refused? name the path in
+//                                                rollback_errors, never stay silent
 
 const PP_REDIRECTS_OPTION = 'pp_redirects';
 

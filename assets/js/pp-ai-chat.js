@@ -352,16 +352,24 @@ var PP_CHAT_CONFLICT_NOT_ALL_REVERTED = ' Some changes could not be reverted.';
  * wp_json_encode emit an OBJECT. Failing open there is how the fixed bug walks back in.
  *
  * HOW STRONG THE CLEAN CLAIM ACTUALLY IS, stated so the gating above is not read as more
- * than it is. `rollback_errors` reports what the ROLLBACK could not restore, which is
- * bounded by what the SNAPSHOT covered: `_pp_snapshot_batch_targets()` captures options only
- * for `update_site_option` (lib/actions.php), and `import_media`'s attachment is excluded on
- * purpose. A step that writes site state outside that capture — a redirect, an imported
- * attachment — is neither rolled back nor reported, so an empty channel is silent about it
- * and "Nothing was applied." is exactly as strong as the snapshot's coverage and no
- * stronger. That gap is the server's, it predates this exit and is shared with the #755 one,
- * and it is filed (#854, and #857 for a restore that fails without saying so) rather than
- * papered over here. What this function guarantees is narrower and worth having on its own:
- * the claim is never made OVER a report that contradicts it.
+ * than it is. `rollback_errors` reports what the ROLLBACK could not restore, so the claim
+ * is only ever as strong as the rollback's own COVERAGE — and that used to be the weaker
+ * half by a wide margin. `_pp_snapshot_batch_targets()` captured options only for
+ * `update_site_option` (lib/actions.php) and deliberately skipped `import_media`'s
+ * attachment, so a step writing site state outside that capture — a redirect, an imported
+ * attachment — was neither rolled back nor reported. An empty channel was silent about it,
+ * which made "Nothing was applied." exactly as strong as the snapshot's coverage and no
+ * stronger: an unverified claim wearing the gating above as if it were verified.
+ *
+ * SINCE #854 THE COVERAGE MATCHES THE CLAIM. The rollback deletes what its own batch
+ * created — the redirect row, the imported attachment — restores what the batch merely
+ * overwrote, and where it cannot do either it NAMES the survivor on this channel, which
+ * reaches the operator through the arm above without a single change here. So an empty
+ * report now means nothing survived, rather than meaning nothing was looked at, and the
+ * only remaining hole in that sentence is #857: `_pp_restore_batch_snapshot()` still
+ * discards the return value of its pre-existing writes, so a restore that FAILED can
+ * still report clean. What this function guarantees is unchanged and was always worth
+ * having on its own: the claim is never made OVER a report that contradicts it.
  *
  * WHY `rolled_back` IS ALSO REQUIRED, and it is an extra condition rather than a softening:
  * `rollback_errors: []` says the rollback reported no errors; it does not say a rollback

@@ -25,6 +25,15 @@
  *     Deferred to #864, which carries the open owner question;
  *   - the ~23 sibling `Component "%s"` messages, which reflect a stored component name
  *     verbatim. #649 treats that family's spelling as the reference point, not the target;
+ *   - the `rollback_errors` channel (`_pp_restore_batch_snapshot()`, lib/actions.php), whose
+ *     producers reflect stored site data verbatim: a menu item's title, and since #854 a
+ *     redirect's normalized source path. _pp_normalize_redirect_path() strips scheme, host,
+ *     query and trailing slash — it is a URL normalizer, not a text guard, so it removes no
+ *     \p{Cc}\p{Cf}. Registered here so the new producer is not mistaken for an audited sink:
+ *     it joined an already-unguarded channel rather than opening one. The exposure is
+ *     bounded — the chat renders these rows through textContent, so the escape is the DOM's
+ *     — and the owner question for a shared server-side cleaner is #864's, which this gate
+ *     deliberately leaves unruled;
  *   - QUOTING grammar — a key containing a double quote still renders `key "a"b"`;
  *   - U+2028/U+2029 and homoglyphs, which are not \p{Cc}\p{Cf}.
  *

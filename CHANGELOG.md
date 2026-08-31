@@ -4,6 +4,82 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.18.2] — 2026-08-31 — A rolled-back batch now removes the redirect it created and the media it imported, so `rollback_errors: []` means nothing survived (#854)
+
+**"Nothing was applied." was a claim the rollback had no way to check.** `rollback_errors` reports what the rollback could not restore, and that is bounded by what the snapshot COVERED. Two step classes wrote durable site state the snapshot never looked at. `create_redirect` / `remove_redirect` write the `pp_redirects` option directly (`lib/wp.php`), and that option is not in `pp_allowed_site_options()`, so it could not arrive through the `update_site_option` capture either. `import_media`'s attachment was excluded on purpose, documented as "additive and non-destructive". So a batch of `[create_redirect, update_component]` whose second step lost its compare-and-swap returned:
+
+```
+ok: false   failed_at: 1   error_code: composition_conflict
+rolled_back: true
+rollback_errors: []      <- nothing to report, because nothing was ever covered
+```
+
+and the chat's conflict card read that empty list as an explicitly clean report and told the operator **"Nothing was applied."** while a site-wide 301 was live and a new file sat in the Media Library. No malformed payload required; stock server output.
+
+**It was not a regression, and that is what made it worth fixing now.** The card claimed the same thing unconditionally before #797. What changed in v1.18.0 was the FRAMING: both failure exits began presenting that sentence as evidence-gated, derived from a channel that had been checked. An unverified claim that reads as verified is worse than the flat claim it replaced, and the evidence was only ever as strong as the coverage behind it.
+
+### What the rollback does now (ruling T1)
+
+A rollback MAY delete artifacts the SAME batch created, never anything that pre-existed it; where deletion is unsafe or fails, it refuses that entry and NAMES the survivor. The decision is per artifact, not per step:
+
+| what the batch did | pre-batch state | what the rollback does |
+|---|---|---|
+| `create_redirect` on a path with no row | none | **delete** the row it created |
+| `create_redirect` over an existing row | the prior `to` + `code` | **restore** the prior row — never delete |
+| `remove_redirect` that removed a row | the removed row | **restore** it |
+| `remove_redirect` that removed nothing | n/a | **nothing** — no write happened |
+| a redirect row the batch never wrote | whatever is there | **untouched** |
+| `import_media` reporting `action: "import"` | none | **delete** the attachment and its files |
+| `import_media` reporting `action: "reused"` (#298 dedupe) | the attachment pre-dated the batch | **keep** it |
+| any of the above, unsafe or refused | — | **refuse and NAME the survivor** in `rollback_errors` |
+
+### The mechanism: creation tracking, not a wider snapshot
+
+A snapshot can only express state that existed before the batch, and a file that did not exist has none. So the executor RECORDS what each step created, as it succeeds, and the rollback removes it — the shape `create_page` has always used for the pages it deletes.
+
+Recording on SUCCESS is the load-bearing part. The snapshotter sees the steps a batch INTENDS to run; only the executor sees which ones ran. A row named by a step that never executed is left exactly as found, because deleting it would destroy a row another admin may have created during the batch window. That is the failure `TODOS.md` still records against `_pp_restore_menu_state()`, and it is deliberately not repeated here. `remove_redirect` gets a second check for the same reason: it reports `ok` when it removed nothing, so the recorder reads the envelope's own `removed` flag rather than trusting `ok`.
+
+Redirects also need a VALUE, because `create_redirect` is create-or-replace. The snapshotter captures a per-key baseline (`['exists' => bool, 'entry' => array|null]`) for every row the batch names, keyed through `_pp_normalize_redirect_path()` — the writers' own normalizer, so `/old`, `/old/` and `https://site/old?x=1` all address one row. The restore reads the CURRENT map fresh and patches only the rows the batch wrote, so unrelated redirects survive.
+
+### What `rollback_errors: []` now guarantees
+
+Every step class the executor can run is covered: pages, compositions, whitelisted site options, Custom CSS, design tokens, fonts, nav menus, redirects, and imported media. An empty list now means nothing survived, rather than meaning a step class was never checked. A non-empty list names what is still live, and the channel carries seven distinct sentences — the four it already had plus three new ones (a redirect whose restoring write was refused, an attachment that could not be deleted, and an attachment whose ID no longer addresses an attachment). No new operator vocabulary was coined and the client needed no change: the #797 adapter renders them through the same heading, budget and disclosure, which is what keeps #855's later `kind` tagging free to land on the channel rather than on the card.
+
+### ⚠️ Breaking: an imported attachment no longer survives a rollback
+
+`import_media`'s attachment used to be kept by a failed batch and was documented that way in `AI_CONTEXT.md`. It is now deleted, with its files, when the batch it ran in rolls back. Nothing to migrate; the change is in what a rolled-back batch leaves behind. **If you relied on the old behavior, the practical effect is that an `attachment_id` from a rolled-back batch no longer resolves — re-import instead of carrying it into the retry.** An `import_media` that answered `action: "reused"` is unaffected: that attachment pre-dated the batch and is never deleted.
+
+### Where it deliberately stops
+
+- **A withheld composition blocks the delete.** When a page's composition restore is withheld (#749/#756/#833) that page keeps its mid-batch composition, which can reference the imported file. The attachment is refused and named rather than deleted, because the alternative is a live page pointing at media that no longer exists.
+- **No compare-and-swap on a row the batch wrote.** A concurrent edit to a row this batch created is discarded by the restore. That is inside T1's grant, and adding a concurrency posture for one artifact class would pre-empt the write-verification question #857 owns.
+- **The restorer still trusts its own write returns for everything else.** Every pre-existing write in `_pp_restore_batch_snapshot()` discards its result, including the `wp_delete_post()` that removes a created page — so a page whose delete is refused still survives silently. That is #857's, named here rather than fixed in passing.
+- **An envelope that creates an attachment without reporting it would still leak.** Defensive parsing prevents a crash, not a leak; the alternative is diffing the attachment table around every step, which is a much larger mechanism than T1 asks for.
+
+### Fixed
+
+- `_pp_snapshot_batch_targets()` captures a per-key `pp_redirects` baseline for every `create_redirect` / `remove_redirect` step, read once per batch and keyed through the writers' own normalizer (#854).
+- `pp_ai_execute_batch()` records imported attachment IDs and written redirect sources as steps succeed, gated on evidence of a real write (#854).
+- `_pp_restore_batch_snapshot()` deletes same-batch-created attachments and redirect rows, restores overwritten and removed rows, and refuses-and-reports where deletion is unsafe or the write is declined (#854).
+- A malformed baseline claiming a row existed leaves that row alone instead of deleting it; a falsy attachment ID is re-checked at the deleter, where `get_post()` would otherwise fall back to the global post (#854).
+- `wp_delete_attachment()`'s `null` return (no row at that ID) is distinguished from `false` (delete refused), so an attachment that is provably gone is not reported as a survivor (#854).
+
+### Docs
+
+- `AI_CONTEXT.md` retracts "the attachment is additive — a batch rollback keeps it", describes the creation-tracking mechanism, and re-enumerates the `rollback_errors` producers (which had also been undercounting the #833 sentence).
+- `ai-instructions/operating-loop.md` tells the model that a rollback removes what the batch created, so an earlier step's `attachment_id` goes stale with it, and that an empty `rollback_errors` now means nothing survived.
+- `docs/operating-loop-safety.md` gains a row for the removal half of the rollback, and the #797 paragraph records that its clean claim is now worth what it says.
+- `assets/js/pp-ai-chat.js`'s `ppChatConflictOutcome()` docblock no longer describes the coverage gap as open; the redirect flow diagram in `lib/wp.php` gains its rollback arm.
+
+### Tests
+
+- `tests/BatchRollbackCreatedArtifactsTest.php` (new, 30 tests): the issue's own repro driven end to end through `pp_ai_execute_batch()` with real registered steps; the delete, restore, and refuse-and-report branches; and the boundary pins that stop the fix from deleting too much — a row the batch only named, a no-op `remove_redirect`, a deduped attachment, and a malformed baseline.
+- `tests/ApplyTest.php`: the test that pinned the old "additive" contract is inverted, and says why.
+- `tests/js/pp-ai-chat-conflict-rollback.test.js`: the two new producer shapes reach the conflict card, name the survivor, and withhold the clean claim.
+- `tests/bootstrap.php`: a `wp_delete_attachment()` stub mirroring core's three returns, a test-controlled option-write refusal, and an option write counter.
+
+---
+
 ## [v1.18.1] — 2026-08-31 — The chat checks the shape of `batch.steps` before it walks it, so a malformed envelope reaches its failure card instead of a stack trace (#853)
 
 **One line stood in front of every batch-failure exit.** `executeProposal()` (`assets/js/pp-ai-chat.js`) opened by iterating `batch.steps`, and it did that before asking which exit the envelope called for. A `steps` that arrived as anything other than a list threw there; the throw lands in the promise chain's `.catch`, which renders `err.message` straight into the transcript. So the operator's answer to a failed apply was:
