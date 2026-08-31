@@ -4,6 +4,75 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.18.3] — 2026-08-31 — A rollback now checks every write it makes, so `rollback_errors: []` also means nothing FAILED silently (#857)
+
+**`_pp_restore_batch_snapshot()` discarded the return value of every write it performed.** It appended to the report for the cases it deliberately WITHHELD, and then fired every write it actually attempted into the void. A write that was REFUSED left the applied state in place and reported nothing, so the envelope came back:
+
+```
+ok: false   failed_at: 2
+rolled_back: true
+rollback_errors: []      <- nothing to report, because nothing was ever checked
+```
+
+and since #755/#797 all three batch-failure exits present that empty array as EVIDENCE the revert was clean. A page the batch created and could not delete stayed live on the site. A site setting kept the value the batch wrote. The Custom CSS stayed deleted. All of it behind "all changes in this proposal have been reverted."
+
+This is the same consequence class #854 closed, reached by the other route: there the write was never attempted, here it was attempted and its failure was dropped. #854 checked the writes it ADDED and named the rest for this slot in its own docblock. Coverage without verification was only half the claim.
+
+### The writes, before and after
+
+| Restore write | Before | Now |
+|---|---|---|
+| `wp_delete_post()` — a page this batch CREATED | silent | named; core's `null` (already gone) stays silent |
+| `pp_update_composition()` | the three withholds reported; the attempted WRITE silent | a refused write is named as its own outcome, and the page joins the withheld list so its imported media is not deleted out from under it |
+| `pp_update_page_title()` | silent | named |
+| `pp_update_page_slug()` | silent both ways | a refusal is named, and a slug that landed DE-DUPLICATED is named separately |
+| `wp_update_post()` — post status | silent | named |
+| `pp_update_seo_meta()` | silent | named |
+| `delete_option()` — a setting the batch invented | silent | named |
+| `update_option()` — a setting the batch changed | silent | named |
+| `wp_update_post()` — Custom CSS | silent | named |
+| `update_option()` — design token overrides | silent | named |
+| `pp_set_font_urls()` | silent | named |
+
+The last three are the same three FUNCTIONS at their other call sites in this function. The Custom CSS one is the sharpest: its `if ($css_post)` had no `else` at all, so a batch that cleared the Custom CSS and then failed reported a clean revert while the site's entire stylesheet stayed deleted, because the post to write it back into had been removed mid-batch.
+
+### The unchanged-value disambiguation
+
+`update_option()` and `delete_option()` return `false` for a write that was REFUSED and for a write that had nothing to do — an unchanged value, an already-absent row — and PHP cannot tell those apart from the return alone. Reporting on the bare return would put a survivor on the channel for every option a batch merely NAMED without changing: a false entry on the one channel the operator is told to trust, which is the mirror of the silence being removed (and the subject of open issue #855). So the four ambiguous-return writes compare the live state first and skip when it already matches. Past that guard, a `false` return is provably a refusal, because there was a real difference to write. The presence half of that comparison uses the snapshotter's own object-sentinel idiom, because a stored `''` must not read as an absent row (#291).
+
+Two more no-false-alarm rules fall out of the same reasoning. A created page that is provably GONE is not a survivor: core answers `null` when there is no row and `false` when the delete was refused, and folding those together would report a survivor for a page that is demonstrably absent. And a page deleted inside the batch window does not report four field survivors telling an operator to go and fix a page that is not there.
+
+### What an empty channel now guarantees
+
+With #854 and #857 together: every step class the executor can run is COVERED, and every write this function performs is CHECKED. `rollback_errors: []` means nothing survived, rather than meaning a step class was never looked at or a write was never checked.
+
+Three limits are stated rather than papered over, all unchanged from #854 and all belonging to the concurrency cluster's axis rather than this one. Each writer's return is trusted rather than verified by reading the value back. The compare-then-write pair is not atomic. And the menu layer (`_pp_restore_menu_state()`) reports the items it could not RECREATE but still has unchecked writes of its own, so the guarantee is stated as "every write THIS FUNCTION makes" rather than "every write the rollback performs" — filed as #876.
+
+### Scope
+
+Entry SHAPE is unchanged: plain sentences on the existing channel. #855's structured `kind` retrofit is the next slot and is deliberately left free. The redirect and attachment writes #854 landed already check their returns and are untouched.
+
+### Fixed
+
+- `_pp_restore_batch_snapshot()` (`lib/actions.php`) checks the return of every write it makes and names what it could not put back, on the existing `rollback_errors` entry shape.
+- The Custom CSS restore no longer no-ops in silence when the Custom CSS post was removed mid-batch.
+- A refused composition restore now joins the withheld-pages list, so the attachment cleanup cannot delete media a live page still references.
+
+### Docs
+
+- `AI_CONTEXT.md`, `docs/operating-loop-safety.md` and `ai-instructions/operating-loop.md` carried the retracted caveat verbatim ("a restore that FAILED can still report clean"); all three now describe the closed guarantee, and the safety ledger gains a `#857` row.
+- The `@return` contract of `_pp_restore_batch_snapshot()` no longer states a sentence COUNT. It said "SEVEN" through two changes that added classes; the enumeration is now the only source.
+- `pp_ai_execute_batch()`'s envelope docblock credited #854 alone for the empty-channel guarantee, which was half the story.
+
+### Tests
+
+- `tests/BatchRestoreWriteReturnTruthTest.php` (new, 24 tests): one red proof per write, plus the boundary half — an unchanged option neither writes nor reports, an already-absent row is neither deleted nor reported, a provably-gone created page is not a survivor, a vanished page reports no field survivors, and a clean rollback still reports `[]`. Sixteen of the 24 fail against the pre-fix source; the eight that pass either way are the no-false-alarm pins.
+- Boundary pins assert WRITE and DELETE COUNTS, not just an empty report: with no guard at all the write runs, succeeds, and the report is empty too, so an assertion on the report alone is vacuous.
+- `tests/bootstrap.php`: `wp_delete_post()` now mirrors core's three returns (`null` for a missing post, not `false`); `delete_option()` gains the refusal hook and a delete counter its sibling `update_option()` already had; `wp_update_post()` gains an opt-in refusal hook. All inert when unset.
+- One JS case pins that a #857-shaped entry renders through the #797-landed adapter unchanged.
+
+---
+
 ## [v1.18.2] — 2026-08-31 — A rolled-back batch now removes the redirect it created and the media it imported, so `rollback_errors: []` means nothing survived (#854)
 
 **"Nothing was applied." was a claim the rollback had no way to check.** `rollback_errors` reports what the rollback could not restore, and that is bounded by what the snapshot COVERED. Two step classes wrote durable site state the snapshot never looked at. `create_redirect` / `remove_redirect` write the `pp_redirects` option directly (`lib/wp.php`), and that option is not in `pp_allowed_site_options()`, so it could not arrive through the `update_site_option` capture either. `import_media`'s attachment was excluded on purpose, documented as "additive and non-destructive". So a batch of `[create_redirect, update_component]` whose second step lost its compare-and-swap returned:
