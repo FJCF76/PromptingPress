@@ -365,11 +365,12 @@ var PP_CHAT_CONFLICT_NOT_ALL_REVERTED = ' Some changes could not be reverted.';
  * created — the redirect row, the imported attachment — restores what the batch merely
  * overwrote, and where it cannot do either it NAMES the survivor on this channel, which
  * reaches the operator through the arm above without a single change here. So an empty
- * report now means nothing survived, rather than meaning nothing was looked at, and the
- * only remaining hole in that sentence is #857: `_pp_restore_batch_snapshot()` still
- * discards the return value of its pre-existing writes, so a restore that FAILED can
- * still report clean. What this function guarantees is unchanged and was always worth
- * having on its own: the claim is never made OVER a report that contradicts it.
+ * report now means nothing survived, rather than meaning nothing was looked at. Since #857
+ * it also means nothing FAILED silently: every write that rollback performs checks its own
+ * return, where they were all fire-and-forget before, so a restore that could not put a
+ * value back now names it here instead of reporting clean. What this function guarantees is
+ * unchanged and was always worth having on its own: the claim is never made OVER a report
+ * that contradicts it.
  *
  * WHY `rolled_back` IS ALSO REQUIRED, and it is an extra condition rather than a softening:
  * `rollback_errors: []` says the rollback reported no errors; it does not say a rollback
