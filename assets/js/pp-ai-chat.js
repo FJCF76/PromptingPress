@@ -509,7 +509,8 @@ function ppChatConflictMessage(payload, report) {
 var PP_CHAT_ROLLBACK_ERRORS_MAX = 100;
 
 /**
- * What a failed batch's rollback reported: `{ shown, total, rolledBack }` (#755).
+ * What a failed batch's rollback reported: `{ shown, total, reported, readable, rolledBack }`
+ * (#755).
  *
  * `rollback_errors` is documented on pp_ai_execute_batch()'s envelope (lib/actions.php)
  * as: non-empty when the rollback itself could not fully restore something, and "a
@@ -3585,6 +3586,38 @@ function ppChatAppendValidationItems(container, items, className) {
      * channel #755 wired into the executed-failure exit: the message's closing clause, and
      * the section naming which pages did not roll back and why.
      *
+     * AND SPENDING THE AFFORDANCE NO LONGER DESTROYS THEM (#856). Both halves live on this
+     * card and nowhere else — this exit writes no transcript line, the server writes no
+     * model-facing note for the conflict class (_pp_ai_batch_rejection_note, lib/ai-chat.php
+     * returns null for it), and no proposal card is persisted or replayed on reload
+     * (restoreConversation() replays messages only). So `card.remove()` in the click handler
+     * below was the single click that deleted the only copy of the report, and the card's
+     * own button was what invited it. The handler now SPENDS the affordance instead of
+     * deleting the card: the action row goes, the card stays where it happened, and the
+     * fresh proposal renders beneath it — the transcript reading, top to bottom, as what it
+     * is. Nothing else about the card changed. What it says and what it offers is a separate,
+     * unruled question (#859), and this fix deliberately does not answer it.
+     *
+     * THE SURVIVAL RULE IS THE CLAIM RULE, one key for both. The card is kept exactly when
+     * `report.reported > 0` — the same test ppChatConflictOutcome() uses to withhold
+     * "Nothing was applied." and ppChatRollbackSentence() uses for its dirty clause. So the
+     * card outlives its affordance exactly as long as it says something about a dirty
+     * rollback, and no longer. Deliberately NOT `shown.length`, and the difference is the
+     * arm worth naming: a report whose members are none of them renderable strings draws no
+     * rows, but it still costs the clean claim (see ppChatRollbackErrorReport's `reported`
+     * note), and that sentence is then the entire evidence there is. Keying on the rows
+     * would delete the card in precisely the case where the message is all that survived.
+     *
+     * ONE MORE THING THE KEY IS NOT: the entries. `rollback_errors` is opaque here — counted
+     * and filtered, never read — and #855 is about to tag those entries with a `kind`. A new
+     * decider that peeked at their text or their order is how that stays additive on the
+     * server and stops being additive here. Pinned as a source tripwire.
+     *
+     * An empty report earns none of this. A conflict that really did leave nothing behind has
+     * nothing to preserve, and a spent card with no evidence on it would be residue sitting
+     * above a proposal it has nothing to say about — so those keep today's behaviour exactly:
+     * the card goes.
+     *
      * ONE REPORT, BOTH SURFACES, inherited rather than re-derived. The channel is walked
      * once per render and the same answer feeds the message and the section, which is what
      * makes "the card cannot contradict the sentence" a property of the code. Reusing
@@ -3607,6 +3640,17 @@ function ppChatAppendValidationItems(container, items, className) {
      * looking for `.pp-ai-proposal-actions` and inserting BEFORE it, falling back to
      * appendChild when it finds none. Append the two in reading order and the fallback
      * fires, dropping the explanation underneath the button it explains.
+     *
+     * And what the affordance leaves behind, once it has been spent (#856):
+     *
+     *   reported > 0                          reported === 0 (clean, or unknown)
+     *   ┌ card (kept, spent) ───────────┐     (the card is removed, as it always was)
+     *   │ message  cause + dirty clause │
+     *   │ rollback disclosure, if drawn │
+     *   └───────────────────────────────┘
+     *   ┌ card (fresh proposal) ────────┐     ┌ card (fresh proposal) ────────┐
+     *   │ steps, previews, Apply        │     │ steps, previews, Apply        │
+     *   └───────────────────────────────┘     └───────────────────────────────┘
      *
      * @param {HTMLElement}   card     The proposal's card.
      * @param {Array}         steps    The proposal's steps, for the re-preview.
@@ -3649,10 +3693,38 @@ function ppChatAppendValidationItems(container, items, className) {
                 : refreshBaseline(readTarget);
 
             reader.then(function () {
-                card.remove();
                 // Re-render the proposal fresh: previews every step against current
                 // state and shows Apply again, now backed by the refreshed baseline.
+                //
+                // FIRST, AND THE ORDER IS THE CONTRACT (#856). This is the half that can
+                // throw — it builds a card, reads config, and fires a preview per step —
+                // and the catch below answers a throw by handing the button back and
+                // telling the operator to try again. Spend the affordance before it and
+                // that instruction is addressed to a button that is no longer on the page.
+                // (The executed-failure exit orders its own two surfaces deliberately too,
+                // for a different reason: scroll position, "append, then announce". Same
+                // care, not the same rule.)
+                //
+                // BE PRECISE ABOUT WHAT THIS DOES AND DOES NOT BUY, because the reachable
+                // failure is the other one. A preview that comes back unsuccessful is
+                // handled INSIDE renderProposal — it paints the failed step and returns
+                // without an Apply row, never reaching this chain's catch — so the fresh
+                // card can be unusable while this code sees success and spends the
+                // affordance anyway. That dead end predates this change (the old order
+                // reached it too, having already deleted the card) and is filed rather
+                // than widened here.
                 renderProposal({ proposal: true, steps: freshSteps }, pageId);
+
+                // Then spend it. The card is the only place this exit's rollback report
+                // ever exists, so it outlives its own affordance whenever the report said
+                // something — see this function's docblock for why the key is the reported
+                // COUNT and not the drawn rows.
+                var reportedSomething = rollback.reported > 0;
+                if (reportedSomething) {
+                    actions.remove();
+                } else {
+                    card.remove();
+                }
             }).catch(function () {
                 rereadBtn.disabled = false;
                 rereadBtn.textContent = 'Re-read & re-preview';

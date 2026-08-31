@@ -44,6 +44,10 @@
  *      additive truth, not a redesign of what the operator may do next.
  *   6. The wiring itself (source tripwire), because showConflictState() lives inside the
  *      IIFE and every pure-helper assertion above passes whether or not it is called.
+ *   7. SPENDING THE AFFORDANCE NO LONGER DESTROYS THE REPORT (#856). Everything above puts
+ *      the report on a card whose only button used to call `card.remove()` — so the pins
+ *      that made the report exist were all satisfied by a card one click from deletion.
+ *      The blocks at the end of this file drive that click.
  *
  * WHY THIS FILE DRIVES THE REAL SURFACE. The bug was a missing call, and a missing call is
  * exactly what helper tests cannot see. The end-to-end blocks below send a message, let the
@@ -139,6 +143,14 @@ const SURVIVING_ATTACHMENT = 'Media item 118 was imported by this batch and coul
     + 'deleted during the rollback, so it is still in the Media Library. Remove it there if '
     + 'it should not remain.';
 
+/**
+ * A member the card cannot DRAW, in the same spelling the pure-state block above uses for
+ * this class (`[{ message: 'x' }, null, '']`). It still counts toward `reported`, so it still
+ * costs the clean claim — which is the arm that separates the survival key from the drawn
+ * rows (#856).
+ */
+const UNRENDERABLE = { message: 'x' };
+
 const CAUSE = 'This page changed while the proposal was pending (another tab, agent, or editor).';
 const CLEAN_CLAIM = 'Nothing was applied.';
 const DIRTY_CLAIM = 'Some changes could not be reverted.';
@@ -180,6 +192,19 @@ const PRE_EXEC_MISSING_BASELINE = {
 
 let calls = [];
 let batchResponse = null;
+/**
+ * Whether the baseline re-read the affordance performs succeeds (#856). refreshBaseline()
+ * throws on anything that is not `success` plus a numeric `version`, and that throw is what
+ * puts the click handler on its catch path — the one branch where the card must keep its
+ * button rather than spend it.
+ */
+let baselineOk = true;
+/**
+ * Whether the preview request throws synchronously (#856), which is what a broken `fetch`
+ * looks like from inside renderProposal() — the one seam that reaches the click handler's
+ * catch AFTER the re-render has begun, and so the only way to drive the ordering contract.
+ */
+let previewThrows = false;
 
 function jsonOk(payload) {
     return Promise.resolve({ ok: true, json: function () { return Promise.resolve(payload); } });
@@ -213,13 +238,16 @@ global.fetch = function (url, opts) {
     calls.push({ action: action, url: url });
 
     if (action === 'pp_ai_preview') {
+        if (previewThrows) throw new Error('network is gone');
         return jsonOk({ success: true, data: { changes: [{ path: 'props.title', from: 'Old', to: 'New' }] } });
     }
     if (action === 'pp_ai_execute_batch') {
         return jsonOk(batchResponse);
     }
     if (action === 'pp_ai_page_baseline') {
-        return jsonOk({ success: true, data: { post_id: PAGE_ID, version: 4 } });
+        return baselineOk
+            ? jsonOk({ success: true, data: { post_id: PAGE_ID, version: 4 } })
+            : jsonOk({ success: false, data: { error: 'could not read the page' } });
     }
     if (action === 'pp_ai_chat') {
         return jsonOk({
@@ -262,9 +290,16 @@ async function applyAndGetCard() {
     sendBtn.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
     await settle();
 
-    const card = messagesEl.querySelector('.pp-ai-proposal-card:last-of-type')
-        || messagesEl.querySelector('.pp-ai-proposal-card');
-    expect(card).not.toBeNull();
+    // An explicit last-match, not `:last-of-type` — that pseudo-class matches on ELEMENT
+    // type among siblings, so on a transcript whose last div is not a proposal card it
+    // selects nothing and the old fallback quietly handed back the FIRST card instead.
+    // Harmless while a transcript held one card; #856 makes multi-card transcripts routine,
+    // and the premise guard below is SATISFIED by a stale spent conflict card, so the wrong
+    // card would be asserted against silently. Same idiom as
+    // tests/js/pp-ai-chat-batch-steps-shape.test.js.
+    const cards = messagesEl.querySelectorAll('.pp-ai-proposal-card');
+    expect(cards.length).toBeGreaterThan(0);
+    const card = cards[cards.length - 1];
 
     const applyBtn = card.querySelector('.pp-ai-proposal-apply');
     expect(applyBtn).not.toBeNull();
@@ -295,6 +330,24 @@ function messageText(card) {
     return card.querySelector('.pp-ai-status-error').textContent;
 }
 
+/** Every proposal card in the transcript, in document order (#856). */
+function allCards() {
+    return Array.prototype.slice.call(messagesEl.querySelectorAll('.pp-ai-proposal-card'));
+}
+
+/**
+ * Spends the conflict card's one affordance and drains what it starts (#856).
+ *
+ * Clicking it re-reads the page baseline and then re-renders the proposal, which previews
+ * every step again — several promise hops, all covered by settle().
+ */
+async function clickReread(card) {
+    const btn = card.querySelector('.pp-ai-proposal-actions button');
+    expect(btn).not.toBeNull();
+    btn.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+    await settle();
+}
+
 /** The message as this file's owner would build it, for the pure-state assertions. */
 function messageFor(payload) {
     return conflictMessage(payload, rollbackErrorReport(payload));
@@ -303,6 +356,8 @@ function messageFor(payload) {
 beforeEach(function () {
     calls = [];
     batchResponse = null;
+    baselineOk = true;
+    previewThrows = false;
     newChatBtn.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
     pageSelectEl.value = String(PAGE_ID);
     pageSelectEl.dispatchEvent(new dom.window.Event('change'));
@@ -609,6 +664,255 @@ describe('the conflicts that really did leave nothing behind', function () {
     });
 });
 
+// ─── Spending the affordance (#856) ──────────────────────────────────────────
+
+/**
+ * The report has to survive the one button on the card that carries it (#856).
+ *
+ * Everything above put the report on the conflict card. The card's only affordance then
+ * called `card.remove()` before re-rendering the proposal, and the report is a CHILD of that
+ * card — so the pins above were all satisfied by a card one click from deletion, and this
+ * exit has no second copy to fall back on: it writes no transcript line, the server writes no
+ * model-facing note for the conflict class (_pp_ai_batch_rejection_note, lib/ai-chat.php),
+ * and nothing about a proposal card is persisted or restored (restoreConversation() replays
+ * messages only).
+ *
+ * WHAT SURVIVAL MEANS HERE, stated because it is narrower than "persisted": the card stays in
+ * the transcript with its affordance SPENT, and the fresh proposal renders below it. It is
+ * the same DOM lifetime every other card on this surface has — a reload, or New Chat, still
+ * clears it, exactly as it clears the executed-failure card that carries the same report.
+ *
+ * WHY THE KEY IS `reported` AND NOT THE DRAWN ROWS, and why this card is the only copy:
+ * showConflictState()'s docblock owns both arguments. Not restated here — this file's own
+ * rule about the cost of two dialects for one fact applies to its rationale too.
+ *
+ * READ THROUGH THE TRANSCRIPT, NOT THROUGH THE CARD HANDLE, and this is the whole reason
+ * these tests can fail. `card.remove()` unlinks the node but leaves its subtree intact, so
+ * every `card.querySelector(...)` assertion still reads the heading, the rows and the claim
+ * off the DETACHED orphan — a survival test written that way passes against the bug it was
+ * written to catch. Each block below therefore asserts `messagesEl.contains(card)` and the
+ * transcript's own text, and asserts the CARD COUNT: a click handler that did nothing at all
+ * would also leave the report where it was, and the count is what separates "the report
+ * survived the affordance" from "the affordance is inert".
+ */
+describe('spending the Re-read affordance on a dirty rollback', function () {
+    test('keeps the report reachable in the transcript', async function () {
+        batchResponse = { success: true, data: conflictBatch([WITHHELD]) };
+
+        const card = await applyAndGetCard();
+        expect(rowTexts(card)).toContain(WITHHELD);
+
+        await clickReread(card);
+
+        // The red-proof: `card.remove()` took this whole subtree, and with it the only
+        // statement anywhere about which page stayed dirty. The card count is what makes
+        // the pin fail against an INERT button as well as against the old removal.
+        expect(messagesEl.contains(card)).toBe(true);
+        expect(messagesEl.textContent).toContain(WITHHELD);
+        expect(messagesEl.textContent).toContain('Page 42');
+        expect(allCards()).toHaveLength(2);
+    });
+
+    test('names every producer it named before, after the click', async function () {
+        batchResponse = {
+            success: true,
+            data: conflictBatch([WITHHELD, SURVIVING_REDIRECT, SURVIVING_ATTACHMENT, MENU])
+        };
+
+        const card = await applyAndGetCard();
+        await clickReread(card);
+
+        expect(messagesEl.contains(card)).toBe(true);
+        expect(allCards()).toHaveLength(2);
+        expect(messagesEl.textContent).toContain('⚠ 4 changes could not be reverted:');
+        expect(messagesEl.textContent).toContain(SURVIVING_REDIRECT);
+        expect(messagesEl.textContent).toContain(SURVIVING_ATTACHMENT);
+        expect(messagesEl.textContent).toContain(MENU);
+        expect(messagesEl.textContent).toContain(DIRTY_CLAIM);
+    });
+
+    test('still re-previews the proposal, which is what the button is for', async function () {
+        batchResponse = { success: true, data: conflictBatch([WITHHELD]) };
+
+        const card = await applyAndGetCard();
+        await clickReread(card);
+
+        const cards = allCards();
+        expect(cards).toHaveLength(2);
+        expect(cards[0]).toBe(card);
+
+        // The fresh card is a live proposal again: previewed, and offering Apply.
+        const fresh = cards[1];
+        expect(fresh.querySelector('.pp-ai-proposal-apply')).not.toBeNull();
+        expect(fresh.classList.contains('pp-ai-proposal-conflict')).toBe(false);
+        expect(calls.filter(function (c) { return c.action === 'pp_ai_page_baseline'; }))
+            .toHaveLength(1);
+    });
+
+    // SPENT, NOT DISABLED. #861 is open on exactly this distinction elsewhere in this file
+    // (pointer-events is not a disable — keyboard Enter still fires the link), so the offer
+    // is REMOVED rather than styled as unavailable. Asserted over buttons rather than over
+    // the action row's class, so a control added anywhere on the kept card fails this too.
+    test('leaves no second click on the card it kept', async function () {
+        batchResponse = { success: true, data: conflictBatch([WITHHELD]) };
+
+        const card = await applyAndGetCard();
+        await clickReread(card);
+
+        expect(card.querySelector('.pp-ai-proposal-actions')).toBeNull();
+        expect(card.querySelectorAll('button')).toHaveLength(0);
+        expect(card.textContent).not.toContain('Re-read & re-preview');
+    });
+
+    // The arm where `reported` and `shown` disagree, and the reason the key is `reported`.
+    // Today's producers only ever append strings (lib/actions.php), so this is the same
+    // defensive standing as the rest of the family — it costs the clean claim without being
+    // able to fill the card, and that claim is then the whole of the evidence.
+    test('keeps a report that made a claim it could not draw', async function () {
+        batchResponse = { success: true, data: conflictBatch([UNRENDERABLE]) };
+
+        const card = await applyAndGetCard();
+        expect(rollbackSection(card)).toBeNull();
+        expect(messageText(card)).toContain(DIRTY_CLAIM);
+
+        await clickReread(card);
+
+        expect(messagesEl.contains(card)).toBe(true);
+        expect(messagesEl.textContent).toContain(DIRTY_CLAIM);
+        expect(allCards()).toHaveLength(2);
+    });
+
+    /**
+     * THE ORDERING CONTRACT, driven rather than grepped.
+     *
+     * The re-render runs BEFORE the affordance is spent so that a throw inside it lands in
+     * the chain's catch while the button is still on the page to be handed back. Swap the
+     * two halves and this test is what notices: the catch would re-arm a button that had
+     * already been removed with its row, leaving "Try again." addressed to nothing.
+     *
+     * The seam is a synchronous throw from the preview request, which is what a broken
+     * `fetch` looks like from inside renderProposal(). Note what the transcript is left
+     * holding, because it is honest and it is not pretty: renderProposal() appends its card
+     * before it previews, so the throw leaves a half-built proposal card stuck on "Loading
+     * preview…" beside the intact conflict card. That orphan predates this change and is
+     * filed, not fixed here; what this pins is that the operator still has the report AND a
+     * live way to try again, which under the other order they would not.
+     */
+    test('keeps the affordance when the re-render throws', async function () {
+        batchResponse = { success: true, data: conflictBatch([WITHHELD]) };
+
+        const card = await applyAndGetCard();
+
+        // Armed only now: the FIRST preview has to succeed or there is no card to click.
+        previewThrows = true;
+        await clickReread(card);
+
+        expect(messagesEl.contains(card)).toBe(true);
+        expect(messagesEl.textContent).toContain(WITHHELD);
+
+        const btn = card.querySelector('.pp-ai-proposal-actions button');
+        expect(btn).not.toBeNull();
+        expect(btn.disabled).toBe(false);
+        expect(btn.textContent).toBe('Re-read & re-preview');
+        expect(messagesEl.textContent).toContain('Could not re-read the page.');
+    });
+
+    /**
+     * The composition this change makes routine: conflict, re-read, conflict again.
+     *
+     * Each cycle leaves one spent card carrying its own report and one live card carrying
+     * its own affordance. Nothing here is shared state, so the property is expected to
+     * hold — but "expected to hold" is exactly what a per-closure design is worth pinning
+     * for, and the second card's report is the one a hand-written selector would miss.
+     */
+    test('keeps each cycle\'s report on its own card', async function () {
+        batchResponse = { success: true, data: conflictBatch([WITHHELD]) };
+
+        const first = await applyAndGetCard();
+        await clickReread(first);
+
+        batchResponse = { success: true, data: conflictBatch([MENU]) };
+        const fresh = allCards()[1];
+        fresh.querySelector('.pp-ai-proposal-apply')
+            .dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+        await settle();
+
+        expect(fresh.classList.contains('pp-ai-proposal-conflict')).toBe(true);
+        expect(rowTexts(fresh)).toContain(MENU);
+
+        await clickReread(fresh);
+
+        expect(allCards()).toHaveLength(3);
+        expect(messagesEl.contains(first)).toBe(true);
+        expect(messagesEl.textContent).toContain(WITHHELD);
+        expect(messagesEl.textContent).toContain(MENU);
+        // Both spent, neither able to fire a second request.
+        expect(first.querySelectorAll('button')).toHaveLength(0);
+        expect(fresh.querySelectorAll('button')).toHaveLength(0);
+    });
+
+    // The affordance did not work, so it is not spent. Unchanged behaviour, pinned because
+    // the fix edits the branch beside it.
+    test('gives the button back when the re-read itself fails', async function () {
+        baselineOk = false;
+        batchResponse = { success: true, data: conflictBatch([WITHHELD]) };
+
+        const card = await applyAndGetCard();
+        await clickReread(card);
+
+        const btn = card.querySelector('.pp-ai-proposal-actions button');
+        expect(btn).not.toBeNull();
+        expect(btn.disabled).toBe(false);
+        expect(btn.textContent).toBe('Re-read & re-preview');
+        expect(rowTexts(card)).toContain(WITHHELD);
+        expect(allCards()).toHaveLength(1);
+        expect(messagesEl.textContent).toContain('Could not re-read the page.');
+    });
+});
+
+/**
+ * An empty report adds nothing — the fix is not "keep the card" (#856).
+ *
+ * The conflicts that really did leave nothing behind have nothing to preserve, and leaving a
+ * spent card behind for them would be residue: a red alert with no evidence, sitting above
+ * the fresh proposal it has nothing to say about. These are the pins that stop the fix from
+ * being bought by never removing the card at all.
+ */
+describe('spending the Re-read affordance on a clean rollback', function () {
+    test('takes the card with it when the report is explicitly clean', async function () {
+        batchResponse = { success: true, data: conflictBatch([]) };
+
+        const card = await applyAndGetCard();
+        await clickReread(card);
+
+        expect(messagesEl.contains(card)).toBe(false);
+        expect(messagesEl.textContent).not.toContain(CAUSE);
+        expect(allCards()).toHaveLength(1);
+        expect(allCards()[0].querySelector('.pp-ai-proposal-apply')).not.toBeNull();
+    });
+
+    test('takes the card with it when the channel is unreadable', async function () {
+        batchResponse = { success: true, data: conflictBatch({ 0: MENU }) };
+
+        const card = await applyAndGetCard();
+        await clickReread(card);
+
+        // An unknown is not a claim, so there is nothing here the click destroys.
+        expect(messagesEl.contains(card)).toBe(false);
+        expect(allCards()).toHaveLength(1);
+    });
+
+    test('takes the card with it when no step ever ran', async function () {
+        batchResponse = { success: false, data: PRE_EXEC_CONFLICT };
+
+        const card = await applyAndGetCard();
+        await clickReread(card);
+
+        expect(messagesEl.contains(card)).toBe(false);
+        expect(allCards()).toHaveLength(1);
+    });
+});
+
 /**
  * SOURCE TRIPWIRE — the wiring, not the helpers (#755's pattern, #797's exit).
  *
@@ -677,6 +981,75 @@ describe('conflict-exit wiring', function () {
         expect(renderer.split('ppChatRollbackErrorReport(').length - 1).toBe(1);
         expect(renderer).toContain('ppChatConflictMessage(payload, rollback)');
         expect(renderer).toContain('ppChatAppendRollbackErrors(card, rollback)');
+    });
+
+    /**
+     * The affordance's own handler, with line comments stripped (#856).
+     *
+     * Line comments survive the file-level block-comment strip above, and the assertions
+     * below are about what the handler READS — a comment naming a field it must not read
+     * would fail them for the wrong reason. Nothing in this slice is a string literal
+     * containing `//`, so the strip is safe here.
+     */
+    function rereadHandler() {
+        const renderer = conflictRenderer();
+        const start = renderer.indexOf("rereadBtn.addEventListener('click'");
+        expect(start).toBeGreaterThan(-1);
+        const end = renderer.indexOf('actions.appendChild(rereadBtn)', start);
+        expect(end).toBeGreaterThan(start);
+
+        const handler = renderer.slice(start, end).replace(/\/\/[^\n]*/g, '');
+        // FAIL LOUD IF THE HANDLER MOVED. Both slice anchors are ordinary statements, and an
+        // ordinary refactor — hoisting the body into a named function passed to
+        // addEventListener — collapses this window to a few characters. Without this check
+        // the two assertions below would then fail as "the decider reads the wrong field",
+        // which is a false accusation about a change that decided nothing.
+        expect(handler.length).toBeGreaterThan(200);
+        return handler;
+    }
+
+    /**
+     * KEYED ON A COUNT, NOT ON THE ENTRIES (#856, and the reason it matters is #855).
+     *
+     * `rollback_errors` is an opaque string channel to every consumer in this file: the
+     * report counts and filters, and nothing anywhere reads an entry's text or its position.
+     * #855 will tag those entries with a `kind`, and it can only stay envelope-additive if
+     * the consumers that decide things are still deciding on counts. The survival rule is a
+     * new decider, so it is held to that rule here rather than by convention.
+     */
+    it('decides survival on the reported count, never on the entries', function () {
+        const handler = rereadHandler();
+
+        expect(handler).toContain('rollback.reported > 0');
+        expect(handler).not.toContain('rollback.shown');
+        expect(handler).not.toContain('rollback.total');
+        expect(handler).not.toContain('rollback_errors');
+        expect(handler).not.toContain('rollback.rolledBack');
+    });
+
+    /**
+     * THE DESTRUCTIVE HALF RUNS LAST.
+     *
+     * `renderProposal()` builds and previews a whole card; it is the half that can throw,
+     * and the promise chain's catch restores the button and tells the operator to try again.
+     * Spend the affordance first and that catch hands its instruction to a button that is no
+     * longer on the page — the operator is left with a dead card and no way to re-read.
+     * Ordered this way, a throw leaves the conflict card exactly as it was.
+     *
+     * The behaviour is driven in "keeps the affordance when the re-render throws" above;
+     * this is the cheap tripwire beside it, for the day the seam that reaches that throw
+     * stops existing.
+     */
+    it('re-renders the proposal before it spends the affordance', function () {
+        const handler = rereadHandler();
+
+        const renderAt = handler.indexOf('renderProposal(');
+        const spendAt = handler.indexOf('actions.remove()');
+        const dropAt = handler.indexOf('card.remove()');
+
+        expect(renderAt).toBeGreaterThan(-1);
+        expect(spendAt).toBeGreaterThan(renderAt);
+        expect(dropAt).toBeGreaterThan(renderAt);
     });
 
     // The disclosure is placed by insertBefore('.pp-ai-proposal-actions'), so the action row
