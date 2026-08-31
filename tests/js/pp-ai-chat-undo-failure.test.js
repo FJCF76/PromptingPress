@@ -197,10 +197,15 @@ describe('ppChatAppendUndoFailure', () => {
     });
 
     it('rewrites its own row instead of stacking a second one', () => {
-        // `pointer-events: none` on the link is NOT a single-shot latch — it removes the
+        // WHY THIS EXISTS, AND WHAT IT PINS NOW. It was written because
+        // `pointer-events: none` on the link was NOT a single-shot latch — it removes the
         // anchor as a mouse target but leaves it focusable, and Enter still dispatches click
-        // (measured in Chromium). So a keyboard operator can re-activate the link, and
-        // without this the card would grow a second ~370-character row and re-announce it.
+        // (measured in Chromium) — so a keyboard operator could re-activate the link and
+        // grow the card a second ~370-character row. #861 closed that at the source: the
+        // link now runs through ppChatOneShotLink() and cannot fire twice. This test keeps
+        // pinning the behavior as the CONTRACT this function offers its direct callers,
+        // which is what it always really was; it is no longer the card's protection against
+        // a reachable keyboard re-fire.
         const card = newCard();
         const first = appendUndoFailure(card, PRESERVED_BYTES_REFUSAL);
         const second = appendUndoFailure(card, TARGET_SHIFTED_REFUSAL);

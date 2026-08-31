@@ -749,10 +749,14 @@ describe('spending the Re-read affordance on a dirty rollback', function () {
             .toHaveLength(1);
     });
 
-    // SPENT, NOT DISABLED. #861 is open on exactly this distinction elsewhere in this file
-    // (pointer-events is not a disable — keyboard Enter still fires the link), so the offer
-    // is REMOVED rather than styled as unavailable. Asserted over buttons rather than over
-    // the action row's class, so a control added anywhere on the kept card fails this too.
+    // SPENT, NOT DISABLED. The offer is REMOVED rather than styled as unavailable, because
+    // "looks unavailable" and "is unavailable" are different claims — #861 was the sibling
+    // links learning that the hard way (pointer-events is not a disable; keyboard Enter
+    // still fires an anchor). #861 has since landed ppChatOneShotLink() for those links, so
+    // the distinction is settled there; removal is still the right answer HERE, because a
+    // spent affordance that stays on the card is a control an operator can still reach.
+    // Asserted over buttons rather than over the action row's class, so a control added
+    // anywhere on the kept card fails this too.
     test('leaves no second click on the card it kept', async function () {
         batchResponse = { success: true, data: conflictBatch([WITHHELD]) };
 

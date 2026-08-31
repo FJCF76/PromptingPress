@@ -566,12 +566,30 @@ body.pp-ai-chat-page #wpfooter {
     text-decoration: line-through;
 }
 
-.pp-ai-step-diff-from::after {
-    content: ' \2192 ';
-    text-decoration: none;
-    color: #8c8f94;
-    display: inline-block;
-}
+/*
+ * NO `::after` ARROW HERE — the renderer owns the separator (#852).
+ *
+ * This rule used to paint `content: ' \2192 '` while ppChatRenderDiffLine() also appended
+ * a ` → ` text node, so every generic diff row rendered TWO arrows
+ * (`--color-accent: #111 →  → #222`). Nothing caught it: pseudo-element `content` is
+ * invisible to `textContent`, which is what every unit pin on that renderer reads.
+ *
+ * The duplicate was removed from THIS side, not the JS side, and the reason is measured
+ * rather than stylistic. A pseudo-element arrow is not in the DOM, so it is absent from
+ * `innerText` — copy-paste and non-visual reads of the row fused the two values into
+ * `OldNew`. It also could not space itself: Chromium computes `content: ' \2192 '` as
+ * `" →"` (trailing space dropped) and `display: inline-block` strips the remaining edge
+ * whitespace, so the surviving arrow rendered cramped (`Old→New`) while the corrupt-marker
+ * row — which never took this class, and so always used the text node — rendered a
+ * properly spaced `unreadable (decode_error) → [...]` directly beneath it on the same card.
+ * One owner in the JS gives every row the same separator, in pixels and in text.
+ *
+ * Do not reintroduce a `::after` here. The renderer appends the arrow for BOTH branches;
+ * adding one back restores the duplicate on every row that carries this class. Pinned in
+ * tests/js/pp-ai-chat-preview-render-isolation.test.js (a stylesheet assertion that this
+ * rule declares no arrow, plus per-row DOM counts) and counted in real Chromium in
+ * tests/e2e/ai-chat.spec.ts, where the pseudo-element would actually resolve.
+ */
 
 .pp-ai-step-diff-to {
     font-weight: 600;
