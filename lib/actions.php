@@ -3153,8 +3153,12 @@ function _pp_restore_batch_snapshot(array $snapshot): array {
  *                          the question those strings could only be PARSED for — whether
  *                          the rollback DECLINED on purpose ('withheld': the #756/#749/#833
  *                          composition withholds and the two attachment refusals, where
- *                          nothing was attempted and nothing broke) or OWED a write it did
- *                          not land ('failed': everything else). Both still count: the
+ *                          nothing was attempted for THAT entry) or OWED a write it did
+ *                          not land ('failed': everything else). The kind describes the
+ *                          entry's own decision, not the batch around it — the attachment
+ *                          refusal is a withhold even when the page it protects got there
+ *                          through a composition write that was refused, and that page
+ *                          carries its own 'failed' entry. Both still count: the
  *                          channel's size is unchanged and every count-keyed consumer is
  *                          untouched — the kind decides how an entry is DRAWN, never
  *                          whether it is reported. Present on every return, empty beside an

@@ -12,9 +12,11 @@ The sharpest case is #756. A batch finds a page's stored composition undecodable
 
 **Ruling T2 resolves it by tagging the entries, not by splitting the channel.** Each entry now carries a `kind`, the envelope gains an index-aligned `rollback_error_kinds`, and the renderer draws the kinds it knows while falling back to today's rendering for everything else.
 
-### The producer classification, all 23
+### The producer classification, all 23 sites
 
-The discriminator, stated once so 23 sites can agree on it. **withheld** = the rollback DECIDED not to write or delete, as a protective policy; nothing was attempted and nothing broke. **failed** = a restore or removal was owed, was attempted (or was impossible), and did not happen. Both still COUNT — the rollback was not clean either way.
+The discriminator, stated once so 23 sites can agree on it. **withheld** = the rollback DECIDED not to make THIS write or THIS delete, as a protective policy; nothing was attempted for it. **failed** = a restore or removal was owed, was attempted (or was impossible), and did not happen. The kind describes the entry's own decision, not the state of the batch around it — see producer 18 below, where a deliberate refusal can be caused by a page that genuinely broke. Both still COUNT: the rollback was not clean either way.
+
+The unit below is the **branch** that emits an entry, which is why the site-option write and its delete are two rows: they are two `$entries[] =` sites. One of those sites can emit many entries at runtime (the menu layer emits one per item it could not recreate), and the executor's own `@return` collapses the menu layer into a single numbered sentence — three countable bases, named here so no number in this repo has to be guessed at.
 
 | # | Producer | Kind | Why |
 |---|---|---|---|
