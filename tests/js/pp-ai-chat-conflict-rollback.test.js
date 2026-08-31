@@ -548,8 +548,9 @@ describe('a rollback that could not remove what the batch created', function () 
         expect(card.textContent).toContain('Media item 118');
     });
 
-    // ONE HEADING, ONE BUDGET, WHICHEVER PRODUCERS FILLED IT. The server enumerates seven
-    // distinct sentences on this channel (_pp_restore_batch_snapshot, lib/actions.php);
+    // ONE HEADING, ONE BUDGET, WHICHEVER PRODUCERS FILLED IT. The server enumerates many
+    // distinct sentences on this channel (_pp_restore_batch_snapshot, lib/actions.php — the
+    // count is deliberately not repeated here or there, having drifted twice already);
     // three of them are fixtured in this file. The card's count is of ENTRIES, not of
     // kinds, so a mixed report reads as one list rather than as sections per producer —
     // which is what lets #855 add a `kind` to the entries later without the card growing a

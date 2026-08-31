@@ -499,3 +499,50 @@ describe('batch-failure branch wiring', () => {
         expect(appendAt).toBeLessThan(announceAt);
     });
 });
+
+// ── the #857 producers: a restore WRITE that was refused ────────────────────────
+//
+// The channel gained a family of producers. #854 already reported one tried-and-refused
+// write (the redirect map), but every OTHER write `_pp_restore_batch_snapshot()` made was
+// fire-and-forget, so what the channel carried was mostly what the rollback DECLINED to
+// write — the menu layer, and the #749/#756/#833 withholds. Since #857 it also reports
+// what the rollback TRIED to write and could not: a created page whose delete was refused,
+// a per-page title/slug/status/SEO field, a site setting, the tokens, the fonts, the
+// Custom CSS.
+//
+// NOTHING IN THE ADAPTER CHANGES FOR THIS, and that is the claim worth pinning rather than
+// assuming. The client reads `rollback_errors` as an opaque list of strings (#755), so a
+// new producer is supposed to be free. This is the check that it actually is: same
+// dirty sentence, same counted heading, same rows — no card redesign, no per-producer
+// branch, and in particular no silent drop of an entry shape the renderer has not seen.
+describe('a refused restore write renders through the existing adapter (#857)', () => {
+    /** The #857 producer's real shape — byte-copied from lib/actions.php. */
+    const REFUSED_PAGE_DELETE = 'Page 88 was created by this batch and could NOT be deleted '
+        + 'during the rollback, so it is still on the site. Everything else was rolled back, '
+        + 'which means this page may now be empty or half-built. Delete it by hand.';
+
+    it('reads a refused write as a reported entry, not as an unreadable channel', () => {
+        const report = rollbackErrorReport(failedBatch([REFUSED_PAGE_DELETE]));
+
+        expect(report.readable).toBe(true);
+        expect(report.reported).toBe(1);
+        expect(report.shown).toEqual([REFUSED_PAGE_DELETE]);
+    });
+
+    it('never narrates a clean revert once a write was refused', () => {
+        const sentence = sentenceFor(failedBatch([REFUSED_PAGE_DELETE]));
+
+        expect(sentence).toBe(DIRTY_SENTENCE);
+        expect(sentence).not.toContain(CLEAN_SENTENCE);
+    });
+
+    it('draws the refused write beside a withhold from the older producer', () => {
+        const card = newCard();
+        renderFor(card, failedBatch([REFUSED_PAGE_DELETE, WITHHELD]));
+
+        const rows = rowTexts(card);
+        expect(rows.join('\n')).toContain('could NOT be deleted');
+        expect(rows.join('\n')).toContain('composition was NOT rolled back');
+        expect(rows.join('\n')).toContain('2');
+    });
+});
