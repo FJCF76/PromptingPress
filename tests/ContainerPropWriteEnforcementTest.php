@@ -614,8 +614,12 @@ class ContainerPropWriteEnforcementTest extends TestCase
      * A JSON LIST in an `object` field is still ACCEPTED, deliberately.
      *
      * PHP has one shape for both JSON containers, so this rule enforces "container,
-     * not scalar" and decides nothing about what a container may hold — map-vs-list,
-     * and what an item `style` may contain, stay unowned (no decision exists). The pin
+     * not scalar" and decides nothing about what a container may hold. Map-vs-list was
+     * unowned when this landed; #738 has since closed the `array` direction in a SECOND
+     * predicate (_pp_schema_list_value_is_valid()) that runs after this one, so a
+     * declared list must now be a JSON array. This rule is unchanged, and the shape
+     * exercised HERE — a JSON list handed to a declared `object` — is still unowned in
+     * both files (tracked as #883). What an item `style` may contain stays unowned too. The pin
      * exists so a later reader does not "tighten" this into a shape nobody ruled on;
      * the entry-shape question one level up is owned by `item_type: "object"`, which is
      * a different rule with a different message.
@@ -889,7 +893,9 @@ class ContainerPropWriteEnforcementTest extends TestCase
             pp_validate_composition([
                 ['component' => 'widget', 'props' => ['id' => 'w', 'config' => ['a', 'b']]],
             ]) === true,
-            'a JSON list is a container, so the container rule passes it — map-vs-list is nobody\'s rule here'
+            'a JSON list is a container, so the container rule passes it — for a declared'
+            . ' `object` map-vs-list is still nobody\'s rule (#883). The `array` direction is'
+            . ' owned by _pp_schema_list_value_is_valid() since #738, and this prop is `object`.'
         );
     }
 

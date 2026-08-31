@@ -119,10 +119,11 @@ $id           = $props['id']           ?? '';
 // degrade instead of 500ing (pinned in tests/StoredStyleAndItemsRenderGuardTest.php).
 // The corridor is still not fully closed. Open on it: #730 (core's esc_url/wp_kses_post,
 // which DO fatal in production), #733 (lib/ai-context.php's mb_strlen/basename on the
-// same raw title), #736 (esc_html rendering a stored array as the word `Array`), #738
-// (grid's `(string) ($index + 1)` on a string items key), #739 (faq's items into
-// pp_render_faq_schema), #740 (an object-valued style slot) and #707 (what the write
-// path accepts).
+// same raw title), #736 (esc_html rendering a stored array as the word `Array`), #739
+// (faq's items into pp_render_faq_schema), #740 (an object-valued style slot) and #707
+// (what the write path accepts). #738 (grid's `(string) ($index + 1)` on a string items
+// key) has LANDED — closed from both ends, the write path refusing a JSON-object `items`
+// and grid's card loop counting positions instead of reading the key.
 $raw_title        = $props['title']        ?? 'Default Title';
 $title            = is_scalar($raw_title) ? (string) $raw_title : '';
 $raw_title_accent = $props['title_accent'] ?? '';

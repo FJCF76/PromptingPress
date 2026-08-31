@@ -4,6 +4,77 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.18.6] — 2026-08-31 — A keyed `items` object is refused at the write path, and never takes a page down again (#738)
+
+**A schema-clean write could store a shape the renderer cannot walk, and the public page 500'd for it.** Sending `grid.props.items` as a JSON OBJECT — `{"first": {...}, "second": {...}}` — instead of a JSON array returned `ok:true` with no findings. The bytes persisted, and the page then died: `components/grid/grid.php` derived a card's step ordinal with `(string) ($index + 1)`, and a string array key plus an int is a PHP `TypeError` that `templates/composition.php` does not catch. This is closed from both ends. The write path now refuses the shape, and the renderer stopped depending on the array key, so a page that already stores one renders instead of 500-ing.
+
+Found in the v1.18.0 release smoke, which is the part worth stating plainly: this was not a museum piece reachable only through aged storage or a raw database write. It was reachable through the ordinary authoring path on current main, and `??` short-circuits, so a keyed object whose every entry carried `number` rendered a full band. The page died the moment an author deleted one field. That is the invariant v1.16.0 established — the write path refuses what the read path calls corrupt, and no stored shape takes down a page — violated through the front door.
+
+### ⚠️ Breaking: a prop declared as a list now requires a JSON array
+
+`type: "array"` used to mean "a container". It now means a **list**. A JSON object where a list belongs is refused with `invalid_prop_value`:
+
+> `Component 0 ("grid") prop "items" must be a list, but this one is a JSON object (2 entries). Send it as an array ([...]), not an object with keys.`
+
+Nine top-level props are covered — `faq.items`, `grid.items`, `logos.items`, `section.body_items`, `section.panel_items`, `stats.items`, `table.headers`, `table.rows`, `testimonials.items` — plus one nested field, `grid.items[].bullets`.
+
+**Fix: re-send the prop as an array.** Nothing is migrated for you.
+
+```bash
+wp pp action execute update_composition --post_id=<id> \
+  --composition='[{"component":"grid","props":{"items":[{"title":"Card one"},{"title":"Card two"}]}}]'
+```
+
+Order is the array order. There are no position keys, and nothing reads a key as an ordinal. `{}` and `[]` are indistinguishable once parsed and both count as the empty list, so neither is affected. `{"0": ..., "1": ...}` in order decodes to a PHP list before any validator sees it and is accepted; a reordered numeric object (`{"1": ..., "0": ...}`) does not and is refused.
+
+`type: "object"` is deliberately untouched — a JSON list handed to an `object` field still passes, exactly as before. Narrowing that leg is a separate ruling, now tracked as #883.
+
+**How much stored data does this affect?** Swept read-only on the production install: 6 stored compositions, **0** carrying a non-list declared-array prop, 0 undecodable rows. The dev install could not be measured (`wp-config.php` is unreadable by both the deploying account and `www-data`), so that half is stated as unmeasured rather than assumed clean.
+
+### Which write routes refuse it, and which deliberately do not
+
+| Route | Engine it runs | Refuses a keyed `items`? |
+|---|---|---|
+| `update_composition` | `pp_validate_composition()` over the whole submitted array | yes |
+| `create_page` | same, when a composition is supplied | yes |
+| `update_component` | same, over the MERGED composition | yes — including a band the caller did not touch |
+| `add_component` | `pp_validate_composition_item()` over the one new band | yes, for the new band only |
+| the accordion editor, the chat, `wp pp action execute` | all route through the actions above | yes, inherited |
+| `style_component` | validates style slots only; never carries `items` | not applicable |
+| `remove_component`, `reorder_components` | run no composition validation | **no, deliberately** — removing or moving a bad band must stay possible |
+| `restore_composition` | the #233 contract | **no, deliberately** — it restores verbatim and reports in `findings`; undo is wired to it |
+| the #767 corrupt-page repair carve-out | lifts preflight coverage/freshness only | unchanged — each verb still validates exactly as it did |
+| a raw `_pp_composition` meta write | no validator by construction | no — this is what the render guard is for |
+
+The accepted cost is the one every rule in this family carries: whole-composition validation judges bands the caller did not touch, so a page already holding a keyed object blocks edits to its **other** bands until it is repaired. The repair routes are the three unblocked rows above, and all three are pinned.
+
+### How an already-stored one renders now
+
+`components/grid/grid.php` takes the card ordinal from a positional counter instead of the array key. For a list the two are identical at every element (position == key + 1), so every well-formed band is byte-identical to before; only the shape that was already fataling changes, and it changes from a 500 to cards numbered 1..N. A counter rather than an `is_int($index)` guard because there is a right answer here: `$index + 1` was only ever spelling "the 1-based position of this card", and the guard idiom would have emitted an empty step badge where a correct one was available. An authored `number` still wins over the counter, so no existing steps band is renumbered.
+
+Scoped precisely, because "a stored map renders" is easy to over-read: this closes the ordinal boundary. A card's `link_url` that is an array still fatals through core's `esc_url()` (#730), `faq`'s `items` still reaches a different typed call (#739), and an object value inside a style map still fatals on a `(string)` cast (#740). Those are open and named, not fixed here.
+
+**Only `grid` needed the render fix, and that is measured rather than assumed.** A sweep for a keyed `foreach` across every component returns exactly one hit — `components/grid/grid.php`. No other component binds an array key in a render loop, so no other component can reach the string-key-plus-int idiom. A family fix would have been a family fix over a family of one.
+
+### Fixed
+
+- `lib/admin.php` — new shared predicate `_pp_schema_list_value_is_valid()` beside its three siblings, wired at the two depths that already share the container predicate (the top-level prop pass, and RULE 6b one level down) so they cannot drift about whether a keyed object is a list. It is a SECOND-STAGE predicate by design: a non-array returns true, because rejecting a scalar belongs to `_pp_schema_container_value_is_valid()` and reporting one defect twice helps nobody. The ordering is documented at the function and pinned as a pair, because calling the list predicate alone would silently accept every scalar — #744 reintroduced under a newer number.
+- `lib/admin.php` — the rule takes its own `list-shape` claim segment rather than sharing `prop/<prop>` with the #475 bounded-string family, which runs earlier and was silently swallowing the container finding on `section.body_items` and `table.headers`. Without it, a keyed object holding a non-string entry reported only `items must be strings` and the operator learned about the container on a second round.
+- `lib/admin.php` — `_pp_json_object_shape_clause()` renders the "this one is a JSON object (N entries)" sentence that #724's composition-level refusal and both new depths share, so one shape has one spelling. It reflects the entry COUNT and no caller-supplied key text, the same choice #724 made, so the #633/#647/#649 reflected-value bounding question does not arise for this rule.
+- `components/grid/grid.php` — the card loop stops binding the `items` key. The key is removed rather than left bound-and-unused, because an unused key is how the arithmetic comes back.
+
+### Docs
+
+- `lib/ai-context.php`, `ai-instructions/composition.md`, `ai-instructions/validate-site.md`, `ai-instructions/add-component.md`, `AI_CONTEXT.md` — the accepted grammar the chat AI is handed now states that a declared list takes `[...]`, that order is array order, and how to repair a page that already holds a keyed object. The `invalid_prop_value` repair guidance gained the case its old advice got wrong: a keyed object IS already a container, so "rewrite it as a real container" fixes nothing.
+- `docs/reference-apply-cli.md` — the narrowing, the covered inventory, the fix command, and the render-side half. Two passages that named "an author sending `{"aa": {...}}`" as a live source of a stored keyed map were corrected: that route is exactly what this change closes, so the remaining sources are all paths that deliberately bypass write validation.
+- `components/hero/hero.php`, `components/logos/logos.php`, `tests/StoredTitleRenderGuardTest.php`, `tests/StoredStyleAndItemsRenderGuardTest.php`, `tests/StoredBackgroundImageRenderGuardTest.php`, `tests/StoredLinkAndRichTextRenderGuardTest.php`, `tests/ContainerPropWriteEnforcementTest.php` — the render-fatal corridor's open-issue ledger is reconciled across all seven places that carry it, so none is left saying #738 is open.
+
+### Tests
+
+- `tests/ListShapedPropWriteEnforcementTest.php` (new) — the predicate and its stage order; schema-driven INVENTORY sweeps asserting the 9 top-level array props and 1 nested array field, so a declaration landing tomorrow is covered the day it lands; the Section 14.1 authoring path through `update_composition`, `create_page`, `update_component` and `add_component` at BOTH depths, each refusal paired with its well-formed counterpart and each asserting nothing persisted; the route table above, including `restore_composition` restoring a keyed object VERBATIM and REPORTING both findings; and the boundaries (`{}`, the folded-numeric limit, the count-only message, the accepted cost with its documented way out).
+- `tests/StoredGridItemsMapRenderGuardTest.php` (new) — the fifth file in the #641/#705/#706/#708/#730 render-guard family. Renders stored bytes through a reproduction of `templates/composition.php`'s loop: the fataling shape, the `??` short-circuit half, a partially-numbered map, the `cards` layout that fataled without ever painting an ordinal, byte-equality against the equivalent list with a non-emptiness anchor, the folded-numeric shapes that silently painted key+1, scalar entries, and a token-level tripwire against rebinding the key (a source regex was defeatable by `as$index=>`, which is legal PHP).
+- `tests/DiagnosticReachTest.php`, `tests/PpIsListContractTest.php`, `tests/SchemaValidationTest.php` — the #634/#649/#652 honest-item-locator pins now select their finding by content instead of by offset, because the container refusal is reported first. The contract is unchanged and still fully asserted: a nested rule speaking about an entry of a keyed container names the stored KEY (`item key "aa"`), never a fabricated `item 0`. On the WRITE path those shapes are now refused at the container instead, which the authoring-path cases assert directly before asserting the locator on the reporting surface where a keyed container still reaches a reader.
+
 ## [v1.18.5] — 2026-08-31 — A rollback that withheld on purpose no longer reads as a rollback that broke (#855)
 
 **`rollback_errors` had 23 producers and two meanings on one opaque string channel, so a refusal that cost nothing rendered as a failure.** Every consumer keys on the channel's SIZE — `ppChatRollbackSentence()`'s " — some changes could not be reverted.", `ppChatConflictOutcome()`'s withheld "Nothing was applied.", `_pp_ai_rollback_clause()`'s model sentence, and since #856 the conflict card's survival branch. That is right, and it stays. What was wrong is that the card drew every entry in the failure colour, including the entries whose own sentences say the opposite.

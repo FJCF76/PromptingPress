@@ -275,7 +275,11 @@ match the top level (`null` for both, plus `""` for `number`), so an omitted val
 still preserves the field's default. Since #744 the same holds for the container
 types: declaring `type: "array"` or `type: "object"` on a nested field DOES reject a
 present **scalar** at the write path, through a predicate shared with the top level and
-with the same `null` / `""` sentinels. (Before #744 it bought nothing — `item_type`
+with the same `null` / `""` sentinels. Since #738 an `array` declaration buys strictly
+more than that: it also requires a JSON LIST, so a keyed object is rejected too, at both
+depths and through a second shared predicate (`grid.items[].bullets` is the shipped
+nested case). `object` remains deliberately shape-agnostic, which is why the asymmetry
+described next applies to `object` only. (Before #744 it bought nothing — `item_type`
 checks a nested array's entries, never the field itself.) What a nested annotation
 still does NOT buy you is any constraint on what a container HOLDS: nothing checks an
 item `style` map's contents, and a JSON *list* handed to an `object` field still

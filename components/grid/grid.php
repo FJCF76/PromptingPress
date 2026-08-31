@@ -71,14 +71,18 @@ $title_align = $props['title_align'] ?? 'start';
 // WHAT THIS GUARD DOES NOT MAKE SAFE, stated precisely rather than as a general
 // "arrays are fine" — every claim below was measured, and two of them are open bugs:
 //
-//   - An ASSOCIATIVE array passes through untouched, because count() accepts one and
-//     rejecting it here would change behaviour for data this ruling does not cover.
-//     Whether it RENDERS depends on the elements: `$item_number` below reads
-//     `$item['number'] ?? (string) ($index + 1)`, and `??` short-circuits, so the
-//     arithmetic runs only for an element that omits `number`. Measured: an
-//     associative list whose every element carries `number` renders a full band; one
-//     element without it raises "Unsupported operand types: string + int" on the
-//     non-numeric key — a whole-page 500. Filed as #738.
+//   - An ASSOCIATIVE array passes through THIS guard untouched, because count()
+//     accepts one and rejecting it here would change behaviour for data this ruling
+//     does not cover. It used to take the page down one line below instead:
+//     `$item_number` read `$item['number'] ?? (string) ($index + 1)`, and `??`
+//     short-circuits, so the arithmetic ran only for an element omitting `number` —
+//     an associative container whose every element carried one rendered a full band,
+//     while a single element without one raised "Unsupported operand types: string +
+//     int" on the non-numeric key and 500'd the whole page. CLOSED by #738, from both
+//     ends: the write path now refuses a JSON-object `items` (a declared
+//     `type: "array"` must be a list), and this file's card loop derives the ordinal
+//     from a positional counter instead of the key, so an ALREADY-STORED map renders
+//     its cards numbered 1..N. See the counter's own comment at the loop.
 //   - Malformed ELEMENTS of a well-formed list are a different boundary again, and
 //     they are NOT uniformly safe. A card's text-ish reads (`title`, `text`, `label`)
 //     reach esc_html(), which degrades an array to the literal word `Array` plus an
@@ -262,8 +266,52 @@ $style_attr = $grid_style_parts ? ' style="' . implode('; ', $grid_style_parts) 
 
         <?php if (!empty($items)) : ?>
             <ul class="grid__list" role="list" data-pp-count="<?php echo esc_attr(count($items)); ?>"<?php echo $columns_attr; ?>>
-                <?php foreach ($items as $index => $item) :
-                    $item_number = $item['number']    ?? (string)($index + 1);
+                <?php
+                // THE ORDINAL COMES FROM A POSITIONAL COUNTER, NOT THE ARRAY KEY (#738).
+                //
+                // This loop used to read `foreach ($items as $index => $item)` and fall
+                // back to `(string) ($index + 1)`. For a LIST the key IS the position and
+                // the arithmetic is fine; for a JSON OBJECT map the key is a STRING, and
+                // `"first" + 1` raises "Unsupported operand types: string + int".
+                // templates/composition.php:16-26 calls pp_get_component() with no
+                // try/catch, so that TypeError is a 500 for the whole PUBLIC page —
+                // measured, not inferred. `??` short-circuits, so a map whose every entry
+                // carries `number` renders a full band and the page dies only once an
+                // author deletes one field.
+                //
+                // WHY A COUNTER RATHER THAN AN is_int() GUARD, which is what the sibling
+                // guards in this family (#641/#705/#706/#708) spell. Those guard a value
+                // whose only honest degradation is ABSENCE — a corrupt image_url has no
+                // right answer, so the image is dropped. Here there IS a right answer:
+                // `$index + 1` was only ever spelling "the 1-based position of this card",
+                // and a counter says that directly for every container shape. An
+                // `is_int($index)` guard would instead emit an EMPTY step badge on a map,
+                // which is a visibly broken band where a correct one is available for the
+                // same three lines. Degrade means the page survives with the best honest
+                // rendering, not the barest one.
+                //
+                // BYTE-IDENTICAL FOR EVERY LIST, which is the property that makes this
+                // safe to land on data that renders today: for a list, position == key + 1
+                // at every element. Only the shape that was already fataling changes, and
+                // it changes from a 500 to cards numbered 1..N. Pinned by rendering a map
+                // and the equivalent list and comparing, in
+                // tests/StoredGridItemsMapRenderGuardTest.php.
+                //
+                // STILL A DEGRADATION, NOT A REPAIR. Nothing here rewrites stored data,
+                // and since #738 the WRITE path refuses this shape outright (a declared
+                // `type: "array"` prop must be a JSON list), so the diagnostic engine names
+                // the band and prop while the renderer keeps the page up — the same
+                // division of labour the whole guard family uses. What reaches here is what
+                // a write gate cannot: pre-rule compositions, `restore_composition` (#233),
+                // and raw `_pp_composition` meta writes.
+                //
+                // The KEY IS DELIBERATELY UNUSED, and `$index` is gone rather than left
+                // bound-but-ignored: an unused key is how the next reader reintroduces
+                // arithmetic on it. Nothing else in this loop ever read it (measured).
+                $item_position = 0;
+                foreach ($items as $item) :
+                    $item_position++;
+                    $item_number = $item['number']    ?? (string) $item_position;
                     $item_title  = $item['title']     ?? '';
                     $item_text   = $item['text']      ?? '';
                     $bullets     = is_array($item['bullets'] ?? null) ? $item['bullets'] : [];

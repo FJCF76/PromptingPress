@@ -126,7 +126,7 @@
  * pinned in tests/StoredStyleAndItemsRenderGuardTest.php rather than here, because every
  * fixture below still deliberately carries NO `style` key so that what THESE assertions
  * measure is this guard and not the corridor around it. The corridor is still not fully
- * closed: #730, #733, #736, #738, #739 and #740 remain open on it. Note for the seven components
+ * closed: #730, #733, #736, #739 and #740 remain open on it (#738 has landed). Note for the seven components
  * swept here in particular: a faq band still 500s on a stored scalar `items` via #739,
  * and a grid card's array `link_url` still 500s via #730.
  *

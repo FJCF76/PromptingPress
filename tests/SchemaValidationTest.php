@@ -2550,7 +2550,25 @@ class SchemaValidationTest extends TestCase
         ]);
 
         $this->assertInstanceOf(\WP_Error::class, $result);
-        $this->assertStringContainsString('item key "aa" has no field "imageId"', $result->get_error_message());
+        // pp_validate_composition() is first-error-wins, and since #738 the object-shaped
+        // `items` container is refused before any nested rule speaks — so the WRITE verdict
+        // is the container one. The locator claim this test owns is asserted where the
+        // shape still reaches a reader: the collect-all engine behind `wp pp check page`,
+        // restore findings and the rollback report.
+        $this->assertStringContainsString('prop "items" must be a list', $result->get_error_message());
+
+        $messages = array_map(
+            static fn (\WP_Error $e): string => $e->get_error_message(),
+            pp_validate_composition_errors([
+                ['component' => 'logos', 'props' => ['items' => [
+                    'aa' => ['image_url' => '/a.png', 'image_alt' => 'A', 'imageId' => 42],
+                ]]],
+            ])
+        );
+        $this->assertNotEmpty(array_filter(
+            $messages,
+            static fn (string $m): bool => str_contains($m, 'item key "aa" has no field "imageId"')
+        ), 'the honest key locator survives on the reporting surface');
     }
 
     public function testEveryUndeclaredFieldOfOneEntryIsNamed(): void

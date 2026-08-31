@@ -63,8 +63,10 @@ $style_attr = $slot_style ? ' style="' . $slot_style . ';"' : '';
                     // #708 (the `__pp_style` map into pp_render_style_vars, and grid's
                     // count($items)) has since LANDED too, and this file carries its
                     // guard at the top; its canonical block is in
-                    // components/grid/grid.php. Still open on this corridor:
-                    // #730, #733, #736, #738, #739 and #740.
+                    // components/grid/grid.php. #738 (an associative `items` map fataling
+                    // grid's ordinal arithmetic) has LANDED too — write refusal plus a
+                    // positional counter, both explained in that same file. Still open on
+                    // this corridor: #730, #733, #736, #739 and #740.
                     // NOTE this file reads `title` too, and it
                     // is deliberately NOT guarded: logos passes it to esc_html(), which
                     // does not fatal, so it never met #706's admitting criterion.

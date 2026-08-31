@@ -122,23 +122,34 @@ final class PpIsListContractTest extends TestCase
             'a list container renders a bare position'
         );
 
-        $key_form = _pp_composition_findings([
+        // The key form arrives BEHIND the container refusal since #738 — an object-shaped
+        // `items` is itself rejected now, and the type pass runs before every nested rule.
+        // The claim here is about the locator SPELLING, which is why the finding is
+        // selected by content rather than by offset.
+        $key_form = array_column(_pp_composition_findings([
             ['component' => 'logos', 'props' => ['items' => ['aa' => [], 'bb' => []]]],
-        ]);
-        $this->assertStringContainsString(
+        ]), 'message');
+        $this->assertNotEmpty(array_filter(
+            $key_form,
+            static fn (string $m): bool => str_contains($m, 'prop "items" must be a list')
+        ), 'the container refusal is reported too (#738)');
+        $this->assertContains(
             'Component "logos" prop "items" item key "aa" is missing required field "image_url".',
-            $key_form[0]['message'],
+            $key_form,
             'an object container renders the key, quoted'
         );
 
         // The #652 disagreement case: key "1" comes FIRST in document order, and the
         // locator must name the key rather than the position it would occupy in a list.
-        $folded = _pp_composition_findings([
-            ['component' => 'logos', 'props' => ['items' => [1 => [], 0 => []]]],
-        ]);
+        $folded = array_values(array_filter(
+            array_column(_pp_composition_findings([
+                ['component' => 'logos', 'props' => ['items' => [1 => [], 0 => []]]],
+            ]), 'message'),
+            static fn (string $m): bool => str_contains($m, 'item key')
+        ));
         $this->assertStringContainsString(
             'item key "1"',
-            $folded[0]['message'],
+            $folded[0],
             'the first reported entry is key "1", not position 0'
         );
 
