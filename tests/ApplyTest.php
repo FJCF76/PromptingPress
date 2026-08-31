@@ -3030,15 +3030,22 @@ class ApplyTest extends TestCase
         $this->assertEmpty($GLOBALS['_pp_test_store']['media_sideload_calls']);
     }
 
-    public function testImportMediaFileBatchRollbackIsAdditive(): void
+    public function testImportMediaFileBatchRollbackDeletesTheImportedAttachment(): void
     {
-        // Journal parity with the URL path: an attachment import_media created is
-        // additive (AI_CONTEXT.md — "never deleted by a rollback"). A batch that
-        // fails a LATER step still keeps the imported attachment.
+        // REVERSED BY #854, and the reversal is the point of the issue rather than a
+        // side effect of it. This test used to assert the opposite — that an attachment
+        // import_media created was "additive" and survived a rollback — and that was
+        // true, documented, and quietly wrong: the batch reported `rollback_errors: []`
+        // and the chat told the operator "Nothing was applied." while the file sat in
+        // the Media Library. Ruling T1 settles it the other way: a rollback may delete
+        // what its OWN batch created, and where it cannot it must name the survivor.
+        //
+        // Journal parity with the URL path is still what this pins — #490's local-file
+        // path is the same apply and must roll back the same way.
         $this->resetImportMediaTestStore();
         $GLOBALS['_pp_test_store']['filetype_result'] =
             ['ext' => 'png', 'type' => 'image/png', 'proper_filename' => false];
-        $path = $this->writeFixtureImage('kept-on-rollback.png');
+        $path = $this->writeFixtureImage('deleted-on-rollback.png');
 
         $batch = pp_ai_execute_batch([
             ['type' => 'apply',  'name' => 'import_media',   'params' => ['file' => $path]],
@@ -3049,8 +3056,13 @@ class ApplyTest extends TestCase
         $this->assertTrue($batch['rolled_back']);
         $this->assertTrue($batch['steps'][0]['ok']);
         $attachmentId = $batch['steps'][0]['changes'][0]['attachment_id'];
-        // The attachment survived the rollback (additive, like the URL path).
-        $this->assertNotNull(get_post($attachmentId));
+        $this->assertNull(
+            get_post($attachmentId),
+            'an attachment this batch imported must not survive its rollback (#854)'
+        );
+        // Deleted cleanly, so the report stays empty — and an empty report now means
+        // nothing survived rather than meaning the attachment was never looked at.
+        $this->assertSame([], $batch['rollback_errors']);
     }
 
     // ── _pp_relative_theme_path() tests (issue 127) ─────────────────────────

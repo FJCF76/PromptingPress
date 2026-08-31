@@ -855,16 +855,46 @@ function pp_execute_action(string $name, array $params): array {
  * Covers: any post_id referenced in a step's params (composition, title,
  * slug, status), pp_token_overrides + pp_font_urls when any step is an
  * apply (every apply mutates one of those two options), a step's own
- * update_site_option key, Custom CSS when a step is clear_custom_css, and
- * the full nav-menu state (menus, their items, location assignments) when
+ * update_site_option key, Custom CSS when a step is clear_custom_css, the
+ * full nav-menu state (menus, their items, location assignments) when
  * any step is a menu action (issue 132's create_menu / add_menu_item /
  * assign_menu_location / set_menu — added after this snapshot layer, so
- * without this they'd survive a rollback that claims rolled_back: true).
+ * without this they'd survive a rollback that claims rolled_back: true), and
+ * since #854 the pp_redirects entries any create_redirect / remove_redirect
+ * step names.
  *
- * Deliberately does NOT snapshot import_media's new attachment — leaving an
- * uploaded file in the Media Library is additive and non-destructive (unlike
- * overwriting composition/token state), so a later step failing doesn't
- * warrant deleting it.
+ * THE REDIRECT CAPTURE IS PER KEY, NOT PER OPTION (#854), and that is the whole
+ * design rather than an optimization. pp_redirects is one option holding a MAP of
+ * unrelated redirects, so capturing and restoring the option WHOLE would revert
+ * every redirect on the site to its pre-batch value — including ones this batch
+ * never touched, written by another admin during the batch window. That failure is
+ * not hypothetical here: it is exactly the defect TODOS.md already records against
+ * _pp_restore_menu_state(), which deletes any menu absent from its snapshot. So the
+ * baseline is recorded for the normalized `from` keys the batch NAMES and nothing
+ * else, and the restorer patches those keys into a fresh read.
+ *
+ * The per-key shape is ['exists' => bool, 'entry' => array|null], the same
+ * presence-separate-from-value idea #291 gave $site_options one level up. It is
+ * spelled 'entry' rather than 'value' because a redirect's value is the ARRAY
+ * ['to' => string, 'code' => int], not a string, and a reader who assumes the
+ * $site_options shape here would (string)-cast a map.
+ *
+ * The `from` is normalized through _pp_normalize_redirect_path(), the same
+ * function both writers key the stored map with (pp_create_redirect /
+ * pp_remove_redirect, lib/wp.php). Sharing the normalizer is load-bearing, not
+ * tidiness: a redirect step may name "https://site/old/" for a row stored under
+ * "/old", and a baseline recorded under the unnormalized string would restore a
+ * key nothing reads while the live one survives the rollback untouched.
+ *
+ * IT USED TO DELIBERATELY SKIP import_media's NEW ATTACHMENT, and #854 reversed
+ * that. The old reasoning was that leaving an uploaded file in the Media Library is
+ * additive and non-destructive, so a later step failing did not warrant deleting it.
+ * What that missed is the CLAIM the batch makes on its way out: the rollback reports
+ * through `rollback_errors`, and a channel that is empty because a step class was
+ * never covered reads exactly like a channel that is empty because nothing survived.
+ * Ruling T1 settles it the other way — a rollback may delete what its OWN batch
+ * created — and the attachment is tracked positively in `created_attachments` rather
+ * than snapshotted, because there is no pre-batch state of a file that did not exist.
  *
  * Also classifies each named page's stored composition and records the ones that
  * CANNOT be read under 'unreadable' (#749). Two consumers, and they are opposite
@@ -896,6 +926,10 @@ function _pp_snapshot_batch_targets(array $steps): array {
     $token_overrides = null;
     $font_urls = null;
     $menus = null;
+    $redirects = [];
+    // Read the stored redirect map at most ONCE per batch, and only when a step
+    // actually names one — same lazy shape as $token_overrides / $menus below.
+    $redirect_map = null;
 
     foreach ($steps as $step) {
         $type   = $step['type']   ?? '';
@@ -1011,11 +1045,42 @@ function _pp_snapshot_batch_targets(array $steps): array {
         if ($menus === null && _pp_is_menu_action($name)) {
             $menus = _pp_snapshot_menu_state();
         }
+
+        // #854: the pp_redirects rows this step could write. Captured per key from
+        // PRE-batch state, and captured ONCE per key — two steps naming the same
+        // redirect (or two spellings that normalize to the same path) share one
+        // baseline, so the restore returns it to where the batch found it rather
+        // than to whatever the first of those steps left behind.
+        $redirect_from = _pp_batch_redirect_step_source($step);
+        if ($redirect_from !== null && !array_key_exists($redirect_from, $redirects)) {
+            if ($redirect_map === null) {
+                $redirect_map = pp_get_redirects();
+            }
+            $redirects[$redirect_from] = array_key_exists($redirect_from, $redirect_map)
+                ? ['exists' => true,  'entry' => $redirect_map[$redirect_from]]
+                : ['exists' => false, 'entry' => null];
+        }
     }
 
     return [
         'posts'           => $posts,
         'created_posts'   => [], // filled in as create_page steps succeed
+        // {attachment_id} filled in as import_media steps succeed, for the ones that
+        // actually IMPORTED (#854). There is no pre-batch state to capture for a file
+        // that did not exist, so this is positive creation tracking like
+        // 'created_posts' — not a snapshot.
+        'created_attachments' => [],
+        // {normalized_from => ['exists' => bool, 'entry' => array|null]} for every
+        // pp_redirects row a create_redirect / remove_redirect step names (#854).
+        // NAMING a row is not writing it, which is why the list below exists too.
+        'redirects'       => $redirects,
+        // The normalized sources whose rows a step actually WROTE, appended as those
+        // steps succeed (#854). The baseline above says what a row looked like before
+        // the batch; this says whether the batch touched it at all, and the rollback
+        // needs both. A row the batch NAMED but never wrote (its step never ran, or
+        // its step failed) must be left exactly as found — deleting it would destroy
+        // a row this batch did not create, which ruling T1 forbids outright.
+        'redirects_written' => [],
         // {post_id => reason} from _pp_batch_target_refusal_reason(), for every named
         // page that blocks the batch (#749): a classification ('unexpected_shape' /
         // 'decode_error') when the stored composition could not be read, or
@@ -1066,6 +1131,163 @@ function _pp_batch_step_post_id(array $step): ?int {
         return null;
     }
     return (int) $params['post_id'];
+}
+
+/**
+ * The normalized pp_redirects key one batch step writes, or null when it writes none (#854).
+ *
+ * ONE PLACE THAT ANSWERS "DOES THIS STEP TOUCH THE REDIRECT MAP?", for the same reason
+ * _pp_is_menu_action() exists one layer up: the snapshotter has to capture a baseline for
+ * every step that can write pp_redirects, and a writer this predicate does not name is a
+ * writer whose row silently survives a rollback — which is the entire bug #854 filed. Two
+ * action names qualify today, and they are the only two STEPS that write
+ * PP_REDIRECTS_OPTION (pp_create_redirect / pp_remove_redirect, lib/wp.php; the option is
+ * NOT in pp_allowed_site_options(), so it can never arrive through the update_site_option
+ * path either). A third one is a one-line edit HERE rather than a re-derivation somewhere
+ * else. There is exactly one other writer of that option in the codebase and it is not a
+ * step: _pp_restore_batch_snapshot()'s own rollback write, which exists to undo these two.
+ *
+ * IT NORMALIZES, AND THE NORMALIZER IS THE WRITERS' OWN. `from` is operator/model text and
+ * arrives in whatever spelling was typed — "/old", "/old/", "https://site/old?x=1" all
+ * address the row stored under "/old", because pp_create_redirect keys the map with
+ * _pp_normalize_redirect_path() and pp_resolve_redirect() looks it up the same way. A
+ * baseline recorded under the raw string would restore a key nothing reads and leave the
+ * live row untouched: a rollback that reports clean over a surviving 301, one spelling
+ * later. Calling the shared function is what makes that impossible, rather than a comment
+ * claiming the two agree.
+ *
+ * `is_scalar` AND A CAST, NOT `is_string`, and it is DEFENCE IN DEPTH rather than a live
+ * hole being closed — stated plainly, because a security rationale that overstates itself
+ * is one a later reader trusts too far. A non-string `from` does NOT reach the writer
+ * today: pp_execute_action() runs pp_validate_action() first, and that rejects the step
+ * with `invalid_param_type` because create_redirect / remove_redirect both declare
+ * `'from' => ['type' => 'string']` and the check is a strict gettype() comparison. So no
+ * row is created and there is nothing to baseline.
+ *
+ * What the wider gate buys is that this predicate agrees with the WRITER rather than with
+ * the REGISTRY. _pp_normalize_redirect_path() declares a `string` parameter and the theme
+ * runs PHP coercive, so `from => 42` would key the row "/42" if it ever arrived — and the
+ * only thing standing between that and a row nobody baselined is a `type` declaration two
+ * files away. Matching the writer costs one character and cannot be wrong; matching the
+ * registry would make a future edit to that declaration silently re-open the fail-open
+ * this issue exists to close. Non-scalars stay excluded: an array or object cannot reach
+ * the writer intact under any declaration, so there is no row to baseline.
+ *
+ * @param  array $step  ['type' => ..., 'name' => ..., 'params' => array]
+ * @return string|null  The normalized `from` path this step writes, or null.
+ */
+function _pp_batch_redirect_step_source(array $step): ?string {
+    $name = $step['name'] ?? '';
+    if ($name !== 'create_redirect' && $name !== 'remove_redirect') {
+        return null;
+    }
+    $from = ($step['params'] ?? [])['from'] ?? null;
+    if (!is_scalar($from)) {
+        return null;
+    }
+    return _pp_normalize_redirect_path((string) $from);
+}
+
+/**
+ * Whether a SUCCEEDED redirect step actually wrote the redirect map (#854).
+ *
+ * `ok` IS NOT EVIDENCE OF A WRITE, and the gap is not theoretical. `remove_redirect`
+ * documents itself as "a no-op (no redirect for that source) returns ok with
+ * removed=false", and pp_remove_redirect() (lib/wp.php) returns false WITHOUT calling
+ * update_option() when the row is absent. So a batch naming a path that has no redirect
+ * gets an ok step that changed nothing.
+ *
+ * Recording that as a write re-opens the exact hole `redirects_written` exists to close.
+ * The baseline for that path says "absent", so a rollback would unset it — and if a
+ * concurrent admin created that path during the batch window, the rollback deletes a row
+ * this batch never created. Same failure, one layer in from gating on the snapshot.
+ *
+ * It also keeps the second promise the executor makes about this list. The rollback's write
+ * round-trips the option through pp_get_redirects(), which drops malformed rows; that is
+ * only harmless because a batch writer already did the same round trip in the same request.
+ * A no-op step performs no round trip, so a rollback triggered by it would be the FIRST one,
+ * and it would normalize away rows nobody asked it to touch.
+ *
+ * `create_redirect` needs no such check: pp_create_redirect() writes on every path that
+ * returns a source instead of a WP_Error, so `ok` and "wrote" are the same fact there.
+ *
+ * @param  string $name    The step's action name (already known to be a redirect step).
+ * @param  array  $result  The succeeded step's result envelope.
+ * @return bool            True when the step changed the stored redirect map.
+ */
+function _pp_batch_redirect_step_wrote(string $name, array $result): bool {
+    if ($name !== 'remove_redirect') {
+        return true;
+    }
+    $changes = $result['changes'] ?? null;
+    if (!is_array($changes)) {
+        // A remove_redirect envelope always carries its `removed` flag. Without one there
+        // is no evidence of a write, and "no evidence" must not authorize a deletion.
+        return false;
+    }
+    foreach ($changes as $change) {
+        if (is_array($change) && ($change['removed'] ?? null) === true) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * The attachment IDs one succeeded import_media step CREATED, in batch order (#854).
+ *
+ * THE DISCRIMINATOR IS THE ENVELOPE'S OWN `action`, and getting it right is the difference
+ * between a rollback and a data-loss bug. import_media has two outcomes and reports which
+ * one it took: `import` means it sideloaded a NEW attachment, and `reused` means #298's
+ * source-URL dedupe handed back an attachment that was already on the site — often from a
+ * run months earlier. Ruling T1 permits deleting only what THIS batch created, so a
+ * `reused` id must never be recorded here; recording it would make a failed batch delete
+ * an asset it did not create and that other pages may render.
+ *
+ * That mapping is a fact about lib/apply.php rather than an assumption: the dedupe lookup
+ * runs BEFORE anything is written and returns on the `reused` branch without creating
+ * anything, and both `import` returns (the URL path and #490's local-file path) sit
+ * directly after media_handle_sideload() hands back the new ID. Creation and the word
+ * `import` cannot come apart without that file changing, and the reuse case is pinned so
+ * the day it does, a test fails instead of an operator's media library.
+ *
+ * IT SCANS EVERY CHANGE ENTRY rather than reading changes[0]. Both of today's returns carry
+ * exactly one, so the loop is currently a one-iteration loop — but an envelope that grows a
+ * second entry (variants, a companion asset) would leave the extra attachment behind
+ * silently, and silence is the failure mode this whole issue is about. Scanning costs
+ * nothing and cannot be wrong.
+ *
+ * DEFENSIVE, BECAUSE THIS RUNS INSIDE THE EXECUTOR'S HOT LOOP. pp_ai_execute_batch() is
+ * public and a step result can be any shape a direct caller produced, so a missing
+ * `changes`, a non-list one, or a non-numeric id yields "nothing to record" rather than a
+ * throw — a throw here would replace the whole batch envelope with a stack, which is the
+ * defect #853 just closed on the client. Be honest about what that buys: it prevents a
+ * CRASH, not a LEAK. An import_media that genuinely created an attachment and then reported
+ * an envelope without it would still leave that attachment behind, unreported. Accepted:
+ * the alternative is diffing the attachment table around every step, which is a much larger
+ * mechanism than T1's creation tracking, and the envelope is built three lines after the
+ * ID is minted in the same function.
+ *
+ * @param  array $result  A succeeded step's result envelope.
+ * @return int[]          Attachment IDs this step created. Empty when it created none.
+ */
+function _pp_batch_imported_attachment_ids(array $result): array {
+    $changes = $result['changes'] ?? null;
+    if (!is_array($changes)) {
+        return [];
+    }
+    $ids = [];
+    foreach ($changes as $change) {
+        if (!is_array($change) || ($change['action'] ?? null) !== 'import') {
+            continue;
+        }
+        $id = $change['attachment_id'] ?? null;
+        if (!is_numeric($id) || (int) $id <= 0) {
+            continue;
+        }
+        $ids[] = (int) $id;
+    }
+    return $ids;
 }
 
 /**
@@ -1708,24 +1930,71 @@ function _pp_recreate_menu_item(int $menu_id, object $item, int $parent_id): ?in
 }
 
 /**
- * Restores every snapshotted post/option to its pre-batch state, and
- * permanently deletes any page a create_page step created during this same
- * batch (it didn't exist before the batch started, so "restore" means it
- * shouldn't exist after a rollback either).
+ * Restores every snapshotted post/option to its pre-batch state, and permanently
+ * removes what this same batch CREATED — a page from a create_page step, a redirect
+ * row, an imported attachment. None of those existed before the batch started, so
+ * "restore" means they should not exist after a rollback either.
+ *
+ * THE TWO HALVES ANSWER DIFFERENT QUESTIONS, and #854 is where that stopped being an
+ * implementation detail. Snapshotted state has a pre-batch value to write back;
+ * created state has none, so it is tracked positively as it happens and undone by
+ * deletion. A redirect row is BOTH, depending on the row: creating "/old" where no
+ * row existed is a creation (delete it), and creating "/old" over an existing row is
+ * an overwrite (write the prior row back). The distinction lives in the captured
+ * `exists` bit, and getting it backwards in either direction is a data-loss bug —
+ * which is why ruling T1 draws the line at "what this batch created" rather than at
+ * "what this batch wrote".
+ *
+ *   $snapshot['posts' | 'site_options' | 'custom_css' | ...]  ──▶ write the capture back
+ *   $snapshot['created_posts']                                ──▶ delete
+ *   $snapshot['created_attachments']                          ──▶ delete (or refuse+report)
+ *   a row in $snapshot['redirects_written'], baseline exists   ──▶ write the prior row back
+ *   a row in $snapshot['redirects_written'], baseline absent   ──▶ unset that row
+ *   a redirect row NOT in 'redirects_written'                  ──▶ untouched
+ *
+ * THE REDIRECT ARMS ARE GATED ON `redirects_written`, NOT ON THE BASELINE MAP, and that
+ * gate is the difference between a rollback and a data-loss bug. The snapshotter baselines
+ * every row the batch NAMES, which includes rows belonging to steps that never ran. Acting
+ * on the baseline alone would unset a named-but-never-written row — and if a concurrent
+ * admin created that row during the batch window, the rollback would delete a row this
+ * batch never created. So the baseline supplies the VALUE and the written list supplies
+ * the PERMISSION; both are required.
+ *
+ * A MALFORMED BASELINE LEAVES THE ROW ALONE. An entry claiming a row existed but carrying
+ * no usable copy of it has nothing to restore, and "nothing to restore" is never a reason
+ * to DELETE — that would remove a row the bundle itself says pre-existed the batch. Same
+ * degrade-don't-destroy posture the site_options restore takes on an unrecognized shape.
+ *
+ * THE THREE NEW KEYS ARE READ WITH `?? []` because this function is called directly, with
+ * hand-built bundles, from several test files and any caller that assembles a bundle
+ * itself. A bundle from before #854 carries none of them, and it must roll back what it
+ * does describe rather than fataling on what it does not.
  *
  * @param array $snapshot  Bundle from _pp_snapshot_batch_targets(), with
- *                          'created_posts' populated as steps succeeded.
- * @return string[]         Anything that could NOT be restored — the menu layer, and
- *                           any page whose composition restore was withheld: because
- *                           the live stored value became unreadable mid-batch (#749),
- *                           because the row could not be read authoritatively at all
- *                           (#833, fail closed), or because it was ALREADY unreadable
- *                           when this batch snapshotted it, which since #756 is
- *                           reachable through the corrupt-page repair carve-out.
- *                           Empty when clean.
+ *                          'created_posts', 'created_attachments' and
+ *                          'redirects_written' populated as steps succeeded.
+ * @return string[]         Anything that could NOT be restored or removed, as SEVEN
+ *                           distinct sentences — a reader keying on the message needs
+ *                           all of them: (1) the menu layer, one entry per item it
+ *                           could not recreate; a page whose composition restore was
+ *                           withheld because (2) the live stored value became
+ *                           unreadable mid-batch (#749), (3) the row could not be read
+ *                           authoritatively at all (#833, fail closed), or (4) it was
+ *                           ALREADY unreadable when this batch snapshotted it (#756,
+ *                           the corrupt-page repair carve-out); and since #854, (5) a
+ *                           redirect row whose restoring write was refused, (6) an
+ *                           imported attachment that could not be deleted, and (7) an
+ *                           imported attachment whose ID no longer addresses an
+ *                           attachment, refused rather than force-deleted. Empty when
+ *                           clean — and since #854 that empty is worth what it claims
+ *                           for every step class the executor can run.
  */
 function _pp_restore_batch_snapshot(array $snapshot): array {
     $errors = [];
+    // Pages whose composition restore was WITHHELD below (#749/#756/#833). Those pages keep
+    // the composition THIS BATCH wrote, so the attachment cleanup at the end cannot assume
+    // nothing points at the files it is about to delete — see the block that reads this.
+    $withheld_pages = [];
 
     foreach ($snapshot['created_posts'] as $created_post_id) {
         wp_delete_post($created_post_id, true);
@@ -1762,6 +2031,7 @@ function _pp_restore_batch_snapshot(array $snapshot): array {
         // stored bytes alone IS the honest restore, whether they are still the corrupt
         // ones or a repair that outlived the batch. Every other field still rolls back.
         if (isset($snapshot['unreadable'][$post_id])) {
+            $withheld_pages[] = $post_id;
             $errors[] = _pp_batch_target_state_message($post_id, $snapshot['unreadable'][$post_id])
                 . ' Its composition was NOT rolled back, and that is the safe outcome:'
                 . ' the stored bytes could not be read when this batch snapshotted them,'
@@ -1797,6 +2067,7 @@ function _pp_restore_batch_snapshot(array $snapshot): array {
         } elseif (($reason = _pp_batch_target_refusal_reason($post_id, pp_get_composition_result($post_id))) === null) {
             pp_update_composition($post_id, $state['composition']);
         } elseif ($reason === PP_BATCH_TARGET_UNVERIFIABLE) {
+            $withheld_pages[] = $post_id;
             // ITS OWN SENTENCE (#833), for the same reason the refusal has one: the
             // notice below states a FACT about the stored bytes ("changed to an
             // unreadable state"), and here nothing about the bytes is known. Only the
@@ -1806,6 +2077,7 @@ function _pp_restore_batch_snapshot(array $snapshot): array {
                 . ' state nobody could confirm risks destroying a copy this batch never read.'
                 . ' Every other field on this page was rolled back.';
         } else {
+            $withheld_pages[] = $post_id;
             $errors[] = _pp_batch_target_state_message($post_id, $reason)
                 . ' Its composition was NOT rolled back: the stored bytes changed to an'
                 . ' unreadable state during this batch, and restoring the snapshot over them'
@@ -1864,6 +2136,117 @@ function _pp_restore_batch_snapshot(array $snapshot): array {
         }
     }
 
+    // ── pp_redirects: patch the rows this batch named, and only those (#854) ──────
+    //
+    //   pre-batch map          this batch                    what the rollback does
+    //   ─────────────          ──────────                    ──────────────────────
+    //   (no /old row)          create_redirect /old      ──▶  unset /old        (T1: it
+    //                                                          created it, so delete it)
+    //   /old → /a (301)        create_redirect /old → /b ──▶  write /a,301 back (T1: it
+    //                                                          OVERWROTE something that
+    //                                                          pre-existed — restore, do
+    //                                                          NOT delete)
+    //   /old → /a (301)        remove_redirect /old      ──▶  write /a,301 back
+    //   /other → /z            (never named)             ──▶  untouched
+    //
+    // THE FRESH READ IS THE POINT. The current map is read again here rather than being
+    // reverted to the captured one, so a redirect another admin added during the batch
+    // window survives — the snapshot is consulted only for the rows this batch WROTE.
+    // Reverting the option whole would be shorter and would reintroduce, on a second
+    // artifact class, the defect TODOS.md records against _pp_restore_menu_state().
+    //
+    // BE EXACT ABOUT THE GUARANTEE, because it is narrower than "concurrency safe". Rows
+    // this batch did not write are untouched, full stop — that covers every unrelated
+    // redirect on the site, and every row the batch merely NAMED. What is NOT covered is a
+    // concurrent edit to a row this batch DID write: the baseline is written back (or the
+    // row unset) unconditionally, so an edit landing between the step and the rollback is
+    // discarded. That is a lost update, it is inside T1's grant (the batch created or
+    // overwrote that row), and it is deliberately not solved here with a compare-and-swap:
+    // no other restore in this function has one, and adding a concurrency posture for one
+    // new artifact class would answer the write-verification question that #857 and the
+    // concurrency cluster own. Stated rather than papered over.
+    //
+    // WRITE ONLY IF SOMETHING WOULD CHANGE, and this guard is what makes the failure
+    // report trustworthy rather than being an optimization. update_option() returns false
+    // for a write it REFUSED and for a value that is already stored, and PHP cannot tell
+    // those apart from the return alone. A batch whose redirect step never ran (an earlier
+    // step failed first) patches the map to exactly what is already there, so an
+    // unconditional write would report a survivor for a redirect that was never created.
+    // Comparing first removes the ambiguity: past this point a false return is a refused
+    // write, because there was a real difference to write.
+    //
+    // WHAT IT REPORTS IS THE DIFFERENCE, NOT THE STEP LIST. Only keys the failed write
+    // would actually have changed become entries — a batch that named four redirects but
+    // only got to one leaves one survivor, and naming the other three would be three
+    // sentences about rows that are already correct.
+    //
+    // ONE LIMIT, STATED. This trusts update_option()'s return the way the rest of this
+    // function does; a filter that silently rewrites the value would still report success.
+    // The verification posture for every write in here is #857's question, not this one's,
+    // and answering it differently for one new write than for the eight pre-existing ones
+    // would settle that issue by the back door.
+    $redirect_baselines = $snapshot['redirects'] ?? [];
+    $redirects_written  = $snapshot['redirects_written'] ?? [];
+    if ($redirects_written !== []) {
+        $current_redirects = pp_get_redirects();
+        $patched_redirects = $current_redirects;
+        foreach ($redirects_written as $from) {
+            if (!is_string($from) || !array_key_exists($from, $redirect_baselines)) {
+                // Written but never baselined. The snapshotter and the executor read
+                // the same steps through the same predicate, so the two lists agree by
+                // construction and this is unreachable through the executor — but a
+                // hand-built bundle can say anything, and there is no honest undo for a
+                // row whose pre-batch state was never captured. Leave it alone.
+                continue;
+            }
+            $baseline = $redirect_baselines[$from];
+            if (!is_array($baseline) || !array_key_exists('exists', $baseline)) {
+                continue; // unrecognized baseline shape: not a basis for any write
+            }
+            if ($baseline['exists'] === true) {
+                // SHAPE-CHECK THE CAPTURED ROW, which is not the same as re-validating it.
+                // #233's rule stands: a restore is never blocked by today's VALIDATION
+                // rules, so a captured `to` that a newer rule would now reject still goes
+                // back. What is checked is that the thing is a redirect row at all — a
+                // string target and a status code this resolver understands. Without that,
+                // this function is a write primitive into an option pp_resolve_redirect()
+                // feeds to wp_safe_redirect(), on a function whose own docblock invites
+                // hand-built bundles. Through the shipped path the value can only be one
+                // pp_get_redirects() already normalized, so nothing is refused in practice.
+                // FAIL SAFE, NOT DESTRUCTIVE, on a baseline that claims a row existed
+                // but carries no usable copy of it. The tempting spelling folds this
+                // into the else and UNSETS — deleting a row the bundle itself says
+                // pre-existed the batch, the one outcome T1 rules out. Nothing to
+                // restore is a reason to leave the row alone, never a reason to remove
+                // it. Same posture the site_options restore takes one block up, where
+                // an unrecognized shape degrades rather than deletes.
+                $entry = $baseline['entry'] ?? null;
+                if (is_array($entry)
+                    && is_string($entry['to'] ?? null)
+                    && in_array((int) ($entry['code'] ?? 0), [301, 302], true)) {
+                    $patched_redirects[$from] = ['to' => $entry['to'], 'code' => (int) $entry['code']];
+                }
+                continue;
+            }
+            unset($patched_redirects[$from]);
+        }
+        if ($patched_redirects !== $current_redirects
+            && !update_option(PP_REDIRECTS_OPTION, $patched_redirects)) {
+            foreach ($redirects_written as $from) {
+                if (!is_string($from)
+                    || ($patched_redirects[$from] ?? null) === ($current_redirects[$from] ?? null)) {
+                    continue; // this row was already where the rollback wanted it
+                }
+                $errors[] = sprintf(
+                    'The redirect for "%s" was NOT rolled back: the stored redirect map could'
+                    . ' not be written, so this batch\'s change to that path is still live.'
+                    . ' Check it with the list_redirects action and undo it by hand.',
+                    $from
+                );
+            }
+        }
+    }
+
     if ($snapshot['custom_css'] !== null) {
         // Mirrors clear_custom_css's own write mechanism exactly (there is
         // no wp_update_custom_css_post() call anywhere else in this codebase
@@ -1884,6 +2267,123 @@ function _pp_restore_batch_snapshot(array $snapshot): array {
         pp_set_font_urls($snapshot['font_urls']);
     }
 
+    // ── attachments this batch imported (#854) ───────────────────────────────────
+    //
+    // AFTER EVERY COMPOSITION AND OPTION RESTORE, DELIBERATELY. Each of those wrote back a
+    // value captured BEFORE this batch ran, and a file that did not exist then cannot
+    // appear in one — so once they have run, nothing THIS ROLLBACK restored can name the
+    // attachment. Deleting first would open a window (inside one request, but real) where
+    // a stored pp_logo_id or an image slot still pointed at an attachment already gone.
+    //
+    // Be precise about what that does NOT establish, because the ordering buys less than
+    // it looks like it buys. It is not a claim that nothing on the site references the
+    // attachment. Three cases survive it: another admin can attach the file to an
+    // unrelated page during the batch window; the menu restore below runs after this loop
+    // (its snapshot is pre-batch, so it cannot name this attachment, but it is still
+    // later); and — the reachable one — a page whose composition restore was WITHHELD
+    // above (#749/#756/#833) keeps its MID-BATCH composition, which can name the very
+    // attachment deleted here, leaving a dangling reference. That page is already named in
+    // rollback_errors by the branch that withheld it, so the operator is told to re-read
+    // it; the state is disclosed rather than silent. Ruling T1 sanctions the delete on the
+    // grounds that THIS BATCH created the file, not on the grounds that the file is
+    // unreferenced, and this ordering keeps the narrower guarantee it can actually hold:
+    // nothing THIS ROLLBACK wrote back points at the attachment.
+    //
+    // THREE OUTCOMES, AND TWO OF THEM ARE NOT DELETIONS. Ruling T1 permits deleting what
+    // this batch created and nothing else, so the ID is checked against what is actually
+    // stored before anything is removed:
+    //
+    //   no post at that ID   ──▶ nothing to delete, nothing to report. Something else
+    //                            already removed it; there is no survivor.
+    //   not an attachment    ──▶ REFUSE and report. An ID that now addresses a page is not
+    //                            the file this batch imported, and force-deleting it would
+    //                            destroy something the batch never created — the one
+    //                            outcome T1 rules out absolutely. Unreachable through the
+    //                            shipped import (WordPress does not reissue post IDs), and
+    //                            checked anyway because the cost of being wrong is a
+    //                            deleted page.
+    //   an attachment        ──▶ delete it, with its files, and report if that fails.
+    //
+    // wp_delete_attachment() rather than wp_delete_post(): it is the function whose
+    // contract covers the FILES and the generated intermediate sizes as well as the row,
+    // and calling it directly does not depend on core's internal delegation staying put.
+    //
+    // ITS RETURN IS CHECKED, AND THE ONES ABOVE ARE NOT — which is not an inconsistency to
+    // tidy up here. That every other write in this function discards its result is a real
+    // defect with its own issue (#857), including the wp_delete_post() that removes a
+    // created PAGE at the top: a page whose delete is refused survives a rollback exactly
+    // as silently as the attachment did before this change. Fixing it here would mean
+    // rewriting eight call sites in the middle of a different issue's fix; #854 checks the
+    // write it is adding and leaves the rest named for the slot that owns them.
+    foreach ($snapshot['created_attachments'] ?? [] as $attachment_id) {
+        // RE-CHECK THE ID AT THE DELETER, not only at the recorder. get_post() falls back to
+        // the GLOBAL $post when handed a falsy argument, so a bundle carrying 0/null/'' would
+        // make this loop inspect — and force-delete, with its files — whatever the current
+        // global post happens to be. The recorder already filters this, but the recorder is
+        // not the only way a bundle is built (this function's own docblock invites hand-built
+        // ones), and the guard belongs where the irreversible act is. Same reasoning the
+        // post_type check below already carries: the cost of being wrong is a deleted file.
+        if (!is_numeric($attachment_id) || (int) $attachment_id <= 0) {
+            continue;
+        }
+        $attachment_id = (int) $attachment_id;
+
+        // A WITHHELD COMPOSITION MAKES THE DELETE UNSAFE, so it is refused and reported.
+        // The ordering argument above holds only for restores that actually ran, and the
+        // three withhold branches deliberately leave a page holding the composition THIS
+        // BATCH wrote. That composition can name this attachment — the documented
+        // import_media idiom is "import, then feed the returned URL into an image slot" —
+        // so deleting the file would leave a live page pointing at media that no longer
+        // exists, and the bytes are not recoverable. Ruling T1's third clause covers
+        // exactly this: where deletion is unsafe, refuse the entry and NAME the survivor.
+        // Refusing costs an attachment that stays in the Media Library, which an operator
+        // can delete in one click; the alternative costs a broken page and a deleted file.
+        if ($withheld_pages !== []) {
+            $errors[] = sprintf(
+                'Media item %d was imported by this batch and was NOT deleted during the'
+                . ' rollback: a page on this batch could not have its composition rolled'
+                . ' back (see above), so it may still reference this media. Deleting it'
+                . ' could break that page. Remove it from the Media Library once the page'
+                . ' has been re-read.',
+                $attachment_id
+            );
+            continue;
+        }
+        $attachment = get_post($attachment_id);
+        if ($attachment === null) {
+            continue;
+        }
+        if (($attachment->post_type ?? '') !== 'attachment') {
+            $errors[] = sprintf(
+                'Media item %d was imported by this batch, but the stored record for that ID'
+                . ' is no longer an attachment, so the rollback did NOT delete it: removing'
+                . ' it could destroy something this batch never created. Check it in the'
+                . ' Media Library.',
+                $attachment_id
+            );
+            continue;
+        }
+        // TWO FALSY RETURNS, ONE MEANING EACH. Core returns NULL when there is no row at
+        // that ID (`$post = $wpdb->get_row(...); if (!$post) return $post;`) and FALSE when
+        // the delete was refused. The get_post() guard above cannot close that gap: the row
+        // can disappear between the two reads. Folding null into the failure branch would
+        // report a survivor for an attachment that is provably gone — a FALSE entry on the
+        // one channel this whole change exists to make trustworthy, which is the mirror
+        // image of the silence it replaces.
+        $deleted = wp_delete_attachment($attachment_id, true);
+        if ($deleted === null) {
+            continue; // already gone: nothing deleted, nothing survived, nothing to report
+        }
+        if (!$deleted) {
+            $errors[] = sprintf(
+                'Media item %d was imported by this batch and could NOT be deleted during the'
+                . ' rollback, so it is still in the Media Library. Remove it there if it'
+                . ' should not remain.',
+                $attachment_id
+            );
+        }
+    }
+
     if (($snapshot['menus'] ?? null) !== null) {
         // MERGED, not replaced (#749): the menu layer used to be the only producer
         // of rollback errors and returned its list directly. A withheld composition
@@ -1902,6 +2402,25 @@ function _pp_restore_batch_snapshot(array $snapshot): array {
  * snapshotted target back if any step fails partway through — leaving the
  * site exactly as it was before the batch started, rather than a half-
  * applied multi-step proposal.
+ *
+ * THREE STEP CLASSES CAN ONLY BE UNDONE BY REMOVAL, and this loop is where the executor
+ * learns which artifacts to remove (#854). A create_page's new page, an import_media's new
+ * attachment and a create_redirect's new row have no pre-batch state to write back, so a
+ * snapshot cannot express them: what a rollback needs is the knowledge that this batch made
+ * them. All three are recorded HERE, as each step SUCCEEDS, and _pp_restore_batch_snapshot()
+ * removes them.
+ *
+ * SUCCEEDS is the load-bearing word, and it is why recording happens here rather than in the
+ * snapshotter. The snapshotter sees the steps a batch INTENDS to run; only this loop sees
+ * which ones actually ran. A step that never executed changed nothing, so its artifact is
+ * not this batch's to remove — and if a concurrent admin created the same redirect in the
+ * meantime, removing it would destroy a row this batch never touched.
+ *
+ * Ruling T1 scopes removal strictly to what this batch itself created. An import_media that
+ * DEDUPED to an existing attachment, and a create_redirect that overwrote an existing row,
+ * are never deleted: the first is not recorded at all, and the second restores the prior row
+ * from its captured baseline. Deleting either would destroy something that pre-existed the
+ * batch, which is the one outcome the ruling forbids outright.
  *
  * Deliberately does NOT pre-validate every step against the projected
  * effect of earlier steps in the same batch before executing any of them.
@@ -1957,7 +2476,13 @@ function _pp_restore_batch_snapshot(array $snapshot): array {
  *                          'rolled_back' (bool), 'rollback_errors' (string[] —
  *                          non-empty when the rollback itself could not fully
  *                          restore something; a consumer must not treat
- *                          rolled_back: true as clean without checking it),
+ *                          rolled_back: true as clean without checking it. Since
+ *                          #854 an EMPTY one is worth what it says: the rollback
+ *                          now covers every step class that writes durable state,
+ *                          including the redirect rows and the imported attachments
+ *                          it used to leave behind without reporting them, so an
+ *                          empty channel means nothing survived rather than meaning
+ *                          nothing was looked at),
  *                          'versions' ({post_id => composition_version} for every page a
  *                          composition-mutating or create_page step wrote — the chat UI
  *                          refreshes its per-page baselines from this (#404, A3))]
@@ -2063,6 +2588,49 @@ function pp_ai_execute_batch(array $steps, array $baselines = []): array {
 
         if ($name === 'create_page' && !empty($result['ok']) && isset($result['target']['post_id'])) {
             $snapshot['created_posts'][] = (int) $result['target']['post_id'];
+        }
+
+        // #854: the same positive creation tracking, one artifact class over. An
+        // attachment this batch IMPORTED has no pre-batch state to snapshot, so the
+        // rollback can only undo it by knowing it happened — see
+        // _pp_batch_imported_attachment_ids() for why a `reused` id is not one of these.
+        //
+        // in_array() rather than a dedupe pass at the end, so the same attachment is
+        // never queued for deletion twice and the restore's foreach stays idempotent.
+        // (The list-ness argument that guards `rollback_errors` does NOT apply here:
+        // the snapshot bundle is request-scoped and never serialized, so no JSON
+        // encoder ever sees this key. Appending to a list is simply the shape the one
+        // consumer wants.)
+        if ($name === 'import_media' && !empty($result['ok'])) {
+            foreach (_pp_batch_imported_attachment_ids($result) as $imported_id) {
+                if (!in_array($imported_id, $snapshot['created_attachments'], true)) {
+                    $snapshot['created_attachments'][] = $imported_id;
+                }
+            }
+        }
+
+        // #854: the redirect row this step actually WROTE. The snapshotter already
+        // captured a baseline for every row the batch NAMES, and naming is not
+        // writing — a step that never ran, or ran and failed, changed nothing, so the
+        // rollback must leave that row exactly as it found it. Without this list the
+        // restore would unset any named row whose baseline said "absent", and a row a
+        // CONCURRENT admin created during the batch window would be destroyed by the
+        // rollback of a step that never touched it: deleting something this batch did
+        // not create, which is the one thing ruling T1 forbids outright.
+        //
+        // It also keeps the restore's write honest about a second thing. The write
+        // round-trips the option through pp_get_redirects(), which DROPS malformed
+        // rows — so a rollback that wrote when no step had is a rollback that could
+        // silently normalize away rows nobody asked it to touch. Gated on a real
+        // write, the batch's own writer has already done that same round trip, and
+        // the rollback can lose nothing the batch had not already lost.
+        if (!empty($result['ok'])) {
+            $written_redirect = _pp_batch_redirect_step_source($step);
+            if ($written_redirect !== null
+                && _pp_batch_redirect_step_wrote($name, $result)
+                && !in_array($written_redirect, $snapshot['redirects_written'], true)) {
+                $snapshot['redirects_written'][] = $written_redirect;
+            }
         }
 
         // Advance the per-page version map from the server-derived post-write version

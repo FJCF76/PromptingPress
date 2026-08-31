@@ -734,6 +734,25 @@ if (!function_exists('get_option')) {
 
 if (!function_exists('update_option')) {
     function update_option(string $key, $value, $autoload = null): bool {
+        // Test-controlled write refusal: set
+        // $GLOBALS['_pp_test_unwritable_options'][$key] = true to get the FALSE return
+        // real core gives when a write does not happen, WITHOUT storing the value. Same
+        // opt-in, test-scoped shape as $GLOBALS['_pp_test_undeletable_posts'] (#719).
+        // Needed by #854, where the redirect rollback reports a survivor only when its
+        // own write is refused — a branch no other mechanism can reach.
+        //
+        // Core also returns false for a write whose value is UNCHANGED. That is NOT
+        // modelled here (this stub always stores and returns true), because modelling it
+        // would silently change the return of hundreds of existing no-op writes. The
+        // caller that has to tell those apart compares before writing instead.
+        // Write counter, so a test can assert a write did NOT happen. Counting is the only
+        // way to pin a "skip the write when nothing changed" guard: the stored value looks
+        // identical either way, so an assertion on the value passes whether the guard ran
+        // or not.
+        $GLOBALS['_pp_test_option_writes'][$key] = ($GLOBALS['_pp_test_option_writes'][$key] ?? 0) + 1;
+        if (!empty($GLOBALS['_pp_test_unwritable_options'][$key])) {
+            return false;
+        }
         $GLOBALS['_pp_test_store']['options'][$key] = $value;
         return true;
     }
@@ -1295,6 +1314,43 @@ if (!function_exists('wp_delete_post')) {
             }
         }
         return false;
+    }
+}
+
+if (!function_exists('wp_delete_attachment')) {
+    /**
+     * The batch rollback deletes attachments its own batch imported (#854), and it calls
+     * this rather than wp_delete_post() because this is the function whose contract covers
+     * the FILES and generated sizes as well as the row.
+     *
+     * Test-controlled delete refusal, the same opt-in shape wp_delete_post's stub uses:
+     * set $GLOBALS['_pp_test_undeletable_attachments'][$id] = true to get the FALSY return
+     * real core gives when a delete does not happen (a pre_delete_post short-circuit, an
+     * unhealthy DB). Core never reports this as a WP_Error, so a caller's failure branch is
+     * only reachable through a falsy return.
+     *
+     * Mirrors core's three returns: null when no post exists at that ID, false when the
+     * delete did not happen, and the deleted WP_Post on success. The non-attachment case
+     * returns FALSE and deletes nothing, exactly as core does (`if ( 'attachment' !==
+     * $post->post_type ) { return false; }`) — modelling that matters because a stub that
+     * happily deletes a page would let a caller drop its own post_type guard and still
+     * look correct here while destroying pages in production.
+     */
+    function wp_delete_attachment(int $post_id, bool $force_delete = false) {
+        if (!isset($GLOBALS['_pp_test_store']['posts'][$post_id])) {
+            return null;
+        }
+        if (($GLOBALS['_pp_test_store']['posts'][$post_id]['post_type'] ?? '') !== 'attachment') {
+            return false;
+        }
+        if (!empty($GLOBALS['_pp_test_undeletable_attachments'][$post_id])) {
+            return false;
+        }
+        $post = $GLOBALS['_pp_test_store']['posts'][$post_id];
+        unset($GLOBALS['_pp_test_store']['posts'][$post_id]);
+        unset($GLOBALS['_pp_test_store']['post_meta'][$post_id]);
+        unset($GLOBALS['_pp_test_store']['attachment_urls'][$post_id]);
+        return (object) $post;
     }
 }
 
