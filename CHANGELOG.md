@@ -4,6 +4,58 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.18.1] — 2026-08-31 — The chat checks the shape of `batch.steps` before it walks it, so a malformed envelope reaches its failure card instead of a stack trace (#853)
+
+**One line stood in front of every batch-failure exit.** `executeProposal()` (`assets/js/pp-ai-chat.js`) opened by iterating `batch.steps`, and it did that before asking which exit the envelope called for. A `steps` that arrived as anything other than a list threw there; the throw lands in the promise chain's `.catch`, which renders `err.message` straight into the transcript. So the operator's answer to a failed apply was:
+
+```
+Error: batch.steps.forEach is not a function
+```
+
+or, for a null one, `Error: Cannot read properties of null (reading 'forEach')`. Not a conflict card, not a refusal, not the rollback report — a stack-shaped string, in the one place a person goes to find out what happened to their page. The irony was recorded in the code before it was fixed: `ppChatRollbackErrorReport()`'s own docblock warns that a throw in that neighbourhood "would replace the honest report with a stack-shaped string, i.e. lose exactly the information this exists to deliver." The throw was one line earlier.
+
+**Which exits it masked — all four that follow it.** The issue named three; the success path was masked too:
+
+| exit | what the operator should have seen | what they saw |
+|---|---|---|
+| conflict at the failing step (#797) | the conflict card, ending on the cause with no claim it cannot evidence | the TypeError |
+| up-front refusal (#749) | the server's own reason, rows marked skipped | the TypeError |
+| executed failure (#755/#797) | "Error on step N", the rollback sentence, and the section naming what stayed dirty | the TypeError |
+| success | — | the TypeError |
+
+The conflict exit is the sharpest case. #797 built an arm in `ppChatConflictOutcome()` for a `steps` that is present but not a list, and its docblock recorded that the arm was unreachable through the UI *because of this bug*. Landing the guard is what made it live, and its docblock now says so.
+
+**The guard does not short-circuit the failure exits, and that is the design.** It declines to make per-step claims it has no evidence for; everything the envelope says outside `steps` — `error`, `failed_at`, `rolled_back`, `rollback_errors` — still routes normally. So a malformed envelope keeps its rollback report (that report reads `rollback_errors`, never `steps`) and loses only the failing step's own quote, which degrades to the file's existing `Unknown error`. No new user-facing vocabulary was coined; #664 stays pooled.
+
+**The one exit that refuses is success.** `applied` is filled by the loop, so an unreadable envelope claiming `ok: true` would have reached `finalizeProposalSuccess()` with an empty list and asserted, in three places at once, an outcome nobody could read: a post-apply card, a `[Applied changes: ]` turn written into the model's context, and "Changes applied successfully." It is refused instead. The stored CAS baseline is deliberately left alone on that path — a baseline that stays low makes the next apply fail the server's check and surface a recoverable conflict, whereas adopting `versions` from an envelope the client could not parse would raise it to a value nothing corroborates and let the next write pass a check it should have failed.
+
+### Fixed
+
+- **`assets/js/pp-ai-chat.js` — the shape of `batch.steps` is checked once, before iteration (#853).** New `ppChatBatchStepsReadable()` is the single predicate for every reader that makes a per-step CLAIM, which is #667's rule applied to this field: `ppChatConflictOutcome()` had asked the question inline, `executeProposal()` had not asked it at all. `ppChatBatchHitConflict()` is deliberately exempt and now says so in its own docblock — it asks one index about the CAUSE and never walks the list, and handing it the predicate would make an object-shaped `steps` classify as "not a conflict", re-masking the very card this change unmasks.
+- **The predicate reads an OWN property, not an inherited one (#853).** wp-admin loads third-party JS in the same realm. Without the check, an envelope with no `steps` key inherits a planted `Object.prototype.steps`, tests as readable, and walks rows the server never sent — straight past the refusal into a success card and an applied-changes turn written to the model. Measured against the pre-guard client, that shape finished with `✓ Applied: Update the hero subtitle`: a silent false apply, not an error. Same own-property idiom `ppChatConflictOutcome()` already used on this field.
+- **Rows the envelope did not account for are finished rather than left spinning (#853).** New `ppChatFinishSpinningSteps()` terminalizes only rows still carrying `pp-ai-step-executing`, so a row that did get an answer keeps it. This covers two cases: an unreadable `steps`, where nothing was painted; and a readable list SHORTER than `failed_at`, where the loop paints `steps.length` rows and the skip pass starts at `failed_at + 1`, leaving the rows between them untouched. The short-list case is what the pre-fix code got right by accident — `steps[failed_at]` was undefined, `.error` threw, and the catch swept every row on its way past. Making that read null-safe removed the crash and the cleanup with it, so the sweep is now asked for on purpose.
+- **A falsy member of a readable list no longer throws (#853).** `steps: [null, {...}]` is JSON-producible and used to fail on `stepResult.ok`, landing in the same catch and rendering the same stack-shaped string one level down. A member that says nothing is read the way any non-ok result is.
+- **An envelope carrying more step results than the card rendered rows no longer throws (#853).** Named in the issue as "same line, same class": `stepElements[i].classList` failed on the extra index. Those results have neither a row to paint nor a step to attach a validation to, so they are skipped.
+- **A truthy non-object `resp.data` is refused rather than borrowing the #749 claim (#853).** `7` or `'boom'` has no `failed_at`, and `ppChatBatchWasRefusedUpFront()` reads an undefined one as the refusal shape — so a non-object used to walk out wearing "no step ran" with nothing underneath it. Same `typeof` test `ppChatIsCompositionConflict()` already applies to its own payload.
+- **`ppChatMarkStepsFailed()` extracted (#853).** The identical three-line row-state block stood at the two exits that answer "we cannot tell what happened"; this change would have made it four copies.
+
+### Docs
+
+- **`docs/operating-loop-safety.md`** — the #797 row recorded that all three chat batch-failure exits honor the `rollback_errors` rule. True of the exits, but they were not always REACHED; the row now says so and states what a malformed envelope keeps (its report) versus loses (the failing step's quote).
+- **Three docblocks corrected in `assets/js/pp-ai-chat.js`.** `ppChatConflictOutcome()`'s non-list arm is no longer "reachable only by calling this function directly". The #749 exit's comment no longer claims "the forEach above iterated an empty steps array" (on an unreadable envelope it does not run at all) and no longer describes the skip pass as gated only on `failed_at`. `ppChatBatchWasRefusedUpFront()`'s stated consequence is inverted: with the read now null-safe, deleting that guard no longer throws — it prints a fabricated "Error on step 1: Unknown error" over a refusal that names its own reason, which is quieter and worse.
+
+### Tests
+
+- **`tests/js/pp-ai-chat-batch-steps-shape.test.js`** (new, 52 blocks) drives the REAL surface through the established JSDOM harness — send, preview, click Apply, answer with a hand-shaped envelope, read the card the operator would see — because the bug was a missing check inside an IIFE-local function, and every pure-helper assertion about `steps` passes whether or not that function ever asks the question. Measured against pre-fix source: 44 red, 8 green. 38 are behavioural reds failing with the literals the operator actually saw; 6 are weak new-symbol reds, counted separately rather than folded in; 8 are preservation pins that pass before and after, so the fix cannot be mistaken for deleting the exits. No source-text tripwire: every pin is behavioural, so a rename cannot fire one.
+- **`tests/ChatReflectedTextBoundTest.php`** — the new refusal is registered as a sixth reflected-text render site, keeping #793's "every render site is bounded" rule complete. Two patterns were relaxed to stop pinning a guard's SPELLING, which contradicted that file's own "pin the property, not one spelling of it" rule: `(x && x.error)`, `(x || {}).error` and `x?.error` all satisfy them now, while dropping the bound does not.
+
+### Known limitations
+
+- Step-count divergence is filed, not fixed (#871): an envelope reporting fewer results than the proposal had steps still narrates success while `[Applied changes: ...]` names a subset.
+- `failed_at` is still rendered without an integer check (#872), and this change makes that quieter — the null-safe read means a malformed index now prints a wrong sentence instead of throwing.
+
+---
+
 ## [v1.18.0] — 2026-08-30 — Concurrent Truth & Reflected-Text Integrity: what the operator reads survives concurrency, and what the theme reflects survives hostile bytes (#829, #833, #825, #828, #836, #797, #822, #647, #649, #793)
 
 Rollup of the v1.17.2–v1.17.9 patch train (milestone 21, gate Part 1.9999). Ten issues in eight iterations across three arcs. Every entry retains its full engineering detail in the per-patch entries that follow; this rollup states the shape of the release, what changes in behavior, and what was deliberately deferred.
