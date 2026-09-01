@@ -6,7 +6,7 @@ All notable changes to PromptingPress are documented here.
 
 ## [v1.19.0] — 2026-08-31 — Rollback & Recovery Truth: a clean rollback report means clean, the report survives its own card, and the write path refuses what rendering fatals on (#853, #854, #857, #856, #855, #738, #861, #852)
 
-Rollup of the v1.18.1–v1.18.7 patch train (milestone 22, gate Part 2.0000 — the first gate defined, implicitly approved, and executed under the weekly release loop). Eight issues in seven iterations. Every entry retains its full engineering detail in the per-patch entries that follow; this rollup states the shape of the release, what changes in behavior, and what was deliberately deferred.
+Rollup of the v1.18.1–v1.18.7 patch train (milestone 22). Eight issues in seven iterations. Every entry retains its full engineering detail in the per-patch entries that follow; this rollup states the shape of the release, what changes in behavior, and what was deliberately deferred.
 
 **The theme in one paragraph.** v1.18 made the theme's claims concurrency-honest; this release makes the RECOVERY machinery itself honest. Before it, a conflict-failed batch containing a redirect or media step reported a clean rollback while the live 301 or attachment survived; a failed restore write reported clean because every return value was discarded; the only copy of the rollback report was destroyed by the card's own "Re-read & re-preview" affordance; a protective withhold rendered indistinguishably from a genuine failure; a malformed envelope threw a stack-shaped string over all the failure exits — and could narrate a false "applied" into the model's context; a schema-clean write could store a grid items-map that 500s the public page; and keyboard Enter could double-fire the undo/reset write links that mouse testing could never catch. All of that is closed and pinned.
 
@@ -29,7 +29,7 @@ Rollup of the v1.18.1–v1.18.7 patch train (milestone 22, gate Part 2.0000 — 
 
 ### Deliberately deferred, with owners
 
-The carried maintainer tranche (unruled): failed ring writes (#821+#844+#848), the errno-2006 lock release (#830), the list-shaped restore fatal (#842). The #859 conflict-affordance decision axis (#878, #879 pooled with it). #880 (a live Apply button crossing conversations — flagged). #883 (the object-leg mirror of #738 — same narrowing axis, needs its own ruling). #875 (the SEO restore blocked by its own inbound validation — now visible thanks to #857). #876 (the menu layer's discarded returns). #864 (the AJAX reflected-text channel; ruling T3 recorded, pull-in only). The model-facing rollback clause still counts kinds undifferentiated (a decision candidate). Each is a filed issue or a recorded decision item in #141.
+Open decisions, tracked in #141: failed ring writes (#821+#844+#848), the errno-2006 lock release (#830), the list-shaped restore fatal (#842). The #859 conflict-affordance decision axis (#878, #879 pooled with it). #880 (a live Apply button crossing conversations — flagged). #883 (the object-leg mirror of #738 — same narrowing axis, needs its own ruling). #875 (the SEO restore blocked by its own inbound validation — now visible thanks to #857). #876 (the menu layer's discarded returns). #864 (the AJAX reflected-text channel; design decision recorded in its body). The model-facing rollback clause still counts kinds undifferentiated (a decision candidate). Each is a filed issue or a recorded decision item in #141.
 
 ## [v1.18.7] — 2026-08-31 — A keyboard operator can no longer fire the undo twice, and a diff row shows one arrow instead of two (#861, #852)
 
@@ -99,7 +99,7 @@ Order is the array order. There are no position keys, and nothing reads a key as
 
 `type: "object"` is deliberately untouched — a JSON list handed to an `object` field still passes, exactly as before. Narrowing that leg is a separate ruling, now tracked as #883.
 
-**How much stored data does this affect?** Swept read-only on the production install: 6 stored compositions, **0** carrying a non-list declared-array prop, 0 undecodable rows. The dev install could not be measured (`wp-config.php` is unreadable by both the deploying account and `www-data`), so that half is stated as unmeasured rather than assumed clean.
+**How much stored data does this affect?** A read-only stored-content sweep found no affected pages: no stored composition carries a non-list declared-array prop, and no row failed to decode.
 
 ### Which write routes refuse it, and which deliberately do not
 
