@@ -2987,6 +2987,61 @@ function ppChatAppendValidationItems(container, items, className) {
     var currentRequestId = 0;
 
     /**
+     * The conversation's own generation (#880). Bumped by resetChat() and by nothing else.
+     *
+     * ONE KEY, ONE QUESTION, and the two keys in this pair are asked different ones:
+     *
+     *   currentConversationId  has this conversation ENDED?     bumped by: resetChat()
+     *   currentRequestId       is a newer CHAT REQUEST live?    bumped by: resetChat(),
+     *                                                                      sendMessage()
+     *
+     * THE TWO ALREADY DIVERGE ON A LIVE PATH — this is a real distinction, not a hypothetical
+     * one, and it is worth being exact about because the tempting refactor is to notice two
+     * counters next to each other and keep one. Send is enabled whenever `isStreaming` is
+     * false, and that flag goes false while a stream is still being read: an in-stream error
+     * frame calls handleStreamError(), which ends with setStreamingUiState(false), while the
+     * `return` beside that call exits only the per-line forEach — `return pump()` keeps
+     * reading the same response. So a follow-up message can be sent with the previous
+     * request's callbacks still live, and it is currentRequestId, bumped by sendMessage(),
+     * that no-ops them. Nothing about a reset is involved.
+     *
+     * The conflict card's Re-read & re-preview affordance is the other side of it: it outlives
+     * its request entirely, sitting on a finished transcript with Send fully enabled (nothing
+     * in executeProposal()/showConflictState() touches setStreamingUiState), so it has to ask
+     * whether the CONVERSATION is still there.
+     *
+     * IT IS NOT THE ONLY SURFACE OF THAT SHAPE, and saying so here would be the kind of claim
+     * that stops the next reader looking. The post-apply card's one-shot links (`Undo these
+     * changes`, `Reset to default` — ppChatOneShotLink, #861) sit on a settled transcript too
+     * and fire their own async work on a later, independent click. What singles the re-read
+     * out, and what this key is scoped to, is what its late response DOES: it renders a fresh
+     * proposal card with a live Apply into the transcript. The undo link's late response
+     * writes a CAS baseline into whatever conversation is current (filed as #909, with
+     * executeProposal()'s own chain as #910); the reset link writes no shared state and leaks
+     * nothing. This guard closes the render; those two are their own issues, deliberately.
+     *
+     * ONE TAB. `currentConversationId` is in-memory and per-tab, while the storage key is
+     * shared per site+user, and nothing here listens for `storage`. A New Chat clicked in
+     * ANOTHER tab does not end this tab's conversation and does not arm this guard — which is
+     * the file's standing single-active-tab assumption (issue 205), not a hole this key opened.
+     *
+     * UNIFYING THEM RE-INTRODUCES ONE OF TWO DEFECTS, depending on which way it is done:
+     *
+     *   - Route the re-read through currentRequestId (drop this one): sending a follow-up
+     *     message during a re-read then counts as abandoning it. The re-preview the operator
+     *     asked for is dropped silently and the card is left holding a disabled "Re-reading…"
+     *     button that can never be spent — the affordance is gone and the conflict is not
+     *     resolved. Pinned against in tests/js/pp-ai-chat-reread-abandoned.test.js.
+     *   - Route the chat request through this one (drop currentRequestId): the streaming
+     *     callbacks stop distinguishing a SUPERSEDED request from an ended conversation, and
+     *     the error-frame path above is exactly where that costs — issue 139's original
+     *     defect, an abandoned request's partial text and proposal re-populating a transcript
+     *     that has already moved on. Pinned in the same file, which requires resetChat() to
+     *     keep bumping BOTH.
+     */
+    var currentConversationId = 0;
+
+    /**
      * Toggles Send/Stop/input for the duration of a request, in one place
      * so every entry/exit point (send, finish, error, fallback, reset) stays
      * consistent (issue 139 — a Stop button is only useful if it's never
@@ -3841,6 +3896,14 @@ function ppChatAppendValidationItems(container, items, className) {
      * is. Nothing else about the card changed. What it says and what it offers is a separate,
      * unruled question (#859), and this fix deliberately does not answer it.
      *
+     * AND A CONVERSATION THAT ENDED MID-READ LEAVES NOTHING AT ALL (#880). Both outcomes
+     * below describe a re-read that came back to the transcript it started in. Clicking New
+     * Chat while the baseline read is in flight ends that transcript, and the click handler's
+     * generation check then returns before any of this runs — no fresh proposal, no spend, no
+     * error line. The one thing that must never happen is the middle: a proposal card with a
+     * live Apply, holding a baseline this very read refreshed, appended to a conversation the
+     * operator started clean.
+     *
      * THE SURVIVAL RULE IS THE CLAIM RULE, one key for both. The card is kept exactly when
      * `report.reported > 0` — the same test ppChatConflictOutcome() uses to withhold
      * "Nothing was applied." and ppChatRollbackSentence() uses for its dirty clause. So the
@@ -3924,6 +3987,14 @@ function ppChatAppendValidationItems(container, items, className) {
         rereadBtn.className = 'button button-primary';
         rereadBtn.textContent = 'Re-read & re-preview';
         rereadBtn.addEventListener('click', function () {
+            // THE CONVERSATION THIS RE-READ BELONGS TO (#880). Captured when the read starts,
+            // checked on both arms below when it comes back: a New Chat in between ends this
+            // conversation, and everything this click was going to draw belongs to a
+            // transcript that no longer exists. Read, never bumped — a re-read is not a new
+            // request, and incrementing here would abandon a chat stream that is none of this
+            // affordance's business.
+            var myConversationId = currentConversationId;
+
             rereadBtn.disabled = true;
             rereadBtn.textContent = 'Re-reading…';
 
@@ -3937,6 +4008,14 @@ function ppChatAppendValidationItems(container, items, className) {
                 : refreshBaseline(readTarget);
 
             reader.then(function () {
+                // Abandoned: New Chat ended this conversation while the read was in flight
+                // (#880). Nothing below is safe to run — renderProposal() would append a card
+                // with a LIVE Apply button, carrying a baseline this read just refreshed and
+                // so acceptable to the CAS gate, into a transcript the operator emptied on
+                // purpose. Whatever this click was going to keep or remove was detached by
+                // that clear, so returning here leaves nothing behind either.
+                if (myConversationId !== currentConversationId) return;
+
                 // Re-render the proposal fresh: previews every step against current
                 // state and shows Apply again, now backed by the refreshed baseline.
                 //
@@ -3970,6 +4049,12 @@ function ppChatAppendValidationItems(container, items, className) {
                     card.remove();
                 }
             }).catch(function () {
+                // Same abandonment, and the failure arm needs it just as much (#880): the
+                // button it hands back is detached, while addStatusMessage() appends to the
+                // LIVE transcript — so without this the new conversation opens with an error
+                // about a page it never asked anyone to read.
+                if (myConversationId !== currentConversationId) return;
+
                 rereadBtn.disabled = false;
                 rereadBtn.textContent = 'Re-read & re-preview';
                 addStatusMessage('Could not re-read the page. Try again.', true);
@@ -4693,6 +4778,10 @@ function ppChatAppendValidationItems(container, items, className) {
         // (fetch .then/.catch, ajaxFallback's handlers) a no-op once they
         // check their captured id against it.
         currentRequestId++;
+        // And the conversation's own generation (#880), which the affordances that outlive a
+        // request read instead — see its declaration for why that is a second key and not a
+        // second copy of this one.
+        currentConversationId++;
         if (activeStopHandler) activeStopHandler();
         activeStopHandler = null;
 
