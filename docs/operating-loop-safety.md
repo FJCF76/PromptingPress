@@ -145,7 +145,9 @@ card that reported something is kept, a card whose report was clean or unreadabl
 as before, so a conflict that really did leave nothing behind still leaves nothing behind.
 What survives is the card on screen, not anything stored: no transcript
 line is written and nothing is persisted, so a reload or New Chat clears it exactly as it
-clears every other card. The writer's
+clears every other card. A New Chat clicked while the re-read itself is still in flight
+cancels the re-preview too, rather than dropping the ended conversation's proposal — with a
+live Apply, against a baseline that read had just refreshed — into the new empty transcript. The writer's
 own null-skips-CAS back-compat is untouched — the mandate lives in the chat entry points'
 contracts. This shipped per the baseline-lifecycle design on
 [#392](https://github.com/FJCF76/PromptingPress/issues/392) (v1.2.0 gate).

@@ -4,6 +4,38 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.19.1] — 2026-09-07 — A re-read whose conversation ended renders nothing: New Chat no longer injects the old proposal, with a live Apply, into the new chat (#880)
+
+**Starting a New Chat while a conflict card's "Re-read & re-preview" was still fetching used to drop that ended conversation's proposal — with a working Apply button — into the new, otherwise empty transcript. The re-read handler now checks whether its conversation still exists before rendering anything, so a re-read that comes back to a chat the operator has closed renders nothing at all.**
+
+The conflict card's Re-read & re-preview affordance re-reads the page's composition version and then re-renders the proposal against it. `resetChat()` bumps its counters, clears the transcript and drops the stored baselines, but the read already in flight was never told: its `.then` ran anyway and appended a fresh proposal card to the transcript that had just been emptied, wired to the OLD conversation's page. The failure arm did the same with its error line.
+
+**Why this was a consent problem, not a cosmetic one.** The re-read's whole job is to refresh the CAS baseline (#404) before previewing again, so the injected card carried a baseline that had just been read and was therefore current. The server had nothing to refuse — the write would have gone through. The only thing between the operator and applying steps they had not asked for in that conversation was noticing that the card did not belong to it, which is exactly the awareness an emptied transcript removes. **This retires the v1.19.0 release note's known issue** ("Opening a New Chat while a re-read is in flight can surface the old conversation's proposal with a live Apply button — until #880 lands, don't Apply from a card that predates your current chat").
+
+**The key is a new one, and which key it is was the whole decision.** The other guarded callbacks in `assets/js/pp-ai-chat.js` belong to a chat REQUEST and key on `currentRequestId`, which `sendMessage()` also bumps. Borrowing it here would have made a follow-up message count as abandoning the re-read: the re-preview the operator asked for dropped silently, the card left holding a dead "Re-reading…" button that can never be spent. So this affordance — which outlives its request, sitting on a finished transcript with Send fully enabled — gets `currentConversationId`, bumped by `resetChat()` alone. One key, one question: `currentRequestId` answers "is a newer request live?", `currentConversationId` answers "has this conversation ended?".
+
+The two are not interchangeable, and the divergence is live rather than theoretical: `sendMessage()` refuses while `isStreaming` is true, but an in-stream error frame clears that flag while the reader keeps pumping, so a follow-up message really can supersede a request that is still running. Both directions of collapsing the pair are named in the declaration's docblock and pinned in the suite.
+
+**The full async-path inventory, since the issue's premise was that every other callback already had this guard.** It does not: of the file's eleven async response paths, only the five belonging to a chat request are guarded (`streamChat`'s watchdog, its reader pump and its catch; `ajaxFallback`'s then and catch). The rest were checked one by one and are out of scope here, filed rather than folded in: `renderProposal()`'s preview chain (#787, pre-existing), `refreshBaseline()`/`refreshTouchedBaselines()` and the post-apply undo link's baseline write (#909), `executeProposal()`'s response chain (#910 — its answer cannot be a silent drop, because the write really happened and its report has to reach someone), and `switchProvider()`, which renders into the model selector and is not conversation-scoped at all. A twelfth finding, that every live proposal card shares one per-page baseline slot, is #911.
+
+**Scope.** The guard and its pins only. The #856 spent-card behaviour is untouched: the check sits around the response handling, not inside the keep-or-remove rule, and that rule's pins pass unchanged. Single-tab, per the file's standing single-active-tab assumption (issue 205) — a New Chat in another tab does not end this one's conversation.
+
+### Fixed
+
+- The Re-read & re-preview handler captures `currentConversationId` when the read starts and checks it on both promise arms before doing anything, so a New Chat during any in-flight re-read renders no proposal card, no live Apply and no error line into the conversation that replaced it (#880).
+
+### Docs
+
+- `AI_CONTEXT.md` — the chat-client section no longer claims `currentRequestId` "guards every async callback"; it now states which callbacks each of the two counters covers and why they are not interchangeable. The conflict-card section gains the New-Chat-mid-read behaviour.
+- `docs/operating-loop-safety.md` — the conflict-card lifetime paragraph names the cancelled re-preview.
+
+### Tests
+
+- New `tests/js/pp-ai-chat-reread-abandoned.test.js` (10 tests) drives the real surface in jsdom with the baseline read held open, so the New Chat lands INSIDE the round trip: three red-proof pins (empty transcript, no error line, and a preview-request counter proving the render never ran rather than that its output was discarded), three preservation pins (the re-read still re-previews and still offers Apply, it still spends the affordance the way #856 left it, and a follow-up send does NOT drop the re-preview — the regression the other key would have shipped), and four source tripwires covering the capture, both guarded arms, the check-before-render ordering, and `resetChat()` still bumping both counters. Verified red against the pre-fix source in a copied tree: the behavioural pins and tripwires fail, the preservation pins pass.
+- Suites: 1782 JS (34 files, +10), 4552 PHP / 23495 assertions unchanged.
+
+---
+
 ## [v1.19.0] — 2026-08-31 — Rollback & Recovery Truth: a clean rollback report means clean, the report survives its own card, and the write path refuses what rendering fatals on (#853, #854, #857, #856, #855, #738, #861, #852)
 
 Rollup of the v1.18.1–v1.18.7 patch train (milestone 22). Eight issues in seven iterations. Every entry retains its full engineering detail in the per-patch entries that follow; this rollup states the shape of the release, what changes in behavior, and what was deliberately deferred.
