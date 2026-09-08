@@ -552,8 +552,18 @@ if (!function_exists('wp_get_nav_menu_items')) {
 // 'name']; items reuse the existing ['nav_menu_items'][$menu_id] bucket
 // above as stdClass objects {ID, title, url}.
 if (!function_exists('wp_get_nav_menus')) {
-    function wp_get_nav_menus(): array {
+    /**
+     * UNTYPED RETURN SINCE #876, DELIBERATELY. Real wp_get_nav_menus() ends in get_terms(),
+     * which can answer a WP_Error, and _pp_restore_menu_state() has a producer for exactly
+     * that. A `: array` hint made that producer unreachable from the harness — the branch
+     * existed, was reasoned about in two docblocks, and no test could enter it. Seed a
+     * non-array (a WP_Error) in the store to drive it; every other caller still gets a list.
+     */
+    function wp_get_nav_menus() {
         $menus = $GLOBALS['_pp_test_store']['nav_menus'] ?? [];
+        if (!is_array($menus)) {
+            return $menus; // get_terms() answered WP_Error
+        }
         return array_map(fn($m) => (object) $m, array_values($menus));
     }
 }
@@ -639,6 +649,14 @@ if (!function_exists('wp_update_nav_menu_item')) {
             'description'      => (string) ($menu_item_data['menu-item-description'] ?? ''),
         ];
 
+        // A fixture may seed this bucket as FALSE to model wp_get_nav_menu_items() failing
+        // its read (#876). Creating an item on such a menu still works in real WordPress —
+        // the read and the write are independent — so normalize rather than append into a
+        // bool, which PHP 8.1 deprecates and which would make the fixture's own noise look
+        // like a defect in the code under test.
+        if (!is_array($GLOBALS['_pp_test_store']['nav_menu_items'][$menu_id] ?? null)) {
+            $GLOBALS['_pp_test_store']['nav_menu_items'][$menu_id] = [];
+        }
         $GLOBALS['_pp_test_store']['nav_menu_items'][$menu_id][] = $item;
 
         return $item_id;
@@ -1021,7 +1039,35 @@ if (!function_exists('get_theme_mod')) {
 }
 
 if (!function_exists('set_theme_mod')) {
+    /**
+     * Test-controlled write refusal (#876): set
+     * $GLOBALS['_pp_test_unwritable_theme_mods'][$name] = true to get the FALSE return real
+     * core gives when the write does not happen. Same opt-in, test-scoped shape as
+     * $GLOBALS['_pp_test_unwritable_options'] and $GLOBALS['_pp_test_undeletable_posts'],
+     * and inert when unset.
+     *
+     * REAL CORE RETURNS A BOOL, AND IT IS AMBIGUOUS. set_theme_mod() ends in
+     * `return update_option( "theme_mods_$theme", $mods );` (wp-includes/theme.php,
+     * `@since 5.6.0 A return value was added.`), so false means the write was REFUSED or
+     * the stored value was already equal.
+     *
+     * THIS STUB MODELS THE REFUSAL HALF ONLY, AND THE UNCHANGED HALF IS A KNOWN FIDELITY
+     * GAP RATHER THAN A PROVEN-UNREACHABLE ONE. State it that way round, because the
+     * comfortable version of this sentence is false: it is NOT true that every production
+     * caller compares the live value first. The batch rollback's location restore does
+     * (_pp_restore_write_if_changed(), #857/#876), so for that caller the writer is never
+     * invoked with nothing to do. pp_assign_menu_location() (lib/wp.php) does NOT — it is
+     * a bare `return set_theme_mod(...)`, and the assign_menu_location action turns that
+     * bool straight into an operator-facing failure. Against real core, re-assigning a
+     * location to the menu it already holds therefore reports a failure for a write that
+     * was never owed, and this stub is what keeps that invisible. Filed separately;
+     * modelling the unchanged half here would turn that live defect into suite failures in
+     * tests that are not about it, which is a different issue's scope.
+     */
     function set_theme_mod(string $name, $value): bool {
+        if (!empty($GLOBALS['_pp_test_unwritable_theme_mods'][$name])) {
+            return false; // refused: nothing stored, and the caller must be able to see it
+        }
         $GLOBALS['_pp_test_store']['theme_mods'][$name] = $value;
         // get_nav_menu_locations()'s stub reads a separate flat
         // ['nav_menu_locations'] key that predates this function (and that
@@ -1341,6 +1387,21 @@ if (!function_exists('wp_delete_post')) {
         // survivor for a REFUSED delete and stays silent for a page that is provably
         // gone, and a stub collapsing the two would leave that false-alarm boundary
         // green whichever way the code went.
+        // ARBITRARY SHORT-CIRCUIT RETURN (#876): set
+        // $GLOBALS['_pp_test_delete_post_returns'][$post_id] = <value> to get that value
+        // back verbatim, which is what core does with the `pre_delete_post` filter —
+        // `$check = apply_filters('pre_delete_post', null, $post, $force_delete);
+        // if ( null !== $check ) { return $check; }`. The filter is documented as "Anything
+        // other than null will short-circuit deletion", so a plugin can hand back `true`,
+        // `0`, `''` or a WP_Error as readily as `false`, and a caller testing falsiness
+        // reads the truthy ones as successful deletes. `_pp_test_undeletable_posts` can
+        // only produce the `false` spelling, which is why this second knob exists: without
+        // it the discrimination in pp_clear_nav_menu_items() is unreachable and its pin
+        // passes against a falsiness test. array_key_exists, not isset, so a deliberate
+        // null (the provably-gone arm) is honoured rather than falling through.
+        if (array_key_exists($post_id, $GLOBALS['_pp_test_delete_post_returns'] ?? [])) {
+            return $GLOBALS['_pp_test_delete_post_returns'][$post_id];
+        }
         if (!empty($GLOBALS['_pp_test_undeletable_posts'][$post_id])) {
             return false;
         }

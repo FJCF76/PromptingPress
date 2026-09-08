@@ -3,7 +3,7 @@
  * tests/RollbackErrorKindsTest.php — every `rollback_errors` entry says which of the two
  * things it means (#855).
  *
- * THE BUG THIS PINS. The channel had 23 producers and two meanings, and a consumer
+ * THE BUG THIS PINS. The channel had 26 producers and two meanings, and a consumer
  * received opaque strings:
  *
  *   a restore was OWED and did not happen   ──┐
@@ -25,9 +25,10 @@
  * WHAT IS PINNED HERE, IN FOUR FAMILIES.
  *
  *   THE INVENTORY — one assertion per producer, because the value of the kind is exactly
- *   its correctness at each of the 23 sites and a channel where one site is mislabelled is
+ *   its correctness at each of the 26 sites and a channel where one site is mislabelled is
  *   worse than one where none is labelled. 5 are withholds (#756, #749, #833, and the two
- *   attachment refusals); 18 are failures.
+ *   attachment refusals); 21 are failures. The menu layer's share went from 3 to 6 in #876,
+ *   every addition a failure, which is what keeps the single blanket tag at the merge honest.
  *
  *   THE PROJECTIONS — `rollback_errors` is byte-identical to what it was, the two lists are
  *   the same length and both are LISTS (a key-preserving edit upstream makes wp_json_encode
@@ -35,7 +36,7 @@
  *   envelope carries the new key on ALL THREE returns so an absent key means "older server"
  *   and nothing else.
  *
- *   THE SOURCE TRIPWIRES — the twenty-fourth producer is the one this file cannot see.
+ *   THE SOURCE TRIPWIRES — the twenty-seventh producer is the one this file cannot see.
  *   Every append inside _pp_restore_batch_snapshot_report() must go through
  *   _pp_rollback_entry(), and the menu layer must keep producing bare strings so the single
  *   blanket tag at the merge stays honest.
@@ -119,6 +120,7 @@ class RollbackErrorKindsTest extends TestCase
             $GLOBALS['_pp_test_undeletable_attachments'],
             $GLOBALS['_pp_test_unwritable_posts'],
             $GLOBALS['_pp_test_unwritable_options'],
+            $GLOBALS['_pp_test_unwritable_theme_mods'],
             $GLOBALS['_pp_test_option_writes'],
             $GLOBALS['_pp_test_option_deletes']
         );
@@ -569,6 +571,52 @@ class RollbackErrorKindsTest extends TestCase
     }
 
     /**
+     * PRODUCER (1), THE TWO #876 ADDED — same merge, same blanket tag.
+     *
+     * The layer went from 3 producers to 5 and every one of them is still a FAILED-revert:
+     * a refused wp_delete_post() on a menu item and a refused set_theme_mod() on the
+     * location map are writes that were OWED and did not land. Neither is a protective
+     * decline, which is the whole condition under which one mapping at the merge can be
+     * honest for the layer. Pinned per producer because the inventory's value is its
+     * correctness at each site, not in aggregate.
+     */
+    public function testTheTwoMenuWritesAddedByEightSevenSixAreTaggedFailed(): void
+    {
+        $menu_id  = wp_create_nav_menu('Main');
+        $snapshot = (object) [
+            'ID' => 701, 'post_title' => 'Home', 'title' => 'Home',
+            'type' => 'custom', 'url' => 'https://example.com/', 'menu_order' => 1,
+        ];
+        $GLOBALS['_pp_test_store']['nav_menu_items'][$menu_id] = [
+            $snapshot,
+            (object) ['ID' => 702, 'title' => 'Added', 'url' => 'https://example.com/new', 'menu_order' => 2],
+        ];
+        $GLOBALS['_pp_test_undeletable_posts'][702] = true;
+        // And the location map is genuinely different AND unwritable, so both producers fire
+        // in one report.
+        $GLOBALS['_pp_test_store']['theme_mods']['nav_menu_locations']  = ['primary' => 9];
+        $GLOBALS['_pp_test_unwritable_theme_mods']['nav_menu_locations'] = true;
+
+        $report = _pp_restore_batch_snapshot_report($this->bundle([
+            'menus' => [
+                'menus'     => [$menu_id => ['name' => 'Main', 'items' => [$snapshot]]],
+                'locations' => ['primary' => 7],
+            ],
+        ]));
+
+        $this->assertFailed(
+            $report,
+            'menu item 702 could not be removed',
+            'a removal that was owed and refused is a failure, not a withhold'
+        );
+        $this->assertFailed(
+            $report,
+            'navigation location assignments were NOT rolled back',
+            'a location restore that was owed and refused is a failure, not a withhold'
+        );
+    }
+
+    /**
      * THE ONE UNTYPED BOUNDARY, AND IT MUST NOT FATAL. _pp_rollback_entry() takes a typed
      * string, and the menu layer is the only place the report tags a value it did not
      * author. This theme declares no strict_types, so a scalar coerces silently — but an
@@ -627,7 +675,7 @@ class RollbackErrorKindsTest extends TestCase
         $this->assertSame(array_keys($strings), range(0, count($strings) - 1), 'and it is still a list');
 
         // AND THE SHIM IS THAT PROJECTION AND NOTHING ELSE — no second assembly path that
-        // could drift from the report's 23-branch decision.
+        // could drift from the report's 26-branch decision.
         $this->assertSame(
             'return _pp_rollback_messages(_pp_restore_batch_snapshot_report($snapshot));',
             trim($this->functionSource('_pp_restore_batch_snapshot'), "{}\n "),
@@ -735,7 +783,7 @@ class RollbackErrorKindsTest extends TestCase
     /**
      * EVERY APPEND GOES THROUGH _pp_rollback_entry().
      *
-     * Twenty-three producers is twenty-three chances to append a bare string, and a bare
+     * Twenty-six producers is twenty-six chances to append a bare string, and a bare
      * string on this channel is indistinguishable from a deliberate `failed` — the exact
      * ambiguity #855 exists to remove, re-entered one producer at a time. The behavioural
      * pins above can only cover the producers that exist today; this covers the next one.
@@ -790,7 +838,21 @@ class RollbackErrorKindsTest extends TestCase
         // protective decline that names nothing, trips nothing, and is silently tagged
         // `failed` a thousand lines away. Freezing the count means a new producer THERE has to
         // be looked at HERE, which is the only place the kind is decided.
-        $expected_producers = ['_pp_restore_menu_state' => 3, '_pp_rebuild_menu_items' => 2];
+        // 3 → 6 IN #876, CONSCIOUSLY, AND THE COUNT MOVED TWICE INSIDE ONE ITERATION —
+        // which is the tripwire doing its job rather than a sign it is noisy. The layer
+        // gained: a menu item pp_clear_nav_menu_items() could not REMOVE, location
+        // assignments it could not RESTORE, and an item list it could not READ (that last
+        // one added after review found the empty-survivor-list return could not tell
+        // "nothing survived" from "nothing was enumerated"). All three are writes that were
+        // OWED and did not land, not protective declines, so the blanket `failed` tag at
+        // the merge is still honest for all six and the layer still names no kind of its
+        // own. The count moved; the rule this test exists for did not.
+        //
+        // THE SECOND TERM IS NOW ZERO and is kept deliberately: the menu-list-unavailable
+        // sentence became an ordinary append in #876 (it used to be an early return, which
+        // skipped the location restore below it). Keeping the term means a future producer
+        // spelled as a bare return is still counted rather than silently missed.
+        $expected_producers = ['_pp_restore_menu_state' => 6, '_pp_rebuild_menu_items' => 2];
         foreach ($expected_producers as $fn => $sites) {
             $body = $this->functionSource($fn);
             $this->assertStringNotContainsString('_pp_rollback_entry', $body, "{$fn} tags nothing itself");
@@ -820,6 +882,59 @@ class RollbackErrorKindsTest extends TestCase
             'PP_ROLLBACK_ERROR_WITHHELD',
             $loop,
             'the menu layer has no policy-withhold branch, so the merge must not invent one'
+        );
+    }
+
+    /**
+     * PP_REDIRECTS_OPTION HAS EXACTLY ONE WRITER (#876).
+     *
+     * pp_create_redirect(), pp_remove_redirect() and the rollback's patch each inlined their
+     * own update_option() on this key, and TODOS.md recorded the consequence: a write-side
+     * concern added to the two actions — a cache flush, a hook, a shape guard — would
+     * silently bypass the rollback's write, which is the one write nobody exercises by hand.
+     * pp_set_redirects() is that owner. This is a source tripwire rather than a behavioural
+     * test because the failure it guards is a FOURTH site appearing, which no behaviour can
+     * see: three agreeing sites and four agreeing sites look identical from outside.
+     */
+    public function testTheRedirectOptionHasASingleWriter(): void
+    {
+        // GLOBBED, NOT A TWO-FILE LIST, and matched on the OPTION rather than one spelling
+        // of the call. A tripwire whose title says "exactly one writer" while it scans two
+        // hand-named files proves nothing about the fourth writer arriving in lib/cli.php —
+        // and the failure it guards is precisely a writer appearing somewhere nobody looked.
+        // Same shape the other source tripwires in this suite already use.
+        $writes = [];
+        foreach (glob(dirname(__DIR__) . '/lib/*.php') as $file) {
+            $source = file_get_contents($file);
+            // Any update/delete of the option, however it is spelled: the constant or the
+            // raw literal, with or without whitespace after the paren.
+            preg_match_all(
+                '/\b(?:update_option|delete_option)\s*\(\s*(?:PP_REDIRECTS_OPTION|[\'"]pp_redirects[\'"])/',
+                $source,
+                $matches
+            );
+            if ($matches[0] !== []) {
+                $writes[basename($file)] = count($matches[0]);
+            }
+        }
+
+        $this->assertSame(
+            ['wp.php' => 1],
+            $writes,
+            'PP_REDIRECTS_OPTION is written outside pp_set_redirects() — route every write'
+            . ' through the owner so the rollback cannot be left behind by a change to the'
+            . ' two action writers. Got: ' . var_export($writes, true)
+        );
+
+        // AND THE ONE IN lib/wp.php IS THE OWNER ITSELF, not some other function that
+        // happens to live in the same file.
+        $wp    = file_get_contents(dirname(__DIR__) . '/lib/wp.php');
+        $start = strpos($wp, 'function pp_set_redirects(');
+        $this->assertNotFalse($start, 'the owner exists');
+        $this->assertStringContainsString(
+            'update_option(PP_REDIRECTS_OPTION',
+            substr($wp, $start, strpos($wp, "\n}", $start) - $start),
+            'and the single write site is inside it'
         );
     }
 

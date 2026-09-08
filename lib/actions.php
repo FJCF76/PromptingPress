@@ -1144,8 +1144,9 @@ function _pp_batch_step_post_id(array $step): ?int {
  * PP_REDIRECTS_OPTION (pp_create_redirect / pp_remove_redirect, lib/wp.php; the option is
  * NOT in pp_allowed_site_options(), so it can never arrive through the update_site_option
  * path either). A third one is a one-line edit HERE rather than a re-derivation somewhere
- * else. There is exactly one other writer of that option in the codebase and it is not a
- * step: _pp_restore_batch_snapshot_report()'s own rollback write, which exists to undo these two.
+ * else. Since #876 the option has a single WRITER — pp_set_redirects() (lib/wp.php) — with
+ * three callers: those two actions plus _pp_restore_batch_snapshot_report()'s own rollback
+ * write, which is not a step and exists to undo them.
  *
  * IT NORMALIZES, AND THE NORMALIZER IS THE WRITERS' OWN. `from` is operator/model text and
  * arrives in whatever spelling was typed — "/old", "/old/", "https://site/old?x=1" all
@@ -1762,10 +1763,58 @@ function _pp_snapshot_menu_state(): array {
  * existed (pre-existing menus keep their term ids, so restored location
  * assignments stay valid), and restores the location map.
  *
+ * SINCE #876 EVERY WRITE THIS FUNCTION MAKES ITSELF IS CHECKED, which is what lets the
+ * report one layer up drop its "be exact about the second half" carve-out. Two writes used
+ * to be fire-and-forget. The item deletes inside pp_clear_nav_menu_items() were discarded
+ * because that function was declared `: void`, so a refused delete left an item the batch
+ * added still in the menu and the rollback could not know. And the location assignments were
+ * written blind: set_theme_mod() has returned update_option()'s bool since WP 5.6
+ * (wp-includes/theme.php — `@since 5.6.0 A return value was added.`), so there WAS a return
+ * to check; the issue that filed this believed there was not, and this file already refuted
+ * it — pp_assign_menu_location() (lib/wp.php) has been `return set_theme_mod(...)` all along.
+ *
+ * ONE DELEGATED WRITE IS STILL UNVERIFIABLE FROM HERE, and saying "every write" without
+ * this qualification would replace an honest carve-out with a false guarantee. The
+ * batch-created-menu branch calls wp_delete_nav_menu(), and core performs TWO further
+ * writes inside it that it does not report: a wp_delete_post() per item in the menu, and a
+ * set_theme_mod() zeroing every location that pointed at it (wp-includes/nav-menu.php).
+ * Its return is wp_delete_term()'s alone. So a batch-created menu whose term deletes
+ * cleanly while one of its item rows does not leaves an orphan nav_menu_item behind, and
+ * nothing here can see it. Checking that would mean reimplementing core's deletion rather
+ * than calling it — a different axis from this one, which is about the writes THIS code
+ * performs.
+ *
+ * THE LOCATIONS WRITE COMPARES FIRST, AND THAT IS CORRECTNESS RATHER THAN THRIFT. Because
+ * set_theme_mod() ends in update_option(), its false means "refused" OR "already equal", and
+ * a rollback keying on the bare return would name a survivor every time a batch touched
+ * menus without touching the location map — which is most of them. That is a false alarm on
+ * the channel this whole reporting exists to make trustworthy.
+ * _pp_restore_write_if_changed() (#857) is the shared owner of that disambiguation, and both
+ * sides of its comparison are read through get_theme_mod() with the same default, so the two
+ * are the same projection of the same option and the comparison is like for like.
+ *
+ * AND THE GUARD HAS A LIMIT, NAMED RATHER THAN IMPLIED, because it is a new one. The two
+ * READS are the same projection; the WRITE is not. get_theme_mod() returns the value through
+ * the `theme_mod_nav_menu_locations` filter, while set_theme_mod() reads the RAW stored map
+ * and writes raw (wp-includes/theme.php). Under a plugin that filters that value — the
+ * multilingual per-language view TODOS.md already records against the snapshotter — that
+ * asymmetry bends BOTH ways and both are named here rather than only the flattering one.
+ * The raw map can differ while the filtered views compare equal, and this guard then skips a
+ * write that was owed and reports clean. Or the filtered views can differ while the raw map
+ * already equals the target, and then the write is attempted, update_option sees nothing to
+ * change, and the false return is read as a refusal — a FALSE ENTRY naming a location map
+ * that is in fact correct. Both corners are strictly narrower than what shipped before, when
+ * this write reported NOTHING on any refusal at all, and neither is reachable without a
+ * plugin filtering that value. Closing them means reading the raw `theme_mods_<stylesheet>`
+ * option on both sides, which is the same design question TODOS.md parks for the
+ * snapshotter and must be answered for both halves at once, not for this one alone.
+ *
  * EVERY STRING RETURNED HERE IS TAGGED PP_ROLLBACK_ERROR_FAILED by the caller
  * (_pp_restore_batch_snapshot_report, #855), and that blanket tag is honest only because
  * this layer has no policy-withhold branch: it reports a menu list it could not READ, a
- * batch-created menu it could not DELETE, and items it could not RECREATE. A restore this
+ * batch-created menu it could not DELETE, a menu whose ITEM LIST it could not read, a menu
+ * item it could not REMOVE, items it could not RECREATE, and location assignments it could
+ * not RESTORE. A restore this
  * layer DECLINES on purpose must not be reported through this return until the layer
  * carries its own kinds — a bare string added here would be silently called a failure a
  * thousand lines away. RollbackErrorKindsTest freezes this function's producer count so a
@@ -1782,7 +1831,14 @@ function _pp_restore_menu_state(array $state): array {
     if (!is_array($menus)) {
         // get_terms() can return WP_Error — never fatal inside the rollback
         // path; report instead of aborting the rest of the restore half-done.
-        return ['menu list unavailable during rollback (wp_get_nav_menus failed)'];
+        //
+        // REPORTED AND FALLEN THROUGH, NOT RETURNED (#876). This used to return the sentence
+        // immediately, which skipped the location restore below — a write this function owes
+        // on every path, that does not depend on the menu list, and that was then neither
+        // attempted nor reported. "Every write this function makes is checked" has to mean
+        // on every path or it means nothing.
+        $errors[] = 'menu list unavailable during rollback (wp_get_nav_menus failed)';
+        $menus    = [];
     }
 
     foreach ($menus as $menu) {
@@ -1805,13 +1861,58 @@ function _pp_restore_menu_state(array $state): array {
             continue;
         }
 
-        pp_clear_nav_menu_items($menu_id);
+        // THE REBUILD STILL RUNS AFTER A PARTIAL CLEAR, and that is the least-bad of two
+        // damaged outcomes rather than an oversight. Skipping it would leave the menu
+        // holding only whatever survived the clear — a gutted menu missing most of its
+        // pre-batch items. Rebuilding restores the whole snapshotted list and leaves the
+        // survivor beside it, so the operator gets a complete menu with a duplicate in it,
+        // which is both recoverable by hand and named below.
+        $cleared = pp_clear_nav_menu_items($menu_id);
+        if ($cleared === null) {
+            $errors[] = sprintf(
+                'menu %d ("%s"): its item list could not be read during the rollback, so nothing'
+                . ' was removed before the rebuild — the menu may now hold its pre-batch items'
+                . ' twice. Fix the list by hand in Appearance → Menus.',
+                $menu_id,
+                (string) $menu->name
+            );
+        }
+        foreach (($cleared ?? []) as $item_id) {
+            $errors[] = sprintf(
+                'menu %d ("%s"): menu item %d could not be removed before the rebuild, so it is'
+                . ' still in the menu — which now holds the restored list plus that item, and'
+                . ' a duplicate of it if it was in the snapshot too. Fix the list by hand in'
+                . ' Appearance → Menus.',
+                $menu_id,
+                (string) $menu->name,
+                $item_id
+            );
+        }
         foreach (_pp_rebuild_menu_items($menu_id, $snapshot_items) as $rebuild_error) {
             $errors[] = sprintf('menu %d ("%s"): %s', $menu_id, (string) $menu->name, $rebuild_error);
         }
     }
 
-    set_theme_mod('nav_menu_locations', $state['locations']);
+    $locations = $state['locations'];
+    $restored_locations = _pp_restore_write_if_changed(
+        get_theme_mod('nav_menu_locations', []),
+        $locations,
+        static function () use ($locations): bool {
+            return set_theme_mod('nav_menu_locations', $locations);
+        }
+    );
+    if (!$restored_locations) {
+        // CAUSE-NEUTRAL ON PURPOSE. "the menus this batch assigned are still assigned" is
+        // the obvious wording and it is wrong on a reachable path: wp_delete_nav_menu()
+        // ZEROES every location pointing at a menu it removes (wp-includes/nav-menu.php),
+        // so the loop above can leave a location EMPTY that the snapshot says pointed
+        // somewhere. Naming the wrong direction on this channel is the failure mode #755
+        // and #797 removed from it.
+        $errors[] = 'the theme\'s navigation location assignments were NOT rolled back: the'
+            . ' restoring write was refused, so the location map is still whatever this batch'
+            . ' and its rollback left it, not what it was before. Check it in Appearance →'
+            . ' Menus → Manage Locations.';
+    }
 
     return $errors;
 }
@@ -1986,9 +2087,10 @@ function _pp_restore_field_failure_message(int $post_id, string $what, string $a
  * refused write, because there was a real difference to write.
  *
  * #854 established this shape for the redirect map and its comment deferred the rest of
- * the writes here by name. This is that generalization, single-owned so the four
+ * the writes here by name. This is that generalization, single-owned so the five
  * ambiguous-return writes (a whitelisted site option, its delete, the design-token
- * overrides, the custom font URLs) cannot drift apart.
+ * overrides, the custom font URLs, and since #876 the menu layer's nav_menu_locations
+ * theme mod, which ends in update_option() one layer down) cannot drift apart.
  *
  * TWO LIMITS, STATED, both inherited from #854 rather than introduced here.
  *
@@ -2031,23 +2133,44 @@ function _pp_restore_write_if_changed($current, $target, callable $writer): bool
  * false reassurance #755 and #797 removed, out of the same channel.
  *
  * THE CENSUS, ON ONE BASIS, because three different counts are countable here and they
- * disagree. There are 23 PRODUCERS: the 20 tagged directly inside
- * _pp_restore_batch_snapshot_report(), plus the menu layer's 3, which reach the channel as
+ * disagree. There are 26 PRODUCERS: the 20 tagged directly inside
+ * _pp_restore_batch_snapshot_report(), plus the menu layer's 6, which reach the channel as
  * bare strings and are tagged together at the merge. There are 21 _pp_rollback_entry()
  * CALL SITES (those 20, plus the one in the merge loop). And the executor's @return
  * enumerates 19 distinct SENTENCES, because it collapses the menu layer into one. Five of
- * the 23 are withholds. Any number in this file that does not name its basis is a number
+ * the 26 are withholds. Any number in this file that does not name its basis is a number
  * that will drift — the @return already drifted twice.
  *
+ * THE MENU LAYER GREW FROM 3 TO 5 IN #876, and only the producer count moved. It now also
+ * reports a menu item it could not REMOVE (pp_clear_nav_menu_items()'s refused deletes) and
+ * location assignments it could not RESTORE. Both are failures — the layer still has no
+ * policy-withhold branch — so the single blanket tag at the merge stays honest, the call
+ * sites stay at 21, and the @return keeps collapsing the layer into its one entry (1), so
+ * the sentence count stays at 19.
+ *
+ * "THE MENU LAYER'S 6" IS ENTRY SITES IN _pp_restore_menu_state() — six `$errors[] =`
+ * appends, and since #876 that is all of them: the menu-list-unavailable sentence used to
+ * be an early `return [...]`, which produced an entry without appending one AND skipped the
+ * location restore below it. Spelling the basis out matters because a second 6 is countable
+ * next to it and because the append/return distinction is exactly where an off-by-one hides.
+ * RollbackErrorKindsTest's tripwire applies a two-term formula (appends plus that early
+ * return, the second term now zero) and freezes 6 here, plus 2 more in
+ * _pp_rebuild_menu_items() — 8 entry sites across the two functions. That 8 is NOT this
+ * census's number: this census walks _pp_restore_menu_state() only, because the rebuild's
+ * two reach the channel THROUGH the wrap that is one of these six. Counting both would
+ * count the rebuild's entries twice.
+ *
  * A FOURTH BASIS SINCE #875, recorded here rather than at the producer so all of them stay
- * reconcilable in one place: 22 of the 23 are REACHABLE THROUGH THE SHIPPED EXECUTOR. The
+ * reconcilable in one place: 25 of the 26 are REACHABLE THROUGH THE SHIPPED EXECUTOR. The
  * odd one out is the SEO-metadata restore, which since #875 replays a captured baseline
  * without re-judging its values, so the only refusals it has left — meta this theme does
  * not own, a page that is not there — cannot be produced by the snapshotter. It stays a
- * producer because it stays a checked write; it is simply defensive now. Nothing about the
- * other three bases changes: no producer was added or removed.
+ * producer because it stays a checked write; it is simply defensive now. All three #876
+ * producers ARE reachable through the shipped executor (a refused wp_delete_post on a menu
+ * item, a refused theme-mod write, and an item list core answers false for when the term
+ * was deleted concurrently), which is why the odd-one-out stays exactly one.
  *
- * THE DISCRIMINATOR, STATED ONCE, because 23 producers have to agree on it:
+ * THE DISCRIMINATOR, STATED ONCE, because 26 producers have to agree on it:
  *
  *   PP_ROLLBACK_ERROR_WITHHELD  the rollback DECIDED not to write or delete, as a
  *                               protective policy, and its sentence says so. Nothing
@@ -2072,8 +2195,8 @@ const PP_ROLLBACK_ERROR_FAILED   = 'failed';
  * One tagged entry for the rollback report (#855).
  *
  * THE ONLY WAY AN ENTRY IS BUILT, and that is the point rather than a convenience. The
- * report has 23 producers; a channel where a kind is appended by hand at each of them is
- * a channel where the twenty-fourth producer forgets, and a forgotten kind is silently
+ * report has 26 producers; a channel where a kind is appended by hand at each of them is
+ * a channel where the twenty-seventh producer forgets, and a forgotten kind is silently
  * indistinguishable from a deliberate `failed`. Routing every append through here makes
  * "did this producer answer the kind question?" a thing the compiler asks, and
  * RollbackErrorKindsTest's source tripwire is what keeps the routing honest.
@@ -2219,15 +2342,18 @@ function _pp_rollback_project(array $entries, string $key, string $fallback): ar
  *                           the two other composition withholds at (2) and (3). Everything
  *                           else is a failure, and NO COUNT IS STATED for that half on
  *                           purpose: this docblock's own enumeration collapses the menu
- *                           layer into one entry (1) while the constants' 23-producer census
- *                           expands it into three, so any number written here is a number
+ *                           layer into one entry (1) while the constants' 26-producer census
+ *                           expands it into five, so any number written here is a number
  *                           that disagrees with one of them. It is the same drift this
  *                           enumeration already warns about below. The enumeration is the distinct
  *                           sentences; a reader keying on the message needs all of them, and
  *                           the count is deliberately NOT stated here because it drifted
  *                           twice (it said SEVEN through two changes that added classes):
- *                           (1) the menu layer, one entry per item it
- *                           could not recreate; a page whose composition restore was
+ *                           (1) the menu layer — since #876 one entry per menu list it
+ *                           could not read, per batch-created menu it could not delete, per
+ *                           menu whose ITEM list it could not read, per item it could not
+ *                           remove, per item it could not recreate, and
+ *                           for location assignments it could not restore; a page whose composition restore was
  *                           withheld because (2) the live stored value became
  *                           unreadable mid-batch (#749), (3) the row could not be read
  *                           authoritatively at all (#833, fail closed), or (4) it was
@@ -2276,19 +2402,31 @@ function _pp_rollback_project(array $entries, string $key, string $fallback): ar
  *                           the Custom CSS — including the case where the Custom CSS post
  *                           itself is gone and there is nowhere to put the snapshot back.
  *
- *                           Empty when clean — and since #854 + #857 that empty is worth
- *                           what it claims for every step class the executor can run AND
- *                           for every write THIS FUNCTION makes.
+ *                           Empty when clean — and since #854 + #857 + #876 that empty is
+ *                           worth what it claims for every step class the executor can run
+ *                           AND for every write THE ROLLBACK'S OWN CODE makes, this
+ *                           function's and the menu layer's alike.
  *
- *                           BE EXACT ABOUT THE SECOND HALF, because "the rollback" is
- *                           wider than this function. The menu layer it delegates to,
- *                           _pp_restore_menu_state(), still has unchecked writes of its
- *                           own — set_theme_mod() for the location assignments, and every
- *                           wp_delete_post() inside pp_clear_nav_menu_items() — so a menu
- *                           restore can still fail more quietly than the rest. It reports
- *                           the items it could not RECREATE, which is why it was already
- *                           a producer here, and that is not the same guarantee. Tracked
- *                           separately; #857 stops at this function's own writes.
+ *                           THE SCOPE NOTE #857 LEFT HERE IS RETIRED (#876). It read that
+ *                           "the rollback" is wider than this function and that the menu
+ *                           layer it delegates to, _pp_restore_menu_state(), still had
+ *                           unchecked writes of its own — set_theme_mod() for the location
+ *                           assignments, and every wp_delete_post() inside
+ *                           pp_clear_nav_menu_items() — so a menu restore could fail more
+ *                           quietly than the rest. Both are checked now, and both report
+ *                           through the same merge at (1). No line of this rollback still
+ *                           throws away a return it could have read.
+ *
+ *                           "ITS OWN CODE" IS THE EXACT BOUNDARY, not a hedge. Three limits
+ *                           survive and none is this axis's. A writer's return is TRUSTED
+ *                           rather than verified by reading the value back, and no
+ *                           compare-then-write pair here is atomic — both stated at
+ *                           _pp_restore_write_if_changed(), both the concurrency cluster's.
+ *                           And one CORE function writes on this rollback's behalf without
+ *                           reporting it: wp_delete_nav_menu() deletes each item row and
+ *                           zeroes each location itself, returning only wp_delete_term()'s
+ *                           result, so an orphaned item row under a deleted batch-created
+ *                           menu is invisible here. Named at _pp_restore_menu_state().
  */
 function _pp_restore_batch_snapshot_report(array $snapshot): array {
     $entries = [];
@@ -2802,7 +2940,7 @@ function _pp_restore_batch_snapshot_report(array $snapshot): array {
             unset($patched_redirects[$from]);
         }
         if ($patched_redirects !== $current_redirects
-            && !update_option(PP_REDIRECTS_OPTION, $patched_redirects)) {
+            && !pp_set_redirects($patched_redirects)) {
             foreach ($redirects_written as $from) {
                 if (!is_string($from)
                     || ($patched_redirects[$from] ?? null) === ($current_redirects[$from] ?? null)) {
@@ -3054,11 +3192,17 @@ function _pp_restore_batch_snapshot_report(array $snapshot): array {
         //
         // TAGGED AT THE MERGE, AND THE RULE IS THE WHOLE JUSTIFICATION (#855). Every
         // producer in the menu layer is a FAILED-revert: _pp_restore_menu_state() reports a
-        // menu list it could not READ, a batch-created menu it could not DELETE, and (via
-        // _pp_rebuild_menu_items) each item it could not RECREATE. Not one of them declines
+        // menu list it could not READ, a batch-created menu it could not DELETE, a menu whose
+        // ITEM LIST it could not read, (via pp_clear_nav_menu_items) each item it could not
+        // REMOVE, (via _pp_rebuild_menu_items) each item it could not RECREATE, and the
+        // location assignments it could not RESTORE. Not one of the six declines
         // on purpose — the layer has no policy-withhold branch at all — so one mapping here
-        // is honest for all three, and giving that layer its own report shape would buy
-        // nothing today. IF A WITHHOLD IS EVER ADDED THERE, it must stop returning bare
+        // is honest for all of them, and giving that layer its own report shape would buy
+        // nothing today. #876 added the last three and did not change that: a write that was
+        // owed and did not land is a failure whichever function attempted it, and one that
+        // could not even be attempted is not a protective decline — nothing was PROTECTED,
+        // the rollback simply could not see what to write. IF A WITHHOLD IS EVER ADDED THERE,
+        // it must stop returning bare
         // strings and carry its own kinds; this blanket tag is what would otherwise mislabel
         // it as a failure. Pinned by RollbackErrorKindsTest.
         //
@@ -3080,7 +3224,7 @@ function _pp_restore_batch_snapshot_report(array $snapshot): array {
  *
  * A PURE PROJECTION, NEVER A SECOND ASSEMBLY. This function does not decide anything: it
  * runs the report and drops the kinds. Two functions that each walked the snapshot and
- * built their own list would be two implementations of a 23-branch decision, and they
+ * built their own list would be two implementations of a 26-branch decision, and they
  * would drift — which is exactly the failure the kinds exist to make impossible one layer
  * up. Everything that produces an entry lives in _pp_restore_batch_snapshot_report().
  *
@@ -6000,6 +6144,15 @@ pp_register_action('set_menu', [
         if ($existing) {
             $previous_items = wp_get_nav_menu_items($menu_id);
             $previous_items = is_array($previous_items) ? array_values($previous_items) : [];
+            // THIS RETURN IS DELIBERATELY NOT CONSUMED (#876), AND THE DEGRADATION IT HIDES
+            // IS KNOWN AND SHIPPING. A refused delete here means set_menu's replace
+            // semantics silently become append: the old item stays, the new list is added
+            // around it, and the action still reports ok. Turning that into an action error
+            // would change what set_menu accepts as success — a decision about the ACTION
+            // surface, not about the rollback channel #876 rules on — so it is filed rather
+            // than fixed here. The $fail branch below DOES consume it, because that branch
+            // already reports an incomplete restore and adding to it cannot turn a success
+            // into a failure.
             pp_clear_nav_menu_items($menu_id);
         }
 
@@ -6011,8 +6164,18 @@ pp_register_action('set_menu', [
         // stays correct at every entry point.
         $fail = function (WP_Error $error) use ($existing, $menu_id, $previous_items) {
             if ($existing) {
-                pp_clear_nav_menu_items($menu_id);
-                $restore_errors = _pp_rebuild_menu_items($menu_id, $previous_items);
+                // The clear's refusals join the rebuild's on the SAME list (#876): both
+                // mean "the previous menu did not fully come back", which is exactly what
+                // this branch already tells the operator.
+                $restore_errors = [];
+                $cleared        = pp_clear_nav_menu_items($menu_id);
+                if ($cleared === null) {
+                    $restore_errors[] = 'the previous item list could not be read, so nothing was removed first';
+                }
+                foreach (($cleared ?? []) as $item_id) {
+                    $restore_errors[] = sprintf('menu item %d could not be removed first', $item_id);
+                }
+                $restore_errors = array_merge($restore_errors, _pp_rebuild_menu_items($menu_id, $previous_items));
                 if ($restore_errors !== []) {
                     return _pp_action_error('set_menu', 'site', $error->get_error_message()
                         . ' Restoring the previous menu items was also incomplete: '
