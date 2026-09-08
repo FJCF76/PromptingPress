@@ -152,11 +152,22 @@ function ppChatIsCompositionConflict(errData) {
  *
  * The failure renderer indexes `steps[failed_at]`, so without this guard that
  * shape used to throw a TypeError and the user saw a stack-shaped string instead
- * of the reason. SINCE #853 THAT READ IS NULL-SAFE, WHICH MAKES DELETING THIS
- * GUARD WORSE RATHER THAN SAFER: no throw is left to make the mistake visible, so
- * the failure exit would quietly index `steps[null]`, find nothing, and print a
- * fabricated "Error on step 1: Unknown error" (`null + 1` is 1) over a refusal
- * that names its own reason perfectly well. A crash at least got reported.
+ * of the reason. #853 made that read null-safe, which for a while made deleting
+ * this guard WORSE rather than safer: no throw was left to make the mistake
+ * visible, so the failure exit quietly indexed `steps[null]`, found nothing, and
+ * printed a fabricated "Error on step 1: Unknown error" (`null + 1` is 1) over a
+ * refusal that names its own reason perfectly well.
+ *
+ * SINCE #872 THE SENTENCE IS NO LONGER WHAT DELETING THIS GUARD WOULD COST, and
+ * the cost is restated rather than left pointing at a fixed defect.
+ * ppChatBatchFailedStepIndex() reads `failed_at: null` as "no usable index", so
+ * the executed-failure exit now prints the envelope's own reason with no step
+ * number at all — the same sentence this exit shows. What would still be lost is
+ * the ROWS: this exit paints every row `skipped`, the claim that no step ran,
+ * which is the fact `failed_at === null` states and the reason the refusal is
+ * worth telling apart. Fall through instead and ppChatFinishSpinningSteps() paints
+ * them `failed`, the unknown-outcome state — a strictly weaker claim about a batch
+ * the server told us never started.
  * The chat handler normally answers this case on the !resp.success
  * branch, so reaching here means the two gates disagreed across a concurrent
  * write: the page went unreadable after the handler's check, or — since #756 —
@@ -241,6 +252,258 @@ function ppChatBatchStepsReadable(batch) {
 }
 
 /**
+ * Whether a value is a whole, countable, non-negative number (#871, #872).
+ *
+ * FOUR CONDITIONS, AND EVERY ONE OF THEM IS LOAD-BEARING. Written out rather than
+ * compressed because each rejects a value that otherwise renders as a plausible number:
+ *
+ *   typeof === 'number'   `'2'` concatenates instead of adding (`'2' + 1` is `'21'`), and
+ *                         `true + 1` is 2 — a boolean that prints a perfectly ordinary
+ *                         "step 2" with nothing about it to notice.
+ *   isFinite              `Math.floor(Infinity) === Infinity` and `Infinity >= 0`, so the
+ *                         floor test alone waves it through to "Error on step Infinity".
+ *                         NaN fails every comparison and would print "step NaN".
+ *   Math.floor(v) === v   `1.5` prints "step 2.5".
+ *   v >= 0                `-1` prints "step 0" for a step that does not exist, and — the
+ *                         worse half — drives an index-based loop from 0.
+ *
+ * NOT A NEW IDIOM. ppChatFindingBand() applies these same four conditions to
+ * `item.index` one screen up, for the same reason stated the same way: do not put a
+ * number on screen that nothing answers to. It keeps its own copy because it answers a
+ * different question (does this finding OWN a band?) and returns the band rather than a
+ * boolean; this one exists because two callers below need the raw predicate and a third
+ * literal copy of a four-part test is how one of them loses a clause.
+ *
+ * @param  {*}       value
+ * @return {boolean} True for 0, 1, 2, ... and nothing else.
+ */
+function ppChatIsNonNegativeInteger(value) {
+    if (typeof value !== 'number' || !isFinite(value)) return false;
+    return value >= 0 && Math.floor(value) === value;
+}
+
+/**
+ * Whether the envelope reported a result for EVERY step the operator approved (#871).
+ *
+ * RULING T5, as a predicate. `stepElements` and `steps` are two parallel lists the card
+ * builds together, one entry per proposed step, and `batch.steps` was assumed to have the
+ * same length with nothing checking it. The success exit's `applied` list is filled only
+ * from results the envelope actually sent, so a SHORT envelope narrated a strict subset as
+ * the whole: a success card, and an `[Applied changes: <subset>]` turn written into the
+ * model's context naming fewer steps than the operator authorised. The model's next turn
+ * then reasons from a list missing a step it believes was applied. The count IS the
+ * evidence here, and nothing was asking about it.
+ *
+ * `>=`, NOT `===`, AND THE ASYMMETRY IS THE RULING'S. T5 gates on an envelope reporting
+ * FEWER step results than the proposal had steps. An envelope with MORE has accounted for
+ * every proposed step and then some — the ruling's evidence test passes — and the loop in
+ * executeProposal() already declines to paint a result with no row (#853), so the extra
+ * one cannot invent a step the card never rendered. Narrowing this to `===` would route a
+ * batch that DID account for everything into a failure, which is a different rule than the
+ * one that was ratified.
+ *
+ * THE HONEST CASE AGAINST `>=`, stated because it is not nothing: an over-count proves the
+ * server was working from a step list that is not the card's, so positional correspondence
+ * has already failed, and `applied` is built by INDEX. What an over-count cannot do is
+ * invent a step: finalizeProposalSuccess() maps `applied`, whose members are the CLIENT'S
+ * own step objects, so a fourth result has no row and no step to contribute and is dropped.
+ * Left as an open question for the ruling rather than settled here.
+ *
+ * WHAT THIS PREDICATE DOES NOT MAKE TRUE, and the distinction is worth stating precisely
+ * because it is easy to over-read a `true` from a function with this name. Counting results
+ * is not the same as counting APPLIES. `applied` is filled only for members the envelope
+ * marked `ok` (see the loop in executeProposal), so the SET behind the narration is chosen
+ * by server flags even though its contents are client objects. An envelope that satisfies
+ * this predicate can still carry failing members under an `ok: true` headline, and then
+ * `[Applied changes: ...]` names a subset — the same sentence T5 was written against,
+ * reached through a per-member contradiction rather than a short count. Two envelopes do it:
+ * `{ok:true, steps:[{ok:true},{ok:false}]}` at exact count, and `{ok:true, steps:[{ok:false},
+ * {ok:false}]}`, which reproduces the empty summary #871's body calls the degenerate case.
+ * Gating on `applied.length` instead would close both and is a strictly stronger rule — it
+ * subsumes the count, since a short list cannot fill `applied` either — but it also rules on
+ * envelopes T5 does not, and two pins in pp-ai-chat-batch-steps-shape.test.js record today's
+ * behaviour for them deliberately.
+ *
+ * #922 OWNS THAT AXIS. T5 rules on the step-RESULT count and this predicate implements
+ * exactly that; whether an `ok: true` headline may outrank its own members is a separate
+ * question with its own landed pins to revisit, and it was deliberately not folded in here.
+ * A reader who finds the subset narration reachable and reaches for a one-line widening
+ * should read #922 first — the one line is not the hard part, the two pins are.
+ *
+ * DELEGATES READABILITY RATHER THAN RE-DERIVING IT (#667/#853): "how many results are
+ * there" is only a meaningful question on a list, and ppChatBatchStepsReadable() is
+ * already the one place that question is answered — including the own-property check that
+ * stops an inherited `Object.prototype.steps` from being counted. A second inline
+ * `Array.isArray` here is how the guard and the classifier come to disagree about one
+ * field.
+ *
+ * FAILS CLOSED ON A BAD COUNT, which is why `proposedCount` is threaded in rather than
+ * defaulted. A caller that forgets it passes `undefined`; a caller that passes a string
+ * would make `length >= '1'` coerce and quietly answer yes. Either way the answer is
+ * "cannot tell", and the cost of that is a true sentence lost rather than a false one
+ * asserted — the same posture ppChatConflictOutcome() takes for its own threaded argument.
+ *
+ * WHAT THIS DOES NOT DO, stated so a `false` is not over-read: it is not a verdict that
+ * the batch failed, and not a verdict about any individual step. It says only that the
+ * envelope cannot support a claim about the WHOLE proposal, which is exactly the claim
+ * the success exit makes and no other exit does.
+ *
+ * @param  {object|null} batch          The batch envelope.
+ * @param  {number}      proposedCount  How many steps the operator approved.
+ * @return {boolean}                    True when every proposed step has a result.
+ */
+function ppChatBatchAccountsForAllSteps(batch, proposedCount) {
+    if (!ppChatBatchStepsReadable(batch)) return false;
+    if (!ppChatIsNonNegativeInteger(proposedCount)) return false;
+
+    return batch.steps.length >= proposedCount;
+}
+
+/**
+ * The step index a failed batch names, or null when it names none (#872).
+ *
+ * `failed_at` decides WHAT the failure exit says, the way `steps` decides WHICH exit runs
+ * — and it was guarded in neither direction. It was tested only for `null`/`undefined`
+ * (ppChatBatchWasRefusedUpFront) and otherwise used directly, as an array index and as a
+ * number in string concatenation. Measured on the pre-guard source, one row per shape:
+ *
+ *   {}          "Error on step [object Object]1"
+ *   '2'         "Error on step 21"                 (concatenation, not addition)
+ *   1.5         "Error on step 2.5"
+ *   true        "Error on step 2"                  ← indistinguishable from a real one
+ *   -1          "Error on step 0", AND the skip pass then rewrote EVERY row from index 0
+ *
+ * AND ONE FAMILY THAT NEVER REACHED A SENTENCE AT ALL, which the issue's table does not
+ * name and which is the more serious half. The skip pass indexed `stepElements[j]` with
+ * whatever `failed_at + 1` produced, and three shapes land INSIDE the loop bound on a
+ * non-integer key: `'0'` gives `'01'`, which coerces below the length but is not the
+ * property `'1'`; `0.5` gives `1.5`; `-0.5` gives `0.5`. Each read `undefined.classList`
+ * and threw, the throw landed in the promise chain's catch, and the catch renders
+ * `err.message` — so the operator got a stack-shaped string and the ENTIRE executed-failure
+ * exit was lost with it: the rollback report (#755/#797), the sentence naming what stayed
+ * dirty, and the repair affordance (#704). `1.5` is the shape that does NOT throw
+ * (`2.5 < 2` is false), which is why a probe that varies only the sentence misses the family.
+ *
+ * QUIETER SINCE #853 WHERE IT DID NOT THROW, NOT RARER. Making `steps[failed_at]` a
+ * null-safe read removed the TypeError that used to announce a malformed index on the
+ * sentence path. What replaced it is a confident, wrong sentence — the same trade
+ * ppChatBatchWasRefusedUpFront()'s docblock records for its own exit, one field over. The
+ * skip-pass throws above were never covered by that read and were never quiet.
+ *
+ * OWN PROPERTY, for the reason every other read in this file states: wp-admin loads
+ * third-party JS in this realm, so an inherited `Object.prototype.failed_at` is not
+ * evidence about this envelope, and reading one would name a step the server never
+ * blamed.
+ *
+ * TWO OTHER READERS OF THIS FIELD ARE EXEMPT, and both exemptions are deliberate. The rule
+ * is "every claim that PRINTS an index, or walks rows from one, goes through here" — not
+ * "every read of `failed_at` does".
+ *
+ *   ppChatBatchHitConflict()        Asks one index a yes/no question about the CAUSE. It
+ *                                   renders no step number, so it cannot fabricate one, and
+ *                                   strengthening it would send a conflicting batch to the
+ *                                   wrong exit and re-mask the #797 card. Same shape as the
+ *                                   exemption #853 records for ppChatBatchStepsReadable().
+ *   ppChatBatchWasRefusedUpFront()  Asks whether the envelope names ANY index, which is a
+ *                                   question about the batch rather than about a step, and
+ *                                   its answer picks an exit rather than printing a number.
+ *
+ * THE SECOND ONE CARRIES A KNOWN GAP, named here rather than left for someone to read the
+ * exemption as a clean bill of health: it reads `failed_at` with plain property access, so a
+ * planted `Object.prototype.failed_at` makes an envelope with no own one stop testing as the
+ * #749 refusal and lose that card. Pre-existing, untouched by this change, and filed —
+ * closing it means editing a landed guard on evidence this issue does not carry. What #872
+ * does change is the consequence: the exit it falls through to now degrades to the stated
+ * unknown instead of printing the fabricated "Error on step 1" it used to.
+ *
+ * @param  {object|null}  batch  The batch envelope.
+ * @return {number|null}         The index, or null when the envelope names no usable one.
+ */
+function ppChatBatchFailedStepIndex(batch) {
+    if (!batch || typeof batch !== 'object') return null;
+    if (!Object.prototype.hasOwnProperty.call(batch, 'failed_at')) return null;
+    if (!ppChatIsNonNegativeInteger(batch.failed_at)) return null;
+
+    // Signed zero passes every test above and indexes identically (`steps[-0]` is
+    // `steps[0]`, and `-0 + 1` is 1), so it is a legitimate index 0. Normalised anyway,
+    // because a caller comparing the RESULT with Object.is would otherwise get a surprise
+    // from a value this function has already judged ordinary.
+    return batch.failed_at === 0 ? 0 : batch.failed_at;
+}
+
+/**
+ * The one line this file shows when a batch failed and the envelope is the only witness
+ * (#853, #871, #872).
+ *
+ * ONE SPELLING FOR ONE CLAIM. This exact expression stood at two exits already — the
+ * unreadable-success refusal and the #749 up-front refusal — and #872 adds a third with the
+ * same need. (#871 adds none: its short-count refusal MERGED into the unreadable-success arm
+ * rather than standing beside it, which is why three is the number here and not four.)
+ * Three literal copies of the sentence a card falls back to is how one of them gets reworded
+ * alone, which is the same argument ppChatMarkStepsFailed() and
+ * PP_CHAT_CONFLICT_NOTHING_APPLIED were extracted on.
+ *
+ * The server's span goes through ppChatBoundReflectedText() and the 'Error: ' prefix does
+ * not: the prefix is this file's own prose, and only reflected text is counted against the
+ * budget (#793, the same rule PP_CHAT_RENDER_ERROR_MAX states for its prefix).
+ *
+ * TWO NEIGHBOURS THAT LOOK LIKE CALLERS AND MUST NOT BECOME ONES, named here because
+ * "the one spelling of this line" is otherwise an invitation to fold them in:
+ *
+ *   the !resp.success branch   spells the same prefix over `(resp.data && resp.data.error)
+ *                              || resp.data || 'Unknown error'` — a THIRD fallback, to the
+ *                              payload itself, that exists because a pre-execution refusal
+ *                              can arrive as a bare string. Folding it in would silently
+ *                              drop that arm.
+ *   ppChatUndoFailureText()    carries its own constant and its own headroom promise
+ *                              (#822), and its docblock already forbids routing it through
+ *                              this bound: two readers stated beats one reader that
+ *                              silently moves someone else's surface.
+ *
+ * NOT ALWAYS A WHOLE LINE. The #872 exit appends ppChatRollbackSentence() to this, so the
+ * same words reach the operator both where nothing ran and where steps ran and were
+ * reverted. The rollback clause is what tells those apart, and it is the clause that
+ * carries the fact worth having — which is why this stays a stated unknown rather than
+ * coining a sentence for a distinction the chat cannot convey anyway (#664).
+ *
+ * FAILS SAFE ON ANYTHING, because two of its callers reach it precisely when the envelope
+ * turned out not to be an envelope: a missing, primitive, or `error`-less payload all
+ * degrade to the stated unknown rather than to `undefined` or `[object Object]` on screen.
+ *
+ * THE STRING TEST IS PART OF THAT AND IS NOT DECORATION. `ppChatBoundReflectedText()` hands
+ * a short value straight back, so the concatenation does the coercion: without it an `error`
+ * of `{code: 7}` renders `Error: [object Object]` and one of `['a','b']` renders `Error: a,b`.
+ * That is #872's own defect — an unvalidated envelope field coerced into a sentence — in the
+ * helper the two issues introduced to own that sentence, so it is closed the same way and for
+ * the same reason: a field that is not what it claims to be earns the stated unknown, not a
+ * rendering of its internals. Costs nothing on a real envelope, where `_pp_action_error()`
+ * (lib/actions.php) stores `error` as a string.
+ *
+ * OWN PROPERTY, for the reason its two sibling predicates already state, and it matters more
+ * here than at either of them. wp-admin loads third-party JS in this realm, so
+ * `Object.prototype.error` is reachable, and an inherited one is not this envelope's reason —
+ * it is someone else's string wearing the server's voice inside a `role="alert"`. The #871
+ * exit is the exposed one: an envelope claiming success normally carries no own `error` at
+ * all, so a planted value would win on the COMMON path rather than on an edge case, at
+ * precisely the moment the client has decided the envelope cannot be trusted. Not an XSS —
+ * the span is bounded once (#793) and reaches the DOM through `textContent` — but a sentence
+ * this function exists to make trustworthy should not be forgeable by a neighbour.
+ *
+ * @param  {object|null} batch  The batch envelope, whatever shape it turned out to be.
+ * @return {string}             The complete status line.
+ */
+function ppChatBatchUnknownErrorText(batch) {
+    var own = batch
+        && typeof batch === 'object'
+        && Object.prototype.hasOwnProperty.call(batch, 'error')
+        && typeof batch.error === 'string'
+        ? batch.error
+        : '';
+
+    return 'Error: ' + ppChatBoundReflectedText(own || 'Unknown error');
+}
+
+/**
  * Every step row given the one state that claims nothing about which step did what (#853).
  *
  * Extracted rather than copied a third and fourth time: this exact three-line block already
@@ -256,11 +519,39 @@ function ppChatBatchStepsReadable(batch) {
  * reusing it coins no new vocabulary for a distinction the chat cannot yet convey anyway
  * (#664).
  *
+ * IT CLEARS THE OTHER TERMINAL STATES TOO, SINCE #871, and the two removals have separate
+ * reasons — stated separately, because a reader who audits them as one claim will find half
+ * of it false and may delete the wrong line.
+ *
+ *   `pp-ai-step-done`     #871's refusal is the first caller reached AFTER the paint loop.
+ *                         Earlier callers cannot arrive with a `done` row: the !resp.success
+ *                         branch runs before the loop, and #853's refusal only fires on a
+ *                         `steps` the loop was skipped for. The short-count refusal runs on
+ *                         a readable list that is merely short, so the loop HAS painted, and
+ *                         without this a row carried `done` AND `failed` at once.
+ *   `pp-ai-step-skipped`  Never painted by the loop, so #871 is not why this line exists.
+ *                         The promise chain's CATCH is: the #749 up-front exit paints every
+ *                         row `skipped` and then calls offerRepair() and addStatusMessage(),
+ *                         and the skip pass paints rows `skipped` before showConflictState().
+ *                         A throw in any of those lands in the catch, which calls this
+ *                         helper on rows already wearing `skipped`.
+ *
+ * THE SECOND ONE IS THE WORSE CONTRADICTION, which is the argument for fixing both at once.
+ * pp-ai-chat.css declares `.pp-ai-step-skipped` AFTER `.pp-ai-step-failed`, so a row carrying
+ * both renders as `skipped` — "this step never ran", the strongest of the four claims — on
+ * the exact path where the client has just admitted it does not know what happened. The
+ * `done`+`failed` pair resolves the other way only by the same accident of rule order.
+ * Neither contradiction should survive at the mercy of a stylesheet's line numbers.
+ * "Overwrites every row" is what the docblock above has always claimed; these are the lines
+ * that make it true.
+ *
  * @param {Array} stepElements  The card's rendered step rows.
  */
 function ppChatMarkStepsFailed(stepElements) {
     stepElements.forEach(function (el) {
         el.classList.remove('pp-ai-step-executing');
+        el.classList.remove('pp-ai-step-done');
+        el.classList.remove('pp-ai-step-skipped');
         el.classList.add('pp-ai-step-failed');
     });
 }
@@ -279,10 +570,20 @@ function ppChatMarkStepsFailed(stepElements) {
  *
  *   `steps` unreadable          nothing was painted at all, so every row is unanswered.
  *   `steps` readable but SHORT  the loop painted `steps.length` rows and the skip pass starts
- *                               at `failed_at + 1`, so a list shorter than `failed_at` leaves
- *                               the rows BETWEEN them untouched. `steps: [{ok:true}]` with
- *                               `failed_at: 1` is the smallest case: row 0 done, row 1
- *                               spinning forever under "Error on step 2".
+ *                               at `failedIndex + 1`, so a list shorter than the failure
+ *                               index leaves the rows BETWEEN them untouched.
+ *                               `steps: [{ok:true}]` with `failed_at: 1` is the smallest
+ *                               case: row 0 done, row 1 spinning forever under
+ *                               "Error on step 2".
+ *   `failed_at` MALFORMED       since #872 the skip pass is gated on a checked index, so a
+ *                               non-null value that is not one — `-1`, `'0'`, `0.5`, `{}`,
+ *                               `true` — suppresses it entirely and every row past the last
+ *                               answered one arrives here. Those rows finish `failed`, the
+ *                               unknown-outcome state, rather than `skipped`: an envelope
+ *                               that cannot say WHERE it failed cannot support "these never
+ *                               ran" either. For `-1` that is a deliberate reversal — the
+ *                               old arithmetic swept from index 0 and marked every row
+ *                               skipped, which is the fabricated claim #872 exists to stop.
  *
  * The short-list case is not hypothetical bookkeeping — it is what the pre-#853 code got
  * right BY ACCIDENT. `steps[failed_at]` was undefined there, `.error` threw, and the chain's
@@ -3621,13 +3922,18 @@ function ppChatAppendValidationItems(container, items, className) {
              *                         │                 ├─ yes ─▶ forEach ──┐
              *   (throws on a          │                 └─ no  ─▶ (skip) ───┤
              *    non-list, and the    │                                     ▼
-             *    chain's catch        │               absent, or unreadable+ok? ─▶ REFUSE
-             *    renders err.message) │               ok?          ─▶ success
-             *                         │               conflict?    ─▶ conflict card   [#797]
-             *                         ▼               refused?     ─▶ up-front card   [#749]
-             *              "Error: batch.steps         else        ─▶ failure + rollback report
-             *               .forEach is not                                           [#755/#797]
-             *               a function"
+             *    chain's catch        │               absent, or ok-without-evidence?
+             *    renders err.message) │                            ─▶ REFUSE  [#853/#871]
+             *                         │                 (unreadable steps, OR fewer results
+             *                         │                  than the proposal had steps)
+             *                         ▼               ok?          ─▶ success
+             *              "Error: batch.steps         conflict?    ─▶ conflict card    [#797]
+             *               .forEach is not            refused?     ─▶ up-front card    [#749]
+             *               a function"                else        ─▶ failure + rollback report
+             *                                                                        [#755/#797]
+             *                                                         index checked?
+             *                                                          ├─ yes ─▶ "step N"
+             *                                                          └─ no  ─▶ no number [#872]
              *
              * A non-list `steps` (`{}`, `7`, `'a string'`, `null`) threw HERE, and the throw
              * lands in the chain's catch, which renders `err.message` straight into the
@@ -3691,25 +3997,113 @@ function ppChatAppendValidationItems(container, items, className) {
             // which ppChatBatchWasRefusedUpFront() reads as the refusal shape, so a non-object
             // would walk out of here wearing #749's claim with nothing underneath it. Same
             // `typeof` test ppChatIsCompositionConflict() already applies to its own payload.
-            if (!batch || typeof batch !== 'object' || (!stepsReadable && batch.ok)) {
+            // #871 JOINS THIS ARM RATHER THAN ADDING ONE BESIDE IT, and the merge is the
+            // design rather than a tidy-up. `ppChatBatchAccountsForAllSteps()` already
+            // answers false for everything `!stepsReadable` answered false for — it
+            // delegates to the same predicate — so the two refusals are one condition:
+            // an envelope claiming success that cannot evidence the claim, either because
+            // its steps cannot be READ (#853) or because it did not COUNT them all (#871).
+            //
+            // TWO EXITS PRINTING ONE SENTENCE WITH OPPOSITE ROW SEMANTICS IS THE SHAPE THIS
+            // MERGE AVOIDS. Written as a separate arm below the loop, #871's refusal would
+            // have terminalized only the unanswered rows — leaving row 0 painted
+            // `pp-ai-step-done` — while this one repaints every row, and the transcript
+            // line would be identical either way. Nothing on screen would tell an operator
+            // which of the two they were looking at.
+            //
+            // AND THE `done` PAINT IS NOT SUPPORTABLE HERE ANYWAY, which is the stronger
+            // half. `ppChatFinishSpinningSteps()` keeps an answered row on the exit where
+            // the ENVELOPE'S OWN `ok: false` is the authority and `failed_at` anchors the
+            // positions. This exit rejects the envelope's headline claim, so trusting its
+            // per-member positions in the same breath is incoherent — and the drift
+            // ppChatBatchStepsReadable()'s docblock names makes it concretely wrong: an
+            // `array_values(array_filter(...))` upstream yields a SHORT, RE-INDEXED list in
+            // which `steps[0]` is not step 0's result. A short list is precisely the case
+            // where positional correspondence has failed, so the rows it painted are
+            // exactly the ones not to keep.
+            //
+            // `batch.ok` UNCHANGED, NOT `batch.ok === true`: every other read of this field
+            // in the file is a truthiness test (the success exit below included), and a
+            // gate that asked a stricter question than the exit it guards would let an
+            // `ok: 1` envelope walk past the gate into the exit.
+            //
+            // WHAT THIS EXIT DELIBERATELY DOES NOT DO, both inherited from #853's posture
+            // rather than decided afresh for #871, and both stated because a silent
+            // omission reads as an oversight:
+            //
+            //   no baseline refresh   It returns before refreshTouchedBaselines(), so a
+            //                         short-counted batch that DID write leaves this tab's
+            //                         baseline stale. That fails SAFE: the next apply meets
+            //                         the CAS gate and gets the conflict card with its
+            //                         re-read affordance (#404), rather than a silent
+            //                         overwrite. Refreshing from an envelope this exit has
+            //                         just refused would be trusting the same evidence twice.
+            //   no model note         offerRepair() is gated on a server-written note and an
+            //                         envelope claiming success carries none, so nothing is
+            //                         pushed to the model here at all. The cost is real and
+            //                         is the mirror of the bug: the model's context omits a
+            //                         write that may have landed, so its next proposal may
+            //                         re-issue that step. Idempotent for update_component
+            //                         and set_token, not for add_component or import_media.
+            //   no post-apply card    The loop above already attached `_validation` and
+            //                         `_staleWarnings` to the steps the envelope DID report,
+            //                         and returning here means buildPostApplyCard() never
+            //                         renders them. So a short-counted envelope carrying a
+            //                         real validation failure trades a SPECIFIC warning for
+            //                         a louder, vaguer one. That is the ruling's trade, not
+            //                         an oversight: the findings are per-step claims, and
+            //                         this exit has just decided the per-step account is
+            //                         incomplete. Rendering them under a card that also has
+            //                         to say the batch cannot be trusted is the two-answers
+            //                         -one-question shape the rest of this file avoids.
+            if (!batch || typeof batch !== 'object'
+                || (batch.ok && !ppChatBatchAccountsForAllSteps(batch, steps.length))) {
                 ppChatMarkStepsFailed(stepElements);
                 // Same spelling the two other exits use for a failure whose reason the
-                // envelope does not carry, bounded by the same helper (#793).
-                addStatusMessage('Error: ' + ppChatBoundReflectedText((batch && batch.error) || 'Unknown error'), true);
+                // envelope does not carry, bounded by the same helper (#793) and now
+                // single-owned so all three cannot drift apart.
+                addStatusMessage(ppChatBatchUnknownErrorText(batch), true);
                 return;
             }
+
+            // THE INDEX, ONCE, AND CHECKED (#872). `failed_at` used to be read raw at both
+            // sites below — as the start of this loop, and as the number in the failure
+            // sentence — so a value that was not an index drove a loop from wherever the
+            // arithmetic landed and printed a step number for a step that did not exist.
+            // `-1` was the worst of them: `-1 + 1` is 0, so the sweep below rewrote EVERY
+            // row to "never ran" under an error line naming step 0.
+            var failedIndex = ppChatBatchFailedStepIndex(batch);
 
             // Steps after the failure point never ran at all — mark them
             // distinctly from a step that actually failed. Gated on a readable `steps`
             // for the same reason the loop above is: "these never ran" is a per-step
             // claim, and this envelope carries no per-step truth to support it (#853).
-            if (stepsReadable && !batch.ok && batch.failed_at !== null) {
-                for (var j = batch.failed_at + 1; j < stepElements.length; j++) {
+            // Gated on a CHECKED index for the matching reason: "the steps after index N"
+            // is not a claim anyone can make when N is not an index, and `failed_at !== null`
+            // was not that test — a string, a float and a negative all passed it.
+            if (stepsReadable && !batch.ok && failedIndex !== null) {
+                for (var j = failedIndex + 1; j < stepElements.length; j++) {
                     stepElements[j].classList.remove('pp-ai-step-executing');
                     stepElements[j].classList.add('pp-ai-step-skipped');
                 }
             }
 
+            // REACHED ONLY WITH EVERY PROPOSED STEP ACCOUNTED FOR (#871, ruling T5). The
+            // gate is the refusal above, not a condition here, so this exit cannot be
+            // entered by an envelope that reported fewer results than the operator approved
+            // steps — which is what used to make `applied` a strict SUBSET and put an
+            // `[Applied changes: <subset>]` turn into the model's context under a success
+            // card. The model's next turn then reasoned from a list missing a step it
+            // believed was applied.
+            //
+            // WHAT THE GATE DOES NOT COVER, said here because the exit is where someone
+            // will look for it: a FULL-LENGTH envelope whose members disagree with its
+            // headline — `{ok: true, steps: [{ok: true}, {ok: false}]}` — still reaches
+            // this line, and `applied` still collects only the `ok` members, so the same
+            // subset narration follows from a different cause. That shape is a per-member
+            // contradiction rather than a count one, T5 rules on the count, and today's
+            // behaviour for it is pinned green in pp-ai-chat-batch-steps-shape.test.js.
+            // Filed rather than folded in.
             if (batch.ok) {
                 // Refresh per-page baselines from the post-write versions so the
                 // next proposal chains off fresh state, not a stale read (#404).
@@ -3757,7 +4151,7 @@ function ppChatAppendValidationItems(container, items, className) {
                     el.classList.add('pp-ai-step-skipped');
                 });
                 offerRepair(card, ppChatModelNote(batch));
-                addStatusMessage('Error: ' + ppChatBoundReflectedText(batch.error || 'Unknown error'), true);
+                addStatusMessage(ppChatBatchUnknownErrorText(batch), true);
                 return;
             }
 
@@ -3788,8 +4182,27 @@ function ppChatAppendValidationItems(container, items, className) {
             // shorter than `failed_at` — see ppChatFinishSpinningSteps().
             ppChatFinishSpinningSteps(stepElements);
 
-            var failedResult = stepsReadable ? batch.steps[batch.failed_at] : null;
-            var message = 'Error on step ' + (batch.failed_at + 1) + ': ' + ppChatBoundReflectedText((failedResult && failedResult.error) || 'Unknown error');
+            // WITHOUT A USABLE INDEX THIS EXIT KEEPS ITS ROLLBACK REPORT AND LOSES THE
+            // SENTENCE'S TWO HALVES TOGETHER (#872). The report reads `rollback_errors`,
+            // never `failed_at`, so the thing this exit exists to deliver — what stayed
+            // dirty — survives a malformed index whole, and so does the repair affordance.
+            //
+            // WHAT IS LOST IS BOTH THE NUMBER AND THE QUOTE, and that is more than the
+            // minimum #872 asked for, so it is stated rather than glossed. The failing
+            // step's own words are read as `steps[failedIndex]`, so declining the index
+            // declines the quote with it; on a real executed failure the server sets no
+            // batch-level `error` either (pp_ai_execute_batch, lib/actions.php), so what
+            // reaches the operator is "Error: Unknown error" plus the rollback clause.
+            // The alternative — keep the quote by indexing with the raw, untrusted value
+            // the way ppChatBatchHitConflict() does — would attribute a reason to a step
+            // this exit has just declined to name, which is a different claim rather than
+            // a smaller one. Degrading to the stated unknown is the answer #853 already
+            // established for this class, and coins no vocabulary for a distinction the
+            // chat cannot convey anyway (#664).
+            var failedResult = (stepsReadable && failedIndex !== null) ? batch.steps[failedIndex] : null;
+            var message = failedIndex === null
+                ? ppChatBatchUnknownErrorText(batch)
+                : 'Error on step ' + (failedIndex + 1) + ': ' + ppChatBoundReflectedText((failedResult && failedResult.error) || 'Unknown error');
             message += ppChatRollbackSentence(rollback);
             ppChatAppendRollbackErrors(card, rollback);
             offerRepair(card, ppChatModelNote(batch));
@@ -4867,6 +5280,10 @@ if (typeof module !== 'undefined' && module.exports) {
         batchHitConflict: ppChatBatchHitConflict,
         batchWasRefusedUpFront: ppChatBatchWasRefusedUpFront,
         batchStepsReadable: ppChatBatchStepsReadable,
+        batchAccountsForAllSteps: ppChatBatchAccountsForAllSteps,
+        batchFailedStepIndex: ppChatBatchFailedStepIndex,
+        batchUnknownErrorText: ppChatBatchUnknownErrorText,
+        isNonNegativeInteger: ppChatIsNonNegativeInteger,
         markStepsFailed: ppChatMarkStepsFailed,
         conflictMessage: ppChatConflictMessage,
         conflictOutcome: ppChatConflictOutcome,

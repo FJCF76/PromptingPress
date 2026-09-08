@@ -157,32 +157,60 @@ class ChatReflectedTextBoundTest extends \PHPUnit\Framework\TestCase
     /**
      * Every render site of server error text is still wired to the bound.
      *
-     * ONE CALL EACH is the assertion, and both halves matter: at least one proves the wiring is
-     * still there, and not more than one proves it has not been duplicated onto a neighbouring
-     * branch that renders something else.
+     * AN EXACT COUNT is the assertion, and both halves matter: at least one proves the wiring is
+     * still there, and not more than the declared number proves it has not been duplicated onto a
+     * neighbouring branch that renders something else.
+     *
+     * THE COUNT IS A PARAMETER RATHER THAN A HARDCODED 1 SINCE #871/#872, and the reason is worth
+     * stating because the old signature read as "one site, one call" and that is no longer the
+     * shape of the file. Three exits — the #853 unreadable-envelope refusal, #871's short-count
+     * refusal and the #749 up-front refusal — now render one SHARED sentence through
+     * ppChatBatchUnknownErrorText(), so they are byte-identical at the call site and cannot be
+     * told apart by a pattern. Counting them together is strictly stronger than three separate
+     * "exactly once" greps were: a fourth exit that renders envelope text without the helper does
+     * not match, and a fourth that does match moves the count, so either way it lands red and has
+     * to be listed here. The helper's own routing through the bound is pinned as its own entry
+     * below, which is what stops the count from being satisfied by three calls into a helper that
+     * stopped bounding anything.
      *
      * @dataProvider renderSiteProvider
      */
-    public function testEveryRenderSiteOfServerErrorTextIsBounded(string $label, string $pattern): void
+    public function testEveryRenderSiteOfServerErrorTextIsBounded(string $label, string $pattern, int $expected = 1): void
     {
         $this->assertSame(
-            1,
+            $expected,
             preg_match_all($pattern, $this->chatScriptSource()),
-            sprintf('%s must route its server-supplied span through ppChatBoundReflectedText exactly once (#793)', $label)
+            sprintf(
+                '%s must route its server-supplied span through ppChatBoundReflectedText exactly %d time(s) (#793)',
+                $label,
+                $expected
+            )
         );
     }
 
     /**
-     * The six sites, and what each one renders.
+     * The sites, and what each one renders.
      *
      * Four of them have NO server length bound at all today: `_pp_action_error()`
      * (lib/actions.php) stores `'error' => $error` verbatim, so the batch envelope error, the
-     * #853 unreadable-envelope refusal that reflects the same field, and every
-     * `steps[i].error` reflect validator messages uncapped; `_pp_bounded_findings()` is a
-     * COUNT bound by its own docblock, so `findings[].message` has no ceiling; and
-     * `pp_ai_parse_error_response()` (lib/ai-provider.php) returns a third party's error body.
-     * Closing those server-side is #864, deferred. Until it lands these are the only bounds
-     * those strings meet.
+     * refusal exits that reflect the same field, and every `steps[i].error` reflect validator
+     * messages uncapped; `_pp_bounded_findings()` is a COUNT bound by its own docblock, so
+     * `findings[].message` has no ceiling; and `pp_ai_parse_error_response()`
+     * (lib/ai-provider.php) returns a third party's error body. Closing those server-side is
+     * #864, deferred. Until it lands these are the only bounds those strings meet.
+     *
+     * WHAT #871/#872 CHANGED HERE, since three entries moved at once and a reader deserves
+     * the reason rather than a diff. Both issues add a render site to executeProposal() —
+     * a refusal for a short-counted success envelope, and a failure sentence that has no
+     * step number to name — and by this file's own rule a new render site of
+     * server-supplied text is a new place the bound has to be. Written literally, the first
+     * would have been byte-identical to the #853 refusal (making its "exactly once" grep
+     * count two) and the second would have moved `message =` off the `'Error on step '`
+     * literal the old pattern anchored on. So the sentence was single-owned into
+     * ppChatBatchUnknownErrorText() instead, which is strictly stronger for this contract:
+     * those exits no longer see the raw string at all, so an unbounded render is not
+     * something a future edit at those sites can express. What this provider now pins is
+     * the helper's own routing through the bound, plus an exact count of its call sites.
      */
     public static function renderSiteProvider(): array
     {
@@ -201,30 +229,68 @@ class ChatReflectedTextBoundTest extends \PHPUnit\Framework\TestCase
                 'the batch up-front refusal',
                 '/addStatusMessage\(\s*\'Error: \'\s*\+\s*ppChatBoundReflectedText\(\s*\(\s*resp\.data\s*&&\s*resp\.data\.error\s*\)/',
             ],
-            'the batch envelope error' => [
-                'the batch envelope error',
-                '/addStatusMessage\(\s*\'Error: \'\s*\+\s*ppChatBoundReflectedText\(\s*batch\.error\s*\|\|/',
+            // The shared refusal sentence itself. TOLERANT OF THE GUARD'S SPELLING, STRICT
+            // ABOUT THE BOUND, which is this file's own "pin the property, not one spelling
+            // of it" rule applied to a read that has to survive a possibly-absent envelope:
+            // `(batch && batch.error)`, `(batch || {}).error` and `batch?.error` all satisfy
+            // it; dropping the bound does not. This is the entry that stops the count below
+            // from being satisfied by three calls into a helper that stopped bounding.
+            // `[^}]*` rather than `\s*` between the brace and the `return`: the helper reads
+            // `error` through an own-property guard before it renders, and a pattern that
+            // demanded the return be the FIRST statement would forbid exactly the kind of
+            // hardening this entry exists to protect. Bounded to the function's own body by
+            // excluding `}`, and still strict that what reaches the return is the BOUND span.
+            //
+            // IT ALSO PINS WHICH FIELD IS BOUNDED, which the first draft of this entry did
+            // not. Measured on a scratch copy: a body that bounded `batch.detail` instead of
+            // `batch.error` satisfied every entry here and left the suite green, where the
+            // per-site pattern this replaced required `batch.error` by name. Requiring the
+            // body to read the envelope's `error` before the bounded return restores that
+            // without going back to pinning one spelling of the guard.
+            'the shared refusal sentence' => [
+                'the shared refusal sentence (ppChatBatchUnknownErrorText)',
+                '/function\s+ppChatBatchUnknownErrorText\s*\([^)]*\)\s*\{[^}]*batch[^}]*error[^}]*return\s+\'Error: \'\s*\+\s*ppChatBoundReflectedText\(/',
             ],
-            // The fourth exit, added by #853: a batch that claims success over a `steps`
-            // nobody can read is refused rather than narrated, and its refusal renders the
-            // server's own `error` when the envelope carries one. Same rule as every other
-            // site here — a NEW render site of server-supplied text is a new place the bound
-            // has to be, and the only way that stays true is if it is listed.
-            // TOLERANT OF THE GUARD'S SPELLING, STRICT ABOUT THE BOUND, which is this file's
-            // own "pin the property, not one spelling of it" rule applied to a read that has
-            // to survive a possibly-absent envelope. `(batch && batch.error)`,
-            // `(batch || {}).error` and `batch?.error` all satisfy it; dropping the bound does
-            // not. The guard is still REQUIRED, because it is the only thing distinguishing
-            // this site from the unguarded envelope-error site above — an unguarded spelling
-            // here would match that entry instead and this one would go red, which is the
-            // right failure.
-            'the unreadable-envelope refusal' => [
-                'the unreadable-envelope refusal',
-                '/addStatusMessage\(\s*\'Error: \'\s*\+\s*ppChatBoundReflectedText\(\s*\(?\s*batch\s*(?:&&|\|\||\?)[^;]*error/',
+            // Its addStatusMessage call sites, counted. TWO EXITS RENDER ONE SENTENCE and are
+            // byte-identical at the call, so they cannot be told apart by a pattern and are
+            // pinned together: the ok-without-evidence refusal (#853's unreadable-steps case
+            // and #871's short-count case, merged into one arm because one delegates to the
+            // other's predicate), and the #749 up-front refusal. The #872 arm is a third
+            // caller of the helper but assigns to `message` rather than calling
+            // addStatusMessage, so it has its own entry below rather than inflating this
+            // count.
+            //
+            // WHAT THE COUNT ACTUALLY PROTECTS, stated honestly because the obvious stronger
+            // reading is false and a maintainer would rely on it. It catches DELETION of a
+            // listed site (count falls), DUPLICATION onto a neighbouring branch (count
+            // rises), and UNBOUNDING of the shared sentence (the helper entry above goes
+            // red). It does NOT catch a brand-new exit that renders envelope text without
+            // the helper: measured on a scratch copy, adding a function containing
+            // `addStatusMessage('Error: ' + batch.error, true)` leaves every entry at its
+            // expected count and the suite green. That blind spot is not new — every pattern
+            // under the old per-site scheme also required ppChatBoundReflectedText, so an
+            // unbounded newcomer matched none of them either — but "a new site is caught"
+            // was never true and should not be written as though it were. A new render site
+            // is caught by a maintainer listing it here, which is why the header calls that
+            // the rule.
+            'the batch refusal exits' => [
+                'the two batch refusal exits',
+                '/addStatusMessage\(\s*ppChatBatchUnknownErrorText\(\s*batch\s*\)\s*,\s*true\s*\)/',
+                2,
             ],
             'the failed-step error' => [
                 'the failed-step error',
-                '/message\s*=\s*\'Error on step \'[^;]*ppChatBoundReflectedText\([^;]*failedResult[^;]*error/',
+                '/\'Error on step \'\s*\+\s*\([^)]*\)[^;]*ppChatBoundReflectedText\([^;]*failedResult[^;]*error/',
+            ],
+            // #872's other arm of the same statement: when the envelope names no usable
+            // index there is no step to quote, so the sentence degrades to the shared
+            // refusal text — which still has to reach `message`, and still has to be the
+            // BOUNDED one. Name-agnostic about the index local and about the shape of the
+            // choice (ternary or if/else both satisfy it); strict that the assignment
+            // routes through the helper.
+            'the failure sentence with no usable index' => [
+                'the failure sentence with no usable index',
+                '/message\s*=\s*[^;]*ppChatBatchUnknownErrorText\(\s*batch\s*\)/',
             ],
             'the stream / provider error' => [
                 'the stream error body',
