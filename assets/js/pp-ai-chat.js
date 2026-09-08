@@ -523,12 +523,17 @@ function ppChatBatchUnknownErrorText(batch) {
  * reasons — stated separately, because a reader who audits them as one claim will find half
  * of it false and may delete the wrong line.
  *
- *   `pp-ai-step-done`     #871's refusal is the first caller reached AFTER the paint loop.
- *                         Earlier callers cannot arrive with a `done` row: the !resp.success
- *                         branch runs before the loop, and #853's refusal only fires on a
- *                         `steps` the loop was skipped for. The short-count refusal runs on
- *                         a readable list that is merely short, so the loop HAS painted, and
- *                         without this a row carried `done` AND `failed` at once.
+ *   `pp-ai-step-done`     #871's refusal is the first caller to reach this on an ORDINARY
+ *                         path after the paint loop: it runs on a readable list that is
+ *                         merely short, so the loop HAS painted, and without this a row
+ *                         carried `done` AND `failed` at once. The two older callers cannot
+ *                         arrive that way — the !resp.success branch runs before the loop,
+ *                         and #853's refusal only fires on a `steps` the loop was skipped
+ *                         for. The chain's CATCH could always arrive that way, though, on
+ *                         any throw after a successful paint (finalizeProposalSuccess and
+ *                         buildPostApplyCard both run with every row already `done`), so
+ *                         this was reachable before #871 and is not a new hazard — only a
+ *                         newly ordinary one.
  *   `pp-ai-step-skipped`  Never painted by the loop, so #871 is not why this line exists.
  *                         The promise chain's CATCH is: the #749 up-front exit paints every
  *                         row `skipped` and then calls offerRepair() and addStatusMessage(),

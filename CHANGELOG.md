@@ -36,11 +36,11 @@ The model-facing half is the damaging one. You see a card; the model gets a list
 | truthy | list | `>= proposed` | — | success: card + model note |
 | truthy | list | `< proposed` | — | **NEW** — stated unknown, no card claim, nothing to the model |
 | falsy | list | any | `null` / absent | up-front refusal: every row skipped, server's reason, repair offer |
-| falsy | any | any | integer, step hit a conflict | conflict card with its re-read affordance |
+| falsy | any | any | ANY value that indexes a conflicting step | conflict card with its re-read affordance |
 | falsy | list | any | non-negative integer | "Error on step N: …" plus the rollback report |
-| falsy | any | any | anything else | **NEW** — same exit, same rollback report, no step number |
+| falsy | list | any | anything else, reaching the failure exit | **NEW** — same exit, same rollback report, no step number |
 
-Two properties hold the table together. The accounting gate is only consulted when a batch claims success, which is why every legitimate short count is untouched. And the index check is used only where a number is PRINTED or drives a loop — never handed to the conflict classifier, which asks one index one question about the cause and must stay that weak, or a conflicting batch stops reaching its own card.
+Two properties hold the table together. The accounting gate is only consulted when a batch claims success, which is why every legitimate short count is untouched. And the index check is used only where a number is PRINTED or drives a loop — deliberately NOT handed to the conflict classifier, which asks one index one question about the cause and must stay that weak, or a conflicting batch stops reaching its own card. That is why the conflict row above is not gated on the index being an integer: a conflicting step is still routed to its card whatever shape `failed_at` arrived in, and that card names no step number, so it cannot fabricate one.
 
 ### The short counts that are supposed to be short
 
@@ -48,11 +48,13 @@ Three envelopes report fewer results than the proposal had steps and are right t
 
 - **The up-front refusal.** The executor refuses a whole proposal before step 1 when a page it names has a stored composition it cannot read: zero results for two steps, and the envelope says so itself. Every row is marked skipped, not failed, and the server's own reason shows with the repair offer.
 - **The unreadable-steps guard.** A success envelope whose `steps` is not a list carries no per-step truth and was already refused. Unchanged — and now literally the same code path, since the accounting predicate delegates to the readability one.
-- **A short list on a genuine failure.** `{ok: false, steps: [{ok: true}], failed_at: 1}` is an executed failure whose list stops at the failure point. It still quotes step 2's reason, keeps row 1 marked done, and finishes row 2.
+- **A short list on a genuine failure.** `{ok: false, steps: [{ok: true}], failed_at: 1}` is an executed failure whose list stops at the failure point. It still names step 2 in the sentence, keeps row 1 marked done, and finishes row 2. There is no step-2 entry to quote, so the reason degrades to the stated unknown — as it did before this release.
 
 ### An envelope with too many results
 
-Unchanged, and deliberately. Every approved step has a result, and a result with no row to paint contributes no step to the summary, so an over-counted batch still names exactly the steps you approved and can never name a third. The ruling gates on FEWER results than steps; refusing an over-count would be a different rule.
+Unchanged, and deliberately: the ruling gates on FEWER results than steps, and refusing an over-count would be a different rule. A result with no row to paint contributes no step, so the summary can never name a step you did not approve.
+
+It can still name FEWER, and that is the same member-flag edge described under scope boundaries below rather than a property of over-counting: `{ok:true, steps:[{ok:true},{ok:false},{ok:true}]}` on a two-step proposal passes the gate and narrates success while naming only step 1. The count is complete; the members disagree with the headline.
 
 ### The failure index
 
@@ -73,13 +75,13 @@ What it also loses is the failing step's own words, not only the number: the quo
 
 ### Also in this release
 
-**A row can no longer claim two states at once.** The helper that marks every step failed stripped only the in-progress class, which was invisible while no caller reached it with a row already marked done. The new refusal is the first that does, so it now clears the other terminal states — which is what its own description always claimed. Left alone: the skipped-steps pass has the same gap, is unreachable through today's executor, and is tracked as #925.
+**A row can no longer claim two states at once.** The helper that marks every step failed stripped only the in-progress class, so a row that already carried a terminal state kept it and gained a second one — legible only because of which rule the stylesheet happens to declare last. The new refusal made that reachable on an ordinary path (it runs after the rows have been painted), and the promise chain's error handler could already reach it the same way; both now get a row carrying exactly one claim. Left alone: the skipped-steps pass has the same gap, is unreachable through today's executor, and is tracked as #925.
 
 **One spelling for one sentence.** The line shown when a batch failed and the envelope is the only witness lived as two literal copies and would have become three. It is written once now, which also means the length ceiling on reflected server text cannot be dropped at one of those exits without being dropped at all of them. It also stopped rendering a non-string reason as its own internals (`Error: [object Object]`), which was #872's defect one field over.
 
 ### Scope boundaries
 
-- **The gate counts step RESULTS, not applies, and that edge is real.** A FULL-LENGTH envelope whose members contradict its own `ok: true` still narrates a subset: `{ok:true, steps:[{ok:true},{ok:false}]}` names one step, and `{ok:true, steps:[{ok:false},{ok:false}]}` writes an empty summary — the same sentence this release is about, reached through a per-member contradiction rather than a short count. Unreachable through today's executor, which returns `ok: true` only after every step succeeded. It is a separate ruling axis with two existing pins recording today's behaviour on purpose, so it was not folded in. Tracked as **#922**.
+- **The gate counts step RESULTS, not applies, and that edge is real.** Any envelope whose members contradict its own `ok: true` still narrates a subset, at exact count OR over-count: `{ok:true, steps:[{ok:true},{ok:false}]}` names one step, and `{ok:true, steps:[{ok:false},{ok:false}]}` writes an empty summary — the same sentence this release is about, reached through a per-member contradiction rather than a short count. Unreachable through today's executor, which returns `ok: true` only after every step succeeded. It is a separate ruling axis with two existing pins recording today's behaviour on purpose, so it was not folded in. Tracked as **#922**.
 - A `failed_at` that is an integer but out of range still prints its number (`Error on step 100` on a two-step proposal). The ruling asks for a non-negative integer and gets one; bounding it against the card on screen is **#923**.
 - Two envelope readers still use plain property access, so a planted prototype value can suppress the up-front refusal card or forge a conflict card: **#924**.
 - The post-apply validation payload's `errors` key is still read without a guard: **#926**.
