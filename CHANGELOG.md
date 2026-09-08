@@ -4,6 +4,54 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.19.3] — 2026-09-08 — The rollback's menu layer stopped throwing away its own writes' returns (#876)
+
+**A batch that touched navigation menus could fail, roll back, report `rollback_errors: []`, and still leave one of the batch's menu items sitting in the menu, or leave the menus assigned where the batch put them. The writes that produced that silence are checked now, so a menu restore that did not fully land says which menu and which item, on the same channel as the rest of the rollback.**
+
+`_pp_restore_menu_state()` was the last corner of the batch rollback whose own writes were unverified. It reported the items it could not RECREATE, which is why it was already a producer on `rollback_errors`, and it discarded everything else it did. `pp_clear_nav_menu_items()` was declared `: void`, so every `wp_delete_post()` it performed to empty a menu before rebuilding it was fire-and-forget: a refused delete left one of the batch's own items in the menu, and the layer that called it could not know. The location assignments were written blind with a bare `set_theme_mod('nav_menu_locations', ...)`, so a refused write left the menus assigned wherever the batch had put them. In both cases the operator was told the batch had been fully reverted.
+
+That gap was named rather than implied: v1.19.0's write-verification work scoped its guarantee to "every write THIS FUNCTION makes" precisely because of it. That scope note is now retired. No line of the rollback's own code still throws away a return it could have read.
+
+### What changed
+
+**`pp_clear_nav_menu_items(int $menu_id)` returns `int[]|null` instead of `void`** (`lib/wp.php`) — the IDs of items whose delete did not happen, or `null` when the item list could not be read at all.
+
+Three return shapes are separated, and the order is load-bearing. `null` from `wp_delete_post()` means there is no row at that ID, so the item is provably gone and nothing survived. Past that, success is tested POSITIVELY (a real post object) rather than by falsiness, because WordPress documents `pre_delete_post` as "anything other than null will short-circuit deletion" and returns the filter's value verbatim: a plugin can hand back `true`, `0`, `''` or a `WP_Error`, and `return true` is a common "pretend it succeeded" idiom. A falsiness test reads those as deletes that happened.
+
+The separate `null` return for an unreadable list matters for the same reason. `wp_get_nav_menu_items()` answers `false` when the menu term is gone, which a concurrent deletion during the batch window reaches. Folding that into "this menu had no items" would mean nothing is deleted, nothing is enumerated, and an empty survivor list reads as "everything was removed" while the rebuild puts the whole snapshot back on top of rows that were never touched.
+
+**Three callers, all inventoried and all touched:**
+- `_pp_restore_menu_state()` (`lib/actions.php`) reports each surviving item and each unreadable item list, naming the menu, and says what the operator is left with. The rebuild still runs after a partial clear on purpose: skipping it would leave a gutted menu missing most of its pre-batch items, which is worse than a complete menu with one extra row in it.
+- `set_menu`'s mid-loop failure restore folds refused removals into the incomplete-restore list that branch already reports. It cannot turn a successful `set_menu` into a failure; it only widens a message on a path that is already failing.
+- `set_menu`'s happy-path clear deliberately does NOT consume the return, and that is a known shipping limitation rather than an oversight. A refused delete there makes replace semantics silently degrade to append. Reporting it would change what `set_menu` accepts as success, which is a decision about the action surface rather than the rollback channel, so it is filed separately.
+
+**The menu-list-unavailable report stopped being an early return.** It used to `return` immediately, which skipped the location restore below it: on the one path where the menu layer is most broken, that write was neither attempted nor reported. It now records its sentence and falls through, so the location restore runs on every path.
+
+**No second signature change was needed.** The issue that filed this believed `set_theme_mod()` returns void and that the call site needed replacing. It has returned `update_option()`'s bool since WordPress 5.6, and this theme already relied on that: `pp_assign_menu_location()` has been `return set_theme_mod(...)` all along. The write needed checking, not replacing.
+
+**The locations write compares before writing.** Because `set_theme_mod()` ends in `update_option()`, its `false` means "refused" OR "already equal", and keying on the bare return would name a survivor every time a batch touched menus without touching the location map, which is most of them. The restore routes through the shared compare-first helper the rest of the rollback already uses, so past that guard a false return is provably a refusal. The failure sentence is deliberately cause-neutral: `wp_delete_nav_menu()` zeroes a location pointing at a menu the rollback removes, so "the menus this batch assigned are still assigned" would be wrong on a reachable path.
+
+**The report names IDs, never item titles.** These sentences reach the chat card, and the standing posture for that channel is to reflect nothing stored while the ownership of reflected-text cleaning is an open question. A live menu item's title is text the batch itself may have written moments earlier. The menu term name was already reflected by this layer's existing sentences and still is, so the new entries add no new reflected value.
+
+### The producer census
+
+The rollback report's producer count moves from **23 to 26**, all three additions in the menu layer (3 → 6): a menu item that could not be REMOVED, a menu whose ITEM LIST could not be read, and location assignments that could not be RESTORED. Every one is `failed` rather than `withheld` — a write that was owed and did not land, not a protective decline — which is what keeps the single blanket tag at the merge honest, so the tag itself is unchanged. Nothing else moves: 21 `_pp_rollback_entry()` call sites, 19 distinct sentences in the executor's enumeration (which collapses the menu layer into one entry), 5 withholds. The "reachable through the shipped executor" basis goes 22-of-23 to 25-of-26. The source tripwire that freezes the layer's count was updated deliberately, twice, and the basis that number carries is now spelled out in the census itself.
+
+### Also in this release
+
+**`pp_set_redirects()` is now the single writer of the `pp_redirects` option** (`lib/wp.php`), closing a recorded maintenance item. `pp_create_redirect()`, `pp_remove_redirect()` and the batch rollback's patch each inlined their own `update_option()` on that key, so a write-side concern added to the two actions would have silently bypassed the rollback's write, the one write nobody exercises by hand. This is behaviour-neutral: the three sites agreed before and they agree through the owner, the rollback keeps its compare-first guard, and the two actions still discard the return. Making those honest changes what two public actions report and is filed separately. A source tripwire globs `lib/` and fails if a fourth write site appears.
+
+### Scope boundaries
+
+Two menu-layer items in `TODOS.md` are design-shaped and stay open: reading the raw `theme_mods_<stylesheet>` option instead of the filtered view, and positively tracking menus a batch created instead of deleting any menu absent from the snapshot. The first now has a second half recorded against it, on the read side.
+
+### Known limitations, named rather than implied
+
+- **One core function still writes on the rollback's behalf without reporting.** `wp_delete_nav_menu()` deletes each item row and zeroes each location itself, and returns only the term deletion's result. A batch-created menu whose term deletes cleanly while one of its item rows does not leaves an orphan row that nothing here can see. Checking it would mean reimplementing core's deletion rather than calling it.
+- **The location comparison reads filtered and writes raw.** `get_theme_mod()` applies the `theme_mod_nav_menu_locations` filter; `set_theme_mod()` reads and writes the raw stored map. Under a plugin that filters that value the two can disagree in either direction: a raw map that differs while the filtered views compare equal makes the guard skip a write that was owed, and filtered views that differ while the raw map already matches make an unowed write's `false` read as a refusal. Both corners are strictly narrower than what shipped before, when this write reported nothing on any refusal at all, and closing them is the same raw-vs-filtered question `TODOS.md` already parks for the snapshotter.
+- **One read failure stays invisible and is core's.** When a menu's cached term count is 0, WordPress short-circuits to an empty list without querying, so a stale count is indistinguishable from a genuinely empty menu.
+- The two limits inherited from the earlier write-verification work are unchanged and belong to the concurrency cluster: a writer's return is trusted rather than verified by reading the value back, and no compare-then-write pair is atomic.
+
 ## [v1.19.2] — 2026-09-08 — A rollback can put back what the page actually held: the SEO-metadata restore is no longer refused by today's validation rules (#875)
 
 **A page whose stored meta description was longer than today's 320-character cap could not be rolled back to it. The batch snapshot captured the value correctly, then the restoring write re-judged it as if it were new input and refused — so the batch's value stayed live and the rollback reported the loss instead of undoing it. The restore now replays the captured baseline, and the value that was stored is the value that comes back.**
