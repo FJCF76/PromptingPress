@@ -278,6 +278,7 @@ All functions are prefixed `pp_`. Templates and components use only these wrappe
 | `pp_update_page_slug($post_id, $slug)` | Updates page slug/permalink (#134). Sanitizes via sanitize_title(); WordPress de-duplicates on collision. Returns the actual resulting slug\|WP_Error |
 | `pp_get_seo_meta($post_id)`   | Returns `{meta_description, seo_title, canonical_url, og_title, twitter_title}` for a page (empty strings if unset) |
 | `pp_update_seo_meta($post_id, $meta)` | Shallow-merges page-specific SEO metadata (#41, #468). Validates canonical_url as a URL, length-caps meta_description (320) and seo_title/og_title/twitter_title (200). Returns true\|WP_Error |
+| `_pp_write_seo_meta($post_id, $meta, $bypass_value_validation)` | Internal. The writer behind `pp_update_seo_meta()`. With `$bypass_value_validation` true it skips the URL rule and the length caps only — the post-existence check and the key allowlist still run — so the batch rollback can replay a baseline today's rules would reject (#875, per the #233 restore contract). Restore paths only; never call it from a forward write. Returns true\|WP_Error |
 | `pp_create_page($title, $status, $slug)` | Creates page with Composition template. Optional `$slug` (#134) sets the route up front. Returns post ID\|WP_Error |
 | `pp_publish_page($post_id)`    | Sets post_status to 'publish'. Returns true\|WP_Error |
 | `pp_update_site_option($key, $value)` | Updates whitelisted option. Returns true\|WP_Error |
