@@ -4701,16 +4701,37 @@ function pp_get_seo_meta(int $post_id): array {
 
 /**
  * Validates a (possibly partial) SEO meta patch. Shared by the update_seo_meta
- * action's validate step and pp_update_seo_meta() itself (defense in depth,
- * same pattern as other write paths in this file).
+ * action's validate step and _pp_write_seo_meta(), the single writer behind both
+ * pp_update_seo_meta() and the restore door (defense in depth, same pattern as
+ * other write paths in this file).
  *
+ * ONE ENGINE, TWO STRICTNESSES (#875), rather than a second validator. The restore path
+ * enters through this same function with $bypass_value_validation set, and the split it
+ * draws is the one the batch rollback's site_options arm already states in as many words:
+ * only VALUE validation is bypassed. The KEY ALLOWLIST below is the authorization half —
+ * it decides which meta this theme owns at all — so it runs first and always runs. What
+ * the flag skips is the three rules that judge a value's CONTENT: the URL shape and the
+ * two length caps.
+ *
+ * WHY A RESTORE NEEDS THAT. A value stored under an older rule (or written raw) round-
+ * trips out of pp_get_seo_meta() into the batch snapshot, and re-judging it on the way
+ * back means the value that WAS stored cannot be put back — the rollback leaves the
+ * batch's value live instead. #233 rules that out for every restore in this theme: a
+ * restore replays what was stored, it is not new input, and current rules never block it.
+ *
+ * @param array $meta
+ * @param bool  $bypass_value_validation  Restore path only — see _pp_write_seo_meta().
+ *                                         Nothing on a forward write path passes true.
  * @return true|WP_Error
  */
-function _pp_validate_seo_meta(array $meta) {
+function _pp_validate_seo_meta(array $meta, bool $bypass_value_validation = false) {
     $allowed_keys = ['meta_description', 'seo_title', 'canonical_url', 'og_title', 'twitter_title'];
     $unknown = array_diff(array_keys($meta), $allowed_keys);
     if (!empty($unknown)) {
         return new WP_Error('invalid_key', 'Unknown SEO meta key(s): ' . implode(', ', $unknown) . '. Allowed: ' . implode(', ', $allowed_keys) . '.');
+    }
+    if ($bypass_value_validation) {
+        return true;
     }
     if (isset($meta['canonical_url']) && $meta['canonical_url'] !== '' && !filter_var($meta['canonical_url'], FILTER_VALIDATE_URL)) {
         return new WP_Error('invalid_canonical_url', 'canonical_url must be a valid URL, or an empty string to clear it.');
@@ -4733,16 +4754,89 @@ function _pp_validate_seo_meta(array $meta) {
  * values — unspecified keys are left unchanged (same patch semantics as
  * update_component's props). Pass an empty string to clear a field.
  *
+ * THE FORWARD WRITE PATH, AND IT STAYS FULLY VALIDATED (#875). Its signature is unchanged
+ * and it is the only entry point the action layer, the editor and the chat use; the
+ * restore-scoped door beside it is _pp_write_seo_meta()'s third argument, which nothing
+ * here passes. An over-length meta_description offered as NEW input is still refused.
+ *
  * @param int   $post_id  WordPress post ID.
- * @param array $meta     Subset of {meta_description, seo_title, canonical_url}.
+ * @param array $meta     Subset of the five allowed keys (meta_description, seo_title,
+ *                         canonical_url, og_title, twitter_title).
  * @return true|WP_Error
  */
 function pp_update_seo_meta(int $post_id, array $meta) {
+    return _pp_write_seo_meta($post_id, $meta, false);
+}
+
+/**
+ * The one writer behind pp_update_seo_meta(), and the restore path's way past the VALUE
+ * rules without a second copy of the store's encoding contract (#875).
+ *
+ * WHY A SEPARATE ENTRY POINT RATHER THAN A FLAG ON THE PUBLIC WRITER. The sibling restores
+ * in _pp_restore_batch_snapshot_report() reach their primitive directly — the site_options
+ * arm calls update_option()/delete_option() rather than pp_update_site_option(), and
+ * restore_composition calls pp_update_composition(), the deliberately non-validating
+ * persistence wrapper #233 was written against. This store had no such primitive to reach
+ * for: its write is get_post + merge + the #471 JSON encoding, and spelling that out a
+ * second time in lib/actions.php would fork the encoding contract. So the body moved here
+ * and both doors share it. The door with the bypass is underscore-private and takes the
+ * argument REQUIRED rather than defaulted, so no caller reaches it by omission.
+ *
+ * WHAT IS NOT BYPASSED, and this is the whole of the narrowness. The post-existence check
+ * and the key allowlist inside _pp_validate_seo_meta() are AUTHORIZATION: they answer "is
+ * this a page, and is this meta ours to write?", questions a restore has no more standing
+ * to skip than a forward write does. Only the CONTENT rules are skipped, and only for a
+ * caller that says so. Same line the site_options arm draws one file over.
+ *
+ * "THE CONTENT RULES" MEANS THE ONES ADDED LATER TOO, and that is intent rather than an
+ * oversight in the early return's placement. #233's stated value is writing the rule ONCE
+ * so every future validator inherits it instead of rediscovering it — each new rule would
+ * otherwise shrink what history is restorable, silently, with no test asserting the loss.
+ * A new rule that must hold even on a restore is therefore not a rule to slip in below the
+ * early return; it is an AUTHORIZATION rule, and it belongs above it beside the allowlist.
+ *
+ * THE THREAT MODEL IS UNCHANGED, which is worth stating because a function whose whole job
+ * is skipping validation reads like a new primitive. It is not: `_pp_seo_meta` is ordinary
+ * post meta, so any code that could call this could already call update_post_meta() on that
+ * row with arbitrary bytes and no allowlist at all. This door is strictly the narrower of
+ * the two. What the underscore and the required argument buy is that nobody arrives here by
+ * omission, and that the tripwire in BatchRestoreSeoValidationBypassTest can name every
+ * caller that does.
+ *
+ * WHERE A RESTORED VALUE ENDS UP, ALL FOUR SINKS, because an enumeration that stops at the
+ * reassuring ones is worse than none. Three escape: pp_seo_meta_description_tag() uses
+ * esc_attr(); the og/twitter tags escape at _pp_emit_social_meta() and drop anything that
+ * escapes to empty; and canonical_url has exactly ONE reader,
+ * pp_seo_canonical_url_override() on core's get_canonical_url filter, where core's
+ * rel_canonical() runs esc_url() at output. The FOURTH DOES NOT:
+ * pp_seo_document_title_override() returns seo_title into `pre_get_document_title`, which
+ * short-circuits wp_get_document_title() before core assembles anything, and
+ * _wp_render_title_tag() echoes that straight into <title>. So for seo_title the safety
+ * argument is NOT an escaper, and must not be written as though it were — it is the one
+ * below.
+ *
+ * THE STATE IT RETURNS TO IS THE STATE IT CAME FROM, and that is what actually carries this
+ * carve-out. Every value this path can write was read out of this same row moments earlier
+ * by pp_get_seo_meta(), so a restore cannot put the page into a shape it was not already in
+ * before the batch ran — it reaches no byte the page was not already rendering. The bypass
+ * grants no new value space either: the rules it skips are a URL shape and three length
+ * caps, and none of them was ever an HTML filter, so nothing storable becomes storable that
+ * was not before. Where the pre-batch shape was itself broken — a raw-written non-string
+ * under an allowed key, which pp_get_seo_meta() passes straight through — the restore
+ * reproduces the breakage rather than inventing it, and #233 is explicit that preserving
+ * what was stored beats quietly rewriting it.
+ *
+ * @param int   $post_id                  WordPress post ID.
+ * @param array $meta                     Subset of the five allowed keys.
+ * @param bool  $bypass_value_validation  True ONLY from a restore replaying captured state.
+ * @return true|WP_Error
+ */
+function _pp_write_seo_meta(int $post_id, array $meta, bool $bypass_value_validation) {
     if (!get_post($post_id)) {
         return new WP_Error('invalid_post', 'Post not found.');
     }
 
-    $valid = _pp_validate_seo_meta($meta);
+    $valid = _pp_validate_seo_meta($meta, $bypass_value_validation);
     if (is_wp_error($valid)) {
         return $valid;
     }

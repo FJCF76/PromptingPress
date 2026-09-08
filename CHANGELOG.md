@@ -4,6 +4,40 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.19.2] — 2026-09-08 — A rollback can put back what the page actually held: the SEO-metadata restore is no longer refused by today's validation rules (#875)
+
+**A page whose stored meta description was longer than today's 320-character cap could not be rolled back to it. The batch snapshot captured the value correctly, then the restoring write re-judged it as if it were new input and refused — so the batch's value stayed live and the rollback reported the loss instead of undoing it. The restore now replays the captured baseline, and the value that was stored is the value that comes back.**
+
+`_pp_restore_batch_snapshot_report()` restored a page's SEO metadata by calling the ordinary writer, and that writer re-validates before writing. Any stored value today's rules reject therefore round-tripped out of `pp_get_seo_meta()` into the snapshot and was rejected on the way back: an over-length `meta_description`, a `canonical_url` that no longer passes `filter_var()`, or a `seo_title` / `og_title` / `twitter_title` past the 200-character cap. Such values are ordinary — written raw, written by an older rule, or written before the cap existed. The v1.19.0 release smoke reproduced it live against a staged 500-character description.
+
+**This was a contract violation, not just a bug.** #233 records the rule for every restore in this theme: a restore replays what was stored and is never blocked by current validation rules. Two sibling arms in the same function already applied it — the site-option restore bypasses its create-time validator, and the redirect arm shape-checks a captured row without re-validating it. The SEO arm was the last one routing a trusted pre-run baseline through a create-time validator. v1.19.0's #857 work made the failure visible ("its SEO metadata was NOT rolled back"); this makes it not happen.
+
+**Only value validation is bypassed, and the guards that remain are the point.** The writer's body moved into a private restore-capable function, and the rollback is its only caller that asks for the bypass. Two checks still run on that path exactly as they do on a forward write: the page must exist, and the key allowlist still decides which metadata this theme owns. What is skipped is the set of rules that judge a value's *content* — the URL shape and the three length caps — and that set is deliberately open-ended: a rule added later is bypassed by restores too, which is the whole reason #233 exists. A rule that must hold even on a restore is an authorization rule and belongs beside the allowlist.
+
+**Pinned in both directions.** A stored over-length description now restores through the real batch surface with an empty rollback report; a forward `update_seo_meta` write of an over-length description is still refused, at the writer, at the action, and now at preview. The public `pp_update_seo_meta()` signature is unchanged, so no existing caller can reach the bypass by omission, and the bypass argument is required rather than defaulted on the private door. A source tripwire counts executable references to both functions across the shipped theme, so a second route to the bypass in any spelling — a variable, a dynamic call, `call_user_func` — fails the suite rather than shipping quietly.
+
+**What the rollback report loses, stated plainly.** The report's producer for a refused SEO restore is narrowed, not removed. Through the shipped snapshotter it can no longer fire at all: `pp_get_seo_meta()` emits only allowed keys, and a page deleted mid-batch is skipped before the write. It is kept because #857's rule is that no write this function makes goes unchecked, and it still answers for a hand-built snapshot bundle naming metadata the theme does not own. No producer was added or removed, so the channel's census is unchanged; the enumeration docblock and the constants' census now both record that one of the producers is defensive rather than routine, and that 22 of the 23 are reachable through the shipped executor.
+
+**Scope.** The SEO restore contract and its pins. The forward validation rules themselves are untouched — which values are *accepted* as new input did not change. The menu layer's own unchecked writes are out of scope and remain tracked separately. Two findings surfaced while working here and were filed rather than folded in: `_pp_validate_seo_meta()` throws a `TypeError` on a non-string value under an allowed key, reachable through the `update_seo_meta` action's validate step (#913), and `pp_seo_document_title_override()` returns the stored `seo_title` into `pre_get_document_title`, which reaches `<title>` unescaped (#914 — pre-existing, and not widened here, since that field's only forward rule was ever a length cap).
+
+### Fixed
+
+- The batch rollback's SEO-metadata restore replays the captured baseline instead of re-validating it, so a stored `meta_description` over 320 characters, a `canonical_url` today's `filter_var()` rejects, and an over-length `seo_title` / `og_title` / `twitter_title` all roll back to what the page held before the batch (#875, per the #233 contract).
+- A non-string value stored under an allowed key is restored verbatim rather than fataling the rollback reporter on `strlen()` — the restore reproduces the page's pre-batch state rather than refusing it.
+
+### Docs
+
+- `AI_CONTEXT.md` — the function table gains the internal writer behind `pp_update_seo_meta()`, naming what its bypass argument does and does not waive, and that restore paths are its only caller.
+- `lib/actions.php` — the rollback report's enumeration docblock and the `PP_ROLLBACK_ERROR_*` census both record the narrowed producer and the fourth countable basis it introduces, in the same change as the behavior.
+
+### Tests
+
+- New `tests/BatchRestoreSeoValidationBypassTest.php` (14 tests): red proofs for every value rule the restore used to trip on, each asserting the stored bytes came back rather than only that the report was empty; the same restore driven through the real `pp_ai_execute_batch()` envelope with a failing later step; both-directions pins (the forward writer, the action, and preview all still refuse); the authorization guards that stay (unowned metadata still refused and named, a missing page still refused); the snapshotter-shaped empty baseline, which correctly clears back to empty; and a tokenizing source tripwire over the shipped theme that counts executable references to the writer and the validator, ignoring prose. Verified red against the pre-fix source in a copied tree: eight fail, the six boundary pins pass either way.
+- `tests/BatchRestoreWriteReturnTruthTest.php` and `tests/RollbackErrorKindsTest.php` — the two pins that reached the refused-SEO-restore producer through an over-length value are re-based onto the key allowlist, the trigger that survives, so the producer keeps a red-proof rather than silently stopping producing.
+- Suites: 4566 PHP / 23536 assertions (+14 tests, +41 assertions), 1782 JS unchanged.
+
+---
+
 ## [v1.19.1] — 2026-09-07 — A re-read whose conversation ended renders nothing: New Chat no longer injects the old proposal, with a live Apply, into the new chat (#880)
 
 **Starting a New Chat while a conflict card's "Re-read & re-preview" was still fetching used to drop that ended conversation's proposal — with a working Apply button — into the new, otherwise empty transcript. The re-read handler now checks whether its conversation still exists before rendering anything, so a re-read that comes back to a chat the operator has closed renders nothing at all.**

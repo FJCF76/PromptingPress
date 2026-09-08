@@ -375,20 +375,26 @@ class BatchRestoreWriteReturnTruthTest extends TestCase
     // ── 6. SEO metadata ──────────────────────────────────────────────────────────
 
     /**
-     * REACHED WITHOUT ANY HARNESS HOOK, because pp_update_seo_meta() re-validates on the way
-     * in: a stored meta_description longer than the 320-character cap round-trips out of
-     * pp_get_seo_meta() into the snapshot and is then REJECTED on the way back. That is a
-     * #233 violation in its own right (a restore blocked by a current validation rule) and
-     * is filed separately; what is pinned here is that the rollback no longer hides it.
+     * REACHED THROUGH THE KEY ALLOWLIST, which is the guard the restore keeps.
+     *
+     * THIS CASE USED TO BE AN OVER-LENGTH DESCRIPTION, and that it no longer can be is the
+     * point of #875. The writer re-validated on the way in, so a stored meta_description
+     * past the 320-character cap round-tripped out of pp_get_seo_meta() into the snapshot
+     * and was REJECTED on the way back — a #233 violation this pin could only report, not
+     * undo. The restore now bypasses the VALUE rules, so that trigger restores instead of
+     * refusing (BatchRestoreSeoValidationBypassTest owns it).
+     *
+     * WHAT STILL REFUSES is a baseline naming meta this theme does not own: the allowlist is
+     * authorization, not content, and it runs before anything else. Re-based here rather than
+     * deleted, because #857's guarantee is about the WRITE — an SEO restore that is refused
+     * for any reason must still reach the channel — and a producer with no pin is a producer
+     * that quietly stops producing.
      */
     public function testARefusedSeoMetaRestoreIsNamed(): void
     {
-        $page = $this->page();
-        update_post_meta($page, '_pp_seo_meta', wp_json_encode([
-            'meta_description' => str_repeat('a', 400),
-        ]));
+        $page  = $this->page();
         $state = $this->capturedState($page);
-        update_post_meta($page, '_pp_seo_meta', wp_json_encode(['meta_description' => 'batch']));
+        $state['seo_meta']['not_ours'] = 'value';
 
         $errors = _pp_restore_batch_snapshot($this->bundle(['posts' => [$page => $state]]));
 

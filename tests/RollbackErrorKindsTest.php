@@ -409,15 +409,20 @@ class RollbackErrorKindsTest extends TestCase
         );
     }
 
-    /** PRODUCER (14) — the SEO-metadata restore whose write was refused. */
+    /**
+     * PRODUCER (14) — the SEO-metadata restore whose write was refused.
+     *
+     * TRIGGERED BY THE KEY ALLOWLIST SINCE #875, not by an over-length value. The restore
+     * now bypasses the VALUE rules (a stored value today's rules reject is replayed, per
+     * #233), so the only refusals left are the authorization guards: meta this theme does
+     * not own, and a page that is not there. Still a FAILED, not a withhold — the rollback
+     * owed this page its previous SEO fields, attempted the write, and did not land it.
+     */
     public function testARefusedSeoMetaRestoreIsTaggedFailed(): void
     {
-        $page = $this->page();
-        update_post_meta($page, '_pp_seo_meta', wp_json_encode([
-            'meta_description' => str_repeat('a', 400),
-        ]));
+        $page  = $this->page();
         $state = $this->capturedState($page);
-        update_post_meta($page, '_pp_seo_meta', wp_json_encode(['meta_description' => 'batch']));
+        $state['seo_meta']['not_ours'] = 'value';
 
         $report = _pp_restore_batch_snapshot_report($this->bundle(['posts' => [$page => $state]]));
 

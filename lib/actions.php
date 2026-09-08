@@ -2039,6 +2039,14 @@ function _pp_restore_write_if_changed($current, $target, callable $writer): bool
  * the 23 are withholds. Any number in this file that does not name its basis is a number
  * that will drift — the @return already drifted twice.
  *
+ * A FOURTH BASIS SINCE #875, recorded here rather than at the producer so all of them stay
+ * reconcilable in one place: 22 of the 23 are REACHABLE THROUGH THE SHIPPED EXECUTOR. The
+ * odd one out is the SEO-metadata restore, which since #875 replays a captured baseline
+ * without re-judging its values, so the only refusals it has left — meta this theme does
+ * not own, a page that is not there — cannot be produced by the snapshotter. It stays a
+ * producer because it stays a checked write; it is simply defensive now. Nothing about the
+ * other three bases changes: no producer was added or removed.
+ *
  * THE DISCRIMINATOR, STATED ONCE, because 23 producers have to agree on it:
  *
  *   PP_ROLLBACK_ERROR_WITHHELD  the rollback DECIDED not to write or delete, as a
@@ -2233,6 +2241,23 @@ function _pp_rollback_project(array $entries, string $key, string $fallback): ar
  *                           batch kept a composition that may reference it — which since
  *                           #857 a REFUSED composition write reaches as well as a withheld
  *                           one, so this entry has two causes rather than one.
+ *
+ *                           ONE PRODUCER WAS NARROWED RATHER THAN ADDED (#875) — (14), the
+ *                           SEO-metadata restore. It used to fire whenever today's VALUE
+ *                           rules rejected the captured baseline, which is a #233 violation
+ *                           dressed as a report: the value that WAS stored could not be put
+ *                           back, and the rollback named the loss instead of undoing it.
+ *                           The restore now bypasses those rules (its authorization guards
+ *                           stay), so through the shipped snapshotter (14) no longer fires
+ *                           at all: pp_get_seo_meta() emits only allowed keys and a vanished
+ *                           page is skipped before the write. It is KEPT because #857's rule
+ *                           is that no write here goes unchecked, and it still answers for
+ *                           the hand-built bundles this docblock already invites three
+ *                           paragraphs up. No producer was added or removed, so no count in
+ *                           this file moves; what changed is that one of them is now a
+ *                           DEFENSIVE branch rather than a routine one, which the census
+ *                           above PP_ROLLBACK_ERROR_WITHHELD records on its own bases. No
+ *                           number is restated here, for the reason stated above.
  *
  *                           SINCE #857 EVERY RESTORE WRITE THIS FUNCTION MAKES IS ALSO
  *                           ON THE CHANNEL, which is what finally makes the empty array
@@ -2474,7 +2499,7 @@ function _pp_restore_batch_snapshot_report(array $snapshot): array {
         // A PAGE THAT NO LONGER EXISTS IS NOT A SURVIVOR, the same rule the created-pages
         // loop applies on a NULL return. All four writes resolve the post first (core's
         // wp_update_post answers WP_Error('invalid_post') for a missing ID when $wp_error is
-        // true; pp_update_seo_meta carries its own get_post check), so a page deleted inside
+        // true; _pp_write_seo_meta carries its own get_post check), so a page deleted inside
         // the batch window refuses all four. Reporting that would put FOUR sentences on the
         // channel telling an operator to go and fix fields on a page that is not there —
         // four false entries, the #855 mirror-bug, on the one channel this change exists to
@@ -2552,7 +2577,35 @@ function _pp_restore_batch_snapshot_report(array $snapshot): array {
                 'Set the previous status back by hand.'
             ));
         }
-        if (is_wp_error(pp_update_seo_meta($post_id, $state['seo_meta']))) {
+        // THE ONE FIELD OF THE FOUR THAT ROUTED A TRUSTED BASELINE THROUGH A CREATE-TIME
+        // VALIDATOR (#875). pp_update_seo_meta() re-validates on the way in, so a stored
+        // meta_description longer than today's 320-character cap — written raw, or written
+        // before the cap existed — round-tripped out of pp_get_seo_meta() into the snapshot
+        // and was REFUSED on the way back: the value that WAS stored could not be put back,
+        // and the batch's value stayed live under a named failure. Same for a canonical_url
+        // today's filter_var() rejects and for the three 200-character title caps.
+        //
+        // #233 RULES THAT OUT, and both sibling arms below already apply it: the
+        // site_options restore bypasses pp_update_site_option()'s create-time validator, and
+        // the redirect arm shape-checks its captured row without re-validating it. A captured
+        // baseline is trusted pre-run state, not new input.
+        //
+        // ONLY VALUE VALIDATION IS BYPASSED — the same phrase, and the same line, the
+        // site_options arm draws. _pp_write_seo_meta() still resolves the post and still
+        // enforces the key allowlist, so this cannot write meta the theme does not own onto
+        // a page that is not there. What it no longer does is judge the CONTENT of a value
+        // this site had already stored. The forward path (the update_seo_meta action, the
+        // editor, the chat) keeps every rule: pp_update_seo_meta()'s signature is unchanged
+        // and nothing on it passes the bypass.
+        //
+        // WHICH LEAVES THIS BRANCH NARROWED, NOT REMOVED, and the @return enumeration says
+        // so. Through the shipped snapshotter it is now unreachable — pp_get_seo_meta()
+        // emits only allowed keys, and a vanished page already `continue`d above — so what
+        // it still catches is a hand-built bundle naming meta this theme does not own. That
+        // is the same class of caller the three `?? []` reads at the top of this function
+        // exist for, and #857's rule holds either way: no write this function makes goes
+        // unchecked.
+        if (is_wp_error(_pp_write_seo_meta($post_id, $state['seo_meta'], true))) {
             $entries[] = _pp_rollback_entry(PP_ROLLBACK_ERROR_FAILED, _pp_restore_field_failure_message(
                 $post_id,
                 'SEO metadata',
