@@ -1117,13 +1117,91 @@ function pp_add_nav_menu_item(int $menu_id, array $item) {
  * Removes every item from a menu, leaving the menu itself intact — used by
  * the set_menu action's replace semantics (issue 132).
  *
- * @param int $menu_id  Menu (term) ID.
+ * IT REPORTS WHAT IT COULD NOT REMOVE (#876), because a caller that cannot see a
+ * refused delete cannot tell "the menu is empty" from "the menu still holds an item".
+ * The batch rollback calls this before rebuilding a menu from its snapshot, and it is
+ * the last write in that rollback whose outcome was discarded: #857 made every write
+ * in _pp_restore_batch_snapshot_report() check its own return and named this one as
+ * the boundary it stopped at.
+ *
+ * NULL IS SEPARATED FIRST, THEN ONLY A REAL POST IS A SUCCESS — the order of the two tests
+ * is the load-bearing half. Core reads the row first
+ * (`$post = $wpdb->get_row( ... ); if ( ! $post ) { return $post; }`, wp-includes/post.php),
+ * and $wpdb->get_row() answers NULL for "no row" — so a null means the item is provably
+ * GONE and nothing survived. Reporting it would be a false entry on the one channel this
+ * reporting exists to make trustworthy.
+ *
+ * PAST THAT, SUCCESS IS TESTED POSITIVELY RATHER THAN BY FALSINESS, and the difference is
+ * a survivor this would otherwise miss. Core declares `@return WP_Post|false|null Post data
+ * on success, false or null on failure`, and the `pre_delete_post` filter documents itself
+ * as "Anything other than null will short-circuit deletion" with core returning the filter's
+ * value verbatim. So a short-circuit can hand back `true`, `0`, `''` or a WP_Error as easily
+ * as `false` — and `return true` is a common "pretend it succeeded" idiom. A falsiness test
+ * would read that as a delete that happened and leave the surviving item unreported, which
+ * is exactly the silence this return exists to break. Asking for the success SHAPE covers
+ * every short-circuit in one test. (is_object rather than `instanceof WP_Post` because the
+ * test harness's stub answers a plain object; WP_Error is an object too, hence the second
+ * clause.)
+ *
+ * THE OLDER LOOPS IN _pp_restore_batch_snapshot_report() STILL USE THE FALSINESS SHAPE and
+ * were left alone — that is #857's recorded spelling and rewriting it is a different issue's
+ * scope, filed rather than folded in here.
+ *
+ * AN UNREADABLE LIST IS NOT AN EMPTY ONE, and collapsing the two would rebuild the exact
+ * false-clean this return exists to remove. wp_get_nav_menu_items() answers FALSE when the
+ * menu term is gone or the taxonomy is not registered, and the obvious `$items ?: []`
+ * spelling folds that into "this menu had no items": nothing is deleted, nothing is
+ * enumerated, so nothing can be reported as a survivor — and the caller then rebuilds the
+ * snapshot list on top of rows that were never removed, behind an empty report. Null is
+ * returned instead so the caller can say the deletes did not happen.
+ *
+ * ONE READ FAILURE STAYS INVISIBLE and is core's rather than this function's: when a menu's
+ * cached term count is 0, core short-circuits to `array()` WITHOUT querying, so a stale
+ * count is indistinguishable here from a genuinely empty menu. Detecting it would mean
+ * bypassing wp_get_nav_menu_items() entirely.
+ *
+ * @param  int        $menu_id  Menu (term) ID.
+ * @return int[]|null           The ID of each item whose delete was REFUSED — empty when
+ *                               every item was removed (or was already gone), and NULL when
+ *                               the item list could not be read at all, in which case
+ *                               nothing was deleted and nothing was enumerated.
+ *
+ *                          IDS, NOT TITLES, and deliberately: these reach the chat card
+ *                          through the rollback report, where _pp_restore_field_failure_message()
+ *                          (lib/actions.php) sets the posture for its own per-page entries —
+ *                          reflect nothing stored while the ownership of reflected-text
+ *                          cleaning is an open question (#864). A live menu item's title is
+ *                          text the batch itself may have just written, so this return adds
+ *                          no new reflected value. The id addresses the row, and an operator
+ *                          told which menu and which item can read the title in
+ *                          Appearance → Menus.
+ *
+ *                          BE PRECISE ABOUT THE CHANNEL RATHER THAN CLAIMING IT IS CLEAN:
+ *                          _pp_restore_menu_state()'s sentences already interpolate the menu
+ *                          TERM NAME, which is stored text by the same argument, and have
+ *                          since before #876. That is the menu layer's existing convention
+ *                          and the wrapper for this return follows it rather than becoming
+ *                          the one sentence in its family that addresses a menu by bare id.
+ *                          The residual there is operator-facing sentence spoofing, not
+ *                          markup — the card writes every entry through textContent and
+ *                          length-bounds it — and it is tracked on its own issue.
  */
-function pp_clear_nav_menu_items(int $menu_id): void {
+function pp_clear_nav_menu_items(int $menu_id): ?array {
     $items = wp_get_nav_menu_items($menu_id);
-    foreach ($items ?: [] as $item) {
-        wp_delete_post($item->ID, true);
+    if (!is_array($items)) {
+        return null; // list unreadable: nothing deleted, nothing enumerated, nothing to report
     }
+    $survivors = [];
+    foreach ($items as $item) {
+        $deleted = wp_delete_post($item->ID, true);
+        if ($deleted === null) {
+            continue; // already gone: nothing deleted, nothing survived, nothing to report
+        }
+        if (!is_object($deleted) || is_wp_error($deleted)) {
+            $survivors[] = (int) $item->ID; // refused, however the short-circuit spelled it
+        }
+    }
+    return $survivors;
 }
 
 /**
@@ -5264,6 +5342,40 @@ function pp_get_redirects(): array {
 }
 
 /**
+ * The single owner of every write to PP_REDIRECTS_OPTION (#876).
+ *
+ * THREE INDEPENDENT WRITE SITES BECAME ONE. pp_create_redirect() and pp_remove_redirect()
+ * each inlined their own update_option(), and #854 added a third in
+ * _pp_restore_batch_snapshot_report() (lib/actions.php) for the rollback's patch. Any
+ * write-side concern added to the two writers — a cache flush, a hook, a shape guard —
+ * would have silently bypassed the rollback's write. It also gives "a third action writes
+ * pp_redirects" a second obvious registration point beside _pp_batch_redirect_step_source().
+ *
+ * IT FIXES NOTHING TODAY, AND THAT IS THE HONEST CLAIM. The three sites agreed before this
+ * function existed and they agree through it; no behaviour changes, and the two writers
+ * still discard this return, so pp_create_redirect() still answers with a path when the
+ * option write was refused. Making THOSE honest changes what two public actions report and
+ * is a separate decision. What this buys is that the fix will be one function instead of
+ * three, and that the rollback cannot be left behind by it.
+ *
+ * A PURE OWNER, NOT A POLICY LAYER. It normalizes nothing and validates nothing: the two
+ * writers own the shape rules (_pp_normalize_redirect_path(), _pp_validate_redirect_target(),
+ * the loop check) and the rollback owns its own T1 permission gate. Putting any of that
+ * here would give the rollback a second opinion about what it is allowed to write back,
+ * which #233 rules out for restores.
+ *
+ * @param  array $map  The complete redirect map to store.
+ * @return bool        update_option()'s return. AMBIGUOUS BY INHERITANCE: false means the
+ *                      write was refused OR the stored value already equalled $map, and
+ *                      nothing here can tell those apart. A caller that reports on a false
+ *                      must compare first — see _pp_restore_write_if_changed() (#857),
+ *                      which is what the rollback's call site does.
+ */
+function pp_set_redirects(array $map): bool {
+    return update_option(PP_REDIRECTS_OPTION, $map);
+}
+
+/**
  * Resolves an incoming path to its redirect entry, or null if none matches.
  *
  * @param string $path  Incoming request path or URL.
@@ -5335,7 +5447,7 @@ function pp_create_redirect(string $from, string $to, int $code = 301) {
         return new WP_Error('redirect_loop', 'This redirect would create a loop.');
     }
     $redirects[$from_norm] = ['to' => $to, 'code' => $code];
-    update_option(PP_REDIRECTS_OPTION, $redirects);
+    pp_set_redirects($redirects);
     return $from_norm;
 }
 
@@ -5353,7 +5465,7 @@ function pp_remove_redirect(string $from): bool {
         return false;
     }
     unset($redirects[$from_norm]);
-    update_option(PP_REDIRECTS_OPTION, $redirects);
+    pp_set_redirects($redirects);
     return true;
 }
 

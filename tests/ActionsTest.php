@@ -7145,6 +7145,84 @@ class ActionsTest extends TestCase
         $this->assertSame('Beta', $menus[0]['items'][1]['title']);
     }
 
+    /**
+     * THE $fail BRANCH NAMES WHAT IT COULD NOT REMOVE FIRST (#876).
+     *
+     * set_menu's mid-loop restore clears the menu before rebuilding the previous items, and
+     * that clear used to be fire-and-forget. Since #876 pp_clear_nav_menu_items() reports
+     * refused deletes, and this branch consumes them onto the SAME list it already uses for
+     * an incomplete rebuild — both mean "the previous menu did not fully come back", which is
+     * exactly what this error already tells the operator. It cannot turn a success into a
+     * failure: it only widens a message on a path that is already returning an error.
+     *
+     * The happy-path clear a few lines up deliberately does NOT consume that return; that is
+     * an action-surface decision filed separately, and this test is the pin for the branch
+     * that DOES.
+     */
+    public function testSetMenuNamesAnItemItCouldNotRemoveWhileRestoringThePreviousMenu(): void
+    {
+        pp_execute_action('set_menu', [
+            'name'  => 'Main Menu',
+            'items' => [
+                ['url' => 'https://example.com/a', 'label' => 'Alpha'],
+                ['url' => 'https://example.com/b', 'label' => 'Beta'],
+            ],
+        ]);
+        $menu_id = wp_get_nav_menu_object('Main Menu')->term_id;
+        // One of the PREVIOUS items refuses deletion, so the $fail branch's own clear (the
+        // one that runs before it rebuilds them) leaves it behind.
+        $stuck = wp_get_nav_menu_items($menu_id)[0]->ID;
+        $GLOBALS['_pp_test_undeletable_posts'][$stuck] = true;
+        $GLOBALS['_pp_test_store']['fail_menu_item_titles'] = ['Bad'];
+
+        $result = pp_execute_action('set_menu', [
+            'name'  => 'Main Menu',
+            'items' => [
+                ['url' => 'https://example.com/good', 'label' => 'Good'],
+                ['url' => 'https://example.com/bad', 'label' => 'Bad'],
+            ],
+        ]);
+
+        unset($GLOBALS['_pp_test_store']['fail_menu_item_titles'], $GLOBALS['_pp_test_undeletable_posts'][$stuck]);
+
+        $this->assertFalse($result['ok'], 'the replacement still failed');
+        $this->assertStringContainsString(
+            'Restoring the previous menu items was also incomplete',
+            $result['error'],
+            'premise: this is the branch that reports an incomplete restore'
+        );
+        $this->assertStringContainsString(
+            sprintf('menu item %d could not be removed first', $stuck),
+            $result['error'],
+            'the refused delete reaches the operator instead of being discarded'
+        );
+    }
+
+    /**
+     * THE MIRROR, so the pin above cannot be satisfied by reporting a removal every time.
+     */
+    public function testSetMenuDoesNotClaimARemovalFailureWhenTheClearWasClean(): void
+    {
+        pp_execute_action('set_menu', [
+            'name'  => 'Main Menu',
+            'items' => [['url' => 'https://example.com/a', 'label' => 'Alpha']],
+        ]);
+
+        $GLOBALS['_pp_test_store']['fail_menu_item_titles'] = ['Bad'];
+        $result = pp_execute_action('set_menu', [
+            'name'  => 'Main Menu',
+            'items' => [['url' => 'https://example.com/bad', 'label' => 'Bad']],
+        ]);
+        unset($GLOBALS['_pp_test_store']['fail_menu_item_titles']);
+
+        $this->assertFalse($result['ok']);
+        $this->assertStringNotContainsString(
+            'could not be removed first',
+            $result['error'],
+            'every delete landed, so the restore must not claim one did not'
+        );
+    }
+
     public function testSetMenuDeletesItsOwnHalfBuiltMenuWhenAnItemFailsMidLoop(): void
     {
         // set_menu created the menu itself: a mid-loop item failure must not

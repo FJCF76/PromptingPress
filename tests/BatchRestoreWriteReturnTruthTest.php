@@ -109,6 +109,7 @@ class BatchRestoreWriteReturnTruthTest extends TestCase
             $GLOBALS['_pp_test_undeletable_attachments'],
             $GLOBALS['_pp_test_unwritable_posts'],
             $GLOBALS['_pp_test_unwritable_options'],
+            $GLOBALS['_pp_test_unwritable_theme_mods'],
             $GLOBALS['_pp_test_option_writes'],
             $GLOBALS['_pp_test_option_deletes']
         );
@@ -729,5 +730,402 @@ class BatchRestoreWriteReturnTruthTest extends TestCase
             static fn($e) => str_contains($e, 'was created by this batch and could NOT be deleted')
         ));
         $this->assertCount(1, $survivors, 'the surviving page is named on the envelope');
+    }
+
+    // ── 14. THE MENU LAYER'S OWN WRITES (#876) ───────────────────────────────────
+    //
+    // THE LAST FALSE-CLEAN POCKET IN THE ROLLBACK. #857 checked every write
+    // _pp_restore_batch_snapshot_report() makes ITSELF and said so in its @return: the
+    // menu layer it delegates to, _pp_restore_menu_state(), reported only what it could
+    // not RECREATE. Its two other writes were discarded — the wp_delete_post() calls
+    // inside pp_clear_nav_menu_items() (declared `: void`, so there was nothing to check)
+    // and set_theme_mod() for the location assignments. The pins below are the same three
+    // kinds as the rest of this file: a RED proof per write class, the BOUNDARY that stops
+    // the cheapest way of making them green (report everything), and the authoring path.
+
+    /**
+     * RED — a menu item the rollback could not remove is NAMED.
+     *
+     * The live menu holds an item the batch added; the rollback clears the menu before
+     * rebuilding it from the snapshot, and that delete is refused. The item stays, the
+     * rebuild puts the snapshotted list back around it, and the operator ends up with a
+     * menu holding one item too many while the card said everything was reverted.
+     */
+    public function testAMenuItemWhoseRemovalIsRefusedIsNamed(): void
+    {
+        $menu_id  = wp_create_nav_menu('Main');
+        $snapshot = (object) [
+            'ID' => 501, 'post_title' => 'Home', 'title' => 'Home',
+            'type' => 'custom', 'url' => 'https://example.com/', 'menu_order' => 1,
+        ];
+        // Live = the snapshot item plus one the batch added, so the signature guard does
+        // NOT skip this menu and the clear/rebuild actually runs.
+        $GLOBALS['_pp_test_store']['nav_menu_items'][$menu_id] = [
+            $snapshot,
+            (object) ['ID' => 502, 'title' => 'Added by the batch', 'url' => 'https://example.com/new', 'menu_order' => 2],
+        ];
+        $GLOBALS['_pp_test_undeletable_posts'][502] = true;
+
+        $errors = _pp_restore_batch_snapshot($this->bundle([
+            'menus' => [
+                'menus'     => [$menu_id => ['name' => 'Main', 'items' => [$snapshot]]],
+                'locations' => [],
+            ],
+        ]));
+
+        $this->assertOneEntryContaining(
+            $errors,
+            'menu item 502 could not be removed before the rebuild',
+            'a refused delete leaves the item in the menu, so the rollback must name it'
+        );
+        // NAMED BY ID, NOT BY TITLE. This sentence reaches the chat card, and
+        // _pp_restore_field_failure_message() states the rule for that channel: nothing
+        // stored is reflected into it while #864's reflected-text ownership is open. A live
+        // menu item's title is text the batch may have written moments earlier.
+        $this->assertSame(
+            [],
+            array_values(array_filter($errors, static fn($e) => str_contains($e, 'Added by the batch'))),
+            'the live title must not be reflected into the rollback report'
+        );
+        // AND THE WORLD REALLY LOOKS LIKE THE SENTENCE SAYS IT DOES. The report promises
+        // "the restored list plus that item", which is the deliberate decision at the call
+        // site: the rebuild runs anyway after a partial clear, because a gutted menu is
+        // worse than a complete one with a duplicate. Asserting only that the survivor is
+        // present would leave that decision unpinned — dropping the rebuild on a partial
+        // clear would still satisfy it.
+        $live = array_map(static fn($i) => $i->title, wp_get_nav_menu_items($menu_id));
+        $this->assertContains('Added by the batch', $live, 'premise: the refused item is still there');
+        $this->assertContains('Home', $live, 'and the rebuild still ran, so the snapshot list came back');
+        $this->assertCount(2, $live, 'complete menu beside the survivor — exactly what the report describes');
+    }
+
+    /**
+     * EVERY SHORT-CIRCUIT SPELLING IS A REFUSAL, AND `null` ALONE IS SILENCE.
+     *
+     * The three-way read in pp_clear_nav_menu_items() is the load-bearing design of the new
+     * producer, and a source tripwire cannot prove it: the shapes that matter are ones the
+     * ordinary stub never produces. Core returns the `pre_delete_post` filter's value
+     * verbatim and documents it as "Anything other than null will short-circuit deletion",
+     * so a plugin can hand back `true` — a common "pretend it succeeded" idiom — and a
+     * falsiness test would call that a delete that happened. `_pp_test_delete_post_returns`
+     * exists so each spelling can be driven directly.
+     *
+     * @dataProvider preDeletePostShortCircuits
+     */
+    public function testEveryPreDeletePostShortCircuitLeavesTheItemReported($short_circuit, string $why): void
+    {
+        $menu_id = wp_create_nav_menu('Main');
+        $GLOBALS['_pp_test_store']['nav_menu_items'][$menu_id] = [
+            (object) ['ID' => 801, 'title' => 'Stuck', 'url' => 'https://example.com/x', 'menu_order' => 1],
+        ];
+        $GLOBALS['_pp_test_delete_post_returns'][801] = $short_circuit;
+
+        $this->assertSame([801], pp_clear_nav_menu_items($menu_id), $why);
+    }
+
+    public static function preDeletePostShortCircuits(): array
+    {
+        return [
+            'true'         => [true, 'a truthy short-circuit is NOT a delete — this is the one falsiness misses'],
+            'zero'         => [0, 'an int short-circuit is a refusal'],
+            'empty string' => ['', 'a string short-circuit is a refusal'],
+            'false'        => [false, 'the ordinary refusal'],
+            // WP_Error is covered by its own test below: a static provider runs before the
+            // bootstrap's class definitions are guaranteed, so it cannot construct one.
+        ];
+    }
+
+    /** WP_Error cannot be built in a static provider before the bootstrap defines it. */
+    public function testAWpErrorShortCircuitLeavesTheItemReported(): void
+    {
+        $menu_id = wp_create_nav_menu('Main');
+        $GLOBALS['_pp_test_store']['nav_menu_items'][$menu_id] = [
+            (object) ['ID' => 803, 'title' => 'Stuck', 'url' => 'https://example.com/z', 'menu_order' => 1],
+        ];
+        $GLOBALS['_pp_test_delete_post_returns'][803] = new WP_Error('nope', 'refused');
+
+        $this->assertSame(
+            [803],
+            pp_clear_nav_menu_items($menu_id),
+            'a WP_Error is an object, so a bare is_object() test would call it a success'
+        );
+    }
+
+    /**
+     * THE OTHER ARM, AND IT IS THE ONE THAT MUST STAY SILENT. A row that is provably gone
+     * survived nothing; reporting it would be a false entry on the channel this change
+     * exists to make trustworthy.
+     */
+    public function testAnAbsentRowIsNeverReportedAsASurvivor(): void
+    {
+        $menu_id = wp_create_nav_menu('Main');
+        $GLOBALS['_pp_test_store']['nav_menu_items'][$menu_id] = [
+            (object) ['ID' => 802, 'title' => 'Gone', 'url' => 'https://example.com/y', 'menu_order' => 1],
+        ];
+        $GLOBALS['_pp_test_delete_post_returns'][802] = null;
+
+        $this->assertSame([], pp_clear_nav_menu_items($menu_id), 'provably gone: nothing to report');
+    }
+
+    /**
+     * BOUNDARY — a menu whose clear succeeds reports nothing, and the whole restore is
+     * clean. Without this the red proof above is satisfiable by reporting every item.
+     */
+    public function testAMenuClearedSuccessfullyReportsNothing(): void
+    {
+        $menu_id  = wp_create_nav_menu('Main');
+        $snapshot = (object) [
+            'ID' => 601, 'post_title' => 'Home', 'title' => 'Home',
+            'type' => 'custom', 'url' => 'https://example.com/', 'menu_order' => 1,
+        ];
+        $GLOBALS['_pp_test_store']['nav_menu_items'][$menu_id] = [
+            $snapshot,
+            (object) ['ID' => 602, 'title' => 'Added by the batch', 'url' => 'https://example.com/new', 'menu_order' => 2],
+        ];
+
+        $errors = _pp_restore_batch_snapshot($this->bundle([
+            'menus' => [
+                'menus'     => [$menu_id => ['name' => 'Main', 'items' => [$snapshot]]],
+                'locations' => [],
+            ],
+        ]));
+
+        $this->assertSame([], $errors, 'every delete landed, so there is nothing to report');
+        $live = array_map(static fn($i) => $i->title, wp_get_nav_menu_items($menu_id));
+        $this->assertSame(['Home'], $live, 'and the menu really is back to its snapshot');
+    }
+
+    /**
+     * THE `null` ARM IS PINNED AT THE SOURCE, because the harness cannot reach it.
+     *
+     * Core answers NULL when there is no row at that ID (`$post = $wpdb->get_row( ... );
+     * if ( ! $post ) { return $post; }`, wp-includes/post.php) and something ELSE falsy when
+     * the delete did not happen — the `pre_delete_post` filter is documented as "Anything
+     * other than null will short-circuit deletion" and core returns its value verbatim, so
+     * `false`, `true`, `0`, `''` and a WP_Error are all reachable short-circuits. Two
+     * mistakes are therefore possible and they point opposite ways: testing truthiness alone
+     * reports an item that is provably GONE (a false survivor), and testing `=== false`
+     * alone reads every other short-circuit as a successful delete (the silence this whole
+     * change removes).
+     *
+     * It is unreachable HERE because the stub's item lookup reads the same store
+     * wp_get_nav_menu_items() does, so anything the loop is handed is by construction
+     * findable. The ordering is therefore pinned the way RollbackErrorKindsTest pins its own
+     * unreachable producers: from the source. Null must be separated FIRST, and everything
+     * else falsy must then be recorded.
+     */
+    public function testTheClearSeparatesAnAbsentRowFromEveryOtherFalsyReturn(): void
+    {
+        $source = file_get_contents(dirname(__DIR__) . '/lib/wp.php');
+        $start  = strpos($source, 'function pp_clear_nav_menu_items(');
+        $this->assertNotFalse($start, 'pp_clear_nav_menu_items exists in lib/wp.php');
+        $body = substr($source, $start, strpos($source, "\n}", $start) - $start);
+
+        $null_arm = strpos($body, '=== null');
+        $this->assertNotFalse($null_arm, 'an absent row is separated explicitly, not by truthiness');
+        $this->assertStringContainsString('continue;', substr($body, $null_arm), 'and it reports nothing');
+
+        $fail_arm = strpos($body, '$survivors[] =');
+        $this->assertNotFalse($fail_arm, 'a refused delete is recorded');
+        $this->assertLessThan(
+            $fail_arm,
+            $null_arm,
+            'the absent-row test must come FIRST — after it, everything falsy is a refusal,'
+            . ' which is what makes a pre_delete_post short-circuit of any shape reportable'
+        );
+        $this->assertStringNotContainsString(
+            '=== false',
+            $body,
+            'a `=== false` test would read a short-circuit returning true/0/\'\'/WP_Error as a'
+            . ' successful delete and leave the surviving item unreported'
+        );
+    }
+
+    /**
+     * RED — a menu whose ITEM LIST could not be read is NAMED, and this one is the trap the
+     * first version of this change walked into.
+     *
+     * `wp_get_nav_menu_items()` answers FALSE when the menu term is gone or the taxonomy is
+     * not registered — a concurrent deletion during the batch window reaches it. The obvious
+     * `$items ?: []` spelling folds that into "this menu had no items", so nothing is
+     * deleted, nothing is enumerated, and an EMPTY survivor list means "everything was
+     * removed". The rebuild then puts the whole snapshot back on top of rows that were never
+     * removed and the report says clean. Distinguishing the two is what makes the empty list
+     * mean what its contract claims.
+     */
+    public function testAMenuWhoseItemListCannotBeReadIsNamed(): void
+    {
+        $menu_id  = wp_create_nav_menu('Main');
+        $snapshot = (object) [
+            'ID' => 901, 'post_title' => 'Home', 'title' => 'Home',
+            'type' => 'custom', 'url' => 'https://example.com/', 'menu_order' => 1,
+        ];
+        // The store answers false for this menu's items — core's shape when the term is gone.
+        // The signature guard reads it as [] and so does NOT skip, which is what puts the
+        // clear on this path in the first place.
+        $GLOBALS['_pp_test_store']['nav_menu_items'][$menu_id] = false;
+
+        $errors = _pp_restore_batch_snapshot($this->bundle([
+            'menus' => [
+                'menus'     => [$menu_id => ['name' => 'Main', 'items' => [$snapshot]]],
+                'locations' => [],
+            ],
+        ]));
+
+        $this->assertOneEntryContaining(
+            $errors,
+            'its item list could not be read during the rollback',
+            'nothing was removed and nothing was enumerated, so an empty survivor list would lie'
+        );
+    }
+
+    /**
+     * AND THE UNIT-LEVEL HALF OF THE SAME DISTINCTION: null is not [].
+     */
+    public function testTheClearAnswersNullRatherThanEmptyWhenTheListIsUnreadable(): void
+    {
+        $menu_id = wp_create_nav_menu('Main');
+        $GLOBALS['_pp_test_store']['nav_menu_items'][$menu_id] = false;
+        $this->assertNull(pp_clear_nav_menu_items($menu_id), 'unreadable is not empty');
+
+        $GLOBALS['_pp_test_store']['nav_menu_items'][$menu_id] = [];
+        $this->assertSame([], pp_clear_nav_menu_items($menu_id), 'genuinely empty stays empty');
+    }
+
+    /**
+     * BOUNDARY — the location restore runs even when the MENU LIST is unreadable.
+     *
+     * That sentence used to be an early `return`, which skipped this write entirely: the
+     * location map was left as the batch left it, unattempted and unreported, on the one path
+     * where the menu layer is most broken. "Every write this function makes is checked" has
+     * to hold on every path.
+     */
+    public function testTheLocationRestoreStillRunsWhenTheMenuListIsUnreadable(): void
+    {
+        $GLOBALS['_pp_test_store']['nav_menus'] = new WP_Error('term_fail', 'get_terms failed');
+        $GLOBALS['_pp_test_store']['theme_mods']['nav_menu_locations'] = ['primary' => 9];
+
+        $errors = _pp_restore_batch_snapshot($this->bundle([
+            'menus' => ['menus' => [], 'locations' => ['primary' => 7]],
+        ]));
+
+        $this->assertOneEntryContaining(
+            $errors,
+            'menu list unavailable during rollback',
+            'the unreadable menu list is still reported'
+        );
+        $this->assertSame(
+            ['primary' => 7],
+            $GLOBALS['_pp_test_store']['theme_mods']['nav_menu_locations'],
+            'and the location map was still restored rather than skipped with it'
+        );
+    }
+
+    /**
+     * RED — a refused `nav_menu_locations` restore is NAMED.
+     *
+     * set_theme_mod() has returned update_option()'s bool since WP 5.6, so this write was
+     * checkable all along and simply was not checked. A refusal leaves the menus assigned
+     * wherever the batch put them.
+     */
+    public function testARefusedNavMenuLocationRestoreIsNamed(): void
+    {
+        $GLOBALS['_pp_test_store']['theme_mods']['nav_menu_locations'] = ['primary' => 9]; // what the batch left
+        $GLOBALS['_pp_test_unwritable_theme_mods']['nav_menu_locations'] = true;
+
+        $errors = _pp_restore_batch_snapshot($this->bundle([
+            'menus' => ['menus' => [], 'locations' => ['primary' => 7]],
+        ]));
+
+        $this->assertOneEntryContaining(
+            $errors,
+            'navigation location assignments were NOT rolled back',
+            'the assignment the batch made is still live, so the rollback must say so'
+        );
+        // CAUSE-NEUTRAL WORDING. wp_delete_nav_menu() ZEROES a location pointing at a menu
+        // the rollback removes, so "the menus this batch assigned are still assigned" is
+        // wrong on a reachable path — the location can be EMPTY rather than mis-assigned.
+        $this->assertSame(
+            [],
+            array_values(array_filter($errors, static fn($e) => str_contains($e, 'are still assigned'))),
+            'the sentence must not claim a direction it cannot know'
+        );
+        $this->assertSame(
+            ['primary' => 9],
+            $GLOBALS['_pp_test_store']['theme_mods']['nav_menu_locations'],
+            'premise: the refused write really did leave the batch\'s assignment in place'
+        );
+    }
+
+    /**
+     * BOUNDARY — locations that already match the snapshot are neither written nor
+     * reported, and this is the half that matters most.
+     *
+     * set_theme_mod() ends in update_option(), which returns false for a REFUSED write and
+     * for a write with NOTHING TO DO. Keying on the bare return would put a survivor on the
+     * channel for every batch that touched menus without touching the location map. The
+     * refusal knob is ARMED here on purpose: if the compare-first guard were removed, the
+     * write would run, return false, and this test would report — so it cannot pass
+     * vacuously the way an assertion on an empty report alone would.
+     */
+    public function testUnchangedNavMenuLocationsAreNeitherWrittenNorReported(): void
+    {
+        $GLOBALS['_pp_test_store']['theme_mods']['nav_menu_locations'] = ['primary' => 7];
+        $GLOBALS['_pp_test_unwritable_theme_mods']['nav_menu_locations'] = true;
+
+        $errors = _pp_restore_batch_snapshot($this->bundle([
+            'menus' => ['menus' => [], 'locations' => ['primary' => 7]],
+        ]));
+
+        $this->assertSame([], $errors, 'nothing needed restoring, so nothing is reported');
+        $this->assertSame(
+            ['primary' => 7],
+            $GLOBALS['_pp_test_store']['theme_mods']['nav_menu_locations'],
+            'and the stored value is untouched'
+        );
+    }
+
+    /**
+     * SECTION 14.1 — the same failure driven through the REAL batch surface.
+     *
+     * A menu action runs, a later step fails, the executor rolls back, and the rollback's
+     * own delete of the item that action added is refused. What the consumer sees is the
+     * ENVELOPE: rolled_back true beside a rollback_errors that is no longer empty. Before
+     * this change the same envelope carried `[]` with the batch's menu item still in the
+     * menu.
+     */
+    public function testTheEnvelopeCarriesARefusedMenuRemovalThroughTheRealExecutor(): void
+    {
+        $menu    = pp_execute_action('create_menu', ['name' => 'Primary']);
+        $menu_id = $menu['target']['menu_id'];
+        $GLOBALS['_pp_test_store']['nav_menu_items'][$menu_id] = [
+            (object) ['ID' => 9601, 'title' => 'Home', 'url' => 'https://example.com/', 'menu_order' => 1],
+        ];
+        // Every id the batch is about to mint refuses deletion, which is what the
+        // rollback's clear hits when it tries to remove the item add_menu_item created.
+        $next_id = $GLOBALS['_pp_test_store']['next_id'];
+        for ($id = $next_id; $id < $next_id + 20; $id++) {
+            $GLOBALS['_pp_test_undeletable_posts'][$id] = true;
+        }
+
+        $batch = pp_ai_execute_batch([
+            ['type' => 'action', 'name' => 'add_menu_item', 'params' => [
+                'menu_id' => $menu_id, 'url' => 'https://example.com/new', 'label' => 'Added by the batch',
+            ]],
+            ['type' => 'action', 'name' => 'unknown_action', 'params' => []],
+        ]);
+
+        $this->assertFalse($batch['ok'], 'the second step fails');
+        $this->assertTrue($batch['rolled_back'], 'so the executor rolls back');
+        $survivors = array_values(array_filter(
+            $batch['rollback_errors'],
+            static fn($e) => str_contains($e, 'could not be removed before the rebuild')
+        ));
+        $this->assertCount(1, $survivors, 'the surviving menu item is named on the envelope');
+        $this->assertSame(
+            [PP_ROLLBACK_ERROR_FAILED],
+            array_values(array_unique($batch['rollback_error_kinds'])),
+            'and it is tagged as a failed revert, not a protective withhold (#855)'
+        );
     }
 }
