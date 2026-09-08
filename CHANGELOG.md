@@ -4,6 +4,108 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.19.4] — 2026-09-08 — A batch is narrated as applied only when every approved step came back, and a failure names a step number only when it has one (#871, #872)
+
+**The chat could tell you a proposal succeeded and tell the AI a shorter story than it told you. When the server reported results for fewer steps than you approved, the card said the batch applied and the hidden `[Applied changes: …]` turn written into the model's context named only the steps that came back — so the AI's next reply reasoned from a list missing a change it believed was made. Success narration is now gated on complete step-RESULT accounting, on both surfaces at once. Separately, a failure sentence now names a step number only when the server sent a usable one.**
+
+These are one layer, not two fixes. `executeProposal()` reads `batch.steps` to decide WHAT happened and `batch.failed_at` to decide WHICH step it happened to, and it made a claim from each without checking the field could support it. Fixed apart, the second would still have been free to fabricate a step number inside an exit the first had just routed a batch into.
+
+### The subset narration, before and after
+
+The card's step rows and the envelope's `steps` are two parallel lists built together, one entry per proposed step. Nothing compared their lengths. Apply a two-step proposal, get back `{ok: true, steps: [{ok: true}]}`:
+
+| surface | before | after |
+|---|---|---|
+| proposal card | "✓ All changes applied successfully." | rows stay, both marked failed, no summary |
+| model's context | `[Applied changes: Update the hero title]` | nothing written |
+| stored page version | adopted from the envelope | left alone |
+| transcript | nothing | one line: the server's reason, or "Error: Unknown error" |
+
+The model-facing half is the damaging one. You see a card; the model gets a list it will reason from on its next turn, and a step missing from that list is a change the AI believes it still has to make, or already made, depending on which way it guesses.
+
+`{ok: true, steps: []}` against a two-step proposal is the degenerate version — an empty summary asserted over nothing — and takes the same exit.
+
+### The decision table
+
+`proposed` is the number of steps you approved. Only the two rows marked NEW changed behaviour.
+
+| `ok` | `steps` | count | `failed_at` | outcome |
+|---|---|---|---|---|
+| — | envelope absent or not an object | — | — | stated unknown, every row failed |
+| truthy | unreadable (non-list, absent, inherited) | — | — | stated unknown |
+| truthy | list | `>= proposed` | — | success: card + model note |
+| truthy | list | `< proposed` | — | **NEW** — stated unknown, no card claim, nothing to the model |
+| falsy | list | any | `null` / absent | up-front refusal: every row skipped, server's reason, repair offer |
+| falsy | any | any | ANY value that indexes a conflicting step | conflict card with its re-read affordance |
+| falsy | list | any | non-negative integer | "Error on step N: …" plus the rollback report |
+| falsy | list | any | anything else, reaching the failure exit | **NEW** — same exit, same rollback report, no step number |
+
+Two properties hold the table together. The accounting gate is only consulted when a batch claims success, which is why every legitimate short count is untouched. And the index check is used only where a number is PRINTED or drives a loop — deliberately NOT handed to the conflict classifier, which asks one index one question about the cause and must stay that weak, or a conflicting batch stops reaching its own card. That is why the conflict row above is not gated on the index being an integer: a conflicting step is still routed to its card whatever shape `failed_at` arrived in, and that card names no step number, so it cannot fabricate one.
+
+### The short counts that are supposed to be short
+
+Three envelopes report fewer results than the proposal had steps and are right to. All three are pinned, and those pins were written and run green against the unmodified code before either guard existed, so a gate that bought its fix by breaking one of them could not pass unnoticed.
+
+- **The up-front refusal.** The executor refuses a whole proposal before step 1 when a page it names has a stored composition it cannot read: zero results for two steps, and the envelope says so itself. Every row is marked skipped, not failed, and the server's own reason shows with the repair offer.
+- **The unreadable-steps guard.** A success envelope whose `steps` is not a list carries no per-step truth and was already refused. Unchanged — and now literally the same code path, since the accounting predicate delegates to the readability one.
+- **A short list on a genuine failure.** `{ok: false, steps: [{ok: true}], failed_at: 1}` is an executed failure whose list stops at the failure point. It still names step 2 in the sentence, keeps row 1 marked done, and finishes row 2. There is no step-2 entry to quote, so the reason degrades to the stated unknown — as it did before this release.
+
+### An envelope with too many results
+
+Unchanged, and deliberately: the ruling gates on FEWER results than steps, and refusing an over-count would be a different rule. A result with no row to paint contributes no step, so the summary can never name a step you did not approve.
+
+It can still name FEWER, and that is the same member-flag edge described under scope boundaries below rather than a property of over-counting: `{ok:true, steps:[{ok:true},{ok:false},{ok:true}]}` on a two-step proposal passes the gate and narrates success while naming only step 1. The count is complete; the members disagree with the headline.
+
+### The failure index
+
+`failed_at` was tested only for null and otherwise used directly, as an array index and as a number in string concatenation:
+
+| `failed_at` | before | after |
+|---|---|---|
+| `{}` | `Error on step [object Object]1` | `Error: <reason>`, rollback report kept |
+| `'2'` | `Error on step 21` | same |
+| `1.5` | `Error on step 2.5` | same |
+| `true` | `Error on step 2` — indistinguishable from a real one | same |
+| `-1` | `Error on step 0`, and every row rewritten to "never ran" | same, and no row is rewritten |
+| `'0'`, `0.5`, `-0.5` | a raw TypeError in the transcript, and the whole failure exit lost with it | same as the rest |
+
+That last row is not a cosmetic defect. Those three values land inside the skipped-steps loop's bound on a key that is not an array index, so the loop read a property of `undefined` and threw. The throw is caught upstream and rendered as its own message, so you got a stack-shaped string INSTEAD of the failure exit — losing the rollback report, the sentence naming which pages stayed dirty, and the offer to ask the AI to fix it. A non-integer index now degrades to the stated unknown and keeps all three.
+
+What it also loses is the failing step's own words, not only the number: the quote is read through the same index, so declining the index declines the quote. Recovering it by indexing with the untrusted value would attribute a reason to a step this exit has just declined to name.
+
+### Also in this release
+
+**A row can no longer claim two states at once.** The helper that marks every step failed stripped only the in-progress class, so a row that already carried a terminal state kept it and gained a second one — legible only because of which rule the stylesheet happens to declare last. The new refusal made that reachable on an ordinary path (it runs after the rows have been painted), and the promise chain's error handler could already reach it the same way; both now get a row carrying exactly one claim. Left alone: the skipped-steps pass has the same gap, is unreachable through today's executor, and is tracked as #925.
+
+**One spelling for one sentence.** The line shown when a batch failed and the envelope is the only witness lived as two literal copies and would have become three. It is written once now, which also means the length ceiling on reflected server text cannot be dropped at one of those exits without being dropped at all of them. It also stopped rendering a non-string reason as its own internals (`Error: [object Object]`), which was #872's defect one field over.
+
+### Scope boundaries
+
+- **The gate counts step RESULTS, not applies, and that edge is real.** Any envelope whose members contradict its own `ok: true` still narrates a subset, at exact count OR over-count: `{ok:true, steps:[{ok:true},{ok:false}]}` names one step, and `{ok:true, steps:[{ok:false},{ok:false}]}` writes an empty summary — the same sentence this release is about, reached through a per-member contradiction rather than a short count. Unreachable through today's executor, which returns `ok: true` only after every step succeeded. It is a separate ruling axis with two existing pins recording today's behaviour on purpose, so it was not folded in. Tracked as **#922**.
+- A `failed_at` that is an integer but out of range still prints its number (`Error on step 100` on a two-step proposal). The ruling asks for a non-negative integer and gets one; bounding it against the card on screen is **#923**.
+- Two envelope readers still use plain property access, so a planted prototype value can suppress the up-front refusal card or forge a conflict card: **#924**.
+- The post-apply validation payload's `errors` key is still read without a guard: **#926**.
+- Vocabulary is unchanged. The honest short-count exit reuses the sentence the file already showed for an unsupported claim rather than coining one, and no server-side count assertion was added — validation rules live in the shared engines, and this was a claim the client was making.
+
+### Known limitations, named rather than implied
+
+The refusal does not refresh this tab's stored page version, and writes nothing to the model. Both match how the existing unreadable-envelope refusal already behaves, and both have a cost worth stating. A stale version means the next apply meets the concurrency gate and gets the conflict card with its re-read affordance — a safe failure rather than a silent overwrite. Nothing written to the model means its context omits a write that may have landed, so a follow-up proposal may re-issue that step: harmless for a component or token update, not harmless for adding a component or importing media.
+
+The refusal also drops the post-apply validation findings for the steps the envelope did report, trading a specific warning for a louder, vaguer one. Those findings are per-step claims, and this exit has just decided the per-step account is incomplete.
+
+### Fixed
+- `executeProposal()` narrated a batch as applied when the envelope reported fewer step results than the proposal had steps, on the card and in the model's context (#871).
+- `executeProposal()` rendered `failed_at` into the step number without checking it was an integer, printing a fabricated step number and, for three values, throwing away the entire failure exit (#872).
+- The mark-every-row-failed helper left a previously-done row carrying two terminal states.
+- The shared refusal sentence rendered a non-string server `error` as `[object Object]`.
+
+### Docs
+- `AI_CONTEXT.md` — the apply/narration paragraph now states the accounting gate, the over-count disposition, the member-flag edge with its issue reference, and the index check.
+
+### Tests
+- `tests/js/pp-ai-chat-batch-step-accounting.test.js` — new, 62 blocks. Drives the real chat surface (send, preview, Apply, then read the card AND the persisted conversation) for both issues, pins the three legitimate short-count exits and the conflict classifier's deliberate weakness FIRST, and covers the new predicates directly. Measured against the pre-fix source: 50 red, 12 green, and every one of the 12 is a pin that should be green before the fix and says so where it lives.
+- `tests/ChatReflectedTextBoundTest.php` — the reflected-text tripwire follows the sentence into its single owner, pins which field is bounded, counts its call sites, and states honestly what the count does and does not catch.
+
 ## [v1.19.3] — 2026-09-08 — The rollback's menu layer stopped throwing away its own writes' returns (#876)
 
 **A batch that touched navigation menus could fail, roll back, report `rollback_errors: []`, and still leave one of the batch's menu items sitting in the menu, or leave the menus assigned where the batch put them. The writes that produced that silence are checked now, so a menu restore that did not fully land says which menu and which item, on the same channel as the rest of the rollback.**
