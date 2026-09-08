@@ -5254,8 +5254,12 @@ function pp_update_site_option(string $key, string $value) {
 // deletes a row the batch created or writes back the one it overwrote or removed:
 //
 //   _pp_snapshot_batch_targets  ──▶ {norm_from => exists?, entry}   [lib/actions.php]
-//   create_redirect / remove_redirect ──▶ pp_redirects option
+//   create_redirect / remove_redirect ──▶ pp_set_redirects ──▶ pp_redirects option
 //   step fails ──▶ _pp_restore_batch_snapshot_report ──▶ patch ONLY those keys back
+//                                             ├─ through pp_set_redirects too: since
+//                                             │  #876 the option has ONE writer, so a
+//                                             │  concern added to the two actions
+//                                             │  cannot bypass the rollback's write
 //                                             └─ write refused? name the path in
 //                                                rollback_errors, never stay silent
 
