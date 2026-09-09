@@ -412,7 +412,7 @@ Note which routes a page in that state still leaves open, because the whole-comp
 
 The render path was fixed in the same change and independently: grid's card loop now takes its ordinal from a positional counter instead of the array key, so a page that ALREADY stores a keyed object renders HTTP 200 with its cards numbered 1..N rather than 500-ing. The write gate closes the front door; the render guard covers what a write gate cannot reach (pre-rule compositions, `restore_composition`, raw `_pp_composition` writes).
 
-**A declared object must be a JSON OBJECT, not a list (#883).** ⚠️ **Changed error code in 1.19.6.** The mirror of the rule above, through the mirror predicate (`_pp_schema_object_value_is_valid()`), at the same two depths and in the same second-stage position — so a scalar still reads `must be an object; got string` and only a container reaches this rule:
+**A declared object must be a JSON OBJECT, not a list (#883).** ⚠️ **Changed error code in 1.19.6.** A **populated** JSON list is refused where an `object` is declared — the empty container is not, for the reason the boundary note below gives. The mirror of the rule above, through the mirror predicate (`_pp_schema_object_value_is_valid()`), at the same two depths and in the same second-stage position, so a scalar still reads `must be an object; got string` and only a container reaches this rule:
 
 > `Component "grid" prop "items" item 0 field "style" must be an object, but this one is a JSON list (1 entry). Send it as an object with keys ({...}), not an array ([...]). [invalid_prop_value]`
 
