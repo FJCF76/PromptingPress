@@ -11,7 +11,7 @@
  * loop rather than in a 30-minute browser suite.
  *
  * AND ONE PROPERTY THAT ONLY THIS SIDE CAN CHECK: the bound must stay the SERVER'S number.
- * `PP_CHAT_REFLECTED_ERROR_MAX` is a hand-copy of `PP_REFLECTED_ERROR_MAX` (lib/ai-chat.php),
+ * `PP_CHAT_REFLECTED_ERROR_MAX` is a hand-copy of `PP_REFLECTED_ERROR_MAX` (lib/wp.php),
  * and its docblock's whole argument is that copying it keeps ONE answer to "how long may a
  * reflected error be". Nothing but an assertion makes that true.
  *

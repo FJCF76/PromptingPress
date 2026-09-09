@@ -2077,10 +2077,11 @@ function _pp_recreate_menu_item(int $menu_id, object $item, int $parent_id): ?in
  *
  * NOTHING STORED IS REFLECTED HERE — not the title, not the slug, not the value. The
  * entry names the page by ID and says which field, and that is deliberate: this string
- * reaches the chat card, and the server-side owner of reflected-text cleaning lives in
- * lib/ai-chat.php with an OPEN ownership question for cross-file consumers (#864). A
- * rollback report is the wrong place to settle that, and an operator who is told which
- * page and which field can read the value on the page itself.
+ * reaches the chat card, and the rollback_errors channel is one #864 deliberately left
+ * unconverted — its OWNER question is now settled (the shared cleaner is in lib/wp.php and
+ * reachable from every load context), but the conversion was outside that issue's
+ * enumerated scope. A rollback report is still the wrong place to reopen it, and an
+ * operator who is told which page and which field can read the value on the page itself.
  *
  * @param  int    $post_id  The page whose field did not roll back.
  * @param  string $what     The field, named as an operator would name it.
@@ -2603,8 +2604,9 @@ function _pp_restore_batch_snapshot_report(array $snapshot): array {
             // write without joining the list would name the page and then dangle it.
             //
             // NO WP_Error MESSAGE IS REFLECTED, same reasoning as
-            // _pp_restore_field_failure_message(): this string reaches the chat card and
-            // the reflected-text owner question is open (#864).
+            // _pp_restore_field_failure_message(): this string reaches the chat card, and
+            // rollback_errors is a channel #864 left unconverted on purpose (the shared
+            // cleaner it would use now exists in lib/wp.php; the conversion was out of scope).
             $restored = pp_update_composition($post_id, $state['composition']);
             // GATED ON THE PAGE STILL EXISTING, like the four field restores below. A page
             // deleted inside the batch window classifies as readable-and-empty here, so the

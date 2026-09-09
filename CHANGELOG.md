@@ -4,6 +4,79 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.19.7] — 2026-09-09 — Whether an error message was cleaned no longer depends on which endpoint it travelled through (#864)
+
+**The theme has one rule for text it did not author: build the message verbatim, and strip at the SINK. The terminal channel has honoured it completely since v1.17.8. The AJAX/editor channel honoured it on two chat error payloads and nowhere else — so the same validator message, quoting the same stored component name, arrived cleaned in the chat card and raw in the editor's error banner. That asymmetry is the bug. Not a missing guard on one line: a rule that held or did not hold depending on the route.**
+
+This release completes that channel. It is one conversion pass over an inventory that was written down and deferred rather than improvised, plus the structural change the conversion needed: the definition of "clean" now has a single home that every part of the theme can reach.
+
+### The owner moved, and the load-path census that made it safe
+
+`_pp_clean_reflected_text()` and its two budgets (`PP_REFLECTED_NAME_MAX`, `PP_REFLECTED_ERROR_MAX`) moved from `lib/ai-chat.php` to `lib/wp.php`.
+
+The reason is reachability. `functions.php` loads `lib/ai-chat.php` only under `is_admin()`, while the editor's own AJAX sinks live in `lib/admin.php`, which is always loaded. Calling the owner from there would have made an always-loaded file depend on a conditionally-loaded one — the exact coupling #649 rejected for `_pp_item_index_label()`. Answering the same question two ways is how a codebase ends up with two definitions of clean.
+
+**Census before the move:** the owner had **12 production call sites, all of them in `lib/ai-chat.php`**. Zero in `lib/cli.php`, zero in `lib/admin.php` — the references there were comments explaining why those files could *not* call it. Reachable load contexts: admin and admin-AJAX only.
+
+**Census after:** `lib/wp.php` is require #1 in both `functions.php` and the test bootstrap, so front-end, admin, AJAX, WP-CLI and cron all resolve it. Every former call site is green, and the move is behaviour-neutral by construction rather than by argument — the function body calls `strlen`, `substr`, `preg_replace`, `mb_convert_encoding`, `mb_strlen` and `mb_substr`, and nothing else. No WordPress function, no option read, no load-time state.
+
+### The site table
+
+| Site | Action |
+|---|---|
+| `wp_ajax_pp_save_composition` rejection | **Converted** — message cleaned, `code` untouched |
+| `wp_ajax_pp_preview_composition` validator message | **Converted** |
+| `wp_ajax_pp_preview_composition` WP_DEBUG render-failure arm | **Converted** (a `\Throwable` message) |
+| `wp_ajax_pp_save_title` rejection | **Converted** |
+| `wp_ajax_pp_publish_page`, save arm and publish arm | **Converted** |
+| `data.validation.errors[].message` / `.warnings[].message` | **Converted** via the report helper |
+| `data.steps[i].error` (batch) | **Converted** |
+| `data.steps[i].validation` (batch) | **Converted** via the report helper |
+| `_pp_build_friendly_error()` hinted branch, `$component_name` | **Converted** — its sibling branch had cleaned the identical value since #661 |
+| `Unknown component: "%s"` at its SOURCE | **Not converted** — every route it takes to a reader already cleans it at the sink; a source guard would additionally bound it on the `findings` channel, which is a separate ruling |
+| `findings[].message` | **Not converted** — that separate ruling (#687's addendum) |
+| `rollback_errors` | **Not converted** — outside this issue's enumerated scope; its owner question is now answered |
+| The three pre-flight literals (`Invalid nonce.`, `Insufficient permissions.`, `Invalid JSON.`) | **No guard needed** — theme-authored, and the editor compares `Invalid nonce.` byte-for-byte to swap in its "session expired" prose |
+| `code` / `error_code` beside every converted message | **No guard needed** — theme-authored literals the editor branches on, never renders |
+
+### The nested shape gets one helper, and it is bounded
+
+Two of those payloads are not a one-line wrap: the post-apply validation report ships twice, as `data.validation` and as `data.steps[i].validation`. `_pp_clean_reflected_report()` cleans the `message` of every row in both its channels and delegates every strip to the owner — there is no second definition of clean anywhere in the change.
+
+Its **depth bound is structural**: it is not recursive and does not walk arbitrary structure, so it reaches exactly two levels and no nesting a payload could carry is reachable at all. Its **size bound is the owner's**: every string it touches is pre-cut at `max * 4` bytes and emitted at most `max` characters. It has no row counter on purpose, and that is measured rather than asserted — on a 2,000-band composition producing 2,001 report rows, the producer costs 0.659s and this helper costs 0.0011s, **0.16% of the work already done before it is called**.
+
+### What does not change
+
+**Well-formed messages are byte-identical.** Verified as a full before/after byte diff of every converted surface — the owner on plain, accented, CJK, emoji and empty input; real validator rejections through the action layer; both branches of the friendly-error builder; the chat execute and batch payloads; and the validation report. The diff is empty. Hostile input is the only thing that changes: control and format characters are removed, as they already were one endpoint over.
+
+**One exception, stated rather than left to be found: a message longer than 4096 characters is now cut and marked with `...` on these endpoints.** That is what `PP_REFLECTED_ERROR_MAX` means, and it is the budget the chat's error payloads have had since v1.17.8 — the editor endpoints simply had no budget at all before. One shipped message can legitimately reach it: the duplicate-component-id rejection names every colliding band in a single sentence, so a composition with roughly a thousand bands sharing an `id` produces a message past the cap. The `...` says it was shortened, but unlike `_pp_bounded_findings()` it does not name the true total. Give each component a unique authored `id` and no message comes close; `wp pp check page --post_id=N` always reports completely.
+
+### Fixed
+
+- The editor's save, preview, title and publish AJAX responses clean the composed validator message they ship (#864).
+- The chat's `data.validation` report is cleaned on the SUCCESS envelope, closing an asymmetry inside one response: every failure arm had been cleaned since v1.17.8, so whether a stored sequence reached the card depended only on whether the step had worked.
+- The batch payload cleans each step's `error` and its nested validation report, at the chat entry point rather than in the shared executor — the CLI reaching that same executor already strips at its own sink.
+- `_pp_build_friendly_error()`'s hinted branch cleans the stored component name it interpolates. Its `?:` fallback is deliberately kept, so a name that cleans away to nothing still reads "the selected component" rather than leaving a hole in the sentence.
+
+### Changed
+
+- `wp_ajax_pp_save_composition`'s body is extracted to `_pp_save_composition_response()`, with the registered closure reduced to a thin adapter. Same shape on the wire, same guards in the same order. `add_action()` is a no-op under PHPUnit, so a closure body is unreachable from tests — this was the one editor sink no test could observe, and the extraction is the idiom `lib/ai-chat.php` already uses for its four handlers.
+- The three structured rejection payloads (save, and both publish arms) build through one `_pp_editor_error_payload()` helper instead of three copies of the same four lines.
+
+### Docs
+
+- `AI_CONTEXT.md` records the extraction and states which channels are cleaned and which are still reflected verbatim by ruling.
+- The stale claim that the owner lives in `lib/ai-chat.php` is corrected in eight files, including the docblocks that anchor the client's hand-copied bound to the server's number.
+
+### Tests
+
+- Section E of the reflected-text inventory: the editor-save path driven end to end through the real `update_composition` action with a hostile fixture; the chat's nested fields driven through the real execute and batch handlers; the friendly-error hinted branch; and unit coverage of the report helper including every shape it deliberately passes through.
+- The extraction's own guards are pinned for the first time: the capability check for the DENIED case, and the #13 compare-and-swap baseline threaded from the request array. Both gaps were found by mutation — deleting either left the suite green.
+- A tripwire on the thin adapter, so the behavioural pins cannot pass against a function the endpoint no longer calls.
+- Source tripwires on the five sinks PHPUnit cannot drive, matched on strings rather than line numbers.
+
+---
+
 ## [v1.19.6] — 2026-09-09 — A blank page title is refused instead of blanking the page, and a declared object stops accepting a list (#888, #883)
 
 **Two holes in the write path, both of the same shape: a value that satisfied a rule's letter while defeating its purpose. `update_page_title` treated `required` as "the key is present", so `title: ""` validated, executed, reported `ok:true` and left the page with no title at all. And a schema field declaring `type: "object"` accepted a JSON list, because PHP decodes both JSON containers to an array — held safe until now only by an accident of who the two shipped consumers are.**
