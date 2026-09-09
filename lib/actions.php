@@ -3857,9 +3857,13 @@ function _pp_action_error(string $name, string $scope, string $error, string $er
  * shapes in unrelated envelopes; neither is being renamed, because both are shipped.
  *
  * `from => null` was the obvious alternative and is the wrong one: null already MEANS
- * "there was no prior value" on shipped actions (`create_page`, `create_redirect`'s
- * execute, the derived-token changes in lib/apply.php), so it would re-enact this very bug
- * one type over — a real state degraded to a benign-looking one. A sibling key
+ * "there was no prior value" on shipped actions (`create_page`, `create_menu`, the
+ * derived-token changes in lib/apply.php), so it would re-enact this very bug one type
+ * over — a real state degraded to a benign-looking one. (This paragraph used to cite
+ * `create_redirect`'s execute in that list, which was true of the code and false of the
+ * state: that path hardcoded null over rows it had just overwritten, and #887 made it read
+ * the prior instead. It is now an example of null meaning what this paragraph says it
+ * means, rather than an example of the bug.) A sibling key
  * (`from_error` beside an emptied `from`) fails the same way for a different reader: a
  * consumer that reads `from` and not the sibling still gets the lie, which is precisely
  * today's fail-open. An object in `from` is fail-SAFE — it cannot be mistaken for a list by
@@ -4402,12 +4406,103 @@ pp_register_action('create_redirect', [
     },
     'execute' => function (array $params): array {
         $code = isset($params['code']) ? (int) $params['code'] : 301;
+
+        // THE PRIOR ROW, READ THE WAY THE PREVIEW READS IT, BEFORE THE WRITER RUNS (#887).
+        // This line used to be a hardcoded `null` in the diff below, and the lie it told was
+        // the specific one this action can tell: `create_redirect` is create-OR-REPLACE
+        // (see `semantics` above), so a second create over `/x` silently overwrites the row
+        // already there — and `null` in `from` is the envelope's word for "there was no prior
+        // value" (_pp_composition_before_state()'s docblock spells that out). So a receipt for
+        // `/x -> /b` written over a live `/x -> /a` claimed a fresh create, and the row it
+        // destroyed was named nowhere in the envelope.
+        //
+        // BE EXACT ABOUT WHICH SURFACE LIED, because the issue that filed this was not, and a
+        // rationale that overstates its own reach is one a later reader trusts too far. THIS
+        // PARAGRAPH IS THE SINGLE OWNER OF THE CLAIM; the two test files that depend on it cite
+        // this closure rather than restating the client's call graph, so the day the client
+        // changes there is one place to correct and not three.
+        //
+        // The PREVIEW has always read the true prior (the closure directly above), so the
+        // chat's approval gate was never wrong — and it is the only surface that renders
+        // `changes` at all. In assets/js/pp-ai-chat.js: `ppChatRenderDiffLine()` has exactly one
+        // call site, inside `ppChatRenderPreviewResult()`, which is fed only by the preview
+        // endpoint; the batch response handler reads a step result's `ok`, `validation` and
+        // `stale_warnings` and never its `changes`; and the post-apply card and the
+        // model-facing context turn both print `step.description || step.name`. So no EXECUTED
+        // envelope reaches a renderer.
+        //
+        // This is therefore NOT the #836 axis, which was about the value on the approval gate.
+        // It is a RECEIPT, and its readers are machine-facing rather than rendered: the
+        // envelope `wp pp action execute` prints (_pp_cli_emit_json(), lib/cli.php), and the
+        // batch response, which carries every step's FULL action envelope — `changes` included
+        // — back to its caller (pp_ai_execute_batch() collects the results verbatim). An agent
+        // driving a batch therefore reads this field even though nothing paints it. Say
+        // "no RENDERED surface" rather than "one reader": the latter is the tidier sentence and
+        // the false one. That is still a smaller claim than "an operator could not tell replace
+        // from create", and it is the true one. The rollback layer, for its part, knew the
+        // prior the whole time (#854 restores it), so nothing was ever at risk beyond the
+        // report.
+        //
+        // ONE READ SHAPE, and that is what makes preview and execute answerable to each other.
+        // Both go through pp_get_redirects() rather than the raw option, so both get the same
+        // row for the same stored bytes and a test can hold them to each other. What that buys
+        // is AGREEMENT, which is not the same as TRUTH, and the difference is worth naming
+        // because pp_get_redirects() (lib/wp.php) is a normalizer rather than a reader: it
+        // clamps a stored `code` outside {301,302} to 301, and it DROPS a row with no `to`
+        // entirely. So an overwrite of a malformed row still reports `from: null` — this fix
+        // does not reach that case — and an overwrite of a row stored with `code: 307` reports
+        // the prior as 301. Both are the reader's view of the map, which is also the view every
+        // other consumer of that option gets; reading raw here would make this one envelope
+        // disagree with the whole rest of the system about what is stored.
+        //
+        // BEFORE, NOT AFTER, and the ordering is the whole fix rather than an implementation
+        // detail. pp_create_redirect() writes the map (pp_set_redirects(), lib/wp.php), so the
+        // same read placed one line lower returns the row this action just wrote and reports
+        // the NEW value as its own prior — a diff claiming `{to:/b} -> {to:/b}`, which reads as
+        // "nothing changed" and is strictly worse than the null it replaced.
+        //
+        // KEYED WITH THE PRE-WRITE SPELLING, necessarily: pp_create_redirect() returns the
+        // normalized source (`$result`, used for `path`/`target` below) but it cannot answer
+        // before it has run. _pp_normalize_redirect_path() is the same function the writer
+        // keys the map with (lib/wp.php), so the two spellings address the same row by
+        // construction rather than by agreement.
+        //
+        // WHAT THIS DOES NOT FIX, STATED HERE RATHER THAN DISCOVERED LATER (#917). This
+        // reports the row that was there; it does NOT report whether the write replaced it.
+        // pp_create_redirect() discards pp_set_redirects()'s return and answers with a path on
+        // every non-WP_Error path (lib/wp.php), so a REFUSED option write still produces an
+        // `ok` step. Before this change that step read `null -> {/b,302}`, which is wrong in an
+        // obviously placeholder-shaped way. It now reads `{/a,301} -> {/b,302}`: a specific and
+        // confident claim that one real value became another, when nothing was stored at all.
+        // The receipt is more precise about the past WITHOUT being more verified about the
+        // present, and on this one path that reads as a stronger assurance than it is.
+        // #917 owns that half — it is the writers' false-clean, and it is a decision rather
+        // than a fix, because update_option()'s false is ambiguous between "refused" and
+        // "already equal" and a bare check would fail a correctly-stored duplicate write.
+        // Deliberately NOT resolved here: taking it would change what two shipped public
+        // actions report about success, which is not this issue's to decide.
+        //
+        // NOR IS THE REPORT READ FROM THE SAME MAP THE WRITE OVERWRITES, and this list would
+        // overstate its own completeness by leaving that out. pp_create_redirect() performs
+        // its OWN pp_get_redirects() before writing (lib/wp.php), so two reads stand between
+        // this line and the store. Within one request they cannot disagree — the option is
+        // served from WordPress's cache — but under a persistent object cache a concurrent
+        // write from another process can land between them, and the row named here is then
+        // not the row that was replaced: a receipt that is WRONG rather than merely absent.
+        // The window is bounded by, and no wider than, the lost-update already inherent in
+        // that function's read-modify-write, so this changes no exposure. Closing it properly
+        // means the writer returning the row it replaced, so that report and write derive
+        // from ONE read — which is a change to a public function's contract, and belongs with
+        // #917's decision about that same return rather than being taken unilaterally here.
+        $from_norm = _pp_normalize_redirect_path((string) $params['from']);
+        $before = pp_get_redirects()[$from_norm] ?? null;
+
         $result = pp_create_redirect((string) $params['from'], (string) $params['to'], $code);
         if (is_wp_error($result)) {
             return _pp_action_error('create_redirect', 'site', $result->get_error_message());
         }
         return _pp_action_result('create_redirect', 'site', ['from' => $result], [
-            ['path' => $result, 'from' => null, 'to' => ['to' => trim((string) $params['to']), 'code' => $code]],
+            ['path' => $result, 'from' => $before, 'to' => ['to' => trim((string) $params['to']), 'code' => $code]],
         ]);
     },
 ]);
