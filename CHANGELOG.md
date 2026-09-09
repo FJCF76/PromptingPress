@@ -4,6 +4,79 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.19.8] — 2026-09-10 — A write that cannot record what it replaced now says so, instead of reporting a clean success (#821)
+
+**Every composition write pushes the state it is replacing onto that page's history ring first. That is what makes a change reversible. When the ring entry could not be JSON-encoded, the push was skipped and the composition write went ahead anyway — so the change landed, the undo point was gone, and the envelope said `ok: true` with a `findings` report describing a perfectly healthy composition. The only trace was a line in the server error log. This release makes that write tell you.**
+
+The maintainer's ruling (2026-09-01) took the narrow first step deliberately: guard the unambiguous failure, do not turn writes that succeed today into refusals, and never let the skip be silent. That is exactly what landed.
+
+### What was actually silent, and what was not
+
+Half of this was already fixed. The ring's own bytes have been protected since the #818/#841 preservation work: `wp_json_encode()` returning `false` is caught, and the previous entries are kept rather than overwritten. Before that guard existed the failure was far worse — `wp_slash(false)` is `false`, so the meta write stored an empty value and the ring read back as `[]`, losing all ten slots on the very write meant to preserve one. That shape is now pinned by a test that reproduces it exactly.
+
+What had no owner was the disclosure. The write proceeded, the ring silently gained no entry, and nothing on any surface an operator or agent reads said a change had just become irreversible.
+
+### The disclosure
+
+An accepted write whose history push was skipped now leads its `findings` report with one entry:
+
+```json
+{ "type": "history_not_recorded", "severity": "warning", "index": null,
+  "message": "This write landed, but the state it replaced could not be recorded in the page history, so THIS WRITE HAS NO UNDO POINT. The history ring was left intact and still holds its earlier entries — run `wp pp operate composition-history --post_id=42` to see what can still be restored." }
+```
+
+Read it as **the change was made and cannot be undone by stepping back to what it replaced**, never as a failed write. The ring is undamaged and everything already in it is still restorable; what is missing is the one slot this write would have added.
+
+It rides on every accepted composition write — the seven band-level actions, `update_composition`, `restore_composition` (which owns its own `findings` key), and the run-scoped rollback, which carries it per reverted post. `create_page` cannot produce it: a brand-new page has no prior state to push.
+
+### It leads the report, and it is not counted as a composition problem
+
+Two properties that look like details and are not.
+
+**It is `findings[0]`, outside the 100-entry budget.** The budget bounds the report about the COMPOSITION; this entry is about the WRITE, the same way `findings_truncated` is about the REPORT and is itself the 101st entry. Appending it would have put "your change is irreversible" behind the truncation tail on exactly the pathological page where losing it is worst.
+
+**Consumers that turn findings into a count now ask `pp_finding_is_about_the_composition()`.** Without that, two surfaces reported a page as broken when nothing was:
+
+- the chat's undo card counted it toward "Restored, but the previous version has N issues under current rules" — so a clean restore announced one rule violation — and let it consume one of the five band-aware inline rows that belong to actually-affected bands. It is now hoisted above the rows and out of both counts, the same treatment #655 gave the truncation tail. A restore whose only finding is this one drops the issue-count sentence entirely rather than rendering "has 0 issues", which was a warning asserting nothing was wrong.
+- `wp pp apply restore-composition` warned "N reverted post(s) have composition findings under current validation rules" over pages that broke no rule. That count is now composition-only — and because narrowing a count is not the same as replacing a signal, the command gained a second, separate warning naming pages whose rollback write lost its undo point. The CLI is the surface the finding's own message points at; it must not be the one place you have to read JSON to find it.
+
+### What is deliberately still silent
+
+Stated plainly, because "no warning" must not be read as "the undo was recorded":
+
+- **A ring push that fails inside `update_post_meta()`.** WordPress returns `false` there both for a real failure and for a value that did not change, so gating on it needs a compare-first read to tell those apart. Deferred by the same ruling as the recorded second step.
+- **`pp_update_composition()`'s own unchecked composition encode.** A composition the encoder rejects is stored as an empty value while the function returns `true` and the page classifies as clean. Pre-existing, out of scope for this ruling, filed as **#941** with a reproduction.
+- **Chat and the dashboard editor outside the undo card.** The payload carries the entry; only the undo card renders it. The CLI envelope and the server log are the record elsewhere.
+
+### How the failure is reached
+
+`wp_json_encode()` does not return `false` for the corruption class the ring was built around — invalid UTF-8 is coerced and re-encoded, and raw payloads have been base64-encoded since #818. `JSON_ERROR_DEPTH` does: `json_encode()` fails, `_wp_json_sanity_check()` throws, and the function returns `false`. Wrapping a prior composition inside a ring entry inside the ring nests it two levels deeper than it sat when it was decoded, so there is a narrow band of depths where the prior stores and decodes cleanly and the ring encode of it does not. The tests probe for that band at run time rather than hardcoding a number, and fail loudly if it ever moves.
+
+### Scope and deviations
+
+The ruling covers the #821/#844/#848 axis. #844 and #848 are axis pointers and were not touched. No new operator vocabulary beyond the finding `type`; `severity` is one of the two values every consumer already branches on. The message reflects no stored or caller-supplied text — only an integer post id — which matters because `findings[].message` is a channel deliberately left unconverted by the reflected-text cleaner.
+
+One documented residual: the request-scoped register that carries the event from inside the advisory lock out to the envelope builder is post-keyed, and a plugin re-entering the writer from an `update_post_meta` hook could suppress or misattribute the notice. Both directions are stated in the code rather than claimed away, the `error_log` line fires unconditionally either way, and closing it properly needs write-identity machinery this narrow step does not call for.
+
+### Fixed
+
+- A composition write whose history push was skipped now discloses that it has no undo point, on every accepted-write surface (#821).
+- `wp pp apply restore-composition` no longer reports a validation-rule problem on a page that broke no rule, and warns separately about pages whose rollback write lost its undo point (#821).
+- The chat undo card no longer counts a write-scoped finding as a composition issue, and no longer lets it displace a band from the inline rows (#821).
+
+### Docs
+
+- `AI_CONTEXT.md`, `ai-instructions/operating-loop.md`, `docs/reference-apply-cli.md`: the new entry, why it is not counted against the 100-finding budget, the rolled-back-batch caveat, and where it is and is not displayed.
+- `docs/howto-apply-and-rollback.md`: the composition-reversibility guarantee is qualified with its one exception.
+- `docs/operating-loop-safety.md`: a data-safety invariants row for the guard and the disclosure, naming both deliberately-silent neighbours.
+
+### Tests
+
+- `tests/CompositionHistoryPushDisclosureTest.php` (new, 15 tests): the pre-guard ring clobber reproduced, the disclosure through the real action surface, restore and rollback coverage, healthy-write byte-identity, drain-consumes-once, and the per-page and per-write isolation of the register.
+- `tests/js/pp-ai-chat-undo-findings.test.js`: 8 tests for the undo card hoisting the entry out of its counts and its band-aware rows.
+
+---
+
 ## [v1.19.7] — 2026-09-09 — Whether an error message was cleaned no longer depends on which endpoint it travelled through (#864)
 
 **The theme has one rule for text it did not author: build the message verbatim, and strip at the SINK. The terminal channel has honoured it completely since v1.17.8. The AJAX/editor channel honoured it on two chat error payloads and nowhere else — so the same validator message, quoting the same stored component name, arrived cleaned in the chat card and raw in the editor's error banner. That asymmetry is the bug. Not a missing guard on one line: a rule that held or did not hold depending on the route.**
