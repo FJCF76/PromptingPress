@@ -611,20 +611,30 @@ class ContainerPropWriteEnforcementTest extends TestCase
     }
 
     /**
-     * A JSON LIST in an `object` field is still ACCEPTED, deliberately.
+     * A JSON LIST in an `object` field is not THIS rule's business — and since #883 it
+     * has a rule of its own.
      *
-     * PHP has one shape for both JSON containers, so this rule enforces "container,
-     * not scalar" and decides nothing about what a container may hold. Map-vs-list was
-     * unowned when this landed; #738 has since closed the `array` direction in a SECOND
-     * predicate (_pp_schema_list_value_is_valid()) that runs after this one, so a
-     * declared list must now be a JSON array. This rule is unchanged, and the shape
-     * exercised HERE — a JSON list handed to a declared `object` — is still unowned in
-     * both files (tracked as #883). What an item `style` may contain stays unowned too. The pin
-     * exists so a later reader does not "tighten" this into a shape nobody ruled on;
-     * the entry-shape question one level up is owned by `item_type: "object"`, which is
-     * a different rule with a different message.
+     * WHAT CHANGED AND WHAT DID NOT. PHP has one shape for both JSON containers, so this
+     * rule enforces "container, not scalar" and decides nothing about what a container
+     * may hold. That is unchanged. What changed is who answers next: map-vs-list was
+     * unowned when this landed, #738 closed the `array` direction in a second predicate
+     * (_pp_schema_list_value_is_valid()), and #883 closed the `object` direction in a
+     * third (_pp_schema_object_value_is_valid()). So a list-shaped `style` is still
+     * refused — as this test always asserted — but by the rule that owns the declared
+     * TYPE rather than by the rule that owns style SLOT NAMES.
+     *
+     * THE ERROR CODE MOVED, AND THAT IS THE POINT OF UPDATING THIS PIN RATHER THAN
+     * DELETING IT. `invalid_style_slot` / `has no style slot "0"` was a true message
+     * from the wrong rule: it described a naming mistake the author did not make, and it
+     * held only because both shipped `object` fields happen to route to the slot engine.
+     * The set of refused writes is unchanged for these two fields; the vocabulary is not.
+     * Anything keyed on the old code for THIS shape is what #883's disclosure is about.
+     *
+     * The original warning still stands for what remains unowned: what an item `style`
+     * may CONTAIN is nobody's rule, and the entry-shape question one level up is owned by
+     * `item_type: "object"`, which is a different rule with a different message.
      */
-    public function testAListInAnObjectFieldIsNotThisRulesBusinessAndIsCaughtBySlotValidation(): void
+    public function testAListInAnObjectFieldIsNotThisRulesBusinessAndIsCaughtByTheShapeRule(): void
     {
         $this->assertTrue(
             pp_validate_composition([[
@@ -634,22 +644,20 @@ class ContainerPropWriteEnforcementTest extends TestCase
             'an empty map is a container and is not this rule\'s business'
         );
 
-        // AND THE LIST CASE IS STILL REFUSED, by the rule that owns style slots. This
-        // is what makes "container, not scalar" a sufficient line here rather than a
-        // hole: the operator-facing contract ("a per-item style takes a JSON object")
-        // holds end to end, and the message names the card and lists what it accepts.
-        // Both halves are asserted together on purpose — reading the accept above
-        // alone would suggest a list quietly persists, which is exactly what a later
-        // reader might "fix" by widening this rule onto a shape nobody ruled on.
+        // AND THE LIST CASE IS STILL REFUSED. Both halves are asserted together on
+        // purpose — reading the accept above alone would suggest a list quietly
+        // persists. Since #883 the refusal carries the SHAPE rule's code and message.
         foreach ([
             ['grid',    ['items' => [['title' => 'Card', 'style' => ['#fff']]]]],
             ['section', ['body' => 'B', 'panel_items' => [['label' => 'L', 'style' => ['#fff']]]]],
         ] as [$component, $props]) {
             $rejected = pp_validate_composition([['component' => $component, 'props' => $props]]);
             $this->assertInstanceOf(WP_Error::class, $rejected, "a list-shaped {$component} style must not persist");
-            $this->assertSame('invalid_style_slot', $rejected->get_error_code(),
-                'and it must be refused by the SLOT rule, not by the container rule — the two own different questions');
-            $this->assertStringContainsString('has no style slot "0"', $rejected->get_error_message());
+            $this->assertSame('invalid_prop_value', $rejected->get_error_code(),
+                'and since #883 it is refused by the rule that owns the declared TYPE, not by the slot rule');
+            $this->assertStringContainsString('field "style" must be an object', $rejected->get_error_message());
+            $this->assertStringNotContainsString('has no style slot', $rejected->get_error_message(),
+                'the write path reports one message and it is the shape one (budget 1, and the shape rule runs first)');
         }
     }
 
@@ -881,21 +889,22 @@ class ContainerPropWriteEnforcementTest extends TestCase
             );
         }
 
-        // THE BOUNDARY THIS RULE DELIBERATELY DOES NOT CROSS, pinned where it is
-        // actually observable. The container rule decides "container, not scalar", so a
-        // JSON LIST in an `object` prop passes IT — and here, on a synthetic prop with
-        // no style-slot engine behind it, that is the whole answer, so the acceptance
-        // is visible instead of being masked by a later rule. Both shipped `object`
-        // fields ARE style maps, which is why the nested test one section up sees the
-        // list refused by `invalid_style_slot` instead. Two rules, two questions; this
-        // pair is what keeps a later reader from "fixing" one into the other.
+        // THE BOUNDARY THIS RULE DELIBERATELY DOES NOT CROSS, pinned at the PREDICATE
+        // rather than at the surface, because #883 changed what the surface answers.
+        // This rule decides "container, not scalar", so a JSON LIST in an `object` prop
+        // passes IT — and it always will. What changed is that a second stage now runs
+        // after it (_pp_schema_object_value_is_valid()) and refuses the list, so the
+        // composition-level assertion this pin used to make would now be measuring the
+        // OTHER rule. Two rules, two questions; asserting the container predicate
+        // directly is what keeps a later reader from folding one into the other.
+        //
+        // The surface-level behaviour for a top-level `object` prop handed a list now
+        // lives in ObjectShapedPropWriteEnforcementTest §5, which owns that rule.
         $this->assertTrue(
-            pp_validate_composition([
-                ['component' => 'widget', 'props' => ['id' => 'w', 'config' => ['a', 'b']]],
-            ]) === true,
-            'a JSON list is a container, so the container rule passes it — for a declared'
-            . ' `object` map-vs-list is still nobody\'s rule (#883). The `array` direction is'
-            . ' owned by _pp_schema_list_value_is_valid() since #738, and this prop is `object`.'
+            _pp_schema_container_value_is_valid('object', ['a', 'b']),
+            'a JSON list is a container, so THIS rule passes it — map-vs-list for a declared'
+            . ' `object` is owned by _pp_schema_object_value_is_valid() since #883, exactly as'
+            . ' the `array` direction is owned by _pp_schema_list_value_is_valid() since #738.'
         );
     }
 

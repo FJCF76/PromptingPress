@@ -1152,26 +1152,30 @@ function _pp_schema_scalar_value_is_valid($declared_type, $value): bool {
  * is deliberate, not an oversight. This rule applies the D-A reject-never-coerce
  * ruling (canonical text in #724's body) to the declared CONTAINER types — a scalar
  * is not a container — and it decides nothing about what a container may HOLD.
- * Map-vs-list WAS nobody's rule when this predicate landed; #738 closed half of it.
- * A declared `array` must now be a JSON list, owned by _pp_schema_list_value_is_valid()
- * just below, which runs as a SECOND STAGE after this one so a scalar keeps this
- * predicate's message and a map gets that one's. The `object` leg is still unowned in
- * both directions — a JSON list handed to an `object` field still passes here and is
- * caught, if at all, downstream (see the paragraph after next, and #883). The contents
- * of an item `style` object likewise remain nobody's rule, the
- * same "no decision exists" the RULE 3 comment records; the entry-shape question one
- * level up is owned by `item_type: "object"` (_pp_entry_is_object_shape), which is a
- * different rule with a different message. Widening this one to reject a list would
- * be a new narrowing on a shape no test has measured, not the one that was ruled on.
+ * Map-vs-list WAS nobody's rule when this predicate landed; #738 closed half of it and
+ * #883 closed the other. A declared `array` must be a JSON list, owned by
+ * _pp_schema_list_value_is_valid() just below; a declared `object` must be a map, owned
+ * by _pp_schema_object_value_is_valid() below that. Both run as a SECOND STAGE after this
+ * one, so a scalar keeps this predicate's message and a wrong-shaped container gets
+ * theirs. What is STILL nobody's rule is the CONTENTS of an item `style` object, the same
+ * "no decision exists" the RULE 3 comment records; the entry-shape question one level up
+ * is owned by `item_type: "object"` (_pp_entry_is_object_shape), which is a different rule
+ * with a different message.
  *
- * AND IT DOES NOT LEAVE THE LIST CASE UNGUARDED, which is why "container, not scalar"
- * is enough here. Both shipped `object` declarations are per-item style maps, and a
- * LIST reaching one is already refused a few rules later by the shared style-slot
- * engine, which reads its keys as slot names: `style: ["#fff"]` returns
- * `invalid_style_slot` — `item 0 has no style slot "0". Available slots: ...` —
- * naming the card and listing what it accepts. So the authoring contract an operator
- * reads ("a per-item style takes a JSON object") holds end to end; it is just
- * enforced by the rule that owns style slots rather than by this one.
+ * WHAT THIS PREDICATE STILL DOES NOT DECIDE is unchanged by either narrowing: it answers
+ * "container or scalar?" and hands the shape question to the two stages after it. Read the
+ * error text ("must be an array" / "must be an object") as the SCALAR refusal it is; the
+ * shape refusals have their own sentences.
+ *
+ * HISTORICAL NOTE, kept because it explains why the `object` leg went unowned so long:
+ * both shipped `object` declarations are per-item style maps, and before #883 a LIST
+ * reaching one was refused a few rules later by the shared style-slot engine, which reads
+ * its keys as slot names — `style: ["#fff"]` returned `invalid_style_slot`, `item 0 has no
+ * style slot "0". Available slots: ...`. The authoring contract an operator reads ("a
+ * per-item style takes a JSON object") therefore held end to end, but by an accident of
+ * who those two consumers are rather than by a rule, which is exactly the argument #883
+ * used to close it. That engine still owns slot NAMES; it no longer stands in for a shape
+ * rule.
  *
  * The unset sentinels are the same two the top-level array rule already used, kept
  * BECAUSE they are the same: every action validates the WHOLE composition, so a rule
@@ -1190,8 +1194,8 @@ function _pp_schema_scalar_value_is_valid($declared_type, $value): bool {
  * a public page. This closes the front door; it does not repair what is already
  * inside (#805 records the editor's read-side handling of exactly that).
  *
- * Returns true for every other declared type — the same not-applicable contract both
- * sibling predicates carry, so a caller may hand it any declaration it walks. Be
+ * Returns true for every other declared type — the same not-applicable contract every
+ * sibling predicate carries, so a caller may hand it any declaration it walks. Be
  * precise about what that buys today: all three call sites DO pre-classify (the two
  * top-level arms sit inside the `elseif ($declared_type === ...)` chain, RULE 6 gates
  * on `$field_type === 'array' || 'object'`), so the fall-through is not load-bearing
@@ -1252,13 +1256,13 @@ function _pp_schema_container_value_is_valid($declared_type, $value): bool {
  * the one below and be exactly the contract a direct unit test got written against.
  * `[]` needs no row either: the empty array IS a list, so pp_is_list() accepts it.
  *
- * THE `object` LEG IS DELIBERATELY UNTOUCHED, and the asymmetry is the point rather
- * than an oversight. Widening this to reject a LIST where an `object` is declared is
- * the narrowing _pp_schema_container_value_is_valid()'s docblock explicitly rules a
- * DIFFERENT ruling ("a shape no test has measured, not the one that was ruled on"), and
- * a list reaching one of the two shipped `object` fields is already refused a few rules
- * later by the shared style-slot engine, which reads its keys as slot names. This rule
- * closes the direction that FATALS a page; it does not open the other one.
+ * THE `object` LEG IS NOT THIS PREDICATE'S, and never became it. Refusing a LIST where an
+ * `object` is declared was a different ruling on a different shape, so #883 gave it a
+ * different function: _pp_schema_object_value_is_valid(), the next one down. Keeping them
+ * apart is what lets each stay a one-question predicate — this one asks "is this container
+ * a list?", that one asks "is this container a map?" — and it is why this one's `object`
+ * row still reads "everything". Do not fold them; a single predicate switching on the
+ * declared type is how one message ends up answering for two rules.
  *
  * REJECT, NEVER COERCE (ruling D-A, canonical text in #724's body). No array_values(),
  * no reindexing, no stored-data migration — the same posture #724 applied to the
@@ -1298,8 +1302,8 @@ function _pp_schema_container_value_is_valid($declared_type, $value): bool {
  * Pinned by testAScalarIsStillTheContainerRulesToRefuse(), which asserts both halves of
  * the ordering rather than only this one's answer.
  *
- * Returns true for every other declared type — the same not-applicable contract all
- * three siblings carry, so a caller may hand it any declaration it walks.
+ * Returns true for every other declared type — the same not-applicable contract every
+ * sibling in this family carries, so a caller may hand it any declaration it walks.
  *
  * @param string|null $declared_type The schema `type` value, or null when undeclared.
  * @param mixed       $value         Raw authored value.
@@ -1307,6 +1311,98 @@ function _pp_schema_container_value_is_valid($declared_type, $value): bool {
 function _pp_schema_list_value_is_valid($declared_type, $value): bool {
     if ($declared_type === 'array') {
         return !is_array($value) || pp_is_list($value);
+    }
+    return true;
+}
+
+/**
+ * True when $value satisfies the MAP half of a declared `type: "object"` (issue #883).
+ *
+ * The mirror of _pp_schema_list_value_is_valid() directly above, and the fifth sibling of
+ * the schema-predicate family. It runs as a SECOND STAGE after
+ * _pp_schema_container_value_is_valid() for the same reason the list predicate does, so a
+ * scalar keeps that predicate's "must be an object; got string" and a LIST gets this one's.
+ *
+ * WHAT IT FINISHES. The container predicate decides "container or scalar?" and nothing
+ * more, because a JSON list and a JSON object both decode to a PHP array under
+ * `json_decode($json, true)`. #738 closed the `array` half of that gap; this closes the
+ * `object` half, which the two docblocks above it recorded as open until this rule landed
+ * (they now record it as closed; the open-gap record lives in #883's body):
+ *
+ *     _pp_schema_container_value_is_valid('object', ['#fff']);   // true — a container
+ *     _pp_schema_object_value_is_valid('object', ['#fff']);      // false — but a LIST
+ *
+ *     type      accepted                                 rejected
+ *     ────────  ───────────────────────────────────────  ────────────────────────
+ *     object    any NON-array, [], or a non-list array   a populated list
+ *     array     everything                               —
+ *     (other)   everything                               —
+ *
+ * THE EMPTY CONTAINER IS ACCEPTED, and it is not a sentinel row — it is the one shape the
+ * two JSON spellings genuinely share. `json_decode('{}', true)` and `json_decode('[]',
+ * true)` both return `[]`, so `{}` is indistinguishable from `[]` at this layer and
+ * refusing the empty list would refuse the empty object with it. `null` and `''` need no
+ * row for the reason the list predicate's table gives: they are not arrays, so the
+ * `!is_array($value)` arm accepts them, and rejecting a blank is the container predicate's
+ * sentinel decision, not this one's.
+ *
+ * WHY IT WAS WORTH BUILDING WHEN NOTHING WAS BROKEN, since the honest answer is "nothing
+ * is broken today". Both shipped `object` declarations are per-item style maps
+ * (grid.items[].style, section.panel_items[].style), and a list reaching either is refused
+ * a few rules later by the shared style-slot engine, which reads its keys as slot names
+ * (`item 0 has no style slot "0"`). So the authoring contract held end to end — by an
+ * accident of who the two consumers are, not by a rule. A future `type: "object"` field
+ * routed anywhere else (a metadata bag, an options object) would have accepted a JSON
+ * list, persisted it behind ok:true, and rendered whatever its consumer does with a list:
+ * the reported-success-without-effect class #614/#707/#744 each closed one type over. This
+ * is the same argument #744 used to build its own top-level `object` arm ahead of any
+ * shipped declaration — the cheap moment to close a fence is before something lands on it.
+ *
+ * REJECT, NEVER COERCE (ruling D-A, canonical text in #724's body; ruling T4 for this
+ * issue). No array_combine(), no wrapping a list in a synthetic key, no stored-data
+ * migration. The refusal names the band and the field and lets the author resend.
+ *
+ * AND IT DOES NOT REPLACE THE RENDER GUARD, the same two-mechanism split #738 records.
+ * What is already stored reaches the renderer regardless (pre-rule compositions,
+ * `restore_composition` — which reports and never blocks, #233 — and raw `_pp_composition`
+ * meta writes). A stored list-where-object DEGRADES rather than fatals and needs no new
+ * guard: pp_render_style_vars() walks the map and hands each key to
+ * pp_style_declaration_renders(), whose first act is `isset($slots[$name])`. A list's keys
+ * are integers, no component declares a slot named "0", so every declaration is dropped
+ * before the value is ever cast — the card renders unstyled instead of taking the page
+ * down. Pinned by ObjectShapedPropWriteEnforcementTest §5 so it stays true.
+ *
+ * THE LIMIT, STATED SO IT IS NOT DISCOVERED LATER, and it is #738's limit seen from the
+ * other side: `json_decode('{"0":"a","1":"b"}', true)` returns a PHP LIST. The keys ARE
+ * 0..n-1 in order, so pp_is_list() says list and this REFUSES it, even though the author
+ * wrote an object. Separating the two would mean inspecting raw JSON TEXT, and every caller
+ * reaches pp_execute_action() with an already-decoded PHP array. It costs nothing on the
+ * shipped fields — a style map's keys are slot names like `--grid-item-bg`, never `0` — and
+ * a field that genuinely wants numeric string keys should start them at something other
+ * than 0 or declare `array`.
+ *
+ * SECOND STAGE, NEVER A STANDALONE `object` VALIDATOR — the same warning its sibling
+ * carries, for the same reason. It answers ONE question: "given that this IS a container,
+ * is it a map?" A non-array returns TRUE, because rejecting a scalar is
+ * _pp_schema_container_value_is_valid()'s job and reporting it twice would give an operator
+ * two messages for one defect. Both call sites run the pair in that order:
+ *
+ *     container predicate FIRST   -> "must be an object; got string"    (a scalar)
+ *     this predicate SECOND       -> "must be an object, but ... list"  (a list)
+ *
+ * A future caller reaching for this one ALONE would silently accept every scalar — the #744
+ * defect reintroduced under a newer number. Pinned by
+ * testAScalarIsStillTheContainerRulesToRefuse(), which asserts both halves of the ordering.
+ *
+ * Returns true for every other declared type — the same not-applicable contract every
+ * sibling in this family carries, so a caller may hand it any declaration it walks.
+ *
+ * @param string|null $declared_type The schema `type` value, or null when undeclared.
+ * @param mixed       $value         Raw authored value.
+ */
+function _pp_schema_object_value_is_valid($declared_type, $value): bool {
+    if ($declared_type === 'object') {
+        return !is_array($value) || $value === [] || !pp_is_list($value);
     }
     return true;
 }
@@ -1335,11 +1431,24 @@ function _pp_schema_list_value_is_valid($declared_type, $value): bool {
  * @return string       `this one is a JSON object (N entries).`, ready to append.
  */
 function _pp_json_object_shape_clause(array $value): string {
-    return sprintf(
-        'this one is a JSON object (%d %s).',
-        count($value),
-        count($value) === 1 ? 'entry' : 'entries'
-    );
+    return 'this one is a JSON object ' . _pp_json_entry_count_clause($value) . '.';
+}
+
+/**
+ * Renders `(N entries)` — the entry-count tail both shape clauses end with.
+ *
+ * ONE HOME FOR THE PLURALIZER (#883). The two clause renderers either side of this are
+ * deliberately separate functions, because each owns a SENTENCE and two depths must not
+ * describe one shape two ways. That argument covers the nouns; it does not cover the
+ * count-and-pluralize tail, which was written twice the moment the second clause landed
+ * and could then drift on its own — one saying `1 entry` and the other `1 entries` is
+ * exactly the kind of split this family spends its docblocks preventing.
+ *
+ * @param  array $value The container being described.
+ * @return string       `(N entries)` / `(1 entry)`, with no trailing punctuation.
+ */
+function _pp_json_entry_count_clause(array $value): string {
+    return sprintf('(%d %s)', count($value), count($value) === 1 ? 'entry' : 'entries');
 }
 
 /**
@@ -1356,6 +1465,44 @@ function _pp_json_object_shape_clause(array $value): string {
 function _pp_schema_list_shape_message(array $value): string {
     return 'must be a list, but ' . _pp_json_object_shape_clause($value)
         . ' Send it as an array ([...]), not an object with keys.';
+}
+
+/**
+ * Renders "this one is a JSON list (N entries)." — the mirror of
+ * _pp_json_object_shape_clause() above, for the #883 refusals.
+ *
+ * ONE SPELLING FOR BOTH DEPTHS, the same reason its sibling is one renderer for three call
+ * sites: two literal copies of a sentence and its pluralizer is how a top-level prop
+ * message and a nested item-field message start describing one shape two ways.
+ *
+ * REFLECTS THE ENTRY COUNT AND NOTHING ELSE, exactly as the object clause does. No
+ * caller-supplied VALUE reaches an operator terminal through it, so the #633/#647/#649
+ * reflected-value bounding question does not arise for it either. An operator who needs the
+ * offending entries reads them from the payload they just sent.
+ *
+ * @param  array $value The list being refused.
+ * @return string       `this one is a JSON list (N entries).`, ready to append.
+ */
+function _pp_json_list_shape_clause(array $value): string {
+    return 'this one is a JSON list ' . _pp_json_entry_count_clause($value) . '.';
+}
+
+/**
+ * Renders the "this is a list, not an object" half of a #883 refusal message — the mirror
+ * of _pp_schema_list_shape_message() above.
+ *
+ * Shared by the two depths that emit it so the top-level prop message and the nested
+ * item-field message cannot drift into two vocabularies, the same contract every renderer
+ * in this family carries. The guidance sentence names both JSON spellings for the same
+ * reason #738's does: an author who sent the wrong bracket needs to be told which bracket,
+ * not merely that the shape was wrong.
+ *
+ * @param  array $value The list being refused.
+ * @return string       The trailing sentence pair, ready to append to a locator.
+ */
+function _pp_schema_object_shape_message(array $value): string {
+    return 'must be an object, but ' . _pp_json_list_shape_clause($value)
+        . ' Send it as an object with keys ({...}), not an array ([...]).';
 }
 
 /**
@@ -1614,7 +1761,10 @@ function _pp_composition_item_error($index, string $code, string $message): WP_E
  * enum membership). Without it, exhaustiveness would mean "one problem reported twice",
  * which reads as two problems and sends the operator looking for a second repair.
  *
- * The segments are a rule-owned ROLE (`prop`, `content`, `style`, `item-style`) followed
+ * The segments are a rule-owned ROLE literal — `prop`, `content`, `style`, `item-style`,
+ * `list-shape` (#738), `object-shape` (#883), and whatever a future rule adds; read it as
+ * an OPEN set, since a stale enumeration here is how a new rule's collision argument ends
+ * up pointing at a list that does not contain it — followed
  * by the locator the message itself names — prop, then items[] entry key, then field —
  * so the claim granularity and the message granularity cannot drift. The role keeps
  * rule-owned locations in their own namespace: `style` is also a real declared items[]
@@ -2716,6 +2866,50 @@ function pp_validate_composition_errors(array $items, ?int $limit = null): array
                         }
                         continue;
                     }
+                    // A DECLARED OBJECT MUST BE A MAP (#883), the mirror of the #738 rule
+                    // in the `array` arm above and placed for the same reason: immediately
+                    // after the container test, which decides "container or scalar?" and
+                    // which a JSON LIST passes. The order is what keeps a scalar's message
+                    // byte-identical to every version since #507 ("must be an object; got
+                    // string") while a list gets a message about the shape it actually is.
+                    //
+                    // NO SHIPPED SCHEMA DECLARES A TOP-LEVEL `object` PROP TODAY, so this
+                    // arm is entered only by the synthetic fixture in
+                    // ObjectShapedPropWriteEnforcementTest — deliberately, and for the same
+                    // reason the container arm above it is built and pinned that way: an
+                    // unreachable arm that no test can enter is how a fence silently stops
+                    // being one. Both shipped `object` declarations are the NESTED per-item
+                    // style maps handled by RULE 6c below.
+                    //
+                    // A DISTINCT CLAIM ROLE (`object-shape`), matching the `list-shape`
+                    // role its sibling takes one arm up, and taken for SYMMETRY rather than
+                    // to resolve a live collision. Be exact about that, because the sibling
+                    // comment's version of this paragraph describes a hazard that is real at
+                    // ITS depth and is not yet real here: the container rule claims
+                    // `prop/<prop>`, but it `continue`s on failure, so no value reaches this
+                    // line already claimed, and no shipped schema declares a top-level
+                    // `object` prop for a second rule to collide over. The role is therefore
+                    // unmeasurable today — mutating it to `prop` leaves the suite green — and
+                    // it is kept anyway so that the first real top-level `object` prop does
+                    // not inherit a shared key by default. Role segments are rule-owned
+                    // literals, so they cannot collide with an authored prop name.
+                    //
+                    // NO `continue`, and it is not an oversight: this is the last statement
+                    // in the `object` arm, so control reaches the next prop either way.
+                    // Writing one would assert a skip that skips nothing.
+                    if (!_pp_schema_object_value_is_valid($declared_type, $value)) {
+                        if (_pp_claim_item_finding($sink, 'object-shape', $prop_name)) {
+                            $errors[] = _pp_composition_item_error($i,
+                                'invalid_prop_value',
+                                sprintf(
+                                    'Component "%s" prop "%s" %s',
+                                    $name,
+                                    $prop_name,
+                                    _pp_schema_object_shape_message($value)
+                                )
+                            );
+                        }
+                    }
                 }
             }
         }
@@ -3137,16 +3331,19 @@ function pp_validate_composition_errors(array $items, ?int $limit = null): array
                             continue;
                         }
                         // RULE 6b — a nested declared LIST must be a list (#738), the
-                        // second half of RULE 6 exactly as it is one level up. Same
+                        // second of RULE 6's three stages, exactly as it is one level up.
+                        // (Container first, then this for `array`, then RULE 6c for
+                        // `object`.) Same
                         // predicate, same order (after the container test, so a scalar
                         // field keeps its byte-identical "must be an array; got string"),
                         // same claim key, same depth accounting.
                         //
                         // Only ONE shipped field is in its scope today — `grid.items[]
                         // .bullets` is the single nested `type: "array"` declaration in
-                        // the registry — and the `object` fields beside it
-                        // (grid.items[].style, section.panel_items[].style) are untouched
-                        // for the reason the predicate's docblock gives. That is not an
+                        // the registry. The `object` fields beside it (grid.items[].style,
+                        // section.panel_items[].style) are NOT this rule's: since #883
+                        // they are owned by RULE 6c below, which asks the mirror question
+                        // through the mirror predicate. That is not an
                         // argument for skipping the depth: the whole defect #744 closed
                         // was one depth enforcing a declaration the other did not, and
                         // re-opening it for a rule this file adds in the same breath
@@ -3179,6 +3376,58 @@ function pp_validate_composition_errors(array $items, ?int $limit = null): array
                                         _pp_item_index_label($entry_index, $entries),
                                         $field_name,
                                         _pp_schema_list_shape_message($entry[$field_name])
+                                    )
+                                );
+                            }
+                            continue;
+                        }
+                        // RULE 6c — a nested declared OBJECT must be a map (#883), the
+                        // third of RULE 6's stages and the exact mirror of RULE 6b above.
+                        // Same predicate family, same order (after the container test, so a
+                        // scalar field keeps its byte-identical "must be an object; got
+                        // string"), same claim key, same depth accounting — the bare
+                        // `continue` advances to the next FIELD of this entry (#621).
+                        //
+                        // THIS IS THE HALF WITH SHIPPED CALLERS, which inverts RULE 6b's
+                        // situation: `grid.items[].style` and `section.panel_items[].style`
+                        // are the registry's only two `object` declarations, and both are
+                        // reached here. The top-level arm is the synthetic one.
+                        //
+                        // WHAT IT TAKES OVER FROM AN ACCIDENT. Before this rule a list
+                        // `style` was refused a few rules later by the shared style-slot
+                        // engine, which reads a list's integer keys as slot names and
+                        // answers `item 0 has no style slot "0". Available slots: ...`.
+                        // That message is TRUE and it is also the wrong rule answering: it
+                        // describes a naming mistake the author did not make, and it held
+                        // only because both shipped `object` fields happen to route to the
+                        // slot engine. A field declaring `object` for anything else had no
+                        // local rejection at all (#883). This rule owns the shape; the slot
+                        // engine keeps owning slot names.
+                        //
+                        // BOTH FINDINGS SURVIVE ON A COLLECT-ALL SURFACE, deliberately, and
+                        // the claim roles are what makes that true: this rule claims
+                        // `prop/<prop>/<entry>/<field>` and the per-item style engine claims
+                        // `item-style/<prop>/<entry>`. `wp pp check page`, restore findings
+                        // and the rollback report therefore name both the shape defect and
+                        // the slot defect for one list-shaped `style`. Two true sentences
+                        // about one value is the posture #621 and #738 both chose over
+                        // suppression, and the write path is unaffected: it runs budget 1,
+                        // first-error-wins, and this rule runs first, so an authoring agent
+                        // gets exactly one message and it is the one about the shape.
+                        if ($field_type === 'object'
+                            && array_key_exists($field_name, $entry)
+                            && !_pp_schema_object_value_is_valid($field_type, $entry[$field_name])
+                        ) {
+                            if (_pp_claim_item_finding($sink, 'prop', $prop_name, $entry_index, $field_name)) {
+                                $errors[] = _pp_composition_item_error($i,
+                                    'invalid_prop_value',
+                                    sprintf(
+                                        'Component "%s" prop "%s" item %s field "%s" %s',
+                                        $name,
+                                        $prop_name,
+                                        _pp_item_index_label($entry_index, $entries),
+                                        $field_name,
+                                        _pp_schema_object_shape_message($entry[$field_name])
                                     )
                                 );
                             }

@@ -2401,9 +2401,16 @@ class ActionsTest extends TestCase
 
     public function testExecuteActionDoesNotPromoteOnEmptyTitleSave(): void
     {
-        // The title field autosaves on blur even with no typed input —
-        // promoting on an empty title recreates the permanent "(no title)"
-        // draft bug via a different trigger.
+        // The title field autosaves on blur even with no typed input — promoting on an
+        // empty title recreates the permanent "(no title)" draft bug via a different
+        // trigger. The OUTCOME this pins is unchanged since #121; what changed in #888
+        // is which mechanism delivers it. The blank title is now REFUSED outright, so
+        // pp_execute_action() never reaches its promotion block at all, rather than
+        // reaching it and taking the $is_noop_title_save carve-out.
+        //
+        // Both halves are asserted because the refusal is what makes the carve-out
+        // unreachable: a future relaxation of the title rule would flip the first
+        // assertion and put the carve-out back in charge of the second.
         $id = pp_create_page('', 'auto-draft');
 
         $result = pp_execute_action('update_page_title', [
@@ -2411,8 +2418,10 @@ class ActionsTest extends TestCase
             'title'   => '',
         ]);
 
-        $this->assertTrue($result['ok']);
-        $this->assertSame('auto-draft', $GLOBALS['_pp_test_store']['posts'][$id]['post_status']);
+        $this->assertFalse($result['ok'], 'since #888 a blank title is refused, not silently accepted');
+        $this->assertSame('empty_title', $result['error_code']);
+        $this->assertSame('auto-draft', $GLOBALS['_pp_test_store']['posts'][$id]['post_status'],
+            'and the page is still not promoted — the outcome #121 depends on');
     }
 
     public function testExecuteActionPromotesOnNonEmptyTitleSave(): void

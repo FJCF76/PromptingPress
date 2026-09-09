@@ -746,8 +746,32 @@ function pp_execute_action(string $name, array $params): array {
     // field autosaves on blur even with no typed input, and promoting on
     // that no-op recreates the exact "(no title)" permanent-draft bug this
     // fix closes, just via update_page_title instead of post-new.php.
+    //
+    // SINCE #888 THIS BRANCH IS UNREACHABLE THROUGH THIS FUNCTION, and it is kept
+    // anyway. That action's validate closure now refuses an empty title outright, so a
+    // blank-title call returns before this block and the outer `ok` guard already skips
+    // promotion. The branch stays because it is the guard #121 depends on and its cost
+    // is one comparison: if the title rule is ever relaxed — a carve-out for one caller,
+    // a coercion posture, a new action reusing the name — the auto-draft bug would come
+    // back silently without it.
+    //
+    // NO TEST CAN PIN THE BRANCH ITSELF, and saying so is the honest version: deleting
+    // it leaves the suite green, because the refusal returns first. What
+    // EmptyPageTitleWriteRefusalTest §4 pins is the OUTCOME both mechanisms agree on —
+    // an empty-title call is refused AND promotes nothing. Retaining an unpinnable
+    // fail-safe is a deliberate exception to this file's usual "an arm no test can enter
+    // is how a fence stops being one" rule, taken because the arm costs one comparison
+    // and its absence is silent.
     if (($result['ok'] ?? false) && isset($params['post_id'])) {
-        $is_noop_title_save = $name === 'update_page_title' && ($params['title'] ?? '') === '';
+        // THE SAME PREDICATE THE RULE USES, shared rather than repeated. A fail-safe that
+        // guards a NARROWER class than the rule it backs up is not a fail-safe: with the
+        // literal `=== ''` this used to carry, a future relaxation of the title rule would
+        // still let `"   "` through here and promote the draft, recreating #121 with a
+        // space in it. No test can enter this branch (the refusal returns first), so a
+        // shared function is what keeps the two in step — the agreement is structural
+        // instead of a comment asking a reader to maintain it.
+        $is_noop_title_save = $name === 'update_page_title'
+            && _pp_title_is_blank($params['title'] ?? '');
         if (!$is_noop_title_save) {
             pp_promote_auto_draft((int) $params['post_id']);
         }
@@ -4241,7 +4265,7 @@ pp_register_action('update_page_title', [
     // Page metadata: needs only that the page EXISTS, not a populated composition (#358).
     'requires_composition' => false,
     'description' => 'Updates a page title.',
-    'semantics'   => 'Replace. Title is fully replaced.',
+    'semantics'   => 'Replace. Title is fully replaced. Rejects a blank title with empty_title (#888) — "" or ASCII whitespace only (trim()), the same rule and code create_page applies to its own title. There is no way to ask for "no title": omit the step to leave the current one alone. Whitespace is not stripped from a title that has other content; trim() decides the verdict, never the stored value. trim() is not Unicode-aware, so a title made only of U+00A0/U+3000/U+200B is accepted, exactly as create_page accepts it.',
     'params'      => [
         'post_id' => ['type' => 'int',    'required' => true],
         'title'   => ['type' => 'string', 'required' => true],
@@ -4250,6 +4274,54 @@ pp_register_action('update_page_title', [
         $exists = _pp_validate_page_exists($params['post_id']);
         if (is_wp_error($exists)) {
             return $exists;
+        }
+        // A BLANK TITLE IS REFUSED (#888, ruling T4). `required: true` only ever checked
+        // PRESENCE, and '' is present, so `title: ""` validated, executed, and BLANKED
+        // the page under ok:true — the reported-success-with-the-wrong-effect class,
+        // except here the effect is destruction rather than a no-op. Found in the
+        // v1.19.0 release smoke on a real page.
+        //
+        // SAME PREDICATE AND SAME CODE AS create_page, deliberately, and that is the
+        // whole shape of this fix. create_page has judged the SAME FIELD in this SAME
+        // FILE with `trim($params['title']) === ''` -> WP_Error('empty_title') since it
+        // shipped; update_page_slug has refused a blank slug since #134
+        // (`sanitize_title(...) === ''`). Refusing only the literal '' here would have
+        // left this the one rule of the three that accepts "   ", which reproduces the
+        // exact blank-looking page #888 was filed for, and 'invalid_title' would have
+        // been a third vocabulary for one fact. The file disagreeing with itself was
+        // the defect; one predicate and one code is the repair.
+        //
+        // REJECT, NEVER COERCE (ruling D-A, canonical text in #724's body): the title
+        // is not trimmed-and-stored, and not defaulted to the slug, the post type, or
+        // "(no title)". `trim()` decides the VERDICT and never the stored value — a
+        // title with meaningful leading space is stored exactly as sent. An author who
+        // wants the title unchanged omits the step; no request is made unexpressible.
+        //
+        // THE PREDICATE IS SHARED WITH THE #121 FAIL-SAFE in pp_execute_action(), so the
+        // rule and the guard that backs it up cannot drift — see _pp_title_is_blank().
+        // Its is_string() arm is a scope boundary, not belt-and-braces: a non-null
+        // non-string is already refused by pp_validate_action()'s type check, so the only
+        // value reaching here non-string is NULL, which that check exempts
+        // (`$params[$param_name] !== null`). Bare trim(null) returns '' while raising
+        // E_DEPRECATED, so treating null as blank would silently convert #931's null
+        // TypeError into an empty_title refusal on this one action, through a deprecated
+        // coercion, while the registry-wide gate stayed open everywhere else. #931 owns
+        // null; this rule owns blankness. The divergence from create_page on that ONE
+        // input is deliberate and is asserted, not merely tolerated, by
+        // EmptyPageTitleWriteRefusalTest §5.
+        //
+        // IT LIVES HERE AND NOT IN pp_update_page_title(), which is load-bearing rather
+        // than stylistic. Since #857 that helper is ALSO the batch rollback's
+        // title-restore writer, called directly from the rollback loop above — not
+        // through pp_execute_action(), so not through this closure. A post may
+        // legitimately hold an empty title, its snapshot then captures '', and a
+        // refusal inside the helper would turn "this had no title and still doesn't"
+        // into a reported rollback FAILURE on every such post. That is precisely the
+        // trap the slug works around with the compare-first guard documented at its
+        // call site; the title needs no guard because the gate is at the action layer
+        // instead. Pinned by EmptyPageTitleWriteRefusalTest §3.
+        if (_pp_title_is_blank($params['title'])) {
+            return new WP_Error('empty_title', 'Page title cannot be empty.');
         }
         return true;
     },
@@ -6379,6 +6451,48 @@ function _pp_menu_item_link(array $item): array {
  */
 function _pp_menu_item_title(array $item): string {
     return !empty($item['page_id']) ? get_the_title($item['page_id']) : ($item['label'] ?? '');
+}
+
+/**
+ * True when an authored page title counts as BLANK and must be refused (#888).
+ *
+ * ONE DEFINITION, TWO CALLERS, and the second caller is why this is a function rather
+ * than a repeated expression. `update_page_title`'s validate closure refuses a blank
+ * title; pp_execute_action()'s auto-draft promotion block carries the #121 fail-safe
+ * that must skip promotion for the same set. A fail-safe that guards a NARROWER class
+ * than the rule it backs up is not a fail-safe — with a literal `=== ''` test, a future
+ * relaxation of the rule would still let `"   "` through and promote the draft,
+ * recreating #121 with a space in it. Neither caller can drift now.
+ *
+ * WHY IT DOES NOT ALSO SERVE create_page, which applies the same rule to the same field
+ * and is the reason this predicate is spelled the way it is. create_page calls
+ * `trim($params['title'])` BARE, so `null` reaches trim(), returns '' with an
+ * E_DEPRECATED, and is refused as blank. Routing it through this guard would silently
+ * CHANGE that action's null behaviour as a side effect of a title fix on a different
+ * action. The two are held together by
+ * EmptyPageTitleWriteRefusalTest::testCreatePageAndUpdatePageTitleAgreeOnEveryTitleInput()
+ * instead — a tripwire over a shared input list, which is the level the agreement is
+ * actually wanted at. The one input they diverge on is asserted there as a decision.
+ *
+ * ASCII WHITESPACE ONLY, stated because trim() is not Unicode-aware and the boundary is
+ * easy to misread. U+00A0 (no-break space), U+3000 (ideographic space), U+200B (zero
+ * width space) and U+FEFF are NOT trimmed, so a title made only of those is ACCEPTED and
+ * stores a title that looks blank. That matches create_page byte for byte, which is the
+ * property that matters most here; widening both to Unicode blanks is a different ruling
+ * on a shape nothing has measured. Recorded rather than discovered later, and pinned by
+ * testUnicodeBlanksAreAcceptedBecauseTrimIsAsciiOnly().
+ *
+ * NON-STRINGS ARE NOT BLANK. Only `null` can reach a `type: "string"` param as a
+ * non-string (pp_validate_action() exempts null from its type check and rejects every
+ * other mismatch), and null is #931's, not this rule's — see the note at the validate
+ * closure. Returning false here keeps that fall-through explicit instead of letting
+ * trim()'s deprecated null coercion decide it.
+ *
+ * @param  mixed $title  Raw authored title param.
+ * @return bool          True when the title must be refused as blank.
+ */
+function _pp_title_is_blank($title): bool {
+    return is_string($title) && trim($title) === '';
 }
 
 /**
