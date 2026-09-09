@@ -29,8 +29,22 @@ const {
     findingClass,
     findingBand,
     findingLocator,
-    undoFindingsTail
+    undoFindingsTail,
+    undoHistoryNotice,
+    undoFindingsTotal
 } = require('../../assets/js/pp-ai-chat.js');
+
+/**
+ * The write-scoped disclosure the server prepends when a write could not record the state
+ * it replaced (#821). It is NOT a problem with the composition, so the card must hoist it
+ * out of the counted rows exactly as it hoists the truncation tail.
+ */
+const HISTORY_NOTICE = {
+    type: 'history_not_recorded',
+    severity: 'warning',
+    message: 'This write landed, but the state it replaced could not be recorded in the page history, so THIS WRITE HAS NO UNDO POINT.',
+    index: null
+};
 
 const CHROME_FINDING = {
     type: 'template_owned_component',
@@ -527,6 +541,120 @@ describe('ppChatAppendUndoFindings', () => {
             const section = card.firstChild;
             expect(section.children[1].textContent).toBe('[missing_required_prop] index 1: ' + sameMessage);
             expect(section.children[2].textContent).toBe('[missing_required_prop] index 4: ' + sameMessage);
+        });
+    });
+
+    /**
+     * The no-undo-point disclosure (#821).
+     *
+     * The server prepends `history_not_recorded` to restore_composition's own `findings`
+     * when the restoring write could not record the state it replaced. It describes the
+     * WRITE, not the composition, so it gets the #655 treatment the truncation tail gets:
+     * hoisted above the rows, in the open, and counted by neither number. Left in the array
+     * it would do both of the things #655's own docblock warns about — inflate "N issues
+     * under current rules" over a composition that broke no rule, and consume one of the
+     * five band-aware inline slots that belong to actually-affected bands.
+     */
+    describe('the no-undo-point disclosure (#821)', () => {
+        it('does not count as an issue with the restored composition', () => {
+            const card = newCard();
+            appendUndoFindings(card, [HISTORY_NOTICE]);
+
+            const heading = card.firstChild.firstChild.textContent;
+            expect(heading).not.toContain('1 issue');
+            // AND THE COUNT SENTENCE IS DROPPED ENTIRELY, rather than rendering "0
+            // issues under current rules" — a warning asserting that nothing is wrong,
+            // over a card whose whole point is that something is. The disclosure below
+            // the heading is the statement.
+            expect(heading).not.toContain('issue');
+            expect(heading).toBe('⚠ Restored:');
+        });
+
+        it('keeps the issue count when there IS something to count', () => {
+            const card = newCard();
+            appendUndoFindings(card, [HISTORY_NOTICE, CHROME_FINDING]);
+
+            expect(card.firstChild.firstChild.textContent)
+                .toBe('⚠ Restored, but the previous version has 1 issue under current rules:');
+        });
+
+        it('still counts the real findings beside it, and only those', () => {
+            const card = newCard();
+            appendUndoFindings(card, [HISTORY_NOTICE, CHROME_FINDING, SMELL_FINDING]);
+
+            expect(card.firstChild.firstChild.textContent).toContain('has 2 issues under current rules');
+        });
+
+        it('renders in the open, directly under the heading', () => {
+            const card = newCard();
+            appendUndoFindings(card, [HISTORY_NOTICE, CHROME_FINDING]);
+
+            const section = card.firstChild;
+            expect(section.children[1].textContent).toBe(HISTORY_NOTICE.message);
+            expect(section.querySelector('details')).toBeNull();
+        });
+
+        it('leads the truncation notice, because losing the undo is the louder fact', () => {
+            const card = newCard();
+            const tail = {
+                type: 'findings_truncated', severity: 'warning', index: null,
+                total: 20001, message: 'Showing 1 of 20001 findings.'
+            };
+            appendUndoFindings(card, [HISTORY_NOTICE, CHROME_FINDING, tail]);
+
+            const section = card.firstChild;
+            expect(section.children[1].textContent).toBe(HISTORY_NOTICE.message);
+            expect(section.children[2].textContent).toBe(tail.message);
+            // The heading still reads the server's composition-only total, and `shown`
+            // discounts BOTH hoisted entries rather than just the tail.
+            expect(section.firstChild.textContent).toContain('has 20001 issues');
+            expect(section.firstChild.textContent).toContain('showing the first 1');
+        });
+
+        it('does not consume a band-aware inline slot', () => {
+            const card = newCard();
+            const at = (index) => ({
+                type: 'unknown_prop', severity: 'error', index: index, message: 'band ' + index
+            });
+            // Six affected bands and five inline slots: without hoisting, the notice would
+            // take the first slot and push band 5 into the disclosure.
+            appendUndoFindings(card, [
+                HISTORY_NOTICE, at(0), at(1), at(2), at(3), at(4), at(5)
+            ]);
+
+            // Read the INLINE rows only. `section.textContent` would include the collapsed
+            // <details> as well, so it passes whether or not the notice stole a slot —
+            // which is exactly how this pin failed to fail before it was tightened.
+            const section = card.firstChild;
+            const inline = Array.prototype.slice.call(section.children)
+                .filter((el) => el.tagName !== 'DETAILS')
+                .map((el) => el.textContent)
+                .join('\n');
+
+            expect(inline).toContain('band 4');
+            expect(inline).not.toContain('band 5');
+            expect(card.querySelector('details').textContent).toContain('band 5');
+            expect(card.querySelector('details').textContent).not.toContain('NO UNDO POINT');
+        });
+
+        it('is recognized only by its own type, and only with a message', () => {
+            expect(undoHistoryNotice([HISTORY_NOTICE])).toBe(HISTORY_NOTICE);
+            expect(undoHistoryNotice([CHROME_FINDING])).toBeNull();
+            expect(undoHistoryNotice([{ type: 'history_not_recorded', message: '' }])).toBeNull();
+            expect(undoHistoryNotice([{ type: 'history_not_recorded' }])).toBeNull();
+        });
+
+        it('subtracts both hoisted species from the counts', () => {
+            const tail = {
+                type: 'findings_truncated', severity: 'warning', index: null,
+                total: 500, message: 'm'
+            };
+            expect(undoFindingsTotal([HISTORY_NOTICE, CHROME_FINDING]))
+                .toEqual({ total: 1, shown: 1, truncated: false });
+            expect(undoFindingsTotal([HISTORY_NOTICE, CHROME_FINDING, tail]))
+                .toEqual({ total: 500, shown: 1, truncated: true });
+            expect(undoFindingsTotal([CHROME_FINDING, SMELL_FINDING]))
+                .toEqual({ total: 2, shown: 2, truncated: false });
         });
     });
 });

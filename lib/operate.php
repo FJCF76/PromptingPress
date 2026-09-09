@@ -1862,8 +1862,10 @@ function pp_operate_get_composition_content_snapshot( string $run_id, int $post_
  * run's touched_post_ids, rewrite its composition to the pre-apply content frozen at
  * preflight. Scoped strictly to THIS run's touched posts — a page a DIFFERENT run
  * mutated is never touched. Each revert goes through pp_update_composition (its own lock
- * + marker bump + history entry), unconditional (no CAS): restoring the pre-run baseline
- * is the intent, mirroring the token restore's force-to-snapshot semantics.
+ * + marker bump + history entry — or, when that entry could not be encoded, the #821
+ * disclosure on this post's `findings` instead), unconditional (no CAS): restoring the
+ * pre-run baseline is the intent, mirroring the token restore's force-to-snapshot
+ * semantics.
  *
  * Fail-closed and per-post: a null touched set (unusable run) returns ok=false and
  * reverts nothing; a post missing its snapshot or whose write fails is recorded under
@@ -1932,10 +1934,21 @@ function pp_operate_restore_run_compositions( string $run_id ): array {
         // input-sized per post (measured on #654's fixture: 22 MB for one page), and the
         // count budget only decides what survives it. Bounding that is the availability
         // gate's axis, not this one — it is #772, deliberately not a rider here.
+        //
+        // AND THE ROLLBACK'S OWN WRITE CAN LOSE AN UNDO POINT TOO (#821), which is a
+        // separate argument from the budget one above and not a continuation of it. Same
+        // disclosure as every other accepted composition write, through the same shared
+        // helper: it describes what happened to the state the revert REPLACED, not the
+        // state it restored. Drained PER POST, inside the loop, so a run that reverts five
+        // pages attributes each notice to the page whose write produced it — and so the
+        // register cannot carry one page's loss onto the next page's report.
         $reverted[] = [
             'post_id'  => $post_id,
             'changed'  => ( $before !== $after ),
-            'findings' => _pp_bounded_findings( _pp_composition_findings( $after ), $post_id ),
+            'findings' => _pp_prepend_write_disclosures(
+                $post_id,
+                _pp_bounded_findings( _pp_composition_findings( $after ), $post_id )
+            ),
         ];
     }
 
@@ -1961,20 +1974,82 @@ function pp_operate_restore_run_complete( array $report ): bool {
  * Number of reverted posts whose restored composition carries current-rule
  * findings (issue 236). The run-scoped restore never blocks on newer validation
  * rules, so the CLI uses this to WARN (not fail) when a restored composition
- * would not pass current validation. Counts POSTS with a non-empty findings
- * array, not total findings, and only over `reverted` entries — `skipped` posts
- * were never rewritten and carry no findings key. The decision seam the CLI
- * branches on, mirroring pp_operate_restore_run_complete().
+ * would not pass current validation. Counts POSTS carrying at least one finding
+ * ABOUT THE COMPOSITION, not total findings, and only over `reverted` entries —
+ * `skipped` posts were never rewritten and carry no findings key. The decision
+ * seam the CLI branches on, mirroring pp_operate_restore_run_complete().
+ *
+ * "ABOUT THE COMPOSITION" BECAME LOAD-BEARING IN #821, and before that it was a
+ * distinction without a difference: every entry a reverted post could carry was a
+ * rule finding, so "non-empty findings" and "has composition findings" were the
+ * same test. They are not any more. A revert whose own history push could not be
+ * encoded carries `history_not_recorded`, which says the ROLLBACK WRITE has no
+ * undo point and says nothing about the composition it restored. Counting it
+ * would make the CLI announce "N reverted post(s) have composition findings
+ * under current validation rules" over a page that breaks no rule — sending the
+ * operator to look for a violation that does not exist, which is worse than not
+ * warning at all. pp_finding_is_about_the_composition() is the shared test, so
+ * this seam and the chat undo card cannot drift on which species count.
  *
  * @param array $report  A pp_operate_restore_run_compositions() result.
- * @return int  Count of reverted posts reporting at least one finding.
+ * @return int  Count of reverted posts reporting at least one composition finding.
  */
 function pp_operate_restore_run_finding_count( array $report ): int {
     $reverted = isset( $report['reverted'] ) && is_array( $report['reverted'] ) ? $report['reverted'] : [];
     $count = 0;
     foreach ( $reverted as $entry ) {
-        if ( ! empty( $entry['findings'] ) ) {
-            $count++;
+        // COMPOSITION FINDINGS ONLY, which used to be the same thing as "any findings"
+        // and stopped being so in #821. The CLI sentence this number drives says the
+        // reverted posts "have composition findings under current validation rules", and
+        // a page whose ONLY entry is `history_not_recorded` breaks no rule at all — its
+        // restored composition is fine, its rollback write is the thing with no undo
+        // point. Counting it would raise a warning that names the wrong cause on a page
+        // that is not what the warning is about, which is worse than not warning: the
+        // operator goes looking for a rule violation that does not exist.
+        //
+        // The shared predicate rather than a literal type test here, so this seam and the
+        // undo card cannot disagree about which species are report/write-scoped.
+        $findings = is_array( $entry['findings'] ?? null ) ? $entry['findings'] : [];
+        foreach ( $findings as $finding ) {
+            if ( is_array( $finding ) && pp_finding_is_about_the_composition( $finding ) ) {
+                $count++;
+                break;
+            }
+        }
+    }
+    return $count;
+}
+
+/**
+ * Number of reverted posts whose ROLLBACK WRITE lost its undo point (#821).
+ *
+ * THE SECOND HALF OF NARROWING THE COUNT ABOVE. pp_operate_restore_run_finding_count()
+ * stopped counting `history_not_recorded`, which was right — that entry names no
+ * validation-rule problem and warning about it under the rule sentence sent the operator
+ * hunting a violation that does not exist. But removing a signal is not the same as
+ * replacing it, and for a run where every reverted page carries ONLY that entry the
+ * narrowing left `wp pp apply restore-composition` printing no warning at all: step APPLY
+ * recorded, exit 0, a success line, and the disclosure visible only inside the per-post
+ * `findings` of the stdout JSON. The chat undo card got a dedicated hoisted row for exactly
+ * this entry; the CLI — the surface the entry's own message sends the operator to, with
+ * `wp pp operate composition-history` — would have got silence.
+ *
+ * So: two counts, two sentences, two different problems. Same per-post grain and the same
+ * `reverted`-only scope as its sibling, for the same reasons.
+ *
+ * @param array $report  A pp_operate_restore_run_compositions() result.
+ * @return int  Count of reverted posts whose write could not record what it replaced.
+ */
+function pp_operate_restore_run_no_undo_count( array $report ): int {
+    $reverted = isset( $report['reverted'] ) && is_array( $report['reverted'] ) ? $report['reverted'] : [];
+    $count = 0;
+    foreach ( $reverted as $entry ) {
+        $findings = is_array( $entry['findings'] ?? null ) ? $entry['findings'] : [];
+        foreach ( $findings as $finding ) {
+            if ( is_array( $finding ) && ( $finding['type'] ?? '' ) === 'history_not_recorded' ) {
+                $count++;
+                break;
+            }
         }
     }
     return $count;

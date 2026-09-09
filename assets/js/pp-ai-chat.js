@@ -1964,15 +1964,22 @@ function ppChatFindingClass(item) {
  * `total`. A malformed tail is therefore not a tail at all — it stays an ordinary
  * finding row and the count falls back to the array length, exactly as before.
  *
- * ONE SPECIES, ON PURPOSE. The other report-about-the-report entry, `findings_skipped`,
- * cannot reach this card: it comes from the accepted-write path's 1 MiB availability gate,
- * and restore deliberately does not inherit that gate (#233 — you are told what an old
- * snapshot brought back, always). If it ever did arrive it would match neither this
- * predicate nor its `total` requirement (it carries none, because nothing was counted), so
- * it would render as an ordinary finding row and be counted as a problem with the
- * composition — the stronger disclaimer of the two, buried. That routing is pinned by
+ * ONE SPECIES HERE, TWO HOISTED. `findings_skipped` still cannot reach this card: it comes
+ * from the accepted-write path's 1 MiB availability gate, and restore deliberately does not
+ * inherit that gate (#233 — you are told what an old snapshot brought back, always). That
+ * routing is pinned by
  * CompositionFindingsBoundsTest::testRestoreNeverEmitsTheSkippedSpeciesTheUndoCardCannotHoist
  * rather than assumed here.
+ *
+ * `history_not_recorded` (#821) DOES reach it, which is why it gets its own predicate
+ * (ppChatUndoHistoryNotice) rather than being folded into this one. The two are different
+ * questions with different answers — this one asks "was the report cut?", that one asks
+ * "did the write that produced this report lose its undo point?" — and only this one
+ * carries a `total`. What they share is the handling: both are hoisted out of the rows and
+ * out of both counts, because an entry that is not about the composition must not be
+ * counted as a problem with it. That shared handling is the whole reason the earlier
+ * version of this note warned about a second species arriving and being "counted as a
+ * problem with the composition — the stronger disclaimer of the two, buried".
  */
 function ppChatUndoFindingsTail(findings) {
     for (var i = 0; i < findings.length; i++) {
@@ -1986,24 +1993,68 @@ function ppChatUndoFindingsTail(findings) {
 }
 
 /**
+ * The write's own disclosure, or null when this write kept its undo point (#821).
+ *
+ * A SECOND HOISTED SPECIES, and the sibling of ppChatUndoFindingsTail(). The server
+ * prepends this entry to `findings` when the write that produced the report could not
+ * record the state it replaced, so the change has no undo point. It is not a problem with
+ * the composition — it is a problem with the WRITE — and on this card that distinction is
+ * the whole point: the heading counts "issues under current rules", and letting a
+ * write-scoped entry inflate that number would report a clean restored composition as
+ * having one rule violation.
+ *
+ * On the undo card it is also the loudest thing on screen. The user just undid something;
+ * this says the undo itself cannot be undone. So it renders ABOVE the truncation notice.
+ *
+ * Deliberately NOT merged into ppChatUndoFindingsTail(): that predicate requires a numeric
+ * `total`, this species carries none, and one predicate answering two questions is how the
+ * heading and the row list start disagreeing about what was hoisted.
+ */
+function ppChatUndoHistoryNotice(findings) {
+    for (var i = 0; i < findings.length; i++) {
+        var f = findings[i];
+        if (f && f.type === 'history_not_recorded' && ppChatIsNonEmptyString(f.message)) {
+            return f;
+        }
+    }
+
+    return null;
+}
+
+/**
  * The two numbers the heading needs: { total, shown, truncated }.
  *
- * `tail` is optional. Pass the entry ppChatUndoFindingsTail() already found — the caller
- * that hoists it needs it anyway — and this reads it instead of scanning for a second
- * copy of the same answer. Omit it and this finds its own. Only `undefined` means "not
- * supplied"; `null` is the real answer "this report is complete" and is respected.
+ * `tail` and `historyNotice` are optional. Pass the entries the caller already found — the
+ * caller that hoists them needs them anyway — and this reads them instead of scanning for a
+ * second copy of the same answer. Omit either and this finds its own. Only `undefined`
+ * means "not supplied"; `null` is the real answer "there is no such entry" and is respected.
+ *
+ * BOTH HOISTED SPECIES ARE SUBTRACTED, because neither is an issue with the composition and
+ * the heading's sentence says "issues ... under current rules". The truncated branch reads
+ * the server's true total, which counts composition findings only, so the notice never has
+ * to be subtracted from it — only from `shown`, which is a count of rendered rows.
  */
-function ppChatUndoFindingsTotal(findings, tail) {
+function ppChatUndoFindingsTotal(findings, tail, historyNotice) {
     if (tail === undefined) {
         tail = ppChatUndoFindingsTail(findings);
     }
+    if (historyNotice === undefined) {
+        historyNotice = ppChatUndoHistoryNotice(findings);
+    }
+
+    var hoisted = (tail !== null ? 1 : 0) + (historyNotice !== null ? 1 : 0);
+
     if (tail !== null) {
         // The tail is an advisory ABOUT the report, not an issue with the composition,
         // so it never counts toward either number.
-        return { total: tail.total, shown: findings.length - 1, truncated: true };
+        return { total: tail.total, shown: findings.length - hoisted, truncated: true };
     }
 
-    return { total: findings.length, shown: findings.length, truncated: false };
+    return {
+        total: findings.length - hoisted,
+        shown: findings.length - hoisted,
+        truncated: false
+    };
 }
 
 /**
@@ -2033,10 +2084,13 @@ function ppChatUndoFindingsTotal(findings, tail) {
  * of magnitude is worse than a long one; this card is the only place a non-CLI operator
  * sees what an undo brought back.
  *
- * THE LAYOUT, top to bottom (#655): the heading, then the truncation notice if the report
- * was cut, then the band-aware inline rows, then the disclosure holding the rest. The
- * notice sits between the heading whose count it qualifies and the rows it explains the
- * absence of, which is where a reader resolves "20,001 issues, so why five lines?".
+ * THE LAYOUT, top to bottom (#655, extended by #821): the heading, then the no-undo-point
+ * disclosure if this write lost one, then the truncation notice if the report was cut, then
+ * the band-aware inline rows, then the disclosure holding the rest. Each notice sits between
+ * the heading whose count it qualifies and the rows it explains, which is where a reader
+ * resolves "20,001 issues, so why five lines?". The #821 notice leads because it is the only
+ * line on the card that is about the undo the user just performed rather than about the
+ * composition it brought back.
  */
 function ppChatAppendUndoFindings(card, findings) {
     if (!findings || !findings.length) return;
@@ -2046,15 +2100,27 @@ function ppChatAppendUndoFindings(card, findings) {
     section.setAttribute('aria-live', 'polite');
 
     var tail    = ppChatUndoFindingsTail(findings);
-    var counted = ppChatUndoFindingsTotal(findings, tail);
+    var history = ppChatUndoHistoryNotice(findings);
+    var counted = ppChatUndoFindingsTotal(findings, tail, history);
 
+    // A COUNT OF ZERO IS NOT A COUNT, IT IS A CONTRADICTION (#821). Before the hoisted
+    // write-scoped species existed, a non-empty findings array always held at least one
+    // composition finding — a truncation tail needs 100+ of them — so this heading could
+    // never render "0". A clean restore whose write lost its undo point now reaches here
+    // with counted.total === 0, and the count sentence would read "⚠ Restored, but the
+    // previous version has 0 issues under current rules:" — a warning that says there is
+    // nothing wrong, ending in a colon introducing a list of no findings, above a
+    // disclosure that is the card's only real content. Drop the clause and let the
+    // disclosure be the statement.
     var heading = document.createElement('div');
     heading.className = 'pp-ai-step-warning';
-    heading.textContent = '⚠ Restored, but the previous version has '
-        + counted.total + ' issue' + (counted.total === 1 ? '' : 's')
-        + ' under current rules'
-        + (counted.truncated ? ' (showing the first ' + counted.shown + ')' : '')
-        + ':';
+    heading.textContent = counted.total === 0
+        ? '⚠ Restored:'
+        : '⚠ Restored, but the previous version has '
+            + counted.total + ' issue' + (counted.total === 1 ? '' : 's')
+            + ' under current rules'
+            + (counted.truncated ? ' (showing the first ' + counted.shown + ')' : '')
+            + ':';
     section.appendChild(heading);
 
     // THE TRUNCATION NOTICE IS NOT A FINDING, SO IT DOES NOT LIVE WITH THEM (#655).
@@ -2068,6 +2134,23 @@ function ppChatAppendUndoFindings(card, findings) {
     // Lifting it also keeps it out of the band-aware selection below, where an entry
     // that describes the REPORT (index: null by construction) would otherwise consume an
     // inline slot that belongs to an affected band.
+    // THE WRITE'S OWN DISCLOSURE OUTRANKS THE REPORT'S (#821), so it is hoisted the same
+    // way and rendered ABOVE the truncation notice. It is the more serious of the two by
+    // some distance: the truncation notice says "there is more to read", this one says the
+    // restore you just performed cannot itself be undone. Leaving it in the array would
+    // have done both things the note above warns about — consumed one of the five
+    // band-aware inline slots that belong to affected bands (it carries index: null by
+    // construction, so it is its own group and, being findings[0], the FIRST group), and
+    // been counted by the heading as an issue with the composition under current rules.
+    // A clean restored composition would then have announced "1 issue under current rules"
+    // over a rule nothing broke.
+    if (history !== null) {
+        var historyNotice = document.createElement('div');
+        historyNotice.className = 'pp-ai-step-warning';
+        historyNotice.textContent = history.message;
+        section.appendChild(historyNotice);
+    }
+
     if (tail !== null && ppChatIsNonEmptyString(tail.message)) {
         var notice = document.createElement('div');
         notice.className = 'pp-ai-step-warning';
@@ -2075,7 +2158,9 @@ function ppChatAppendUndoFindings(card, findings) {
         section.appendChild(notice);
     }
 
-    var items = (tail === null) ? findings : findings.filter(function (f) { return f !== tail; });
+    var items = (tail === null && history === null)
+        ? findings
+        : findings.filter(function (f) { return f !== tail && f !== history; });
 
     ppChatAppendValidationItems(section, items, ppChatFindingClass);
     card.appendChild(section);
@@ -5274,6 +5359,8 @@ if (typeof module !== 'undefined' && module.exports) {
         findingBand: ppChatFindingBand,
         findingLocator: ppChatFindingLocator,
         undoFindingsTail: ppChatUndoFindingsTail,
+        undoHistoryNotice: ppChatUndoHistoryNotice,
+        undoFindingsTotal: ppChatUndoFindingsTotal,
         buildCompositionSummary: ppChatBuildCompositionSummary,
         isUnreadableComposition: ppChatIsUnreadableComposition,
         detectPageId: ppChatDetectPageId,

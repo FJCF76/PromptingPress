@@ -2951,6 +2951,181 @@ function _pp_degraded_history_ring(int $post_id, string $reason): array {
 }
 
 /**
+ * Request-scoped record of composition writes whose history push was SKIPPED (#821).
+ *
+ * WHY THIS EXISTS. pp_update_composition() guards the ring write against a failed
+ * encode (see the `$encoded !== false` branch below) — the ring keeps its previous
+ * entries, and the composition write proceeds anyway, per the 2026-09-01 ruling. That
+ * leaves an accepted write with NO UNDO POINT, and the operator has to be told. The
+ * ruling's words: "when the guard fires, the accepted write must carry a findings entry
+ * disclosing that this write has no undo point — no silent skip."
+ *
+ * WHY IT CANNOT BE DERIVED. `findings` on an accepted write is a PURE FUNCTION of stored
+ * state: _pp_write_findings_for() (lib/actions.php) re-reads `_pp_composition` and runs the
+ * two validation engines over it. A skipped push leaves the ring looking exactly like a ring
+ * that simply had nothing to push, so nothing readable AFTERWARDS distinguishes the two. The
+ * event has to cross from inside the advisory-locked closure to the envelope builder, and a
+ * request-scoped register is the seam that does it.
+ *
+ * WHY NOT THE TWO OBVIOUS ALTERNATIVES, since a hidden register is the kind of thing a
+ * reviewer should push back on (and one did):
+ *
+ *   A RICHER RETURN from pp_update_composition() (`true|WP_Error|array`) is closed by the
+ *   test suite: 39 pins spell `assertTrue(pp_update_composition(...))`, and PHPUnit's
+ *   assertTrue is a STRICT `=== true`. They live in six classes — CompositionHistoryLockedReadTest
+ *   (11), CompositionBeforeStateTruthTest (7), CompositionLockedReadRowIdentityTest (7),
+ *   CompositionRestoreSelectorLockTest (6), CorruptPageRepairCarveOutTest (6) and
+ *   GuardrailsTest (2) — so the number is checkable without a repo-wide grep. Widening the
+ *   contract would rewrite every one of them: a far larger blast radius than this register,
+ *   on the writer whose all-or-nothing contract those pins exist to hold.
+ *
+ *   AN OUT-PARAMETER threads through twelve call sites, eight of which are action `execute`
+ *   closures that would each have to copy the same "stuff the notice into my result array"
+ *   lines. (The other four are the two seed writers, the batch-snapshot rollback and the
+ *   run-scoped rollback — the same four the WHO-DRAINS list below names, which is what keeps
+ *   these two counts checkable against each other.) That is the surface-specific duplication
+ *   this codebase refuses everywhere else, and it makes the disclosure opt-in per caller:
+ *   the one closure that forgets is the one that ships the silent skip back.
+ *
+ *   A HOOK (`do_action('pp_history_push_skipped', $post_id)` with a request-scoped
+ *   collector) is the seam a WordPress reader asks about first. It is the same hidden
+ *   global state this register is, plus an ordering dependency on when the collector
+ *   registered — and enforcement in this theme is PHP-level by rule, never hook-level
+ *   (hooks are optional UX). It buys nothing here and costs a load-order question.
+ *
+ * THE INVARIANT THAT KEEPS IT HONEST: EVERY WRITE CLEARS THE POST'S SLOT BEFORE IT COULD
+ * SET IT. pp_update_composition() calls _pp_forget_history_push_skipped() unconditionally on
+ * the way in — outside the `$prior_json !== null` gate, deliberately, so a write with no
+ * prior state to push also clears — and only then can the skip branch record. So the slot
+ * always describes THE MOST RECENT WRITE TO THAT POST, and a notice left behind by a writer
+ * that reports through some other channel is cleared by the next write before that write's
+ * envelope ever reads it.
+ *
+ * THE RESIDUAL, STATED IN BOTH DIRECTIONS RATHER THAN CLAIMED AWAY. That invariant orders
+ * writes that NEST; it does not make re-entrancy harmless, and an earlier draft of this note
+ * claimed it did. `update_post_meta()` fires hooks, and a plugin callback that wrote a
+ * composition from one of them would re-enter this writer for the same post, AFTER this
+ * write has already made its record-or-not decision. Both directions are then reachable:
+ *
+ *   a MISSING disclosure   this write skipped and recorded; the nested write clears the slot
+ *                          on entry and pushes cleanly, so both envelopes report nothing.
+ *   a MISATTRIBUTED one    this write pushed cleanly and recorded nothing; the nested write
+ *                          skipped and set the slot, and this write's envelope drains it.
+ *
+ * Neither is fabricated — in the second case an undo point genuinely was lost during this
+ * request, on this post, and the envelope names the right page — but the second one does
+ * attach the notice to the wrong write, so "never a false disclosure" is not a guarantee
+ * this mechanism can make. Nothing in this repository hooks that way, so both need a third
+ * party; and error_log() fires unconditionally in the skip branch, so the event is never
+ * traceless even when the envelope misses it or names the wrong write.
+ *
+ * Closing it properly means giving the slot the identity of the write that set it (a
+ * per-request write counter compared at the drain) — machinery this ruling's narrow first
+ * step does not call for, and which would buy nothing without a real caller that nests.
+ * Stated here so the next person weighing it has the argument rather than the surprise.
+ *
+ * WHO DRAINS (the exhaustive list, because a register nobody drains is a leak):
+ *
+ *   pp_execute_action()                  every accepted composition-mutating action plus
+ *                                        create_page, including restore_composition, which
+ *                                        owns its own `findings` key (lib/actions.php).
+ *                                        NOTE THE ONE DRAIN THAT DID NOT WRITE: create_page
+ *                                        with no `composition` param never reaches this
+ *                                        function at all (its call is gated on a non-empty
+ *                                        composition), yet it still drains the new page's
+ *                                        slot. It is the exception to "every draining
+ *                                        surface just cleared on entry", and it is harmless
+ *                                        for a reason of its own — see below.
+ *   pp_operate_restore_run_compositions() the run-scoped rollback, per reverted post
+ *                                        (lib/operate.php)
+ *   _pp_restore_batch_snapshot()         DOES NOT drain. It reports through `rollback_errors`,
+ *                                        a different channel with its own vocabulary, so
+ *                                        disclosing there is a separate ruling rather than a
+ *                                        line. Its slot is cleared by the next write.
+ *   the two seed writers                 lib/setup.php's install seed and the render-path
+ *                                        seed in pp_resolve_front_page_render() above. Both
+ *                                        write only where the meta is ABSENT, so `$prior_json`
+ *                                        is null, the push region never runs, and neither can
+ *                                        record. Neither has an envelope to carry a finding.
+ *
+ * REQUEST-SCOPED IN PRACTICE, NOT BY CONSTRUCTION, and the difference is worth a sentence.
+ * A function `static` lives as long as the PHP PROCESS, which under mod_php, php-fpm and
+ * WP-CLI is one request — but under a persistent worker SAPI (Swoole, RoadRunner,
+ * FrankenPHP worker mode) one process serves many, and these slots would survive between
+ * them.
+ *
+ * TWO THINGS MAKE THAT CARRYOVER HARMLESS, and it takes both — an earlier draft of this
+ * note claimed the first one covered it, which is false. Clear-before-set handles every
+ * surface that WRITES the post it then reports on. The exception is create_page with no
+ * composition: it drains a slot for a post this function never touched. What covers THAT
+ * is post-id uniqueness — a freshly created post id has never had a slot, because
+ * AUTO_INCREMENT does not hand back an id that has been used. So:
+ *
+ *   a surface that wrote the post    safe by clear-on-entry (the invariant above)
+ *   create_page with no composition  safe because the id is new, not because anything cleared
+ *
+ * The second reason is exactly why the PHPUnit harness has to drain in tearDown while
+ * production does not: setUp resets `next_id` to 100, so test post ids ARE reused, and the
+ * one guarantee production leans on is the one the harness deliberately breaks.
+ *
+ * NO READ-ONLY MODE, deliberately. An earlier draft took `?bool $write = null` with null
+ * meaning "peek", and all three wrappers passed a non-null value — an arm no caller and no
+ * test could enter, which is this codebase's own definition of a fence that has stopped
+ * being one. Every question anyone has asked of this register so far is a question the
+ * asker also wants to settle (record it, clear it, consume it), so `$write` is required.
+ *
+ * @param int  $post_id  WordPress post ID.
+ * @param bool $write    true to record the skip; false to clear the slot.
+ * @return bool  The flag's value BEFORE this call.
+ */
+function _pp_history_push_skip_state(int $post_id, bool $write): bool {
+    static $skipped = [];
+
+    $had = !empty($skipped[$post_id]);
+    if ($write) {
+        $skipped[$post_id] = true;
+    } else {
+        unset($skipped[$post_id]);
+    }
+    return $had;
+}
+
+/**
+ * Records that this write could not push the prior state onto the ring (#821).
+ */
+function _pp_record_history_push_skipped(int $post_id): void {
+    _pp_history_push_skip_state($post_id, true);
+}
+
+/**
+ * Clears the post's slot, so the write now starting owns it (#821).
+ *
+ * Called unconditionally by every pp_update_composition() write. See
+ * _pp_history_push_skip_state() for why that is what stops a stale notice from being
+ * attached to an unrelated later write.
+ *
+ * THE TWIN OF _pp_take_history_push_skipped(), AND NOT A DUPLICATE OF IT. Both compile to
+ * the identical `_pp_history_push_skip_state($post_id, false)`; they differ only in whether
+ * the answer is returned, and they are two functions because they are two statements: this
+ * one says "this WRITE owns the slot from here", the other says "this ENVELOPE has consumed
+ * it". Collapsing them into one name would read as tidying and would silently delete the
+ * drain at whichever site kept the wrong one.
+ */
+function _pp_forget_history_push_skipped(int $post_id): void {
+    _pp_history_push_skip_state($post_id, false);
+}
+
+/**
+ * Reads AND clears the post's slot (#821): true when the most recent write to this post
+ * skipped its history push. Draining is what stops one event being reported twice.
+ *
+ * See _pp_forget_history_push_skipped() for why its identical body is a separate function.
+ */
+function _pp_take_history_push_skipped(int $post_id): bool {
+    return _pp_history_push_skip_state($post_id, false);
+}
+
+/**
  * Reads the freshness content-hash straight from the DB inside the composition lock (#828).
  * The fourth sibling of the three readers above, and the last of pp_update_composition()'s
  * four in-lock reads to stop asking the object cache.
@@ -3130,7 +3305,9 @@ function pp_get_composition_marker(int $post_id): array {
 //
 // restore_composition (lib/actions.php) reads this ring and re-writes a chosen
 // entry's composition back through pp_update_composition — so a restore is
-// itself a conflict-checked write that lands its own history entry.
+// itself a conflict-checked write that lands its own history entry, unless its
+// own push is the one that cannot be encoded (#821, below), which is the case
+// worth knowing about: an undo that cannot itself be undone.
 //
 // #818: EVERY prior state gets a ring slot, including one whose stored bytes do
 // not decode to a composition. Those push a raw entry carrying the bytes verbatim
@@ -3143,6 +3320,37 @@ function pp_get_composition_marker(int $post_id): array {
 // is_array() test filed one as a replayable snapshot and replaying it fataled.
 // The test is now pp_is_list() at BOTH ends — the push above, and
 // _pp_normalize_history_ring() for rings written before the fix.
+//
+// #821: "EVERY prior state gets a ring slot" has ONE exception, and it is the
+// third arm of the push rather than a fork in the entry SHAPE. When the rebuilt
+// ring does not survive JSON encoding, the ring write is skipped:
+//
+//     encode the rebuilt ring
+//         ├── ok ─────► update_post_meta(_pp_composition_history)   ring grows
+//         │
+//         └── FALSE ──► ring row untouched, previous entries KEPT
+//                       error_log(...)                              ops breadcrumb
+//                       record the skip ──► `history_not_recorded`  on the envelope
+//                                           of the accepted write
+//
+// The composition write below it proceeds either way — guard and disclose, not
+// block, which is the narrow first step the ruling took. So the guarantee this
+// section states is "every prior state gets a ring slot, or the write that
+// replaced it says it has no undo point", and never a silent gap.
+//
+// READ THAT GUARANTEE AS NARROWLY AS IT IS WRITTEN. It is about the RING, and two
+// neighbouring failures are still silent:
+//
+//   the DB layer      a ring push that fails inside update_post_meta() rather than
+//                     at the encoder. That function returns false for an unchanged
+//                     value as well as for a real failure, so gating on it waits on
+//                     a compare-first read. Deferred by the same ruling.
+//   the COMPOSITION   pp_update_composition()'s own `wp_json_encode($composition)`
+//                     is unchecked (#941), so a composition the encoder rejects is
+//                     stored as an empty value while this function returns true.
+//                     The ring push above SUCCEEDS in that case — it encodes the
+//                     PRIOR state, which is fine — so the page's real content is
+//                     still recoverable from the ring, and nothing says to look.
 
 /**
  * Maximum number of prior-composition snapshots retained per post (#133).
@@ -4785,6 +4993,13 @@ function pp_update_composition(int $post_id, array $composition, ?int $expected_
 
         $next_version = $current_version + 1;
 
+        // THIS WRITE NOW OWNS THE POST'S SKIP SLOT (#821). Cleared here — before the
+        // `$prior_json !== null` gate below, not inside it — so a write with nothing to
+        // push clears the slot too. That is the whole reason a notice recorded by some
+        // earlier writer can never be attached to this write's envelope; see
+        // _pp_history_push_skip_state() for the full contract and its stated residual.
+        _pp_forget_history_push_skipped($post_id);
+
         // History ring (#133): push the PRIOR composition onto the bounded per-post
         // history meta BEFORE overwriting, so the state this write replaces stays
         // restorable. Runs inside this same advisory lock as the marker bump, so the
@@ -4881,10 +5096,27 @@ function pp_update_composition(int $post_id, array $composition, ?int $expected_
             // that reads back as [] — all ten slots gone, on the very write that was meant to
             // preserve one. Keeping the previous ring is strictly better than destroying it.
             //
-            // This guard covers the CLOBBER half only. That a skipped push leaves the write
-            // below it to proceed anyway — losing the prior state silently — is the older,
-            // wider gap tracked in #821, whose fix is a posture decision (fail closed vs
-            // report) rather than a line.
+            // THE POSTURE THIS GUARD SITS UNDER IS NOW RULED (#821, Fernando 2026-09-01),
+            // and the ruling is the NARROW FIRST STEP: an unambiguous ring-write failure
+            // fails closed FOR THE RING — the previous entries are kept, never a false
+            // encode written over them — while THE COMPOSITION WRITE PROCEEDS. Guard and
+            // disclose, not block. The disclosure is the other half of the ruling and is
+            // recorded in the else arm below.
+            //
+            // WHY THIS FAILURE IS THE UNAMBIGUOUS ONE, which is what makes it rulable on its
+            // own: a false from the encoder means the data could not be represented at all
+            // (corruption in flight), and there is no reading of that under which writing it
+            // over ten good entries is correct.
+            //
+            // THE SECOND STEP IS DEFERRED BY THE SAME RULING and is deliberately not here:
+            // update_post_meta() below returns false for a genuine DB failure AND for a
+            // value that did not change, so its false cannot gate a write until something
+            // tells those apart — the #857 compare-first idiom is the recorded route, and
+            // it is unscheduled. Until then a DB-layer push failure still leaves the write
+            // to proceed undisclosed. Same for the two in-lock READERS that cannot tell a
+            // failed SELECT from an absent row (#212; see _pp_read_composition_json_locked()
+            // and _pp_read_composition_version_locked()). Those are the axis's remaining
+            // halves, not this line's.
             $encoded = wp_json_encode(
                 _pp_history_entries_for_storage($history),
                 JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
@@ -4892,10 +5124,20 @@ function pp_update_composition(int $post_id, array $composition, ?int $expected_
             if ($encoded !== false) {
                 update_post_meta($post_id, '_pp_composition_history', wp_slash($encoded));
             } else {
-                // A BREADCRUMB IS NOT A POSTURE. Which of "fail the write" / "report it on
-                // the envelope" this should become is #821's call; that a skipped push
-                // leaves no trace at all is not a decision anyone made. One line makes the
-                // difference between a diagnosable event and an unexplained gap in a ring.
+                // THE ANSWER TO "WHICH POSTURE" IS: REPORT IT ON THE ENVELOPE (#821). The
+                // write below proceeds, so the caller is handed an accepted write that has
+                // no undo point, and it must be told so in the same envelope rather than
+                // left to notice a gap in the ring later. This records the event; the
+                // finding itself is minted by _pp_history_push_skipped_findings()
+                // (lib/actions.php), which owns the operator-facing wording.
+                //
+                // BOTH, NOT EITHER. The register feeds the operator; the log line feeds
+                // whoever is reading the server log, fires unconditionally, and is the
+                // trace that survives when no envelope collects the notice at all (the
+                // batch rollback's channel, a re-entrant write — see
+                // _pp_history_push_skip_state()). A breadcrumb was never a posture; it is
+                // still a breadcrumb, and it is still worth having.
+                _pp_record_history_push_skipped($post_id);
                 error_log(
                     'PromptingPress: composition post ' . $post_id
                     . ' history ring NOT updated (JSON encode failed: ' . json_last_error_msg()

@@ -362,10 +362,13 @@ final class CompositionFindingsBoundsTest extends TestCase
 
     /**
      * THE CLI'S DECISION SEAM SURVIVES THE BOUND. `wp pp apply restore-composition` warns
-     * on pp_operate_restore_run_finding_count(), which counts POSTS carrying any finding.
-     * A global budget would have blanked later posts' reports entirely, dropping them out
-     * of this count and reporting a cleaner rollback than actually happened. A bound that
-     * lies is worse than a long report.
+     * on pp_operate_restore_run_finding_count(), which counts POSTS carrying at least one
+     * finding ABOUT THE COMPOSITION (it counted any finding at all until #821 gave the
+     * report a species that is about the WRITE instead; the posts here carry a real
+     * `unknown_prop`, so they count either way and this test is unmoved). A global budget
+     * would have blanked later posts' reports entirely, dropping them out of this count and
+     * reporting a cleaner rollback than actually happened. A bound that lies is worse than
+     * a long report.
      */
     public function testRunRollbackFindingCountSeamSurvivesBounding(): void
     {

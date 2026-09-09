@@ -1562,6 +1562,18 @@ class PP_Apply_Command extends WP_CLI_Command {
             WP_CLI::warning($with_findings . ' reverted post(s) have composition findings under current validation rules (see "findings" in the report above). The rollback was applied as-is; a restore is never blocked by rules that landed after the snapshot.');
         }
 
+        // #821: A DIFFERENT PROBLEM NEEDS A DIFFERENT SENTENCE. The count above is
+        // deliberately narrowed to findings about the COMPOSITION, so a page whose only
+        // entry is `history_not_recorded` is (correctly) not named by the rule warning —
+        // it broke no rule. Without this second warning that narrowing would have made the
+        // command silent about it entirely: exit 0, a success line, and the disclosure
+        // buried in the stdout JSON. This is the surface that entry's own message points
+        // at, so it is the last place that should have to be read as JSON to find it.
+        $no_undo = pp_operate_restore_run_no_undo_count($report);
+        if ($no_undo > 0) {
+            WP_CLI::warning($no_undo . ' reverted post(s) have NO UNDO POINT: the rollback write could not record the state it replaced, so that revert cannot itself be undone (see "findings" in the report above). Each page keeps its earlier history entries — run `wp pp operate composition-history --post_id=<id>` before editing those pages again.');
+        }
+
         $reverted = count($report['reverted']);
         $changed  = count(array_filter($report['reverted'], static function ($r) { return !empty($r['changed']); }));
 
