@@ -278,12 +278,16 @@ present **scalar** at the write path, through a predicate shared with the top le
 with the same `null` / `""` sentinels. Since #738 an `array` declaration buys strictly
 more than that: it also requires a JSON LIST, so a keyed object is rejected too, at both
 depths and through a second shared predicate (`grid.items[].bullets` is the shipped
-nested case). `object` remains deliberately shape-agnostic, which is why the asymmetry
-described next applies to `object` only. (Before #744 it bought nothing — `item_type`
-checks a nested array's entries, never the field itself.) What a nested annotation
-still does NOT buy you is any constraint on what a container HOLDS: nothing checks an
-item `style` map's contents, and a JSON *list* handed to an `object` field still
-satisfies the type rule, because PHP decodes both JSON containers to an array.
+nested case). Since #883 an `object` declaration buys the mirror of it: a populated JSON
+LIST is rejected too, through a third shared predicate, at both depths (`grid.items[]
+.style` and `section.panel_items[].style` are the shipped nested cases). PHP decodes
+both JSON containers to an array, so neither shape rule is free — each is a real
+predicate on top of the container check, and each has its own message. (Before #744 a
+nested container declaration bought nothing at all — `item_type` checks a nested array's
+entries, never the field itself.) What a nested annotation still does NOT buy you is any
+constraint on what a container HOLDS: nothing checks an item `style` map's contents.
+Note the one shape both rules must accept: `{}` and `[]` decode identically, so the
+empty container satisfies `array` and `object` alike.
 
 **Enforcement reach:** the closed key set is a **repo-CI invariant**, not a runtime
 gate. `SchemaValidationTest` runs `pp_schema_definition_errors()` over every shipped

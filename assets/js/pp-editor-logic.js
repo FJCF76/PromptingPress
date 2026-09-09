@@ -1209,9 +1209,16 @@ function nonStringValueDiffs(jsonString, componentRegistry) {
  * JSON map both decode to a PHP array under `json_decode($json, true)` — so what the
  * PHP predicate actually decides is "container or scalar?". `typeof value === 'object'`
  * with the null guard is that same question in JS: it admits both `[]` and `{}` and
- * refuses every scalar. Map-vs-list is deliberately nobody's rule here, exactly as
- * #744's docblock records; the shared style-slot engine owns a list handed to a style
- * field, with its own message.
+ * refuses every scalar.
+ *
+ * THIS MIRROR DELIBERATELY STOPS THERE, and since #738/#883 that is a narrower answer
+ * than the write path's rather than the same one. Those two issues added map-vs-list
+ * rules on top of the container check — a declared `array` must be a JSON list, a
+ * declared `object` must be a JSON map — and this guard has NO mirror for either. That
+ * is correct here: this guards a READ (#805), deciding whether the accordion can render
+ * a stored value, and a stored shape the write path would now refuse must still be
+ * displayable so it can be repaired. A guard that refused what the write path refuses
+ * would lock the editor on exactly the pages that need it.
  *
  * `null` and `''` are the unset sentinels, kept BECAUSE the write path keeps them: they
  * are how an omitted value stays on its declared default, and a guard that disagreed
