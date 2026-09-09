@@ -639,4 +639,66 @@ class CliEnvelopeEmitTest extends TestCase
         $this->assertIsArray($envelope);
         $this->assertArrayHasKey('envelope_error', $envelope);
     }
+
+    /**
+     * A create_redirect receipt names the row it replaced, ON THE SURFACE THAT PRINTS IT (#887).
+     *
+     * THIS FILE, RATHER THAN A JS ONE, AND THE REASON IS THE WHOLE POINT OF THE PIN. #887 was
+     * filed as an approval-surface defect, and that framing does not survive reading the
+     * client: no EXECUTED envelope reaches any renderer there, and the preview — which does
+     * render `changes` — has always read the true prior. The derivation of that claim from the
+     * client's call graph is single-owned by `create_redirect`'s execute closure in
+     * lib/actions.php ("BE EXACT ABOUT WHICH SURFACE LIED"); it is cited here rather than
+     * restated so one client change does not falsify two copies. The consequence for THIS
+     * file: a vitest against the chat card would have to hand-build a preview-shaped payload,
+     * so it would pass with the bug fully restored — the definition of a pin that guards
+     * nothing. (A vitest file doing exactly that was written for this issue and then deleted:
+     * its cases duplicated tests/js/pp-ai-chat-proposal.test.js and
+     * tests/js/pp-ai-chat-preview-render-isolation.test.js, which already pin the object and
+     * null shapes through `formatDiffValue` and `renderPreviewResult`.)
+     *
+     * This is where the CLI half of the receipt is pinned. It is not the executed envelope's
+     * only reader — pp_ai_execute_batch() hands each step's full envelope, `changes` included,
+     * back to its caller, and testABatchsSecondCreateOverOnePathReportsTheFirstStepsRow in
+     * tests/ActionsTest.php covers that side. What is single-owned HERE is the PRINTED bytes:
+     * that an associative `from` survives the encode at all.
+     *
+     * It also pins the half those assertions cannot: that an associative `from` SURVIVES the
+     * encode. The array is not a list, and this file exists because that boundary has been
+     * lossy before.
+     */
+    public function testACreateRedirectReceiptPrintsTheRowItReplaced(): void
+    {
+        $this->assertTrue(pp_execute_action('create_redirect', ['from' => '/x', 'to' => '/a', 'code' => 301])['ok']);
+        WP_CLI::$lines = [];
+
+        $overwrite = pp_execute_action('create_redirect', ['from' => '/x', 'to' => '/b', 'code' => 302]);
+        _pp_cli_emit_json($overwrite);
+
+        $printed = json_decode($this->soleEmittedLine(), true);
+
+        $this->assertIsArray($printed);
+        $this->assertTrue($printed['ok']);
+        $this->assertSame(
+            ['to' => '/a', 'code' => 301],
+            $printed['changes'][0]['from'],
+            'the printed receipt is where an operator learns a row was replaced rather than created'
+        );
+        $this->assertSame(['to' => '/b', 'code' => 302], $printed['changes'][0]['to']);
+    }
+
+    /**
+     * The other half on the same surface: a genuine create still prints `null`, so the two
+     * outcomes stay distinguishable in the printed bytes and not merely in PHP.
+     */
+    public function testAFreshCreateReceiptPrintsANullPrior(): void
+    {
+        $fresh = pp_execute_action('create_redirect', ['from' => '/x', 'to' => '/a', 'code' => 301]);
+        _pp_cli_emit_json($fresh);
+
+        $printed = json_decode($this->soleEmittedLine(), true);
+
+        $this->assertIsArray($printed);
+        $this->assertNull($printed['changes'][0]['from']);
+    }
 }

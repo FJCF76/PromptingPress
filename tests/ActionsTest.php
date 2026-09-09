@@ -7792,6 +7792,242 @@ class ActionsTest extends TestCase
         $this->assertSame('/second', pp_resolve_redirect('/old')['to']);
     }
 
+    // ── create_redirect's applied diff tells replace from create (#887) ──────
+    //
+    // The action is create-OR-REPLACE, and its executed envelope used to hardcode
+    // `from => null` — the envelope's word for "there was no prior value" — over rows it
+    // had just overwritten. The pins below hold the report to the state:
+    //
+    //   stored before        the call                    changes[0]['from'] must be
+    //   ─────────────        ───────                     ─────────────────────────
+    //   (no /x row)          execute /x -> /a            null              (its truth)
+    //   /x -> /a (301)       execute /x -> /b (302)      {to:/a,code:301}  (the row it replaced)
+    //   /x -> /a (301)       execute /x -> /a (302)      {to:/a,code:301}  (ordering: read before write)
+    //   /x -> /a (301)       execute /x/?ref=nav -> /b   {to:/a,code:301}  (any spelling of the key)
+    //   /x -> /a (301)       preview /x -> /b            byte-identical to the execute's
+    //   /x -> /a (307)       execute /x -> /b            {to:/a,code:301}  (the reader's view, clamped)
+    //   /x -> (no `to`)      execute /x -> /b            null              (documented limitation)
+
+    public function testCreateRedirectExecuteReportsTheRowItOverwrote(): void
+    {
+        // The v1.19.0 release-smoke repro, verbatim.
+        $this->assertTrue(pp_execute_action('create_redirect', ['from' => '/x', 'to' => '/a', 'code' => 301])['ok']);
+
+        $overwrite = pp_execute_action('create_redirect', ['from' => '/x', 'to' => '/b', 'code' => 302]);
+        $this->assertTrue($overwrite['ok'], $overwrite['error'] ?? '');
+
+        $this->assertSame(
+            ['to' => '/a', 'code' => 301],
+            $overwrite['changes'][0]['from'],
+            'the second create REPLACED a live row and its receipt must name what it replaced'
+        );
+        $this->assertSame(['to' => '/b', 'code' => 302], $overwrite['changes'][0]['to']);
+    }
+
+    public function testCreateRedirectExecuteReportsNullWhenNothingWasThere(): void
+    {
+        // The other half, and the reason the fix could not be "always report an object":
+        // null is the TRUTH of a fresh create, and it has to survive the change that
+        // stopped null being a lie everywhere else.
+        $fresh = pp_execute_action('create_redirect', ['from' => '/x', 'to' => '/a', 'code' => 301]);
+        $this->assertTrue($fresh['ok'], $fresh['error'] ?? '');
+        $this->assertNull($fresh['changes'][0]['from']);
+    }
+
+    public function testCreateRedirectExecuteReadsThePriorBeforeItWrites(): void
+    {
+        // THE ORDERING PIN, and it is deliberately an overwrite that changes ONLY the code.
+        // A read placed after pp_create_redirect() returns the row the action just wrote, so
+        // `from` would come back equal to `to` — a diff that reads as "nothing changed". On a
+        // to-and-code overwrite the previous test would already catch that; here the two rows
+        // differ by one integer, which is the shape most likely to survive a careless refactor.
+        $this->assertTrue(pp_execute_action('create_redirect', ['from' => '/x', 'to' => '/a', 'code' => 301])['ok']);
+
+        $recode = pp_execute_action('create_redirect', ['from' => '/x', 'to' => '/a', 'code' => 302]);
+        $this->assertTrue($recode['ok'], $recode['error'] ?? '');
+
+        $this->assertSame(['to' => '/a', 'code' => 301], $recode['changes'][0]['from']);
+        $this->assertNotSame(
+            $recode['changes'][0]['to'],
+            $recode['changes'][0]['from'],
+            'a post-write read would report the NEW row as its own prior'
+        );
+    }
+
+    public function testCreateRedirectPreviewAndExecuteAgreeOnTheSameState(): void
+    {
+        // The claim the fix is really making: the approval gate and the receipt answer the
+        // same question the same way. Preview runs first precisely because it does not write
+        // (testCreateRedirectPreviewDoesNotWrite above pins that), so both closures see the
+        // identical stored state and must produce the identical `from`.
+        //
+        // SCOPED TO ONE STEP ON ONE STATE, deliberately, and the scope is not pedantry. The
+        // chat fires every step's preview in PARALLEL against pre-batch state
+        // (`Promise.all(previewPromises)`, assets/js/pp-ai-chat.js) while execution is
+        // sequential, so a proposal carrying two create_redirect steps for the SAME path
+        // renders two preview rows both naming the pre-batch prior, and step 2 executes with
+        // step 1's write as its true prior. Those two legitimately disagree, and this
+        // agreement holds only where both sides read the same state. Read as a general law it
+        // would be false; asserted here, on one step, it is the property the fix delivers.
+        //
+        // A PRIOR ROW IS SEEDED FIRST, and without it this test is theatre: on an empty map
+        // both sides answer `null` and it passes with the bug fully restored.
+        $this->assertTrue(pp_execute_action('create_redirect', ['from' => '/x', 'to' => '/a', 'code' => 301])['ok']);
+
+        $preview = pp_preview_action('create_redirect', ['from' => '/x', 'to' => '/b', 'code' => 302]);
+        $execute = pp_execute_action('create_redirect', ['from' => '/x', 'to' => '/b', 'code' => 302]);
+
+        $this->assertTrue($preview['ok'], $preview['error'] ?? '');
+        $this->assertTrue($execute['ok'], $execute['error'] ?? '');
+        $this->assertSame($preview['changes'][0]['from'], $execute['changes'][0]['from']);
+        $this->assertSame($preview['changes'][0]['path'], $execute['changes'][0]['path']);
+    }
+
+    public function testCreateRedirectReportsThePriorWhateverSpellingAddressedIt(): void
+    {
+        // `from` is operator/model text and arrives in whatever spelling was typed. The read
+        // is keyed with _pp_normalize_redirect_path() — the same function pp_create_redirect()
+        // keys the map with — so a prior stored under "/x" is found by "/x/", "/x?ref=nav" and
+        // an absolute same-site URL alike. Keyed with the raw string, every one of these would
+        // report a fresh create over a live row.
+        $this->assertTrue(pp_execute_action('create_redirect', ['from' => '/x', 'to' => '/a', 'code' => 301])['ok']);
+
+        $overwrite = pp_execute_action('create_redirect', ['from' => '/x/?ref=nav', 'to' => '/b', 'code' => 302]);
+        $this->assertTrue($overwrite['ok'], $overwrite['error'] ?? '');
+        $this->assertSame(['to' => '/a', 'code' => 301], $overwrite['changes'][0]['from']);
+        $this->assertSame('/x', $overwrite['changes'][0]['path']);
+
+        // The third spelling the docblock above names. Asserted rather than assumed, so this
+        // axis is not held by one composite input: the trailing-slash and query-strip cases
+        // ride together on '/x/?ref=nav', and host-stripping is a separate branch of the
+        // normalizer that nothing else here exercises.
+        $this->assertTrue(pp_execute_action('create_redirect', ['from' => '/y', 'to' => '/a', 'code' => 301])['ok']);
+        $absolute = pp_execute_action('create_redirect', ['from' => home_url('/y'), 'to' => '/b', 'code' => 302]);
+        $this->assertTrue($absolute['ok'], $absolute['error'] ?? '');
+        $this->assertSame(['to' => '/a', 'code' => 301], $absolute['changes'][0]['from']);
+        $this->assertSame('/y', $absolute['changes'][0]['path']);
+    }
+
+    /**
+     * The prior is read through pp_get_redirects(), not off the raw option (#887).
+     *
+     * WITHOUT THIS TEST THE DOCBLOCK IS THE ONLY THING SAYING SO, which is the weakest
+     * available enforcement of a claim. Swapping the execute's read for a raw
+     * `get_option(PP_REDIRECTS_OPTION)` lookup passes every other assertion in this file:
+     * on a well-formed map the two reads are byte-identical, so nothing notices. This case
+     * is built out of the one input where they are NOT — a stored `code` outside {301,302},
+     * which pp_get_redirects() clamps to 301 (lib/wp.php) and a raw read hands back as-is.
+     *
+     * THE ROW IS SEEDED DIRECTLY, and that is required rather than lazy. pp_create_redirect()
+     * rejects a code outside {301,302} before it writes, so no authoring path can produce
+     * this row — the map can only reach this state from outside the theme (a direct DB edit,
+     * another plugin, a legacy import). That is precisely the state a normalizing reader
+     * exists for, so it has to be seeded to be tested at all.
+     */
+    public function testCreateRedirectReportsThePriorAsTheNormalizingReaderSeesIt(): void
+    {
+        update_option(PP_REDIRECTS_OPTION, ['/x' => ['to' => '/a', 'code' => 307]]);
+        $this->assertSame(307, get_option(PP_REDIRECTS_OPTION)['/x']['code'], 'the fixture landed as stored');
+
+        $overwrite = pp_execute_action('create_redirect', ['from' => '/x', 'to' => '/b', 'code' => 302]);
+        $this->assertTrue($overwrite['ok'], $overwrite['error'] ?? '');
+
+        $this->assertSame(
+            ['to' => '/a', 'code' => 301],
+            $overwrite['changes'][0]['from'],
+            'the reported prior is the map as every other consumer reads it, not the raw bytes'
+        );
+    }
+
+    /**
+     * Re-creating the identical row reports it as its own prior, and that is CORRECT (#887).
+     *
+     * THE ONE REACHABLE INPUT WHERE THE ORDERING BUG WOULD BE INVISIBLE, which is why it is
+     * pinned rather than left to inference. A no-op re-create legitimately produces
+     * `from == to`, and that is the very shape testCreateRedirectExecuteReadsThePriorBeforeItWrites
+     * describes as the post-write read's signature ("a diff claiming {to:/b} -> {to:/b}").
+     * Both readings produce identical bytes here, so without this case the suite records no
+     * opinion about which one a from==to row means, and a later reader could "fix" the
+     * correct behaviour to make the docblock's warning read consistently.
+     */
+    public function testCreateRedirectRecreatingTheSameRowReportsItAsItsOwnPrior(): void
+    {
+        $this->assertTrue(pp_execute_action('create_redirect', ['from' => '/x', 'to' => '/a', 'code' => 301])['ok']);
+
+        $again = pp_execute_action('create_redirect', ['from' => '/x', 'to' => '/a', 'code' => 301]);
+        $this->assertTrue($again['ok'], $again['error'] ?? '');
+
+        // Equal on both sides is the TRUTH of a no-op re-create, not the defect the ordering
+        // guards against: the row really was there, and really is unchanged.
+        $this->assertSame(['to' => '/a', 'code' => 301], $again['changes'][0]['from']);
+        $this->assertSame(['to' => '/a', 'code' => 301], $again['changes'][0]['to']);
+    }
+
+    /**
+     * A batch's second create over one path reports the row its OWN first step wrote (#887).
+     *
+     * THE CARVE-OUT testCreateRedirectPreviewAndExecuteAgreeOnTheSameState DESCRIBES IN PROSE,
+     * asserted here instead of trusted. Previews are fetched in parallel against pre-batch
+     * state while execution is sequential, so in a two-step proposal over one path both
+     * preview rows name the pre-batch prior, and step 2 executes with step 1's write as its
+     * true prior. Preview and execute legitimately disagree there, which is exactly why that
+     * agreement pin is scoped to a single step on a single state.
+     *
+     * It also pins the reader this envelope has that nothing paints: pp_ai_execute_batch()
+     * returns each step's FULL action envelope, `changes` included, so an agent driving a
+     * batch consumes this field directly.
+     */
+    public function testABatchsSecondCreateOverOnePathReportsTheFirstStepsRow(): void
+    {
+        $batch = pp_ai_execute_batch([
+            ['type' => 'action', 'name' => 'create_redirect', 'params' => ['from' => '/x', 'to' => '/a', 'code' => 301]],
+            ['type' => 'action', 'name' => 'create_redirect', 'params' => ['from' => '/x', 'to' => '/b', 'code' => 302]],
+        ]);
+
+        $this->assertTrue($batch['ok'], json_encode($batch['steps']));
+        $this->assertNull($batch['steps'][0]['changes'][0]['from'], 'step 1 created the row');
+        $this->assertSame(
+            ['to' => '/a', 'code' => 301],
+            $batch['steps'][1]['changes'][0]['from'],
+            'step 2 replaced what step 1 wrote — its prior is the batch own work, not pre-batch state'
+        );
+    }
+
+    /**
+     * The limitation this fix does NOT close, pinned so it stays honest (#887).
+     *
+     * pp_get_redirects() DROPS a row with no `to` rather than repairing it, so an overwrite
+     * of a malformed row still reports `from: null` — indistinguishable from a fresh create.
+     * The execute docblock says exactly this; without a test, that sentence is an assertion
+     * about behaviour nobody checks, and the day the reader stops dropping such rows the
+     * comment silently becomes false. Pinning the limitation is what keeps the claim true.
+     *
+     * It doubles as the second half of the raw-read guard: a raw `get_option` read would
+     * report the malformed array here instead of null, so this case fails on that mutation
+     * too, from the opposite direction to the test above.
+     */
+    public function testCreateRedirectStillReportsNullOverAMalformedPriorRow(): void
+    {
+        update_option(PP_REDIRECTS_OPTION, ['/x' => ['code' => 301]]); // no `to`
+
+        // THE SEED IS ASSERTED BEFORE THE ACTION RUNS, because this test's own claim is that a
+        // row EXISTS and is nonetheless reported as absent. A seed that landed nowhere would
+        // leave an empty map, and the null assertion below would then pass while pinning
+        // nothing at all — the one failure mode a test whose expectation is `null` cannot
+        // detect on its own. Both halves of the premise are therefore stated: it is stored,
+        // and the reader cannot see it.
+        $this->assertArrayHasKey('/x', get_option(PP_REDIRECTS_OPTION), 'the malformed row IS stored');
+        $this->assertArrayNotHasKey('/x', pp_get_redirects(), 'and the normalizing reader drops it');
+
+        $overwrite = pp_execute_action('create_redirect', ['from' => '/x', 'to' => '/b', 'code' => 302]);
+        $this->assertTrue($overwrite['ok'], $overwrite['error'] ?? '');
+
+        $this->assertNull(
+            $overwrite['changes'][0]['from'],
+            'a row the reader cannot see is a row this fix cannot report — documented, not accidental'
+        );
+    }
+
     public function testRemoveRedirectRestoresPriorBehavior(): void
     {
         pp_execute_action('create_redirect', ['from' => '/old', 'to' => '/new']);

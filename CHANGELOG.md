@@ -4,6 +4,61 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.19.5] — 2026-09-09 — A create_redirect receipt names the redirect it overwrote instead of claiming it created one (#887)
+
+**`create_redirect` is create-or-REPLACE, and its executed result said `from: null` no matter which happened. Point an existing redirect somewhere new and the receipt reported a fresh create, naming nowhere the row it had just destroyed. The result now reads the prior row before it writes, so a replace names what it replaced and a genuine create still says `null`.**
+
+The preview path had read the true prior all along; only the executed result hardcoded the placeholder. That is a one-line asymmetry with a sibling one screen away — `remove_redirect`'s execute has always done the pre-write read this one now copies.
+
+### The repro, from the v1.19.0 release smoke
+
+```
+wp pp action execute create_redirect --params='{"from":"/x","to":"/a","code":301}'
+wp pp action execute create_redirect --params='{"from":"/x","to":"/b","code":302}'
+```
+
+| | before | after |
+|---|---|---|
+| first call, `changes[0].from` | `null` | `null` (unchanged — it really did create) |
+| second call, `changes[0].from` | `null` | `{"to":"/a","code":301}` |
+| what the second call did | replaced a live 301 | replaced a live 301 |
+
+Nothing about the write changed. The redirect map, the rollback, and the validation all behave exactly as before; this is the report catching up to them.
+
+### Which surface was actually lying
+
+The issue was filed as an approval-surface defect. It is not one, and the narrower claim is the true one. The chat proposal card renders `changes` only on the PREVIEW path, which was already correct, so an operator approving a redirect in chat has always seen the row about to be replaced. The executed result reaches two machine-facing readers instead: the JSON `wp pp action execute` prints, and the batch response, which hands every step's full envelope back to its caller. An agent driving a batch reads this field even though nothing paints it.
+
+### One read shape, on both paths
+
+Both closures now go through `pp_get_redirects()` rather than the raw option, so preview and execute answer the same question the same way and a test can hold them to each other. That buys agreement, which is not the same as raw truth, and the difference is documented rather than glossed: `pp_get_redirects()` normalizes, so a stored code outside {301,302} is reported as 301 and a row missing `to` is dropped and reported as `null`. Reading the option raw here would make this one envelope disagree with every other consumer of `pp_redirects`.
+
+The read happens BEFORE the write. Placed one line lower it would return the row the action had just written and report the new value as its own prior — a diff reading `{to:/b} → {to:/b}`, worse than the `null` it replaced.
+
+### Sibling sweep
+
+All 24 registered actions were checked for the same preview-vs-execute `from` asymmetry. `create_redirect` was the only mechanical instance; nothing else needed a one-line fix. Two adjacent findings needed design rather than a line and were filed instead of ridden along: `set_menu` reports `from: null` on a documented replace while its execute already holds the prior items (#928), and `restore_page`'s preview promises the page returns as `draft` when WordPress may restore it to `publish` (#929).
+
+### Known limitations, stated rather than discovered later
+
+- **A refused write still reports success.** `pp_create_redirect()` discards the option write's return, so a refused write yields an `ok` step either way. This change makes that receipt more specific without making it more verified — `{/a,301} → {/b,302}` reads as a confirmed transition where `null → {/b,302}` read as a placeholder. #917 owns that half and is unresolved here, because it changes what two shipped actions report about success.
+- **The prior is read from a different map read than the write overwrites.** `pp_create_redirect()` performs its own read before writing. Within one request they cannot disagree; under a persistent object cache a concurrent cross-process write can land between them. The window is no wider than the lost-update already inherent in that function.
+- **A malformed stored row still reports `null`.** The normalizing reader drops a row with no `to`, so this fix cannot reach that case.
+
+### Fixed
+
+- `create_redirect`'s executed result reports the redirect row it replaced in `changes[].from`, or `null` when it genuinely created one (`lib/actions.php`).
+
+### Docs
+
+- The v1.17.5 entry below cited `create_redirect`'s execute as an example of `null` meaning "there was no prior value". That was true of the code and false of the state; the example is corrected to `create_menu` in place, with the correction annotated rather than the sentence deleted.
+- `ai-instructions/website-building.md` now tells an agent that a second `create_redirect` for the same `from` REPLACES the existing row, and that the step reports which happened.
+
+### Tests
+
+- Eight pins across `tests/ActionsTest.php` and `tests/CliEnvelopeEmitTest.php`: the smoke repro's overwrite, a fresh create's `null`, the pre-write ordering, every spelling of the source key, preview/execute agreement on one state, the normalizing reader's view of a clamped code, the documented malformed-row limitation, a no-op re-create (where `from == to` is the truth rather than the ordering defect), a batch's second create over one path, and the printed CLI receipt.
+- Verified by mutation in copied trees: reverting the fix fails 8, moving the read after the write fails 9, keying it with the unnormalized source fails 1, and reading the raw option fails 2 from opposite directions.
+
 ## [v1.19.4] — 2026-09-08 — A batch is narrated as applied only when every approved step came back, and a failure names a step number only when it has one (#871, #872)
 
 **The chat could tell you a proposal succeeded and tell the AI a shorter story than it told you. When the server reported results for fewer steps than you approved, the card said the batch applied and the hidden `[Applied changes: …]` turn written into the model's context named only the steps that came back — so the AI's next reply reasoned from a list missing a change it believed was made. Success narration is now gated on complete step-RESULT accounting, on both surfaces at once. Separately, a failure sentence now names a step number only when the server sent a usable one.**
@@ -982,7 +1037,7 @@ Wording is reused, not invented. The dirty sentence is #755's clause in sentence
 ### Fixed
 
 - **One owner builds the before state, and four call sites read through it (#836).** `_pp_composition_before_state()` (`lib/actions.php`) replaces the `pp_get_composition()` call in `update_composition`'s preview and execute and `restore_composition`'s preview and execute. On an `ok` classification it returns `$result['composition']` — the identical expression the old accessor evaluated — so the healthy and blank envelopes are unchanged. On `!ok` it returns an honest marker instead.
-- **The marker, and why it lives inside `from`.** `['unreadable' => true, 'classification' => <the classifier's noun>, 'message' => <the shared integrity sentence>]`. `from => null` was the obvious alternative and is the wrong one: null already MEANS "there was no prior value" on `create_page`, on `create_redirect`'s execute and on the derived-token changes in `lib/apply.php`, so it would have re-enacted this same bug one type over. A sibling key (`from_error` beside an emptied `from`) fails the same way for a different reader — a consumer reading `from` and not the sibling still gets the lie, which is today's fail-open exactly. An object in `from` is fail-safe: nothing can mistake it for a list, including a consumer that never heard of this change.
+- **The marker, and why it lives inside `from`.** `['unreadable' => true, 'classification' => <the classifier's noun>, 'message' => <the shared integrity sentence>]`. `from => null` was the obvious alternative and is the wrong one: null already MEANS "there was no prior value" on `create_page`, on `create_menu` and on the derived-token changes in `lib/apply.php`, so it would have re-enacted this same bug one type over. (This sentence originally cited `create_redirect`'s execute as the second example. That was true of the code and false of the state — the path hardcoded null over rows it had just overwritten — and v1.19.5 (#887) made it read the prior instead. The example was corrected here rather than deleted, so the argument keeps a true illustration and the record keeps the correction.) A sibling key (`from_error` beside an emptied `from`) fails the same way for a different reader — a consumer reading `from` and not the sibling still gets the lie, which is today's fail-open exactly. An object in `from` is fail-safe: nothing can mistake it for a list, including a consumer that never heard of this change.
 - **Both rendering surfaces, enumerated and pinned.** The server value is the single root, and exactly two surfaces render it. The **chat proposal card** (`assets/js/pp-ai-chat.js`) draws the diagnosis as an amber `pp-ai-step-warning` notice above the summary and suppresses the added / removed / reordered / content-changed lines, each of which answers "what is different" — a question with no answer when the before side could not be read, and whose computation against a coerced `[]` is exactly how the card came to show an empty removed list for a page full of bytes. `restore_composition` draws through the generic diff-line renderer instead, which now reads `unreadable (<classification>)` with the sentence beneath rather than JSON-stringifying the marker and truncating it at 80 characters. The **WP-CLI envelope** (`wp pp action preview|execute`) needed no change of its own: `_pp_cli_emit_json()` prints the envelope verbatim, so it became honest the moment the value did. The v1.17.0 smoke saw `from: []` there as well as on the card, which is the evidence the root was shared rather than chat-only.
 - **No new vocabulary anywhere.** The classification is passed through from `pp_classify_composition_value()` and the sentence comes from `pp_composition_integrity_message()` — the two single owners #650/#652 exist to protect. The JS prints `message` verbatim and never composes prose; the PHP tests assert it against its owner rather than against a literal.
 
