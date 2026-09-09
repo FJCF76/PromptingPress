@@ -121,6 +121,16 @@ wp pp apply restore --run-id=$RUN --token=--color-accent
 
 The cycle above rolls back **design tokens**. Page **compositions** (the components on a page) are just as reversible now. Every composition write records the prior state on a per-post history ring, so you can undo one page or a whole run.
 
+**With one exception, and the write tells you (#821).** If the ring entry for a write cannot be JSON-encoded, the ring write is skipped and the composition write still lands, so that one change has no undo point. The ring itself is never damaged by this — its earlier entries are kept intact and everything already in it is still restorable — but there is no new slot to step back to. The write says so on its own envelope, as the first entry in `findings`:
+
+```bash
+wp pp action execute update_composition --run-id=$RUN --params="$(cat body.json)" | jq '.findings[0]'
+{ "type": "history_not_recorded", "severity": "warning", "index": null,
+  "message": "This write landed, but the state it replaced could not be recorded in the page history, so THIS WRITE HAS NO UNDO POINT. ..." }
+```
+
+Treat it as "the change was made and cannot be undone by stepping back to what it replaced", not as a failed write. Run `wp pp operate composition-history --post_id=N` to see what the ring still holds before you make the next change to that page — each further write evicts one more slot from it. Any accepted composition write can carry it, `restore_composition` and the run-scoped rollback included.
+
 **Undo one page to its previous state:**
 
 ```bash
