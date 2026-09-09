@@ -25,7 +25,9 @@
  * WHY THE EXISTING RULES DID NOT CATCH IT, since three of them look like they should.
  * _pp_schema_container_value_is_valid() (#744) decides "container or scalar?", and a JSON
  * list and a JSON object BOTH decode to a PHP array under `json_decode($json, true)` — its
- * own docblock says so and names map-vs-list as nobody's rule. `item_type: "object"` walks
+ * own docblock says so, and when this issue landed it named map-vs-list as nobody's rule.
+ * (#883 has since closed the other direction in a third predicate; this file still owns
+ * only the `array` one.) `item_type: "object"` walks
  * the ENTRIES, and every entry of the repro is a perfectly good object. #724's container
  * gate judges the COMPOSITION, one level up. So the shape walked through all three.
  *
@@ -128,19 +130,26 @@ class ListShapedPropWriteEnforcementTest extends TestCase
     }
 
     /**
-     * THE `object` LEG IS UNTOUCHED, asserted rather than left to prose.
+     * THE `object` LEG IS NOT THIS PREDICATE'S, asserted rather than left to prose.
      *
-     * A JSON LIST handed to a field declaring `object` still passes both container
-     * predicates. That is the narrowing _pp_schema_container_value_is_valid()'s docblock
-     * explicitly rules a DIFFERENT ruling, and a list reaching one of the two shipped
-     * `object` fields is already refused by the shared style-slot engine, which reads its
-     * keys as slot names. #738 closes the direction that FATALS a page; widening it here
-     * would open a second one on a shape nothing has measured.
+     * This function answers ONE question — "given that this IS a container, is it a
+     * list?" — and it answers it only for a declared `array`. A declared `object` returns
+     * true here whatever its shape, and that stayed true through #883: rather than widen
+     * this predicate onto a second declared type, #883 gave the `object` direction its own
+     * function (_pp_schema_object_value_is_valid()), so each predicate keeps one question
+     * and one message. Do not fold them — a single predicate switching on the declared
+     * type is how one message ends up answering for two rules.
+     *
+     * The cross-check against that sibling is the load-bearing half: it is what shows the
+     * `true` below is a DELEGATION rather than a hole.
      */
-    public function testTheObjectLegIsDeliberatelyNotNarrowed(): void
+    public function testTheObjectLegBelongsToTheSiblingPredicate(): void
     {
         $this->assertTrue(_pp_schema_list_value_is_valid('object', ['#fff']));
         $this->assertTrue(_pp_schema_list_value_is_valid('object', ['--grid-item-bg' => '#111111']));
+        // Not a hole: the sibling that DOES own `object` refuses the list and accepts the map.
+        $this->assertFalse(_pp_schema_object_value_is_valid('object', ['#fff']));
+        $this->assertTrue(_pp_schema_object_value_is_valid('object', ['--grid-item-bg' => '#111111']));
         // And the not-applicable contract every sibling predicate carries.
         foreach (['string', 'number', 'enum', 'bool', null] as $other) {
             $this->assertTrue(_pp_schema_list_value_is_valid($other, ['aa' => 1]));

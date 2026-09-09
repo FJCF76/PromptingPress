@@ -4,6 +4,116 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.19.6] — 2026-09-09 — A blank page title is refused instead of blanking the page, and a declared object stops accepting a list (#888, #883)
+
+**Two holes in the write path, both of the same shape: a value that satisfied a rule's letter while defeating its purpose. `update_page_title` treated `required` as "the key is present", so `title: ""` validated, executed, reported `ok:true` and left the page with no title at all. And a schema field declaring `type: "object"` accepted a JSON list, because PHP decodes both JSON containers to an array — held safe until now only by an accident of who the two shipped consumers are.**
+
+Neither is a new capability. Both are the write path declining to store something it was never asked to accept, with the refusal named at the field rather than discovered later on the rendered page.
+
+### ⚠️ Breaking: a blank page title is refused (#888)
+
+`update_page_title` now refuses an empty **or whitespace-only** title with `empty_title`:
+
+```
+$ wp pp action execute update_page_title --params='{"post_id":42,"title":""}'
+Error: Page title cannot be empty. [empty_title]
+```
+
+Before this release that call returned `ok:true` and the page was left titled nothing. Found in the v1.19.0 release smoke, on a real page.
+
+**The predicate and the error code are deliberately not new.** `create_page` has judged the same field with `trim($title) === ''` → `empty_title` since it shipped, and `update_page_slug` has refused a blank slug since #134. `update_page_title` was the one rule of the three that disagreed, and it accepted `"   "` as well as `""` — both produce the same blank-looking page. A fix that closed only the literal empty string would have left the identical defect one space away, so the whitespace shape is closed too.
+
+**Migration.** There is no way to ask for "no title", and there never was a working one. To leave a title alone, omit the step:
+
+```bash
+# instead of sending an empty title to "clear" it, just don't send the step
+wp pp action execute update_page_title --params='{"post_id":42,"title":"The title you want"}'
+```
+
+**Who is affected: nobody, measured.** A stored-content sweep across both installs found **zero pages carrying an empty or whitespace-only title**. The only records with empty titles are navigation-menu rows, which this action does not write and which the sweep confirmed are out of its reach.
+
+**Whitespace inside a real title is untouched.** `trim()` decides the verdict and is never applied to the stored value: `"  Spaced  "` is still stored byte-for-byte as sent.
+
+**The boundary is ASCII whitespace, stated rather than left to be discovered.** `trim()` is not Unicode-aware, so a title made only of U+00A0, U+3000, U+200B or U+FEFF is **accepted** and stores a title that looks blank. That matches `create_page` exactly, which is the property this fix is built around; widening both to Unicode blanks is a different ruling on a shape nothing has measured. Pinned as accepted so it is a decision rather than a gap.
+
+### ⚠️ Changed error code: a declared object refuses a JSON list (#883)
+
+A field declaring `type: "object"` now refuses a populated JSON list at both depths:
+
+```
+Component 0 ("grid") prop "items" item 0 field "style" must be an object,
+but this one is a JSON list (1 entry). Send it as an object with keys ({...}),
+not an array ([...]). [invalid_prop_value]
+```
+
+**Be precise about what breaks here, because "breaking narrowing" is the wrong headline.** For the two `object` fields that actually ship — `grid.items[].style` and `section.panel_items[].style` — the set of refused writes is **identical** before and after. A populated list always carries integer key `0`, no component declares a slot named `"0"`, so the shared style-slot engine already refused every one of them. What changes for those two is the vocabulary:
+
+| | before | after |
+|---|---|---|
+| `error_code` | `invalid_style_slot` | `invalid_prop_value` |
+| message | `item 0 has no style slot "0". Available slots: ...` | `field "style" must be an object, but this one is a JSON list (1 entry).` |
+
+If you key on error codes for this shape, that is the migration. **Fix the payload the same way either way:**
+
+```bash
+wp pp action execute update_component --post_id=42 --component_index=0 \
+  --props='{"items":[{"title":"Card","style":{"--grid-item-bg":"#111111"}}]}'
+```
+
+**Then why ship it.** The old refusal was a true message from the wrong rule: it described a slot-naming mistake the author did not make, and it held only because both shipped `object` fields happen to route to the style-slot engine. That is a property of today's two consumers, not of the rule. A future `type: "object"` field routed anywhere else — a metadata bag, an options object — would have accepted a JSON list, persisted it behind `ok:true`, and rendered whatever its consumer does with a list: the reported-success-without-effect class #614, #707 and #744 each closed one type over. The genuine narrowing is prospective, and it is cheaper to close a fence before something lands on it.
+
+**Who is affected: nobody, measured.** A stored-content sweep across both installs found **zero pages carrying a list under a declared-object prop**. Every stored per-item style map is a real keyed object.
+
+**One edge is newly refused at the predicate.** `{"0":"a","1":"b"}` decodes to a PHP *list* — the keys are exactly `0..n-1` in order — so an object written that way is refused where an `object` is declared. This is the mirror of the limit #738 already records, it costs nothing on the shipped fields (slot names are `--grid-item-bg`, never `0`), and separating the two would require inspecting raw JSON text that no caller still holds by the time a validator runs.
+
+### The restore path was the reason for the placement (#888)
+
+The refusal lives in the action's `validate` closure and deliberately **not** in `pp_update_page_title()`. Since #857 that writer is also the batch rollback's title-restore path, called directly rather than through the action, so a rule inside it would have applied to undo as well as to authoring. A post can legitimately hold an empty title, its snapshot then captures `""`, and a refusal in the writer would have turned "this had no title and still doesn't" into a reported rollback **failure** on every such post. That is exactly the trap `update_page_slug` works around with a compare-first guard; the title needs no guard because the gate sits one layer up.
+
+Verified at both seams rather than assumed. The writer still accepts `""`; and a batch rollback driven end to end over a page whose snapshot captured an empty title restores it with no failure entry on the title channel. The two seams break independently — a rule moved into the writer breaks the first, a guard added to the rollback loop breaks only the second — so both are pinned.
+
+### Stored data still renders (#883)
+
+No render guard ships with this change, because none is needed, and that was checked rather than hoped. A stored list where an object belongs degrades instead of fataling: `pp_render_style_vars()` hands each key to `pp_style_declaration_renders()`, whose first act is `isset($slots[$name])`. A list's keys are integers, no component declares a slot named `"0"`, so every declaration is dropped before the value is cast and the card renders unstyled rather than taking the public page down. Pinned so it stays true.
+
+### Scope, stated so the gaps are not mistaken for oversights
+
+- **`title: null` is not fixed here.** It throws a `TypeError` rather than returning a refusal, because `pp_validate_action()` exempts `null` from its type check for *every* required param in the registry, not just this one. Fixing it locally would have made the systemic hole look closed while every other typed executor stayed exposed. Filed as #931, with the divergence pinned.
+- **The editor's tab title can now disagree with the stored title** after a refused save, because the editor's title save is fire-and-forget and rewrites the tab regardless of the response. The pre-existing behaviour was worse (it really did blank the title), so this is filed rather than widened into an editor change: #932.
+- **`tests/PreflightTest.php` fails 6 of 24 standalone**, and under randomized order. Confirmed pre-existing on a clean worktree of the previous release, so it is unrelated to this change, but it is the first thing anyone verifying a new test file standalone will trip over. Filed as #933.
+- **Collect-all surfaces may now name one list-shaped `style` twice** — once for the shape, once for the slot — because the two rules take different claim roles. Deliberate: a suppressed diagnostic is the failure mode the claim set exists to prevent (#621). The write path is unaffected; it reports one message and it is the shape one.
+
+### One predicate, so the rule and its fail-safe cannot drift
+
+`pp_execute_action()` carries a fail-safe from #121 that must skip auto-draft promotion for exactly the set this rule refuses — the title field autosaves on blur, and promoting on a blank save recreates the permanent "(no title)" draft bug. It tested the literal `""` while the new rule tests `trim($title) === ''`. A fail-safe guarding a narrower class than the rule it backs up is not a fail-safe: relax the rule later and `"   "` would promote the draft again.
+
+Both now call one function, `_pp_title_is_blank()`. No test can enter that branch (the refusal returns first), so the agreement is made structural rather than left to a comment asking a reader to maintain it.
+
+### Fixed
+
+- `update_page_title` refuses a blank title (`""` or ASCII whitespace only) with `empty_title`, the predicate and code `create_page` already applies to the same field (`lib/actions.php`).
+- A declared `type: "object"` prop or item field refuses a populated JSON list through a new shared predicate `_pp_schema_object_value_is_valid()`, at the top-level prop arm and at a new RULE 6c in the nested `items[]` field pass (`lib/admin.php`).
+- The retained #121 auto-draft promotion fail-safe now tests the same blankness predicate as the rule it backs up, instead of the literal empty string only (`lib/actions.php`).
+
+### Docs
+
+- `lib/ai-context.php`, the prompt the composing model actually reads, gains a `#883` paragraph beside the one `#738` shipped. It carried a dedicated paragraph for every other write-path narrowing (#707, #744, #738) and would otherwise have told the model a declared list must be a JSON array while never mentioning the mirror.
+- `AI_CONTEXT.md`, `ai-instructions/composition.md`, `ai-instructions/validate-site.md` and `ai-instructions/add-component.md` record both rules, the empty-container acceptance, and the repair for each message. `add-component.md` is the file that tells an agent what declaring `type: "object"` buys, and it still described the leg as shape-agnostic.
+- `assets/js/pp-editor-logic.js`: the editor's read-side container guard is unchanged in behaviour, but its docblock claimed map-vs-list was nobody's rule and that the slot engine owned the object leg. It now records why the JS mirror deliberately stays looser than the write path — it guards a READ, and a stored shape the write path refuses must stay displayable so it can be repaired.
+- The historical v1.18.6 entry below stated that `type: "object"` was deliberately untouched. That was true when written; it is annotated in place as superseded rather than rewritten, following the correction convention v1.19.5 set.
+- `docs/reference-apply-cli.md` gains the `#883` reference section beside `#738`'s, phrased as the error-code change it is for shipped fields, and three pre-existing paragraphs that recorded the `object` leg as deliberately unowned are corrected in place.
+- The `update_page_title` action's own `semantics` string, which the chat AI reads at runtime, states the refusal and that whitespace is not stripped from a real title.
+
+### Tests
+
+- `tests/EmptyPageTitleWriteRefusalTest.php` (11 pins): every blank shape refused through the real action, nothing written, preview refused too, real titles stored byte-for-byte, `"0"` is a title and not a blank, the restore writer still accepts `""`, the forward and restore paths asserted as a deliberate pair, and the #121 outcome on both blank shapes.
+- A consistency tripwire walks `create_page` and `update_page_title` over one input list and requires identical verdicts and identical error codes, so the drift this issue closed cannot silently reopen. The single input they diverge on (`null`) is asserted as a decision, with a note pointing the future #931 fixer back to this line.
+- `tests/ObjectShapedPropWriteEnforcementTest.php` (19 pins): the predicate, the empty container, the stage order against the container rule, inventory-driven coverage of every nested `object` field in the shipped schemas (asserted count, so a new declaration is covered the day it lands), the authoring path through `update_composition` / `create_page` / `update_component` / `add_component`, both shipped fields, `restore_composition` restoring verbatim and reporting rather than blocking (#233), the folded-numeric limit, the two-findings posture, the render degradation, and the synthetic top-level arm.
+- Three pre-#883 pins that asserted the opposite contract are inverted rather than deleted, each carrying why the answer moved: `ContainerPropWriteEnforcementTest` (two) and `ListShapedPropWriteEnforcementTest` (one). `ActionsTest`'s empty-title promotion pin now asserts the refusal alongside the unchanged #121 outcome.
+- Both new files were verified standalone as well as in-suite, because this repo's bootstrap does not load every `lib/` file and a new test file can otherwise be order-dependent green.
+
+---
+
 ## [v1.19.5] — 2026-09-09 — A create_redirect receipt names the redirect it overwrote instead of claiming it created one (#887)
 
 **`create_redirect` is create-or-REPLACE, and its executed result said `from: null` no matter which happened. Point an existing redirect somewhere new and the receipt reported a fresh create, naming nowhere the row it had just destroyed. The result now reads the prior row before it writes, so a replace names what it replaced and a genuine create still says `null`.**
@@ -368,7 +478,7 @@ wp pp action execute update_composition --post_id=<id> \
 
 Order is the array order. There are no position keys, and nothing reads a key as an ordinal. `{}` and `[]` are indistinguishable once parsed and both count as the empty list, so neither is affected. `{"0": ..., "1": ...}` in order decodes to a PHP list before any validator sees it and is accepted; a reordered numeric object (`{"1": ..., "0": ...}`) does not and is refused.
 
-`type: "object"` is deliberately untouched — a JSON list handed to an `object` field still passes, exactly as before. Narrowing that leg is a separate ruling, now tracked as #883.
+`type: "object"` is deliberately untouched — a JSON list handed to an `object` field still passes, exactly as before. Narrowing that leg is a separate ruling, now tracked as #883. *(Superseded in v1.19.6: #883 landed and a declared `object` now refuses a populated list. This sentence is left as written because it was true of v1.18.6; read it as history, not as current behaviour.)*
 
 **How much stored data does this affect?** A read-only stored-content sweep found no affected pages: no stored composition carries a non-list declared-array prop, and no row failed to decode.
 
