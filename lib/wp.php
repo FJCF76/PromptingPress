@@ -5,6 +5,12 @@
  * THE ONLY file that calls WordPress functions directly.
  * Templates and components call ONLY these pp_* wrappers.
  * This is the stable contract — AI edits templates freely using these functions.
+ *
+ * It has a SECOND job, which follows from being require #1 in functions.php and in
+ * tests/bootstrap.php: shared helpers that must resolve in EVERY load context live here
+ * even when they call no WordPress function at all — pp_is_list() (#715) and the
+ * reflected-text owner (#864). That is an addition to the contract above, not an
+ * exception to it: the pp_* wrapper rule for templates and components is unchanged.
  */
 
 /**
@@ -306,6 +312,220 @@ function pp_resolve_front_page_render(int $post_id): array {
     // Present, or just-seeded: rendered exactly as read/seeded (#604 — no name
     // normalization on any read path).
     return ['mode' => 'render', 'composition' => $items];
+}
+
+// ── Reflected text: the one definition of clean (#647/#649, moved here by #864) ──
+//
+// A "reflected" string is text the theme did NOT author — caller argv, stored site
+// data, a validator message quoting either — on its way back out to a human. The
+// theme's rule is that such text is composed VERBATIM and each SINK strips at the
+// boundary, so there is exactly one place per surface that decides what is safe to
+// echo, and it is the last one before the wire.
+//
+//     lib/cli.php   human channel   ──►  _pp_cli_printable()            (Cc/Cf ──► ' ')
+//     lib/admin.php validator       ──►  _pp_schema_value_for_message() (quote+strip+bound)
+//     AJAX/editor + chat responses  ──►  _pp_clean_reflected_text()     (strip+bound+repair)
+//                                        _pp_clean_reflected_report()   (its one nested shape)
+//
+// THE THIRD ROW NAMES TWO CHANNELS, NOT ALL OF THEM, and the qualifier is load-bearing:
+// two channels that also ride server responses are unconverted by explicit ruling —
+// `findings[].message` on every envelope (#687's addendum owns that axis) and
+// `rollback_errors` (_pp_restore_batch_snapshot(), lib/actions.php). Reading this diagram
+// as a universal guarantee would let someone mistake an unguarded site for an audited one.
+// tests/ReflectedTextInventoryTest.php carries the full inventory, exceptions included.
+//
+// WHY THE THIRD OWNER LIVES IN THIS FILE and not with its callers. It was defined in
+// lib/ai-chat.php, which functions.php loads ONLY under is_admin(). That made it
+// unreachable from the always-loaded files whose sinks reflect the same strings:
+// lib/admin.php's editor-save AJAX handlers could have called it (is_admin() is true
+// in an AJAX request) but only by making an always-loaded file depend on a
+// conditionally-loaded one, which #649 rejected for _pp_item_index_label() — and
+// answering the same question two ways is how a codebase ends up with two definitions
+// of clean. Ruling T3 (#864) moved the owner instead. lib/wp.php is require #1 in
+// functions.php and in tests/bootstrap.php, so every load context — front-end, admin,
+// AJAX, WP-CLI, cron — resolves it.
+//
+// THE MOVE IS BEHAVIOUR-NEUTRAL BY CONSTRUCTION, not by argument: the body below
+// calls strlen, substr, preg_replace, mb_convert_encoding, mb_strlen and mb_substr,
+// and nothing else. No WordPress function, no option read, no translation, no global,
+// no load-time state. That is also why it sits in the file whose header says it is the
+// only one that calls WordPress functions directly: like pp_is_list() below, it calls
+// none at all.
+
+/** Longest caller-supplied name echoed back in a response. */
+const PP_REFLECTED_NAME_MAX = 256;
+
+/**
+ * Longest validator message echoed back as raw_error.
+ *
+ * IN CODE POINTS, because the bound is applied with mb_strlen()/mb_substr(). The chat
+ * client hand-copies this number as PP_CHAT_REFLECTED_ERROR_MAX / PP_CHAT_UNDO_ERROR_MAX
+ * (assets/js/pp-ai-chat.js) and applies it with String.length, which counts UTF-16 code
+ * UNITS. The two are equal for BMP text and differ above it: 4096 astral code points is
+ * 8192 code units, so on emoji-heavy text the client cuts a second time. That is a
+ * narrower render bound, not a disagreement about the budget — and there is no doubled
+ * marker, because the server's ellipsis sits past the client's cut and is discarded.
+ * tests/ChatReflectedTextBoundTest.php pins the NUMBER; this note owns the unit.
+ */
+const PP_REFLECTED_ERROR_MAX = 4096;
+
+/**
+ * Normalizes a piece of caller-supplied text for inclusion in a response.
+ *
+ * Both callers pass caller-derived text: a style slot name, or the validator
+ * message that quotes one. Two jobs.
+ *
+ * First, drop every character that carries no meaning in either but survives into
+ * whatever renders the response. `\p{Cc}` is the C0 and C1 control ranges — tab and
+ * newline included, because these messages are single-line. `\p{Cf}` is the format
+ * characters: the zero-width set, the bidirectional-formatting set (including
+ * U+061C, which the bidi controls are easy to enumerate without), the BOM, and the
+ * U+E0000 tag block. Those are invisible, so two different names can present
+ * identically to a reader deciding whether the name they typed is the name that was
+ * rejected. Naming the two Unicode categories beats listing ranges by hand: the
+ * category is the definition, an enumeration is a snapshot of it.
+ *
+ * Second, bound the length. Truncation follows the existing convention in
+ * lib/ai-context.php: cut to `$max_length - 3` and mark it, so the result never
+ * exceeds the stated budget.
+ *
+ * @param  string $text        Caller-supplied or caller-derived text.
+ * @param  int    $max_length  Character budget, not byte budget.
+ * @return string              Valid UTF-8, at most max($max_length, 3) characters — the
+ *                             floor is the truncation marker itself, which is only ever
+ *                             reached by a budget smaller than it.
+ */
+function _pp_clean_reflected_text(string $text, int $max_length): string {
+    // Bound the INPUT before scanning it, not just the output. The rejected name is
+    // interpolated into the validator's message verbatim
+    // (_pp_invalid_style_slot_error(), lib/actions.php), so
+    // a multi-megabyte name means preg_replace allocates a multi-megabyte copy to
+    // produce a result that is thrown away down to $max_length. A byte-length test
+    // is O(1), and 4 bytes is the widest UTF-8 encoding of one character, so
+    // $max_length * 4 bytes always holds at least $max_length characters.
+    //
+    // Not a no-op in every case: text made mostly of characters the strip removes
+    // could carry meaningful content past the byte cut and lose it. That only
+    // happens for input already far outside the shape of a slot name or a validator
+    // message, where a bounded response matters more than a faithful one.
+    if (strlen($text) > $max_length * 4) {
+        $text = substr($text, 0, $max_length * 4);
+    }
+
+    $clean = preg_replace('/[\p{Cc}\p{Cf}]/u', '', $text);
+
+    if ($clean === null) {
+        // The /u pattern returns null on invalid UTF-8 — which the byte-wise cut
+        // above can itself produce by landing mid-sequence. Repair the encoding and
+        // re-run the SAME pattern rather than falling back to a weaker one: a
+        // second definition of "clean" would quietly let the whole zero-width and
+        // bidi set through on exactly the malformed input that most warrants it.
+        //
+        // The `?? ''` is reachable, not ceremony: this retry uses the same /u
+        // pattern, so any PCRE failure that is not an encoding problem returns null
+        // again, and this function's `: string` return type would make that a fatal.
+        $clean = preg_replace('/[\p{Cc}\p{Cf}]/u', '', mb_convert_encoding($text, 'UTF-8', 'UTF-8')) ?? '';
+    }
+
+    if (mb_strlen($clean) > $max_length) {
+        // max(0, ...) because the marker is 3 characters and the budget is a parameter.
+        // Below a budget of 3 the bare subtraction goes NEGATIVE, and a negative length
+        // makes mb_substr() cut from the END instead — so _pp_clean_reflected_text('abcdef', 2)
+        // returned 'abcde...', eight characters for a budget of two, from the branch whose
+        // whole job is to enforce the budget this function's contract promises. Unreachable
+        // through the two shipped constants (256 and 4096); reachable the moment anything
+        // passes a small budget, which is a live possibility now that the owner is
+        // always-loaded and takes an arbitrary int. Byte-identical for every caller today.
+        $clean = mb_substr($clean, 0, max(0, $max_length - 3)) . '...';
+    }
+
+    return $clean;
+}
+
+/**
+ * Cleans the reflected MESSAGE of every row in a post-apply validation report (#864).
+ *
+ * THE ONE NESTED SHAPE IN THE RESPONSE VOCABULARY, which is why it gets a helper and
+ * the scalar sinks do not. `pp_post_apply_validate()` (lib/post-apply-validate.php)
+ * returns
+ *
+ *     ['ok'       => bool,
+ *      'warnings' => [ ['check' => .., 'message' => ..], .. ],
+ *      'errors'   => [ ['check' => .., 'message' => ..], .. ]]
+ *
+ * and those messages interpolate stored site data: a component name, a media path, a
+ * decode error quoted back from the stored row, and — on the try/catch arm both
+ * producers share — a `\Throwable::getMessage()`. The same report ships twice on the
+ * chat channel, as `data.validation` from the single execute and as
+ * `data.steps[i].validation` from the batch, so wrapping it at each sink by hand would
+ * be two spellings of one rule.
+ *
+ * BOUNDED IN DEPTH BY CONSTRUCTION, which is stronger than a counter: this is not a
+ * recursive walker and it does not traverse arbitrary structure. It reaches exactly
+ * two levels — channel list, then row, then the one field — so no nesting a payload
+ * could carry is reachable at all.
+ *
+ * BOUNDED IN SIZE BY THE OWNER: every string it touches goes through
+ * _pp_clean_reflected_text(), whose input is pre-cut at $max * 4 bytes and whose
+ * output is at most $max characters. What this helper can emit is therefore bounded at
+ * rows x PP_REFLECTED_ERROR_MAX.
+ *
+ * NO ROW COUNTER, deliberately, and the reason is measured rather than asserted. A
+ * counter has to visit a row to skip it, so it cannot save the walk; all it can change
+ * is what SHIPS. And there is nothing to save: every row here was produced by
+ * pp_post_apply_validate(), which RENDERS each band to make it. Measured on a 2,000-band
+ * composition producing 2,001 report rows, the producer costs 0.659s and this cleaner
+ * costs 0.0011s — 0.16% of the work already done before it is called. A cap would buy
+ * back a sixth of one percent of a request that has already paid a hundred times more.
+ *
+ * Slicing a report and telling the reader it was sliced is _pp_bounded_findings()'s
+ * contract (lib/actions.php) — it emits an advisory row naming the TRUE total, so a
+ * truncated report never reads as a complete one — and that is a different axis with its
+ * own ruling. A second, quieter answer here is exactly the drift #650/#652 spent an
+ * iteration undoing.
+ *
+ * TYPE-TOLERANT ON PURPOSE. `validation` is null whenever the caller passed no
+ * post_id, a channel can be absent, and a row that is not an array or a message that
+ * is not a string can only come from a producer that changed shape. Each of those is
+ * passed through untouched rather than coerced: this helper's job is to clean the text
+ * it recognizes, never to normalize a shape it does not own.
+ *
+ * THAT TOLERANCE IS A SERVER-SIDE PROMISE, not an end-to-end one. It says this function
+ * will not fatal on a shape it does not recognize; it says nothing about what the chat
+ * client does with one. A truthy NON-ARRAY `validation` would reach
+ * ppChatAppendValidationItems() and throw there — unreachable today, since
+ * pp_post_apply_validate() and both of its callers' catch arms emit only the array
+ * shape, and it was equally reachable before this helper existed. Stated so the
+ * tolerance is not read as a guarantee it does not make.
+ *
+ * WHY IT LIVES HERE rather than beside its two callers in lib/ai-chat.php: it is a thin
+ * wrapper whose only leaf action is a call to the owner directly above, and splitting the
+ * pair across the is_admin() load boundary is the exact coupling the move exists to remove.
+ * A future editor-side sink that ships a report (lib/admin.php's WP_DEBUG render arm is one
+ * Throwable away from being one) then needs no second decision about where to reach.
+ *
+ * @param  mixed $report  A validation report, null, or anything else.
+ * @return mixed          The same value, with every recognized message cleaned.
+ */
+function _pp_clean_reflected_report($report) {
+    if (!is_array($report)) {
+        return $report;
+    }
+
+    foreach (['errors', 'warnings'] as $channel) {
+        if (!isset($report[$channel]) || !is_array($report[$channel])) {
+            continue;
+        }
+        foreach ($report[$channel] as $i => $row) {
+            if (!is_array($row) || !isset($row['message']) || !is_string($row['message'])) {
+                continue;
+            }
+            $report[$channel][$i]['message'] =
+                _pp_clean_reflected_text($row['message'], PP_REFLECTED_ERROR_MAX);
+        }
+    }
+
+    return $report;
 }
 
 // ── Site-state read functions (action-layer support) ─────────────────────────

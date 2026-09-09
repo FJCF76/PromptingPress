@@ -407,80 +407,20 @@ function _pp_component_target_not_found(array $params, int $resolved_index): boo
 //    end to end on the shipped registry the whole message is
 //    273 for hero, against 11309 before)
 
-/** Longest caller-supplied name echoed back in a response. */
-const PP_REFLECTED_NAME_MAX = 256;
-
-/** Longest validator message echoed back as raw_error. */
-const PP_REFLECTED_ERROR_MAX = 4096;
+// PP_REFLECTED_NAME_MAX, PP_REFLECTED_ERROR_MAX and _pp_clean_reflected_text() USED TO
+// LIVE HERE and now live in lib/wp.php (#864, ruling T3). This file is loaded only under
+// is_admin(), and the same strings are reflected by sinks in always-loaded files —
+// lib/admin.php's editor-save AJAX handlers — so the owner had to move for those sinks to
+// reach it without an always-loaded file depending on a conditional one. Everything in
+// this file calls them exactly as before; lib/wp.php is require #1, so they are always
+// resolved by the time anything here runs. The two constants below stay: they bound how
+// much a chat MESSAGE says, which is this file's job, not the reflected-text owner's.
 
 /** Most unknown style-slot keys examined for a cross-component hint. */
 const PP_CROSS_COMPONENT_HINT_MAX = 64;
 
 /** Most declared slot names the friendly message says out loud. */
 const PP_FRIENDLY_SLOT_SAMPLE_MAX = 5;
-
-/**
- * Normalizes a piece of caller-supplied text for inclusion in a response.
- *
- * Both callers pass caller-derived text: a style slot name, or the validator
- * message that quotes one. Two jobs.
- *
- * First, drop every character that carries no meaning in either but survives into
- * whatever renders the response. `\p{Cc}` is the C0 and C1 control ranges — tab and
- * newline included, because these messages are single-line. `\p{Cf}` is the format
- * characters: the zero-width set, the bidirectional-formatting set (including
- * U+061C, which the bidi controls are easy to enumerate without), the BOM, and the
- * U+E0000 tag block. Those are invisible, so two different names can present
- * identically to a reader deciding whether the name they typed is the name that was
- * rejected. Naming the two Unicode categories beats listing ranges by hand: the
- * category is the definition, an enumeration is a snapshot of it.
- *
- * Second, bound the length. Truncation follows the existing convention in
- * lib/ai-context.php: cut to `$max_length - 3` and mark it, so the result never
- * exceeds the stated budget.
- *
- * @param  string $text        Caller-supplied or caller-derived text.
- * @param  int    $max_length  Character budget, not byte budget.
- * @return string              Valid UTF-8, at most $max_length characters.
- */
-function _pp_clean_reflected_text(string $text, int $max_length): string {
-    // Bound the INPUT before scanning it, not just the output. The rejected name is
-    // interpolated into the validator's message verbatim
-    // (_pp_invalid_style_slot_error(), lib/actions.php), so
-    // a multi-megabyte name means preg_replace allocates a multi-megabyte copy to
-    // produce a result that is thrown away down to $max_length. A byte-length test
-    // is O(1), and 4 bytes is the widest UTF-8 encoding of one character, so
-    // $max_length * 4 bytes always holds at least $max_length characters.
-    //
-    // Not a no-op in every case: text made mostly of characters the strip removes
-    // could carry meaningful content past the byte cut and lose it. That only
-    // happens for input already far outside the shape of a slot name or a validator
-    // message, where a bounded response matters more than a faithful one.
-    if (strlen($text) > $max_length * 4) {
-        $text = substr($text, 0, $max_length * 4);
-    }
-
-    $clean = preg_replace('/[\p{Cc}\p{Cf}]/u', '', $text);
-
-    if ($clean === null) {
-        // The /u pattern returns null on invalid UTF-8 — which the byte-wise cut
-        // above can itself produce by landing mid-sequence. Repair the encoding and
-        // re-run the SAME pattern rather than falling back to a weaker one: a
-        // second definition of "clean" would quietly let the whole zero-width and
-        // bidi set through on exactly the malformed input that most warrants it.
-        //
-        // The `?? ''` is reachable, not ceremony: this retry uses the same /u
-        // pattern, so any PCRE failure that is not an encoding problem returns null
-        // again, and this function's `: string` return type would make that a fatal.
-        $clean = preg_replace('/[\p{Cc}\p{Cf}]/u', '', mb_convert_encoding($text, 'UTF-8', 'UTF-8')) ?? '';
-    }
-
-    if (mb_strlen($clean) > $max_length) {
-        $clean = mb_substr($clean, 0, $max_length - 3) . '...';
-    }
-
-    return $clean;
-}
 
 /**
  * Writes the visible sentence for an invalid_style_slot rejection that has no
@@ -793,9 +733,23 @@ function _pp_build_friendly_error(WP_Error $error, array $params): array {
             $has_hints = $hints_array !== [];
             if ($has_hints) {
                 $first_hint = reset($hints_array);
+                // CLEANED, LIKE ITS SIBLING (#864). $component_name is read from stored
+                // composition ($composition[$idx]['component']) on the fallback path, so
+                // it is reflected text; the no-hint branch below has routed the identical
+                // value through the same owner at the same budget since #661, inside
+                // _pp_no_hint_slot_message(). Two branches of one switch arm gave that
+                // value two answers, and which one a caller got depended on whether a
+                // cross-component hint happened to match. $first_hint['component'] needs
+                // nothing: it is a key of pp_get_registered_components(), theme-authored.
+                //
+                // The `?:` is KEPT rather than swapped for the sibling's `=== ''` test, so
+                // the sentence stays byte-identical for every well-formed name — including
+                // a component literally named "0", which both branches still describe as
+                // "the selected" one. That divergence predates this change and is not the
+                // reflected-text axis.
                 $user_message = sprintf(
                     'I tried to change a setting on the %s component, but it isn\'t available there. It does exist on the %s component. You could ask me to change it there instead.',
-                    $component_name ?: 'selected',
+                    _pp_clean_reflected_text((string) $component_name, PP_REFLECTED_NAME_MAX) ?: 'selected',
                     $first_hint['component']
                 );
             } else {
@@ -1282,7 +1236,31 @@ function _pp_ai_execute_response(array $post): array {
         }
     }
 
-    $result['validation'] = $validation;
+    // CLEANED AT THIS SINK (#864). Every OTHER field of this endpoint's error payloads has
+    // been cleaned since v1.17.8, but the report attached here rides the SUCCESS envelope
+    // and was shipped raw: `data.validation.errors[].message` interpolates a stored
+    // component name, a media path, the decode error quoted back from a corrupt row, and —
+    // on the catch arm above — a \Throwable message. Same endpoint, same response, same
+    // renderer, so whether a stored bidi sequence reached the chat card depended only on
+    // whether the step had SUCCEEDED. The bound is PP_REFLECTED_ERROR_MAX inside the
+    // helper, the same budget the failure arms use.
+    //
+    // TWO NEIGHBOURS ON THIS SAME ENVELOPE ARE DELIBERATELY NOT CLEANED, named here so
+    // the next reader does not have to re-derive whether they were missed:
+    //
+    //   `findings`       — copies validator messages verbatim and rides every accepted
+    //                      write. A separately-ruled axis (#687's addendum, and the note
+    //                      on _pp_bounded_findings() in lib/actions.php); #864 was scoped
+    //                      to the AJAX/editor channel's composed messages, not to it.
+    //   `stale_warnings` — an APPLY result (pp_masked_derived_overrides(), lib/wp.php)
+    //                      carrying `token` and `current` read from the pp_token_overrides
+    //                      option. A different SPECIES, not just a different field: the
+    //                      server ships structured VALUES and the sentence is composed in
+    //                      JavaScript, so cleaning it is the reflected-VALUE axis
+    //                      (_pp_schema_value_for_message()'s job, #649) rather than this
+    //                      one. It reaches the same renderer as the rows cleaned above,
+    //                      which is worth knowing and is filed separately.
+    $result['validation'] = _pp_clean_reflected_report($validation);
     return ['ok' => true, 'data' => $result];
 }
 
@@ -1355,7 +1333,8 @@ function _pp_ai_execute_error_payload(array $result, array $params) {
 // WHY THE SERVER WRITES THE SENTENCE. The bound has to have one owner. The text quotes a
 // validator message, and lib/actions.php:702 says out loud that this message is NOT
 // bounded on the batch path ("Bounding what a message reflects is #647/#649's axis").
-// The convention for reflected validator text lives in THIS file — PP_REFLECTED_ERROR_MAX
+// The convention for reflected validator text is single-owned in lib/wp.php (#864) —
+// PP_REFLECTED_ERROR_MAX
 // and _pp_clean_reflected_text() — so writing the sentence here reuses it instead of
 // inventing a second answer in JavaScript. PP_CHAT_RENDER_ERROR_MAX is not that answer
 // and says so in its own docblock: it is a LAYOUT bound on a string the client invents.
@@ -1846,6 +1825,38 @@ function _pp_ai_execute_batch_response(array $post): array {
     $note = _pp_ai_batch_rejection_note($batch);
     if ($note !== null) {
         $batch['model_note'] = $note;
+    }
+
+    // THE BATCH'S HALF OF #864, cleaned HERE and not inside pp_ai_execute_batch() for the
+    // same reason the model note is attached here: that executor is shared with WP-CLI
+    // (`wp pp action execute`), whose channel already strips at its own sink
+    // (_pp_cli_printable()). Cleaning in the executor would put a second guard on a
+    // channel that has one and would move the decision away from the sink, which is the
+    // rule this whole axis rests on. The chat entry point is the sink for the chat.
+    //
+    // TWO FIELDS PER STEP, ONE OWNER. `error` is the failing step's composed validator
+    // message — the batch twin of the single-execute payload cleaned above — and
+    // `validation` is the same report shape, so it goes through the same helper rather
+    // than a second spelling of the walk.
+    //
+    // The fields AROUND them are deliberately untouched: `action`, `scope` and
+    // `error_code` are theme-authored literals; `target` and `versions` are integers;
+    // `changes` carries the author's own submitted values, which are content rather than
+    // a message about content; `findings` is the separately-ruled channel #687's addendum
+    // owns; and `model_note` was already cleaned by _pp_ai_batch_rejection_note().
+    if (isset($batch['steps']) && is_array($batch['steps'])) {
+        foreach ($batch['steps'] as $i => $step) {
+            if (!is_array($step)) {
+                continue;
+            }
+            if (isset($step['error']) && is_string($step['error'])) {
+                $batch['steps'][$i]['error'] =
+                    _pp_clean_reflected_text($step['error'], PP_REFLECTED_ERROR_MAX);
+            }
+            if (isset($step['validation'])) {
+                $batch['steps'][$i]['validation'] = _pp_clean_reflected_report($step['validation']);
+            }
+        }
     }
 
     return ['ok' => true, 'data' => $batch];

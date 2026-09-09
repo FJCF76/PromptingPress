@@ -772,12 +772,19 @@ function pp_normalize_composition(array $items): array {
  * never legible anyway: control and format characters are stripped, a key past
  * PP_REFLECTED_VALUE_MAX_LENGTH is cut and marked, and invalid UTF-8 is repaired.
  *
- * WHY NOT _pp_clean_reflected_text(), which is the chat side's owner for the same job: it
- * lives in lib/ai-chat.php, which functions.php loads ONLY under is_admin(). This function
- * is reached under WP-CLI (`wp pp check page` -> pp_validate_composition_errors()), where
- * that file is not loaded at all, so calling it here would be a fatal undefined function on
- * exactly the never-validated data these commands exist to inspect. Same convention, the
- * owner that is actually in scope.
+ * WHY NOT _pp_clean_reflected_text(), the shared owner for the same job. The reason USED TO
+ * BE reachability: that owner lived in lib/ai-chat.php, which functions.php loads only under
+ * is_admin(), while this function runs under WP-CLI too (`wp pp check page` ->
+ * pp_validate_composition_errors()) — so the call would have been a fatal undefined function
+ * on exactly the never-validated data those commands exist to inspect. #864 moved the owner
+ * to lib/wp.php, so that half is now false and calling it here would work.
+ *
+ * WHAT STILL DECIDES IT IS SEMANTICS, which is the half that was always load-bearing. These
+ * messages reflect a single VALUE and want it quoted and short: this helper supplies the
+ * quotes itself and bounds at PP_REFLECTED_VALUE_MAX_LENGTH. The shared owner supplies no
+ * quotes and bounds at PP_REFLECTED_ERROR_MAX, which is the budget for a whole composed
+ * message. Two owners, two jobs, one definition of "clean" underneath neither borrowing the
+ * other's bound.
  *
  * STILL NOT ESCAPED, and still on purpose: a key containing a double quote renders
  * ambiguously (`key "a"b"`). Bounding is this axis; QUOTING GRAMMAR is a different one and
@@ -2140,6 +2147,31 @@ function pp_validate_composition_errors(array $items, ?int $limit = null): array
         $name = (string) $item['component'];
 
         if (!isset($registered[$name])) {
+            // THE NAME IS REFLECTED VERBATIM HERE, AND THAT IS A RECORDED OUTCOME
+            // rather than an oversight (#864). This branch fires precisely BECAUSE the
+            // name is not in the registry, so it is arbitrary caller or stored text.
+            //
+            // Every route it takes to a human cleans it AT THE SINK, which is the theme's
+            // rule — WITH ONE NAMED EXCEPTION. Cleaned: the editor's save, preview and
+            // publish responses (lib/admin.php), the chat's execute and preview payloads
+            // (lib/ai-chat.php, since v1.17.8), and the terminal through
+            // _pp_cli_printable() (lib/cli.php). NOT cleaned: the `findings` channel,
+            // which copies this message verbatim (_pp_composition_findings(),
+            // lib/actions.php), rides every accepted write, and reaches the chat card with
+            // its bytes intact — the client renders it through textContent and bounds its
+            // LENGTH (ppChatBoundReflectedText), but deliberately does not strip, because
+            // stripping is single-owned on the server. Say that plainly rather than
+            // claiming a coverage this code does not have.
+            //
+            // WHY NOT CLEAN IT HERE AND CLOSE THAT ROUTE TOO. A guard at the source would
+            // reach the `findings` channel and the terminal at once, and
+            // _pp_bounded_findings() (lib/actions.php) names findings as a DIFFERENT
+            // ruling: it records that a stored component NAME is still reflected verbatim,
+            // which is what keeps a `duplicate_component_id` message O(N) in the band
+            // count. Cleaning one of that channel's messages would half-land someone
+            // else's ruling and make that note half-false. #864 converted the AJAX/editor
+            // channel it was scoped to; the findings channel keeps its own owner and its
+            // own issue.
             $errors[] = _pp_composition_item_error($i,
                 'invalid_composition',
                 sprintf('Unknown component: "%s".', $name)
@@ -4179,23 +4211,72 @@ add_action('save_post_page', function (int $post_id, WP_Post $post, bool $update
 
 // ── AJAX Save ─────────────────────────────────────────────────────────────────
 
-add_action('wp_ajax_pp_save_composition', function () {
-    $post_id = isset($_POST['post_id']) ? (int) $_POST['post_id'] : 0;
+/**
+ * The editor's structured rejection payload, built once for the three sinks that ship it.
+ *
+ * ONE SPELLING OF ONE RULE (#864). The save endpoint and both arms of the publish endpoint
+ * all answer a refused write with `{message, code}` — the editor keys on the machine-readable
+ * `code` (composition_conflict -> reload prompt) rather than parsing the human message (#13).
+ * Wrapping the message at each sink turned one line into four at each of the three, which is
+ * the same "two literal copies of one refusal spelling" drift #650/#652 spent an iteration
+ * undoing. Written here once instead.
+ *
+ * THE MESSAGE IS CLEANED, THE CODE IS NOT. `error` is a composed validator message that
+ * quotes stored composition data back — a component name, a style slot key — so it is
+ * reflected text and gets the one owner at this boundary, exactly as the chat's two payloads
+ * have since v1.17.8. `error_code` is a theme-authored literal from _pp_action_error() /
+ * _pp_action_validation_error_envelope(); guarding it would claim a doubt that does not
+ * exist, and the editor only ever compares it, never renders it. Meaning is unchanged for
+ * every well-formed message; only bytes that were never legible are.
+ *
+ * @param  array $result  A REFUSED action envelope (ok === false).
+ * @return array          ['message' => string, 'code' => string].
+ */
+function _pp_editor_error_payload(array $result): array {
+    return [
+        'message' => _pp_clean_reflected_text((string) $result['error'], PP_REFLECTED_ERROR_MAX),
+        'code'    => $result['error_code'] ?? '',
+    ];
+}
 
-    if (!$post_id || !isset($_POST['nonce']) ||
-        !wp_verify_nonce($_POST['nonce'], 'pp_composition_' . $post_id)) {
-        wp_send_json_error('Invalid nonce.');
+/**
+ * Core logic for the editor-save AJAX handler, extracted from the
+ * wp_ajax_pp_save_composition closure so it is directly unit-testable (#864).
+ *
+ * THE EXTRACTION IS THE POINT, not a tidy-up. add_action() is a no-op in the test
+ * bootstrap, so a closure body is unreachable from PHPUnit — which is how this
+ * handler's error payload stayed the one editor sink no test could observe. It is the
+ * same shape lib/ai-chat.php already uses for its four handlers
+ * (_pp_ai_execute_response() and neighbours), and the same reason: the #387 lesson is
+ * to pin the real handler path, not a helper-only slice underneath it. The closure
+ * below is now a thin adapter that translates ['ok' => bool, 'data' => mixed] into
+ * wp_send_json_success()/wp_send_json_error().
+ *
+ * `data` is a STRING for the three pre-flight refusals (all theme-authored literals)
+ * and an ARRAY for a rejected write, because the editor keys on the structured `code`
+ * (composition_conflict → reload prompt) rather than parsing the human message (#13).
+ *
+ * @param  array $post  $_POST-shaped input: ['post_id', 'nonce', 'composition',
+ *                       'expected_version'].
+ * @return array        ['ok' => bool, 'data' => mixed].
+ */
+function _pp_save_composition_response(array $post): array {
+    $post_id = isset($post['post_id']) ? (int) $post['post_id'] : 0;
+
+    if (!$post_id || !isset($post['nonce']) ||
+        !wp_verify_nonce($post['nonce'], 'pp_composition_' . $post_id)) {
+        return ['ok' => false, 'data' => 'Invalid nonce.'];
     }
 
     if (!current_user_can('edit_post', $post_id)) {
-        wp_send_json_error('Insufficient permissions.');
+        return ['ok' => false, 'data' => 'Insufficient permissions.'];
     }
 
-    $raw     = isset($_POST['composition']) ? stripslashes($_POST['composition']) : '';
+    $raw     = isset($post['composition']) ? stripslashes($post['composition']) : '';
     $decoded = json_decode($raw, true);
 
     if (json_last_error() !== JSON_ERROR_NONE || !is_array($decoded)) {
-        wp_send_json_error('Invalid JSON.');
+        return ['ok' => false, 'data' => 'Invalid JSON.'];
     }
 
     // Optimistic-locking baseline (#13): the version the editor loaded. Threaded into the
@@ -4203,7 +4284,7 @@ add_action('wp_ajax_pp_save_composition', function () {
     // write (the AI chat, a CLI action, another tab) is rejected with composition_conflict.
     // Absent/empty → null → the write skips the CAS (documented back-compat).
     $params = ['post_id' => $post_id, 'composition' => $decoded];
-    $expected_version = _pp_expected_version_from_request($_POST);
+    $expected_version = _pp_expected_version_from_request($post);
     if ($expected_version !== null) {
         $params['expected_version'] = $expected_version;
     }
@@ -4212,20 +4293,30 @@ add_action('wp_ajax_pp_save_composition', function () {
 
     if (!$result['ok']) {
         // Structured payload so the editor can key on the code (composition_conflict →
-        // reload prompt) rather than parsing the human message (#13).
-        wp_send_json_error(['message' => $result['error'], 'code' => $result['error_code'] ?? '']);
+        // reload prompt) rather than parsing the human message (#13). Built by the shared
+        // helper, which is where the cleaning rule for this shape is written down (#864).
+        return ['ok' => false, 'data' => _pp_editor_error_payload($result)];
     }
 
     // Auto-draft → draft promotion happens inside pp_execute_action() itself
     // (lib/actions.php) — one place, covering AJAX/CLI/operate.php alike.
 
-    $saved = pp_get_composition($post_id);
-    wp_send_json_success([
-        'composition' => $saved,
+    return ['ok' => true, 'data' => [
+        'composition' => pp_get_composition($post_id),
         // Return the new baseline so the editor advances currentVersion and a follow-up
         // save doesn't false-conflict against its own prior write (#13).
         'version'     => pp_get_composition_marker($post_id)['version'],
-    ]);
+    ]];
+}
+
+add_action('wp_ajax_pp_save_composition', function () {
+    $resp = _pp_save_composition_response($_POST);
+
+    if ($resp['ok']) {
+        wp_send_json_success($resp['data']);
+    } else {
+        wp_send_json_error($resp['data']);
+    }
 });
 
 // ── Admin Page Registration ───────────────────────────────────────────────────
@@ -4688,7 +4779,10 @@ add_action('wp_ajax_pp_preview_composition', function () {
 
     $result = pp_validate_composition($composition);
     if (is_wp_error($result)) {
-        wp_send_json_error($result->get_error_message());
+        // Cleaned at the sink (#864), like every other composed validator message the
+        // editor renders. The preview endpoint validates the composition the EDITOR
+        // submitted, so the names this message quotes back are caller text outright.
+        wp_send_json_error(_pp_clean_reflected_text($result->get_error_message(), PP_REFLECTED_ERROR_MAX));
     }
 
     $dir_uri = get_template_directory_uri();
@@ -4713,7 +4807,14 @@ add_action('wp_ajax_pp_preview_composition', function () {
     } catch (Throwable $e) {
         ob_end_clean();
         if (defined('WP_DEBUG') && WP_DEBUG) {
-            wp_send_json_error('Render failed: ' . $e->getMessage());
+            // The third of #864's \Throwable rows, and the only one that is a scalar
+            // sink — the other two land inside a validation report and are cleaned by
+            // _pp_clean_reflected_report(). Not theme-authored text and not the same
+            // threat model as stored site data, but a component render throwing on
+            // stored props can quote those props back, and this arm ships it straight
+            // into the editor's error banner. Cleaned for the same reason as its
+            // neighbours: the sink decides, and every sink here decides the same way.
+            wp_send_json_error(_pp_clean_reflected_text('Render failed: ' . $e->getMessage(), PP_REFLECTED_ERROR_MAX));
         }
         wp_send_json_error('Render failed.');
     }
@@ -4752,7 +4853,11 @@ add_action('wp_ajax_pp_save_title', function (): void {
     ]);
 
     if (!$result['ok']) {
-        wp_send_json_error($result['error']);
+        // Cleaned at the sink (#864). update_page_title's rejections quote the caller's
+        // own title back, and sanitize_text_field() above is a WordPress input filter,
+        // not a reflected-text guard — it strips tags and invalid UTF-8 but leaves the
+        // bidi and zero-width set intact.
+        wp_send_json_error(_pp_clean_reflected_text((string) $result['error'], PP_REFLECTED_ERROR_MAX));
     }
 
     // Auto-draft → draft promotion (with the empty-title-blur exclusion)
@@ -4791,14 +4896,15 @@ add_action('wp_ajax_pp_publish_page', function (): void {
         }
         $save_result = pp_execute_action('update_composition', $save_params);
         if (!$save_result['ok']) {
-            wp_send_json_error(['message' => $save_result['error'], 'code' => $save_result['error_code'] ?? '']);
+            // The same shape, the same rule, one spelling (#864).
+            wp_send_json_error(_pp_editor_error_payload($save_result));
         }
     }
 
     // Publish the page.
     $pub_result = pp_execute_action('publish_page', ['post_id' => $post_id]);
     if (!$pub_result['ok']) {
-        wp_send_json_error(['message' => $pub_result['error'], 'code' => $pub_result['error_code'] ?? '']);
+        wp_send_json_error(_pp_editor_error_payload($pub_result));
     }
 
     $saved = pp_get_composition($post_id);

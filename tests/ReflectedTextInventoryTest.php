@@ -8,21 +8,33 @@
  *
  *     lib/cli.php human channel  ──► _pp_cli_printable()             (Cc/Cf ──► ' ')
  *     lib/admin.php validator    ──► _pp_schema_value_for_message()  (quote + strip + bound)
- *     lib/ai-chat.php responses  ──► _pp_clean_reflected_text()      (strip + bound + repair)
+ *     every server response      ──► _pp_clean_reflected_text()      (strip + bound + repair)
+ *                                    _pp_clean_reflected_report()    (its one nested shape)
+ *
+ * THE THIRD OWNER MOVED TO lib/wp.php IN #864 (ruling T3) and is no longer "the chat side's".
+ * It was defined in lib/ai-chat.php, which functions.php loads only under is_admin(), so the
+ * editor's own AJAX sinks — in always-loaded lib/admin.php — could not reach it without an
+ * always-loaded file depending on a conditionally-loaded one, the coupling #649 rejected for
+ * _pp_item_index_label(). That is why this row now names a CHANNEL rather than a file.
  *
  * No new sanitizer, no new constant, no second definition of "safe to echo back". This file
  * pins the CONVERSIONS — one test per surface — plus the two properties that make the change
  * safe to ship: well-formed text is BYTE-IDENTICAL through every one of them, and the sites
  * deliberately left alone stay legible.
  *
- * WHAT THIS FILE DOES *NOT* CLAIM. The rule above is stated for the surfaces #647/#649
+ * WHAT THIS FILE DOES *NOT* CLAIM. The rule above is stated for the surfaces #647/#649/#864
  * inventoried, not for every sink in the theme, and reading it as universal would let a
  * future reader mistake an unguarded site for an audited one. Known-unguarded, on purpose:
  *
- *   - the COMPOSED-MESSAGE cluster — lib/admin.php's wp_send_json_error editor-save sites,
- *     `Unknown component: "%s"` at lib/admin.php, the raw $component_name in
- *     _pp_build_friendly_error()'s hinted branch, and two nested chat payload fields.
- *     Deferred to #864, which carries the open owner question;
+ *   - `Unknown component: "%s"` at lib/admin.php, whose stored name is still interpolated
+ *     verbatim AT THE SOURCE. Every route it takes to a reader cleans it at the SINK — the
+ *     three editor endpoints in section E, the chat's two payloads in section D, the
+ *     terminal's _pp_cli_printable() — so nothing reaches anyone unguarded. Cleaning it at
+ *     the source as well would additionally bound it on the `findings` channel, which
+ *     _pp_bounded_findings() (lib/actions.php) records as a separate ruling (#687's
+ *     addendum); half-landing that ruling for one message is why #864 left it. The site
+ *     carries the same note;
+ *   - `findings[].message` on every envelope, for that same reason;
  *   - the ~23 sibling `Component "%s"` messages, which reflect a stored component name
  *     verbatim. #649 treats that family's spelling as the reference point, not the target;
  *   - the `rollback_errors` channel (`_pp_restore_batch_snapshot()`, lib/actions.php), whose
@@ -31,9 +43,13 @@
  *     query and trailing slash — it is a URL normalizer, not a text guard, so it removes no
  *     \p{Cc}\p{Cf}. Registered here so the new producer is not mistaken for an audited sink:
  *     it joined an already-unguarded channel rather than opening one. The exposure is
- *     bounded — the chat renders these rows through textContent, so the escape is the DOM's
- *     — and the owner question for a shared server-side cleaner is #864's, which this gate
- *     deliberately leaves unruled;
+ *     bounded — the chat renders these rows through textContent, so the escape is the DOM's.
+ *     #864 answered the OWNER question this used to wait on (there is now a shared cleaner,
+ *     in lib/wp.php) but did not carry the conversion, which was not in its enumerated
+ *     scope;
+ *   - the AI provider's own error text (`pp_ai_completion()` -> lib/ai-chat.php's chat
+ *     fallback handler), which is a third source class beside caller argv and stored site
+ *     data. Also outside #864's enumerated scope;
  *   - QUOTING grammar — a key containing a double quote still renders `key "a"b"`;
  *   - U+2028/U+2029 and homoglyphs, which are not \p{Cc}\p{Cf}.
  *
@@ -917,5 +933,693 @@ class ReflectedTextInventoryTest extends TestCase
 
         $this->assertSame(PP_REFLECTED_ERROR_MAX, mb_strlen($payload), 'bounded to the server budget, in CHARACTERS');
         $this->assertStringEndsWith('...', $payload, 'and marked, so the cut is visible');
+    }
+
+    // ── E. The AJAX/editor channel (#864) ─────────────────────────────────────
+    //
+    // The remainder of the channel #647 opened. The sections above pin the terminal
+    // channel and the two chat error payloads; these pin the editor's own AJAX
+    // responses and the two NESTED fields that are not a one-line wrap.
+
+    /**
+     * A $_POST value the way WordPress actually delivers one.
+     *
+     * BOTH HANDLERS UNSLASH BEFORE DECODING — `stripslashes()` in
+     * _pp_save_composition_response(), `wp_unslash()` in
+     * _pp_ai_execute_batch_response() — because WordPress magic-quotes every $_POST
+     * value during bootstrap (wp_magic_quotes()). A fixture that hands them plain
+     * json_encode() output therefore gets the BACKSLASHES of its \uXXXX and \n escapes
+     * removed, and decodes to the harmless LITERAL text uXXXX, so the
+     * hostile bytes never reach the validator and the test passes for the wrong
+     * reason — it proves nothing about cleaning, because there was nothing to clean.
+     * Slash-escaping here is what makes these pins real.
+     */
+    private function postJson(array $value): string
+    {
+        return addslashes((string) wp_json_encode($value));
+    }
+
+    /** Seeds a page through the real writer, so its version marker is real too. */
+    private function makePage(string $title, array $composition): int
+    {
+        $id = pp_create_page($title);
+        pp_update_composition($id, $composition);
+        return $id;
+    }
+
+    /**
+     * A PHP file with its comments removed, so a source assertion is about CODE.
+     *
+     * WITHOUT THIS, EVERY SOURCE TRIPWIRE IN THIS FILE IS SATISFIED BY A COMMENT. Proven by
+     * mutation on this very change: commenting out three of the real wraps in lib/admin.php
+     * while leaving the needle text alive as a comment left the whole suite green. A pin a
+     * comment can satisfy is not a pin — it is a pin-shaped string search that fails only
+     * when someone deletes the words, which is the one way the guard was never going to be
+     * lost. The idiom is the repo's own (tests/PpIsListContractTest.php).
+     *
+     * @param string $path  Absolute path to a PHP file.
+     */
+    private static function sourceWithoutComments(string $path): string
+    {
+        $code = '';
+        foreach (token_get_all((string) file_get_contents($path)) as $token) {
+            if (is_array($token)) {
+                if ($token[0] === T_COMMENT || $token[0] === T_DOC_COMMENT) {
+                    continue;
+                }
+                $code .= $token[1];
+                continue;
+            }
+            $code .= $token;
+        }
+
+        return $code;
+    }
+
+    /**
+     * The report-row twin of firstMessageContaining() above.
+     *
+     * A separate helper rather than a widened one: that one takes WP_Error OBJECTS
+     * from the validation engines, these are the plain {check, message} ROWS
+     * pp_post_apply_validate() returns, and a helper that accepted either would have to
+     * guess which it was holding.
+     *
+     * @param array $rows  A validation report channel.
+     */
+    private function firstReportMessageContaining(array $rows, string $needle): string
+    {
+        foreach ($rows as $row) {
+            if (is_array($row) && isset($row['message']) && str_contains((string) $row['message'], $needle)) {
+                return (string) $row['message'];
+            }
+        }
+        $this->fail('no report row carried "' . $needle . '" — the fixture no longer trips the rule it targets');
+    }
+
+    /**
+     * ONE DEFINITION OF CLEAN, AND IT IS REACHABLE FROM EVERY LOAD CONTEXT (#864).
+     *
+     * This is the census the owner move exists to make true, asserted rather than
+     * argued. Before the move the owner lived in lib/ai-chat.php, which functions.php
+     * loads only under is_admin(), so an always-loaded file could not call it without
+     * depending on a conditionally-loaded one — the coupling #649 rejected for
+     * _pp_item_index_label(). A second copy defined "for the other files" is the exact
+     * failure this pins against.
+     */
+    public function testTheOwnerIsDefinedOnceInAnUnconditionallyLoadedFile(): void
+    {
+        $definitions = [];
+        foreach (glob(dirname(__DIR__) . '/lib/*.php') as $file) {
+            if (preg_match('/^\s*function\s+_pp_clean_reflected_text\s*\(/m', (string) file_get_contents($file))) {
+                $definitions[] = basename($file);
+            }
+        }
+
+        $this->assertSame(['wp.php'], $definitions, 'the reflected-text owner is defined exactly once, in lib/wp.php');
+
+        // And lib/wp.php is required UNCONDITIONALLY — the half that makes the move
+        // worth anything. Sliced at the first `if (` so a require that moved inside the
+        // is_admin() or WP_CLI gate fails this rather than passing on a mere substring.
+        $bootstrap = (string) file_get_contents(dirname(__DIR__) . '/functions.php');
+        $gate      = strpos($bootstrap, "\nif (");
+        $this->assertNotFalse($gate, 'functions.php must still have its conditional load gates');
+        $this->assertStringContainsString(
+            "require_once get_template_directory() . '/lib/wp.php';",
+            substr($bootstrap, 0, $gate),
+            'lib/wp.php must be required before any conditional gate, or the owner is not always defined'
+        );
+    }
+
+    // ── E1. The one nested shape: _pp_clean_reflected_report() ────────────────
+
+    /** Both channels are cleaned, because both carry the same reflected messages. */
+    public function testTheReportHelperDefangsBothChannels(): void
+    {
+        $cleaned = _pp_clean_reflected_report([
+            'ok'       => false,
+            'warnings' => [['check' => 'duplicate_component_id', 'message' => 'warned: ' . self::HOSTILE]],
+            'errors'   => [['check' => 'empty_render', 'message' => 'failed: ' . self::HOSTILE]],
+        ]);
+
+        $this->assertDefanged($cleaned['warnings'][0]['message'], 'report warnings channel');
+        $this->assertDefanged($cleaned['errors'][0]['message'], 'report errors channel');
+        // The POSITIVE half: a helper that emptied the message would defang trivially.
+        $this->assertStringContainsString('warned: aa', $cleaned['warnings'][0]['message']);
+        $this->assertStringContainsString('failed: aa', $cleaned['errors'][0]['message']);
+    }
+
+    /** Everything AROUND the message is left exactly as the producer wrote it. */
+    public function testTheReportHelperTouchesNothingButTheMessage(): void
+    {
+        $report = [
+            'ok'       => false,
+            'warnings' => [],
+            'errors'   => [['check' => 'empty_render', 'component_index' => 3, 'message' => 'plain']],
+        ];
+
+        $this->assertSame($report, _pp_clean_reflected_report($report));
+    }
+
+    /**
+     * Shapes the helper does not own are passed through, never coerced.
+     *
+     * `validation` is null whenever the caller passed no post_id, and every other case
+     * here can only come from a producer that changed shape. Cleaning text is this
+     * helper's job; normalizing someone else's array is not.
+     */
+    public static function unownedReportShapeProvider(): array
+    {
+        return [
+            'null (no post_id, validation skipped)' => [null],
+            'not an array at all'                   => ['a string'],
+            'channel that is not a list'            => [['errors' => 'nope']],
+            'row that is not an array'              => [['errors' => ['nope']]],
+            'row with no message'                   => [['errors' => [['check' => 'x']]]],
+            'message that is not a string'          => [['errors' => [['message' => 42]]]],
+            'both channels absent'                  => [['ok' => true]],
+        ];
+    }
+
+    /** @dataProvider unownedReportShapeProvider */
+    public function testTheReportHelperPassesThroughShapesItDoesNotOwn($report): void
+    {
+        $this->assertSame($report, _pp_clean_reflected_report($report));
+    }
+
+    /**
+     * The helper's SIZE bound is the owner's, which is the whole point of delegating.
+     *
+     * There is no row counter here on purpose (see the helper's docblock): what bounds
+     * the text is that every string goes through _pp_clean_reflected_text() at
+     * PP_REFLECTED_ERROR_MAX. This pins that the delegation actually happens rather
+     * than the message being copied across.
+     */
+    public function testTheReportHelperBoundsAMessageToTheOwnersBudget(): void
+    {
+        $cleaned = _pp_clean_reflected_report([
+            'errors' => [['message' => str_repeat('x', PP_REFLECTED_ERROR_MAX * 2)]],
+        ]);
+
+        $this->assertSame(PP_REFLECTED_ERROR_MAX, mb_strlen($cleaned['errors'][0]['message']));
+        $this->assertStringEndsWith('...', $cleaned['errors'][0]['message'], 'and the cut is marked');
+    }
+
+    /**
+     * The bound holds for a budget SMALLER than its own truncation marker.
+     *
+     * `$max_length - 3` goes negative below 3, and a negative length makes mb_substr() cut
+     * from the END — so the branch whose only job is to enforce the budget used to return
+     * eight characters for a budget of two. Unreachable through PP_REFLECTED_NAME_MAX or
+     * PP_REFLECTED_ERROR_MAX, and pinned precisely because the owner is now always-loaded
+     * and takes an arbitrary int: the next caller does not have to know this.
+     */
+    public function testTheOwnerHonoursBudgetsSmallerThanItsTruncationMarker(): void
+    {
+        foreach ([0, 1, 2, 3, 4] as $budget) {
+            $result = _pp_clean_reflected_text('abcdefghij', $budget);
+
+            $this->assertLessThanOrEqual(
+                max($budget, 3),
+                mb_strlen($result),
+                "a budget of $budget must not produce a longer string than the budget or the marker"
+            );
+        }
+
+        // And the shipped budgets are untouched by the guard.
+        $this->assertSame(
+            PP_REFLECTED_ERROR_MAX,
+            mb_strlen(_pp_clean_reflected_text(str_repeat('x', PP_REFLECTED_ERROR_MAX * 2), PP_REFLECTED_ERROR_MAX))
+        );
+    }
+
+    // ── E2. The editor save response, driven end to end ───────────────────────
+
+    /**
+     * THE SITE THIS ISSUE IS NAMED FOR, driven through the real handler.
+     *
+     * Section 14.1: the composition is authored through _pp_save_composition_response()
+     * — the body of the wp_ajax_pp_save_composition closure — which runs the real
+     * `update_composition` action and the real validator, not a helper-only slice. The
+     * message it rejects with is composed prose quoting a component name the caller
+     * supplied, and before #864 it reached the editor's error banner verbatim.
+     */
+    public function testTheEditorSaveResponseCleansTheRejectedWritesMessage(): void
+    {
+        $id = $this->makePage('Editor save', [['component' => 'hero', 'props' => ['title' => 'A']]]);
+
+        $resp = _pp_save_composition_response([
+            'post_id'     => $id,
+            'nonce'       => 'valid-in-the-stub',
+            'composition' => $this->postJson([['component' => self::HOSTILE, 'props' => ['title' => 'A']]]),
+        ]);
+
+        $this->assertFalse($resp['ok'], 'premise: an unregistered component name is refused');
+        $this->assertIsArray($resp['data']);
+        $this->assertDefanged($resp['data']['message'], 'editor save response');
+        $this->assertStringContainsString(
+            'Unknown component: "aa',
+            $resp['data']['message'],
+            'and the refused name is still quoted back, in cleaned form'
+        );
+        // The STRUCTURED half is untouched: the editor branches on this, not on the prose.
+        $this->assertSame('invalid_composition', $resp['data']['code']);
+    }
+
+    /**
+     * A well-formed rejection is BYTE-IDENTICAL — the property that makes this safe to
+     * ship. Asserted against the envelope the action itself produced, so it cannot
+     * drift with the validator's wording.
+     */
+    public function testAnOrdinaryEditorSaveRejectionIsByteIdentical(): void
+    {
+        $id = $this->makePage('Editor save plain', [['component' => 'hero', 'props' => ['title' => 'A']]]);
+        $bad = [['component' => 'no-such-component', 'props' => ['title' => 'A']]];
+
+        $envelope = pp_execute_action('update_composition', ['post_id' => $id, 'composition' => $bad]);
+        $resp     = _pp_save_composition_response([
+            'post_id'     => $id,
+            'nonce'       => 'valid-in-the-stub',
+            'composition' => $this->postJson($bad),
+        ]);
+
+        $this->assertFalse($envelope['ok'], 'premise: the action refused it');
+        $this->assertSame($envelope['error'], $resp['data']['message'], 'the message the sink ships is the message the action wrote');
+    }
+
+    /**
+     * The happy path is untouched, and so are the three pre-flight refusals.
+     *
+     * The extraction that made this handler testable must not have changed what it
+     * answers — a refactor that quietly altered the accepted path would be a far worse
+     * regression than the one #864 fixes.
+     */
+    public function testTheEditorSaveResponseStillAcceptsAGoodWrite(): void
+    {
+        $id = $this->makePage('Editor save good', [['component' => 'hero', 'props' => ['title' => 'A']]]);
+
+        $resp = _pp_save_composition_response([
+            'post_id'     => $id,
+            'nonce'       => 'valid-in-the-stub',
+            'composition' => $this->postJson([['component' => 'hero', 'props' => ['title' => 'B']]]),
+        ]);
+
+        $this->assertTrue($resp['ok']);
+        $this->assertSame('B', $resp['data']['composition'][0]['props']['title'], 'the write really landed');
+        $this->assertSame(pp_get_composition_marker($id)['version'], $resp['data']['version']);
+    }
+
+    /** @return array<string, array{array, string}> */
+    public static function editorSavePreflightProvider(): array
+    {
+        return [
+            'no post_id'   => [['nonce' => 'x'], 'Invalid nonce.'],
+            'no nonce'     => [['post_id' => 9999], 'Invalid nonce.'],
+            'bad JSON'     => [['post_id' => 9999, 'nonce' => 'x', 'composition' => '{not json'], 'Invalid JSON.'],
+        ];
+    }
+
+    /**
+     * @dataProvider editorSavePreflightProvider
+     *
+     * BYTE-EXACT ON PURPOSE. These three are theme-authored literals and are deliberately
+     * NOT routed through the owner — and the editor DEPENDS on that: saveErrorMessage()
+     * (assets/js/pp-admin-editor.js) compares `msg === 'Invalid nonce.'` to swap in the
+     * "Session expired" prose. Cleaning a literal would be a no-op today and a silent
+     * behaviour change the day one of them gained a character the strip removes.
+     *
+     * The set is the STRING-bodied malformed cases. A non-string `composition` (what
+     * WordPress delivers for `composition[]=x`) crashes in stripslashes() before any of
+     * these are reached — pre-existing, unchanged by #864, filed separately.
+     */
+    public function testTheEditorSavePreflightRefusalsAreUnchanged(array $post, string $expected): void
+    {
+        $resp = _pp_save_composition_response($post);
+
+        $this->assertFalse($resp['ok']);
+        $this->assertSame($expected, $resp['data'], 'theme-authored literals, deliberately unguarded');
+    }
+
+    /**
+     * The capability guard, pinned for the DENIED case.
+     *
+     * The extraction is what made this reachable from PHPUnit at all, and reachable
+     * means owed a test: in production `wp_send_json_error()` DIES, so the old closure
+     * got its "stop here" from the sink; the extracted function gets it from `return`.
+     * Asserting the refusal alone would pass against a handler that refused and wrote
+     * anyway, so the stored composition is checked too.
+     */
+    public function testTheEditorSaveResponseRefusesAWriterWithoutEditRights(): void
+    {
+        $id = $this->makePage('Editor save denied', [['component' => 'hero', 'props' => ['title' => 'A']]]);
+
+        $GLOBALS['_pp_test_user_caps'] = ['edit_post' => false];
+        try {
+            $resp = _pp_save_composition_response([
+                'post_id'     => $id,
+                'nonce'       => 'valid-in-the-stub',
+                'composition' => $this->postJson([['component' => 'hero', 'props' => ['title' => 'B']]]),
+            ]);
+        } finally {
+            unset($GLOBALS['_pp_test_user_caps']);
+        }
+
+        $this->assertFalse($resp['ok']);
+        $this->assertSame('Insufficient permissions.', $resp['data'], 'a theme-authored literal, deliberately unguarded');
+        $this->assertSame('A', pp_get_composition($id)[0]['props']['title'], 'and the refused write never landed');
+    }
+
+    /**
+     * The #13 compare-and-swap, threaded from the REQUEST ARRAY the extraction now takes.
+     *
+     * The riskiest line in the whole extraction is `_pp_expected_version_from_request($post)`:
+     * a `$_POST` left behind there reads the ambient superglobal instead of the argument,
+     * which in production is the SAME array and would therefore never fail — until a caller
+     * passes anything else. Pinning both halves kills that and the "guard deleted entirely"
+     * mutation at once, and it is the only test that produces `composition_conflict` through
+     * this handler, which is the whole reason the payload carries a structured `code`.
+     */
+    public function testTheEditorSaveResponseThreadsTheOptimisticLockingBaseline(): void
+    {
+        $id      = $this->makePage('Editor save CAS', [['component' => 'hero', 'props' => ['title' => 'A']]]);
+        $current = pp_get_composition_marker($id)['version'];
+
+        $stale = _pp_save_composition_response([
+            'post_id'          => $id,
+            'nonce'            => 'valid-in-the-stub',
+            'expected_version' => (string) ($current - 1),
+            'composition'      => $this->postJson([['component' => 'hero', 'props' => ['title' => 'B']]]),
+        ]);
+
+        $this->assertFalse($stale['ok'], 'a stale baseline must not clobber an interleaved write');
+        $this->assertSame('composition_conflict', $stale['data']['code']);
+        $this->assertSame('A', pp_get_composition($id)[0]['props']['title'], 'the stale write never landed');
+
+        $ok = _pp_save_composition_response([
+            'post_id'          => $id,
+            'nonce'            => 'valid-in-the-stub',
+            'expected_version' => (string) $current,
+            'composition'      => $this->postJson([['component' => 'hero', 'props' => ['title' => 'B']]]),
+        ]);
+
+        $this->assertTrue($ok['ok'], 'and a current baseline still saves');
+        $this->assertSame('B', $ok['data']['composition'][0]['props']['title']);
+    }
+
+    /**
+     * THE SIX EDITOR SINKS, pinned at the source like their lib/ai-chat.php neighbours.
+     *
+     * add_action() is a no-op in this bootstrap, so a closure body is unreachable from
+     * PHPUnit. #864 extracted ONE of the six — the save handler, driven behaviourally
+     * above — because it is the highest-value path and because extracting all six would
+     * be a refactor of the whole editor AJAX surface inside a text-cleaning change. The
+     * other five are spellings of one rule, and a tripwire that fails loudly when a wrap
+     * is dropped is strictly stronger than the nothing they had.
+     *
+     * THE SAVE SINK IS PINNED HERE TOO, belt and braces: its behavioural test proves the
+     * bytes are clean, this proves the CLEANING IS STILL WHERE IT SAYS IT IS — a
+     * refactor that moved it somewhere subtler would keep the behavioural pin green.
+     *
+     * Three of the six share `_pp_editor_error_payload()`, so the rule is asserted ONCE
+     * in the helper plus once per call site. Pinning the helper's body alone would let a
+     * call site quietly stop using it; pinning the call sites alone would let the rule
+     * change underneath all three at once.
+     *
+     * Matched on STRINGS, never on line numbers: this file's own inventory notes that
+     * positions drift, and a pin that rots into a line offset teaches maintainers to
+     * delete tripwires.
+     */
+    public function testTheEditorAjaxSinksStillRouteThroughTheOwner(): void
+    {
+        $admin = self::sourceWithoutComments(dirname(__DIR__) . '/lib/admin.php');
+
+        $wraps = [
+            'the shared structured payload cleans the message and leaves the code alone'
+                => "'message' => _pp_clean_reflected_text((string) \$result['error'], PP_REFLECTED_ERROR_MAX),",
+            'and it does not guard the machine-readable code'
+                => "'code'    => \$result['error_code'] ?? '',",
+            'the save endpoint builds its rejection through that helper'
+                => "return ['ok' => false, 'data' => _pp_editor_error_payload(\$result)];",
+            'the publish endpoint\'s save arm does too'
+                => 'wp_send_json_error(_pp_editor_error_payload($save_result));',
+            'and its publish arm does too'
+                => 'wp_send_json_error(_pp_editor_error_payload($pub_result));',
+            'the preview endpoint cleans the validator message it ships'
+                => 'wp_send_json_error(_pp_clean_reflected_text($result->get_error_message(), PP_REFLECTED_ERROR_MAX));',
+            'the preview endpoint\'s WP_DEBUG render-failure arm cleans the Throwable message'
+                => "wp_send_json_error(_pp_clean_reflected_text('Render failed: ' . \$e->getMessage(), PP_REFLECTED_ERROR_MAX));",
+            'the title endpoint cleans its rejection'
+                => "wp_send_json_error(_pp_clean_reflected_text((string) \$result['error'], PP_REFLECTED_ERROR_MAX));",
+        ];
+
+        foreach ($wraps as $why => $needle) {
+            $this->assertStringContainsString($needle, $admin, $why);
+        }
+    }
+
+    /**
+     * The ADAPTER, tripwired — the half the extraction moved rather than removed.
+     *
+     * Every behavioural pin in this section drives `_pp_save_composition_response()`
+     * directly. If the closure stopped calling it, or transposed the ok/error arms, all
+     * of them would keep passing against a function no longer wired to the endpoint —
+     * which is exactly the "helper-only slice" failure the #387 lesson names, one layer
+     * further out than where #387 found it.
+     */
+    public function testTheSaveClosureStillDelegatesToTheExtractedResponder(): void
+    {
+        $admin = self::sourceWithoutComments(dirname(__DIR__) . '/lib/admin.php');
+
+        $this->assertStringContainsString(
+            '$resp = _pp_save_composition_response($_POST);',
+            $admin,
+            'the wp_ajax_pp_save_composition closure must still delegate, or this section tests a dead function'
+        );
+        $this->assertStringContainsString(
+            "    if (\$resp['ok']) {\n        wp_send_json_success(\$resp['data']);\n    } else {\n        wp_send_json_error(\$resp['data']);\n    }",
+            $admin,
+            'and success/error must not be transposed'
+        );
+    }
+
+    // ── E3. The two nested chat payload fields, driven end to end ─────────────
+
+    /**
+     * `data.validation.errors[].message` on the SUCCESS envelope (#864).
+     *
+     * The asymmetry this closes lived inside one response: every failure arm of this
+     * endpoint has been cleaned since v1.17.8, while the validation report attached to
+     * a SUCCEEDED step shipped raw — so whether a stored bidi sequence reached the chat
+     * card depended only on whether the step had worked.
+     *
+     * `duplicate_component_id` is the row driven here because it reflects a stored
+     * `props.id` through a scan that runs whatever the components render, so the
+     * fixture needs no unregistered component and raises no render warning.
+     */
+    public function testTheExecuteSuccessPayloadCleansItsValidationReport(): void
+    {
+        $id = $this->makePage('Nested validation', [
+            ['component' => 'hero', 'props' => ['title' => 'A', 'id' => self::HOSTILE]],
+            ['component' => 'hero', 'props' => ['title' => 'B', 'id' => self::HOSTILE]],
+        ]);
+
+        $resp = _pp_ai_execute_response([
+            'type' => 'action', 'name' => 'update_page_title',
+            'params' => ['post_id' => $id, 'title' => 'Renamed'],
+        ]);
+
+        $this->assertTrue($resp['ok'], 'premise: the action succeeded, so this is the success payload');
+        $duplicate = $this->firstReportMessageContaining($resp['data']['validation']['warnings'], 'duplicate ID');
+        $this->assertDefanged($duplicate, 'execute success payload validation report');
+        $this->assertStringContainsString("duplicate ID 'aa", $duplicate, 'and the stored id is still named');
+    }
+
+    /**
+     * The same report's THEME-AUTHORED rows are byte-identical through the same helper.
+     *
+     * Stated as its own test because "everything was defanged" and "everything was
+     * mangled" are indistinguishable without it.
+     */
+    public function testTheValidationReportsOwnSentencesAreByteIdentical(): void
+    {
+        $id = $this->makePage('Nested plain', [['component' => 'hero', 'props' => ['title' => 'A']]]);
+
+        $resp = _pp_ai_execute_response([
+            'type' => 'action', 'name' => 'update_page_title',
+            'params' => ['post_id' => $id, 'title' => 'Renamed'],
+        ]);
+
+        $direct = pp_post_apply_validate($id);
+        $this->assertSame(
+            array_column($direct['warnings'], 'message'),
+            array_column($resp['data']['validation']['warnings'], 'message'),
+            'a report with nothing to clean travels through the sink unchanged'
+        );
+    }
+
+    /**
+     * `data.steps[i].error` — the batch twin of the single-execute payload.
+     *
+     * Cleaned at the CHAT entry point rather than inside pp_ai_execute_batch(), because
+     * that executor is shared with WP-CLI, whose channel strips at its own sink. This
+     * drives the real batch through the real CAS mandate.
+     */
+    public function testTheBatchPayloadCleansAFailedStepsError(): void
+    {
+        $GLOBALS['wpdb'] = new PP_Lockable_Wpdb();
+        try {
+            $id       = $this->makePage('Batch step error', [['component' => 'hero', 'props' => ['title' => 'A']]]);
+            $baseline = pp_get_composition_marker($id)['version'];
+
+            $resp = _pp_ai_execute_batch_response([
+                'steps' => $this->postJson([
+                    ['type' => 'action', 'name' => 'add_component',
+                     'params' => ['post_id' => $id, 'component' => self::HOSTILE, 'props' => ['title' => 'X']]],
+                ]),
+                'baselines' => wp_json_encode([(string) $id => $baseline]),
+            ]);
+
+            $this->assertTrue($resp['ok'], 'premise: the batch ran and reported per-step');
+            $this->assertFalse($resp['data']['steps'][0]['ok'], 'premise: the step was refused');
+            $this->assertDefanged($resp['data']['steps'][0]['error'], 'batch step error');
+            $this->assertStringContainsString(
+                'Unknown component: "aa',
+                $resp['data']['steps'][0]['error'],
+                'and the refused name is still quoted back, in cleaned form'
+            );
+            $this->assertSame('invalid_composition', $resp['data']['steps'][0]['error_code'], 'the literal code is untouched');
+        } finally {
+            unset($GLOBALS['wpdb']);
+        }
+    }
+
+    /** `data.steps[i].validation` — the same report shape, one level deeper. */
+    public function testTheBatchPayloadCleansANestedValidationReport(): void
+    {
+        $GLOBALS['wpdb'] = new PP_Lockable_Wpdb();
+        try {
+            $id = $this->makePage('Batch nested validation', [
+                ['component' => 'hero', 'props' => ['title' => 'A', 'id' => self::HOSTILE]],
+                ['component' => 'hero', 'props' => ['title' => 'B', 'id' => self::HOSTILE]],
+            ]);
+
+            $resp = _pp_ai_execute_batch_response([
+                'steps' => $this->postJson([
+                    ['type' => 'action', 'name' => 'update_page_title',
+                     'params' => ['post_id' => $id, 'title' => 'Batch renamed']],
+                ]),
+                'baselines' => wp_json_encode([]),
+            ]);
+
+            $this->assertTrue($resp['ok']);
+            $this->assertTrue($resp['data']['steps'][0]['ok'], 'premise: the step succeeded, so it carries a report');
+            $duplicate = $this->firstReportMessageContaining(
+                $resp['data']['steps'][0]['validation']['warnings'],
+                'duplicate ID'
+            );
+            $this->assertDefanged($duplicate, 'batch step nested validation report');
+            $this->assertStringContainsString("duplicate ID 'aa", $duplicate, 'and the stored id is still named');
+        } finally {
+            unset($GLOBALS['wpdb']);
+        }
+    }
+
+    // ── E4. _pp_build_friendly_error()'s hinted branch ────────────────────────
+
+    /**
+     * Two branches of one switch arm, one answer (#864).
+     *
+     * The no-hint branch has routed `$component_name` through the owner since #661,
+     * inside _pp_no_hint_slot_message(); the HINTED branch interpolated the identical
+     * value raw. Which one a caller got depended on whether a cross-component hint
+     * happened to match — so the guarantee could not be stated at all.
+     *
+     * The fixture asks for `--hero-bg` on a component that does not declare it, which
+     * suffix-matches `--cta-bg` on cta and therefore lands on the hinted branch.
+     */
+    public function testTheHintedFriendlyErrorCleansTheStoredComponentName(): void
+    {
+        $id = $this->makePage('Hinted', [['component' => self::HOSTILE, 'props' => ['title' => 'A']]]);
+
+        $friendly = _pp_build_friendly_error(
+            new WP_Error('invalid_style_slot', 'Component has no style slot "--hero-bg".'),
+            ['post_id' => $id, 'component_index' => 0, 'style' => ['--hero-bg' => 'red']]
+        );
+
+        $this->assertNotSame([], (array) $friendly['cross_component_hints'], 'premise: this is the HINTED branch');
+        $this->assertDefanged($friendly['user_message'], 'friendly error hinted branch');
+        $this->assertStringContainsString('on the aa', $friendly['user_message'], 'and the component is still named');
+    }
+
+    /** An ordinary stored name is byte-identical through the same wrap. */
+    public function testAnOrdinaryComponentNameIsByteIdenticalInTheHintedBranch(): void
+    {
+        $id = $this->makePage('Hinted plain', [['component' => 'hero', 'props' => ['title' => 'A']]]);
+
+        $friendly = _pp_build_friendly_error(
+            new WP_Error('invalid_style_slot', 'Component has no style slot "--nope-bg".'),
+            ['post_id' => $id, 'component_index' => 0, 'style' => ['--nope-bg' => 'red']]
+        );
+
+        $this->assertNotSame(
+            [],
+            (array) $friendly['cross_component_hints'],
+            'premise: this must reach the HINTED branch — a skip here would delete the assertion silently'
+        );
+        $this->assertStringContainsString('on the hero component', $friendly['user_message']);
+    }
+
+    /**
+     * The case the wrap actually CHANGES: a name that is non-empty going in and empty
+     * coming out.
+     *
+     * A stored component name made entirely of format characters is invisible but not
+     * absent, so before #864 the hinted branch printed it and the sentence read "on the
+     *  component" with a hole in it. Cleaning collapses it to '', and the `?:` kept in
+     * this branch is the only thing that turns that into "selected". This is why the `?:`
+     * was NOT swapped for the sibling's `=== ''` test: the fallback has to survive the
+     * wrap, and nothing else in the section exercises the empty-after-cleaning path —
+     * the neighbouring test feeds a name that was already empty before cleaning, which
+     * is the branch the pre-#864 code took too.
+     *
+     * Built with mb_chr() rather than a string escape, deliberately: authoring tools
+     * silently turn escape TEXT into the character it names, so a fixture that must
+     * contain specific invisible code points is safer constructed than quoted.
+     */
+    public function testAnAllInvisibleComponentNameFallsBackToSelectedInTheHintedBranch(): void
+    {
+        $invisible = mb_chr(0x202E, 'UTF-8') . mb_chr(0x200B, 'UTF-8');
+        $this->assertNotSame('', $invisible, 'premise: the fixture is non-empty going in');
+
+        $id = $this->makePage('Hinted invisible', [['component' => $invisible, 'props' => ['title' => 'A']]]);
+
+        $friendly = _pp_build_friendly_error(
+            new WP_Error('invalid_style_slot', 'Component has no style slot "--hero-bg".'),
+            ['post_id' => $id, 'component_index' => 0, 'style' => ['--hero-bg' => 'red']]
+        );
+
+        $this->assertNotSame([], (array) $friendly['cross_component_hints'], 'premise: this is the HINTED branch');
+        $this->assertStringContainsString('on the selected component', $friendly['user_message']);
+        $this->assertDefanged($friendly['user_message'], 'friendly error hinted branch, all-invisible name');
+    }
+
+    /**
+     * The empty name still reads as "selected", which is why the `?:` was KEPT rather
+     * than swapped for the sibling's `=== ''` test. Cleaning an empty string returns an
+     * empty string, so the fallback has to survive the wrap or every hint-bearing
+     * rejection on a nameless target would say "on the  component".
+     */
+    public function testAnUnresolvedComponentStillReadsAsSelectedInTheHintedBranch(): void
+    {
+        $id = $this->makePage('Hinted nameless', [['component' => '', 'props' => ['title' => 'A']]]);
+
+        $friendly = _pp_build_friendly_error(
+            new WP_Error('invalid_style_slot', 'Component has no style slot "--hero-bg".'),
+            ['post_id' => $id, 'component_index' => 0, 'style' => ['--hero-bg' => 'red']]
+        );
+
+        if ((array) $friendly['cross_component_hints'] === []) {
+            $this->markTestSkipped('no hint for this key on the shipped registry');
+        }
+        $this->assertStringContainsString('on the selected component', $friendly['user_message']);
     }
 }
