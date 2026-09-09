@@ -484,7 +484,7 @@ body.pp-ai-chat-page #wpfooter {
  * container above resets the prose around it (#662).
  *
  * `white-space: pre-wrap` alone cannot wrap it: the text is by construction a single
- * unbroken run — `_pp_clean_reflected_text()` (lib/ai-chat.php) strips \p{Cc}\p{Cf},
+ * unbroken run — `_pp_clean_reflected_text()` (lib/wp.php) strips \p{Cc}\p{Cf},
  * newlines included, and bounds a reflected name at PP_REFLECTED_NAME_MAX = 256 — so
  * pre-wrap has nothing to break on and a 259-char token widened the whole chat pane
  * (#666).

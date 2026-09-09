@@ -1776,7 +1776,7 @@ var PP_CHAT_RENDER_ERROR_MAX = 200;
 /**
  * Turns a caught render exception into the sentence a step card shows.
  *
- * Truncation follows the convention used across this codebase (lib/ai-chat.php's
+ * Truncation follows the convention used across this codebase (lib/wp.php's
  * _pp_clean_reflected_text, ppChatFormatDiffValue above): cut to max - 3 and mark it,
  * so the result never exceeds the stated budget.
  *
@@ -2084,12 +2084,12 @@ function ppChatAppendUndoFindings(card, findings) {
 /**
  * The bound this card puts on a refused undo's message, in characters (#822).
  *
- * THE SERVER'S OWN NUMBER FOR THIS SPECIES. `PP_REFLECTED_ERROR_MAX` (lib/ai-chat.php) is
+ * THE SERVER'S OWN NUMBER FOR THIS SPECIES. `PP_REFLECTED_ERROR_MAX` (lib/wp.php) is
  * 4096, and it is what `_pp_clean_reflected_text()` allows a reflected WP_Error message.
  * When #822 wrote this, the EXECUTE path the card reads did NOT pass through that helper —
  * `_pp_ai_execute_error_payload()` reflected `$result['error']` verbatim — so this was the
  * only bound the undo refusal ever met. Since #647 that payload goes through the helper too
- * (lib/ai-chat.php), so this is now the bound the CARD RENDERS UNDER rather than the only
+ * (lib/wp.php), so this is now the bound the CARD RENDERS UNDER rather than the only
  * bound in the system. Spelling it with the server's number keeps one answer to "how long
  * may a reflected error be" instead of coining a second, which is what
  * tests/ChatUndoBoundTrait.php asserts. The general client-side ceiling for server error
@@ -2688,7 +2688,7 @@ function ppChatAppendRepairAffordance(card, onRetry) {
  * sites listed below.
  *
  * THE SERVER'S OWN NUMBER FOR THIS SPECIES, for the same reason PP_CHAT_UNDO_ERROR_MAX
- * above is: `PP_REFLECTED_ERROR_MAX` (lib/ai-chat.php) is what `_pp_clean_reflected_text()`
+ * above is: `PP_REFLECTED_ERROR_MAX` (lib/wp.php) is what `_pp_clean_reflected_text()`
  * allows a reflected validator message, so spelling it here keeps ONE answer to "how long
  * may a reflected error be" instead of coining a second. tests/ChatReflectedTextBoundTest.php
  * asserts the two are equal, so the copy cannot drift from its source.

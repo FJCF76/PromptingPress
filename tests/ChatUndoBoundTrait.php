@@ -14,7 +14,7 @@
  *     re-selection advice — so a truncation removes exactly the sentence the fix exists to
  *     show, and every JavaScript test would still pass.
  *   - the bound must stay the SERVER'S number. `PP_CHAT_UNDO_ERROR_MAX` is a hand-copy of
- *     `PP_REFLECTED_ERROR_MAX` (lib/ai-chat.php), and its docblock's whole argument is that
+ *     `PP_REFLECTED_ERROR_MAX` (lib/wp.php), and its docblock's whole argument is that
  *     copying it keeps ONE answer to "how long may a reflected error be". Nothing but an
  *     assertion makes that true; without one the two silently diverge and the docblock becomes
  *     a false statement about a number.

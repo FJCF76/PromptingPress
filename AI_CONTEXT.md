@@ -624,6 +624,10 @@ The `inspect-composition` and `patch` commands use semantic selectors to target 
 
 The 3 mutation AJAX handlers (`pp_save_composition`, `pp_save_title`, `pp_publish_page`) are thin HTTP adapters. They handle nonce verification, capability checks, and JSON parsing, then delegate to `pp_execute_action()`. The publish handler uses a short-circuit pattern: save composition first, publish only if save succeeds. Zero JS changes.
 
+Since #864 `pp_save_composition` splits that adapter in two: `_pp_save_composition_response($post)` holds the whole body and returns `['ok' => bool, 'data' => mixed]`, and the registered closure does nothing but translate that into `wp_send_json_success()`/`wp_send_json_error()`. Same shape on the wire, same guards in the same order — the reason is testability. `add_action()` is a no-op in the test bootstrap, so a closure body is unreachable from PHPUnit, which is why this was the one editor sink no test could observe; it is the extraction `lib/ai-chat.php` already uses for its four handlers, for the same #387 reason.
+
+**Every composed validator message these handlers reflect is cleaned at the sink (#864).** The rule the theme has always stated — messages are built verbatim, each sink strips at the boundary — held on the terminal channel and on two chat payloads, but not here, so whether a message was cleaned depended on which endpoint the same string travelled through. The save, preview, title and publish responses now route their message through `_pp_clean_reflected_text()` (`lib/wp.php`) at `PP_REFLECTED_ERROR_MAX`, as do the chat's `data.validation[].message` and `data.steps[].error`. Well-formed messages are byte-identical; control and format characters are removed. The structured `code` beside the message is untouched — it is a theme-authored literal the editor branches on, not reflected text. Still reflected verbatim, by explicit ruling: `findings[].message` and the `rollback_errors` channel.
+
 ---
 
 ## AI Chat (lib/ai-chat.php, lib/ai-context.php, lib/ai-provider.php)

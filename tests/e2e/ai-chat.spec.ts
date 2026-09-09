@@ -876,7 +876,7 @@ test.describe('AI Chat — preview-error card typography and overflow (#662, #66
     }
   });
 
-  // PP_REFLECTED_NAME_MAX (lib/ai-chat.php) bounds a reflected name at 256 characters,
+  // PP_REFLECTED_NAME_MAX (lib/wp.php) bounds a reflected name at 256 characters,
   // and _pp_clean_reflected_text() strips \p{Cc}\p{Cf} — newlines included — so this is
   // the longest unbroken run the disclosure can actually be asked to render. It is
   // interpolated into user_message AND raw_error, because since #661 the sentence
