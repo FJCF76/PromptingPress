@@ -722,6 +722,11 @@ function _pp_action_validation_error_envelope(string $name, WP_Error $validation
  *                carries 'composition_version' (#404) and 'findings' (#687) — what current
  *                rules say about the composition that was just stored, advisories
  *                (inert_slot) included, bounded at PP_WRITE_FINDINGS_BUDGET and report-only.
+ *                That report may be led by one 'history_not_recorded' entry (#821), which is
+ *                about the WRITE rather than the composition — it says the state this write
+ *                replaced could not be recorded, so the write has no undo point — and which
+ *                rides in front of the bound for the same reason findings_truncated rides
+ *                past it: it must not be the entry a truncation drops.
  */
 function pp_execute_action(string $name, array $params): array {
     $validation = pp_validate_action($name, $params);
@@ -863,6 +868,39 @@ function pp_execute_action(string $name, array $params): array {
             // composition sets an empty array, and that must not be re-derived.
             if (!array_key_exists('findings', $result)) {
                 $result['findings'] = _pp_write_findings_for($written_post_id);
+            }
+
+            // THE WRITE'S OWN DISCLOSURE, IN FRONT OF THE COMPOSITION'S (#821). Everything
+            // above this line describes the composition that was stored; this describes
+            // what happened to the state it REPLACED. A write whose history push was
+            // skipped has no undo point, and the ruling requires the accepted envelope to
+            // say so rather than skip it silently. The ordering and bounding rules live in
+            // _pp_prepend_write_disclosures(), shared with the run-scoped rollback.
+            //
+            // ASKED HERE, AFTER THE KEY IS RESOLVED, so it reaches BOTH owners of
+            // `findings`: the derived report above and restore_composition's own (#233),
+            // which the key test deliberately leaves untouched. Restore is the surface
+            // where this matters most — an undo whose own undo point is missing.
+            //
+            // THE is_array() TEST IS NOT DEFENSIVE CLUTTER, and it is here for the same
+            // reason PP_WRITE_FINDINGS_MAX_STORED_BYTES exists: this line runs AFTER the
+            // write has landed, so anything that can throw here turns a change that
+            // HAPPENED into a failed response, and a client that retries on failure would
+            // write it twice. Every owner of the key returns an array today (both
+            // _pp_write_findings_for() and restore's _pp_bounded_findings() do), so the
+            // guard is unreachable — which is exactly the point: report-only must not be
+            // able to take down the write it is reporting on, and a future action setting
+            // its own `findings` to something else must degrade to "the notice was not
+            // attached" rather than to a TypeError over a landed write. The drain still
+            // runs either way, so a skipped attach cannot strand the slot.
+            $existing = $result['findings'] ?? null;
+            if (is_array($existing)) {
+                $result['findings'] = _pp_prepend_write_disclosures($written_post_id, $existing);
+            } else {
+                // Unreachable today, and it still drains: a slot left unread is a notice
+                // that surfaces on this page's NEXT envelope, which would be a disclosure
+                // attached to a write that kept its undo point.
+                _pp_history_push_skipped_findings($written_post_id);
             }
         }
     }
@@ -5199,6 +5237,106 @@ function _pp_write_findings_for(int $post_id): array {
     }
 
     return _pp_bounded_findings(_pp_composition_findings($composition), $post_id);
+}
+
+/**
+ * True when a finding describes the COMPOSITION, false when it describes the report or the
+ * write that produced it (#821).
+ *
+ * THE FAMILY HAS THREE MEMBERS NOW, and until this predicate existed each consumer decided
+ * for itself which of them to discount — the chat undo card hoists `findings_truncated` out
+ * of its count and its band-aware rows (#655), the write path documents `findings_skipped`
+ * as "not a clean bill of health, and not a finding either", and `history_not_recorded`
+ * arrived needing the same treatment in a third place. Three ad-hoc filters is how a fourth
+ * species ends up counted as a rule violation on one surface and not on another.
+ *
+ * WHAT IT IS FOR: any consumer that turns findings into a COUNT or a claim about the
+ * composition ("N issues under current rules"). It is NOT for consumers that render the
+ * list — every entry here is worth showing, and the two hoisted species are the ones most
+ * worth showing. Do not use this to hide anything.
+ *
+ * @param  array $finding  One entry from a findings report.
+ * @return bool
+ */
+function pp_finding_is_about_the_composition(array $finding): bool {
+    return !in_array(
+        $finding['type'] ?? '',
+        ['history_not_recorded', 'findings_skipped', 'findings_truncated'],
+        true
+    );
+}
+
+/**
+ * The finding an accepted write carries when its history push was skipped (#821).
+ *
+ * ONE OWNER OF THE ENTRY, read by the two surfaces that report findings for an accepted
+ * composition write (pp_execute_action() and the run-scoped rollback in lib/operate.php).
+ * The wording is operator-facing and lives here, beside the other findings vocabulary,
+ * rather than next to the writer that detects the event.
+ *
+ * DRAINING IS THE POINT, not a side effect: _pp_take_history_push_skipped() reads AND
+ * clears, so one skipped push produces exactly one finding even though two surfaces can
+ * ask. Call this once per accepted write, unconditionally — asking and getting `[]` is how
+ * the slot is kept clean.
+ *
+ * A THIRD SPECIES, alongside `findings_truncated` and `findings_skipped`. All three describe
+ * the REPORT OR THE WRITE rather than a rule the composition broke, which is why this one
+ * takes the same shape they do: `severity: warning` (the honest severity for an advisory
+ * that no validation rule produced, and the value every generic consumer already branches
+ * on) and `index: null` (the truncation and skip entries' own "no single band owns this",
+ * the same honest null the cross-item `duplicate_component_id` rule uses).
+ *
+ * NOTHING REFLECTED. `findings[].message` is one of the two response channels #864 left
+ * deliberately unconverted by the reflected-text cleaner, so a message minted here must not
+ * carry stored or caller-supplied text. This one carries an int post id and nothing else.
+ *
+ * @param  int $post_id  The page the accepted write landed on.
+ * @return array[]  Exactly one finding, or [] when this write's push was fine.
+ */
+function _pp_history_push_skipped_findings(int $post_id): array {
+    if (!_pp_take_history_push_skipped($post_id)) {
+        return [];
+    }
+
+    return [[
+        'type'     => 'history_not_recorded',
+        'severity' => 'warning',
+        'message'  => sprintf(
+            'This write landed, but the state it replaced could not be recorded in the page history, so THIS WRITE HAS NO UNDO POINT. The history ring was left intact and still holds its earlier entries — run `wp pp operate composition-history --post_id=%d` to see what can still be restored.',
+            $post_id
+        ),
+        'index'    => null,
+    ]];
+}
+
+/**
+ * Puts the write's own disclosures in front of a composition report (#821).
+ *
+ * THE ONE HOME FOR THE "RIDES IN FRONT OF THE BUDGET" RULE, rather than two call sites
+ * each asserting it in a comment. Both surfaces that report findings for an accepted
+ * composition write go through here — pp_execute_action() and the run-scoped rollback in
+ * lib/operate.php — so they cannot drift on the order, on the bounding, or on whether the
+ * drain happened.
+ *
+ * WHY IN FRONT, AND WHY OUTSIDE THE COUNT BUDGET. `$report` has already been bounded at
+ * PP_WRITE_FINDINGS_BUDGET and possibly closed with a `findings_truncated` tail. Appending
+ * would put the "this write has no undo point" line BEHIND that tail on exactly the
+ * pathological page where losing it is worst. And the budget bounds the report about the
+ * COMPOSITION: this entry is about the WRITE, the same way `findings_truncated` is about
+ * the REPORT and is itself the 101st entry. Consumers that turn findings into a count of
+ * composition problems ask pp_finding_is_about_the_composition() rather than counting the
+ * array.
+ *
+ * ALWAYS CALLED once the written page is resolved, never conditionally: the helper it
+ * calls DRAINS the register, and a slot left unread is a notice that can surface on a
+ * later envelope for the same page.
+ *
+ * @param  int   $post_id  The page the accepted write landed on.
+ * @param  array $report   The bounded composition findings report.
+ * @return array[]  The report, led by any write-scoped disclosures.
+ */
+function _pp_prepend_write_disclosures(int $post_id, array $report): array {
+    return array_merge(_pp_history_push_skipped_findings($post_id), $report);
 }
 
 /**
