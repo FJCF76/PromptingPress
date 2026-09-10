@@ -54,6 +54,168 @@ class PP_Mock_Wpdb
      */
     public string $last_error = '';
 
+    /**
+     * MODELLED WITH CORE'S REAL VISIBILITY, not as a public convenience (#830, the #857
+     * harness-fidelity precedent). Real wpdb declares this `protected` and exposes it
+     * through the magic accessors below, so production code reaches it via __get/__set.
+     * A public property here would let a guard that only works on a public property pass
+     * this suite and fail against WordPress — the harness must make the same demand
+     * production does.
+     */
+    protected $reconnect_retries = 5;
+
+    /**
+     * One of the four names core's wpdb::__set() actually REFUSES, kept here so the
+     * whitelist can be tested from both sides: the budget must take, this must not.
+     * Core declares it protected too.
+     */
+    protected $table_charset = 'utf8mb4_sentinel';
+
+    /**
+     * @var bool Opt-in: after GET_LOCK succeeds, model a connection that has GONE AWAY
+     * while wpdb's retry budget is 0. INERT when unset, so every existing test in this
+     * file is unaffected.
+     *
+     * THE BUDGET DECIDES WHAT A DEAD CONNECTION DOES, which is the whole point and is why
+     * this branch reads $this->reconnect_retries instead of failing flat:
+     *
+     *   retries > 0 (the pre-#830 world) — core RECONNECTS and re-runs the statement on a
+     *     NEW connection. It returns correct-looking data with last_error === '', so the
+     *     mutator sails on... and the connection-scoped GET_LOCK is GONE. `lock_voided`
+     *     records that. This is the bug, modelled faithfully, and it is what makes the
+     *     refusal test below genuinely red: remove the guard and this arm runs.
+     *   retries === 0 (the guarded world) — check_connection() skips its now-empty retry
+     *     loop and the statement FAILS.
+     *
+     * WHAT CANNOT BE MODELLED. On the retries-0 path core's DEFAULT branch reaches
+     * bail()/dead_db() and terminates the request, which a unit test cannot stage. What is
+     * modelled is core's other branch — taken after `template_redirect`, where
+     * check_connection() returns false and wpdb::query() does `$this->insert_id = 0; return
+     * false;`. The load-bearing detail is that last_error stays EMPTY there: query()
+     * flush()es it before the statement and only captures mysqli_error() AFTER the
+     * errno-2006 branch, so this failure is invisible to the #212 last_error guards by
+     * construction. Modelling it with a non-empty last_error would make the guards look
+     * like they catch it.
+     */
+    public bool $dead_after_lock = false;
+
+    /** @var bool True once a modelled self-heal has relocated the session off the locked connection. */
+    public bool $lock_voided = false;
+
+    /** @var bool Set once GET_LOCK has been answered, so `dead_after_lock` starts AFTER the acquire. */
+    private bool $lock_held = false;
+
+    /** @var array<int,array{sql:string,retries:int}> The retry budget visible at each statement. */
+    public array $retries_at_call = [];
+
+    /** Reads the protected budget the way core's own code does — from inside the class. */
+    public function retriesNow(): int
+    {
+        return $this->reconnect_retries;
+    }
+
+    /**
+     * The budget WITHOUT an int return type, for the subclass that holds it as a numeric
+     * string. This file declares strict_types, so retriesNow() cannot carry that value.
+     *
+     * @return mixed
+     */
+    public function rawBudget()
+    {
+        return $this->reconnect_retries;
+    }
+
+    /**
+     * Reads any property from inside class scope, bypassing __get. Lets a test check what a
+     * whitelisted __set actually did without the magic accessor answering for it.
+     *
+     * @param string $name
+     * @return mixed
+     */
+    public function rawProperty(string $name)
+    {
+        return $this->$name ?? null;
+    }
+
+    /** @return int[] the retry budget seen at each statement issued after GET_LOCK succeeded. */
+    public function retriesInsideSection(): array
+    {
+        return array_values(array_map(
+            fn (array $c) => $c['retries'],
+            array_filter(
+                $this->retries_at_call,
+                fn (array $c) => strpos($c['sql'], 'GET_LOCK') === false
+                    && strpos($c['sql'], 'RELEASE_LOCK') === false
+            )
+        ));
+    }
+
+    /** @return int|null the retry budget in force when RELEASE_LOCK was issued, or null if it never was. */
+    public function retriesAtRelease(): ?int
+    {
+        foreach ($this->retries_at_call as $c) {
+            if (strpos($c['sql'], 'RELEASE_LOCK') !== false) {
+                return $c['retries'];
+            }
+        }
+        return null;
+    }
+
+    /** Core's wpdb::__get() verbatim (minus the col_info lazy-load, which has no analogue here). */
+    public function __get($name)
+    {
+        return $this->$name;
+    }
+
+    /**
+     * Core's wpdb::__set() verbatim, including the $protected_members whitelist. The list is
+     * copied rather than paraphrased because the whole reason this guard can be a plain
+     * property write is that `reconnect_retries` is NOT on it.
+     */
+    public function __set($name, $value)
+    {
+        $protected_members = array(
+            'col_meta',
+            'table_charset',
+            'check_current_query',
+            'allow_unsafe_unquoted_parameters',
+        );
+        if (in_array($name, $protected_members, true)) {
+            return;
+        }
+        $this->$name = $value;
+    }
+
+    /**
+     * Answers a statement issued on a connection that has gone away, the way core would.
+     *
+     * @param string $sql The statement being issued.
+     * @return bool true when the statement must FAIL (budget suspended); false when it
+     *              proceeds normally — either because no death is armed, or because core
+     *              self-healed onto a new connection.
+     */
+    private function deadConnectionFailsThisStatement(string $sql): bool
+    {
+        if (!$this->dead_after_lock || !$this->lock_held) {
+            return false;
+        }
+        if ($this->reconnect_retries > 0) {
+            // Core reconnects and re-runs the statement on a new connection.
+            //
+            // RELEASE_LOCK IS EXEMPT FROM THE VOIDING FLAG, and the exemption is the design
+            // rather than a convenience: the release is issued AFTER the restore, outside
+            // the section, precisely so a dead connection self-heals there into a harmless
+            // no-op instead of reaching dead_db() during unwinding. Nothing is protected at
+            // that point, so a relocation there voids nothing. Flagging it would make the
+            // model claim the guard failed on every dead-connection test.
+            if (strpos($sql, 'RELEASE_LOCK') === false) {
+                $this->lock_voided = true;
+            }
+            return false;
+        }
+        return true;
+    }
+
     public function prepare(string $query, ...$args): string
     {
         foreach ($args as $a) {
@@ -68,10 +230,20 @@ class PP_Mock_Wpdb
     public function get_var(string $sql)
     {
         $this->calls[] = $sql;
+        $this->retries_at_call[] = ['sql' => $sql, 'retries' => $this->reconnect_retries];
         // wpdb::query() flush()es last_error to '' at the start of every query.
         $this->last_error = '';
         if (strpos($sql, 'GET_LOCK') !== false) {
+            if ($this->get_lock_return === '1' || $this->get_lock_return === 1) {
+                $this->lock_held = true;
+            }
             return $this->get_lock_return;
+        }
+        // A connection that went away inside the critical section, with the retry budget
+        // suspended (#830). null, and last_error deliberately left EMPTY — see the
+        // $dead_after_lock docblock for why that emptiness is the point.
+        if ($this->deadConnectionFailsThisStatement($sql)) {
+            return null;
         }
         // The in-lock authoritative read of pp_token_overrides (#97).
         if (strpos($sql, 'option_value') !== false && strpos($sql, 'pp_token_overrides') !== false) {
@@ -99,6 +271,12 @@ class PP_Mock_Wpdb
     public function query(string $sql)
     {
         $this->calls[] = $sql;
+        $this->retries_at_call[] = ['sql' => $sql, 'retries' => $this->reconnect_retries];
+        $this->last_error = '';
+        // RELEASE_LOCK on a connection that died: wpdb returns false, last_error empty.
+        if ($this->deadConnectionFailsThisStatement($sql)) {
+            return false;
+        }
         return 1;
     }
 
@@ -109,6 +287,121 @@ class PP_Mock_Wpdb
             $this->calls,
             fn ($c) => strpos($c, 'GET_LOCK') !== false || strpos($c, 'RELEASE_LOCK') !== false
         ));
+    }
+}
+
+/**
+ * A handle whose magic accessors RAISE on the retry budget (#830).
+ *
+ * Not hypothetical enough to skip: a db.php drop-in or wpdb subclass is free to type the
+ * property, mark it readonly, or validate in __set, and any of those raises from outside
+ * class scope. The reason this matters more than an ordinary degradation is WHERE it
+ * happens — the advisory lock is already HELD by the time the suspension is attempted, so
+ * an exception escaping there would skip RELEASE_LOCK and strand the lock for the rest of
+ * the request. That is a worse failure than the one #830 set out to fix.
+ */
+class PP_HostileAccessor_Wpdb extends PP_Mock_Wpdb
+{
+    public function __get($name)
+    {
+        if ($name === 'reconnect_retries') {
+            throw new \RuntimeException('this handle does not expose the retry budget');
+        }
+        return parent::__get($name);
+    }
+
+    public function __set($name, $value)
+    {
+        if ($name === 'reconnect_retries') {
+            throw new \RuntimeException('this handle refuses retry-budget writes');
+        }
+        parent::__set($name, $value);
+    }
+}
+
+/** A handle holding the retry budget as a NUMERIC STRING, which still reconnects (#830). */
+class PP_StringBudget_Wpdb extends PP_Mock_Wpdb
+{
+    public function __construct()
+    {
+        // Assigned through the magic setter exactly as production would reach it.
+        $this->reconnect_retries = '5';
+    }
+}
+
+/**
+ * A handle whose __set SILENTLY NORMALIZES the budget and never accepts 0 (#830).
+ *
+ * The shape a real drop-in takes, and distinct from the throwing one: a db.php that clamps
+ * its own retry budget refuses the write without raising, so the guard's read-back is the
+ * only thing that can notice. This is the handle the "BEST-EFFORT" contract is written for.
+ */
+class PP_ClampingBudget_Wpdb extends PP_Mock_Wpdb
+{
+    public function __set($name, $value)
+    {
+        if ($name === 'reconnect_retries') {
+            parent::__set($name, max(1, (int) $value));
+            return;
+        }
+        parent::__set($name, $value);
+    }
+}
+
+/** A handle whose budget is not numeric at all — nothing we may reason about (#830). */
+class PP_OpaqueBudget_Wpdb extends PP_Mock_Wpdb
+{
+    public function __construct()
+    {
+        $this->reconnect_retries = 'unlimited';
+    }
+}
+
+/**
+ * A handle that ACCEPTS the suspension and only then starts raising (#830).
+ *
+ * Reaches the restore's own catch, which the throwing handle above cannot: that one makes
+ * the SUSPEND return null, so the restore exits at its `$saved === null` guard before the
+ * try is ever entered. The point of that catch is that RELEASE_LOCK must survive a raising
+ * restore, so it needs a handle that gets far enough to test it.
+ */
+class PP_TurnsHostile_Wpdb extends PP_Mock_Wpdb
+{
+    public function __get($name)
+    {
+        if ($name === 'reconnect_retries' && parent::__get('reconnect_retries') === 0) {
+            throw new \RuntimeException('the handle stopped exposing the budget mid-section');
+        }
+        return parent::__get($name);
+    }
+}
+
+/**
+ * A handle that GENUINELY lacks the retry budget — a HyperDB-style third-party replacement.
+ *
+ * Deliberately NOT a wpdb subclass. Since #830 the bootstrap `wpdb` stub carries core's real
+ * `reconnect_retries`, because it is this harness's model of WordPress ITSELF; using it (or
+ * PP_Lockable_Wpdb, which descends from it) as the fixture for "a third-party drop-in" would
+ * pin a test to a harness infidelity rather than to a real handle shape.
+ */
+class PP_NoBudget_Wpdb
+{
+    public string $options  = 'wp_options';
+    public string $postmeta = 'wp_postmeta';
+
+    public function prepare(string $query, ...$args): string
+    {
+        return $query;
+    }
+
+    public function get_var(string $query)
+    {
+        return strpos($query, 'GET_LOCK') !== false ? '1' : null;
+    }
+
+    public function query(string $query)
+    {
+        return 1;
     }
 }
 
@@ -670,5 +963,538 @@ class TokenLockTest extends TestCase
         $this->assertTrue($result, 'expected_version=0 against an absent marker must write.');
         $this->assertSame(1, (int) get_post_meta(93, '_pp_composition_version', true), 'First write initializes to v1.');
         unset($GLOBALS['_pp_test_store']['post_meta'][93]);
+    }
+
+    // ── #830: the reconnect that voided the lock ────────────────────────────────────
+    //
+    // wpdb's errno-2006 self-heal re-ran a statement on a NEW connection and reported
+    // success with an empty last_error, silently dropping the connection-scoped GET_LOCK
+    // for the whole rest of the mutator. _pp_with_advisory_lock() now suspends the retry
+    // budget for the section and restores it on every exit. These pin the lifecycle (the
+    // budget is actually 0 while the section runs, and actually restored afterwards), the
+    // refusal a dead connection produces, nesting, and inertness against a handle that has
+    // no such property.
+
+    public function testReconnectRetriesAreZeroInsideTheSectionAndRestoredAfter(): void
+    {
+        $wpdb = new PP_Mock_Wpdb();
+        $wpdb->db_composition_version = '4';
+        $GLOBALS['wpdb'] = $wpdb;
+
+        $this->assertSame(5, $wpdb->retriesNow(), 'Precondition: the double starts at core\'s default budget.');
+
+        $result = pp_update_composition(830, [['component' => 'hero', 'props' => ['title' => 'A']]], 4);
+
+        $this->assertTrue($result, 'The healthy path must be unaffected by the guard.');
+        $inside = $wpdb->retriesInsideSection();
+        $this->assertNotEmpty($inside, 'The mutator must have issued at least one statement inside the lock.');
+        $this->assertSame(
+            array_fill(0, count($inside), 0),
+            $inside,
+            'Every statement inside the critical section must run with the reconnect budget at 0 — '
+            . 'a single statement at 5 is a statement that can silently relocate to a new connection.'
+        );
+        $this->assertSame(5, $wpdb->retriesNow(), 'The budget must be restored after a successful write.');
+        unset($GLOBALS['_pp_test_store']['post_meta'][830]);
+    }
+
+    public function testReconnectRetriesRestoredAfterTheReleaseSoTheReleaseItselfCanSelfHeal(): void
+    {
+        // Restore runs BEFORE the release, deliberately: a RELEASE_LOCK issued on a
+        // connection that died during the section then self-heals into a harmless no-op
+        // (the dead connection already dropped the lock) instead of reaching dead_db()
+        // during unwinding and masking the original failure.
+        $wpdb = new PP_Mock_Wpdb();
+        $wpdb->db_composition_version = '1';
+        $GLOBALS['wpdb'] = $wpdb;
+
+        pp_update_composition(831, [['component' => 'hero', 'props' => ['title' => 'B']]], 1);
+
+        $this->assertSame(
+            [0],
+            array_unique($wpdb->retriesInsideSection()),
+            'Precondition: the section really was suspended, so the release value below means something.'
+        );
+        $this->assertSame(5, $wpdb->retriesAtRelease(), 'RELEASE_LOCK must be issued with the budget already restored.');
+        unset($GLOBALS['_pp_test_store']['post_meta'][831]);
+    }
+
+    public function testReconnectRetriesRestoredWhenTheWriteIsRefused(): void
+    {
+        // A CAS mismatch returns a WP_Error out of the mutator. The restore lives in a
+        // `finally`, so a refusal must leave the budget exactly as a success does.
+        $wpdb = new PP_Mock_Wpdb();
+        $wpdb->db_composition_version = '7';
+        $GLOBALS['wpdb'] = $wpdb;
+
+        $result = pp_update_composition(832, [['component' => 'hero', 'props' => ['title' => 'C']]], 2);
+
+        $this->assertInstanceOf(\WP_Error::class, $result, 'Precondition: a stale baseline must refuse.');
+        $this->assertSame('composition_conflict', $result->get_error_code());
+        $this->assertSame(5, $wpdb->retriesNow(), 'A refusal must restore the reconnect budget.');
+    }
+
+    public function testReconnectRetriesRestoredWhenTheMutatorThrows(): void
+    {
+        $wpdb = new PP_Mock_Wpdb();
+        $GLOBALS['wpdb'] = $wpdb;
+
+        try {
+            _pp_with_advisory_lock('pp_test_830_throw', function () {
+                throw new \RuntimeException('boom');
+            }, false, 'test');
+            $this->fail('The exception must propagate.');
+        } catch (\RuntimeException $e) {
+            $this->assertSame('boom', $e->getMessage());
+        }
+
+        $this->assertSame(5, $wpdb->retriesNow(), 'An exception unwinding out of the mutator must still restore the budget.');
+        $this->assertSame(
+            ['GET_LOCK', 'RELEASE_LOCK'],
+            array_map(fn ($c) => strpos($c, 'RELEASE_LOCK') !== false ? 'RELEASE_LOCK' : 'GET_LOCK', $wpdb->lockCalls()),
+            'The release must still happen when the mutator throws.'
+        );
+    }
+
+    public function testLockAcquisitionFailureNeverSuspendsTheBudget(): void
+    {
+        // The suspension is scoped to the section, and there is no section when the acquire
+        // fails: the mutator does not run, so the budget must never be touched.
+        $wpdb = new PP_Mock_Wpdb();
+        $wpdb->get_lock_return = '0'; // contention
+        $GLOBALS['wpdb'] = $wpdb;
+
+        $ran = false;
+        $result = _pp_with_advisory_lock('pp_test_830_busy', function () use (&$ran) {
+            $ran = true;
+            return true;
+        }, 'FAILED', 'test');
+
+        $this->assertSame('FAILED', $result);
+        $this->assertFalse($ran, 'Precondition: the mutator must not run on acquisition failure.');
+        $this->assertSame(5, $wpdb->retriesNow(), 'A failed acquire must leave the budget untouched.');
+        $this->assertSame([], $wpdb->retriesInsideSection(), 'No statement should have run inside a section that never opened.');
+    }
+
+    public function testNestedLocksRestoreThroughTheCallStackWithoutClobbering(): void
+    {
+        // Nesting is safe BY CONSTRUCTION because the save takes the ACTUAL CURRENT value:
+        // outer saves 5 → 0, inner saves 0 → 0, inner restores 0, outer restores 5. This
+        // pins that composition, so a future rewrite that saves a hard-coded default (or
+        // adds a re-entrancy refusal) has to change a test rather than a behaviour.
+        $wpdb = new PP_Mock_Wpdb();
+        $GLOBALS['wpdb'] = $wpdb;
+
+        $seen = [];
+        _pp_with_advisory_lock('pp_test_830_outer', function () use ($wpdb, &$seen) {
+            $seen['inside_outer'] = $wpdb->retriesNow();
+            _pp_with_advisory_lock('pp_test_830_inner', function () use ($wpdb, &$seen) {
+                $seen['inside_inner'] = $wpdb->retriesNow();
+                return true;
+            }, false, 'test');
+            $seen['after_inner'] = $wpdb->retriesNow();
+            return true;
+        }, false, 'test');
+        $seen['after_outer'] = $wpdb->retriesNow();
+
+        $this->assertSame(0, $seen['inside_outer'], 'The outer section suspends.');
+        $this->assertSame(0, $seen['inside_inner'], 'The inner section stays suspended.');
+        $this->assertSame(0, $seen['after_inner'], 'The inner restore must put back what IT found (0), not the default.');
+        $this->assertSame(5, $seen['after_outer'], 'The outer restore returns the original budget.');
+    }
+
+    public function testDeadConnectionInsideTheSectionRefusesTheWriteWithoutWritingAnything(): void
+    {
+        // THE POINT OF THE WHOLE ISSUE. Before #830 the errno-2006 self-heal re-ran this
+        // read on a new connection and the write proceeded UNLOCKED. With the budget
+        // suspended the read fails instead, the in-lock version reads 0, and a caller
+        // carrying a baseline is refused by the EXISTING composition_conflict — no new
+        // refusal class was minted. Nothing is written.
+        //
+        // WHICH BRANCH THIS MODELS, stated because the name does not say it. Core answers a
+        // dead connection two ways, and the one that RETURNS (rather than calling dead_db()
+        // and killing the request) is gated on did_action('template_redirect'). Every write
+        // surface in this theme is WP-CLI, admin-AJAX or the activation seed, and none of
+        // them fires that action — so in production the dead connection terminates the
+        // request and this refusal is not what an operator meets. What is pinned here is the
+        // CODE's behaviour when an in-lock read fails without taking the request down with
+        // it: the guarantee that nothing relocates onto another connection, which holds on
+        // both branches. See _pp_with_advisory_lock()'s docblock for all four shapes.
+        $wpdb = new PP_Mock_Wpdb();
+        $wpdb->db_composition_version = '3';
+        $wpdb->dead_after_lock = true;
+        $GLOBALS['wpdb'] = $wpdb;
+
+        $result = pp_update_composition(833, [['component' => 'hero', 'props' => ['title' => 'D']]], 3);
+
+        $this->assertFalse(
+            $wpdb->lock_voided,
+            'THE REGRESSION THIS EXISTS FOR: with the budget suspended, no statement may '
+            . 'self-heal onto a new connection — that relocation is what silently released '
+            . 'the lock and let the rest of the write run unserialized.'
+        );
+        $this->assertInstanceOf(\WP_Error::class, $result, 'A dead connection inside the lock must not report success.');
+        $this->assertSame('composition_conflict', $result->get_error_code());
+        $this->assertSame(
+            '',
+            (string) get_post_meta(833, '_pp_composition', true),
+            'The refusal must leave the composition unwritten.'
+        );
+        $this->assertSame(
+            '',
+            (string) get_post_meta(833, '_pp_composition_version', true),
+            'The refusal must leave the version marker unwritten.'
+        );
+        $this->assertSame(5, $wpdb->retriesNow(), 'Even on the dead-connection path the budget is restored.');
+    }
+
+    public function testDeadConnectionWithNoBaselineIsTheDisclosedOptimisticReturn(): void
+    {
+        // THE DISCLOSED RESIDUAL, pinned so it lives in the suite rather than only in prose.
+        // A caller that supplies no expected_version (create_page, the homepage seed, legacy
+        // direct writes) has no CAS to catch the failed read, so the write is not refused.
+        // Nothing runs unlocked — that is what #830 guarantees — but the RETURN is
+        // optimistic. Closing it needs update_post_meta()'s verdict to be readable, which is
+        // the half of the #821 ruling deferred to the #857 compare-first idiom.
+        //
+        // SAME BRANCH CAVEAT AS ITS SIBLING: this models the core path that RETURNS on a dead
+        // connection, which is gated on did_action('template_redirect') and so is not the one
+        // production reaches. The invariant it pins — nothing relocates onto another
+        // connection — holds on both.
+        //
+        // NOT STAGEABLE HERE: the meta writes themselves. update_post_meta() is a test-store
+        // stub, not a call through this double, so the harness cannot make them fail the way
+        // a dead connection would in production. Shape 4 on _pp_with_advisory_lock() (a death
+        // BETWEEN two of the three meta writes, leaving new content under a stale marker) is
+        // out of reach here for the same reason. What this pins is the OBSERVABLE signature
+        // at this layer — no refusal — so a future change that starts refusing has to update
+        // this test deliberately instead of silently.
+        $wpdb = new PP_Mock_Wpdb();
+        $wpdb->db_composition_version = '3';
+        $wpdb->dead_after_lock = true;
+        $GLOBALS['wpdb'] = $wpdb;
+
+        $result = pp_update_composition(834, [['component' => 'hero', 'props' => ['title' => 'E']]], null);
+
+        // PROVE THE INJECTION ACTUALLY FIRED FIRST. Every other assertion in this test is
+        // an outcome a perfectly HEALTHY connection also produces, so without this the test
+        // would stay green if the dead-connection wiring silently stopped arming — it would
+        // then be pinning the ordinary path under the name of the residual. The version read
+        // resolving to 0 against a stored '3' is the signature that the read really failed.
+        $this->assertSame(
+            1,
+            (int) get_post_meta(834, '_pp_composition_version', true),
+            'The dead read must have answered 0, making this write v1 rather than v4 — if it is 4, '
+            . 'the injection did not fire and the rest of this test proves nothing.'
+        );
+        $this->assertFalse(
+            $wpdb->lock_voided,
+            'The residual is an optimistic RETURN, not an unlocked write. Even here nothing may '
+            . 'relocate onto a new connection — that is the guarantee #830 actually makes.'
+        );
+        $this->assertTrue($result, 'Documented residual: with no baseline there is no gate to catch the failed read.');
+        $this->assertSame(5, $wpdb->retriesNow(), 'The budget is restored regardless.');
+        unset($GLOBALS['_pp_test_store']['post_meta'][834]);
+    }
+
+    public function testDeadConnectionWithAZeroBaselineAlsoLandsInTheResidual(): void
+    {
+        // THE SECOND FACE OF THE RESIDUAL, and the one that is easy to state backwards. A
+        // dead read answers version 0, and a caller can legitimately HOLD 0 as its baseline
+        // (an absent marker reads as 0 — the documented back-compat path by which a
+        // never-written page initializes to v1). So the CAS compares 0 against 0, PASSES,
+        // and the write is NOT refused. It is the same trap already recorded on
+        // _pp_read_composition_version_locked(): "a caller that supplied expected_version = 0
+        // passes a CAS it should have failed."
+        //
+        // Pinned separately from the null-baseline case because a reader of the docblock
+        // could reasonably conclude "any caller carrying expected_version is protected",
+        // and that is false for exactly this value.
+        $wpdb = new PP_Mock_Wpdb();
+        $wpdb->db_composition_version = '6';
+        $wpdb->dead_after_lock = true;
+        $GLOBALS['wpdb'] = $wpdb;
+
+        $result = pp_update_composition(835, [['component' => 'hero', 'props' => ['title' => 'F']]], 0);
+
+        $this->assertFalse($wpdb->lock_voided, 'Nothing may relocate onto a new connection.');
+        $this->assertTrue(
+            $result,
+            'expected_version=0 meets a dead read of 0, so the CAS passes and the write is not refused — '
+            . 'the disclosed residual, not a refusal.'
+        );
+        $this->assertSame(5, $wpdb->retriesNow(), 'The budget is restored regardless.');
+        unset($GLOBALS['_pp_test_store']['post_meta'][835]);
+    }
+
+    public function testGuardIsInertAgainstAHandleWithNoReconnectBudget(): void
+    {
+        // A $wpdb replacement (HyperDB, a db.php drop-in) may not carry the property at all.
+        // The guard must degrade to a no-op — no fabricated property, no PHP warning, and
+        // above all no pretending the section is protected.
+        //
+        // THE FIXTURE IS PURPOSE-BUILT, and that is the point. It used to be PP_Lockable_Wpdb,
+        // which descends from the bootstrap `wpdb` stub — this harness's model of WordPress
+        // ITSELF. That stub now carries core's real reconnect budget (#830), so using it here
+        // would have pinned this test to a harness gap rather than to a real handle shape:
+        // the moment the stub got more faithful, the "third-party drop-in" fixture stopped
+        // being one.
+        $wpdb = new PP_NoBudget_Wpdb();
+        $GLOBALS['wpdb'] = $wpdb;
+
+        $this->assertFalse(
+            property_exists($wpdb, 'reconnect_retries'),
+            'Precondition: the bare stub models a handle with no reconnect budget.'
+        );
+
+        $ran = false;
+        $result = _pp_with_advisory_lock('pp_test_830_inert', function () use (&$ran) {
+            $ran = true;
+            return 'ok';
+        }, false, 'test');
+
+        $this->assertSame('ok', $result, 'The mutator must still run.');
+        $this->assertTrue($ran);
+        $this->assertFalse(
+            property_exists($wpdb, 'reconnect_retries'),
+            'The guard must not conjure the property onto a handle that never had one.'
+        );
+    }
+
+    public function testHandleWhoseAccessorsThrowStillReleasesTheLock(): void
+    {
+        // THE WORST FAILURE THIS CHANGE COULD HAVE INTRODUCED. The suspension is attempted
+        // with the lock ALREADY HELD, so an exception escaping it would skip RELEASE_LOCK
+        // and strand the lock for the rest of the request — worse than the bug #830 fixes.
+        // Two things keep that shut: the helper swallows Throwable, and the call sits inside
+        // the caller's own try/finally. This pins the observable consequence of both.
+        $wpdb = new PP_HostileAccessor_Wpdb();
+        $GLOBALS['wpdb'] = $wpdb;
+
+        $ran = false;
+        $result = _pp_with_advisory_lock('pp_test_830_hostile', function () use (&$ran) {
+            $ran = true;
+            return 'ok';
+        }, false, 'test');
+
+        $this->assertSame('ok', $result, 'A handle that refuses the budget must not break the write.');
+        $this->assertTrue($ran, 'The mutator must still run — unguarded, but running.');
+        $this->assertSame(
+            ['GET_LOCK', 'RELEASE_LOCK'],
+            array_map(
+                fn ($c) => strpos($c, 'RELEASE_LOCK') !== false ? 'RELEASE_LOCK' : 'GET_LOCK',
+                $wpdb->lockCalls()
+            ),
+            'THE LOCK MUST STILL BE RELEASED. A raising accessor may not strand it.'
+        );
+    }
+
+    public function testNumericStringBudgetIsSuspendedAndRestoredVerbatim(): void
+    {
+        // A drop-in holding "5" still reconnects — PHP compares the loop bound numerically —
+        // so a strict is_int() test would report "nothing to suspend" on a handle that is
+        // genuinely exposed. The saved value goes back exactly as found, coercing nothing.
+        $wpdb = new PP_StringBudget_Wpdb();
+        $GLOBALS['wpdb'] = $wpdb;
+
+        $this->assertSame('5', $wpdb->rawBudget(), 'Precondition: the budget is a numeric string.');
+
+        $seen = null;
+        _pp_with_advisory_lock('pp_test_830_stringy', function () use ($wpdb, &$seen) {
+            $seen = $wpdb->rawBudget();
+            return true;
+        }, false, 'test');
+
+        $this->assertSame(0, $seen, 'A numeric-string budget must still be suspended.');
+        $this->assertSame('5', $wpdb->rawBudget(), 'The restore must put back exactly what it found.');
+    }
+
+    public function testRestoreDoesNotClobberABudgetSetInsideTheSection(): void
+    {
+        // update_post_meta() fires WordPress's meta hooks, so third-party code runs inside
+        // this lock. If any of it sets its own budget, the value is no longer 0 and putting
+        // ours back would silently overwrite a decision that is not this theme's to make.
+        $wpdb = new PP_Mock_Wpdb();
+        $GLOBALS['wpdb'] = $wpdb;
+
+        _pp_with_advisory_lock('pp_test_830_plugin', function () use ($wpdb) {
+            $wpdb->reconnect_retries = 3; // a plugin callback, deliberately
+            return true;
+        }, false, 'test');
+
+        $this->assertSame(3, $wpdb->retriesNow(), 'A deliberate in-section change must survive the restore.');
+    }
+
+    public function testRestoreDoesNotClobberANonNumericBudgetSetInsideTheSection(): void
+    {
+        // THE HOLE THE FIRST SPELLING LEFT. The yield guard used to read
+        // `is_numeric($current) && (int) $current !== 0`, which silently EXCLUDED non-numeric
+        // values — so a callback that set the budget to something exotic inside the section
+        // had it overwritten, and because the yield never fired, nothing was logged either.
+        // That is the exact case the branch exists to respect, failing open and silent. The
+        // test is "not a numeric zero", not "a numeric non-zero".
+        $wpdb = new PP_Mock_Wpdb();
+        $GLOBALS['wpdb'] = $wpdb;
+
+        _pp_with_advisory_lock('pp_test_830_exotic', function () use ($wpdb) {
+            $wpdb->reconnect_retries = 'unlimited'; // a drop-in-aware plugin, mid-section
+            return true;
+        }, false, 'test');
+
+        $this->assertSame(
+            'unlimited',
+            $wpdb->rawBudget(),
+            'A non-numeric in-section value is still someone else\'s decision and must survive.'
+        );
+    }
+
+    public function testTheWhitelistTheWholeGuardRestsOnIsTheOneCoreApplies(): void
+    {
+        // THE LOAD-BEARING FACT, asserted behaviourally rather than by inspecting a
+        // declaration. The guard can be a plain property write only because core's
+        // wpdb::__set() refuses exactly four names and `reconnect_retries` is not among
+        // them. This drives the double's copy of that whitelist through the same magic
+        // accessor production uses: the budget must take, a whitelisted name must not.
+        //
+        // It replaces a ReflectionProperty check on the double's own visibility, which
+        // could not fail from any change to lib/wp.php and so pinned nothing.
+        $wpdb = new PP_Mock_Wpdb();
+
+        $wpdb->reconnect_retries = 3;
+        $this->assertSame(3, $wpdb->retriesNow(), 'reconnect_retries is NOT whitelisted, so the write must take.');
+
+        $wpdb->table_charset = 'clobbered';
+        $this->assertSame(
+            'utf8mb4_sentinel',
+            $wpdb->rawProperty('table_charset'),
+            'table_charset IS whitelisted, so core refuses the write — if this ever changes, the '
+            . 'double has stopped modelling core\'s __set and the guard\'s premise is unverified.'
+        );
+    }
+
+    public function testTheDoubleActuallyDetectsAnUnguardedRelocation(): void
+    {
+        // WHO WATCHES THE WATCHMAN. `lock_voided` is the double's model of the #830 bug, and
+        // it is asserted FALSE in several tests above and TRUE in none of them. If the
+        // injection wiring ever drifts — GET_LOCK's return shape changes so $lock_held stops
+        // being set, dead_after_lock gets renamed, the dead-statement condition is refactored
+        // — every one of those assertFalse calls goes vacuously green in silence, including
+        // the one carrying the comment "THE REGRESSION THIS EXISTS FOR".
+        //
+        // So prove the bug arm can still fire: put the budget back to core's default inside
+        // the section, which is precisely the pre-#830 world, and the modelled self-heal must
+        // relocate.
+        $wpdb = new PP_Mock_Wpdb();
+        $wpdb->dead_after_lock = true;
+        $GLOBALS['wpdb'] = $wpdb;
+
+        _pp_with_advisory_lock('pp_test_830_selftest', function ($db) {
+            $db->reconnect_retries = 5; // undo the guard for THIS section only
+            return $db->get_var('SELECT meta_value FROM wp_postmeta WHERE post_id = 1');
+        }, false, 'test');
+
+        $this->assertTrue(
+            $wpdb->lock_voided,
+            'The double must still model the pre-#830 self-heal, or every assertFalse(lock_voided) '
+            . 'in this file is vacuous.'
+        );
+    }
+
+    public function testHandleThatSilentlyRefusesTheWriteIsPutBackAndRunsUnguarded(): void
+    {
+        // The degradation the BEST-EFFORT contract is actually written for, and the one the
+        // throwing handle cannot reach: a __set that CLAMPS instead of raising. The read-back
+        // is the only thing that can notice, and without the put-back the handle would be
+        // left permanently clamped at the normalized value after every lock hold — a silent,
+        // cumulative state leak on exactly the handles this arm exists to protect.
+        $wpdb = new PP_ClampingBudget_Wpdb();
+        $GLOBALS['wpdb'] = $wpdb;
+
+        $seen = null;
+        _pp_with_advisory_lock('pp_test_830_clamp', function () use ($wpdb, &$seen) {
+            $seen = $wpdb->rawBudget();
+            return true;
+        }, false, 'test');
+
+        $this->assertSame(5, $seen, 'A write that did not take is put back BEFORE the section runs, never left clamped.');
+        $this->assertSame(5, $wpdb->rawBudget(), 'And the restore must not write over it again on the way out.');
+    }
+
+    public function testNonNumericBudgetIsLeftExactlyAsFound(): void
+    {
+        // "Only a numeric budget is ours to reason about" is a real branch, not a comment.
+        // Without it the guard would write int 0 over a handle whose budget was 'unlimited'
+        // and then hand an int back to the restore.
+        $wpdb = new PP_OpaqueBudget_Wpdb();
+        $GLOBALS['wpdb'] = $wpdb;
+
+        $seen = null;
+        _pp_with_advisory_lock('pp_test_830_opaque', function () use ($wpdb, &$seen) {
+            $seen = $wpdb->rawBudget();
+            return true;
+        }, false, 'test');
+
+        $this->assertSame('unlimited', $seen, 'A non-numeric budget is not ours to write 0 into.');
+        $this->assertSame('unlimited', $wpdb->rawBudget(), 'And not ours to leave an int behind in.');
+    }
+
+    public function testARestoreThatRaisesStillReleasesTheLock(): void
+    {
+        // The restore's own catch exists so that a raising handle cannot strand the lock on
+        // the way out. Reaching it needs a handle that ACCEPTS the suspension and only then
+        // starts raising — the throwing handle makes the suspend return null, so the restore
+        // exits at its `$saved === null` guard and the catch is never entered.
+        $wpdb = new PP_TurnsHostile_Wpdb();
+        $GLOBALS['wpdb'] = $wpdb;
+
+        $result = _pp_with_advisory_lock('pp_test_830_turns', fn () => 'ok', false, 'test');
+
+        $this->assertSame('ok', $result, 'The mutator\'s return must still reach the caller.');
+        $this->assertSame(
+            ['GET_LOCK', 'RELEASE_LOCK'],
+            array_map(
+                fn ($c) => strpos($c, 'RELEASE_LOCK') !== false ? 'RELEASE_LOCK' : 'GET_LOCK',
+                $wpdb->lockCalls()
+            ),
+            'A restore that raises may not strand the lock.'
+        );
+    }
+
+    public function testTokenOverrideLockInheritsTheGuardToo(): void
+    {
+        // THE OTHER LOCK FAMILY. Every other test here drives the per-post composition lock
+        // or the engine directly, so nothing proved the token-override family inherits the
+        // suspension — and the safety doc states the guarantee for all three families. The
+        // #830 exposure on this path is its own in-lock read
+        // (_pp_read_token_overrides_locked_strict) re-running on a relocated connection,
+        // which no composition test can stand in for.
+        $wpdb = new PP_Mock_Wpdb();
+        $GLOBALS['wpdb'] = $wpdb;
+
+        $this->assertTrue(pp_set_token_override('--color-accent', '#123456'));
+
+        $inside = $wpdb->retriesInsideSection();
+        $this->assertNotEmpty($inside, 'The token mutator must issue a statement inside the lock.');
+        $this->assertSame(
+            array_fill(0, count($inside), 0),
+            $inside,
+            'The token family inherits the suspension too.'
+        );
+        $this->assertSame(5, $wpdb->retriesAtRelease(), 'RELEASE_LOCK issued with the budget restored.');
+    }
+
+    public function testTokenOverrideDeadConnectionDoesNotRelocateOffTheLockedConnection(): void
+    {
+        $wpdb = new PP_Mock_Wpdb();
+        $wpdb->dead_after_lock = true;
+        $GLOBALS['wpdb'] = $wpdb;
+
+        pp_set_token_override('--color-accent', '#abcdef');
+
+        $this->assertFalse(
+            $wpdb->lock_voided,
+            'A dead connection inside the TOKEN lock must fail the statement, not self-heal onto '
+            . 'a connection that never held it.'
+        );
     }
 }

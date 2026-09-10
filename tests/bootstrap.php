@@ -1186,6 +1186,45 @@ if (!class_exists('wpdb')) {
         // warning and the table name rendered empty.
         public string $postmeta = 'wp_postmeta';
 
+        /**
+         * THE RECONNECT BUDGET, WITH CORE'S REAL VISIBILITY (#830).
+         *
+         * This class is the harness's stand-in for CORE wpdb, so what it declares is what
+         * every lock-taking test in the suite believes WordPress looks like. Without this
+         * property _pp_suspend_wpdb_reconnect() found nothing to suspend on every double
+         * descended from here — PP_Lockable_Wpdb and the ~15 files that install it — so the
+         * advisory-lock guard was a silent no-op across all of that coverage and only
+         * TokenLockTest's own double ever exercised it.
+         *
+         * Declared `protected` and reached through the magic accessors below because that is
+         * exactly how core declares and exposes it: a public property here would let a guard
+         * that only works on public properties pass this suite and fail against WordPress.
+         */
+        protected $reconnect_retries = 5;
+
+        /** Core's wpdb::__get(), minus the col_info lazy-load which has no analogue here. */
+        public function __get($name) {
+            return $this->$name;
+        }
+
+        /**
+         * Core's wpdb::__set(), including the $protected_members whitelist verbatim. The
+         * list is copied rather than paraphrased because the whole reason the #830 guard can
+         * be a plain property write is that `reconnect_retries` is NOT on it.
+         */
+        public function __set($name, $value) {
+            $protected_members = array(
+                'col_meta',
+                'table_charset',
+                'check_current_query',
+                'allow_unsafe_unquoted_parameters',
+            );
+            if (in_array($name, $protected_members, true)) {
+                return;
+            }
+            $this->$name = $value;
+        }
+
         // Substitutes placeholders IN ORDER so get_var() below can inspect what was
         // actually asked for, rather than returning a fixed value regardless. %d and
         // %s are both handled and consume args left to right — a single-%s query (the
