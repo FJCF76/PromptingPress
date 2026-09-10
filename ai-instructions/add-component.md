@@ -383,7 +383,7 @@ snapshot verbatim and **reports findings** rather than blocking on it. (Since #8
 precondition can refuse it outright: a ring slot holding preserved bytes rather than a
 composition — and since #841/#842 "a composition" means a LIST OF COMPONENTS, so a slot
 holding a JSON object, or a list whose entries are not components (`["a","b"]`, or a list
-holding `{"component":"x","props":"str"}`), is a preserved-bytes slot too. That is a
+holding `{"component":"x","props":"str"}`), is a preserved-bytes slot too. "Of components" is shorthand for a structural test, not a schema one: an entry must be an array whose `props`, if set and not `null`, is also an array. A merely INVALID entry still restores and still reports. That is a
 statement about the slot, not about the snapshot's contents — every slot that carries a
 composition still replays verbatim, however illegal today's rules find it.) It does not promise that
 what it restores still paints. Keeping a name alive because an old document might replay

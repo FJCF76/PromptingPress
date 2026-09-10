@@ -1471,8 +1471,62 @@ class CompositionHistoryRawPreservationTest extends TestCase
             'props float'        => ['[{"component":"x","props":1.5}]'],
             'props true'         => ['[{"component":"x","props":true}]'],
             // Does not throw; the writer rewrites it to {"props":{"id":…}} instead.
+            // Pinned as refused ON PURPOSE — see the test below for the whole argument.
             'props false'        => ['[{"component":"x","props":false}]'],
         ];
+    }
+
+    /**
+     * THE TWO SHAPES THE WRITER TOLERATES AND THIS PREDICATE REFUSES ANYWAY, pinned as a
+     * DECISION rather than left to look like an oversight.
+     *
+     * MEASURED, so the asymmetry is on the record: `props: false` and `props: null` behave
+     * IDENTICALLY in the id-injection loop. Neither throws; both auto-vivify (a PHP 8.1+
+     * deprecation, not an error) and both come out as `{"component":…,"props":{"id":"pp-…"}}`.
+     * Yet `null` stays replayable and `false` is refused.
+     *
+     * WHY THAT IS RIGHT, AND WHY THE RULE IS NOT "does it throw". `null` is this grammar's
+     * UNSET sentinel — the docs say so for every prop — so `props: null` means the same
+     * thing as no `props` key, which is a shape the writer handles honestly. `false` is not
+     * a sentinel. It is a SCALAR sitting where a container belongs, exactly like
+     * `props: 0` and `props: ""`, and those two DO throw. Splitting that family on which
+     * members happen to raise would make the refusal unpredictable from the grammar, so
+     * the whole family is refused and the slot's bytes stay readable instead.
+     *
+     * The cost is stated plainly: a raw-written `props: false` prior that would previously
+     * have "restored" no longer does. What it restored was a band with the `false`
+     * replaced by a generated id, so the refusal preserves strictly more than the replay
+     * did — the exact bytes, through `wp pp operate composition-history`.
+     */
+    public function testTheWriterToleratesPropsFalseAndPropsNullButOnlyNullStaysReplayable(): void
+    {
+        // Premise: the writer really does accept both, so this is a deliberate narrowing
+        // and not a description of a crash.
+        //
+        // The deprecation is SILENCED, not avoided: converting `false` to an array is
+        // deprecated in PHP 8.1+, and that notice is the very behavior being pinned. It
+        // is scoped to this one call so the suite's deprecation count stays a signal
+        // about production code rather than about this fixture.
+        $probe = pp_create_page('props sentinel probe', 'draft');
+        set_error_handler(static fn (): bool => true, E_DEPRECATED);
+        try {
+            $accepted = pp_update_composition($probe, [['component' => 'hero', 'props' => false]]);
+        } finally {
+            restore_error_handler();
+        }
+        $this->assertTrue($accepted, 'premise: the writer does not raise on props:false');
+        $this->assertSame(
+            [['component' => 'hero', 'props' => ['id' => pp_get_composition($probe)[0]['props']['id']]]],
+            pp_get_composition($probe),
+            'premise: it rewrites false into a generated-id band'
+        );
+
+        // null is the unset sentinel: replayable.
+        $this->assertTrue(_pp_history_payload_is_snapshot([['component' => 'hero', 'props' => null]]));
+        // false is a scalar where a container belongs: refused, with its family.
+        $this->assertFalse(_pp_history_payload_is_snapshot([['component' => 'hero', 'props' => false]]));
+        $this->assertFalse(_pp_history_payload_is_snapshot([['component' => 'hero', 'props' => 0]]));
+        $this->assertFalse(_pp_history_payload_is_snapshot([['component' => 'hero', 'props' => '']]));
     }
 
     /**
@@ -1818,6 +1872,18 @@ class CompositionHistoryRawPreservationTest extends TestCase
 
         $result = pp_execute_action('restore_composition', ['post_id' => $post_id, 'steps_back' => 1]);
         $this->assertTrue($result['ok'], '#233: restore reports, it does not block');
+
+        // AND THE RESHAPE IS RECORDED, not left as an undocumented side effect. For a
+        // LIST-shaped entry the writer's id-injection turns the element into an object
+        // with an injected `id`, so "verbatim" is a claim about restore_composition and
+        // not about what finally lands in `_pp_composition`. Pinning it here means a
+        // future change to that behavior has to be deliberate.
+        $stored = pp_get_composition($post_id);
+        if ($prior === [['a', 'b']]) {
+            $this->assertSame([0, 1, 'props'], array_keys($stored[0]), 'a list entry comes back reshaped, gaining a props key');
+            $this->assertSame('a', $stored[0][0], 'and its values survive the reshape');
+            $this->assertArrayHasKey('id', $stored[0]['props'], 'the injected id is what reshapes it');
+        }
 
         // Premise: current rules really do reject this — otherwise the test proves nothing.
         $this->assertNotSame(

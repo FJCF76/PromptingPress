@@ -33,7 +33,7 @@ So the new test asks only what replay structurally requires — can the composit
 | `["a","b"]` | **refused** — crashed the writer |
 | `[{"component":"x","props":"str"}]` | **refused** — crashed the writer |
 
-An entry that is merely invalid still restores and still reports. Only shapes that made the writer raise changed sides.
+An entry that is merely invalid still restores and still reports. What changed sides is the set where the writer needs a container and finds a scalar. That is deliberately a shade wider than the set that literally crashed: `false` and `null` entries, and a `props` of `false`, do not crash the writer, but replaying one rewrites it into a band that was never stored, so they are refused alongside the shapes that do crash rather than split off by a PHP detail.
 
 ### Every reader now agrees about every row
 

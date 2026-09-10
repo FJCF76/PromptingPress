@@ -3810,15 +3810,23 @@ function pp_history_entry_is_raw(array $entry): bool {
  *
  * REPLAYABILITY IS NOT VALIDITY, AND THIS IS THE LINE #233 DRAWS. #233 says a restore is
  * never blocked by CURRENT VALIDATION RULES — it replays verbatim and REPORTS what came
- * back through the shared engines. So this predicate asks ONLY what replay structurally
- * requires (can the one composition writer run over these elements at all?) and never what
- * a validator would ask. Concretely, it does NOT require a `component` key: a band missing
- * one is INVALID — pp_validate_composition_errors() says so — but it replays fine, and
- * refusing it here would be exactly the validation veto #233 forbids. Same reason
- * `[["a","b"]]` stays replayable: a bare list element is nonsense to every renderer, and it
- * is the findings report's job to say so, not this predicate's. The test is the fatal, not
- * the schema. Widening it into a shape check is how this function becomes a second
- * validator, which the repo forbids (validation lives in the shared engines).
+ * back through the shared engines. So this predicate asks a STRUCTURAL question — are the
+ * containers the writer must index actually containers? — and never a question a validator
+ * would ask. Concretely, it does NOT require a `component` key: a band missing one is
+ * INVALID (pp_validate_composition_errors() says so) but it replays fine, and refusing it
+ * here would be exactly the validation veto #233 forbids. It does not ask whether `props`
+ * is an object rather than a LIST, either: `[{"component":"x","props":["a"]}]` is nonsense
+ * to every renderer and still replays, because the findings report owns that verdict.
+ * Widening this into a shape check is how the function becomes a second validator, which
+ * the repo forbids (validation lives in the shared engines).
+ *
+ * STATE THE RULE PRECISELY, because "refuses what the writer would fatal on" is the
+ * tempting summary and it is NOT true in both directions. The refused set is a deliberate
+ * SUPERSET of the fataling set: `false` and `null` as elements, and `props: false`, are
+ * tolerated by the writer and refused here anyway, because it rewrites them into a band
+ * that was never stored. The rule is structural — every element an array, `props` an array
+ * or unset — and the two members that do not raise are refused for consistency with the
+ * family they belong to, not by accident. See the element and `props` gates below.
  *
  * THE ELEMENT TEST IS SPELLED TWICE ON PURPOSE, and the duplication is worth naming so
  * nobody "fixes" it by extracting a shared helper without reading both sides.
@@ -3840,17 +3848,33 @@ function _pp_history_payload_is_snapshot($payload): bool {
         return false;
     }
     foreach ($payload as $item) {
-        // A non-array element fatals the id-injection loop outright (TypeError on a string,
-        // "Cannot use a scalar value as an array" on an int/float/true) — except `false` and
-        // `null`, which do not throw but are SILENTLY rewritten into {"props":{"id":…}}. A
-        // scalar quietly becoming a band is not a replay either, so the array test covers
-        // both without needing to enumerate which scalars throw and which mutate.
+        // Every element must be an ARRAY. Most non-arrays fatal the id-injection loop
+        // outright (TypeError on a string, "Cannot use a scalar value as an array" on an
+        // int/float/true); `false` and `null` do not throw but are SILENTLY rewritten into
+        // {"props":{"id":…}}, fabricating a band that was never stored.
+        //
+        // The test is the STRUCTURE, not the exception. Enumerating which scalars raise
+        // and which mutate would encode a PHP implementation detail as a recovery
+        // contract, and it would split one family — "a scalar where a band belongs" —
+        // down a line no operator could predict. All of them are refused, and their exact
+        // bytes stay readable through `wp pp operate composition-history`.
         if (!is_array($item)) {
             return false;
         }
-        // `props` absent or null is fine — `?? []` covers absent, and null auto-vivifies —
-        // so isset() is exactly the right gate here: it is false for both, and true only
-        // where a real value sits that must then be an array.
+        // `props` must be an ARRAY or UNSET, and "unset" means absent or `null` — the
+        // repo's two spellings for the same thing (`null` is the documented unset
+        // sentinel throughout the composition grammar). isset() is exactly that test.
+        //
+        // THE BOUNDARY IS STRUCTURAL, NOT "does it throw", and the difference is real:
+        // `props: false` does NOT throw. It auto-vivifies to an array just as `null`
+        // does (a PHP 8.1+ deprecation, not an error), so the writer would tolerate it.
+        // It is refused anyway, because it is a SCALAR where a container belongs — the
+        // same thing `props: 0` and `props: ""` are, and those two DO throw. Splitting
+        // that family on which members happen to raise would be a rule nobody could
+        // predict from the grammar. Refusing the whole family is the conservative side
+        // of the line: the slot's exact bytes stay recoverable through
+        // `wp pp operate composition-history`, where replaying it would have silently
+        // fabricated `props: {"id": …}` over whatever was stored.
         if (isset($item['props']) && !is_array($item['props'])) {
             return false;
         }
