@@ -26,6 +26,10 @@
  *
  *     pp_update_composition($post_id, $new)
  *         │
+ *         ├─ encode $new ─── FALSE ─► REFUSED, before the lock (#941) — nothing below runs
+ *         │                           (a different fixture entirely; see the note under the
+ *         │                            depth probe, and CompositionEncodeRefusalTest)
+ *         │
  *         ├─ forget the post's skip slot ─────────────► this write owns it from here
  *         │
  *         ├─ prior exists? ──no──► nothing to push (a first write, a seed)
@@ -214,6 +218,15 @@ class CompositionHistoryPushDisclosureTest extends TestCase
         // level, the deep state silently stops landing and every test in this file fails as
         // "expected 1 disclosure, got 0", pointing at the disclosure code for a fault in the
         // setup. One assertion here turns eight misleading failures into one honest one.
+        //
+        // THAT GUARD NOW EXISTS (#941) AND THE TWO DO NOT COLLIDE, which is a property of the
+        // probe rather than a coincidence. depthThatBreaksTheRingEncode() requires condition 1
+        // — the composition itself must STORE cleanly — so every band it can return is one the
+        // #941 guard passes by construction. The two files sit either side of the same
+        // threshold: this one needs the composition encode to succeed and only the ring's two
+        // extra levels of wrapping to fail, CompositionEncodeRefusalTest needs the composition
+        // encode itself to fail. If a future change collapses that gap, this assertion is
+        // still the one that reports it honestly.
         $stored = pp_get_composition($post_id);
         $this->assertArrayHasKey(
             'deep',

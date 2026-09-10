@@ -3370,13 +3370,25 @@ function _pp_degraded_history_ring(int $post_id, string $reason): array {
  *   registered — and enforcement in this theme is PHP-level by rule, never hook-level
  *   (hooks are optional UX). It buys nothing here and costs a load-order question.
  *
- * THE INVARIANT THAT KEEPS IT HONEST: EVERY WRITE CLEARS THE POST'S SLOT BEFORE IT COULD
- * SET IT. pp_update_composition() calls _pp_forget_history_push_skipped() unconditionally on
- * the way in — outside the `$prior_json !== null` gate, deliberately, so a write with no
- * prior state to push also clears — and only then can the skip branch record. So the slot
- * always describes THE MOST RECENT WRITE TO THAT POST, and a notice left behind by a writer
- * that reports through some other channel is cleared by the next write before that write's
- * envelope ever reads it.
+ * THE INVARIANT THAT KEEPS IT HONEST: EVERY WRITE THAT REACHES THE LOCK CLEARS THE POST'S
+ * SLOT BEFORE IT COULD SET IT. pp_update_composition() calls
+ * _pp_forget_history_push_skipped() as the first statement of its lock body — outside the
+ * `$prior_json !== null` gate, deliberately, so a write with no prior state to push also
+ * clears — and only then can the skip branch record. So the slot always describes THE MOST
+ * RECENT WRITE TO THAT POST, and a notice left behind by a writer that reports through some
+ * other channel is cleared by the next write before that write's envelope ever reads it.
+ *
+ * ONE CALL RETURNS BEFORE THAT AND MUST, which is why the invariant reads "every write that
+ * reaches the lock" rather than "unconditionally on the way in" (#941). An unencodable
+ * composition is refused before the lock is acquired, so it clears nothing — correctly. It
+ * replaced no prior state, so it does not OWN the slot; and it produces a rejection envelope,
+ * which carries no `findings` and so could not deliver a notice it had drained. The narrow
+ * claim is that a refusal is not a write and so does not touch a slot that describes writes —
+ * NOT that the pending notice therefore gets delivered. It does not: the next accepted write
+ * clears the slot ahead of its own envelope, exactly as the invariant above says, so a notice
+ * stranded by a writer that reports through some other channel is still lost there. That is
+ * the residual stated two paragraphs down, unchanged by this. Pinned by
+ * CompositionEncodeRefusalTest::testARefusedWriteDoesNotDrainAnEarlierWritesUndisclosedSkipNotice().
  *
  * THE RESIDUAL, STATED IN BOTH DIRECTIONS RATHER THAN CLAIMED AWAY. That invariant orders
  * writes that NEST; it does not make re-entrancy harmless, and an earlier draft of this note
@@ -3644,6 +3656,16 @@ function pp_composition_content_hash(array $composition): string {
         }
         return $item;
     }, $composition);
+    // THE `(string)` CAST HIDES AN ENCODE FAILURE, and the return type is why it is still
+    // here (#941). `(string) false` is `''`, so a composition the encoder cannot represent
+    // hashes to sha256 of the EMPTY STRING rather than reporting anything — which is how the
+    // emptied page in #941 came to carry a freshness marker certifying content that was never
+    // stored. A `string` return cannot express "unreadable", so guarding this needs a nullable
+    // return and a decision about what every caller does with it, which is a posture ruling
+    // rather than a line. TODAY IT IS UNREACHABLE, through the only caller that exists:
+    // pp_update_composition() refuses on the same failure before this hash is used for
+    // anything. A SECOND CALLER WOULD REOPEN IT — check your own encode before trusting this
+    // digest, or take the nullable-return question to the maintainer first.
     return hash('sha256', (string) wp_json_encode($canonical, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
 }
 
@@ -3726,19 +3748,23 @@ function pp_get_composition_marker(int $post_id): array {
 // section states is "every prior state gets a ring slot, or the write that
 // replaced it says it has no undo point", and never a silent gap.
 //
-// READ THAT GUARANTEE AS NARROWLY AS IT IS WRITTEN. It is about the RING, and two
-// neighbouring failures are still silent:
+// READ THAT GUARANTEE AS NARROWLY AS IT IS WRITTEN. It is about the RING, and one
+// neighbouring failure is still silent:
 //
 //   the DB layer      a ring push that fails inside update_post_meta() rather than
 //                     at the encoder. That function returns false for an unchanged
 //                     value as well as for a real failure, so gating on it waits on
 //                     a compare-first read. Deferred by the same ruling.
-//   the COMPOSITION   pp_update_composition()'s own `wp_json_encode($composition)`
-//                     is unchecked (#941), so a composition the encoder rejects is
-//                     stored as an empty value while this function returns true.
-//                     The ring push above SUCCEEDS in that case — it encodes the
-//                     PRIOR state, which is fine — so the page's real content is
-//                     still recoverable from the ring, and nothing says to look.
+//
+// THE SECOND NEIGHBOUR IS NO LONGER SILENT (#941). pp_update_composition()'s own
+// `wp_json_encode($composition)` used to be unchecked, so a composition the encoder
+// rejected was stored as an EMPTY value while the function returned true and the page
+// then read back as a healthy blank one. That call now REFUSES with
+// `composition_not_encodable` before the lock is even acquired, so it never reaches
+// this ring push at all: the prior state is not replaced, and there is nothing for the
+// ring to have to rescue. The opposite posture to the ring's guard above, and the
+// difference is which side of the write the loss falls on — see the guard's own comment
+// in pp_update_composition() for why the same signal earns a different answer there.
 
 /**
  * Maximum number of prior-composition snapshots retained per post (#133).
@@ -5387,8 +5413,11 @@ function pp_generate_component_id(): string {
  *                                         lock, after the CAS and before any write. Receives
  *                                         the authoritative in-lock history ring (array).
  *                                         Returns true to proceed or a WP_Error to refuse.
- * @return true|WP_Error  true on write; WP_Error('composition_conflict') on a version
- *                        mismatch; the precondition's own WP_Error when it refuses;
+ * @return true|WP_Error  true on write; WP_Error('composition_not_encodable') when the
+ *                        composition cannot be represented as JSON (#941) — refused before
+ *                        the lock is taken, so nothing is read or written and the page keeps
+ *                        its stored composition; WP_Error('composition_conflict') on a
+ *                        version mismatch; the precondition's own WP_Error when it refuses;
  *                        WP_Error('composition_lock_failed') on lock-acquire failure.
  */
 function pp_update_composition(int $post_id, array $composition, ?int $expected_version = null, ?callable $in_lock_precondition = null) {
@@ -5440,6 +5469,168 @@ function pp_update_composition(int $post_id, array $composition, ?int $expected_
     unset($item);
 
     $json = wp_json_encode($composition, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
+    // A COMPOSITION THAT CANNOT BE ENCODED IS REFUSED, NOT STORED AS NOTHING (#941).
+    //
+    // WHAT THIS CLOSES, stated as the shape it actually had rather than as a category.
+    // `wp_slash(false)` is `false`, so the unchecked `update_post_meta($post_id,
+    // '_pp_composition', wp_slash($json))` at the bottom of the mutator stored an EMPTY
+    // value — and every layer downstream then agreed the page was fine:
+    //
+    //     pp_update_composition()   returned true
+    //     the action envelope       ok: true, with both markers bumped over nothing
+    //     pp_get_composition()      []
+    //     pp_get_composition_result()  ok, error null   <- NOT decode_error, NOT
+    //                                                      unexpected_shape, NOT anything
+    //     findings                  []                  <- documented as "the write did
+    //                                                      what you asked"
+    //
+    // An empty `_pp_composition` row is a legitimate "no composition yet" state, so none of
+    // the machinery built for corrupt pages could see this: #144 does not classify it, #725
+    // does not say "treat as corrupted, not empty", #749 does not refuse a batch over it.
+    // An accepted write silently emptied the page and then certified the result clean.
+    //
+    // THE POSTURE IS RULED AND IT IS THE OPPOSITE OF #821's, deliberately. #821 guarded the
+    // RING encode a screen below and let the composition write PROCEED, because refusing
+    // there would have cost a caller its write over a missing undo point. Here the write
+    // IS the loss: accepting destroys the page's content behind a success report while
+    // refusing costs a caller one retry it has to make anyway. Same unambiguous signal —
+    // a `false` from the encoder means the data cannot be represented at all — opposite
+    // correct answer, because the thing at stake is not the same thing.
+    //
+    // WHY IT SITS HERE, BEFORE THE LOCK, and not as one more branch inside the mutator.
+    // Everything above this line is pure: a hash computed into a local, and an id-injection
+    // loop over this function's own by-value copy of $composition. Nothing has been read
+    // from the database and nothing has been written. So refusing at this point does not
+    // merely skip the three meta writes — the advisory lock is never acquired, the ring is
+    // never read or rebuilt, and no concurrent writer to this post waits on a call that was
+    // never going to store anything.
+    //
+    // AND IT ANSWERS BEFORE THE COMPARE-AND-SWAP, which inverts the precedence the mutator
+    // states for the in-lock precondition ("THE CAS ANSWERS FIRST"). That rule is right for
+    // a question ABOUT THE PAGE: a stale baseline means the page moved under you, which
+    // subsumes any narrower reason to stop. This question is about the CALLER'S OWN DATA and
+    // is true at every version — re-reading the page and retrying, which is exactly what
+    // `composition_conflict` tells a caller to do, would fail again identically. Reporting
+    // the conflict first would send the caller round a loop that cannot terminate.
+    //
+    // WHAT ACTUALLY REACHES IT, stated narrowly because the honest answer is "not much, yet".
+    // This path encodes with `wp_json_encode()`, not bare `json_encode()`, and the two differ
+    // exactly where it matters: on a `false` from `json_encode()`, core runs
+    // `_wp_json_sanity_check()` — which rewrites every STRING through
+    // `_wp_json_convert_string()` and throws only when its own depth budget runs out — and
+    // re-encodes. So MALFORMED UTF-8 IS NOT A TRIGGER: that class is coerced and SUCCEEDS,
+    // which is the same fact that made #818 store the ring's preserved bytes as base64 over
+    // a bare `json_encode()`. What does return false, measured against the installed WP 7.0
+    // core (wp-includes/functions.php:4443):
+    //
+    //     nesting past the encoder's depth limit    JSON_ERROR_DEPTH; the sanity check
+    //                                               throws "Reached depth limit"
+    //     a self-referential array                  json_encode reports "Recursion
+    //                                               detected"; the sanity check runs its
+    //                                               own depth budget down and throws
+    //     a non-finite float (INF, -INF, NAN)       the sanity check passes non-array,
+    //                                               non-object, non-string scalars through
+    //                                               untouched, so the re-encode fails
+    //                                               identically
+    //     a type JSON cannot represent (resource)   same reason
+    //
+    // NONE OF THOSE CAN BE AUTHORED THROUGH A VALIDATED ACTION TODAY. The whole-composition
+    // actions validate what they are given, and every such shape is refused earlier and
+    // louder: a deep value under an undeclared prop is `unknown_prop`, a deep value under a
+    // declared text prop is `invalid_prop_value`, a deep band container is
+    // `invalid_composition`, and the only two object-typed props in the shipped schemas
+    // (`grid.items[].style`, `section.panel_items[].style`) are style maps whose keys must be
+    // known slot names. `restore_composition` replays bytes that already decoded, so it
+    // cannot exceed a depth the decoder accepted. This guard is therefore a BACKSTOP over
+    // the in-process callers that hand this function a PHP array nothing validated — the
+    // homepage seed, the operate rollback, the editor path — and over every caller added
+    // later. That is a smaller claim than "this was reachable from the CLI", and it is the
+    // true one.
+    //
+    // THE HASH COMPUTED ABOVE IS DISCARDED HERE, and that is the second half of the same
+    // bug rather than a loose end. pp_composition_content_hash() casts its own encode with
+    // `(string) wp_json_encode(...)`, and `(string) false` is `''` — so the marker written
+    // beside the emptied page was sha256 of the empty string, a freshness marker certifying
+    // content that was never there. Refusing before any write is what makes that value
+    // unreachable through the only caller that has one; the cast itself is untouched here
+    // and tracked separately.
+    if ($json === false) {
+        // THE REASON IS CAPTURED ON THE FIRST LINE, BEFORE ANYTHING ELSE RUNS, and the
+        // ordering is load-bearing rather than tidy. json_last_error() is one global slot
+        // shared by every json_* call in the process, and the ring read three lines down
+        // json_decode()s the stored ring on the way past — SUCCESSFULLY, which sets the slot
+        // to JSON_ERROR_NONE. Reading json_last_error_msg() after it therefore reported
+        // "No error" on every page that HAS a ring, i.e. on every page past its second
+        // accepted write: the refusal said "could not be encoded as JSON (No error)". A
+        // sentence that denies the failure it is reporting is the exact class of message this
+        // whole guard exists to stop, one layer up. Caught by the /review testing specialist
+        // before this shipped; the coverage gap that hid it was that one test asserted the
+        // reason on a ring-less page and a different test asserted the pointer on a ring-ful
+        // one, so nothing ever read the two halves of the same message together.
+        $reason = json_last_error_msg();
+
+        // READ ON THE REFUSAL BRANCH ONLY, so the happy path pays nothing for it. The
+        // pointer is worth a read the moment it is needed and worth nothing before that.
+        //
+        // AND IT IS NOT A FREE READ, which the "this branch touches nothing" framing above
+        // would otherwise oversell. pp_get_composition_history() runs the full normalizer:
+        // a base64_decode plus json_decode of every stored slot (up to ten), a re-encode of
+        // each legacy `composition`-keyed one, and an error_log() line for any slot whose
+        // payload will not re-encode. So a call that writes nothing can still do real decode
+        // work at the composition size ceiling and can emit a ring-integrity line about a
+        // slot this refusal is not reporting on. That is accepted rather than optimised away:
+        // asking the cheap question (is the raw meta row non-empty) would be a SECOND way to
+        // ask about the ring, and the one thing every ring reader in this file agrees on is
+        // that they all go through the one normalizer — a private shortcut here could say
+        // "there is a ring" about slots the listing then shows as unreadable. "Touches
+        // nothing" is a claim about STATE: no lock, no write, no marker, no ring mutation.
+        // It was never a claim about cost, and this branch is by construction rare.
+        //
+        // AND IT IS ADVISORY, WHICH THE SENTENCE HAS TO CARRY RATHER THAN THE COMMENT. This
+        // read is not under the lock — it cannot be, the lock is never taken on this branch
+        // — so by the time anyone acts on the message another writer may have pushed to the
+        // ring or rolled an entry off the end of it. The sentence therefore says where to
+        // LOOK and never how much is there: a stale read can make it point at a ring whose
+        // contents moved, which is harmless, and cannot make it state a count that is wrong.
+        // The ring is only consulted to decide whether to say anything at all, because a
+        // page with fewer than two accepted writes has an empty ring and pointing an
+        // operator at it would be an instruction to go and find nothing.
+        //
+        // THE STALENESS CUTS BOTH WAYS AND THE OTHER DIRECTION IS THE WEAKER ONE, so it is
+        // named rather than left for a reader to discover: if a concurrent writer pushes the
+        // page's FIRST ring entry between this read and the refusal being read by a human,
+        // the message OMITS a pointer that had become true. The omission is a missing hint,
+        // never a false statement, and the honest fix is not available at this position —
+        // making it exact would mean taking the write lock to compose an error message for a
+        // write that is not going to happen, on a branch whose whole value is that it touches
+        // nothing. `wp pp operate composition-history` answers the question authoritatively
+        // whenever an operator asks it, which is the backstop this sentence is only a
+        // shortcut to.
+        //
+        // THE COMMAND IS THE ONE THE RING'S OTHER REFUSAL ALREADY NAMES.
+        // `history_entry_not_restorable` (#818) sends its caller to exactly this listing;
+        // spelling it the same way here is the #650/#652 rule applied to an operator route
+        // rather than to a sentence about corruption.
+        $ring    = pp_get_composition_history($post_id);
+        $pointer = $ring
+            ? ' Earlier states of this page are recorded in its history ring — list them with'
+                . ' `wp pp operate composition-history --post_id=' . $post_id . '`.'
+            : '';
+
+        return new WP_Error(
+            'composition_not_encodable',
+            'The composition for post ' . $post_id . ' could not be encoded as JSON ('
+            . $reason . '), so the write was REFUSED and nothing was written: '
+            . 'post ' . $post_id . ' still stores the composition it stored before this call, '
+            . 'and its version and content markers are unchanged. Retrying with the same data '
+            . 'will fail the same way — this is not a lock or a conflict. Send a composition '
+            . 'that JSON can represent (no values nested past the encoder depth limit, no '
+            . 'self-references, no INF/NAN floats, no resources) and write again.'
+            . $pointer
+            . ' [composition_not_encodable]'
+        );
+    }
 
     return _pp_with_composition_lock($post_id, function ($wpdb) use ($post_id, $json, $hash, $expected_version, $in_lock_precondition) {
         // Read the version fresh from the DB inside the lock (bypassing the meta cache the
