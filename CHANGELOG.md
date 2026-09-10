@@ -4,6 +4,89 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.19.10] — 2026-09-10 — A history slot the listing called restorable can no longer crash the restore (#842)
+
+**`wp pp operate composition-history` would report a ring slot `restorable: true`, and selecting it took the command down with an uncaught PHP error instead of restoring anything. The page it happened on read as perfectly healthy. The slot held a valid JSON list whose entries were not components — `["a","b"]`, or a list carrying a band whose `props` was the string `"str"` — and replaying one drove the composition writer's id-injection loop onto a string. This release makes that impossible: no slot reported restorable can crash a restore.**
+
+This is the sibling of the fix that shipped in 1.17.1 (#841). That one closed the CONTAINER half of the question — a prior that decoded to a JSON object was never a composition. This closes the ELEMENT half: a prior whose container is a perfectly good list, but whose entries are not bands. Same crash, same two channels (the WP-CLI action surface and the chat's "Undo these changes" link), and the same answer — the slot is preserved as bytes and refused, rather than advertised as replayable.
+
+### The one that arrives on a healthy page
+
+The other three preserved-bytes classes only turn up after a page went corrupt and someone repaired it. This one does not. `wp pp check page` reports the page healthy, because the classifier judges the container and the container is a valid list. So this is the first unrestorable slot you can meet with nothing whatsoever wrong with the page.
+
+That is deliberate, and it changes what the refusal means to you: it is a statement about replaying **that slot**, not a corruption report. If the page reads clean, believe it. There is nothing to repair; step past the slot to an earlier entry.
+
+### Replayability is not validity, and the line is load-bearing
+
+Restore has a standing contract (#233): it is never blocked by current validation rules. It replays a snapshot verbatim and tells you what today's rules make of it, so an undo cannot fail just because the rules moved since the snapshot was taken.
+
+So the new test asks only what replay structurally requires — can the composition writer run over these entries at all — and never whether the composition is legal:
+
+| stored prior | verdict |
+|---|---|
+| `[{"component":"hero","props":{...}}]` | replays, unchanged |
+| `[{"component":"hero"}]` (no `props`) | replays |
+| `[{"component":"hero","props":null}]` | replays |
+| `[]` | replays |
+| `[{"props":{}}]` (no `component` key) | replays, and **reports** the problem |
+| `[["a","b"]]` (a bare list entry) | replays, and **reports** |
+| `["a","b"]` | **refused** — crashed the writer |
+| `[{"component":"x","props":"str"}]` | **refused** — crashed the writer |
+
+An entry that is merely invalid still restores and still reports. What changed sides is the set where the writer needs a container and finds a scalar. That is deliberately a shade wider than the set that literally crashed: `false` and `null` entries, and a `props` of `false`, do not crash the writer, but replaying one rewrites it into a band that was never stored, so they are refused alongside the shapes that do crash rather than split off by a PHP detail.
+
+### Every reader now agrees about every row
+
+The defect in both #841 and #842 is two surfaces holding different opinions about one slot: the listing said restorable, the restore crashed. So the fix went where an entry's FORM is decided — one shared predicate consulted by both ends of the ring — rather than into the restore path alone. Putting it in the resolver would have fixed the crash and left the listing still printing `restorable: true` for the very row that refuses.
+
+The result is that the listing, the three restore stages (validate, preview, execute), the chat's undo link, and the stored-form converter all read one classification. A slot listed restorable can always be restored; a slot listed otherwise is never offered as replayable. That agreement is now pinned by a test that walks a seeded ring and checks all of it row by row.
+
+### ⚠️ Breaking: a slot class changed sides
+
+A ring slot holding a list whose entries are not components used to list `restorable: true` with an integer `components` counted off things that are not components. It now lists `restorable: false`, `components: null`, and the four `raw_*` fields, and `restore_composition` refuses it with `history_entry_not_restorable`.
+
+A call that returned `ok: true` for such a slot now returns `ok: false` — but it never actually restored anything. It raised an uncaught error and took the request down.
+
+**If you have one of these slots**, the bytes are there and readable:
+
+```bash
+wp pp operate composition-history --post_id=<id>
+```
+
+Copy `raw_base64` (check it against `raw_sha256`), then select an earlier entry to roll the page back.
+
+**Byte fidelity, stated honestly.** Slots written from 1.19.10 onward preserve the page's own bytes exactly. A slot an older release already mis-filed as a replayable snapshot is reclassified when the ring is read, and its bytes are the ring's decoded copy re-encoded — the originals were discarded at that older push and no reader can bring them back. That was already true for object-shaped slots written before 1.17.1; it now also covers list-shaped slots written before 1.19.10. For those rows `raw_sha256` proves the transfer, never the preservation.
+
+**Rolling back the theme does not roll back the ring.** The reclassification becomes permanent on the next write to the page. Reverting to an earlier version leaves those slots preserved-bytes and non-restorable, which is the intended end state.
+
+### Scope, and what was deliberately left alone
+
+The refusal wording is unchanged, byte for byte. It is the string the chat's undo card renders, and the class it now also covers needs the same sentence rather than a different one.
+
+Two candidate fixes were considered and refused: making the composition writer tolerant of shapes every validator rejects (it cuts against reject-never-coerce), and reclassifying these pages as corrupt (it would coin a new corruption class for a page that is fine).
+
+**Known issue.** The same writer crash is still reachable outside restore, through `add_component` and `reorder_components`, on a page whose stored composition already holds non-component entries. That path is older than this fix and outside its scope; it is tracked in #946.
+
+### Fixed
+
+- A composition-history slot holding a valid JSON list whose entries are not components is preserved as bytes and refused with `history_entry_not_restorable`, instead of being advertised as restorable and crashing `restore_composition` on the CLI and in the chat's undo (#842).
+- `wp pp operate composition-history` reports `restorable: false` and `components: null` for such a slot, with all three byte views.
+- Rings written before this release that already hold such a slot are reclassified when read, so an existing one refuses instead of crashing.
+
+### Docs
+
+- `docs/reference-apply-cli.md`, `docs/howto-apply-and-rollback.md`, `docs/AI_IMPLEMENTATION_RECIPES.md`, `AI_CONTEXT.md`, `ai-instructions/playbook-inspect-fix.md` and `ai-instructions/add-component.md` describe the fourth preserved-bytes class, the healthy-page wrinkle, the replayability-versus-validity line, and the widened byte-exactness caveat.
+- The `wp pp operate composition-history` help text and the `restore_composition` action description carry the same, so the CLI and the chat AI read what the docs say.
+
+### Tests
+
+- Every element shape and every `props` value the writer cannot replay is pinned through the real `restore_composition` action, at all three stages and through the chat batch executor.
+- Genuinely replayable priors are pinned as unchanged, and the restored composition is compared against the snapshot rather than only checking that the call succeeded.
+- Invalid-but-replayable shapes are pinned as still restoring, so the #233 line cannot be crossed silently.
+- One test walks a seeded ring and asserts the listing and the resolver agree about every row.
+
+---
+
 ## [v1.19.9] — 2026-09-10 — A dropped database connection can no longer hand a composition write a lock it stopped holding (#830)
 
 **MySQL advisory locks belong to a connection. `wpdb` quietly repairs a dropped connection for you: on `MySQL server has gone away` it reconnects and re-runs your statement on a NEW connection, returning correct-looking data with an empty error. The lock taken on the old connection is gone at that moment, so the rest of the write — the compare-and-swap version bump, the history-ring rebuild, all three meta writes — ran unserialized, with no error, no log line and no envelope field to say so. Two writers could hold the same page at once. That is the lost update the lock exists to prevent, arriving through the one door nothing was watching. This release shuts it.**

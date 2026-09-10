@@ -5369,13 +5369,21 @@ function _pp_prepend_write_disclosures(int $post_id, array $report): array {
  * `history_index` and `steps_back` keep counting writes truthfully and an operator can
  * step straight past it to the last good composition.
  *
- * WHY THIS STAYS A ONE-LINE PREDICATE AND NOT A SHAPE CHECK (#841). The class that used to
- * slip past it — a prior that decoded to a JSON OBJECT — is answered where the entry FORM is
- * decided, in _pp_normalize_history_ring() (lib/wp.php), not here. Every stage below reaches
- * this resolver through pp_get_composition_history(), so by the time an entry arrives it has
- * already been classified once; re-deciding the form here would give the CLI listing and this
- * refusal two different opinions about the same row, which is exactly how the mis-filed entry
- * came to report `restorable: true` while fataling on selection.
+ * WHY THIS STAYS A ONE-LINE PREDICATE AND NOT A SHAPE CHECK (#841, #842). Two classes have
+ * now slipped past it — a prior that decoded to a JSON OBJECT (#841), and a prior that
+ * decoded to a LIST whose ELEMENTS are not bands (#842) — and BOTH are answered where the
+ * entry FORM is decided, in _pp_normalize_history_ring() (lib/wp.php), not here. Every stage
+ * below reaches this resolver through pp_get_composition_history(), so by the time an entry
+ * arrives it has already been classified once; re-deciding the form here would give the CLI
+ * listing and this refusal two different opinions about the same row, which is exactly how
+ * the mis-filed entry came to report `restorable: true` while fataling on selection.
+ *
+ * SO #842's RULING — "the restore resolver rejects non-replayable entries BEFORE replay" —
+ * lands as a DEEPER CLASSIFICATION rather than a second test in this function. The refusal
+ * is this one, unchanged and byte-identical in wording; what changed is which rows arrive
+ * here already carrying `raw`. Reading the ruling the other way would have satisfied the
+ * restore path and left `wp pp operate composition-history` still printing
+ * `restorable: true` for the very row this function refuses — the split opinion #841 closed.
  *
  * @param array $history  The history ring from pp_get_composition_history().
  * @param array $params   Action params (may carry history_index and/or steps_back).
@@ -5427,6 +5435,22 @@ function _pp_reject_unreplayable_history_entry(array $history, int $idx, array $
             // operator whose page was classified unexpected_shape must not read a
             // message describing a state they are not in — the read path and the write
             // path have to name the same state the same way (#650/#652/#725).
+            //
+            // #842 IS THE STRONGEST CASE FOR THAT NEUTRALITY, AND ALSO THE ONE IT
+            // STRAINS. Its class decodes fine AND carries no classification at all: the
+            // page is HEALTHY, only the slot is unreplayable. So the message must not
+            // suggest a decode failure or a corrupt page — which it does not, because
+            // "did not decode to a composition" is a statement about what the bytes
+            // decoded TO, not about whether decoding worked. That reading is only
+            // honest because "a composition" is a defined term here and means a LIST OF
+            // COMPONENTS (#841 fixed the container half, #842 the element half); the
+            // docs define it the same way on the read side. If that definition ever
+            // drifts, this message stops being true for this class first.
+            //
+            // The wording is deliberately UNCHANGED by #842: it is the string #822
+            // routes to the chat's undo card and that a dozen pins assert on, and the
+            // class it now also covers does not need a different sentence — it needs
+            // the same one to keep meaning what it says.
             'History entry %d (steps_back %d) holds stored bytes that did not decode to a composition '
             . '(%d bytes as this ring holds them), so it cannot be replayed as one. The bytes were '
             . 'preserved rather than discarded: read them with '
@@ -5571,8 +5595,8 @@ pp_register_action('restore_composition', [
     // The chat's "Undo these changes" link is the surface most likely to select a
     // preserved-bytes slot, so declaring the refusal only in the declarative record
     // would leave the one caller that hits it untaught.
-    'description' => 'Restores a page composition to a prior version recorded in its history ring. Select the target with steps_back (1 = most recent prior state, the default) or history_index (absolute 0-based). history_index takes precedence. A ring slot may instead hold stored bytes that did not decode to a composition — a composition is a JSON ARRAY, so bytes that were unparseable, or valid JSON that is a scalar or a JSON OBJECT, are not one. Those are preserved so that repairing a corrupt page cannot destroy the only copy of what was there; selecting that slot is refused with history_entry_not_restorable — read the bytes with `wp pp operate composition-history --post_id=<id>` and select an earlier entry. The selector is also confirmed against the ring at write time: if another writer records a state on the page between your selection and the write, the entry your selector names is no longer the entry you chose, so the restore is refused with history_target_shifted and nothing is written — re-read the ring and select again, preferring a history_index from the fresh listing because steps_back is relative and moves with every concurrent write.',
-    'semantics'   => 'Rewrite. The composition is replaced with a prior snapshot captured before an earlier write. Restore is itself a conflict-checked write (records its own history entry), so it can be undone in turn. A ring slot can instead hold stored bytes that did not decode to a composition (a decode_error page, or either sub-case of unexpected_shape — a valid-JSON scalar, or a valid-JSON object), preserved so that repairing a corrupt page cannot destroy the only copy of what was there; selecting that slot is refused with history_entry_not_restorable — read the bytes with `wp pp operate composition-history --post_id=<id>` and select an earlier entry to roll back. Selection is resolved against the ring the caller read and CONFIRMED against the authoritative ring inside the write lock (#829): a concurrent write that moves what the selector names is refused with history_target_shifted rather than replayed, so whenever that authoritative read succeeds ok:true means the snapshot that was addressed and never whichever snapshot the ring held afterwards. If the authoritative read is not possible or fails, it logs and degrades to the pre-confirmation behavior rather than refusing, so the guarantee is conditional on that read.',
+    'description' => 'Restores a page composition to a prior version recorded in its history ring. Select the target with steps_back (1 = most recent prior state, the default) or history_index (absolute 0-based). history_index takes precedence. A ring slot may instead hold stored bytes that did not decode to a composition — a composition is a JSON ARRAY OF COMPONENTS, so bytes that were unparseable, or valid JSON that is a scalar or a JSON OBJECT, are not one, and neither is a JSON array whose ENTRIES cannot be replayed — an entry that is not an array, or whose "props" is present, not null and not an array (["a","b"], or [{"component":"x","props":"str"}]) — "array" meaning either a JSON object or a JSON list. That last class sits on a page the classifier reports HEALTHY, so it is NOT a corruption signal and must not be treated as one: do not propose a corrupt-page repair write for it, because there is nothing to repair. It is a replayability limit on that one slot. Note the boundary is narrow: an entry that is merely INVALID (no "component" key, say) still restores and still reports its problems in findings (#233). Those slots are preserved so that repairing a corrupt page cannot destroy the only copy of what was there; selecting one is refused with history_entry_not_restorable — read the bytes with `wp pp operate composition-history --post_id=<id>` and select an earlier entry. The selector is also confirmed against the ring at write time: if another writer records a state on the page between your selection and the write, the entry your selector names is no longer the entry you chose, so the restore is refused with history_target_shifted and nothing is written — re-read the ring and select again, preferring a history_index from the fresh listing because steps_back is relative and moves with every concurrent write.',
+    'semantics'   => 'Rewrite. The composition is replaced with a prior snapshot captured before an earlier write. Restore is itself a conflict-checked write (records its own history entry), so it can be undone in turn. A ring slot can instead hold stored bytes that did not decode to a composition (a decode_error page, or either sub-case of unexpected_shape — a valid-JSON scalar, or a valid-JSON object), preserved so that repairing a corrupt page cannot destroy the only copy of what was there; selecting that slot is refused with history_entry_not_restorable — read the bytes with `wp pp operate composition-history --post_id=<id>` and select an earlier entry to roll back. Since 1.19.10 that refusal also covers a slot holding a valid JSON LIST whose ENTRIES are not components, which the page classifier calls HEALTHY: replaying one crashed the command outright, so it is now preserved and refused like the others. That is a replayability judgment, not a validity one — every slot carrying a list of components still replays verbatim and still reports, however illegal today rules find its contents (#233). Selection is resolved against the ring the caller read and CONFIRMED against the authoritative ring inside the write lock (#829): a concurrent write that moves what the selector names is refused with history_target_shifted rather than replayed, so whenever that authoritative read succeeds ok:true means the snapshot that was addressed and never whichever snapshot the ring held afterwards. If the authoritative read is not possible or fails, it logs and degrades to the pre-confirmation behavior rather than refusing, so the guarantee is conditional on that read.',
     'params'      => [
         'post_id'          => ['type' => 'int', 'required' => true],
         'steps_back'       => ['type' => 'int', 'required' => false],
@@ -5654,6 +5678,17 @@ pp_register_action('restore_composition', [
         // rewritten: chrome, retired slot names, retired prop names and a stored
         // `variant` all restore exactly as snapshotted and are reported below (#233).
         // Restore never blocks; it tells the operator what is dead.
+        //
+        // "VERBATIM" HAS ONE ASTERISK, AND #842 MADE IT LOAD-BEARING ENOUGH TO WRITE DOWN.
+        // The claim is about THIS function: it adds, removes, reorders and renames
+        // nothing. It is not a claim about pp_update_composition(), which still runs its
+        // id-injection loop over whatever this hands it — so an entry that is a LIST
+        // (`["a","b"]` as a BAND) or a `props` that is a list comes back reshaped into an
+        // object with an injected `id`. Both shapes are deliberately still replayable
+        // (they are invalid, not unreplayable, and #233 reserves invalidity for the
+        // findings report), so the reshape is the price of not turning this precondition
+        // into a validator. Pinned by
+        // CompositionHistoryRawPreservationTest::testRestoreStillReplaysInvalidButNonFatalShapes.
         //
         // $addressed IS THE ANSWER `ok: true` WILL BE CLAIMING (#829). The resolution above
         // ran against the CACHED ring, which is right for picking (it is the ring the
