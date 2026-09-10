@@ -1325,6 +1325,29 @@ class TokenLockTest extends TestCase
         $this->assertSame(3, $wpdb->retriesNow(), 'A deliberate in-section change must survive the restore.');
     }
 
+    public function testRestoreDoesNotClobberANonNumericBudgetSetInsideTheSection(): void
+    {
+        // THE HOLE THE FIRST SPELLING LEFT. The yield guard used to read
+        // `is_numeric($current) && (int) $current !== 0`, which silently EXCLUDED non-numeric
+        // values — so a callback that set the budget to something exotic inside the section
+        // had it overwritten, and because the yield never fired, nothing was logged either.
+        // That is the exact case the branch exists to respect, failing open and silent. The
+        // test is "not a numeric zero", not "a numeric non-zero".
+        $wpdb = new PP_Mock_Wpdb();
+        $GLOBALS['wpdb'] = $wpdb;
+
+        _pp_with_advisory_lock('pp_test_830_exotic', function () use ($wpdb) {
+            $wpdb->reconnect_retries = 'unlimited'; // a drop-in-aware plugin, mid-section
+            return true;
+        }, false, 'test');
+
+        $this->assertSame(
+            'unlimited',
+            $wpdb->rawBudget(),
+            'A non-numeric in-section value is still someone else\'s decision and must survive.'
+        );
+    }
+
     public function testTheWhitelistTheWholeGuardRestsOnIsTheOneCoreApplies(): void
     {
         // THE LOAD-BEARING FACT, asserted behaviourally rather than by inspecting a

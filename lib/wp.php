@@ -2568,8 +2568,11 @@ function _pp_token_lock_name(): string {
  *     $protected_members list (col_meta, table_charset, check_current_query,
  *     allow_unsafe_unquoted_parameters) and assigns anything else, while __get() returns
  *     `$this->$name` for every name but `col_info` (which it lazy-loads first) — so for THIS
- *     property the read is a plain fetch. Core's own magic accessor is the designed external
- *     interface here: no subclassing, no reflection, no filter, no query interception.
+ *     property the read is a plain fetch. The claim here is about MEASURED BEHAVIOUR, not
+ *     about core's intent: __set()'s own docblock calls itself "Makes private properties
+ *     settable for backward compatibility", so the whitelist PERMITS this write rather than
+ *     advertising an extension point. What matters is that it works, verified in both
+ *     installed versions, with no subclassing, reflection, filter or query interception.
  *   - `for ( $tries = 1; $tries <= $this->reconnect_retries; $tries++ )` (:2138) is the ONLY
  *     gate on the reconnect attempt. At 0 the loop body never executes.
  *   - query() consults check_connection() at exactly ONE site (:2283), guarded by
@@ -2666,7 +2669,8 @@ function _pp_suspend_wpdb_reconnect($wpdb) {
  * section changed the reconnect budget" means the defense went OFF mid-hold. Sharing a latch
  * made the benign line permanently swallow the severe one, which is worse than the silence it
  * replaced. Keyed per reason, each distinct condition gets to be heard exactly once. The key
- * space is bounded: five fixed strings plus one exception class name.
+ * space is bounded: four fixed strings plus two exception-class-bearing templates (the
+ * suspend catch and the restore catch, whose texts differ).
  *
  * @param string $reason  What went wrong, in words.
  * @return void
@@ -2727,7 +2731,12 @@ function _pp_restore_wpdb_reconnect($wpdb, $saved): void {
     }
     try {
         $current = $wpdb->reconnect_retries;
-        if (is_numeric($current) && (int) $current !== 0) {
+        // ANYTHING THAT IS NOT THE ZERO WE WROTE BELONGS TO SOMEONE ELSE. The test is
+        // deliberately "not a numeric zero" rather than "a numeric non-zero": the second
+        // spelling silently EXCLUDED non-numeric values, so a callback that set the budget to
+        // something exotic inside the section had it overwritten and nothing was logged —
+        // the precise case this branch exists to respect, failing open and silent.
+        if (!is_numeric($current) || (int) $current !== 0) {
             // Something inside the section set this deliberately. Leave it alone — and say
             // so, because whatever set it also turned the guard off for the rest of the hold.
             _pp_log_reconnect_suspend_failure(
@@ -2819,7 +2828,7 @@ function _pp_restore_wpdb_reconnect($wpdb, $saved): void {
  * an exotic handle CAN throw, and lock hygiene outranks retry-budget hygiene: the release
  * must not be skippable by a failure in the restore.
  *
- * WHAT A DROPPED CONNECTION INSIDE THE SECTION NOW DOES — three shapes, none of them an
+ * WHAT A DROPPED CONNECTION INSIDE THE SECTION NOW DOES — four shapes, none of them an
  * unlocked write, and the honest summary is "never runs unlocked" rather than "always
  * refuses":
  *   1. THE ONLY SHAPE ANY SHIPPED WRITE PATH CAN REACH TODAY, and worth stating that plainly
@@ -2829,7 +2838,15 @@ function _pp_restore_wpdb_reconnect($wpdb, $saved): void {
  *      TERMINATES. Fail-closed, but it is core's process kill, not a PromptingPress envelope.
  *      die() skips `finally`, so neither the restore nor the release runs; MySQL's
  *      connection-close auto-release, already named above as a backstop, is what frees the
- *      lock. Shapes 2 and 3 below both require did_action('template_redirect'), which core
+ *      lock. WHAT THE OPERATOR ACTUALLY SEES depends on the surface, because dead_db()
+ *      loads wp-content/db-error.php if one exists, then branches on
+ *      `wp_installing() || defined( 'WP_ADMIN' )`: admin-AJAX defines WP_ADMIN, so the
+ *      dashboard editor and the chat get core's VERBOSE "Error reconnecting to the database"
+ *      screen, which names the reconnect; WP-CLI and any front-end caller get the terse
+ *      "Error establishing a database connection". wpdb::bail() also wp_die()s with the
+ *      verbose text first whenever show_errors is on (WP_DEBUG + WP_DEBUG_DISPLAY). So the
+ *      failure is not uniformly anonymous — it is anonymous on the terse branch only.
+ *      Shapes 2 and 3 below both require did_action('template_redirect'), which core
  *      tests BEFORE the $allow_bail branch — and every composition, token and run-state write
  *      in this theme originates in WP-CLI, admin-AJAX or the activation seed, none of which
  *      reach the front-end template loader where that action fires. So they describe what the
@@ -2927,7 +2944,7 @@ function _pp_with_advisory_lock(string $lock_name, callable $mutator, $fail_valu
     // From here to the release, wpdb's errno-2006 self-heal is OFF: a connection that dies
     // inside the section fails the statement rather than silently re-running it on a new
     // connection that does not hold this lock (#830). See this function's docblock for the
-    // core contract, the three failure shapes, and why the release is nested inside the
+    // core contract, the four failure shapes, and why the release is nested inside the
     // restore rather than beside it.
     //
     // THE SUSPEND CALL IS INSIDE THE `try`, AND THE LOCK IS WHY. The lock is already held at
@@ -3183,7 +3200,7 @@ function _pp_read_composition_json_locked($wpdb, int $post_id): ?string {
  *                     GET_LOCK for the whole rest of the mutator rather than just this
  *                     read. Since #830 _pp_with_advisory_lock() suspends wpdb's retry
  *                     budget for the section, so a dropped connection FAILS this read
- *                     instead of relocating it — see that function for the three shapes
+ *                     instead of relocating it — see that function for the four shapes
  *                     that failure takes. What remains an assumption is third-party code
  *                     reassigning $GLOBALS['wpdb'] mid-request (a db.php drop-in, a
  *                     multi-network plugin — nothing in this theme does).
@@ -3252,7 +3269,7 @@ function _pp_read_composition_history_locked(int $post_id): array {
     // one a dead connection takes DIRECTLY — the retry budget is suspended for this section,
     // so there is no successful reconnect to mask it — which makes this blind spot the
     // reason a dead connection surfaces as a CAS refusal or an optimistic return rather than
-    // as a read error. The three shapes are enumerated on _pp_with_advisory_lock().
+    // as a read error. The four shapes are enumerated on _pp_with_advisory_lock().
     if (!empty($wpdb->last_error)) {
         return _pp_degraded_history_ring($post_id, 'the authoritative read failed (' . $wpdb->last_error . ')');
     }

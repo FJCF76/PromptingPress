@@ -14,7 +14,7 @@ The maintainer's ruling (2026-09-01) chose the strict option: turn the self-heal
 
 `wpdb` gates its reconnect on one property, `$wpdb->reconnect_retries` (default 5). The fix saves it, sets it to 0 for the section, and restores it on the way out. No subclass, no reflection, no filter, no query interception.
 
-That property is declared `protected`, which looks like it should be out of reach and is not. `wpdb::__set()` refuses exactly four names — `col_meta`, `table_charset`, `check_current_query`, `allow_unsafe_unquoted_parameters` — and assigns anything else; `reconnect_retries` is deliberately not on that list, so core's own magic accessor is the supported way in. Three things were verified against the installed core rather than assumed, and they are identical in WordPress 7.0.4 and 7.1:
+That property is declared `protected`, which looks like it should be out of reach and is not. `wpdb::__set()` refuses exactly four names — `col_meta`, `table_charset`, `check_current_query`, `allow_unsafe_unquoted_parameters` — and assigns anything else, so the write lands. That is a statement about measured behaviour rather than about intent: core describes `__set()` as making private properties settable "for backward compatibility", so the whitelist permits this rather than advertising it. Three things were verified against the installed core rather than assumed, and they are identical in WordPress 7.0.4 and 7.1:
 
 - `for ( $tries = 1; $tries <= $this->reconnect_retries; $tries++ )` is the only gate on the reconnect attempt. At 0 the loop body never runs.
 - `query()` consults `check_connection()` at exactly one place, guarded by `if ( empty( $this->dbh ) || 2006 === $mysql_errno )`, and that is the method's only caller. **A healthy connection never reads the property at all**, so on the healthy path this changes nothing whatsoever — not one extra query, not one different byte.
@@ -24,7 +24,9 @@ That property is declared `protected`, which looks like it should be out of reac
 
 There is no new error code. The honest summary is **"the write never runs unlocked"**, not "the write always refuses", and the difference is worth stating.
 
-In practice a connection death inside the lock ends the request inside WordPress itself (`check_connection()` → `bail()` → `dead_db()`). It is fail-closed and nothing lands unserialized, but it is core's hard stop rather than a PromptingPress envelope, and it looks to an operator like an ordinary "Error establishing a database connection" on save. Where the failure returns instead of stopping the request, the in-lock version read answers 0 and a caller holding a non-zero `expected_version` is refused with the **existing `composition_conflict`**.
+In practice a connection death inside the lock ends the request inside WordPress itself (`check_connection()` → `bail()` → `dead_db()`). It is fail-closed and nothing lands unserialized, but it is core's hard stop rather than a PromptingPress envelope. What you see depends on where you were: the dashboard editor and the chat get core's verbose "Error reconnecting to the database", which names the cause, while WP-CLI and the front end get the terse "Error establishing a database connection". A `wp-content/db-error.php` drop-in overrides both.
+
+Two further consequences are worth knowing before you meet one. A transient failure that previously self-healed now ends the **whole request**, including work scheduled after the lock — that is the availability cost of the trade. And under WP-CLI a multi-step run aborts mid-sequence with the run lock's `finally` skipped, so that run's state row is left un-finalized and needs clearing. Neither leaves a PromptingPress trace, because core dies inside `query()` and never returns; that gap is tracked in #943. Where the failure returns instead of stopping the request, the in-lock version read answers 0 and a caller holding a non-zero `expected_version` is refused with the **existing `composition_conflict`**.
 
 One residual is disclosed rather than papered over: a caller that supplies no baseline, or a baseline of `0` on a never-written page, has no gate that can catch it — `0` matches the failed read's `0`, the compare-and-swap passes, and the write returns success over meta writes that did not land. Closing that needs `update_post_meta()`'s verdict to be readable, which is the half of the #821 ruling already deferred to compare-first disambiguation.
 
@@ -60,7 +62,7 @@ One consequence is a genuine regression and is named rather than buried: the con
 
 ### Tests
 
-- 19 pins covering the suspension lifecycle on every exit path (success, refusal, exception, acquire failure), nesting, the dead-connection refusal, both disclosed residuals, the token-override family, and every degradation path: absent property, non-numeric budget, a setter that clamps, a setter that raises, and a handle that turns hostile mid-section.
+- 21 pins covering the suspension lifecycle on every exit path (success, refusal, exception, acquire failure), nesting, the dead-connection refusal, both disclosed residuals, the token-override family, and every degradation path: absent property, non-numeric budget, a setter that clamps, a setter that raises, and a handle that turns hostile mid-section.
 - The shared `wpdb` test double now carries core's real `reconnect_retries` with core's own accessor whitelist, so every lock-taking test in the suite exercises the guard instead of silently skipping it.
 - A harness self-test proves the double can still reproduce the original bug, so the assertions that it does not happen cannot pass vacuously.
 
