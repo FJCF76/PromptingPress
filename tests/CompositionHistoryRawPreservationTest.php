@@ -1320,4 +1320,590 @@ class CompositionHistoryRawPreservationTest extends TestCase
         $this->assertFalse($row['restorable']);
         $this->assertSame($nasty, json_decode($row['raw'], true)['props']['title']);
     }
+
+    // ── 5. #842 — the ELEMENT shape inside a well-formed list ────────────────
+    //
+    // #841 closed the CONTAINER half: a prior that decoded to a JSON OBJECT is not a
+    // composition. This is the sibling class it deliberately left open, and its Expected
+    // said so. The container is a perfectly good LIST; the ELEMENTS are not bands:
+    //
+    //     ["a","b"]                                             scalar elements
+    //     [{"component":"hero"},{"component":"x","props":"str"}] a band whose props is a STRING
+    //
+    // Measured on this harness before the fix, for BOTH rows:
+    //
+    //     pp_get_composition_result()      error: null   <- the page reads as HEALTHY
+    //     ring entry form                  composition   <- filed as a replayable snapshot
+    //     wp pp operate composition-history restorable: true
+    //     pp_execute_action('restore_composition', …)
+    //       -> TypeError: Cannot access offset of type string on string  (lib/wp.php)
+    //
+    // THE SHARP EDGE, AND IT IS WHY THIS IS NOT A CORRUPTION CLASS. The classifier reports
+    // NO corruption for either shape, so none of the corrupt-page machinery engages (#144
+    // classification, #725 read-path wording, #748/#749 refusals, the #818 preserved-bytes
+    // entry). The page reads healthy, the ring slot advertises `restorable: true`, and the
+    // fatal arrives at replay time — on the CLI action surface and in the chat batch
+    // executor alike, neither of which has a fatal handler.
+    //
+    // THE RULING (Fernando, 2026-09-01, in #842's body): Option 2 — the restore resolver
+    // rejects non-replayable history entries BEFORE replay, so no slot reported
+    // `restorable: true` can fatal during restore. It rides the landed
+    // `history_entry_not_restorable` precondition family and extends #841's precedent.
+    //
+    // WHERE THE TEST WENT, AND WHY IT IS NOT IN THE RESOLVER. The refusal is unchanged;
+    // what changed is which rows arrive at it already carrying `raw`. Putting an element
+    // test in _pp_reject_unreplayable_history_entry() instead would have satisfied the
+    // restore path and left `wp pp operate composition-history` — which never calls the
+    // resolver — still printing `restorable: true` for the very row restore refuses. That
+    // split opinion is the defect #841 closed, and #842's own Expected demands both:
+    // "composition-history must stop reporting restorable: true for a slot that cannot be
+    // replayed, AND the refusal must reach both the CLI and the chat executor."
+    //
+    // REPLAYABILITY IS NOT VALIDITY (#233). The predicate tests only what replay
+    // structurally requires — that the one composition writer can run over the elements at
+    // all — never whether the composition is VALID. It does NOT require a `component` key:
+    // a band missing one is invalid and restore still replays it and REPORTS, which is the
+    // #233 contract. See testRestoreStillReplaysInvalidButNonFatalShapes below, which pins
+    // that line from the other side.
+
+    /** A list whose ELEMENTS are scalars. Byte form matters: these are the preserved bytes. */
+    private const LIST_OF_SCALARS = '["a","b"]';
+
+    /** A list holding a well-formed band beside one whose `props` is a STRING. */
+    private const LIST_WITH_STRING_PROPS = '[{"component":"hero"},{"component":"x","props":"str"}]';
+
+    /**
+     * Both #842 rows, for the tests that must prove the same thing about each.
+     *
+     * @return array<string, array{0: string}>
+     */
+    public static function nonReplayableListProvider(): array
+    {
+        return [
+            'scalar elements'      => [self::LIST_OF_SCALARS],
+            'string props on band' => [self::LIST_WITH_STRING_PROPS],
+        ];
+    }
+
+    /**
+     * EVERY ELEMENT SHAPE THE WRITER CANNOT REPLAY, not just the one the issue filed.
+     *
+     * WHY THIS EXISTS AS A SEPARATE, EXHAUSTIVE PIN. The predicate's element test is
+     * `!is_array($item)`, which refuses six distinct shapes. Pinning only the STRING one
+     * leaves the other five riding on a docblock: narrowing the test to `is_string($item)`
+     * — a plausible "only reject what actually throws" tidy-up — keeps the whole suite
+     * green while `[1,2]` and `[true]` reproduce #842's uncaught Error verbatim.
+     *
+     * THE TWO THAT DO NOT THROW ARE THE REASON THE TEST IS `is_array` AND NOT "does it
+     * throw". `[null]` and `[false]` do not raise: the writer SILENTLY REWRITES them into
+     * `{"props":{"id":"pp-…"}}`, fabricating a band that was never stored. A restore that
+     * invents a band is not a restore, so they are refused with the throwing shapes.
+     *
+     * @dataProvider unreplayableElementShapeProvider
+     */
+    public function testEveryElementShapeTheWriterCannotReplayIsRefused(string $bytes): void
+    {
+        $post_id = $this->corruptedPage($bytes);
+        pp_update_composition($post_id, $this->repairBands());
+
+        $ring = pp_get_composition_history($post_id);
+        $this->assertTrue(pp_history_entry_is_raw(end($ring)), 'a payload the writer cannot replay is never a snapshot');
+        $this->assertSame($bytes, end($ring)['raw'], 'and its bytes are preserved exactly');
+
+        $result = pp_execute_action('restore_composition', ['post_id' => $post_id, 'steps_back' => 1]);
+        $this->assertFalse($result['ok']);
+        $this->assertSame('history_entry_not_restorable', $result['error_code']);
+    }
+
+    /**
+     * @return array<string, array{0: string}>
+     */
+    public static function unreplayableElementShapeProvider(): array
+    {
+        return [
+            // Raise an uncaught Error/TypeError in the id-injection loop.
+            'string element' => ['["a","b"]'],
+            'int element'    => ['[1,2]'],
+            'float element'  => ['[1.5]'],
+            'true element'   => ['[true]'],
+            // Do NOT throw — the writer fabricates a band instead. Refused for that reason.
+            'false element'  => ['[false]'],
+            'null element'   => ['[null]'],
+        ];
+    }
+
+    /**
+     * EVERY `props` VALUE THE WRITER CANNOT REPLAY — and the falsy ones are the point.
+     *
+     * THE GATE IS isset(), NOT empty(), AND THAT ONE KEYWORD IS THE WHOLE TEST. Both
+     * spellings accept an absent `props` and a null `props`, so `!empty()` looks like a
+     * harmless simplification and the suite stays green under it — while
+     * `{"props":""}` and `{"props":0}` go straight back to the uncaught TypeError this
+     * issue closed, from a slot the listing again calls restorable. Pinning only the
+     * TRUTHY string "str" leaves that swap invisible, so the falsy values below are
+     * doing the real work here.
+     *
+     * @dataProvider unreplayablePropsShapeProvider
+     */
+    public function testEveryPropsValueTheWriterCannotReplayIsRefused(string $bytes): void
+    {
+        $post_id = $this->corruptedPage($bytes);
+        pp_update_composition($post_id, $this->repairBands());
+
+        $ring = pp_get_composition_history($post_id);
+        $this->assertTrue(pp_history_entry_is_raw(end($ring)), 'a payload the writer cannot replay is never a snapshot');
+        $this->assertSame($bytes, end($ring)['raw']);
+
+        $result = pp_execute_action('restore_composition', ['post_id' => $post_id, 'steps_back' => 1]);
+        $this->assertFalse($result['ok']);
+        $this->assertSame('history_entry_not_restorable', $result['error_code']);
+    }
+
+    /**
+     * @return array<string, array{0: string}>
+     */
+    public static function unreplayablePropsShapeProvider(): array
+    {
+        return [
+            'props string'       => ['[{"component":"x","props":"str"}]'],
+            'props empty string' => ['[{"component":"x","props":""}]'],
+            'props zero'         => ['[{"component":"x","props":0}]'],
+            'props float'        => ['[{"component":"x","props":1.5}]'],
+            'props true'         => ['[{"component":"x","props":true}]'],
+            // Does not throw; the writer rewrites it to {"props":{"id":…}} instead.
+            'props false'        => ['[{"component":"x","props":false}]'],
+        ];
+    }
+
+    /**
+     * THE PREMISE, PINNED SO THE REST OF THIS SECTION CANNOT DRIFT OFF IT. These pages are
+     * NOT corrupt. If a future change makes the classifier call them corrupt, that is
+     * option 3 from #842's Expected — a different ruling with its own vocabulary
+     * consequences (#650/#652/#725) — and this assertion is where it must be argued, not
+     * absorbed silently by tests that would still pass either way.
+     *
+     * @dataProvider nonReplayableListProvider
+     */
+    public function testTheClassifierStillReportsSuchAPageHealthy(string $bytes): void
+    {
+        $post_id = $this->corruptedPage($bytes);
+
+        $this->assertNull(
+            pp_get_composition_result($post_id)['error'],
+            'premise: this is a REPLAYABILITY class, not a corruption class'
+        );
+    }
+
+    /**
+     * THE PUSH HALF, AND IT IS BYTE-EXACT. A current write over one of these priors
+     * preserves the page's OWN bytes, not a re-encode — the migration path below is the
+     * only lossy one, exactly as for #841's object class.
+     *
+     * @dataProvider nonReplayableListProvider
+     */
+    public function testARepairWriteOverANonReplayableListPreservesItsBytesExactly(string $bytes): void
+    {
+        $post_id = $this->corruptedPage($bytes);
+
+        $this->assertTrue(pp_update_composition($post_id, $this->repairBands()), 'the repair must still land');
+
+        $ring = pp_get_composition_history($post_id);
+        $this->assertSame($bytes, end($ring)['raw'], 'the prior is preserved as the bytes the page held');
+        $this->assertSame('repaired', pp_get_composition($post_id)[0]['props']['id'], 'and the repair landed');
+    }
+
+    /**
+     * SECTION 14.1 — through the real `update_composition` ACTION, the surface the theme's
+     * own corruption guidance tells an operator or agent to run, not a helper-only slice.
+     *
+     * @dataProvider nonReplayableListProvider
+     */
+    public function testTheRepairActionPreservesANonReplayableListToo(string $bytes): void
+    {
+        $post_id = $this->corruptedPage($bytes);
+
+        $result = pp_execute_action('update_composition', [
+            'post_id'     => $post_id,
+            'composition' => $this->repairBands(),
+        ]);
+
+        $this->assertTrue($result['ok'], 'the documented repair route must still succeed');
+        $ring = pp_get_composition_history($post_id);
+        $this->assertSame($bytes, end($ring)['raw']);
+    }
+
+    /**
+     * THE FALSE REPORT THE ISSUE MEASURED. The listing said `restorable: true` with a
+     * component count taken off elements that are not components — an invitation to a
+     * fatal. It now says what the row is and hands back all three byte views.
+     *
+     * @dataProvider nonReplayableListProvider
+     */
+    public function testTheCliListingStopsCallingANonReplayableListRestorable(string $bytes): void
+    {
+        $post_id = $this->corruptedPage($bytes);
+        pp_update_composition($post_id, $this->repairBands());
+
+        (new PP_Operate_Command())->composition_history([], ['post_id' => (string) $post_id]);
+        $row = json_decode(implode("\n", WP_CLI::$lines), true)['entries'][0];
+
+        $this->assertFalse($row['restorable'], 'the measured defect reported true here');
+        $this->assertNull($row['components'], 'the measured defect counted non-components here');
+        $this->assertSame($bytes, $row['raw']);
+        $this->assertSame($bytes, base64_decode($row['raw_base64'], true));
+        $this->assertSame(hash('sha256', $bytes), $row['raw_sha256']);
+        $this->assertSame(strlen($bytes), $row['raw_bytes']);
+    }
+
+    /**
+     * THE FILED REPRO, AND THE DOCUMENTED REFUSAL FINALLY FIRING FOR THIS CLASS — at all
+     * three stages of the restore contract, from the one resolver they share. On the
+     * unfixed tree every one of these calls raises an uncaught TypeError instead of
+     * returning.
+     *
+     * @dataProvider nonReplayableListProvider
+     */
+    public function testRestoreRefusesANonReplayableListAtEveryStage(string $bytes): void
+    {
+        $post_id = $this->corruptedPage($bytes);
+        pp_update_composition($post_id, $this->repairBands());
+        $before = pp_get_composition_marker($post_id);
+
+        $validation = pp_validate_action('restore_composition', ['post_id' => $post_id, 'steps_back' => 1]);
+        $this->assertInstanceOf(WP_Error::class, $validation);
+        $this->assertSame('history_entry_not_restorable', $validation->get_error_code());
+
+        $preview = pp_preview_action('restore_composition', ['post_id' => $post_id, 'steps_back' => 1]);
+        $this->assertInstanceOf(WP_Error::class, $preview);
+        $this->assertSame('history_entry_not_restorable', $preview->get_error_code());
+
+        $result = pp_execute_action('restore_composition', ['post_id' => $post_id, 'steps_back' => 1]);
+        $this->assertFalse($result['ok']);
+        $this->assertSame('history_entry_not_restorable', $result['error_code']);
+        $this->assertStringContainsString(
+            'wp pp operate composition-history --post_id=' . $post_id,
+            $result['error'],
+            'and it still names the route to the bytes'
+        );
+        $this->assertSame($before, pp_get_composition_marker($post_id), 'a refused restore must not move the page');
+    }
+
+    /**
+     * THE SECOND CHANNEL THE ISSUE NAMED. The chat's "Undo these changes" link runs the
+     * same action through pp_ai_execute_batch(), which has no fatal handler of its own — an
+     * uncaught TypeError there takes the whole AJAX request down, not one step of it.
+     *
+     * @dataProvider nonReplayableListProvider
+     */
+    public function testTheChatBatchExecutorGetsTheRefusalForANonReplayableList(string $bytes): void
+    {
+        // A DATABASE HANDLE, installed for this test alone (see the #841 sibling above):
+        // the batch gate reads the postmeta row and fails closed without one (#833), so
+        // with no $wpdb this batch would be refused before its step ever ran and would
+        // prove nothing about the fatal it exists to catch.
+        $GLOBALS['wpdb'] = new PP_Lockable_Wpdb();
+
+        $post_id = $this->corruptedPage($bytes);
+        pp_update_composition($post_id, $this->repairBands());
+
+        $batch = pp_ai_execute_batch(
+            [['type' => 'action', 'name' => 'restore_composition', 'params' => [
+                'post_id' => $post_id, 'steps_back' => 1,
+            ]]],
+            [$post_id => pp_get_composition_marker($post_id)['version']]
+        );
+
+        $this->assertFalse($batch['ok'], 'the batch reports a refused step, it does not crash');
+        $this->assertSame('history_entry_not_restorable', $batch['steps'][0]['error_code']);
+        $this->assertSame(0, $batch['failed_at'], 'and the batch stops on it like any refused step');
+    }
+
+    /**
+     * RINGS WRITTEN BEFORE THIS FIX, which are the ones on live installs. The pre-#842 push
+     * filed such a prior as a `composition` entry, so the row is already stored that way and
+     * no push will ever revisit it. The reader reclassifies it, which is what stops a
+     * restore of one from fataling.
+     *
+     * THE BYTES ARE THE RE-ENCODE, AND THAT IS PINNED HERE EXPLICITLY rather than left for
+     * a reader to infer. For a migrated row `raw` is this ring's DECODED copy re-encoded —
+     * the page's own bytes were discarded at that older push and no reader can conjure them
+     * back. The CLI prints `raw_sha256` beside it, and for this row that digest proves the
+     * TRANSFER, never the preservation.
+     */
+    public function testALegacyRowHoldingANonReplayableListIsReclassifiedOnRead(): void
+    {
+        // Uncanonical on purpose — spaces the encoder would not emit — so "the bytes came
+        // back re-encoded" is a claim this fixture can actually distinguish from "the bytes
+        // were preserved".
+        $stored_bytes = '[{"component": "hero"}, {"component": "x", "props": "str"}]';
+        $post_id      = pp_create_page('Legacy non-replayable list', 'draft');
+        update_post_meta($post_id, '_pp_composition_history', wp_slash((string) wp_json_encode([
+            ['timestamp' => 11, 'version' => 1, 'hash' => 'h1', 'composition' => $this->originalBands()],
+            ['timestamp' => 22, 'version' => 2, 'hash' => 'h2', 'composition' => json_decode($stored_bytes, true)],
+        ])));
+        pp_update_composition($post_id, $this->repairBands());
+
+        $history = pp_get_composition_history($post_id);
+        $legacy  = $history[1];
+        $this->assertTrue(pp_history_entry_is_raw($legacy), 'the reader reclassifies the mis-filed row');
+        $this->assertArrayNotHasKey('composition', $legacy);
+        $this->assertSame(
+            self::LIST_WITH_STRING_PROPS,
+            $legacy['raw'],
+            'the payload comes back RE-ENCODED — canonical, not the uncanonical bytes seeded above'
+        );
+        $this->assertNotSame($stored_bytes, $legacy['raw'], 'premise: the fixture can tell a re-encode from a preservation');
+        $this->assertSame(2, $legacy['version'], 'and the row keeps its provenance');
+        $this->assertSame('h2', $legacy['hash']);
+        $this->assertSame(11, $history[0]['timestamp'], 'the snapshot beside it is untouched');
+
+        $result = pp_execute_action('restore_composition', ['post_id' => $post_id, 'history_index' => 1]);
+        $this->assertFalse($result['ok'], 'the measured defect raised an uncaught TypeError here');
+        $this->assertSame('history_entry_not_restorable', $result['error_code']);
+
+        // The slot stays ADDRESSABLE: the good snapshot before it still replays.
+        $this->assertTrue(pp_execute_action('restore_composition', [
+            'post_id' => $post_id, 'history_index' => 0,
+        ])['ok']);
+        $this->assertSame(
+            ['band-1', 'band-2'],
+            array_column(array_column(pp_get_composition($post_id), 'props'), 'id')
+        );
+    }
+
+    /**
+     * THE MIGRATION IS DURABLE, NOT JUST A READ-TIME VIEW. The reclassification above
+     * happens on the way OUT of the normalizer, so the stored row still carries its
+     * mis-filed `composition` key until something writes the ring again. The append path
+     * reads through the normalizer and persists the NORMALIZED form, so the next write
+     * makes it permanent — and that is the half a read-only test cannot see.
+     */
+    public function testTheNextWriteRePersistsALegacyNonReplayableListAsPreservedBytes(): void
+    {
+        $post_id = pp_create_page('Legacy non-replayable list, durable', 'draft');
+        update_post_meta($post_id, '_pp_composition_history', wp_slash((string) wp_json_encode([
+            ['timestamp' => 11, 'version' => 1, 'hash' => 'h1', 'composition' => $this->originalBands()],
+            ['timestamp' => 22, 'version' => 2, 'hash' => 'h2', 'composition' => json_decode(self::LIST_WITH_STRING_PROPS, true)],
+        ])));
+
+        // TWO writes. The first lands on a page with no stored composition, so it has no
+        // prior to push and never rewrites the ring; it is the SECOND write that does the
+        // read-modify-write which persists the reclassification. Mirrors the #841 sibling.
+        pp_update_composition($post_id, $this->repairBands());
+        pp_update_composition($post_id, $this->laterBands());
+
+        $stored = json_decode((string) get_post_meta($post_id, '_pp_composition_history', true), true);
+        $row    = $stored[1];
+        $this->assertArrayNotHasKey('composition', $row, 'the mis-filed row is gone from STORAGE, not just from the read view');
+        $this->assertSame(self::LIST_WITH_STRING_PROPS, base64_decode($row['raw_b64'], true));
+        $this->assertSame(2, $row['version'], 'provenance survives the migration');
+
+        // And it still reads and refuses the same way after the round-trip.
+        $history = pp_get_composition_history($post_id);
+        $this->assertTrue(pp_history_entry_is_raw($history[1]));
+        $this->assertSame(self::LIST_WITH_STRING_PROPS, $history[1]['raw']);
+    }
+
+    /**
+     * THE BOTH-KEYS PREFERENCE, FOR THIS CLASS. A hand-edited row can carry both keys.
+     * The reader prefers "the half that can actually be replayed" — so when the
+     * `composition` half is a non-replayable list, the preserved BYTES must win, exactly
+     * as they do when it is an object (#841). Getting this backwards would hand a reader
+     * the unreplayable half and re-open the fatal from a row that had good bytes sitting
+     * right beside it.
+     */
+    public function testABothKeysRowWithANonReplayableListHandsBackThePreservedBytes(): void
+    {
+        $post_id = pp_create_page('Both keys, non-replayable list half', 'draft');
+        update_post_meta($post_id, '_pp_composition_history', wp_slash((string) wp_json_encode([[
+            'timestamp'   => 5,
+            'version'     => 5,
+            'hash'        => 'h',
+            'raw_b64'     => base64_encode(self::LIST_OF_SCALARS),
+            'composition' => json_decode(self::LIST_OF_SCALARS, true),
+        ]])));
+
+        $entry = pp_get_composition_history($post_id)[0];
+        $this->assertTrue(pp_history_entry_is_raw($entry), 'the unreplayable half must not win the both-keys preference');
+        $this->assertSame(self::LIST_OF_SCALARS, $entry['raw']);
+        $this->assertSame(
+            'history_entry_not_restorable',
+            pp_execute_action('restore_composition', ['post_id' => $post_id, 'history_index' => 0])['error_code']
+        );
+    }
+
+    /**
+     * THE OTHER HALF OF THE NARROWING, AND THE ONE THAT MUST NOT MOVE. Every genuinely
+     * replayable prior keeps byte-identical behavior: still a snapshot, still
+     * `restorable: true`, still replayed verbatim.
+     *
+     * The three interesting rows here are the ones a shallower reading of "component-shaped"
+     * would have broken — a band with NO `props` key at all, a band whose `props` is `null`,
+     * and the empty composition. #842's own Measured section calls the first of those out:
+     * `{"component":"hero"}` is fine, and it was the SIBLING band whose props was a string
+     * that fataled.
+     *
+     * @dataProvider replayablePriorProvider
+     */
+    public function testGenuinelyReplayablePriorsAreUnaffected(array $prior): void
+    {
+        $post_id = pp_create_page('Replayable prior', 'draft');
+        pp_update_composition($post_id, $prior);
+        pp_update_composition($post_id, $this->repairBands());
+
+        $ring  = pp_get_composition_history($post_id);
+        $entry = end($ring);
+        $this->assertFalse(pp_history_entry_is_raw($entry), 'still a snapshot');
+        $this->assertArrayHasKey('composition', $entry);
+
+        (new PP_Operate_Command())->composition_history([], ['post_id' => (string) $post_id]);
+        $row = json_decode(implode("\n", WP_CLI::$lines), true)['entries'][0];
+        $this->assertTrue($row['restorable'], 'still offered as replayable');
+        $this->assertSame(count($prior), $row['components'], 'and still counted');
+
+        $result = pp_execute_action('restore_composition', ['post_id' => $post_id, 'steps_back' => 1]);
+        $this->assertTrue($result['ok'], 'and it still replays');
+
+        // ok:true IS NOT THE CLAIM — "verbatim" is. Asserting only the boolean would let a
+        // regression that replayed a MUTATED payload pass, which is precisely the failure
+        // mode this section is about (the id-injection loop rewrites what it cannot read).
+        // The snapshot is the contract, so compare against the snapshot the ring held.
+        $this->assertSame(
+            $entry['composition'],
+            pp_get_composition($post_id),
+            'the restored composition must equal the snapshot, byte for byte'
+        );
+    }
+
+    /**
+     * @return array<string, array{0: array}>
+     */
+    public static function replayablePriorProvider(): array
+    {
+        return [
+            'ordinary bands'    => [[['component' => 'hero', 'props' => ['id' => 'a', 'title' => 'T']]]],
+            'no props key'      => [[['component' => 'hero']]],
+            'null props'        => [[['component' => 'hero', 'props' => null]]],
+            'empty composition' => [[]],
+        ];
+    }
+
+    /**
+     * THE #233 LINE, PINNED FROM THE OTHER SIDE. A restore is never blocked by CURRENT
+     * VALIDATION RULES — it replays verbatim and REPORTS. So a prior that is INVALID but
+     * does not fatal the writer must still restore, and the shapes below are exactly that:
+     * a band with no `component` key is a validation error
+     * (pp_validate_composition_errors() says so), and a bare list element is nonsense to
+     * every renderer. Neither fatals, so neither is this predicate's business.
+     *
+     * If a future change makes these refuse, the replayability test has become a validity
+     * test and #233 is broken. That is what this test is for.
+     *
+     * STATED LIMIT, so it is not discovered later as a bug: the id-injection loop rewrites
+     * a bare list element into a mixed array (`["a","b"]` as an ELEMENT becomes
+     * `{"0":"a","1":"b","props":{"id":…}}`), so "verbatim" has an asterisk for that one
+     * shape. It is pre-existing writer behavior, it is not a fatal, and closing it would
+     * require the validity judgment #233 forbids here.
+     *
+     * @dataProvider invalidButNonFatalPriorProvider
+     */
+    public function testRestoreStillReplaysInvalidButNonFatalShapes(array $prior): void
+    {
+        $post_id = pp_create_page('Invalid but replayable', 'draft');
+        pp_update_composition($post_id, $prior);
+        pp_update_composition($post_id, $this->repairBands());
+
+        $ring = pp_get_composition_history($post_id);
+        $this->assertFalse(pp_history_entry_is_raw(end($ring)), 'invalid is not the same question as unreplayable');
+
+        $result = pp_execute_action('restore_composition', ['post_id' => $post_id, 'steps_back' => 1]);
+        $this->assertTrue($result['ok'], '#233: restore reports, it does not block');
+
+        // Premise: current rules really do reject this — otherwise the test proves nothing.
+        $this->assertNotSame(
+            [],
+            pp_validate_composition_errors(pp_get_composition($post_id)),
+            'premise: the restored composition IS invalid under current rules'
+        );
+    }
+
+    /**
+     * @return array<string, array{0: array}>
+     */
+    public static function invalidButNonFatalPriorProvider(): array
+    {
+        return [
+            'band with no component key' => [[['props' => ['id' => 'x']]]],
+            'empty array element'        => [[[]]],
+            'bare list element'          => [[['a', 'b']]],
+        ];
+    }
+
+    /**
+     * THE CONSUMER-CONSISTENCY TABLE, ASSERTED RATHER THAN PROMISED. Every surface that
+     * reads the ring must answer "is this row replayable?" the same way, because the whole
+     * defect class in #841 and #842 is two surfaces disagreeing about one row.
+     *
+     * SCOPED TO ONE NORMALIZED RING READ, DELIBERATELY. The invariant is about the FORM of
+     * an entry as classified by a single read, not about a row's fate across time: a
+     * concurrent write can move what a relative selector names between the listing and the
+     * restore, and that is #829's separate `history_target_shifted` refusal, not an
+     * inconsistency here. So this walks one seeded ring and asserts the three readers agree
+     * about each row in it.
+     *
+     *     stored prior                                 listing        resolver
+     *     ────────────────────────────────────────     ───────────    ──────────────────
+     *     [band, band]                                 restorable     replays
+     *     ["a","b"]                                    NOT            history_entry_not_restorable
+     *     [{"component":"hero"},{…,"props":"str"}]      NOT            history_entry_not_restorable
+     *     unparseable bytes                            NOT            history_entry_not_restorable
+     */
+    public function testEveryRingConsumerAgreesAboutEveryRow(): void
+    {
+        $post_id = pp_create_page('Consumer consistency', 'draft');
+        pp_update_composition($post_id, $this->originalBands());
+        // A SECOND genuine write, so row 0 is a real replayable SNAPSHOT. Without it the
+        // ring holds only refusals and the "listed restorable must actually restore" half
+        // of the table would be vacuously true. (A first write on a fresh page pushes
+        // nothing — it has no prior.)
+        pp_update_composition($post_id, $this->laterBands());
+        foreach ([self::LIST_OF_SCALARS, self::LIST_WITH_STRING_PROPS, self::CORRUPT_BYTES] as $bytes) {
+            update_post_meta($post_id, '_pp_composition', $bytes);
+            pp_update_composition($post_id, $this->repairBands());
+        }
+
+        // ONE read of the ring, and every assertion below is about THAT read.
+        $history = pp_get_composition_history($post_id);
+        $this->assertCount(4, $history, 'premise: one replayable snapshot plus one row per seeded prior');
+        $this->assertFalse(pp_history_entry_is_raw($history[0]), 'premise: row 0 is the replayable one');
+
+        (new PP_Operate_Command())->composition_history([], ['post_id' => (string) $post_id]);
+        $rows = json_decode(implode("\n", WP_CLI::$lines), true)['entries'];
+        // The listing renders newest-first; the ring is oldest-first.
+        $rows = array_reverse($rows);
+
+        foreach ($history as $index => $entry) {
+            $listed     = $rows[$index];
+            $replayable = !pp_history_entry_is_raw($entry);
+            $this->assertSame($index, $listed['history_index'], 'the rows line up with the ring');
+            $this->assertSame(
+                $replayable,
+                $listed['restorable'],
+                "row $index: the listing must agree with the entry form"
+            );
+
+            $result = pp_execute_action('restore_composition', [
+                'post_id' => $post_id, 'history_index' => $index,
+            ]);
+            $this->assertSame(
+                $replayable,
+                $result['ok'],
+                "row $index: a slot listed restorable must never refuse, and vice versa"
+            );
+            if (!$replayable) {
+                $this->assertSame('history_entry_not_restorable', $result['error_code']);
+                $this->assertNull($listed['components'], "row $index: nothing there to count");
+            }
+        }
+    }
 }

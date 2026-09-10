@@ -2596,7 +2596,20 @@ class PP_Operate_Command extends WP_CLI_Command {
      * composition snapshot (a decode_error page, or either sub-case of unexpected_shape —
      * a valid-JSON scalar, or a valid-JSON object) — preserved
      * so that repairing a corrupt page no longer destroys the only copy of what was
-     * there. Such a row reports `restorable: false`, a null `components` (there is
+     * there.
+     *
+     * AND SINCE #842, ONE SUCH ROW CLASS DOES NOT COME FROM A CORRUPT PAGE AT ALL, which
+     * is worth knowing before the framing above is read as exhaustive. A prior whose
+     * container is a valid JSON LIST but whose ENTRIES are not components (`["a","b"]`,
+     * or a list holding `{"component":"x","props":"str"}`) is preserved here too — but
+     * `wp pp check page` calls that page HEALTHY, because the classifier judges the
+     * container and this container is fine. It is a REPLAYABILITY class, not a
+     * corruption class: it is here because replaying it drove pp_update_composition()'s
+     * id-injection loop onto a string and crashed this command's sibling outright, from
+     * a slot this listing used to advertise as `restorable: true`. So an operator who
+     * meets one of these has nothing to repair — only a slot that cannot be replayed.
+     *
+     * Such a row reports `restorable: false`, a null `components` (there is
      * nothing to count), and THREE views of the bytes. Printing them is the point:
      * restore_composition refuses to replay a raw entry, so this listing is the only
      * shipped surface that hands them back, whole and uncapped — a truncated recovery is
@@ -2614,15 +2627,20 @@ class PP_Operate_Command extends WP_CLI_Command {
      * verifies the transfer, NOT the preservation — it cannot tell you the stored entry
      * still matches the bytes that were pushed, because no digest is recorded at push time.
      *
-     * A SECOND LIMIT ON THE SAME FIELD, FOR ONE ROW CLASS (#841). A ring written before
-     * #841 filed an OBJECT-shaped prior as a `composition` entry (a JSON object decodes to
-     * a PHP associative array, which the old push test accepted). Such a row is
-     * reclassified to a raw row by _pp_normalize_history_ring(), so it lists here with
-     * `restorable: false` and all three views instead of advertising a replay that fatals —
-     * but its bytes are that decoded object RE-ENCODED, because the ring never stored the
-     * page's own bytes for this class. `raw_base64` still round-trips exactly what this
-     * command read, and `raw_sha256` still proves that transfer; neither is a statement
-     * about the original stored bytes for a row of this vintage.
+     * A SECOND LIMIT ON THE SAME FIELD, FOR TWO ROW CLASSES (#841, #842). A ring written
+     * before those fixes filed as a `composition` entry a prior that should have been
+     * preserved as bytes: before #841 an OBJECT-shaped prior (a JSON object decodes to a
+     * PHP associative array, which the old push test accepted), and before #842 a
+     * LIST-shaped prior whose ENTRIES are not components (the old push tested the
+     * container only). Such a row is reclassified to a raw row by
+     * _pp_normalize_history_ring(), so it lists here with `restorable: false` and all
+     * three views instead of advertising a replay that fatals — but its bytes are that
+     * decoded payload RE-ENCODED, because the ring never stored the page's own bytes for
+     * either class. `raw_base64` still round-trips exactly what this command read, and
+     * `raw_sha256` still proves that transfer; neither is a statement about the original
+     * stored bytes for a row of either vintage. The #842 vintage is the sharper one to
+     * hand back, because its page carries no corruption signal to warn an operator that
+     * the digest proves the transfer and not the preservation.
      *
      * SIZE, STATED: a raw row emits the payload twice (`raw` plus `raw_base64` at 4/3) with
      * no cap, by design — a truncated recovery is not a recovery. On a pathologically large
