@@ -4,6 +4,36 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.20.0] — 2026-09-10 — Approval-Surface & Write-Path Truth: what the operator approves is true, what the model is told is true, and the write path closes its remaining gaps (#880, #875, #876, #871, #872, #887, #888, #883, #864, #821, #830, #842, #941, #889)
+
+Rollup of the v1.19.1–v1.19.11 patch train (milestone 23). Fourteen issues in eleven iterations. Every entry retains its full engineering detail in the per-patch entries that follow; this rollup states the shape of the release, what changes in behavior, and what was deliberately deferred.
+
+**The theme in one paragraph.** v1.19 made recovery honest; this release makes the approval and narration surfaces honest end to end, and finishes what the write path still let through. Before it, a New Chat during a re-read could surface the old conversation's proposal with a live Apply button carrying valid baselines; a rollback could not restore SEO metadata its own validator disliked and silently discarded every menu-layer write result; a short-counted response could narrate "all changes applied" to the operator and the model; the executed redirect diff hid replaces as creates; an empty or whitespace title blanked a page under ok:true; a declared object prop accepted a list; whether a validator message was defanged depended on which endpoint it travelled through; a failed history write passed without a word; a database reconnect silently released the page lock mid-write; a history slot listed as restorable could crash the restore; and an unencodable composition stored an empty page under ok:true. All of that is closed and pinned.
+
+### The four arcs
+
+- **Approval-surface truth (v1.19.1, v1.19.5, v1.19.11; #880, #887, #889):** a re-read whose conversation has ended renders nothing — the stray live-Apply route is gone (#880); the executed redirect diff reads the prior row exactly as the preview does, so replace and create are distinguishable on every envelope (#887); and a one-band composition diff reads "1 component" everywhere on the card (#889).
+- **Narration & restore truth (v1.19.2–v1.19.4; #875, #876, #871, #872):** the rollback restores stored SEO metadata regardless of current validation rules — restores replay what was stored (#875); every menu-layer write is checked and a failure is named, completing the whole-rollback guarantee (#876); success narration — the card and the note the model reasons from — is gated on complete step-result accounting, and a malformed failure index can neither crash the report nor fabricate a step number (#871, #872).
+- **Write-path closure & the shared owner (v1.19.6–v1.19.7; #888, #883, #864):** an empty or whitespace-only page title is refused with the field named, agreeing with the create rule for the same field (#888); a declared object prop refuses a JSON list, the mirror of the earlier list-prop rule (#883); and one definition of "clean" now lives in always-loaded code, with the AJAX/editor channel's composed validator messages defanged at every sink — whether a message is cleaned no longer depends on which endpoint it travelled through (#864).
+- **The ruled tranche & the last false success (v1.19.8–v1.19.11; #821, #830, #842, #941):** a history-ring write that fails to encode no longer clobbers the ring, and the accepted write discloses that it has no undo point (#821); database auto-reconnect is suspended for the duration of the page lock, so a dropped connection fails the write instead of finishing it unlocked (#830); a history slot is listed as restorable only if it can actually replay — no restorable:true entry can crash the restore (#842); and a composition that cannot be encoded refuses before any write, instead of storing an empty page under ok:true (#941).
+
+### ⚠️ What breaks, stated plainly
+
+1. **An empty or whitespace-only page title is refused (v1.19.6, #888).** `update_page_title` with `''` or `'   '` used to return ok:true and blank the page; it now refuses with `empty_title` naming the field. Fix: send a real title. A stored-content sweep found zero affected pages.
+2. **A declared object prop refuses a JSON list (v1.19.6, #883).** The mirror of the earlier declared-list rule: `"style": [...]` where an object belongs now refuses with `invalid_prop_value` naming the band and field. Fix: send a JSON object. A stored-content sweep found zero affected pages. Stored instances keep rendering; restores are never blocked.
+
+### Behavior changes, additive
+
+1. A write whose history-ring entry could not be recorded carries a `history_not_recorded` findings entry — the operator learns the write has no undo point (v1.19.8, #821).
+2. A dropped database connection inside the page lock now fails the write (refusing with the existing conflict class where a version check is present) instead of proceeding unlocked (v1.19.9, #830).
+3. `composition-history` reports `restorable: false` for entries that cannot replay, and the restore refuses them with the existing not-restorable message — the listing and the resolver can no longer disagree (v1.19.10, #842).
+4. An unencodable composition write refuses with the new `composition_not_encodable` sibling of the writer's refusal family, pointing at the ring's preserved copy where one exists (v1.19.11, #941). Unreachable through validated authoring.
+5. The executed `create_redirect` envelope's `from` widens from always-null to null-or-the-prior-row (v1.19.5, #887). No consumer breaks.
+
+### Deliberately deferred, with owners
+
+The model-truth cluster (#909 CRITICAL — persisted stale CAS baselines; #910, #911, #922 HIGH, #924, #926, #931). The executed-envelope prior-state shape family (one ruling: the replaced-discriminator question, #928, and the clear_custom_css candidate). #946 (the #842 fatal class on healthy-classified pages, outside restore). #917 (redirect writers' false-clean — priority raised by #887). The dogfood authoring-surface batch (#891–#908). The compare-first second step of the #821 axis (#844/#848, with the dead-connection evidence recorded). Observability of in-lock connection death (#943). Each is a filed issue or a recorded decision item in #141.
+
 ## [v1.19.11] — 2026-09-10 — A composition that cannot be encoded is refused instead of stored as an empty page (#941, #889)
 
 **A composition write whose data could not be turned into JSON used to empty the page and report success. `pp_update_composition()` encoded the composition and never checked the result; `wp_slash(false)` is `false`, so an empty value went into `_pp_composition`, the call returned `true`, and the envelope came back `ok: true` with both freshness markers bumped. The page then read back as a perfectly healthy blank page, because an empty composition row is a legitimate "no composition yet" state — so nothing classified it as corrupt and `findings: []` certified it clean. That write is now REFUSED, before the page lock is even taken, and the page keeps everything it had.**
