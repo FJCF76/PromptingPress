@@ -4,6 +4,68 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.19.9] — 2026-09-10 — A dropped database connection can no longer hand a composition write a lock it stopped holding (#830)
+
+**MySQL advisory locks belong to a connection. `wpdb` quietly repairs a dropped connection for you: on `MySQL server has gone away` it reconnects and re-runs your statement on a NEW connection, returning correct-looking data with an empty error. The lock taken on the old connection is gone at that moment, so the rest of the write — the compare-and-swap version bump, the history-ring rebuild, all three meta writes — ran unserialized, with no error, no log line and no envelope field to say so. Two writers could hold the same page at once. That is the lost update the lock exists to prevent, arriving through the one door nothing was watching. This release shuts it.**
+
+The maintainer's ruling (2026-09-01) chose the strict option: turn the self-heal OFF for the duration of the critical section, put it back afterwards, and say plainly that a reconnect voids the lock. A connection that dies inside the section now FAILS the write rather than finishing it unlocked. Refusing beats succeeding by accident.
+
+### How it works, and why it is a plain property write
+
+`wpdb` gates its reconnect on one property, `$wpdb->reconnect_retries` (default 5). The fix saves it, sets it to 0 for the section, and restores it on the way out. No subclass, no reflection, no filter, no query interception.
+
+That property is declared `protected`, which looks like it should be out of reach and is not. `wpdb::__set()` refuses exactly four names — `col_meta`, `table_charset`, `check_current_query`, `allow_unsafe_unquoted_parameters` — and assigns anything else; `reconnect_retries` is deliberately not on that list, so core's own magic accessor is the supported way in. Three things were verified against the installed core rather than assumed, and they are identical in WordPress 7.0.4 and 7.1:
+
+- `for ( $tries = 1; $tries <= $this->reconnect_retries; $tries++ )` is the only gate on the reconnect attempt. At 0 the loop body never runs.
+- `query()` consults `check_connection()` at exactly one place, guarded by `if ( empty( $this->dbh ) || 2006 === $mysql_errno )`, and that is the method's only caller. **A healthy connection never reads the property at all**, so on the healthy path this changes nothing whatsoever — not one extra query, not one different byte.
+- `query()` clears its error before the statement and captures it after the reconnect branch, so a connection failure comes back as `null` with an EMPTY error string. That is why the existing error checks never caught this.
+
+### What a dead connection does now
+
+There is no new error code. The honest summary is **"the write never runs unlocked"**, not "the write always refuses", and the difference is worth stating.
+
+In practice a connection death inside the lock ends the request inside WordPress itself (`check_connection()` → `bail()` → `dead_db()`). It is fail-closed and nothing lands unserialized, but it is core's hard stop rather than a PromptingPress envelope, and it looks to an operator like an ordinary "Error establishing a database connection" on save. Where the failure returns instead of stopping the request, the in-lock version read answers 0 and a caller holding a non-zero `expected_version` is refused with the **existing `composition_conflict`**.
+
+One residual is disclosed rather than papered over: a caller that supplies no baseline, or a baseline of `0` on a never-written page, has no gate that can catch it — `0` matches the failed read's `0`, the compare-and-swap passes, and the write returns success over meta writes that did not land. Closing that needs `update_post_meta()`'s verdict to be readable, which is the half of the #821 ruling already deferred to compare-first disambiguation.
+
+### The restore runs on every exit PHP unwinds
+
+Success, refusal and exception all put the retry budget back, and the lock release is nested INSIDE the restore so a handle with an unusual setter cannot strand the lock on the way out. Two deliberate details: the restore happens before `RELEASE_LOCK`, so releasing on a connection that already died degrades into a harmless no-op instead of a second hard stop during unwinding; and the restore declines to overwrite a budget that something inside the section set on purpose. Nesting composes correctly because the saved value is whatever was actually there, not a hard-coded default.
+
+The guard is applied after the lock is acquired, never around the acquire — an acquire that self-heals re-runs `GET_LOCK` on the surviving connection and genuinely holds it there.
+
+### What it closes for #829
+
+#829 added an in-lock precondition so `restore_composition` confirms its selector against the authoritative ring inside the write lock, instead of trusting a read taken before the lock. A reconnect mid-section voided that confirmation by a second route: the "in-lock" read simply stopped being in the lock. That route is now closed, so #829's guarantee holds for the reason it claims to.
+
+### Inherited by all three lock families
+
+The composition lock, the install-scoped design-token lock and the per-run operate-state lock all run on one shared engine, so all three get this. Concurrent design-token applies are covered on the same terms as composition writes.
+
+### Where the guarantee stops, stated plainly
+
+The claim is that **wpdb's own self-heal can no longer relocate the section**, which is narrower than "the section cannot be relocated". A connection-multiplexing proxy (ProxySQL, RDS Proxy) can hand a session a different backend between statements with no error raised at all, so no retry budget is consulted. A `wpdb` replacement such as HyperDB or LudicrousDB keeps several live connections and replaces the reconnect logic outright, so it accepts the suspension while the behaviour that property gates no longer exists. Neither install this was verified against runs a `db.php` drop-in. A handle that lacks the property, holds it as something non-numeric, refuses the write, or raises from its accessors is left exactly as found and logs once per process, rather than pretending to be guarded.
+
+One consequence is a genuine regression and is named rather than buried: the connection does not have to die on a read. The three meta rows are written in sequence, and a death between the first and the second leaves the new composition stored under the OLD hash and version — a freshness marker certifying content that is not there. That window usually self-healed before, so suspending the retries widens it. Three meta writes are not one atomic unit and this change does not make them one.
+
+### Fixed
+
+- Suspend `$wpdb`'s errno-2006 auto-reconnect for the duration of every advisory-lock critical section and restore it on every exit, so a dropped connection fails the write instead of silently completing it on a connection that does not hold the lock (#830).
+- Release the advisory lock even when restoring the retry budget raises, by nesting the release inside the restore.
+
+### Docs
+
+- `_pp_with_advisory_lock()` now states the guarantee, the verified core contract behind it, all four failure shapes, the third-party blast radius, and the deployments the guarantee does not cover. The two in-lock readers that described this gap as unfixed now point at the fix.
+- The operating-loop safety table gains a row for the new invariant, including the residual and the widened torn-write window.
+
+### Tests
+
+- 19 pins covering the suspension lifecycle on every exit path (success, refusal, exception, acquire failure), nesting, the dead-connection refusal, both disclosed residuals, the token-override family, and every degradation path: absent property, non-numeric budget, a setter that clamps, a setter that raises, and a handle that turns hostile mid-section.
+- The shared `wpdb` test double now carries core's real `reconnect_retries` with core's own accessor whitelist, so every lock-taking test in the suite exercises the guard instead of silently skipping it.
+- A harness self-test proves the double can still reproduce the original bug, so the assertions that it does not happen cannot pass vacuously.
+
+---
+
 ## [v1.19.8] — 2026-09-10 — A write that cannot record what it replaced now says so, instead of reporting a clean success (#821)
 
 **Every composition write pushes the state it is replacing onto that page's history ring first. That is what makes a change reversible. When the ring entry could not be JSON-encoded, the push was skipped and the composition write went ahead anyway — so the change landed, the undo point was gone, and the envelope said `ok: true` with a `findings` report describing a perfectly healthy composition. The only trace was a line in the server error log. This release makes that write tell you.**
