@@ -1196,8 +1196,15 @@ describe('buildCompositionSummary on an unreadable before side', function () {
     test('leaves every non-marker before side on the counting path', function () {
         // The regression pin for the other 99% of proposals: a real list, an empty list
         // and a null all behave exactly as they did before #836.
+        //
+        // THE NOUN MOVED ONCE, ON PURPOSE, AND ONLY HERE. This line read "1 components"
+        // until #889 fixed the hardcoded plural; the counting path it exists to pin is
+        // unchanged. Every other count in this file and in
+        // pp-ai-chat-preview-render-isolation.test.js is 2 or more and was untouched by
+        // that fix, which is the evidence that it changed exactly one string. The full
+        // 0/1/2 matrix lives in pp-ai-chat-component-plural.test.js.
         expect(buildCompositionSummary([], [{ component: 'hero' }]).lines[0])
-            .toBe('Full composition replacement: 0 ' + PP_ARROW + ' 1 components');
+            .toBe('Full composition replacement: 0 ' + PP_ARROW + ' 1 component');
         expect(buildCompositionSummary([{ component: 'hero' }], [{ component: 'hero' }]).fromCount).toBe(1);
         expect(buildCompositionSummary(null, null).fromCount).toBe(0);
     });

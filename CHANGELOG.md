@@ -4,6 +4,70 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v1.19.11] — 2026-09-10 — A composition that cannot be encoded is refused instead of stored as an empty page (#941, #889)
+
+**A composition write whose data could not be turned into JSON used to empty the page and report success. `pp_update_composition()` encoded the composition and never checked the result; `wp_slash(false)` is `false`, so an empty value went into `_pp_composition`, the call returned `true`, and the envelope came back `ok: true` with both freshness markers bumped. The page then read back as a perfectly healthy blank page, because an empty composition row is a legitimate "no composition yet" state — so nothing classified it as corrupt and `findings: []` certified it clean. That write is now REFUSED, before the page lock is even taken, and the page keeps everything it had.**
+
+The shape is worth spelling out because every layer agreed the page was fine. Measured before the fix, on a page holding real content:
+
+| | before | after |
+|---|---|---|
+| `pp_update_composition()` returns | `true` | `WP_Error('composition_not_encodable')` |
+| stored `_pp_composition` | empty | unchanged, byte for byte |
+| `pp_get_composition()` | `[]` | the composition it already had |
+| `wp pp check page` | healthy | healthy, and correctly so |
+| `_pp_composition_version` | bumped | unchanged |
+| `_pp_composition_hash` | sha256 of the empty string | unchanged |
+| `findings` on the envelope | `[]`, read as an all-clear | no findings key; this is a rejection |
+
+The prior state was still sitting in the page's history ring the whole time. Nothing told anyone to go and look, because nothing reported a problem at all.
+
+### What can actually trigger it, stated exactly
+
+This write path encodes with WordPress's `wp_json_encode()`, not a bare `json_encode()`, and the difference decides the answer. On a failure, core runs the encoded value through `_wp_json_sanity_check()`, which rewrites every string and re-encodes. So **malformed UTF-8 is not a trigger** — that class is repaired and the write succeeds, exactly as it always did. What genuinely returns a failure, verified against WordPress 7.0:
+
+- a value nested past the encoder's depth limit
+- a self-referential structure
+- a non-finite number (`INF`, `-INF`, `NAN`)
+- a value of a type JSON cannot represent, such as a file handle
+
+**You will almost certainly never see this refusal, and that is the honest description of it.** Every one of those shapes is refused earlier, and more helpfully, by the validation that runs before the writer: an undeclared prop is `unknown_prop`, a bad value under a declared prop is `invalid_prop_value`, and a malformed container is `invalid_composition` — all of which name the band. `restore_composition` replays bytes that already decoded, so it cannot exceed a depth the decoder accepted. This is a backstop under the one composition writer, for callers inside the theme that hand it an array nothing validated, and for callers added later. It narrows nothing: every composition that was accepted before is accepted now, and an accepted write stores byte-identical bytes.
+
+### The refusal, and what it tells you
+
+The new class is `composition_not_encodable`, a fourth sibling of the writer's existing `composition_conflict`, `composition_lock_failed` and `composition_precondition_invalid` — not the validators' vocabulary, because nothing here is a validation rule, and not the read path's `unexpected_shape` / `decode_error`, because those describe stored bytes rather than a rejected write.
+
+It is deliberately not named like `composition_lock_failed`, and the difference is the advice. A lock failure means "try again"; this one means the opposite. Retrying the identical call will fail identically forever, because what is wrong is the data being sent, not the page. The message says so, names the encoder's own reason, confirms that nothing was written, and — **only when that page actually has recorded prior states** — points at `wp pp operate composition-history --post_id=<id>`. A page with fewer than two accepted writes has an empty ring, and the message then says nothing about a ring at all rather than sending you to look at nothing.
+
+It also answers ahead of the optimistic-locking check. If you send a stale `expected_version` together with a composition that cannot be encoded, you get `composition_not_encodable` rather than `composition_conflict` — a conflict would tell you to re-read the page and re-apply, and doing that would land you right back here.
+
+### "1 components" is now "1 component" (#889)
+
+The AI chat's composition-diff card counted in a way that read as sloppy: a proposal replacing a page with a single band rendered "Full composition replacement: unreadable → 1 components", while the rollback heading beside it had always said "1 change" correctly. Fixed at all three places in that card that count components, including the "View raw composition JSON" disclosure below the headline, which reads the same number.
+
+**Only the count of one changes text.** Zero and two-or-more render exactly the bytes they rendered before.
+
+One related spot is deliberately untouched and worth knowing about: `add_component` composes its own diff text on the server, so a card for adding a band still reads "1 components → 2 components". That is a different file in a different language and is tracked separately.
+
+### Fixed
+
+- `pp_update_composition()` (`lib/wp.php`) now refuses with `composition_not_encodable` when the composition cannot be encoded as JSON, instead of storing an empty value and returning success (#941). The refusal happens before the per-post advisory lock is acquired, so the lock is never taken, the history ring is never rebuilt, and the composition row plus both freshness markers keep their prior values. A refused write also leaves the post's history-push notice slot alone, since it replaced nothing and so does not own it.
+- The AI chat composition-diff card pluralizes component counts correctly (#889), at the two summary lines and the raw-JSON disclosure label.
+
+### Docs
+
+- `docs/reference-apply-cli.md` documents the new refusal class, its exact trigger set, its reachability, and the full message; the `create_page` and restore-refusal enumerations now name it too.
+- `docs/operating-loop-safety.md` no longer lists the unchecked composition encode as a failure that stays silent by design.
+- `AI_CONTEXT.md` and `ai-instructions/website-building.md` teach the third retry posture: unlike a conflict (re-read and re-propose) and a lock failure (retry as-is), this one means change the data.
+- `create_page`'s action description tells callers to read the writer's `error_code` rather than assume which refusal they got.
+
+### Tests
+
+- `tests/CompositionEncodeRefusalTest.php` — 17 tests covering the refusal class, the untouched composition row, both unchanged markers, the untouched ring, the message with and without a ring pointer, precedence over the compare-and-swap, proof the lock body never runs, and a byte-identical pin on the accepted-write path. The failing-encode depth is probed at run time rather than hardcoded, so a PHP release that moves JSON's depth accounting fails loudly instead of passing over a fixture that triggers nothing.
+- `tests/js/pp-ai-chat-component-plural.test.js` — 14 tests over counts of zero, one and two on both card branches, a rendered-DOM check that the headline and the raw-JSON label agree, and a pin on the gate that keeps the one remaining inline plural in that file safe.
+
+---
+
 ## [v1.19.10] — 2026-09-10 — A history slot the listing called restorable can no longer crash the restore (#842)
 
 **`wp pp operate composition-history` would report a ring slot `restorable: true`, and selecting it took the command down with an uncaught PHP error instead of restoring anything. The page it happened on read as perfectly healthy. The slot held a valid JSON list whose entries were not components — `["a","b"]`, or a list carrying a band whose `props` was the string `"str"` — and replaying one drove the composition writer's id-injection loop onto a string. This release makes that impossible: no slot reported restorable can crash a restore.**

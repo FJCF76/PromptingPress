@@ -1123,6 +1123,51 @@ function ppChatIsUnreadableComposition(val) {
  * state is said out loud; a sentence composed here would be the second spelling #650/#652
  * exist to prevent.
  */
+/**
+ * Renders a component COUNT with the right noun: "1 component", "0 components" (#889).
+ *
+ * THE BUG THIS CLOSES was a hardcoded plural. The composition-diff card spelled
+ * `count + ' components'` at three places, so a one-band proposal read "Full composition
+ * replacement: unreadable -> 1 components" while the rollback heading two screens down
+ * pluralized correctly. Cosmetic, and the kind of cosmetic that makes an operator wonder
+ * what else the card is not paying attention to.
+ *
+ * THE FORM IS THE FILE'S OWN, not a new one: `(n === 1 ? '' : 's')`, taken from the
+ * rollback heading in ppChatAppendRollbackErrors() ("N change" / "N changes"). This helper
+ * has to be right at zero — "0 -> 0 components" is a real card — so it takes the form that
+ * is.
+ *
+ * ONE HELPER RATHER THAN THREE COPIES, because three call sites spelling one rule inline
+ * is the exact debt this file already has an open TODO about, and the precedent it set for
+ * itself (#853/#667) is "the shared predicate, not a second literal copy of it".
+ *
+ * WHAT IT DOES NOT COVER, said plainly rather than left to be discovered, because a card
+ * that half-agrees with itself is the thing #889 was about. Two residuals, both deliberate:
+ *
+ *   THE CONTENT-CHANGES LINE, further down this same function, still spells the rule inline
+ *   in the WEAKER `(n > 1 ? 's' : '')` form. It was not part of #889 — it already reads
+ *   correctly at one — and it is safe only because its call site is gated on
+ *   `contentChanges > 0` and so never sees zero. That gate is now pinned by
+ *   tests/js/pp-ai-chat-component-plural.test.js, since an ungated `> 1` emits "0 component".
+ *
+ *   THE SERVER SIDE IS NOT FIXED AT ALL. add_component builds its own diff strings in PHP
+ *   (lib/actions.php, `count($current) . ' components'` in both the preview and the execute
+ *   arm), and those reach THIS card: only an `update_composition` step routes through
+ *   ppChatRenderCompositionDiff, and every other step falls to ppChatRenderDiffLine, which
+ *   prints the server's string verbatim. So adding a band to a one-band page still reads
+ *   "1 components -> 2 components". Same defect, different file, different language, and
+ *   outside #889's stated scope — tracked separately rather than folded in here, because the
+ *   honest fix is a PHP counterpart of this helper and not a JS edit.
+ *
+ * Fold either in when something else touches those lines.
+ *
+ * @param {number} count
+ * @returns {string} e.g. "1 component", "3 components"
+ */
+function ppChatComponentCount(count) {
+    return count + ' component' + (count === 1 ? '' : 's');
+}
+
 function ppChatBuildCompositionSummary(from, to) {
     var toArr = Array.isArray(to) ? to : [];
     var toTypes = toArr.map(function (c) { return (c && c.component) || '(unknown)'; });
@@ -1132,7 +1177,7 @@ function ppChatBuildCompositionSummary(from, to) {
     if (ppChatIsUnreadableComposition(from)) {
         return {
             lines: [
-                headline + 'unreadable \u2192 ' + toArr.length + ' components',
+                headline + 'unreadable \u2192 ' + ppChatComponentCount(toArr.length),
                 '',
                 componentList
             ],
@@ -1145,7 +1190,7 @@ function ppChatBuildCompositionSummary(from, to) {
     var fromArr = Array.isArray(from) ? from : [];
     var lines = [];
 
-    lines.push(headline + fromArr.length + ' \u2192 ' + toArr.length + ' components');
+    lines.push(headline + fromArr.length + ' \u2192 ' + ppChatComponentCount(toArr.length));
 
     // Build type lists
     var fromTypes = fromArr.map(function (c) { return (c && c.component) || '(unknown)'; });
@@ -1735,7 +1780,11 @@ function ppChatRenderCompositionDiff(diffArea, change) {
 
     var summaryEl = document.createElement('summary');
     var jsonStr = JSON.stringify(change.to, null, 2);
-    summaryEl.textContent = 'View raw composition JSON (' + summary.toCount + ' components, ' +
+    // THE SAME COUNT AS THE HEADLINE ABOVE IT, so it uses the same helper (#889). The issue
+    // named the two summary lines; this label reads `summary.toCount` too, a few rows down
+    // inside one card, so fixing only those two would have made the card disagree with
+    // itself — "0 -> 1 component" over "View raw composition JSON (1 components, 2 KB)".
+    summaryEl.textContent = 'View raw composition JSON (' + ppChatComponentCount(summary.toCount) + ', ' +
         Math.round(jsonStr.length / 1024) + ' KB)';
     details.appendChild(summaryEl);
 
@@ -5362,6 +5411,8 @@ if (typeof module !== 'undefined' && module.exports) {
         undoHistoryNotice: ppChatUndoHistoryNotice,
         undoFindingsTotal: ppChatUndoFindingsTotal,
         buildCompositionSummary: ppChatBuildCompositionSummary,
+        componentCount: ppChatComponentCount,
+        renderCompositionDiff: ppChatRenderCompositionDiff,
         isUnreadableComposition: ppChatIsUnreadableComposition,
         detectPageId: ppChatDetectPageId,
         findPageById: ppChatFindPageById,

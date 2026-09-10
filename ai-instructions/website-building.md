@@ -74,6 +74,20 @@ On `create_page` the retry is clean because a refusal normally removes the page 
 just created and releases its slug (#719); if the message says a page was left behind, it
 names it.
 
+`composition_not_encodable` is a THIRD posture, and it is the one where retrying is never
+the answer (#941). The composition you sent could not be encoded as JSON at all, so the
+writer refused before taking the lock: nothing was written, the page still holds the
+composition it held before, and both freshness markers are unchanged — the same "no state
+moved" guarantee as a lock failure. What differs is what to do next. Re-reading the page
+will not help, because nothing about the page is wrong, and sending the same composition
+again will fail identically forever. **Change the data.** The refusal names the encoder's
+own reason, and the reachable causes are values nested past the encoder's depth limit, a
+self-referential structure, a non-finite number (`INF` / `NAN`), and values of a type JSON
+cannot represent. Under normal authoring you will not meet this code: whole-composition
+validation refuses those shapes earlier, and more usefully, with a message naming the band.
+If you do meet it, the composition you assembled is malformed in a way validation did not
+catch — rebuild it from the page's current composition rather than patching what you sent.
+
 ## Escalation triggers
 
 Stop and ask the user before proceeding when:
