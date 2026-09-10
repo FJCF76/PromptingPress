@@ -2545,11 +2545,220 @@ function _pp_token_lock_name(): string {
 }
 
 /**
+ * Suspends wpdb's errno-2006 auto-reconnect for the duration of an advisory-lock critical
+ * section (#830, ruling Fernando 2026-09-01 — option 1), and reports what to restore.
+ *
+ * WHY. MySQL advisory locks are CONNECTION-SCOPED, and wpdb::query() self-heals a dropped
+ * connection: on errno 2006 (`MySQL server has gone away` — wait_timeout expiry, a
+ * connection-killing proxy, a restarted server) it calls check_connection(), which retries
+ * db_connect() up to $reconnect_retries times, and then re-runs the statement on a NEW
+ * connection. The re-run returns correct-looking data with last_error === '', so nothing
+ * downstream can tell — but the GET_LOCK taken on the old connection is GONE. Everything
+ * after that point in the mutator runs UNLOCKED, and the release in `finally` frees a lock
+ * this connection never held. That is precisely the lost update the lock exists to prevent.
+ * Setting the retry budget to 0 makes the dropped connection FAIL the statement instead of
+ * silently continuing on a different one: refuse over silent-unlocked.
+ *
+ * THE CORE CONTRACT THIS RESTS ON, verified against the installed core rather than assumed
+ * (wp-includes/class-wpdb.php; the reconnect path is byte-identical in WP 7.0.4 and WP 7.1,
+ * though the surrounding files are not, so line numbers below are 7.1's and drift by a line
+ * or two in 7.0.4 — the theme's declared floor is 7.0):
+ *   - `protected $reconnect_retries = 5;` (:234, and :234 in both). DECLARED PROTECTED, and
+ *     externally writable anyway: wpdb::__set() refuses only the four names in its
+ *     $protected_members list (col_meta, table_charset, check_current_query,
+ *     allow_unsafe_unquoted_parameters) and assigns anything else, while __get() returns
+ *     `$this->$name` for every name but `col_info` (which it lazy-loads first) — so for THIS
+ *     property the read is a plain fetch. Core's own magic accessor is the designed external
+ *     interface here: no subclassing, no reflection, no filter, no query interception.
+ *   - `for ( $tries = 1; $tries <= $this->reconnect_retries; $tries++ )` (:2138) is the ONLY
+ *     gate on the reconnect attempt. At 0 the loop body never executes.
+ *   - query() consults check_connection() at exactly ONE site (:2283), guarded by
+ *     `if ( empty( $this->dbh ) || 2006 === $mysql_errno )` (:2282), and that is the method's
+ *     only caller in the class. So a HEALTHY connection never reads reconnect_retries at all
+ *     — it does not even reach check_connection()'s `mysqli_query($this->dbh, 'DO 1')` fast
+ *     path, let alone the retry loop. On the healthy path this guard changes nothing
+ *     whatsoever, which is the whole cost argument for applying it unconditionally, and it
+ *     is also why third-party callbacks running inside the section (see the blast-radius
+ *     note on _pp_with_advisory_lock()) cannot observe the suspension on a live connection.
+ *
+ * BEST-EFFORT, AND IT SAYS SO. A $wpdb replacement (HyperDB, LudicrousDB, a db.php drop-in)
+ * that lacks the property, types it as something non-numeric, refuses the write, or THROWS
+ * from its accessors is left exactly as found and keeps the pre-#830 exposure. A write that
+ * does not take is put back before we give up.
+ *
+ * ALL FOUR ARE AUDIBLE, and none of them is a per-hold cost. Each routes through
+ * _pp_log_reconnect_suspend_failure(), which emits ONE line per request. Silence was the
+ * wrong default here: docs/operating-loop-safety.md now lists this as a shipped data-safety
+ * property, and a handle that quietly lacks the property would run the section with the full
+ * pre-#830 exposure while the operator reads a guarantee that is not in force. The
+ * once-per-request static is what makes saying so affordable — including in the unit suite,
+ * where the bare $wpdb stub has no such property and would otherwise log on every write.
+ *
+ * THIS FUNCTION NEVER THROWS, and that is a hard requirement rather than politeness. It is
+ * called with the advisory lock ALREADY HELD, so an exception escaping it would skip the
+ * caller's release and strand the lock for the rest of the request. An exotic handle whose
+ * __get/__set raises (or whose property is typed/readonly in a way that raises) therefore
+ * degrades to "not suspended" instead of taking the lock down with it. The caller also
+ * invokes it INSIDE its own try/finally, so the release is protected twice over.
+ *
+ * NUMERIC, NOT STRICTLY INT. Core stores an int, but a drop-in holding `"5"` or `5.0` still
+ * reconnects — PHP compares the loop bound numerically — so a strict is_int() test would
+ * hand back "nothing to suspend" on a handle that is genuinely exposed. The saved value is
+ * returned VERBATIM so the restore puts back exactly what it found, coercing nothing.
+ *
+ * @param object $wpdb  The handle GET_LOCK was issued on.
+ * @return mixed  The retry budget to hand back to _pp_restore_wpdb_reconnect(), or null
+ *                when nothing was suspended (and so nothing must be restored).
+ */
+function _pp_suspend_wpdb_reconnect($wpdb) {
+    if (!is_object($wpdb) || !property_exists($wpdb, 'reconnect_retries')) {
+        _pp_log_reconnect_suspend_failure('the handle has no reconnect budget');
+        return null;
+    }
+    try {
+        $saved = $wpdb->reconnect_retries;
+        // A non-numeric budget belongs to a handle whose semantics we do not know, and
+        // guessing at them is how a guard becomes a bug.
+        if (!is_numeric($saved)) {
+            _pp_log_reconnect_suspend_failure('the handle\'s reconnect budget is non-numeric');
+            return null;
+        }
+        $wpdb->reconnect_retries = 0;
+        if ((int) $wpdb->reconnect_retries !== 0) {
+            // The handle took the read but not the write (a subclass whitelisting this
+            // name, a normalizing __set). Put back what was there and proceed UNGUARDED
+            // and audibly — the alternative is a silent no-op wearing this docblock.
+            $wpdb->reconnect_retries = $saved;
+            _pp_log_reconnect_suspend_failure('the handle refused the write');
+            return null;
+        }
+    } catch (\Throwable $e) {
+        // See the never-throws clause above: the lock is already held, so this cannot be
+        // allowed to propagate. Whatever state the accessor left behind is the handle's
+        // own; we neither retry nor guess.
+        _pp_log_reconnect_suspend_failure('the handle\'s accessors raised ' . get_class($e));
+        return null;
+    }
+    return $saved;
+}
+
+/**
+ * ONE LOG LINE PER PROCESS, not one per lock hold (#830).
+ *
+ * The condition being reported is a static fact about the $wpdb handle — it will be just as
+ * true on the next write as on this one — so repeating it per lock hold adds no information.
+ * It would, however, add a synchronous filesystem write INSIDE a held advisory lock on every
+ * composition and token write, which every concurrent writer to that post then waits behind.
+ * The breadcrumb is worth having; paying for it once is enough.
+ *
+ * PER PROCESS IS WHAT A PHP `static` ACTUALLY BUYS, and saying "per request" would be a
+ * comfortable lie in two places that matter: a WP-CLI run is ONE process for hundreds of
+ * writes, so a whole `pp apply` yields a single line; and under a persistent-worker SAPI
+ * (FrankenPHP worker mode, Swoole, RoadRunner) the static outlives the request, so the
+ * breadcrumb goes quiet for the life of the worker. Both are acceptable — the message is
+ * about the HANDLE, and the handle does not change between those writes — but an operator
+ * grepping for one line per failed write should know why they see one line per run.
+ *
+ * ONE LATCH PER REASON, NOT ONE LATCH TOTAL, and that distinction is the whole point of the
+ * array. A single shared flag let the FIRST reason consume the budget for every later one —
+ * and the reasons are not equally serious. "The handle has no reconnect budget" is benign and
+ * fires on the very first write of a process on such a handle; "code inside the critical
+ * section changed the reconnect budget" means the defense went OFF mid-hold. Sharing a latch
+ * made the benign line permanently swallow the severe one, which is worse than the silence it
+ * replaced. Keyed per reason, each distinct condition gets to be heard exactly once. The key
+ * space is bounded: five fixed strings plus one exception class name.
+ *
+ * @param string $reason  What went wrong, in words.
+ * @return void
+ */
+function _pp_log_reconnect_suspend_failure(string $reason): void {
+    static $seen = [];
+    if (isset($seen[$reason])) {
+        return;
+    }
+    $seen[$reason] = true;
+    error_log(
+        'PromptingPress: could not suspend $wpdb auto-reconnect for the advisory-lock '
+        . 'critical section (' . $reason . '); a dropped connection inside the section can '
+        . 'still void the lock (#830). Reported once per PHP process.'
+    );
+}
+
+/**
+ * Restores what _pp_suspend_wpdb_reconnect() suspended (#830). No-op when it suspended
+ * nothing, which is also the "restore" for a handle that refused the write.
+ *
+ * NESTING IS SAFE BY CONSTRUCTION, and that is a property of saving the ACTUAL CURRENT
+ * VALUE rather than a hard-coded default. An outer hold saves 5 and sets 0; an inner hold
+ * inside it saves 0 and sets 0; the inner restore writes 0 and the outer restore writes 5.
+ * The call stack is the save stack, so no explicit stack and no re-entrancy refusal is
+ * needed.
+ *
+ * IT DOES NOT CLOBBER A DELIBERATE CHANGE MADE INSIDE THE SECTION. update_post_meta() fires
+ * WordPress's meta hooks, so third-party code runs in here; if any of it set its own retry
+ * budget, the value is no longer 0 and putting ours back would silently overwrite a decision
+ * that is not this theme's to make. Restoring only over the 0 we ourselves wrote keeps the
+ * save/restore honest about what it owns. In every normal hold the value IS still 0 and this
+ * costs one comparison.
+ *
+ * YIELDING IS AUDIBLE, because it means the guard went off. Whatever set that budget also
+ * DISABLED the suspension for the remainder of the section, so the rest of the mutator ran
+ * with the pre-#830 exposure — a defense going inactive is exactly the thing that must not
+ * happen quietly. It is not an attack vector (nothing user-controlled reaches this property,
+ * and in-process code already owns $wpdb outright); it is a plugin bug worth naming.
+ * NESTING STAYS SUPPORTED, and the yield is the one thing that makes it lossy. The save/restore
+ * composes correctly through the call stack (see above), and a test pins that; what an inner
+ * YIELD does is leave the ENCLOSING section unguarded for its remainder as well, because the
+ * inner hold declined to put 0 back. No path in this theme nests one advisory lock inside
+ * another today — the three families never call into each other — so this is a property to
+ * know before adding one, not a prohibition on adding one.
+ *
+ * LIKE ITS PARTNER, IT NEVER THROWS. It runs in a `finally` with the lock still held, and an
+ * exception here would skip the release. A handle whose accessors raise keeps whatever budget
+ * it has; the lock still gets freed.
+ *
+ * @param object $wpdb   The handle the suspension was applied to.
+ * @param mixed  $saved  The return of _pp_suspend_wpdb_reconnect().
+ * @return void
+ */
+function _pp_restore_wpdb_reconnect($wpdb, $saved): void {
+    if ($saved === null) {
+        return;
+    }
+    try {
+        $current = $wpdb->reconnect_retries;
+        if (is_numeric($current) && (int) $current !== 0) {
+            // Something inside the section set this deliberately. Leave it alone — and say
+            // so, because whatever set it also turned the guard off for the rest of the hold.
+            _pp_log_reconnect_suspend_failure(
+                'code inside the critical section changed the reconnect budget'
+            );
+            return;
+        }
+        $wpdb->reconnect_retries = $saved;
+    } catch (\Throwable $e) {
+        // LOUDER THAN ITS PARTNER'S CATCH, because it is the one that leaves damage. When
+        // the SUSPEND's accessors raise, the handle is left exactly as found — safe. When
+        // the RESTORE's do, the budget stays at 0 for the rest of the request: reconnect is
+        // off for every later query, including work that has nothing to do with this lock.
+        // Reachable on a handle whose __set accepts 0 but validates the value back (a setter
+        // demanding > 0). The release still happens; the silence would not have.
+        _pp_log_reconnect_suspend_failure(
+            'the handle\'s accessors raised ' . get_class($e) . ' while RESTORING the reconnect '
+            . 'budget, which is therefore left suspended for the rest of this request'
+        );
+    }
+}
+
+/**
  * Runs $mutator inside a serialized critical section guarded by a named MySQL advisory
- * lock. Shared engine behind both the token-override lock (_pp_with_token_lock, one
- * install-scoped name) and the per-post composition lock (_pp_with_composition_lock,
- * one name per post) — they differ only in the lock NAME, so the GET_LOCK acquire /
- * bounded-timeout / release-in-finally / degrade-without-$wpdb machinery lives here once.
+ * lock. Shared engine behind all THREE lock families: the token-override lock
+ * (_pp_with_token_lock, one install-scoped name), the per-post composition lock
+ * (_pp_with_composition_lock, one name per post) and the per-run operate-state lock
+ * (pp_operate_with_run_lock, lib/operate.php, one name per run — #409). They differ only in
+ * the lock NAME, so the GET_LOCK acquire / bounded-timeout / release-in-finally /
+ * degrade-without-$wpdb machinery lives here once — and so does the #830 reconnect
+ * suspension below, which every one of the three therefore inherits.
  *
  * Acquires the lock with a bounded timeout, runs the mutator, and releases in `finally`
  * so normal AND exception unwinding both free it. This is not an absolute guarantee — a
@@ -2558,6 +2767,132 @@ function _pp_token_lock_name(): string {
  * acquisition failure the mutator does NOT run and $fail_value is returned (explicit
  * failure, never a silent partial write). Degrades to running the mutator directly when
  * no $wpdb is present (unit context); production always has $wpdb.
+ *
+ * WPDB'S OWN SELF-HEAL CAN NO LONGER RELOCATE THE SECTION (#830) — a narrower claim than "the
+ * section cannot be relocated", and the narrowness is deliberate. wpdb's errno-2006 self-heal
+ * used to reconnect mid-section and thereby VOID the connection-scoped GET_LOCK for every
+ * reader and writer after it, silently. That route is closed: the retry budget is now
+ * suspended for the section and restored on the way out.
+ *
+ * TWO ROUTES REMAIN OPEN AND NOTHING HERE CAN SHUT THEM. Third-party code reassigning
+ * $GLOBALS['wpdb'] mid-request (nothing in this theme does), and a connection-multiplexing
+ * proxy — ProxySQL, RDS Proxy — which can hand the client session a different backend session
+ * between statements with no errno 2006 raised at all, so no retry budget of any size is ever
+ * consulted. On a pooled deployment the guarantee below is about wpdb, not about the wire.
+ *
+ * A wpdb SUBCLASS IS ALSO OUTSIDE WHAT THIS CAN PROMISE. HyperDB and LudicrousDB keep several
+ * live connections and route statements between them, and LudicrousDB overrides
+ * check_connection() with its own logic and its own signature. Such a handle ACCEPTS the
+ * suspension — the property is there, the write takes, the read-back agrees, nothing is
+ * logged — while the behaviour that property gates no longer exists. On a replica-routing
+ * config the exposure is plainer still: `SELECT GET_LOCK(...)` is a SELECT and can route to
+ * the read group while the writes go to the primary, so the lock never covered the writes to
+ * begin with. Neither install this was verified against carries a db.php drop-in.
+ *
+ *     GET_LOCK  ── retries UNCHANGED here, deliberately: an acquire that self-heals
+ *        │         re-runs GET_LOCK on the surviving connection, which then genuinely
+ *        │         holds the lock. Suspending earlier would fail a correct acquire.
+ *        ├── not '1' ─────────────► error_log + $fail_value            (unchanged)
+ *        └── '1'
+ *              │
+ *         SUSPEND retries (save actual value, set 0)
+ *              │
+ *              ├── try { $mutator($wpdb) }        ◄── the critical section
+ *              │      returns / refuses / throws
+ *              │
+ *              └── finally {
+ *                      try { RESTORE retries }    ◄── every exit PHP unwinds
+ *                      finally { RELEASE_LOCK }   ◄── still runs if RESTORE throws
+ *                    }
+ *
+ * "EVERY EXIT PHP UNWINDS" IS THE HONEST PHRASING, not "every exit". `die()` does not
+ * unwind, so neither the restore nor the release runs when core's dead_db() fires inside
+ * the section (shape 1 below) or when a plugin callback in here calls wp_die() or fatals.
+ * The lock is covered either way — MySQL frees it when the connection closes — but on the
+ * non-DB variant of that (a plugin wp_die() on a HEALTHY connection) the retry budget stays
+ * 0 for whatever `shutdown` handlers run afterwards. It is bounded by the dying request.
+ *
+ * RESTORE BEFORE RELEASE, and the nesting is not decoration. Restoring first means a
+ * RELEASE_LOCK issued on a connection that died during the section self-heals into a
+ * harmless no-op (the dead connection already released the lock) instead of turning a clean
+ * refusal into a dead_db() during unwinding. The inner `finally` is there because __set() on
+ * an exotic handle CAN throw, and lock hygiene outranks retry-budget hygiene: the release
+ * must not be skippable by a failure in the restore.
+ *
+ * WHAT A DROPPED CONNECTION INSIDE THE SECTION NOW DOES — three shapes, none of them an
+ * unlocked write, and the honest summary is "never runs unlocked" rather than "always
+ * refuses":
+ *   1. THE ONLY SHAPE ANY SHIPPED WRITE PATH CAN REACH TODAY, and worth stating that plainly
+ *      rather than calling it merely "the common" one. query() hits errno 2006,
+ *      check_connection() finds the connection dead, skips the (now empty) retry loop, and —
+ *      called with $allow_bail defaulting to true — reaches bail()/dead_db(). The request
+ *      TERMINATES. Fail-closed, but it is core's process kill, not a PromptingPress envelope.
+ *      die() skips `finally`, so neither the restore nor the release runs; MySQL's
+ *      connection-close auto-release, already named above as a backstop, is what frees the
+ *      lock. Shapes 2 and 3 below both require did_action('template_redirect'), which core
+ *      tests BEFORE the $allow_bail branch — and every composition, token and run-state write
+ *      in this theme originates in WP-CLI, admin-AJAX or the activation seed, none of which
+ *      reach the front-end template loader where that action fires. So they describe what the
+ *      code does when a failed in-lock read does NOT take the request down with it (a
+ *      front-end-initiated writer, if one is ever added; the unit harness, which models
+ *      exactly this), not something an operator will meet today.
+ *      THREE CONSEQUENCES OF THE TERMINATION, none of them obvious from the symptom: the
+ *      theme emits nothing at all (core dies inside query() and never returns, so no log line
+ *      here can fire), which makes it indistinguishable from an ordinary "Error establishing a
+ *      database connection"; under WP-CLI it aborts a multi-step run with the run lock's
+ *      `finally` skipped, leaving that run's state row un-finalized; and a transient 2006 that
+ *      used to self-heal now ends the whole request, including work after the lock. That is
+ *      the price of the ruling and it is the right price — an unlocked write is worse than a
+ *      failed one — but it is a real change in what an operator sees.
+ *   2. After `template_redirect` (check_connection() returns false instead of bailing).
+ *      query() returns false with last_error EMPTY — flush() clears it before the statement
+ *      and the error capture sits after the 2006 branch — so this is the #212 blind spot the
+ *      in-lock readers already document, not a case their last_error guards catch. The
+ *      version read answers 0, so a caller carrying a NON-ZERO `expected_version` gets the
+ *      EXISTING `composition_conflict` refusal before any write. That is the refusal class
+ *      that fires here; no new one was minted.
+ *   3. Shape 2 where the CAS cannot catch it, which is TWO caller shapes and not one:
+ *      `expected_version === null` (create_page, the homepage seed, legacy callers), AND
+ *      `expected_version === 0` — because the dead read answers 0 too, so `0 !== 0` is false
+ *      and the CAS PASSES. Zero is a real baseline a caller can hold: an absent marker reads
+ *      as 0, which is exactly the documented back-compat path by which a never-written page
+ *      initializes to version 1. It is also the second face of the trap already recorded on
+ *      _pp_read_composition_version_locked() — "a caller that supplied `expected_version = 0`
+ *      passes a CAS it should have failed". Either way the mutator runs on to three
+ *      update_post_meta() calls that fail on the dead connection, and this function returns
+ *      true over a write that did not happen. Nothing is written and nothing runs unlocked,
+ *      but the RETURN is optimistic. Closing that needs update_post_meta()'s verdict to be
+ *      readable, which is the half of the #821 ruling explicitly deferred to the #857
+ *      compare-first idiom — see the encode-guard comment in pp_update_composition(). Named
+ *      here so it is stated, not silent.
+ *
+ *   4. THE DEATH DOES NOT HAVE TO LAND ON A READ, and this shape is a regression the other
+ *      three hide by assuming it does. pp_update_composition() writes three meta rows in
+ *      order — `_pp_composition`, then `_pp_composition_hash`, then `_pp_composition_version`
+ *      — and the ordering is deliberate so a concurrent READER of the markers fails closed.
+ *      It says nothing about the writes stopping partway. If the connection dies BETWEEN the
+ *      first and the second, the second takes shape 1 and the request is killed, leaving the
+ *      new composition persisted under the OLD hash and the OLD version. The freshness marker
+ *      then certifies content that is not there, and the next writer holding
+ *      `expected_version = N` clears the CAS and clobbers it. Pre-#830 that window usually
+ *      self-healed (reconnect, writes 2 and 3 land — unlocked, but self-consistent), so
+ *      suspending the retries WIDENS it from "every reconnect attempt failed" to "the
+ *      connection died". Nothing here can close it: three meta writes are not one atomic
+ *      unit, and making them one is a different change of the #857 compare-first family.
+ *      Named as its own shape because the enumeration above would otherwise read as
+ *      "nothing is written", which is true of shapes 1-3 and false of this one. A neighbour
+ *      worth knowing while reading it: update_metadata() begins with a `get_col()` and falls
+ *      through to add_metadata() when that comes back empty, so on a dead connection a write
+ *      can fire the ADD hooks rather than the UPDATE ones, for a write that never happened.
+ *
+ * THE SUSPENSION IS CONNECTION-SCOPED, SO IT COVERS THE WHOLE SECTION — including code this
+ * theme does not own. update_post_meta() fires WordPress's meta hooks, and any third-party
+ * callback on them runs inside this lock and inherits retries = 0. That is inherent to the
+ * mechanism rather than an oversight: the knob is a property of the CONNECTION, and scoping
+ * it to "only our SQL" would take query interception. It is also the consistent answer — a
+ * plugin's write inside this section is exactly as unlocked, after a reconnect, as ours is.
+ * On a healthy connection it is unobservable; the visible difference is confined to a
+ * connection that has already died mid-section.
  *
  * @param string   $lock_name   The raw advisory-lock name (bounded <= 64 chars by callers).
  * @param callable $mutator     Performs the cache-authoritative read/modify/write.
@@ -2589,10 +2924,28 @@ function _pp_with_advisory_lock(string $lock_name, callable $mutator, $fail_valu
         return $fail_value;
     }
 
+    // From here to the release, wpdb's errno-2006 self-heal is OFF: a connection that dies
+    // inside the section fails the statement rather than silently re-running it on a new
+    // connection that does not hold this lock (#830). See this function's docblock for the
+    // core contract, the three failure shapes, and why the release is nested inside the
+    // restore rather than beside it.
+    //
+    // THE SUSPEND CALL IS INSIDE THE `try`, AND THE LOCK IS WHY. The lock is already held at
+    // this point, so ANY statement between the acquire and the `try` is a statement that can
+    // skip the release and strand the lock for the rest of the request. _pp_suspend_wpdb_
+    // reconnect() is written never to throw, but "never throws" is a property of a function
+    // that can be edited; the structure makes the release unskippable regardless. $reconnect
+    // is seeded first so the `finally` always has a defined value to restore.
+    $reconnect = null;
     try {
+        $reconnect = _pp_suspend_wpdb_reconnect($wpdb);
         return $mutator($wpdb);
     } finally {
-        $wpdb->query("SELECT RELEASE_LOCK($name)");
+        try {
+            _pp_restore_wpdb_reconnect($wpdb, $reconnect);
+        } finally {
+            $wpdb->query("SELECT RELEASE_LOCK($name)");
+        }
     }
 }
 
@@ -2823,14 +3176,17 @@ function _pp_read_composition_json_locked($wpdb, int $post_id): ?string {
  * them, and both predate #823 — every reader and writer inside the lock shares them:
  *
  *   SAME CONNECTION.  Advisory locks are connection-scoped, so a read over a different
- *                     connection is a read outside the lock. Two things could move it:
- *                     third-party code reassigning $GLOBALS['wpdb'] mid-request (a db.php
- *                     drop-in, a multi-network plugin — nothing in this theme does), and
- *                     wpdb's own errno-2006 self-heal, which re-runs a statement on a NEW
- *                     connection after check_connection() and reports success with an empty
- *                     last_error. The reconnect silently voids the GET_LOCK for the whole
- *                     rest of the mutator, not just this read; tracked as its own issue
- *                     rather than patched here.
+ *                     connection is a read outside the lock. ONE of the two things that
+ *                     could move it is now closed: wpdb's errno-2006 self-heal used to
+ *                     re-run a statement on a NEW connection after check_connection() and
+ *                     report success with an empty last_error, silently voiding the
+ *                     GET_LOCK for the whole rest of the mutator rather than just this
+ *                     read. Since #830 _pp_with_advisory_lock() suspends wpdb's retry
+ *                     budget for the section, so a dropped connection FAILS this read
+ *                     instead of relocating it — see that function for the three shapes
+ *                     that failure takes. What remains an assumption is third-party code
+ *                     reassigning $GLOBALS['wpdb'] mid-request (a db.php drop-in, a
+ *                     multi-network plugin — nothing in this theme does).
  *   FRESH SNAPSHOT.   InnoDB defaults to REPEATABLE READ, and GET_LOCK neither commits nor
  *                     refreshes a read view. Under vanilla WordPress autocommit every
  *                     statement gets a fresh snapshot and this read sees the concurrent
@@ -2892,7 +3248,11 @@ function _pp_read_composition_history_locked(int $post_id): array {
     // a failed check_connection()), which return null with last_error empty. Left as the
     // sibling _pp_read_token_overrides_locked_strict() leaves it: both require a dead
     // connection, and the update_post_meta() below would fail on the same connection, so
-    // the short ring is never persisted.
+    // the short ring is never persisted. Since #830 the check_connection() branch is the
+    // one a dead connection takes DIRECTLY — the retry budget is suspended for this section,
+    // so there is no successful reconnect to mask it — which makes this blind spot the
+    // reason a dead connection surfaces as a CAS refusal or an optimistic return rather than
+    // as a read error. The three shapes are enumerated on _pp_with_advisory_lock().
     if (!empty($wpdb->last_error)) {
         return _pp_degraded_history_ring($post_id, 'the authoritative read failed (' . $wpdb->last_error . ')');
     }
@@ -3200,12 +3560,13 @@ function _pp_take_history_push_skipped(int $post_id): bool {
  * _pp_with_advisory_lock() does `global $wpdb`, issues GET_LOCK on that object, and passes
  * THAT SAME OBJECT to the mutator; pp_composition_db_handle() does `global $wpdb` and
  * returns it. Same object, same wpdb instance, same MySQL connection — so the
- * connection-scoped lock covers this read. The two ways that pairing could break are
- * pre-existing and shared with every reader in this block, not introduced by taking the
- * global: third-party code reassigning $GLOBALS['wpdb'] mid-request (nothing in this theme
- * does), and wpdb's errno-2006 self-heal, which reconnects and thereby releases the lock
- * for the whole rest of the mutator — tracked as #830, whose fix belongs in
- * _pp_with_advisory_lock() rather than in any one reader.
+ * connection-scoped lock covers this read. Of the two ways that pairing could break — both
+ * pre-existing and shared with every reader in this block, neither introduced by taking the
+ * global — one is now closed. wpdb's errno-2006 self-heal, which reconnected and thereby
+ * released the lock for the whole rest of the mutator, is fixed where #830 said it belonged:
+ * in _pp_with_advisory_lock(), which suspends the retry budget for the section so a dropped
+ * connection fails the statement rather than relocating it. Still an assumption: third-party
+ * code reassigning $GLOBALS['wpdb'] mid-request (nothing in this theme does).
  *
  * A FAILED READ FALLS BACK TO THE CACHE (#212). $wpdb->get_var() returns null for both "no
  * row" and "the query failed", so without the last_error check a lock-wait timeout on an
