@@ -833,6 +833,42 @@ final class UdcEngineTest extends TestCase
         $this->assertSame('', pp_udc_page_css([]));
     }
 
+    /**
+     * THE CLI SCHEMA REPORT MUST SURFACE ROLES.
+     *
+     * `wp pp schema <component>` is explicitly the surface for an agent with no
+     * filesystem access to the theme. Without a roles arm it reports a v2
+     * component as having no props problems, no slots and no recipes — which
+     * reads as "this component cannot be styled", about a component with a full
+     * design surface. That is the same wrong answer the report's empty-decode
+     * guard exists to prevent, arriving through a component that is working.
+     */
+    public function testTheCliSchemaReportSurfacesRolesForAV2Component(): void
+    {
+        $report = pp_component_schema_report('testimonials');
+
+        $this->assertArrayHasKey('roles', $report);
+        $this->assertSame(count(pp_udc_component_roles('testimonials')), count($report['roles']));
+        $this->assertArrayHasKey('udc_groups', $report, 'and the vocabulary the roles are addressed in');
+
+        foreach ($report['roles'] as $entry) {
+            foreach (['role', 'selector', 'groups', 'description'] as $key) {
+                $this->assertArrayHasKey($key, $entry);
+            }
+        }
+
+        // Reserved keys the report's own entry contract forbids colliding with.
+        foreach ($report['roles'] as $entry) {
+            $this->assertNotSame('name', $entry['role']);
+            $this->assertNotSame('slot', $entry['role']);
+        }
+
+        // A legacy component says NOTHING, so an absent key is never mistaken for
+        // "declared empty".
+        $this->assertArrayNotHasKey('roles', pp_component_schema_report('hero'));
+        $this->assertArrayNotHasKey('udc_groups', pp_component_schema_report('hero'));
+    }
+
     // ── The schema side of the contract ─────────────────────────────────────
 
     /**

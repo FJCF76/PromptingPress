@@ -2680,7 +2680,7 @@ function pp_component_schema_index(): array {
  *     pp_is_template_owned_component()                              │
  *              │   (independent lookup, lib/admin.php)              └─► pp_ai_format_applies_when_clause()
  *              ▼
- *     { component, description, composable, [content_requirement],
+ *     { component, description, composable, [content_requirement], [roles], [udc_groups],
  *       props[], style_slots[], recipes[] }
  *
  * The two accessors are raw passthroughs of `styling.style_slots` / `styling.recipes`
@@ -2756,6 +2756,31 @@ function pp_component_schema_report(string $component): array|WP_Error {
     $report['props']       = _pp_schema_report_entries($schema['props'] ?? [], 'name', true);
     $report['style_slots'] = _pp_schema_report_entries(pp_get_style_slots($component), 'slot', true);
     $report['recipes']     = _pp_schema_report_entries(pp_get_style_recipes($component), 'name', false);
+
+    // v2: a component on the Universal Design Contract has NO style slots, so without
+    // this arm the report would say "no props problems, no slots, no recipes" about a
+    // component with a full design surface — an agent reading it would conclude the
+    // component cannot be styled at all, which is the same wrong answer the empty-decode
+    // guard above exists to prevent, arriving through a component that is working
+    // correctly. This report is explicitly the surface for an agent with no filesystem
+    // access to the theme, so a styling system it cannot see is a styling system it
+    // cannot use.
+    //
+    // Emitted only when declared, so its absence is not mistaken for "declared empty":
+    // the eleven components still on style slots carry no `roles` key and say nothing.
+    $roles = pp_udc_component_roles($component);
+    if ($roles !== []) {
+        $report['roles'] = [];
+        foreach ($roles as $role_name => $definition) {
+            $report['roles'][] = [
+                'role'        => (string) $role_name,
+                'selector'    => (string) ($definition['selector'] ?? ''),
+                'groups'      => array_values((array) ($definition['groups'] ?? [])),
+                'description' => (string) ($definition['description'] ?? ''),
+            ];
+        }
+        $report['udc_groups'] = pp_udc_group_summary();
+    }
 
     return $report;
 }

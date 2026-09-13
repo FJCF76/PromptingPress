@@ -52,11 +52,17 @@ Used by: #99, #100, #108, #111, #61 (and the #99 scaffold issue defines the reus
 
 1. **Schema:** in `components/{name}/schema.json`, add under `styling.style_slots`:
    ```json
-   "--{name}-{slot}": { "type": "color|length|length-or-none|number|duration|font-family|shadow|gradient|position|ratio|enum", "default": "<css>", "description": "<what it controls>" }
+   "--{name}-{slot}": { "type": "color|length|length-or-none|number|duration|font-family|shadow|gradient|position|ratio|align|text-transform|enum", "default": "<css>", "description": "<what it controls>" }
    ```
    The definition object is a CLOSED key set (invariant 5 above): `type`/`default`/`description`
    are required, and the optional keys — `values`, `item_eligible`, `applies_when`,
    `conditionality_note`, `role` — are enumerated in `pp_slot_definition_keys()` (`lib/admin.php`),
+   The shared engine also validates eight typed keyword sets that only the v2 Universal
+   Design Contract reaches today — `font-style`, `font-weight`, `line-height`, `text-wrap`,
+   `text-decoration-line`, `border-style`, `background-size`, `background-repeat` — declared
+   beside their siblings in `lib/apply.php` and dispatched by the same type switch, so a
+   future slot could declare one without adding a validator.
+
    with the field-by-field contract in `ai-instructions/add-component.md`. Use `length-or-none`
    **only** when the slot's declared default IS the keyword `none`, so the built-in uncapped state
    stays authorable (`--stats-max-width`, `--hero-heading-measure`, `--section-heading-measure`,
