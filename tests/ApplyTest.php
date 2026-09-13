@@ -1830,8 +1830,34 @@ class ApplyTest extends TestCase
         // segment (and not a color) — reject.
         $this->assertFalse(_pp_validate_gradient('radial-gradient(circle at, #fff, #000)'));
         $this->assertFalse(_pp_validate_gradient('radial-gradient(at, #fff, #000)'));
-        // Length positions are out of #301's keyword/percentage scope.
-        $this->assertFalse(_pp_validate_gradient('radial-gradient(at 10px 20px, #fff, #000)'));
+    }
+
+    /**
+     * DEAD QUIRK #4 of 6 (v2 §3.3): the radial `at <position>` clause took
+     * percentages and NOTHING else.
+     *
+     * `radial-gradient(at 10px 20px, ...)` was refused while
+     * `background-position: 10px 20px` — the same placement concept, one
+     * validator away — was accepted. #301 recorded it as "out of scope", but it
+     * was never a scope decision about CSS features; it was the narrowest of the
+     * six divergent unit lists. The clause now embeds the shared position-token
+     * fragment, so it accepts exactly what a `position`-typed slot accepts.
+     *
+     * Radial SIZE keywords (`closest-side`) remain out — that IS a genuine
+     * bounded-grammar choice about which CSS features this validator covers, and
+     * it is pinned by the sibling test above.
+     */
+    public function testRadialAtClauseNowAcceptsLengthsLikeEveryOtherPositionGrammar(): void
+    {
+        $this->assertTrue(_pp_validate_gradient('radial-gradient(at 10px 20px, #fff, #000)'));
+        $this->assertTrue(_pp_validate_gradient('radial-gradient(circle at 2rem 4rem, #fff, #000)'));
+        $this->assertTrue(_pp_validate_gradient('radial-gradient(at 10vw 20vh, #fff, #000)'));
+        $this->assertTrue(_pp_validate_gradient('radial-gradient(at -5rem center, #fff, #000)'));
+        // The shared fragment carries the shared hardened number body with it,
+        // so the malformed shapes stay refused here too.
+        $this->assertFalse(_pp_validate_gradient('radial-gradient(at 1.2.3px, #fff, #000)'));
+        $this->assertFalse(_pp_validate_gradient('radial-gradient(at 10 px, #fff, #000)'));
+        $this->assertFalse(_pp_validate_gradient('radial-gradient(at .px, #fff, #000)'));
     }
 
     public function testValidateGradientRejectsInjectionInRadialPosition(): void

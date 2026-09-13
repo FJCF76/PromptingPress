@@ -316,11 +316,194 @@ function _pp_check_token_reference_cycle(string $token, string $value) {
 }
 
 /**
+ * ── THE UNIFIED DIMENSION GRAMMAR (v2, BUILD-SPEC §3.3) ─────────────────────
+ *
+ * ONE owner for every dimension-bearing value in the program. Before v2 there
+ * were SIX mutually-inconsistent unit lists in this file, each grown on its own
+ * and none derived from the others:
+ *
+ *     _pp_validate_length            rem px em % vw vh    hardened number body
+ *     …its calc()/clamp() inner list rem px em vw vh      (no %, admitted by char class)
+ *     _pp_validate_shadow            px rem ONLY          LOOSE [\d.]+ body
+ *     _pp_validate_position          % px rem em          LOOSE [\d.]+ body, no vw/vh
+ *     _pp_validate_gradient_color_stop  % px rem em vw vh  NO negatives
+ *     radial-gradient `at <position>`   percentages ONLY   no length units at all
+ *
+ * They disagreed in ways no author could predict: `1.2.3px` was refused as a
+ * `length` and ACCEPTED as a `position` token and as a shadow offset; `5vw` was
+ * a legal length and a legal gradient stop but an illegal position; `at 10px`
+ * was refused outright while `at 10%` was fine. The owner's v2 directive is that
+ * these quirks DIE, with no compatibility shim — so all six now derive from the
+ * two primitives below, and the differences that REMAIN are per-property facts
+ * of CSS itself (box-shadow takes no percentage; blur and spread take no
+ * negative), expressed as explicit options rather than as divergent regexes.
+ *
+ * WHAT IS DELIBERATELY *NOT* WIDENED: the calc()/clamp() capability stays where
+ * it already was (the `length` family). Consolidating six unit lists is what the
+ * spec directs; handing shadow and position a function grammar they never had
+ * would be inventing capability under cover of a cleanup.
+ *
+ * The two survivors of the old code are the shared core, unchanged:
+ * `_pp_forbidden_css_construct()` (the injection gate, which runs ahead of every
+ * type) and the hardened number body (#151), which now governs all six instead
+ * of two.
+ *
+ * @return string[] The ONE accepted unit set, longest-first so the alternation
+ *                  reads unambiguously even where it is embedded unanchored.
+ */
+function pp_css_length_units(): array {
+    return ['vmin', 'vmax', 'rlh', 'rem', 'ch', 'em', 'ex', 'lh', 'px', 'vh', 'vw'];
+}
+
+/**
+ * The hardened number body (#151), now the single body for every dimension.
+ *
+ * `\d+(?:\.\d*)?|\.\d+`: at least one digit, at most one dot, plus the
+ * leading-dot form (`.5rem`). Rejects a unit with no digit (`.em`), multiple
+ * dots (`1.2.3rem`), and whitespace between number and unit (`1.2 rem` — CSS
+ * forbids it). The second digit run sits behind a mandatory `.` so an all-digit
+ * input with a bad unit backtracks linearly, not quadratically: no catastrophic
+ * -backtracking surface on an uncapped value.
+ */
+function _pp_css_number_body(): string {
+    return '(?:\d+(?:\.\d*)?|\.\d+)';
+}
+
+/**
+ * An UNANCHORED regex fragment matching one <length> or <length-percentage>
+ * token, for embedding in a larger grammar (the radial `at <position>` clause).
+ * Callers that validate a whole value should use _pp_css_length() instead.
+ *
+ * @param bool $signed  Allow a single leading minus.
+ * @param bool $percent Allow the `%` unit (a <length-percentage> rather than a
+ *                      bare <length>). box-shadow's lengths are <length> only.
+ */
+function _pp_css_length_fragment(bool $signed = true, bool $percent = true): string {
+    $units = pp_css_length_units();
+    if ($percent) {
+        $units[] = '%';
+    }
+    return '(?:0|' . ($signed ? '-?' : '') . _pp_css_number_body()
+        . '(?:' . implode('|', array_map(static fn($u) => preg_quote($u, '/'), $units)) . '))';
+}
+
+/**
+ * THE dimension validator. Every length-, percentage- and position-bearing value
+ * in the program resolves here.
+ *
+ * Deliberately does NOT trim: `_pp_validate_length()` never did, and a value with
+ * surrounding whitespace is a different value. Callers that split on whitespace
+ * (shadow, position) hand over already-bare tokens.
+ *
+ * @param string $value The candidate token.
+ * @param array  $opts  signed    — allow a leading minus (default true). CSS
+ *                                  lengths go negative on letter-spacing,
+ *                                  margins and text-indent; blur and spread
+ *                                  do not.
+ *                      percent   — allow `%` (default true). false makes it a
+ *                                  bare <length>, which is what box-shadow takes.
+ *                      functions — allow calc()/clamp() (default true). Only the
+ *                                  `length` family has ever had these.
+ */
+function _pp_css_length(string $value, array $opts = []): bool {
+    $signed    = $opts['signed']    ?? true;
+    $percent   = $opts['percent']   ?? true;
+    $functions = $opts['functions'] ?? true;
+
+    // Unitless zero, and a well-formed number with an attached unit.
+    if (preg_match('/^' . _pp_css_length_fragment($signed, $percent) . '$/', $value)) {
+        return true;
+    }
+
+    if (!$functions) {
+        return false;
+    }
+
+    // clamp() or calc(): positive-pattern matching — only digits, dots, unit
+    // words, %, comma, whitespace, parens and arithmetic operators. Every
+    // alphabetic run must be an allowed unit word EXACTLY, which is what blocks
+    // var(), env(), url() and every other function: "var" is not a unit.
+    if (!preg_match('/^(clamp|calc)\(/', $value)) {
+        return false;
+    }
+    // The /s modifier lets legal newline whitespace inside the expression
+    // (`calc(\n1rem + 2rem)`) extract instead of failing the greedy `.+` (#151).
+    if (!preg_match('/^(clamp|calc)\((.+)\)$/s', $value, $m)) {
+        return false;
+    }
+    $fn       = strtolower($m[1]);
+    $contents = $m[2];
+
+    // Parens must be PROPERLY nested, not merely count-balanced. The greedy
+    // outer extraction checks neither, so `calc(1))` leaves a stray ')' and
+    // `calc()1,2()` leaves an improperly-nested `)1,2(`. A count-only check
+    // passes the latter and would let the top-level-comma guard below be
+    // bypassed, since a leading ')' drives a split walker to negative depth and
+    // masks the comma. One left-to-right depth walk rejects both (#151).
+    $depth = 0;
+    $len   = strlen($contents);
+    for ($i = 0; $i < $len; $i++) {
+        if ($contents[$i] === '(') {
+            $depth++;
+        } elseif ($contents[$i] === ')' && --$depth < 0) {
+            return false;
+        }
+    }
+    if ($depth !== 0) {
+        return false;
+    }
+    // calc() takes ONE arithmetic expression, never comma-separated arguments,
+    // so a top-level comma inside calc(...) is malformed (#151). clamp()'s
+    // legitimate 3-argument form is left intact; its arity is not further
+    // checked (bare-number args stay an accepted residual per the decision —
+    // they only degrade to a dropped declaration).
+    if ($fn === 'calc' && count(_pp_split_top_level_commas($contents)) > 1) {
+        return false;
+    }
+
+    $allowed_units = pp_css_length_units();
+    preg_match_all('/[a-zA-Z]+/', $contents, $alpha_sequences, PREG_OFFSET_CAPTURE);
+    foreach ($alpha_sequences[0] as [$word, $offset]) {
+        // The security boundary: any alpha run that is not a unit word is out.
+        if (!in_array(strtolower($word), $allowed_units, true)) {
+            return false;
+        }
+        // A real unit is always directly adjacent to the number it qualifies —
+        // CSS allows no space between "1" and "rem", and a unit cannot stand
+        // alone. This rejects calc(px), calc((rem) + 1px), calc(-rem + 1px) and
+        // clamp((rem), 1px, 2px): each has an allowed unit word with no numeric
+        // operand behind it, and would otherwise persist as broken CSS the
+        // browser silently drops (#129). A correctness check, not a boundary.
+        $prev_char = $offset > 0 ? $contents[$offset - 1] : '';
+        if ($prev_char === '' || !preg_match('/[\d.]/', $prev_char)) {
+            return false;
+        }
+    }
+    // Only digits, dots, unit letters, %, comma, whitespace, parens, + - * /.
+    return (bool) preg_match('/^[\d\s.,+\-*\/()%a-zA-Z]+$/', $contents);
+}
+
+/**
+ * The accepted unit set as prose, for the ONE place each AI-facing surface says
+ * it. v1 stated this set in four hand-maintained copies (two error strings, the
+ * chat hint at lib/ai-chat.php, and the runtime system prompt) with no test
+ * pinning them to the validator — and the runtime prompt never stated it at all,
+ * so the model was told what was forbidden and never which units were legal.
+ * Every caller now derives from here.
+ */
+function pp_css_grammar_summary(): string {
+    $units = pp_css_length_units();
+    sort($units);
+    return implode(', ', $units) . ', %';
+}
+
+/**
  * Validates a CSS length value.
- * Accepts: numeric value with unit (rem, px, em, %, vw, vh) including a single
- * leading minus for negative lengths (letter-spacing/margins/text-indent go
- * negative), unitless 0, clamp() expressions, and calc() expressions — plus, when
- * and only when $allow_none is set, the keyword `none` (issue #579, A-30).
+ * Accepts: numeric value with any unit in pp_css_length_units() (plus `%`),
+ * including a single leading minus for negative lengths (letter-spacing/margins/
+ * text-indent go negative), unitless 0, clamp() expressions, and calc()
+ * expressions — plus, when and only when $allow_none is set, the keyword `none`
+ * (issue #579, A-30).
  *
  * @param string $value      The candidate value.
  * @param bool   $allow_none Accept the keyword `none`. Set ONLY by the
@@ -333,26 +516,10 @@ function _pp_check_token_reference_cycle(string $token, string $value) {
  *                           browser drops, which is the accepted-but-dead class this
  *                           whole engine exists to reject.
  *
- * The simple-length number body is a single well-formed number: at least one
- * digit, at most one dot, optional leading minus (#467), and the unit directly
- * attached (no whitespace). This rejects `.em` (no digit), `1.2.3rem` (multiple
- * dots), and `1.2 rem` (space before the unit) — malformed shapes the older
- * loose body accepted and persisted as broken CSS (#151).
- *
- * clamp/calc use positive-pattern matching: only numeric literals, units,
- * percentage, comma, parentheses, and arithmetic operators are allowed.
- * var() references inside clamp/calc are rejected to prevent injection
- * bypass — an alphabetic word that isn't an allowed unit (rem/px/em/vw/vh)
- * is rejected outright. Separately, every unit word that IS allowed must be
- * directly attached to a real numeric operand (immediately preceded by a
- * digit or decimal point) — this is a correctness check, not a security
- * boundary: it rejects structurally nonsensical values like calc(px) or
- * calc((rem) + 1px) that would otherwise validate and persist as broken CSS
- * the browser silently drops (#129). Three more cheap correctness checks
- * (#151, Option C + Option 4): the extraction allows legal newline whitespace
- * inside the body (`calc(\n1rem + 2rem)`); an unbalanced-paren body (`calc(1))`)
- * is rejected; and a top-level comma inside calc() (`calc(1,2,3)`) is rejected
- * while clamp()'s legitimate 3-argument comma form is left intact.
+ * The grammar itself lives in _pp_css_length() — this function is the
+ * `length` / `length-or-none` family's entry point into it, and exists only to
+ * add the `none` widening. Number body, unit set, calc()/clamp() handling and
+ * every documented residual are described there.
  *
  * Explicitly accepted as residual (documented, won't-fix — each only degrades to
  * a browser-dropped declaration, never injection, thanks to the {};<> guard plus
@@ -371,106 +538,12 @@ function _pp_validate_length(string $value, bool $allow_none = false): bool {
     if ($allow_none && strtolower(trim($value)) === 'none') {
         return true;
     }
-    // Unitless zero.
-    if ($value === '0') {
-        return true;
-    }
-    // Simple length: optional leading minus, a single well-formed number, then a
-    // unit directly attached. Negative lengths are valid CSS <length> (letter-spacing,
-    // margins, text-indent go negative), so the grammar accepts a single leading '-'
-    // (#467); the injection guards and the calc/clamp positive-pattern below are
-    // unchanged. Semantically-inert cases (negative radius, padding) simply drop per
+    // Signed, percentage-bearing, function-bearing: the widest of the six
+    // families. Negative lengths are valid CSS <length> (letter-spacing, margins
+    // and text-indent go negative), so a single leading '-' is accepted (#467);
+    // semantically-inert cases (a negative radius or padding) simply drop per
     // CSS — this is a grammar guard, not a per-property check.
-    //
-    // The number body is `\d+(?:\.\d*)?|\.\d+`: at least one digit, at most one dot,
-    // and a leading-dot form (`.5rem`, `-.5rem`). This rejects malformed shapes the
-    // old loose `[\d.]+\s*` body accepted and persisted as broken CSS the browser
-    // drops (#151): a unit with no digit (`.em`), multiple dots (`1.2.3rem`), and
-    // whitespace between the number and the unit (`1.2 rem` — CSS forbids it).
-    // Unitless zero is handled above; `0` with a unit still validates via the number
-    // body. The second digit run sits behind a mandatory `.` (`(?:\.\d*)?`, never an
-    // adjacent `\d+\.?\d*`) so an all-digit input with a bad unit backtracks linearly,
-    // not quadratically — no catastrophic-backtracking surface on an uncapped value.
-    if (preg_match('/^-?(\d+(?:\.\d*)?|\.\d+)(rem|px|em|%|vw|vh)$/', $value)) {
-        return true;
-    }
-    // clamp() or calc(): positive-pattern — only allow safe characters inside.
-    // Safe: digits, dots, units (a-z), %, comma, spaces, parentheses, +, -, *, /
-    // Reject anything else (including var, url, env, or any function calls).
-    if (preg_match('/^(clamp|calc)\(/', $value)) {
-        // Extract contents between outer parens. The /s (dotall) modifier lets
-        // legal newline whitespace inside the expression (`calc(\n1rem + 2rem)`)
-        // extract instead of failing the greedy `.+` outright (#151, Option 4).
-        if (!preg_match('/^(clamp|calc)\((.+)\)$/s', $value, $m)) {
-            return false;
-        }
-        $fn       = strtolower($m[1]);
-        $contents = $m[2];
-        // Paren nesting: verify the body's parens are PROPERLY nested — never a
-        // closing paren before its matching opener, and balanced at the end. The
-        // greedy outer extraction checks neither, so `calc(1))` leaves a stray ')'
-        // and `calc()1,2()` leaves an improperly-nested `)1,2(` (count-balanced,
-        // but a ')' precedes its '('). A count-only check (substr_count) passes the
-        // latter and would let the top-level-comma guard below be bypassed, since a
-        // leading ')' drives the split walker to negative depth and masks the comma.
-        // A single left-to-right depth walk rejects both — every non-nested body is
-        // structurally broken CSS the browser drops (#151, Option C).
-        $depth = 0;
-        $len   = strlen($contents);
-        for ($i = 0; $i < $len; $i++) {
-            if ($contents[$i] === '(') {
-                $depth++;
-            } elseif ($contents[$i] === ')' && --$depth < 0) {
-                return false;
-            }
-        }
-        if ($depth !== 0) {
-            return false;
-        }
-        // calc() takes a single arithmetic expression, never comma-separated
-        // arguments, so any top-level comma inside calc(...) is malformed
-        // (`calc(1,2,3)`) — reject it (#151, Option C). clamp()'s legitimate
-        // 3-argument comma form is left intact; its arity is not further checked
-        // (bare-number args like `clamp(1,2,3)` remain an accepted residual, per
-        // the recorded decision — they only degrade to a dropped declaration).
-        if ($fn === 'calc' && count(_pp_split_top_level_commas($contents)) > 1) {
-            return false;
-        }
-        // Positive pattern: only numeric, dot, units, %, comma, whitespace, parens, arithmetic.
-        // Every alphabetic sequence must be an allowed unit word exactly
-        // (rem, px, em, vw, vh) — this blocks var, env, url, and any other
-        // function/keyword, not a length-based rule.
-        $alpha_sequences = [];
-        preg_match_all('/[a-zA-Z]+/', $contents, $alpha_sequences, PREG_OFFSET_CAPTURE);
-        $allowed_units = ['rem', 'px', 'em', 'vw', 'vh'];
-        foreach ($alpha_sequences[0] as [$word, $offset]) {
-            // Reject if any alpha sequence is NOT a known unit. This is the
-            // key security boundary: var(--anything) contains "var" which
-            // is not a unit.
-            if (!in_array(strtolower($word), $allowed_units, true)) {
-                return false;
-            }
-            // A real unit is always directly adjacent to the number it
-            // qualifies — CSS doesn't allow a space between "1" and "rem",
-            // and a unit can't stand alone. Reject a "bare" unit word not
-            // immediately preceded by a digit or a decimal point, e.g.
-            // calc(px), calc((rem) + 1px), calc(-rem + 1px), or
-            // clamp((rem), 1px, 2px) — every one of these has an allowed
-            // unit word but no real numeric operand behind it, and would
-            // otherwise validate and persist as broken CSS the browser
-            // silently drops.
-            $prev_char = $offset > 0 ? $contents[$offset - 1] : '';
-            if ($prev_char === '' || !preg_match('/[\d.]/', $prev_char)) {
-                return false;
-            }
-        }
-        // Must only contain: digits, dots, units(a-z), %, comma, whitespace, parens, +, -, *, /
-        if (!preg_match('/^[\d\s.,+\-*\/()%a-zA-Z]+$/', $contents)) {
-            return false;
-        }
-        return true;
-    }
-    return false;
+    return _pp_css_length($value, ['signed' => true, 'percent' => true, 'functions' => true]);
 }
 
 /**
@@ -540,10 +613,23 @@ function _pp_font_apply_to_tokens(string $apply_to): array {
 
 /**
  * Validates a CSS duration value.
- * Accepts: numeric value with time unit (ms, s).
+ * Accepts: a non-negative number with a time unit (ms, s).
+ *
+ * v2: the number body is now the shared hardened one (_pp_css_number_body()),
+ * so `1.2.3s` is refused here exactly as it is everywhere else, and the unit
+ * must be DIRECTLY attached. The old body was `[\d.]+\s*(ms|s)`, which accepted
+ * both malformed shapes — including `1.5 s`, the very whitespace form
+ * `_pp_validate_length()` has rejected since #151. Time units are their own
+ * closed set (a duration is not a length), but the NUMBER is the same number.
+ *
+ * REACH OF THE NARROWING, enumerated before it shipped: no component schema
+ * declares a `duration`-typed style slot, no design token is `duration`-typed,
+ * and no shipped value anywhere carries a space before a time unit. The theme's
+ * `--transition: 150ms ease` is type `raw` and never reaches this validator.
+ * Zero shipped values are newly rejected.
  */
 function _pp_validate_duration(string $value): bool {
-    return (bool) preg_match('/^[\d.]+\s*(ms|s)$/', $value);
+    return (bool) preg_match('/^' . _pp_css_number_body() . '(?:ms|s)$/', $value);
 }
 
 /**
@@ -563,7 +649,8 @@ function _pp_validate_number(string $value): bool {
  *    or the bare keyword `none`.
  *  - A single-layer box-shadow: 2-4 length values (offset-x offset-y [blur]
  *    [spread]) followed by a color. Offsets may be negative; blur and spread
- *    must be non-negative. Lengths are unitless 0 or px/rem. The color must
+ *    must be non-negative. Lengths are unitless 0 or a number with any unit in
+ *    pp_css_length_units() (no percentages — box-shadow takes <length>). The color must
  *    match hex / rgb(a) / hsl(a) form (the anchored regex below) AND pass
  *    _pp_validate_color() — the keywords/var() forms #230 added to the color
  *    validator never reach here because the regex pre-filters them out.
@@ -600,9 +687,26 @@ function _pp_validate_shadow(string $value): bool {
         return false;
     }
     foreach ($lengths as $i => $len) {
-        // Offsets (positions 0,1) may be negative; blur/spread (2,3) must not.
-        $pattern = $i < 2 ? '/^-?(0|[\d.]+(px|rem))$/' : '/^(0|[\d.]+(px|rem))$/';
-        if (!preg_match($pattern, $len)) {
+        // v2: the unit set is now the shared one, not this validator's private
+        // `px|rem` pair, and the number body is the shared hardened one — so
+        // `1.2.3px` is refused here exactly as it is as a `length` (it used to
+        // be ACCEPTED, through the loose `[\d.]+` body this replaces).
+        //
+        // The two options that stay FALSE are per-property facts of CSS, not
+        // leftovers of the old divergence: box-shadow's lengths are <length>,
+        // never <length-percentage> (`box-shadow: 0 50% ...` is invalid CSS), and
+        // this grammar has never admitted calc()/clamp() — consolidating six unit
+        // lists is the directive; handing shadow a function grammar it never had
+        // would be inventing capability under cover of a cleanup.
+        //
+        // Offsets (positions 0,1) may be negative; blur and spread (2,3) must not
+        // — a negative blur is invalid CSS, the same non-negative discipline the
+        // ratio validator applies to its denominator.
+        if (!_pp_css_length($len, [
+            'signed'    => $i < 2,
+            'percent'   => false,
+            'functions' => false,
+        ])) {
             return false;
         }
     }
@@ -673,8 +777,21 @@ function _pp_validate_gradient_color_stop(string $stop): bool {
         return true;
     }
 
-    // Stop position: a single non-negative percentage or length.
-    return (bool) preg_match('/^(0|\d+(\.\d+)?%|\d+(\.\d+)?(px|rem|em|vw|vh))$/', $position);
+    // Stop position: a single <length-percentage>.
+    //
+    // v2: NEGATIVE STOPS ARE NOW ACCEPTED. The old pattern had no `-?` — a
+    // private quirk, not a CSS fact: `linear-gradient(red -20%, blue)` is valid
+    // CSS and a standard way to push a stop off the painted box so the visible
+    // ramp starts mid-transition. It was refused here while the very same value
+    // was accepted as a `length`, which is exactly the unpredictable divergence
+    // the consolidation exists to end. The unit set and the number body are now
+    // the shared ones too, so `5vmin` and `3ch` work here as they do everywhere.
+    // calc()/clamp() stay out, as they always have been for this family.
+    return _pp_css_length($position, [
+        'signed'    => true,
+        'percent'   => true,
+        'functions' => false,
+    ]);
 }
 
 /**
@@ -747,12 +864,19 @@ function _pp_validate_gradient(string $value): bool {
         // Radial shape-position: an optional shape keyword (circle|ellipse)
         // and/or an optional `at <position>` clause, at least one present.
         // <position> is 1-2 tokens, each a placement keyword or a
-        // non-negative percentage (#301). Lengths (`at 10px`), radial size
-        // keywords (`closest-side`), and any function/var()/injection token
-        // are deliberately excluded — narrower than full CSS, matching the
-        // bounded-grammar posture of the rest of this validator. Anchored,
-        // no nested quantifiers (no catastrophic-backtracking surface).
-        $pos = '(?:center|top|bottom|left|right|\d+(?:\.\d+)?%)';
+        // <length-percentage> (#301).
+        //
+        // v2: LENGTHS ARE NOW ACCEPTED HERE. This clause used to take
+        // percentages and nothing else, so `radial-gradient(at 10px 20px, ...)`
+        // was refused while `background-position: 10px 20px` — the same
+        // placement concept, one validator away — was fine. That was the
+        // narrowest of the six divergent lists and the least defensible; it is
+        // now the shared position-token grammar, embedded as one fragment so
+        // there is no second copy to drift. Radial SIZE keywords
+        // (`closest-side`) stay out: that is a bounded-grammar choice about
+        // which CSS features this validator covers, not a unit-list quirk.
+        // Anchored, no nested quantifiers (no catastrophic-backtracking surface).
+        $pos = '(?:center|top|bottom|left|right|' . _pp_css_length_fragment(true, true) . ')';
         $is_direction = (bool) preg_match(
             '/^(?:(?:circle|ellipse)(?:\s+at\s+' . $pos . '(?:\s+' . $pos . ')?)?|at\s+' . $pos . '(?:\s+' . $pos . ')?)$/i',
             $first
@@ -797,7 +921,18 @@ function _pp_validate_position(string $value): bool {
         if (in_array(strtolower($token), $keywords, true)) {
             continue;
         }
-        if ($token === '0' || preg_match('/^-?[\d.]+(%|px|rem|em)$/', $token)) {
+        // v2: the unit set is now the shared one — this validator used to be the
+        // only length-bearing grammar in the file WITHOUT `vw`/`vh`, so
+        // `--hero-image-position: 20vw 30vh` was refused while every sibling
+        // accepted viewport units. The number body is the shared hardened one
+        // too, so `1.2.3px` is refused here (the loose `[\d.]+` body used to
+        // ACCEPT it and persist it as broken CSS). calc()/clamp() stay out, as
+        // they always have been for this family.
+        if (_pp_css_length($token, [
+            'signed'    => true,
+            'percent'   => true,
+            'functions' => false,
+        ])) {
             continue;
         }
         return false;
@@ -876,6 +1011,117 @@ function _pp_validate_align(string $value): bool {
 function _pp_validate_text_transform(string $value): bool {
     $keywords = ['none', 'uppercase', 'lowercase', 'capitalize'];
     return in_array(strtolower(trim($value)), $keywords, true);
+}
+
+/**
+ * ── TYPED KEYWORD SETS (v2, BUILD-SPEC §3.3) ────────────────────────────────
+ *
+ * §3.3 asks for "keywords per-property (typed keyword sets)". Each set below is
+ * a closed vocabulary, matched case-insensitively, in the same shape as the
+ * `align` and `text-transform` validators that preceded them — never a raw
+ * keyword passthrough, so a value the browser would drop cannot persist.
+ *
+ * They exist because the UDC reaches properties v1's slot catalogue never did.
+ * `font-style` is the plainest example: #901 could not express a serif-ITALIC
+ * pull-quote at all, because no slot anywhere in the theme reached font-style.
+ *
+ * Every one of these lives HERE, beside its siblings, and is dispatched by the
+ * ONE type switch below — the repo's standing rule that validation lives in the
+ * shared engines and no surface adds a second validator.
+ */
+function _pp_validate_font_style(string $value): bool {
+    return in_array(strtolower(trim($value)), ['normal', 'italic', 'oblique'], true);
+}
+
+/**
+ * font-weight: the four general-purpose keywords, or a numeric weight.
+ *
+ * CSS accepts any number 1-1000, but the closed 100..900 ladder is the whole
+ * usable range for real font families and keeps the value set predictable for an
+ * authoring model. `normal`/`bold` are kept because they are what an author
+ * writes when they mean "put it back".
+ */
+function _pp_validate_font_weight(string $value): bool {
+    $value = strtolower(trim($value));
+    if (in_array($value, ['normal', 'bold', 'lighter', 'bolder'], true)) {
+        return true;
+    }
+    return in_array($value, ['100', '200', '300', '400', '500', '600', '700', '800', '900'], true);
+}
+
+/**
+ * line-height: the keyword `normal`, a unitless ratio, or a length/percentage.
+ *
+ * The unitless form is the one that inherits correctly through nested type, so
+ * it is the form the docs steer to — but a length is legal CSS and refusing it
+ * would be this engine inventing a constraint CSS does not have.
+ */
+function _pp_validate_line_height(string $value): bool {
+    $value = trim($value);
+    if (strtolower($value) === 'normal') {
+        return true;
+    }
+    if (_pp_validate_number($value)) {
+        return true;
+    }
+    return _pp_css_length($value, ['signed' => false, 'percent' => true, 'functions' => true]);
+}
+
+/** text-wrap: the closed set of wrapping behaviours. */
+function _pp_validate_text_wrap(string $value): bool {
+    return in_array(strtolower(trim($value)), ['wrap', 'nowrap', 'balance', 'pretty', 'stable'], true);
+}
+
+/**
+ * text-decoration-line: ONE keyword.
+ *
+ * CSS allows combinations (`underline overline`); Sprint 0 accepts a single
+ * keyword and the AI-facing docs SAY SO, rather than leaving the model to
+ * discover the limit from a refusal. Widening later costs nothing; a silently
+ * half-supported combination grammar would cost trust.
+ */
+function _pp_validate_text_decoration_line(string $value): bool {
+    return in_array(strtolower(trim($value)), ['none', 'underline', 'overline', 'line-through'], true);
+}
+
+/** border-style: the closed CSS line-style set. */
+function _pp_validate_border_style(string $value): bool {
+    return in_array(strtolower(trim($value)), [
+        'none', 'hidden', 'solid', 'dashed', 'dotted', 'double', 'groove', 'ridge', 'inset', 'outset',
+    ], true);
+}
+
+/**
+ * background-size: `cover`, `contain`, or 1-2 length/percentage/`auto` tokens.
+ */
+function _pp_validate_background_size(string $value): bool {
+    $value = trim($value);
+    if ($value === '') {
+        return false;
+    }
+    if (in_array(strtolower($value), ['cover', 'contain', 'auto'], true)) {
+        return true;
+    }
+    $tokens = preg_split('/\s+/', $value);
+    if (count($tokens) > 2) {
+        return false;
+    }
+    foreach ($tokens as $token) {
+        if (strtolower($token) === 'auto') {
+            continue;
+        }
+        if (!_pp_css_length($token, ['signed' => false, 'percent' => true, 'functions' => false])) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/** background-repeat: the closed single-keyword set. */
+function _pp_validate_background_repeat(string $value): bool {
+    return in_array(strtolower(trim($value)), [
+        'repeat', 'no-repeat', 'repeat-x', 'repeat-y', 'space', 'round',
+    ], true);
 }
 
 /**
@@ -999,7 +1245,7 @@ function _pp_validate_token_value(string $value, ?string $type, ?array $allowed 
             break;
         case 'length':
             if (!_pp_validate_length($value)) {
-                return new WP_Error('invalid_length', 'Value must be a number with a CSS unit (rem, px, em, %, vw, vh), unitless 0, or a clamp()/calc() expression.');
+                return new WP_Error('invalid_length', sprintf('Value must be a number with a CSS unit (%s), unitless 0, or a clamp()/calc() expression.', pp_css_grammar_summary()));
             }
             break;
         case 'length-or-none':
@@ -1029,7 +1275,7 @@ function _pp_validate_token_value(string $value, ?string $type, ?array $allowed 
             // delegates here), and the AI catalog advertises it without a second
             // source of truth.
             if (!_pp_validate_length($value, true)) {
-                return new WP_Error('invalid_length', 'Value must be the keyword "none" (no cap), a number with a CSS unit (rem, px, em, %, vw, vh), unitless 0, or a clamp()/calc() expression.');
+                return new WP_Error('invalid_length', sprintf('Value must be the keyword "none" (no cap), a number with a CSS unit (%s), unitless 0, or a clamp()/calc() expression.', pp_css_grammar_summary()));
             }
             break;
         case 'font-family':
@@ -1049,7 +1295,7 @@ function _pp_validate_token_value(string $value, ?string $type, ?array $allowed 
             break;
         case 'shadow':
             if (!_pp_validate_shadow($value)) {
-                return new WP_Error('invalid_shadow', 'Value must be a shadow preset (var(--shadow-none|sm|md|lg) or none) or a single-layer box-shadow: 2-4 lengths (px/rem, blur/spread non-negative) followed by a color. No inset, multi-layer, or url().');
+                return new WP_Error('invalid_shadow', sprintf('Value must be a shadow preset (var(--shadow-none|sm|md|lg) or none) or a single-layer box-shadow: 2-4 lengths (any CSS unit: %s, no percentages; blur/spread non-negative) followed by a color. No inset, multi-layer, or url().', implode(', ', pp_css_length_units())));
             }
             break;
         case 'gradient':
@@ -1059,7 +1305,7 @@ function _pp_validate_token_value(string $value, ?string $type, ?array $allowed 
             break;
         case 'position':
             if (!_pp_validate_position($value)) {
-                return new WP_Error('invalid_position', 'Value must be 1-2 tokens: keywords (center, top, bottom, left, right) or lengths (0, 20%, 10px, -5rem). No functions or var().');
+                return new WP_Error('invalid_position', sprintf('Value must be 1-2 tokens: keywords (center, top, bottom, left, right) or lengths/percentages with any CSS unit (%s), e.g. 0, 20%%, 10px, -5rem. No functions or var().', pp_css_grammar_summary()));
             }
             break;
         case 'ratio':
@@ -1075,6 +1321,51 @@ function _pp_validate_token_value(string $value, ?string $type, ?array $allowed 
         case 'text-transform':
             if (!_pp_validate_text_transform($value)) {
                 return new WP_Error('invalid_text_transform', 'Value must be a text-transform keyword: none, uppercase, lowercase, or capitalize.');
+            }
+            break;
+        // ── v2 UDC typed keyword sets (BUILD-SPEC §3.3) ─────────────────────
+        // Reached through the UDC engine's param definitions (lib/udc.php).
+        // Declared here, on the ONE dispatcher, so the render boundary honours
+        // them for free exactly as it does every type above — that boundary
+        // delegates to this function and has no grammar of its own.
+        case 'font-style':
+            if (!_pp_validate_font_style($value)) {
+                return new WP_Error('invalid_font_style', 'Value must be a font-style keyword: normal, italic, or oblique.');
+            }
+            break;
+        case 'font-weight':
+            if (!_pp_validate_font_weight($value)) {
+                return new WP_Error('invalid_font_weight', 'Value must be a font-weight keyword (normal, bold, lighter, bolder) or a numeric weight from 100 to 900 in hundreds.');
+            }
+            break;
+        case 'line-height':
+            if (!_pp_validate_line_height($value)) {
+                return new WP_Error('invalid_line_height', sprintf('Value must be the keyword "normal", a unitless ratio (e.g. 1.5 — the form that inherits correctly through nested type), or a length with a CSS unit (%s).', pp_css_grammar_summary()));
+            }
+            break;
+        case 'text-wrap':
+            if (!_pp_validate_text_wrap($value)) {
+                return new WP_Error('invalid_text_wrap', 'Value must be a text-wrap keyword: wrap, nowrap, balance, pretty, or stable.');
+            }
+            break;
+        case 'text-decoration-line':
+            if (!_pp_validate_text_decoration_line($value)) {
+                return new WP_Error('invalid_text_decoration_line', 'Value must be ONE text-decoration-line keyword: none, underline, overline, or line-through. Combinations like "underline overline" are not accepted.');
+            }
+            break;
+        case 'border-style':
+            if (!_pp_validate_border_style($value)) {
+                return new WP_Error('invalid_border_style', 'Value must be a border-style keyword: none, hidden, solid, dashed, dotted, double, groove, ridge, inset, or outset.');
+            }
+            break;
+        case 'background-size':
+            if (!_pp_validate_background_size($value)) {
+                return new WP_Error('invalid_background_size', sprintf('Value must be "cover", "contain", or 1-2 tokens of "auto" or a length/percentage with a CSS unit (%s).', pp_css_grammar_summary()));
+            }
+            break;
+        case 'background-repeat':
+            if (!_pp_validate_background_repeat($value)) {
+                return new WP_Error('invalid_background_repeat', 'Value must be a background-repeat keyword: repeat, no-repeat, repeat-x, repeat-y, space, or round.');
             }
             break;
         case 'raw':
