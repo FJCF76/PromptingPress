@@ -360,24 +360,31 @@ final class AppliesWhenTest extends TestCase
      */
     public function testOnlyThePaintedDeclarationWarnsRegardlessOfStoredKeyOrder(): void
     {
-        $props = ['layout' => 'stack', 'items' => [['quote' => 'q']]];
+        // FIXTURE RETARGETED from testimonials to grid. testimonials was rebuilt on the
+        // Universal Design Contract and declares no style slots at all, so every case
+        // here would pass VACUOUSLY against it — an undeclared name raises no inert
+        // advisory, which is the wrong reason for a green test. grid carries the same
+        // shape the fixture needs: --grid-item-bar-* is gated on `layout = "cards"`,
+        // so the `steps` layout leaves it declared-but-unmet, which is exactly the
+        // state this advisory reports.
+        $props = ['layout' => 'steps', 'items' => [['title' => 'One']]];
 
         foreach ([
-            ['--testimonials-card-bg' => '#fff', '--testimonials-item-bg' => '#eee'],
-            ['--testimonials-item-bg' => '#eee', '--testimonials-card-bg' => '#fff'],
+            ['--grid-card-bar-color' => '#fff', '--grid-item-bar-color' => '#eee'],
+            ['--grid-item-bar-color' => '#eee', '--grid-card-bar-color' => '#fff'],
         ] as $style) {
             $smells = $this->inertSmells([
-                ['component' => 'testimonials', 'props' => $props, 'style' => $style],
+                ['component' => 'grid', 'props' => $props, 'style' => $style],
             ]);
 
             $this->assertCount(1, $smells, 'one painted declaration, one warning');
             $this->assertStringContainsString(
-                '--testimonials-item-bg',
+                '--grid-item-bar-color',
                 $smells[0]['message'],
                 'the declared slot is the one that paints, whichever key was stored first'
             );
             $this->assertStringNotContainsString(
-                '--testimonials-card-bg',
+                '--grid-card-bar-color',
                 $smells[0]['message'],
                 'the retired name is undeclared: it paints nothing and is named nowhere'
             );
@@ -396,14 +403,14 @@ final class AppliesWhenTest extends TestCase
     public function testADeclarationThatCannotPaintIsNotReportedInert(): void
     {
         foreach ([
-            'empty value'        => ['--testimonials-item-bg' => ''],
-            'undeclared slot'    => ['--testimonials-not-a-slot' => '#fff'],
-            'rejected by render' => ['--testimonials-item-radius' => 'not-a-length'],
+            'empty value'        => ['--grid-item-bar-color' => ''],
+            'undeclared slot'    => ['--grid-not-a-slot' => '#fff'],
+            'rejected by render' => ['--grid-item-bar-height' => 'not-a-length'],
         ] as $label => $style) {
             $this->assertSame(
                 [],
                 $this->inertSmells([
-                    ['component' => 'testimonials', 'props' => ['layout' => 'stack', 'items' => [['quote' => 'q']]],
+                    ['component' => 'grid', 'props' => ['layout' => 'steps', 'items' => [['title' => 'One']]],
                      'style' => $style],
                 ]),
                 "{$label}: the renderer drops this declaration, so the advisory must not report it"
@@ -424,8 +431,8 @@ final class AppliesWhenTest extends TestCase
     public function testARetiredLegacySlotNameRaisesNoInertAdvisory(): void
     {
         $items = [
-            ['component' => 'testimonials', 'props' => ['layout' => 'stack', 'items' => [['quote' => 'q']]],
-             'style' => ['--testimonials-card-bg' => '#ffffff']],
+            ['component' => 'grid', 'props' => ['layout' => 'steps', 'items' => [['title' => 'One']]],
+             'style' => ['--grid-card-bar-color' => '#ffffff']],
         ];
 
         $this->assertSame([], $this->inertSmells($items));
@@ -433,7 +440,7 @@ final class AppliesWhenTest extends TestCase
         $errors = pp_validate_composition_errors($items);
         $this->assertNotSame([], $errors, 'the dead slot is an error, not a silent no-op');
         $this->assertStringContainsString(
-            '--testimonials-card-bg',
+            '--grid-card-bar-color',
             implode(' | ', array_map(static fn ($e) => $e->get_error_message(), $errors)),
             'reported somewhere in the findings, not necessarily first'
         );
@@ -498,32 +505,35 @@ final class AppliesWhenTest extends TestCase
      */
     public function testCreatePageWithAnInertSlotSucceedsAndReportsTheSmell(): void
     {
+        // Fixture retargeted from testimonials to grid: testimonials is a v2 component
+        // with no style slots, so this write would now be REJECTED (invalid_style_slot)
+        // rather than accepted-with-an-advisory — the opposite of what the test is about.
         $composition = [
-            ['component' => 'testimonials', 'props' => [
-                'id'     => 'quotes',
-                'layout' => 'stack',
-                'items'  => [['quote' => 'Good.', 'author' => 'A']],
-            ], 'style' => ['--testimonials-item-bg' => '#ffffff']],
+            ['component' => 'grid', 'props' => [
+                'id'     => 'cards',
+                'layout' => 'cards',
+                'items'  => [['title' => 'One']],
+            ], 'style' => ['--grid-step-bg' => '#ffffff']],
         ];
 
         $this->assertTrue(
-            pp_validate_action('create_page', ['title' => 'Stack quotes', 'composition' => $composition]),
+            pp_validate_action('create_page', ['title' => 'Card grid', 'composition' => $composition]),
             'an inert slot is advisory — it must never reject the write'
         );
 
         $result = pp_execute_action('create_page', [
-            'title'       => 'Stack quotes',
+            'title'       => 'Card grid',
             'composition' => $composition,
         ]);
         $this->assertTrue($result['ok']);
 
         $stored = pp_get_composition((int) $result['target']['post_id']);
-        $this->assertSame('#ffffff', $stored[0]['style']['--testimonials-item-bg'], 'stored as authored');
+        $this->assertSame('#ffffff', $stored[0]['style']['--grid-step-bg'], 'stored as authored');
 
         $smells = $this->inertSmells($stored);
         $this->assertCount(1, $smells);
-        $this->assertStringContainsString('--testimonials-item-bg', $smells[0]['message']);
-        $this->assertStringContainsString('applies when layout = "grid"', $smells[0]['message']);
+        $this->assertStringContainsString('--grid-step-bg', $smells[0]['message']);
+        $this->assertStringContainsString('applies when layout = "steps"', $smells[0]['message']);
     }
 
     /** update_component onto a configuration that defeats a set slot: same posture. */
@@ -680,15 +690,15 @@ final class AppliesWhenTest extends TestCase
         // testUnmetReportsEveryFailingClauseInDeclarationOrder — so they diverge by
         // design there, not by phrasing.)
         $smells = $this->inertSmells([
-            ['component' => 'testimonials', 'props' => ['layout' => 'stack', 'items' => [['quote' => 'q']]],
-             'style' => ['--testimonials-item-shadow' => 'none']],
+            ['component' => 'grid', 'props' => ['layout' => 'cards', 'items' => [['title' => 'One']]],
+             'style' => ['--grid-step-bg' => '#eeeeee']],
         ]);
         $this->assertCount(1, $smells);
 
-        $suffix    = pp_ai_definition_suffix(pp_get_style_slots('testimonials')['--testimonials-item-shadow']);
+        $suffix    = pp_ai_definition_suffix(pp_get_style_slots('grid')['--grid-step-bg']);
         $condition = substr($suffix, strpos($suffix, 'applies when'));
 
-        $this->assertSame('applies when layout = "grid"', $condition);
+        $this->assertSame('applies when layout = "steps"', $condition);
         $this->assertStringContainsString($condition, $smells[0]['message']);
     }
 }

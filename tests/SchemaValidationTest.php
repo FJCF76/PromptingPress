@@ -224,8 +224,11 @@ class SchemaValidationTest extends TestCase
      */
     public function testStructuralAndToneComponentsUseCanonicalKeys(): void
     {
+        // testimonials keeps `layout` (structural scaffolding) and has LOST `theme`:
+        // the v2 rebuild removed it because its entire effect was value-styling the
+        // structural-CSS boundary forbids. Recorded in SCHEMA_RENAME_MIGRATION_NOTES.
         $expectLayout = ['hero', 'section', 'grid', 'cta', 'testimonials'];
-        $expectTheme  = ['section', 'stats', 'logos', 'embed', 'grid', 'cta', 'testimonials', 'faq'];
+        $expectTheme  = ['section', 'stats', 'logos', 'embed', 'grid', 'cta', 'faq'];
 
         foreach ($expectLayout as $component) {
             $schema = json_decode(file_get_contents($this->themeRoot . "/components/{$component}/schema.json"), true);
@@ -3898,7 +3901,26 @@ class SchemaValidationTest extends TestCase
      * below fails CI. The note is the point: it forces the author to state what
      * happens to documents that already store the old name.
      */
-    private const SCHEMA_RENAME_MIGRATION_NOTES = [];
+    private const SCHEMA_RENAME_MIGRATION_NOTES = [
+        // ── v2 Sprint 0 (#958): testimonials rebuilt on the Universal Design Contract ──
+        //
+        // Both props are GONE, not renamed, and both for the same reason: their entire
+        // effect was value-styling, which the v2 structural-CSS boundary removes from
+        // assets/css/. A prop whose only effect that boundary deletes would be accepted,
+        // stored, reported applied, and change nothing — the class this engine exists to
+        // reject. Recorded here rather than deleted from the baseline because a removal
+        // is a documented breaking change, never a silent migration (invariant I36).
+        'testimonials' => [
+        'theme' => 'REMOVED in v2 (#958). A tone preset is a bundle of '
+            . 'designable values, which the UDC now expresses directly: set the `_band` '
+            . "role's background and the text roles' colours. The other eleven components "
+            . 'keep `theme` until their own rebuild sprints.',
+        'title_align' => 'REMOVED in v2 (#958). Its effect was text-align '
+            . 'plus auto inline margins. Use the `heading` / `eyebrow` / `subheading` '
+            . "roles' `typography.align`, and their `spacing.margin-left`/`margin-right` "
+            . 'set to `auto` to centre the block.',
+        ],
+    ];
 
     /**
      * The append-only floor for the prop surface (#598). 126 props across 12 components
@@ -4462,7 +4484,44 @@ class SchemaValidationTest extends TestCase
      * down what happens to documents that already store the old name; an alias would
      * make the problem quietly go away, which #603/#604 removed the machinery for.
      */
-    private const SLOT_RENAME_MIGRATION_NOTES = [];
+    private const SLOT_RENAME_MIGRATION_NOTES = [
+        // ── v2 Sprint 0 (#958): testimonials' 27 style slots retired ──
+        //
+        // Not renamed and not deprecated: the slot SYSTEM is gone from this component.
+        // Every designable value it carried is now a role parameter resolved by the
+        // shared UDC engine, so each note below names the role and parameter that owns
+        // the value today. Recorded rather than deleted because the baseline is
+        // append-only and a removal is a documented breaking change (invariant I36).
+        'testimonials' => [
+        '--testimonials-padding-top' => 'REPLACED in v2 (#958) by the `_band` role\'s `spacing.padding-top` (which now also carries the narrow-viewport tier).',
+        '--testimonials-padding-bottom' => 'REPLACED in v2 (#958) by the `_band` role\'s `spacing.padding-bottom`.',
+        '--testimonials-bg' => 'REPLACED in v2 (#958) by the `_band` role\'s `background.fill`.',
+        '--testimonials-heading-size' => 'REPLACED in v2 (#958) by the `heading` role\'s `typography.size`.',
+        '--testimonials-heading-color' => 'REPLACED in v2 (#958) by the `heading` role\'s `typography.color`.',
+        '--testimonials-heading-measure' => 'REPLACED in v2 (#958) by the `heading` role\'s `sizing.max-width`.',
+        '--testimonials-heading-accent-color' => 'REPLACED in v2 (#958) by the `heading-accent` role\'s `typography.color`.',
+        '--testimonials-eyebrow-color' => 'REPLACED in v2 (#958) by the `eyebrow` role\'s `typography.color`.',
+        '--testimonials-eyebrow-bg' => 'REPLACED in v2 (#958) by the `eyebrow` role\'s `background.fill`.',
+        '--testimonials-eyebrow-radius' => 'REPLACED in v2 (#958) by the `eyebrow` role\'s `border.radius`.',
+        '--testimonials-eyebrow-border-width' => 'REPLACED in v2 (#958) by the `eyebrow` role\'s `border.width`.',
+        '--testimonials-eyebrow-border-color' => 'REPLACED in v2 (#958) by the `eyebrow` role\'s `border.color`.',
+        '--testimonials-eyebrow-text-transform' => 'REPLACED in v2 (#958) by the `eyebrow` role\'s `typography.transform`.',
+        '--testimonials-subheading-color' => 'REPLACED in v2 (#958) by the `subheading` role\'s `typography.color`.',
+        '--testimonials-subheading-margin-bottom' => 'REPLACED in v2 (#958) by the `subheading` role\'s `spacing.margin-bottom`.',
+        '--testimonials-heading-margin-bottom' => 'REPLACED in v2 (#958) by the `heading` role\'s `spacing.margin-bottom`.',
+        '--testimonials-gap' => 'REPLACED in v2 (#958) by the `list` role\'s `spacing.gap`.',
+        '--testimonials-item-bg' => 'REPLACED in v2 (#958) by the `card` role\'s `background.fill` (and it now applies in BOTH layouts, which is #901\'s second half).',
+        '--testimonials-item-border-color' => 'REPLACED in v2 (#958) by the `card` role\'s `border.color`.',
+        '--testimonials-item-border-width' => 'REPLACED in v2 (#958) by the `card` role\'s `border.width`.',
+        '--testimonials-item-radius' => 'REPLACED in v2 (#958) by the `card` role\'s `border.radius`.',
+        '--testimonials-item-shadow' => 'REPLACED in v2 (#958) by the `card` role\'s `shadow.box`.',
+        '--testimonials-item-padding' => 'REPLACED in v2 (#958) by the `card` role\'s `spacing.padding`.',
+        '--testimonials-quote-color' => 'REPLACED in v2 (#958) by the `quote` role\'s `typography.color`.',
+        '--testimonials-quote-mark-color' => 'REPLACED in v2 (#958) by NOTHING. The decorative opening-quote glyph it coloured was removed: it was a designable decoration no slot could switch off, so a quote whose own text carried typographic quotation marks rendered two opening quotes (#901\'s closing note). Sprint 0\'s taxonomy has no generated-content group.',
+        '--testimonials-author-color' => 'REPLACED in v2 (#958) by the `author` role\'s `typography.color`.',
+        '--testimonials-meta-color' => 'REPLACED in v2 (#958) by the `meta` role\'s `typography.color`.',
+        ],
+    ];
 
     /**
      * The append-only floor for the style-slot surface (#598). 261 slots across the 10
@@ -4560,10 +4619,25 @@ class SchemaValidationTest extends TestCase
         // failure instead of a silently unguarded surface.
         $live = $this->liveSlots();
         $this->assertNotEmpty($live, 'slot discovery found no components — the add-path guard would pass vacuously.');
+        // A component can now LEAVE the slot system entirely (testimonials did, in the
+        // v2 rebuild). The baseline stays append-only — its entry is never deleted —
+        // so the expected LIVE set is the baseline minus the components whose every
+        // pinned slot is accounted for in the migration-notes register. A component
+        // that merely dropped SOME slots is still expected live, and a component that
+        // vanished with no notes still fails, which is the guard's whole point.
+        $retired = [];
+        foreach (self::PINNED_SLOT_BASELINE as $component => $slots) {
+            $notes = self::SLOT_RENAME_MIGRATION_NOTES[$component] ?? [];
+            if ($notes !== [] && array_diff($slots, array_keys($notes)) === []) {
+                $retired[] = $component;
+            }
+        }
         $this->assertSame(
-            array_keys(self::PINNED_SLOT_BASELINE),
+            array_values(array_diff(array_keys(self::PINNED_SLOT_BASELINE), $retired)),
             array_keys($live),
-            'the discovered slot-bearing component set must match PINNED_SLOT_BASELINE exactly.'
+            'the discovered slot-bearing component set must match PINNED_SLOT_BASELINE exactly '
+            . '(minus components whose entire slot surface is recorded as retired in '
+            . 'SLOT_RENAME_MIGRATION_NOTES).'
         );
 
         $violations = self::detectUnpinnedAdditions(self::PINNED_SLOT_BASELINE, $live, 'style slot');
@@ -5609,7 +5683,9 @@ class SchemaValidationTest extends TestCase
                 }
             }
         }
-        $this->assertSame(31, $checked, 'the shipped `values` inventory changed — re-confirm the sweep reaches it');
+        // 29, not 31: testimonials' `theme` and `title_align` enums went with the v2
+        // rebuild (both recorded in SCHEMA_RENAME_MIGRATION_NOTES).
+        $this->assertSame(29, $checked, 'the shipped `values` inventory changed — re-confirm the sweep reaches it');
     }
 
     /**
@@ -5721,7 +5797,9 @@ class SchemaValidationTest extends TestCase
             $this->assertStringNotContainsString('"dark"', $theme['description'] ?? '',
                 "{$component}.theme description must not advertise `dark` either");
         }
-        $this->assertSame(8, $seen, 'all eight theme-bearing components must be checked');
+        // Seven, not eight: testimonials dropped `theme` in the v2 rebuild (recorded in
+        // SCHEMA_RENAME_MIGRATION_NOTES). The other eleven components keep it.
+        $this->assertSame(7, $seen, 'all seven theme-bearing components must be checked');
     }
 
     /**
@@ -5801,6 +5879,10 @@ class SchemaValidationTest extends TestCase
      * @var array<string,string>
      */
     private const CONDITIONALITY_LEDGER = [
+        // testimonials' 18 rows retired with the v2 rebuild. Conditionality is a
+        // STYLE-SLOT concept — "this slot has no effect unless that prop is set" — and
+        // a v2 component has no slots. Its roles are unconditional by construction,
+        // which testTheV2ComponentHasNoLayoutGatedConditionalityLeft() pins.
         'cta slot --cta-heading-color' => 'title present',
         'cta slot --cta-heading-accent-color' => 'title present',
         'cta slot --cta-eyebrow-color' => 'eyebrow present',
@@ -5953,24 +6035,6 @@ class SchemaValidationTest extends TestCase
         'table slot --table-heading-color' => 'title present',
         'table slot --table-heading-measure' => 'title present',
         'table slot --table-heading-margin-bottom' => 'title present',
-        'testimonials slot --testimonials-heading-size' => 'title present',
-        'testimonials slot --testimonials-heading-color' => 'title present',
-        'testimonials slot --testimonials-heading-measure' => 'title present',
-        'testimonials slot --testimonials-heading-accent-color' => 'title present',
-        'testimonials slot --testimonials-eyebrow-color' => 'eyebrow present',
-        'testimonials slot --testimonials-eyebrow-bg' => 'eyebrow present',
-        'testimonials slot --testimonials-eyebrow-radius' => 'eyebrow present',
-        'testimonials slot --testimonials-eyebrow-border-width' => 'eyebrow present',
-        'testimonials slot --testimonials-eyebrow-border-color' => 'eyebrow present',
-        'testimonials slot --testimonials-eyebrow-text-transform' => 'eyebrow present',
-        'testimonials slot --testimonials-subheading-color' => 'subheading present',
-        'testimonials slot --testimonials-subheading-margin-bottom' => 'subheading present',
-        'testimonials slot --testimonials-heading-margin-bottom' => 'title present',
-        'testimonials slot --testimonials-item-bg' => 'layout=grid',
-        'testimonials slot --testimonials-item-border-color' => 'layout=grid',
-        'testimonials slot --testimonials-item-border-width' => 'layout=grid',
-        'testimonials slot --testimonials-item-shadow' => 'layout=grid',
-        'testimonials slot --testimonials-item-padding' => 'layout=grid',
     ];
 
     /** The populated census is exactly the ledger — no additions, no drops, no rewordings. */
@@ -6148,35 +6212,45 @@ class SchemaValidationTest extends TestCase
     }
 
     /**
-     * A-8b — the five testimonials card slots that `layout: "stack"` defeats DECLARE the
-     * condition, and the CSS that defeats them is UNCHANGED. The stack variant is a
-     * card-LESS presentation by design; routing the resets through the card slots would
-     * change what "stack" renders, which is why StyleSlotContractTest carries a PERMANENT
-     * waiver for them. The remedy is declaration, not CSS.
+     * REPLACES testTheStackDefeatedTestimonialsSlotsDeclareTheGridLayout().
+     *
+     * The old test pinned five card slots to `applies_when layout = "grid"`,
+     * because the --stack variant hard-coded a card-less reset that defeated
+     * them. #901 reported what that cost: with one testimonial — the normal
+     * starting state for a real client — `stack` rendered the quote frameless
+     * and `grid` rendered a half-width card with dead space beside it, so the
+     * brand's framed single quote was expressible in neither layout.
+     *
+     * v2 removes the conflict rather than documenting it. There is one `card`
+     * role, it applies in BOTH layouts, and a frameless quote is authored. What
+     * is pinned now is that absence: no layout-gated conditionality survives on
+     * this component, so nothing here can be defeated by a variant again.
      */
-    public function testTheStackDefeatedTestimonialsSlotsDeclareTheGridLayout(): void
+    public function testTheV2ComponentHasNoLayoutGatedConditionalityLeft(): void
     {
-        $slots = $this->allSchemas()['testimonials']['styling']['style_slots'];
-        foreach ([
-            '--testimonials-item-bg',
-            '--testimonials-item-border-color',
-            '--testimonials-item-border-width',
-            '--testimonials-item-padding',
-            '--testimonials-item-shadow',
-        ] as $slot) {
-            $this->assertSame(
-                [['prop' => 'layout', 'equals' => 'grid']],
-                $slots[$slot]['applies_when'],
-                "{$slot} is defeated by the stack variant's resets; it must say so"
+        $schema = json_decode(file_get_contents($this->themeRoot . '/components/testimonials/schema.json'), true);
+
+        $this->assertArrayNotHasKey('style_slots', $schema['styling'] ?? [], 'no slots, so nothing to gate');
+        $this->assertNotEmpty($schema['roles'] ?? [], 'the authoring surface is roles now');
+
+        // A role is available in every layout; the taxonomy has no `applies_when`.
+        foreach ($schema['roles'] as $name => $definition) {
+            $this->assertArrayNotHasKey(
+                'applies_when',
+                $definition,
+                "role {$name} must not be layout-gated — that is the defect #901 reported"
             );
         }
 
-        $css = file_get_contents($this->themeRoot . '/assets/css/components.css');
-        $this->assertStringContainsString(
-            ".testimonials--stack .testimonials__item {\n  padding: 0;\n  background: transparent;\n  border: none;\n  box-shadow: none;",
-            $css,
-            'A-8b is a SCHEMA fix. The stack resets are a recorded permanent waiver and must not change.'
-        );
+        // And the card's design is reachable in BOTH layouts, which is the half of
+        // #901 that the old `applies_when` gate made impossible.
+        foreach (['border', 'background', 'shadow', 'spacing'] as $group) {
+            $this->assertContains(
+                $group,
+                $schema['roles']['card']['groups'],
+                "the card must expose {$group} regardless of layout"
+            );
+        }
     }
 
     // ── styling.variant_classes truthfulness (issue #575) ─────────────────

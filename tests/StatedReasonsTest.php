@@ -104,13 +104,25 @@ class StatedReasonsTest extends TestCase
             'grid steps connector'      => ['components/grid/README.md', 'renders nowhere, and no slot reaches it', 'grid'],
             'grid texture period slot'  => ['components/grid/schema.json', 'repeat PERIOD', 'grid'],
 
-            // ── testimonials (rows 21-26) ───────────────────────────────────
+            // ── testimonials (rows 21-25) ───────────────────────────────────
+            // Five rows, not six. A "stated default" is a value the theme fixes with no
+            // authoring surface, which is why it has to carry a written reason. On the
+            // v2 component most of these stopped being stated defaults and became ROLE
+            // DEFAULTS — declared in schema.json, documented in the README, and
+            // overridable per band — so the reason each one still needs is "why this
+            // value", which is what the README rows below say.
+            //
+            // THE SIXTH ROW IS GONE BECAUSE THE THING IT EXPLAINED IS GONE: the
+            // decorative opening-quote glyph was a designable decoration that no slot
+            // could remove, so a quote whose own text already carried typographic
+            // quotation marks rendered two opening quotes (#901's closing note). The
+            // structural-CSS boundary has no room for it and Sprint 0's taxonomy has no
+            // generated-content group, so it was removed rather than reproduced.
             'testimonials avatar size'  => ['components/testimonials/README.md', '2.75rem', 'testimonials'],
             'testimonials avatar shape' => ['components/testimonials/README.md', 'border-radius: 50%', 'testimonials'],
             'testimonials avatar crop'  => ['components/testimonials/README.md', 'object-fit: cover', 'testimonials'],
             'testimonials stack type'   => ['components/testimonials/README.md', '1.375rem', 'testimonials'],
             'testimonials stack measure'=> ['components/testimonials/README.md', 'max-width: 42rem', 'testimonials'],
-            'testimonials quote mark'   => ['components/testimonials/schema.json', 'GLYPH and its SIZE are stated defaults', 'testimonials'],
 
             // ── faq (rows 27-30 + the C-6 open animation) ───────────────────
             'faq chevron box'           => ['components/faq/README.md', '`10px` box', 'faq'],

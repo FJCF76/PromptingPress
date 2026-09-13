@@ -1553,7 +1553,11 @@ class InvariantTest extends TestCase
         // Non-vacuity: if this ever finds nothing, every assertion above is silently passing.
         sort($callers);
         $this->assertSame(
-            ['cta', 'embed', 'faq', 'grid', 'hero', 'logos', 'section', 'stats', 'table', 'testimonials'],
+            // testimonials is absent because it no longer CALLS pp_render_style_vars()
+            // at all: a v2 component emits no inline style attribute, so there is no
+            // guarded-local contract left for it to satisfy here. It still appears in
+            // the heading-helper roster above — it renders a title exactly as before.
+            ['cta', 'embed', 'faq', 'grid', 'hero', 'logos', 'section', 'stats', 'table'],
             $callers,
             'the set of components calling pp_render_style_vars() changed — a new caller must'
             . ' carry the #708 guard (add it, then update this list)'

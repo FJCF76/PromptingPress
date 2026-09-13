@@ -2710,15 +2710,23 @@ class ComponentPropsTest extends TestCase
         $this->assertStringContainsString('testimonials__empty', $html);
     }
 
-    public function testTestimonialsHeaderEyebrowSubheadingAndCenterAlignRender(): void
+    /**
+     * `title_align` is gone with `theme`, and for the same reason: its entire
+     * effect was `text-align` plus auto inline margins, which are designable
+     * values the structural-CSS boundary forbids. A prop whose only effect the
+     * boundary removes would be accepted and dead. Header alignment is now the
+     * `heading` / `eyebrow` / `subheading` roles' `typography.align`, and
+     * centring the block is their `spacing.margin-left/right: auto`.
+     */
+    public function testTestimonialsHeaderEyebrowAndSubheadingRender(): void
     {
         $html = $this->render('testimonials', $this->testimonialsProps([
             'title' => 'Heading',
             'eyebrow' => 'KICKER',
             'subheading' => 'Supporting line',
-            'title_align' => 'center',
         ]));
-        $this->assertStringContainsString('class="testimonials__header testimonials__header--center"', $html);
+        $this->assertStringContainsString('class="testimonials__header"', $html);
+        $this->assertStringNotContainsString('testimonials__header--center', $html);
         $this->assertStringContainsString('class="testimonials__eyebrow">KICKER<', $html);
         $this->assertStringContainsString('class="testimonials__heading">Heading<', $html);
         $this->assertStringContainsString('class="testimonials__subheading">Supporting line<', $html);
@@ -2755,41 +2763,110 @@ class ComponentPropsTest extends TestCase
         $this->assertStringNotContainsString('testimonials--stack', $html);
     }
 
-    public function testTestimonialsThemeAddsClass(): void
+    /**
+     * REPLACES testTestimonialsThemeAddsClass() and its invalid-value twin.
+     *
+     * The `theme` prop is gone from this component. Its entire effect was
+     * value-styling — `.testimonials--dark` and `--inverted` set backgrounds and
+     * text colours — which the v2 structural-CSS boundary forbids in
+     * assets/css/. A prop whose only effect that boundary removes is exactly the
+     * accepted-but-dead class this engine exists to reject, so the prop went with
+     * the CSS. A dark band is now said directly, in the styling language.
+     */
+    public function testTestimonialsEmitsNoThemeVariantClassAndNoInlineStyle(): void
     {
         $html = $this->render('testimonials', $this->testimonialsProps(['theme' => 'inverted']));
-        $this->assertStringContainsString('testimonials--inverted', $html);
+
+        $this->assertStringNotContainsString('testimonials--inverted', $html);
+        $this->assertStringNotContainsString('testimonials--dark', $html);
+
+        // The load-bearing half: a v2 component emits NO inline style attribute.
+        // That is what keeps specificity flat — the band block in the head and the
+        // structural stylesheet resolve in source order instead of an inline
+        // declaration beating everything unconditionally.
+        $this->assertStringNotContainsString('style="', $html);
     }
 
-    public function testTestimonialsInvalidThemeFallsBackToDefault(): void
+    /**
+     * REPLACES testTestimonialsRejectsInjectionInStyleSlot().
+     *
+     * There is no style slot to inject into any more, and no inline style
+     * attribute for a payload to land in. The equivalent surface is a stored
+     * `udc` value reaching the head emitter, which applies the SAME shared reject
+     * set at emit that the write engine applied at write — two layers, one set,
+     * exactly as the #330 render boundary does for v1 slots.
+     */
+    public function testTestimonialsUdcValueCarryingAnInjectionNeverReachesTheEmittedCss(): void
     {
-        $html = $this->render('testimonials', $this->testimonialsProps(['theme' => 'neon']));
-        $this->assertStringNotContainsString('testimonials--neon', $html);
+        $css = pp_udc_band_css([
+            'component' => 'testimonials',
+            'id'        => 'pp-aabbccdd',
+            'props'     => [],
+            'udc'       => ['quote' => ['typography' => ['color' => '#fff; background:url(evil)']]],
+        ]);
+
+        $this->assertStringNotContainsString('url(evil)', $css);
+        // The sibling declarations still paint: one refused value drops its own
+        // declaration and nothing else, the same degradation a refused slot had.
+        $this->assertStringContainsString('[data-pp-band="pp-aabbccdd"]', $css);
     }
 
-    public function testTestimonialsRejectsInjectionInStyleSlot(): void
-    {
-        $html = $this->render('testimonials', $this->testimonialsProps([
-            '__pp_style' => ['--testimonials-quote-color' => '#fff; background:url(evil)'],
-        ]));
-        $this->assertStringNotContainsString('url(evil)', $html);
-    }
-
-    public function testTestimonialsSchemaDeclaresAllStyleSlots(): void
+    /**
+     * REPLACES testTestimonialsSchemaDeclaresAllStyleSlots().
+     *
+     * The old test pinned nineteen `--testimonials-*` style slots. There are none
+     * now: testimonials is the first component on the Universal Design Contract,
+     * and its authoring surface is the ROLES it declares. The contract this pins
+     * is the same one the slot pin did — "the schema advertises every surface an
+     * author can reach" — over the vocabulary that replaced it.
+     *
+     * The eleven roles below are what the component's own markup actually has:
+     * every element that carried a designable value in v1 owns one, which is the
+     * condition that makes "structural CSS only" possible at all.
+     */
+    public function testTestimonialsSchemaDeclaresEveryStyledElementAsARole(): void
     {
         $schema = json_decode(file_get_contents(dirname(__DIR__) . '/components/testimonials/schema.json'), true);
-        $this->assertArrayHasKey('styling', $schema);
-        $slots = $schema['styling']['style_slots'];
+
+        $this->assertArrayNotHasKey(
+            'style_slots',
+            $schema['styling'] ?? [],
+            'a v2 component declares no style slots — one styling system, not two'
+        );
+
+        $roles = $schema['roles'] ?? [];
         foreach ([
-            '--testimonials-padding-top', '--testimonials-padding-bottom', '--testimonials-bg',
-            '--testimonials-heading-color', '--testimonials-heading-accent-color',
-            '--testimonials-eyebrow-color', '--testimonials-eyebrow-bg', '--testimonials-subheading-color',
-            '--testimonials-gap', '--testimonials-item-bg', '--testimonials-item-border-color',
-            '--testimonials-item-border-width', '--testimonials-item-radius', '--testimonials-item-shadow',
-            '--testimonials-item-padding', '--testimonials-quote-color', '--testimonials-quote-mark-color',
-            '--testimonials-author-color', '--testimonials-meta-color',
-        ] as $slot) {
-            $this->assertArrayHasKey($slot, $slots, "testimonials must declare {$slot}.");
+            '_band', 'eyebrow', 'heading', 'heading-accent', 'subheading',
+            'list', 'card', 'quote', 'attribution', 'author', 'meta', 'avatar',
+        ] as $role) {
+            $this->assertArrayHasKey($role, $roles, "testimonials must declare the {$role} role.");
+        }
+
+        // Every role maps to a stable selector and lists the groups it permits —
+        // both are DATA the shared engine reads. A role with neither would be a
+        // name the engine cannot emit anything for.
+        foreach ($roles as $name => $definition) {
+            $this->assertArrayHasKey('selector', $definition, "role {$name} must map to a selector");
+            $this->assertNotEmpty($definition['groups'] ?? [], "role {$name} must permit at least one group");
+            foreach ($definition['groups'] as $group) {
+                $this->assertArrayHasKey(
+                    $group,
+                    pp_udc_groups(),
+                    "role {$name} permits the group {$group}, which the shared taxonomy does not define"
+                );
+            }
+        }
+
+        // The #901 case, as a contract rather than a screenshot: the four quote
+        // properties the issue reported as unreachable all have to be reachable.
+        $quoteGroups = $roles['quote']['groups'];
+        $this->assertContains('typography', $quoteGroups);
+        foreach (['family', 'style', 'size', 'align'] as $param) {
+            $this->assertArrayHasKey(
+                $param,
+                pp_udc_groups()['typography']['params'],
+                "#901: the quote's {$param} must be reachable"
+            );
         }
     }
 

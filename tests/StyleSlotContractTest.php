@@ -83,7 +83,10 @@ class StyleSlotContractTest extends TestCase
     public function testDiscoveryFindsTheKnownStyledComponents(): void
     {
         $found = $this->styledComponents();
-        foreach (['cta', 'faq', 'grid', 'hero', 'section', 'stats', 'testimonials'] as $known) {
+        // Six, not seven: testimonials left the style-slot system when it was rebuilt
+        // on the Universal Design Contract. Its authoring surface is now roles, and
+        // the contract that replaced this one is UdcContractTest.
+        foreach (['cta', 'faq', 'grid', 'hero', 'section', 'stats'] as $known) {
             $this->assertContains($known, $found, "Schema discovery lost the {$known} component.");
         }
     }
@@ -334,20 +337,15 @@ class StyleSlotContractTest extends TestCase
         // hover onto rest. Declaring the positional twin --grid-item-link-hover-color and
         // routing the hover through THAT solves it without that side effect, so the pair
         // no longer offends and the entry is gone (ledger is shrink-only).
-        // issue 309 PERMANENT WAIVER — testimonials --stack variant resets
-        // (decision-flagged group 2). The .testimonials--stack variant is a
-        // card-LESS presentation by design (components.css: "single centered column,
-        // no card chrome"); its .testimonials__item resets (padding:0, transparent
-        // bg, border:none, box-shadow:none) exist specifically to neutralize the card
-        // slots. Routing them through the card slots would let a set card slot leak
-        // card chrome back into the stack variant, changing what "stack" renders —
-        // the "variant reset that exists to neutralize a slot by design" case the
-        // decision names as a permanent exception.
-        '--testimonials-item-bg|.testimonials__item|background'          => 2,
-        '--testimonials-item-border-width|.testimonials__item|border'    => 1,
-        '--testimonials-item-border-color|.testimonials__item|border'          => 1,
-        '--testimonials-item-padding|.testimonials__item|padding'        => 1,
-        '--testimonials-item-shadow|.testimonials__item|box-shadow'      => 1,
+        // issue 309's testimonials --stack reset group (5 entries, 6 declarations)
+        // RETIRED by the v2 rebuild. The waiver existed because the --stack variant
+        // hard-coded a card-less presentation — padding:0, transparent background,
+        // border:none, box-shadow:none — which necessarily defeated the card slots,
+        // and #901 later reported the cost: a framed single quote was inexpressible
+        // in either layout. On the UDC there are no card slots to defeat and no
+        // variant reset to defeat them with. Both layouts share one `card` role, and
+        // a frameless quote is authored rather than baked into a variant. Ledger is
+        // shrink-only and this is a genuine shrink: the offence is gone, not waived.
         // issue 609 WAIVER, pending decision — hero `spacing` prop vs the hero padding
         // slots. `.hero { padding-top: var(--hero-padding-top, …) }` is (0,1,0); the
         // three `spacing` override tiers (base, min-width:768px, max-width:767px)
@@ -425,9 +423,9 @@ class StyleSlotContractTest extends TestCase
      */
     public function testWaiverLedgerOnlyShrinks(): void
     {
-        $this->assertSame(7, count(self::KNOWN_DEAD_SLOT_WAIVERS),
-            'The waiver ledger changed size. Fixes shrink it (update this pin in the same change); new dead slots are fixed or get their own issue — never silently waived. The 7 entries are the testimonials --stack reset group (the grid-link hover waiver retired in issue 581, when --grid-item-link-hover-color gave the hover its own slot) plus the two issue 609 hero spacing/padding pairs, waived pending that issue.');
-        $this->assertSame(18, array_sum(self::KNOWN_DEAD_SLOT_WAIVERS),
+        $this->assertSame(2, count(self::KNOWN_DEAD_SLOT_WAIVERS),
+            'The waiver ledger changed size. Fixes shrink it (update this pin in the same change); new dead slots are fixed or get their own issue — never silently waived. The 2 remaining entries are the issue 609 hero spacing/padding pairs, waived pending that issue. The testimonials --stack reset group (5 entries, 6 declarations) retired with the v2 rebuild: the UDC has no card slots for a variant reset to defeat.');
+        $this->assertSame(12, array_sum(self::KNOWN_DEAD_SLOT_WAIVERS),
             'Total waived bypass declarations changed. Update this pin in the same change as the ledger edit it reflects.');
     }
 
@@ -858,7 +856,10 @@ class StyleSlotContractTest extends TestCase
         // The four that already had the slot keep it; a seventh bare literal appearing on a
         // band title is the exact regression this row exists to prevent from recurring.
         foreach (['section' => '.section__title', 'grid' => '.grid__heading', 'faq' => '.faq__heading',
-                  'testimonials' => '.testimonials__heading'] as $component => $_selector) {
+                  // testimonials is absent: its heading rhythm is the `heading` role's
+                  // `spacing.margin-bottom` default, not a --<comp>-heading-margin-bottom
+                  // slot, so there is no slot for this guard to route.
+                  ] as $component => $_selector) {
             $this->assertStringContainsString(
                 "var(--{$component}-heading-margin-bottom,",
                 $this->stripComments($this->componentBlock($component)),

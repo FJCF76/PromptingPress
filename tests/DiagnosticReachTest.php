@@ -1282,15 +1282,22 @@ class DiagnosticReachTest extends TestCase
         // pairing counts: a format string mentioned in a comment can no longer inflate them.
         $source = self::adminSourceWithoutComments();
 
-        // The BAND-level families route through the shared renderer too, and there are three
-        // of them since the #687 addendum: the structural `Item` label (via
-        // _pp_band_index_label), the #642 write-boundary `Component` prefix, and the
-        // duplicate-id key list. The first two pass `($index, $items)`; the third maps over
-        // its colliding keys and so passes `($key, $items)`. Counted explicitly rather than
-        // lumped in, because the pairing arithmetic below only describes the nested family.
+        // The BAND-level families route through the shared renderer too, and there are FOUR
+        // of them since v2 added the band-id namespace: the structural `Item` label (via
+        // _pp_band_index_label), the #642 write-boundary `Component` prefix, the
+        // duplicate-props.id key list, and the duplicate-BAND-id key list. The first two
+        // pass `($index, $items)`; the two key lists map over their colliding keys and so
+        // pass `($key, $items)`. Counted explicitly rather than lumped in, because the
+        // pairing arithmetic below only describes the nested family.
+        //
+        // The two duplicate-id families are separate on purpose and must stay separately
+        // counted: `props.id` is the author's HTML anchor and the handle update/remove/style
+        // target by name, while the top-level band id scopes that band's emitted CSS block.
+        // One message explaining itself in terms of the other's namespace would misdirect
+        // every operator who read it.
         $band_label_calls = substr_count($source, '_pp_item_index_label($index, $items)')
             + substr_count($source, '_pp_item_index_label($key, $items)');
-        $this->assertSame(3, $band_label_calls, 'three band-level renderings, each exactly one renderer call');
+        $this->assertSame(4, $band_label_calls, 'four band-level renderings, each exactly one renderer call');
 
         $this->assertSame(
             substr_count($source, 'item %s'),

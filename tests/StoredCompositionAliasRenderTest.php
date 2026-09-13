@@ -500,7 +500,12 @@ class StoredCompositionAliasRenderTest extends TestCase
             ['component' => 'section',      'props' => ['title' => 'Section title', 'body' => 'Section copy.', 'title_align' => 'center', 'theme' => 'muted']],
             ['component' => 'cta',          'props' => ['title' => 'CTA title', 'body' => 'CTA copy.', 'button_text' => 'Join', 'button_url' => '/join', 'layout' => 'inline']],
             ['component' => 'grid',         'props' => ['title' => 'Grid title', 'title_align' => 'center', 'layout' => 'cards', 'items' => [['title' => 'One', 'text' => 'a']]]],
-            ['component' => 'testimonials', 'props' => ['title' => 'Quotes', 'title_align' => 'center', 'layout' => 'stack', 'items' => [['quote' => 'Great.', 'author' => 'Ada']]]],
+            // testimonials carries neither `title_align` nor `theme` now: it is the first
+            // v2 component, and both props' entire effect was value-styling that the
+            // structural-CSS boundary removed. It stays in this roster because the
+            // canonical-render contract is about PROPS surviving a round trip, and its
+            // remaining props do.
+            ['component' => 'testimonials', 'props' => ['title' => 'Quotes', 'layout' => 'stack', 'items' => [['quote' => 'Great.', 'author' => 'Ada']]]],
             ['component' => 'stats',        'props' => ['title' => 'Numbers', 'theme' => 'inverted', 'items' => [['number' => '10', 'label' => 'Customers']]]],
             ['component' => 'logos',        'props' => ['title' => 'Logos', 'theme' => 'muted', 'items' => [['image_url' => 'https://example.com/acme.png', 'image_alt' => 'Acme']]]],
             ['component' => 'embed',        'props' => ['title' => 'Embed', 'content' => '<p>hi</p>', 'theme' => 'inverted']],
@@ -754,7 +759,7 @@ class StoredCompositionAliasRenderTest extends TestCase
         $this->assertStringContainsString('default, muted, inverted', $result->get_error_message());
     }
 
-    public function testAFreshCanonicalThemeWritesValidatesReadsBackAndRendersOnAllEightBands(): void
+    public function testAFreshCanonicalThemeWritesValidatesReadsBackAndRendersOnAllSevenThemedBands(): void
     {
         // Acceptance criterion 5: fresh-generation correctness. Every band component
         // that carries a `theme` accepts each of the three canonical values through
@@ -766,7 +771,10 @@ class StoredCompositionAliasRenderTest extends TestCase
             'grid'         => ['title' => 'G', 'items' => [['title' => 'One', 'text' => 'a']]],
             'cta'          => ['title' => 'C', 'button_text' => 'Go', 'button_url' => '/'],
             'stats'        => ['title' => 'St', 'items' => [['number' => '10', 'label' => 'Customers']]],
-            'testimonials' => ['title' => 'T', 'items' => [['quote' => 'q', 'author' => 'a']]],
+            // testimonials is absent: the v2 rebuild removed its `theme` prop, whose
+            // entire effect was value-styling the structural-CSS boundary forbids. The
+            // roster is SEVEN bands now and still means the same thing — every component
+            // that declares `theme` round-trips its canonical values.
             'faq'          => ['title' => 'F', 'items' => [['question' => 'q', 'answer' => 'a']]],
             'embed'        => ['title' => 'E', 'content' => '<p>hi</p>'],
             'logos'        => ['title' => 'L', 'items' => [['image_url' => 'https://example.com/a.png', 'image_alt' => 'A']]],
