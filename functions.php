@@ -7,7 +7,7 @@
  */
 
 // ── Theme version (single source of truth — keep in sync with style.css) ──
-define('PP_VERSION', '1.20.0');
+define('PP_VERSION', '2.0.0-alpha.0');
 
 // ── Load lib files ─────────────────────────────────────────────────────────
 require_once get_template_directory() . '/lib/wp.php';
@@ -15,6 +15,7 @@ require_once get_template_directory() . '/lib/components.php';
 require_once get_template_directory() . '/lib/helpers.php';
 require_once get_template_directory() . '/lib/actions.php';
 require_once get_template_directory() . '/lib/apply.php';
+require_once get_template_directory() . '/lib/udc.php';
 require_once get_template_directory() . '/lib/ai-context.php';
 require_once get_template_directory() . '/lib/ai-provider.php';
 require_once get_template_directory() . '/lib/admin.php';
@@ -117,6 +118,22 @@ add_action('wp_enqueue_scripts', function () {
         ['pp-base'],
         $ver
     );
+
+    // v2 UDC band blocks (BUILD-SPEC §3.5). Attached to `pp-utilities` rather
+    // than registered as its own wp_head action for two reasons: it inherits the
+    // enqueue system's ordering for free, so the blocks always land after all
+    // three stylesheets and never fight them on source order; and it sits in the
+    // SAME callback that just enqueued that handle, so the handle is guaranteed
+    // registered by construction rather than by assumption.
+    //
+    // The emitter reads the composition itself: this callback runs inside
+    // wp_head(), which fires BEFORE the <main> loop paints the bands, so there is
+    // no render pass to collect from. It resolves the page exactly the way the
+    // templates do — see pp_udc_current_composition().
+    $pp_udc_css = pp_udc_page_css(pp_udc_current_composition());
+    if ($pp_udc_css !== '') {
+        wp_add_inline_style('pp-utilities', $pp_udc_css);
+    }
 
     wp_enqueue_script(
         'pp-main',

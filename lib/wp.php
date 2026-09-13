@@ -3654,6 +3654,20 @@ function pp_composition_content_hash(array $composition): string {
         if (is_array($item) && isset($item['props']) && is_array($item['props'])) {
             unset($item['props']['id']);
         }
+        // The v2 BAND id is stripped for the SAME reason props.id is: both are
+        // injected by the writer when absent, so a caller round-tripping a
+        // composition it read back would otherwise hash a value it never sent
+        // and false-conflict against itself on every write.
+        //
+        // THE INHERITED PROPERTY, stated rather than discovered later: because
+        // the id is stripped, changing ONLY an id does not move this digest, so
+        // a concurrent editor's CAS check will not see an id-only edit. That is
+        // exactly as true of props.id today; adopting a different posture for
+        // the sibling key would make two ids behave two ways for no reason an
+        // operator could predict.
+        if (is_array($item)) {
+            unset($item['id']);
+        }
         return $item;
     }, $composition);
     // THE `(string)` CAST HIDES AN ENCODE FAILURE, and the return type is why it is still
@@ -5467,6 +5481,34 @@ function pp_update_composition(int $post_id, array $composition, ?int $expected_
         }
     }
     unset($item);
+
+    // ── v2: band identity and udc normalization (BUILD-SPEC §3.1) ───────────
+    //
+    // MINT-ON-WRITE ONLY, here and nowhere else: reads never mutate, so two
+    // reads of one stored row always agree about which CSS block belongs to it.
+    // The stored array is passed so an id can be CARRIED FORWARD across a
+    // whole-composition re-apply by index + component match rather than churning
+    // on every save; the algorithm and its accepted churn cases are stated on
+    // pp_udc_assign_band_ids().
+    //
+    // This is a SEPARATE loop from the props.id one above, not an extension of
+    // it: that loop is deliberately non-defensive (#946) and reaches into
+    // $item['props'], where PHP splits scalars along a line no operator can
+    // predict — false and null auto-vivify and fabricate a band, everything else
+    // throws. The band-id pass tests for an array instead.
+    $stored_for_carry = pp_get_composition($post_id);
+    $composition = pp_udc_assign_band_ids($composition, is_array($stored_for_carry) ? $stored_for_carry : []);
+
+    // Responsive values are lifted into band-local tokens at the moment they are
+    // stored (§3.1). The author's literal is what the envelope reports and the
+    // minted reference is disclosed beside it — but that disclosure is NOT built
+    // here: this writer's return type is `true|WP_Error` and has nowhere to put
+    // one, and a disclosure that has nowhere to go is the promise being broken
+    // quietly. It is derived from the SUBMITTED composition by
+    // pp_udc_composition_findings() and joined into the envelope by
+    // _pp_composition_findings(), the assembler every composition write already
+    // routes through.
+    $composition = pp_udc_normalize_composition($composition);
 
     $json = wp_json_encode($composition, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 
