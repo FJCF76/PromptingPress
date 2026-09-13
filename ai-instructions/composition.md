@@ -53,7 +53,7 @@ See `AI_CONTEXT.md` → Component index for the current list. As of last update:
 | stats   | items[] {number, label}                 | title, title_accent, theme, background_image            |
 | logos   | items[] {image_url, image_alt, image_id?, label?} | title, theme                                  |
 | embed   | content                                 | title, theme                                            |
-| testimonials | items[] {quote (req); optional author, role, company, image_url, image_alt, image_id} | title, title_accent, eyebrow, subheading, title_align, layout, theme |
+| testimonials | items[] {quote (req); optional author, role, company, image_url, image_alt, image_id} | title, title_accent, eyebrow, subheading, layout — **and NO `theme` / `title_align`**: testimonials is on the v2 Universal Design Contract, so a tone or an alignment is set through the band's `udc` map (`_band` background, role `typography.align`), not through a prop. See `ai-instructions/style-component.md`. |
 
 ## Text content model: which props accept HTML
 
@@ -384,7 +384,9 @@ All seven heading-bearing components accept `title_accent`: an exact, case-sensi
 
 ### eyebrow / subheading / title_align (hero, section, faq, grid, cta, testimonials)
 
-`eyebrow` renders a short kicker label as a pill above the title (e.g. `"NEW"`) on all six; the pill defaults to uppercase, overridable per component via the `text-transform`-typed `--<component>-eyebrow-text-transform` style slot (`none` for sentence case, or `lowercase`/`capitalize`). `subheading` renders a supporting line below the title on section, grid, and testimonials only — hero uses `subheading` and cta uses `body` for the same concept, so neither has a `subheading` prop. `title_align` (`start` default, or `center`; section, grid, testimonials only) centers the eyebrow/title/subheading header block — independent of the component's overall layout.
+> `testimonials` is a v2 component: it keeps `eyebrow` and `subheading` as CONTENT props but has no `title_align` and no `theme`. Its styling is the `udc` map.
+
+`eyebrow` renders a short kicker label as a pill above the title (e.g. `"NEW"`) on all six; the pill defaults to uppercase, overridable per component via the `text-transform`-typed `--<component>-eyebrow-text-transform` style slot (`none` for sentence case, or `lowercase`/`capitalize`). `subheading` renders a supporting line below the title on section, grid, and testimonials only — hero uses `subheading` and cta uses `body` for the same concept, so neither has a `subheading` prop. `title_align` (`start` default, or `center`; section and grid only) centers the eyebrow/title/subheading header block — independent of the component's overall layout. **testimonials no longer has it**: it is a v2 component, so header alignment is the `heading`/`eyebrow`/`subheading` roles' `typography.align` in the band's `udc` map, with `spacing.margin-left`/`margin-right` set to `auto` to centre the block. The eyebrow pill's casing is likewise the `eyebrow` role's `typography.transform` there, not a style slot.
 
 ### image_id (hero, section, logos / grid / testimonials items) — responsive images (#107, #584)
 

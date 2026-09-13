@@ -2,6 +2,29 @@
 
 Use the `style_component` action to change the visual appearance of a specific component instance without editing CSS files. Style overrides are stored in the composition alongside props and survive theme updates.
 
+> ## First: is this component on the v2 contract?
+>
+> `testimonials` is. Run `wp pp schema testimonials` (or read the component catalog) — if it lists **UDC roles** instead of style slots, `style_component` will refuse it with `no_style_slots`, and everything below about slots does not apply to it.
+>
+> Style a v2 component by putting a `udc` map on the BAND, beside `props`, through `update_composition` / `update_component` / `add_component` / `create_page`:
+>
+> ```json
+> "udc": {
+>   "card":  {"background": {"fill": "#ffffff"},
+>             "border": {"width": "1px", "style": "solid", "color": "#e6e6e6"}},
+>   "quote": {"typography": {"family": "@font-heading", "style": "italic",
+>                            "size": {"d": "19px", "p": "17px"}}}
+> }
+> ```
+>
+> - **Roles** are the named parts of the component (`quote`, `card`, `attribution`, `heading`, …; `_band` is the band itself). The catalog lists each role with the groups it permits. Do not invent a role name — `unknown_udc_role` names the ones that exist.
+> - **`@token-name`** follows a design token instead of freezing a copy of its value (`@color-accent`, `@space-lg`, `@font-heading` — no `--` prefix, no `var()`). This works on **every** parameter including lengths, which the slots below cannot do. An unresolvable name is rejected at write, never ignored.
+> - **Breakpoints:** any value can be `{"d": …, "t": …, "p": …}` — desktop (the base), tablet 768-1023px, phone ≤767px. The ranges do not overlap, so a value you set at one breakpoint is never cancelled by another.
+> - **Hover:** a `":hover"` key inside a group, holding the same parameters.
+> - **A dark band** has no `theme` prop to set: give `_band` a `background.fill` and then a `typography.color` to EVERY text role on it (`quote`, `author`, `meta`, `heading`, `subheading`, `eyebrow`) plus any link colour. You own the contrast — check each against the background for WCAG AA (4.5:1 body, 3:1 large text). Nothing re-lights text for you.
+>
+> The grammar for values is identical to the one stated below; only the addressing differs.
+
 ---
 
 ## Step 1 -- Inspect available style slots
@@ -112,6 +135,21 @@ Check that `current` values reflect your changes and the `active_recipe` shows c
 ---
 
 ## Slot types
+
+**The accepted units, stated once for every length-bearing type on this page:**
+`rem px em % vw vh vmin vmax ch ex lh rlh`. A length is a number with one of those
+attached (no space between them), unitless `0`, or a `clamp()`/`calc()` expression
+built from the same units. Negative values are accepted where the property takes
+them — letter-spacing and margins yes, padding and sizes no. This list is the whole
+set for `length`, `length-or-none`, `position`, `shadow` lengths and gradient stop
+positions alike: since v2 they share ONE grammar, so a unit that works in one works
+in all of them.
+
+Two per-property exceptions, which are facts of CSS rather than leftovers of the old
+divergence: `shadow` lengths take NO percentage (`box-shadow: 0 50%` is not valid
+CSS), and `clamp()`/`calc()` are accepted on `length` and `length-or-none` only —
+`position`, `shadow` and gradient stops have never taken a function and still do
+not.
 
 | Type | Examples | Validator |
 |------|----------|-----------|
@@ -487,7 +525,7 @@ between two navy bands this exact way). Zeroing that margin closes the seam.
 | grid | `uniform-cards` | Neutralize the featured first-card treatment (top bar, texture, glow) for a uniform row |
 | cta | `dark-bold` | Dark background with large title |
 | cta | `accent-framed` | Accent border with rounded corners |
-| testimonials | `dark-showcase` | Dark background with light cards |
+| testimonials | — | No named recipe. `testimonials` is a v2 component: it has no style slots for a recipe to expand into. Style it through the `udc` map on the band — see the Universal Design Contract section. |
 | stats | — | **No recipes.** Set `--stats-bg` + `--stats-radius` + `--stats-max-width` together for the contained rounded metrics card; there is no named shorthand for it |
 | faq | — | **No recipes.** Style it with the band + item slots directly (`--faq-bg`, `--faq-item-bg`, `--faq-item-border-color`, `--faq-item-radius`), or reach for the `theme` prop |
 | table | — | **No recipes**, and none is possible today: `table` declares 6 slots, all band padding and heading, so there is nothing for a recipe to bundle. Use the `theme` prop of a surrounding `section` if the band needs a tone |
@@ -530,11 +568,14 @@ wp pp action execute style_component --run-id=<uuid> --params='{
 Shadow values are bounded: a preset (`var(--shadow-none|sm|md|lg)` or `none`) or a
 single-layer `box-shadow` like `0 4px 12px rgba(0,0,0,0.1)`. `inset`, multi-layer
 shadows, and `url()` are rejected. The same `*-shadow` / `*-border-color` /
-`*-border-width` / `*-radius` family exists on hero, section, cta, grid (card) and
-testimonials (card) — the same five components listed under "Slot types" above. On grid
-and testimonials the card members are namespaced under `item`
-(`--grid-item-border-color`, `--testimonials-item-border-color`, and so on), because
-they paint the card rather than the band.
+`*-border-width` / `*-radius` family exists on hero, section, cta and grid (card).
+On grid the card members are namespaced under `item` (`--grid-item-border-color`,
+and so on), because they paint the card rather than the band.
+
+`testimonials` is no longer in that list: it is a v2 component, so its card's
+border, radius and shadow are the `card` role's `border` and `shadow` groups in the
+band's `udc` map. The bounded-shadow grammar above is the same one either way — only
+the addressing differs.
 
 **2. Switch the CTA button to an outline variant (a prop).**
 ```bash

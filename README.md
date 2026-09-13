@@ -13,7 +13,7 @@
 [![JavaScript](https://img.shields.io/badge/JavaScript-Vanilla-F7DF1E?style=flat-square&logo=javascript&logoColor=black)](https://developer.mozilla.org/en-US/docs/Web/JavaScript)
 [![Vitest](https://img.shields.io/badge/Vitest-Tests-6E9F18?style=flat-square&logo=vitest&logoColor=white)](https://vitest.dev)
 [![Tests](https://img.shields.io/badge/Tests-passing-22C55E?style=flat-square)](tests/)
-[![Version](https://img.shields.io/badge/version-1.20.0-6366F1?style=flat-square)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-2.0.0-alpha.0-6366F1?style=flat-square)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/License-GPL--2.0-blue?style=flat-square)](LICENSE)
 
 </div>
@@ -245,7 +245,9 @@ No build step. No transpilation. No bundler. What you write is what ships.
 
 A single layer of CSS custom properties controls the entire visual system: colors, typography (including mono/meta/label/kicker roles), spacing, borders, shadows, measures. Product defaults live in `assets/css/base.css`. Site-specific overrides are stored in the database and **survive theme updates** — no file to lose when the theme ZIP gets replaced.
 
-261 per-instance style slots let AI make this page's hero dark and spacious while that page's hero is tight, accent-bordered, and lifted with a drop shadow — all through composition data, no CSS edits. 11 named recipes (like `dark-spacious` or `compact`) expand to multiple slot values at once.
+234 per-instance style slots let AI make this page's hero dark and spacious while that page's hero is tight, accent-bordered, and lifted with a drop shadow — all through composition data, no CSS edits. 10 named recipes (like `dark-spacious` or `compact`) expand to multiple slot values at once.
+
+`testimonials` has moved past slots entirely. It is the first component on the **Universal Design Contract** (v2): instead of a fixed list of slots someone had to think of in advance, it declares ROLES — the quote, the card, the attribution, the heading — and every role accepts the full design vocabulary (typography, spacing, border, shadow, background, sizing), per breakpoint and on hover. That is how a brand's serif-italic pull-quote in a white 1px-bordered card became expressible at all.
 
 ```bash
 # Preview a token change without applying
@@ -469,7 +471,7 @@ of this file carries the current version; this section is deliberately version-f
 does not go stale between releases.
 
 **What exists today:**
-- 12 components with schema contracts and 261 per-instance style slots, plus named recipes
+- 12 components with schema contracts and 234 per-instance style slots, plus named recipes — and `testimonials` on the v2 Universal Design Contract, where roles replace slots
 - A contract-test suite that enforces the style-slot contract: every declared slot must be consumed by the CSS, and literal re-declarations that would defeat a slot fail the build — including cross-stylesheet clobbers, where an automatic-match rule in `base.css`/`utilities.css` outranks a component slot (issue [#342](https://github.com/FJCF76/PromptingPress/issues/342)). Known exceptions live in shrink-only ledgers (issues [#309](https://github.com/FJCF76/PromptingPress/issues/309), [#342](https://github.com/FJCF76/PromptingPress/issues/342)); the static guards account for every clobber candidate, and the rendered computed-style checks own the true cascade proof
 - Typed action/apply layer with validation, preview, and rollback
 - Bounded presentation controls — button variants, typography roles, shadow/border/radius slots
