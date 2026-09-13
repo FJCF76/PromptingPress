@@ -8,9 +8,10 @@ const ROOT = resolve(import.meta.dirname, '../..');
 
 describe('version consistency', () => {
   const read = (rel) => readFileSync(resolve(ROOT, rel), 'utf-8');
-  const SEMVER = /(\d+\.\d+\.\d+)/;
+  // SemVer including a prerelease suffix: the v2 line ships as 2.0.0-alpha.N.
+  const SEMVER = /(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)/;
 
-  const styleVersion = read('style.css').match(/^Version:\s*(\d+\.\d+\.\d+)/m)?.[1];
+  const styleVersion = read('style.css').match(/^Version:\s*(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)/m)?.[1];
 
   it('style.css declares a version', () => {
     expect(styleVersion).toMatch(SEMVER);
@@ -21,10 +22,10 @@ describe('version consistency', () => {
   // on every push (package.test.js runs in the CI `tests` job).
   const sources = {
     'functions.php PP_VERSION': () =>
-      read('functions.php').match(/define\('PP_VERSION',\s*'(\d+\.\d+\.\d+)'/)?.[1],
-    'package.json version': () => read('package.json').match(/"version":\s*"(\d+\.\d+\.\d+)"/)?.[1],
-    'README.md badge': () => read('README.md').match(/badge\/version-(\d+\.\d+\.\d+)/)?.[1],
-    'readme.txt Stable tag': () => read('readme.txt').match(/^Stable tag:\s*(\d+\.\d+\.\d+)/m)?.[1],
+      read('functions.php').match(/define\('PP_VERSION',\s*'(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)'/)?.[1],
+    'package.json version': () => read('package.json').match(/"version":\s*"(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)"/)?.[1],
+    'README.md badge': () => read('README.md').match(/badge\/version-(\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?)-[0-9A-Fa-f]{6}/)?.[1],
+    'readme.txt Stable tag': () => read('readme.txt').match(/^Stable tag:\s*(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)/m)?.[1],
   };
 
   for (const [label, get] of Object.entries(sources)) {
@@ -45,7 +46,9 @@ describe('package.sh smoke test', () => {
       timeout: 30_000,
     });
     // Extract ZIP filename from output
-    const match = output.match(/Built (promptingpress-[\d.]+\.zip)/);
+    // Prerelease-aware: the v2 line builds promptingpress-2.0.0-alpha.0.zip, and a
+    // [\d.]+ filename pattern matches no part of that.
+    const match = output.match(/Built (promptingpress-\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?\.zip)/);
     expect(match).toBeTruthy();
     zipName = match[1];
   }, 60_000);

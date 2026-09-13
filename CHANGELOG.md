@@ -4,6 +4,89 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v2.0.0-alpha.0] — 2026-09-13 — v2 Sprint 0: the Universal Design Contract, and testimonials rebuilt on it (#958)
+
+The first code of the v2 program. A component's designable surface stops being a hand-curated list of CSS custom properties and becomes a typed contract: named ROLES, each accepting families of parameters, per breakpoint and on hover, validated by one shared engine and emitted as a band-scoped block in the document head. `testimonials` is the first component on it. The other eleven are untouched and keep the v1 style-slot system exactly as it is until their own rebuild sprint — this is a build order, not a compatibility layer.
+
+**Why this exists, in one paragraph.** A brand specified its testimonial as a serif-italic 19px pull-quote in a white 1px-bordered card. Four of those five properties were unreachable: `testimonials` exposed 27 style slots and not one of them reached the quote's family, style, size or alignment, so the band rendered as centred 22px sans (#901). Adding four more slots would have fixed that brand and not the next one, because the defect was never a missing slot — it was that the reachable surface was whatever someone had thought to add in advance. The Universal Design Contract inverts it: every role accepts the whole design vocabulary, so the question "can this brand be expressed" stops depending on anticipation.
+
+### The unified value grammar
+
+Six independent, mutually inconsistent unit lists lived in `lib/apply.php`. None derived from any other, no test compared them, and they had drifted far enough that the same literal was legal in one slot type and illegal in its sibling. They are now one grammar. The quirks are gone, not deprecated:
+
+| Grammar | Before | After |
+|---|---|---|
+| `length` / `length-or-none` | `rem px em % vw vh`, hardened number body | the full unit set below |
+| …inside `calc()`/`clamp()` | `rem px em vw vh` (a SECOND list; no `%`) | the same set as outside |
+| `shadow` lengths | `px rem` only, **loose `[\d.]+` body** | the full set minus `%` (box-shadow takes `<length>`), hardened body |
+| `position` | `% px rem em` — **no `vw`/`vh`** — loose body | the full set, hardened body |
+| gradient colour stops | `% px rem em vw vh`, **no negatives** | the full set, negatives accepted |
+| radial `at <position>` | **percentages only** | the shared position-token grammar, lengths included |
+| (sibling) `duration` | `ms s`, **whitespace allowed before the unit** | the shared hardened number body |
+
+The accepted units are now `rem px em % vw vh vmin vmax ch ex lh rlh` everywhere. `ch` is in that list because the theme's own `--measure-body: 70ch` had been shipping in `base.css` while the validator refused `ch` from every authoring surface.
+
+**Two of those changes are NARROWINGS, and both are stated rather than discovered.** `shadow` and `position` lose the loose `[\d.]+` number body, so `1.2.3px` is now refused where it used to be accepted and persisted as CSS the browser silently dropped; it has always been refused as a `length`. `duration` loses the space-before-unit latitude (`1.5 s`). Reach was enumerated before shipping: **no component schema declares a `duration`-typed slot, no design token is `duration`-typed, and no shipped value carries a space before a time unit** — zero shipped values are newly rejected by the duration change. A stored `1.2.3px` on a shadow or position slot will now be refused at write; re-send it as a well-formed length.
+
+The AI-facing surfaces now STATE the accepted grammar. v1 never did: the runtime system prompt described the `var()` policy and the `none` policy and never once named the legal units, so the authoring model learned the set from rejection messages one refusal at a time. The unit list is derived from the one owner in every place it appears, and the markdown copy is pinned against it by test.
+
+### The contract
+
+- **Roles.** A component's schema declares named sub-elements mapped to stable selectors, each listing the parameter groups it permits. Declaration is data; the engine is shared and names no component and no role. `_band` is the implicit root role.
+- **Groups and parameters.** Typography, Spacing, Border, Shadow, Background and Sizing, each a set of typed parameters. The CSS property a parameter emits is looked up in the registry and never taken from author input.
+- **References.** `@token-name` FOLLOWS a design token instead of freezing a copy of its value, and works on every parameter including lengths — which the v1 style slots could not express at all. An unresolvable reference is refused at write, never resolved to nothing.
+- **Breakpoints.** Any value may be `{"d": …, "t": …, "p": …}` — desktop (the base), tablet 768-1023px, phone ≤767px. The ranges do not overlap, so a value set at one breakpoint can never be silently cancelled by another.
+- **Hover.** A `:hover` state scope inside a group, whose values may themselves be breakpoint-keyed.
+- **Minting.** A responsive value is normalised into band-scoped tokens at write. The envelope reports the author's literal with the minted reference disclosed beside it — the normalisation is visible, never silent.
+- **Band identity.** Every v2 band carries a top-level `id`, minted `pp-<hex8>` at write when absent and carried forward across a whole-composition re-apply by index and component match. It is the CSS scope, distinct from `props.id`, which remains the author's HTML anchor. A band that reaches render without one emits no attribute and no styling block rather than borrowing another band's design.
+- **Emission.** One scoped block per band in the document head: base declarations, then `@media` blocks narrow-first, then hover. Every selector is `[data-pp-band="<id>"]` plus the role's selector, so specificity is flat by construction and `!important` never appears. **No v2 component emits an inline style attribute.**
+- **Truth spine.** Because the map lives inside the composition value, validation, CAS, preview/approve, undo and rollback cover `udc` writes with the same guarantees they gave `props`. Refusals name band, role, group and parameter.
+
+### testimonials
+
+Rebuilt v2-native. It declares twelve roles (`_band`, `eyebrow`, `heading`, `heading-accent`, `subheading`, `list`, `card`, `quote`, `attribution`, `author`, `meta`, `avatar`) and **no style slots**. Its block in `assets/css/components.css` is layout scaffolding, wrapper geometry and accessibility affordances only; a lint enforces that boundary on this component's block and carries a detection proof so it cannot quietly stop working.
+
+Four behaviour changes worth knowing:
+
+- **The `theme` and `title_align` props are gone from this component.** Their entire effect was value-styling, which the structural-CSS boundary removes; a prop whose only effect is deleted would be accepted, stored, reported applied and change nothing. A dark band is now `_band` background plus the text roles' colours, and header alignment is each header role's `typography.align`. **You own the contrast when you build a dark band** — nothing re-lights text for you, and the AI-facing docs say so with the WCAG thresholds.
+- **A lone card now spans its container.** The grid track is `auto-fit`, so one testimonial fills the row, two share it, three share it three ways. The old rule hard-coded two columns at 768px and three at 1024px, which left a single testimonial — the normal starting state for a real client — as a narrow card with a large dead space beside it.
+- **Both layouts render the same card.** The `stack` variant's card-less reset is gone. It necessarily defeated the card slots, which is why #901's brand could express its framed single quote in neither layout. A frameless quote is now authored: set the `card` role's border width to `0` and its background to `transparent`.
+- **The decorative opening-quote glyph is removed.** It was a designable decoration no slot could switch off, so a quote whose own text carried typographic quotation marks rendered two opening quotes.
+
+The 27 retired slots and the two retired props are each recorded in the schema migration registers with the role and parameter that owns the value now.
+
+### Measured
+
+- Emitted block per band: **1795 bytes** with role defaults only, **1988 bytes** with authored values — inside the ≤2 KB budget.
+- A 50-band page: **99,400 bytes** of CSS, **4,347 bytes gzipped** (23:1 — the per-band blocks are highly repetitive), generated in a **median 5.0 ms** of PHP.
+- First contentful paint on that 50-band page versus a static-stylesheet control rendering identical markup: **30 ms vs 31 ms** over 10 runs each. No measurable regression. (True LCP was not observable in the measurement harness; FCP and load are reported instead.)
+
+### What the legacy system still owns
+
+Everything else. Eleven components keep their 234 style slots, their `theme` props, their recipes and their inline-style rendering, unchanged and untested-against by the new engine — the UDC engine is inert for any component that declares no roles, mints them no band ids and emits them no blocks. `style_component` refuses a v2 component with the existing `no_style_slots` code.
+
+### Not in this release
+
+The other eleven components, Layer 2 (scoped custom declarations) and Layer 3 (the sanitizer model), the AI-instruction rewrite, the accordion UDC editing UI, and any 1.x removal beyond this component's own slot map. No migration path exists or is planned for 1.x compositions: v2 is a fresh build by directive.
+
+### Fixed
+
+- CSS injection through a stored band-token value. A band token is emitted as a custom-property declaration, which makes its value CSS source text; the write gate checked it and the emitter did not, so anything bypassing the write gate — a raw meta write, data written before the rule, `restore_composition` (which reports findings without blocking) — reached the stylesheet unchecked. A value of `red} body{display:none} .z{` escaped the band's own rule and injected a rule of its own.
+- The same class through an unbalanced `(` or an odd number of quote characters, which CSS tokenization treats as still open: `--pp-t:rgb(;` consumed the terminating semicolon, the band's closing brace, and every rule after it — the band's own, every later band's, and the rest of the shared inline stylesheet. Token definitions are now validated against the grammar of the parameter that references them, and against a delimiter-balance rule that exists because v2's sink is CSS source text where v1's was an escaped attribute.
+- The mint disclosure was computed and discarded, so the no-coercion promise the runtime prompt makes to the authoring model was not kept on any operator-facing surface. It now rides the write envelope through the shared findings assembler, alongside the unused-band-token lint.
+- A role default carrying a typo or an unresolvable reference silently deleted that declaration from every band of the component. Schema defaults are now validated as strictly as author values.
+- The band-identity promotion was copy-pasted into all three band loops; it has one owner.
+
+### Tests
+
+PHP 4749 → 4810; JS 1866 → 1878. Testimonials' style-slot and render-guard pins are replaced by UDC contract tests; the grammar pins are rewritten onto the unified grammar with the six dead quirk-lists enumerated as executable evidence; every all-component matrix now partitions legacy from v2-native; the truth-spine suites are kept with adjusted fixtures. New: `tests/UnifiedCssGrammarTest.php`, `tests/UdcEngineTest.php`, `tests/UdcTruthSpineTest.php`, and a structural-CSS boundary rule in `tests/js/css-lint.test.js`.
+
+### Docs
+
+`docs/v2/BUILD-SPEC-sprint0.md` and `docs/v2/INVARIANTS.md` enter the repo as the in-repo source of truth.
+
+---
+
 ## [v1.20.0] — 2026-09-10 — Approval-Surface & Write-Path Truth: what the operator approves is true, what the model is told is true, and the write path closes its remaining gaps (#880, #875, #876, #871, #872, #887, #888, #883, #864, #821, #830, #842, #941, #889)
 
 Rollup of the v1.19.1–v1.19.11 patch train (milestone 23). Fourteen issues in eleven iterations. Every entry retains its full engineering detail in the per-patch entries that follow; this rollup states the shape of the release, what changes in behavior, and what was deliberately deferred.
