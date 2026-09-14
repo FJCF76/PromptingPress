@@ -4,7 +4,7 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
-## [Unreleased — v2.0.0-alpha.1] — v2 Sprint 1: the contract-boundary gate fixes (#962)
+## [Unreleased — v2.0.0-alpha.1] — v2 Sprint 1: the contract-boundary gate fixes, then presets, states and motion (#962, #965, #970)
 
 **The three things the Sprint-0 contract-boundary review said had to be true before anything else is built on the UDC contract.** One value could take a page's styling down to the last rule; the editor preview ranked the cascade differently from the page it was previewing; and a test promised coverage of the consent gate that its assertions never delivered. None of the three changes what the contract IS — they make the contract hold.
 
@@ -76,6 +76,66 @@ Two input-validation boundaries on the design-token path, one at write and one a
 ### Tests
 
 PHP 4813 → 4865; JS 1879 unchanged. Both halves of the delimiter fix are red-proven against the pre-fix code, including through `create_page` rather than the validator alone; the preview's block ORDER and the fact that the AJAX endpoint still routes through the shared head builder are each pinned against a mutation that reverts them; `pp_udc_page_css()` — the concatenation that was the preview's bug — is now a test-only convenience with a tokenized source tripwire that fails if any production file calls it. `pp_udc_compile_band()`'s `$layer` argument is required, so no caller can silently ask for both tiers merged. The font-path boundaries are pinned in both directions (#965): the refused shapes are refused at every boundary the guard serves, and a legitimate bracketed value and every real font-URL shape still pass. The emitter is a named function so a test asserts the string it produces rather than a copy of its loop, and each gate of the render predicate is pinned by a case where it alone decides. Hostile fixtures are built with `chr()`/`mb_chr()`, never as literal escapes.
+
+---
+
+## Presets, three states, and motion (#970)
+
+**A shared look now has a name, an element can be styled while you hover, focus or press it, and the engine knows how fast things move.** Three capabilities from one ruling, landing on one seam: they are all just more of the vocabulary a band's `udc` map already speaks.
+
+### Name a look once, use it everywhere
+
+A `_preset` key applies a named bundle of design values:
+
+```json
+"udc": {
+  "cta":   {"_preset": "button", "border": {"radius": "12px"}},
+  "quote": {"typography": {"_preset": "link", "size": "1.25rem"}}
+}
+```
+
+Three ship with the theme — `button`, `button-secondary` and `link` — and their values are read off the theme's own `.btn`, `.btn--secondary` and `a` rules, using token references wherever the source used a token, so a preset follows a retheme instead of freezing today's colours. Write the name bare: `@name` always means a design token, never a preset, and a name that is not a preset is refused at write with the list of ones that are.
+
+Anything you set beside a preset wins over it. Component role defaults also outrank it, **per state** — a role that declares its own background keeps that background at rest and still takes the preset's hover background — so set a colour explicitly rather than assuming a preset supplied a matching pair.
+
+A preset applies the groups the target role permits and skips the rest, and **the write envelope names exactly which groups were skipped and which were applied**. A partial apply is fine; a silent one is not. If a preset declares nothing the role permits, the write is refused naming both sides rather than quietly doing nothing.
+
+Custom presets are Sprint 2. The storage and lookup contract is already the shape they need.
+
+### Hover, focus and press
+
+`:hover` was already a value dimension. It now has two siblings:
+
+```json
+"card": {"background": {"fill": "#ffffff",
+                        ":hover":         {"fill": "#f4f7fb"},
+                        ":focus-visible": {"fill": "#eef2ff"},
+                        ":active":        {"fill": "#e4e9f7"}}}
+```
+
+A state's values can themselves be per-breakpoint. The three emit in that order, so a pressed element shows its pressed treatment rather than its hover one. Those three are the whole set: `:disabled`, pseudo-elements and states on an ancestor are refused at write naming the three that exist, each deferred to its own decision. States do not nest. The theme's keyboard focus ring still applies on top of anything you set.
+
+### Motion, with reduced motion handled for you
+
+A `motion` group carries `transition-duration` and `timing-function`, both defaulting to the theme's own `150ms` and `ease`. Timing functions accept the seven CSS keywords, `cubic-bezier()` (negative 2nd and 4th numbers included, which is what gives you overshoot) and `steps()` with any of the six jump keywords.
+
+**You never write a `prefers-reduced-motion` rule.** The engine emits the guard itself for every motion value it emits, scoped to the same element and state, so a reader who asked their system not to animate gets that without the author thinking about it. There is no parameter to switch it off.
+
+### Notes
+
+- `--transition` is a single raw token that no typed parameter can reference, so the two motion defaults are literals derived from it. A test parses `--transition` out of `base.css` and fails if they drift apart.
+- The button presets reference `@space-sm` / `@space-lg` rather than `--btn-padding-y` / `--btn-padding-x`, because those two tokens hold `var()` chains that the literal-only length grammar cannot follow. Retuning the button padding knob alone moves `.btn` and does not move a preset-styled role.
+- A preset carries a button's look, not its behaviour: it does not make an element clickable or change its layout.
+
+### Fixed
+
+- A `prefers-reduced-motion` guard for motion declared inside a state was emitted without the state suffix, so it sat a specificity step below the rule it had to neutralize and lost. A reader who asked not to see animation still got the full transition on hover. The guard now carries the state.
+- `steps()` and `cubic-bezier()` accepted unbounded digit runs. The value is emitted verbatim, so a single stored value could carry kilobytes into every render of the page; leading zeros also slipped past a numeric bound because the cast discarded them. Both forms now bound the matched text, not just the parsed number.
+- `timing-function` was case-insensitive while `transition-duration` beside it in the same group was not. Both are case-sensitive now, matching every other grammar in the engine.
+
+### Tests
+
+PHP 4865 → 4927; JS 1879 unchanged. Warnings and deprecations unchanged. Two regression pins lead the new file because they are the two ways this change could have quietly broken stored data: minted token names now carry a state segment and `focus-visible` is two hyphen segments where `hover` was one, so a guard popping one segment would have turned every band already holding such a token into a permanent refusal; and a band that references no preset compiles byte-identically to before the tier existed, verified against an unmodified checkout rather than a hand-written literal. The skipped-groups disclosure is pinned against a mutation that keeps the apply and drops the finding. Two tests that a reviewer proved vacuous by mutation were replaced with pins that go red. Emitted CSS for a 50-band page is byte-identical to before at 3.12 ms against 3.13 ms; the same page with every band carrying a preset, three states and motion builds in 7.56 ms.
 
 ---
 
