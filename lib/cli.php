@@ -1204,7 +1204,7 @@ class PP_Schema_Command extends WP_CLI_Command {
      * `conditionality_note`, ANDed — in the same words the runtime AI catalog uses.
      *
      * Scope: props, style slots and recipes. The remaining `styling` declarations
-     * (`root_class`, `variant_classes`, `tokens`, `chrome_custom_properties`) are not
+     * (`root_class`, `variant_classes`, `tokens`, `udc_roles`) are not
      * emitted; see pp_component_schema_report() in lib/operate.php.
      *
      * ## OPTIONS

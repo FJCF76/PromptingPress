@@ -35,24 +35,6 @@
       "description": "Alt text for the footer logo image. Defaults to the attachment's own alt metadata, then logo_text/site title; it is never empty. TEMPLATE CONTRACT (issue 582): template-supplied, not page-authored — base.php maps the pp_logo_alt SITE OPTION onto this prop, the SAME option the header logo uses. There is deliberately no pp_footer_logo_alt: the alt describes the brand, not the asset. Consequence when the footer runs a different image via pp_footer_logo_id — a set pp_logo_alt wins over THAT attachment's own alt metadata, exactly as it does in the header. Leave pp_logo_alt unset and each attachment's own alt is used. A value that is empty OR WHITESPACE-ONLY counts as unprovided and falls through to the rest of the chain rather than rendering; a real value renders verbatim, surrounding spaces included.",
       "conditionality_note": "show_logo is true AND logo_id points at a real image attachment — a boolean plus a numeric-prop precondition, neither of which the clause grammar can express"
     },
-    "bg": {
-      "type": "string",
-      "required": false,
-      "default": "",
-      "description": "Footer background (issue 300; widened to accept gradients in issue 333). Set via the pp_footer_bg site option; emitted as the --footer-bg custom property. Accepts a CSS color (hex, rgb()/hsl(), transparent, currentColor, or a known color-token reference) OR a bounded linear-gradient()/radial-gradient() with 2+ color stops — the shared `gradient` slot type. Empty = the default light surface. This is the primary dark-marketing-footer control."
-    },
-    "text": {
-      "type": "string",
-      "required": false,
-      "default": "",
-      "description": "Footer text color (issue 300). Set via the pp_footer_text site option; emitted as --footer-text. Same color validation as bg. Empty = inherit / the muted default. SCOPE (issue 582): it reaches FIVE surfaces, not the three originally documented — the footer body, the blurb, the contact block, the copyright line, AND the column headings (menu/contact labels) plus the bottom-bar note. In other words every non-link text surface in the footer follows this one option; only links have their own slot (link_color)."
-    },
-    "link_color": {
-      "type": "string",
-      "required": false,
-      "default": "",
-      "description": "Footer link color (issue 300). Set via the pp_footer_link_color site option; emitted as --footer-link-color. Same color validation as bg. Empty = the muted default (--color-muted). SCOPE (issue 582): it colors EVERY link surface in the footer, not just the nav menu — the footer menu links (both columns), the social-icon row, and the mailto:/tel: links the contact <address> block generates. HOVER: all three switch to the global --color-accent design token on hover, which this option does not reach; change the accent with update_design_token if it is illegible on a dark footer."
-    },
     "blurb": {
       "type": "string",
       "required": false,
@@ -82,7 +64,12 @@
       "required": false,
       "default": "",
       "description": "Optional heading above the contact block (issue 335). Set via the pp_footer_contact_label site option. Plain text; empty = no heading. Only rendered when contact is also set.",
-      "applies_when": [{"prop": "contact", "present": true}]
+      "applies_when": [
+        {
+          "prop": "contact",
+          "present": true
+        }
+      ]
     },
     "secondary_location": {
       "type": "string",
@@ -108,15 +95,213 @@
       "type": "string",
       "required": false,
       "default": "",
-      "description": "Optional social-icon row (issue 382). Set via the pp_footer_social site option as a JSON string: an ordered list of {network, url} objects, e.g. [{\"network\":\"x\",\"url\":\"https://x.com/acme\"},{\"network\":\"linkedin\",\"url\":\"https://linkedin.com/company/acme\"}]. network must be one of a CLOSED set of known networks (x, linkedin, facebook, instagram, youtube, github, tiktok, mastodon); url must be an http(s) profile URL. Renders under the brand blurb as accessible inline-SVG icon links (aria-label per link, decorative SVG) in the reserved .site-footer__social slot; color follows pp_footer_link_color. Unknown networks, non-URL values, non-http(s) schemes, and malformed JSON are rejected when the option is validated. Empty/unset = no row (footer byte-identical). No arbitrary icon URLs or icon fonts: the network set is fixed and its glyphs ship inline."
+      "description": "Optional social-icon row (issue 382). Set via the pp_footer_social site option as a JSON string: an ordered list of {network, url} objects, e.g. [{\"network\":\"x\",\"url\":\"https://x.com/acme\"},{\"network\":\"linkedin\",\"url\":\"https://linkedin.com/company/acme\"}]. network must be one of a CLOSED set of known networks (x, linkedin, facebook, instagram, youtube, github, tiktok, mastodon); url must be an http(s) profile URL. Renders under the brand blurb as accessible inline-SVG icon links (aria-label per link, decorative SVG) in the reserved .site-footer__social slot; colour is the `social-link` UDC role. Unknown networks, non-URL values, non-http(s) schemes, and malformed JSON are rejected when the option is validated. Empty/unset = no row (footer byte-identical). No arbitrary icon URLs or icon fonts: the network set is fixed and its glyphs ship inline."
+    }
+  },
+  "roles": {
+    "_band": {
+      "selector": "",
+      "description": "The <footer class=\"site-footer\"> itself. Set the footer's background here — this is how a dark or gradient marketing footer is built.",
+      "groups": [
+        "typography",
+        "spacing",
+        "border",
+        "background",
+        "sizing",
+        "shadow",
+        "motion"
+      ],
+      "defaults": {}
+    },
+    "inner": {
+      "selector": ".site-footer__inner",
+      "description": "The footer's inner container: the width and padding of the whole footer block.",
+      "groups": [
+        "typography",
+        "spacing",
+        "border",
+        "background",
+        "sizing",
+        "shadow",
+        "motion"
+      ],
+      "defaults": {}
+    },
+    "columns": {
+      "selector": ".site-footer__columns",
+      "description": "The column row. The space between columns is design; the track geometry is structural.",
+      "groups": [
+        "typography",
+        "spacing",
+        "border",
+        "background",
+        "sizing",
+        "shadow",
+        "motion"
+      ],
+      "defaults": {}
+    },
+    "brand": {
+      "selector": ".site-footer__brand",
+      "description": "The brand column: logo or wordmark plus the blurb.",
+      "groups": [
+        "typography",
+        "spacing",
+        "border",
+        "background",
+        "sizing",
+        "shadow",
+        "motion"
+      ],
+      "defaults": {}
+    },
+    "blurb": {
+      "selector": ".site-footer__blurb",
+      "description": "The short brand paragraph under the footer logo.",
+      "groups": [
+        "typography",
+        "spacing",
+        "border",
+        "background",
+        "sizing",
+        "motion"
+      ],
+      "defaults": {}
+    },
+    "heading": {
+      "selector": ".site-footer__heading",
+      "description": "Every optional column heading (the menu, contact and secondary labels).",
+      "groups": [
+        "typography",
+        "spacing",
+        "border",
+        "background",
+        "sizing",
+        "motion"
+      ],
+      "defaults": {}
+    },
+    "link": {
+      "selector": ".site-footer__nav ul li a",
+      "description": "Footer menu links, in both the primary and secondary columns.",
+      "groups": [
+        "typography",
+        "spacing",
+        "border",
+        "background",
+        "sizing",
+        "motion"
+      ],
+      "defaults": {}
+    },
+    "social-link": {
+      "selector": ".site-footer__social-link",
+      "description": "The social icon links. Their colour used to follow the footer link colour option; it is its own role now.",
+      "groups": [
+        "typography",
+        "spacing",
+        "border",
+        "background",
+        "sizing",
+        "motion"
+      ],
+      "defaults": {}
+    },
+    "address": {
+      "selector": ".site-footer__address",
+      "description": "The contact block.",
+      "groups": [
+        "typography",
+        "spacing",
+        "border",
+        "background",
+        "sizing",
+        "motion"
+      ],
+      "defaults": {}
+    },
+    "address-link": {
+      "selector": ".site-footer__address a",
+      "description": "The mailto: and tel: links inside the contact block.",
+      "groups": [
+        "typography",
+        "spacing",
+        "border",
+        "background",
+        "sizing",
+        "motion"
+      ],
+      "defaults": {}
+    },
+    "copyright": {
+      "selector": ".site-footer__copyright",
+      "description": "The copyright line.",
+      "groups": [
+        "typography",
+        "spacing",
+        "border",
+        "background",
+        "sizing",
+        "motion"
+      ],
+      "defaults": {}
+    },
+    "bottom": {
+      "selector": ".site-footer__bottom",
+      "description": "The delimited bottom bar, rendered only when a footer note is set.",
+      "groups": [
+        "typography",
+        "spacing",
+        "border",
+        "background",
+        "sizing",
+        "shadow",
+        "motion"
+      ],
+      "defaults": {}
+    },
+    "note": {
+      "selector": ".site-footer__note",
+      "description": "The optional secondary line in the bottom bar.",
+      "groups": [
+        "typography",
+        "spacing",
+        "border",
+        "background",
+        "sizing",
+        "motion"
+      ],
+      "defaults": {}
     }
   },
   "styling": {
     "root_class": "site-footer",
     "variant_classes": [],
-    "tokens": ["--color-border", "--color-muted"],
-    "chrome_custom_properties": ["--footer-bg", "--footer-text", "--footer-link-color"]
+    "tokens": [
+      "--color-border",
+      "--color-muted"
+    ],
+    "udc_roles": [
+      "_band",
+      "inner",
+      "columns",
+      "brand",
+      "blurb",
+      "heading",
+      "link",
+      "social-link",
+      "address",
+      "address-link",
+      "copyright",
+      "bottom",
+      "note"
+    ]
   },
-  "safe_to_edit": ["footer.php", "../../assets/css/components.css (COMPONENT: footer section)"],
-  "do_not_touch": ["schema.json without updating this component's README.md and the repo-root AI_CONTEXT.md"]
+  "safe_to_edit": [
+    "footer.php",
+    "../../assets/css/components.css (COMPONENT: footer section)"
+  ],
+  "do_not_touch": [
+    "schema.json without updating this component's README.md and the repo-root AI_CONTEXT.md"
+  ]
 }

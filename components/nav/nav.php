@@ -17,21 +17,23 @@ $location = $props['location'] ?? 'primary';
 // toward a composable header, which the chrome contract rules out.
 $logo     = pp_resolve_logo($props); // {type, url, alt, text} — attachment-ID only
 
-// Header chrome color slots (issue 333). The header is template-owned (issue 223)
-// and never composed, so — exactly like the footer (issue 300) — its styling surface
-// is the pp_header_* site options, which base.php maps onto these props. Each emits an
-// inline CSS custom property the header CSS reads via var(--header-*, <literal>); with
-// nothing set, no style attribute is emitted at all and the output is byte-identical to
-// before. pp_chrome_style_attr() derives each value's type from pp_allowed_site_options()
-// keyed by the option name (so --header-bg's 'gradient' can never drift from the
-// whitelist) and re-validates at the render boundary (#330).
-$style_attr = pp_chrome_style_attr([
-    '--header-bg'         => ['value' => (string) ($props['bg']         ?? ''), 'option' => 'pp_header_bg'],
-    '--header-text'       => ['value' => (string) ($props['text']       ?? ''), 'option' => 'pp_header_text'],
-    '--header-link-color' => ['value' => (string) ($props['link_color'] ?? ''), 'option' => 'pp_header_link_color'],
-]);
+// STYLING: the site chrome UDC container, not props and not an inline style.
+//
+// The header used to carry three inline custom properties built from the
+// pp_header_bg / pp_header_text / pp_header_link_color site options. Those options
+// are GONE (v2, BUILD-SPEC Addendum A ruling A1 with the §3.1 "one styling system"
+// directive): chrome is now styled through the `nav` entry of the pp_site_udc
+// option, which runs through the same engine, grammar and cascade as a band's
+// `udc` map and reaches every role this schema declares — not only three colours.
+//
+// So this template emits NO style attribute at all. The CSS arrives as a scoped
+// block on the `pp-base` / `pp-utilities` handles (see functions.php), keyed to
+// the data-pp-chrome attribute below, which is why that attribute is a template
+// CONSTANT and not a read of anything: it is the selector's other half.
+// Deliberately NOT an `id` — see the note above; an id read here would be the
+// first step toward a composable header, which the chrome contract still rules out.
 ?>
-<header class="site-header" data-pp-component="nav"<?php echo $style_attr; ?>>
+<header class="site-header" data-pp-component="nav" data-pp-chrome="nav">
     <nav class="nav" aria-label="Main navigation">
         <div class="container nav__container">
 

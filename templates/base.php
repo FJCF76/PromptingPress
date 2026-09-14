@@ -34,13 +34,11 @@ if (!function_exists('pp_base_template')) {
 
 <?php pp_get_component('nav', [
     'location'   => 'primary',
-    // Header chrome is template-owned (issue 223) and set through whitelisted site
-    // options, never by composing a nav. The pp_header_* bg/text/link colors are the
-    // header's only styling surface (issue 333) — the sibling of the pp_footer_*
-    // surface below. Unset options pass '' and emit nothing.
-    'bg'         => (string) get_option('pp_header_bg', ''),
-    'text'       => (string) get_option('pp_header_text', ''),
-    'link_color' => (string) get_option('pp_header_link_color', ''),
+    // NO STYLING PROPS. Header chrome is still template-owned (issue 223), but its
+    // styling no longer arrives as props: the pp_header_* bg/text/link colours are
+    // gone and chrome is styled through the pp_site_udc container, which emits a
+    // scoped CSS block from functions.php rather than an inline attribute here.
+    // What this template still passes is CONTENT and configuration.
     // Logo alt text (issue 582). pp_logo_alt has been whitelisted for update_site_option
     // since issue 106 and documented on three surfaces as THE logo alt surface, but
     // nothing ever read it: no call site passed logo_alt, so a write succeeded and
@@ -66,14 +64,12 @@ if (!function_exists('pp_base_template')) {
 
 <?php pp_get_component('footer', [
     'location'   => 'footer',
-    // Footer chrome is template-owned (issue 223) and set through whitelisted
+    // Footer chrome is template-owned (issue 223) and configured through whitelisted
     // site options, never by composing a footer. show_logo is the pp_footer_show_logo
-    // surface (issue 234); the dark-marketing-footer bg/text/link colors and the
-    // blurb/contact/copyright content are the pp_footer_* surfaces (issue 300).
+    // surface (issue 234); blurb/contact/copyright are the pp_footer_* CONTENT
+    // surfaces (issue 300). The bg/text/link COLOUR options that used to sit here
+    // are gone — chrome styling is the pp_site_udc container now.
     'show_logo'  => get_option('pp_footer_show_logo', '') === '1',
-    'bg'         => (string) get_option('pp_footer_bg', ''),
-    'text'       => (string) get_option('pp_footer_text', ''),
-    'link_color' => (string) get_option('pp_footer_link_color', ''),
     'blurb'      => (string) get_option('pp_footer_blurb', ''),
     'contact'    => (string) get_option('pp_footer_contact', ''),
     'copyright'  => (string) get_option('pp_footer_copyright', ''),

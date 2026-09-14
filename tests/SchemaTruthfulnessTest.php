@@ -353,21 +353,30 @@ class SchemaTruthfulnessTest extends TestCase
      * told an agent the two were one authoring surface. They are separated, and the separation is exact in both
      * directions so a future "tidy up" cannot merge them back silently.
      */
-    public function testChromeCustomPropertiesAreSeparatedFromDesignTokens(): void
+    public function testChromeDeclaresItsUdcRolesSeparatelyFromDesignTokens(): void
     {
-        $expected = [
-            'nav'    => ['--header-bg', '--header-text', '--header-link-color'],
-            'footer' => ['--footer-bg', '--footer-text', '--footer-link-color'],
-        ];
-        foreach ($expected as $component => $properties) {
-            $styling = $this->allSchemas()[$component]['styling'];
-            $this->assertSame(
-                $properties,
-                $styling['chrome_custom_properties'] ?? null,
-                "{$component} must declare its chrome custom properties in their own key."
+        // Ruling A1 replaced `chrome_custom_properties` — the inline `--header-*` /
+        // `--footer-*` list — with the component's UDC ROLES. The separation this test
+        // guards is unchanged in spirit: a chrome styling surface is not a design
+        // token, and conflating the two is how a schema comes to advertise a token it
+        // cannot reach.
+        foreach (['nav', 'footer'] as $component) {
+            $schema  = $this->allSchemas()[$component];
+            $styling = $schema['styling'];
+
+            $this->assertArrayNotHasKey(
+                'chrome_custom_properties',
+                $styling,
+                "{$component}'s inline chrome custom properties are gone with the options that set them."
             );
-            foreach ($properties as $property) {
-                $this->assertNotContains($property, $styling['tokens'], "{$property} is not a design token.");
+            $this->assertNotEmpty($schema['roles'] ?? [], "{$component} declares UDC roles.");
+            $this->assertSame(
+                array_keys($schema['roles']),
+                $styling['udc_roles'] ?? null,
+                "{$component}'s styling block must name exactly the roles it declares."
+            );
+            foreach (array_keys($schema['roles']) as $role) {
+                $this->assertNotContains($role, $styling['tokens'], "{$role} is a role, not a design token.");
             }
             $this->assertNotEmpty($styling['tokens'], "{$component} still consumes real design tokens.");
         }
@@ -387,6 +396,12 @@ class SchemaTruthfulnessTest extends TestCase
                 'chrome_custom_properties',
                 $schema['styling'],
                 "{$component} is a composable component; its authoring surface is style_slots."
+            );
+            $this->assertArrayNotHasKey(
+                'udc_roles',
+                $schema['styling'],
+                "{$component} is composable: its roles (if any) are read from schema.roles, "
+                . 'and the styling mirror is a chrome-only affordance.'
             );
         }
     }

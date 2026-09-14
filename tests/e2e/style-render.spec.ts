@@ -4267,10 +4267,10 @@ test.describe('#383 stats contained rounded card renders', () => {
  * #333 — header/footer chrome, rendered proof.
  *
  * The header and footer are template-owned chrome, so their styling surface is the
- * pp_header_* / pp_footer_* SITE OPTIONS rather than composition style slots. That puts
- * them outside the issue-305 schema guard entirely, and StyleSlotContractTest only scans
- * for slot names it can discover from a schema — so nothing static can prove these
- * options reach the browser.
+ * the pp_site_udc SITE OPTION rather than composition style slots. That puts them
+ * outside the issue-305 schema guard entirely, and StyleSlotContractTest only scans for
+ * slot names it can discover from a schema — so nothing static can prove chrome styling
+ * reaches the browser.
  *
  * They need a rendered pin more than any slot does, because of the specific bug this
  * issue found: `--header-bg` and `--footer-bg` accept a GRADIENT, and a gradient is a
@@ -4291,6 +4291,47 @@ function setSiteOption(key: string, value: string): void {
   });
 }
 
+/**
+ * Imports a real image into the Media Library and returns its attachment id.
+ *
+ * A genuine import rather than a fabricated post row: ruling A2's whole point is that
+ * the id is a REFERENCE the engine resolves through WordPress, and a hand-made row
+ * would skip exactly the resolution being tested.
+ */
+function importTestImage(slug: string): number {
+  const file = `/tmp/${slug}.png`;
+  // A 1x1 opaque PNG, written inside the container so `wp media import` can read it.
+  const b64 =
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+  execSync(`npx wp-env run cli bash -c "echo ${b64} | base64 -d > ${file}"`, {
+    cwd: process.cwd(),
+    encoding: 'utf-8',
+  });
+  return parseInt(
+    execSync(`npx wp-env run cli wp media import ${file} --porcelain`, {
+      cwd: process.cwd(),
+      encoding: 'utf-8',
+    })
+      .trim()
+      .split(/\s+/)
+      .pop() as string,
+    10,
+  );
+}
+
+function deleteAttachment(attachmentId: number): void {
+  try {
+    execSync(`npx wp-env run cli wp post delete ${attachmentId} --force`, { cwd: process.cwd() });
+  } catch {
+    /* already gone */
+  }
+}
+
+/** Writes the whole chrome container. A write REPLACES it, so pass every component. */
+function setChromeUdc(map: Record<string, unknown>): void {
+  setSiteOption('pp_site_udc', JSON.stringify(map));
+}
+
 function deleteSiteOption(key: string): void {
   try {
     execSync(`npx wp-env run cli wp option delete ${key}`, { cwd: process.cwd() });
@@ -4299,9 +4340,10 @@ function deleteSiteOption(key: string): void {
   }
 }
 
-test.describe('#333 chrome site options render', () => {
+test.describe('chrome UDC renders (ruling A1)', () => {
   let pageId: number;
-  const CHROME_OPTIONS = ['pp_header_bg', 'pp_header_text', 'pp_header_link_color', 'pp_footer_bg'];
+  // ONE option now carries all chrome styling, so one key is the whole cleanup list.
+  const CHROME_OPTIONS = ['pp_site_udc'];
 
   test.afterEach(async () => {
     // No residue: these are SITE options, so a leak would style every later test's page.
@@ -4318,13 +4360,22 @@ test.describe('#333 chrome site options render', () => {
     }
   });
 
-  test('#333 pp_header_bg paints a real gradient on the header @smoke', async ({ page }) => {
+  test('chrome UDC paints a real gradient on the header @smoke', async ({ page }) => {
+    // THE assertion the option-era test made, carried onto the new surface: a gradient
+    // is a CSS <image>, so if the fill were routed through `background-color` the
+    // browser would drop the declaration and the header would paint nothing while every
+    // declaration-level test stayed green. Only getComputedStyle can tell "the gradient
+    // painted" from "the declaration was dropped".
     pageId = createPage('E2E Header Gradient');
     setComposition(pageId, [{ component: 'hero', props: { id: 'pp-hero01', title: 'Hero' } }]);
 
-    setSiteOption('pp_header_bg', 'linear-gradient(135deg, #1a1a2e, #16121f)');
-    setSiteOption('pp_header_text', '#e8e8f0');
-    setSiteOption('pp_header_link_color', '#c8c8e0');
+    setChromeUdc({
+      nav: {
+        _band: { background: { fill: 'linear-gradient(135deg, #1a1a2e, #16121f)' } },
+        logo: { typography: { color: '#e8e8f0' } },
+        link: { typography: { color: '#c8c8e0' } },
+      },
+    });
 
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto(`/?page_id=${pageId}`);
@@ -4332,57 +4383,68 @@ test.describe('#333 chrome site options render', () => {
     const header = page.locator('.site-header');
     await expect(header).toBeVisible({ timeout: 10000 });
 
-    // THE assertion. Under `background-color` this comes back 'none' — the declaration
-    // is invalid CSS and the browser drops it, so the gradient never paints.
     const bgImage = await header.evaluate((el) => getComputedStyle(el).backgroundImage);
     expect(bgImage).not.toBe('none');
     expect(bgImage).toContain('gradient');
 
-    // The logo wordmark follows --header-text; the nav links follow --header-link-color.
+    // Each role reaches its own element — the thing three colour options could not do.
     const logoColor = await page.locator('.nav__logo').evaluate((el) => getComputedStyle(el).color);
     expect(logoColor).toBe('rgb(232, 232, 240)');
+
+    // And the block is SCOPED, not an inline attribute: chrome is inside the cascade now.
+    const inlineStyle = await header.evaluate((el) => el.getAttribute('style'));
+    expect(inlineStyle).toBeNull();
+    await expect(header).toHaveAttribute('data-pp-chrome', 'nav');
   });
 
-  test('#333 pp_footer_bg paints a real gradient on the footer', async ({ page }) => {
-    pageId = createPage('E2E Footer Gradient');
+  test('chrome UDC paints the footer, and a state reaches a nav link @smoke', async ({ page }) => {
+    pageId = createPage('E2E Footer + State');
     setComposition(pageId, [{ component: 'hero', props: { id: 'pp-hero01', title: 'Hero' } }]);
 
-    // Widened from color-only to the color-OR-gradient union in #333.
-    setSiteOption('pp_footer_bg', 'linear-gradient(135deg, #1a1a2e, #16121f)');
+    setChromeUdc({
+      footer: { _band: { background: { fill: 'linear-gradient(135deg, #1a1a2e, #16121f)' } } },
+      nav: { link: { typography: { color: '#c8c8e0', ':hover': { color: '#ffd43b' } } } },
+    });
 
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto(`/?page_id=${pageId}`);
 
     const footer = page.locator('.site-footer');
     await expect(footer).toBeAttached({ timeout: 10000 });
-
     const bgImage = await footer.evaluate((el) => getComputedStyle(el).backgroundImage);
     expect(bgImage).not.toBe('none');
     expect(bgImage).toContain('gradient');
+
+    // STATES ON CHROME. Ruling A3 gave the engine hover/focus-visible/active and ruling
+    // A1 put chrome on that engine; hover was unreachable on chrome before, so this is
+    // the pin that the two rulings actually compose in a browser.
+    const link = page.locator('.nav__menu ul li a').first();
+    if (await link.count()) {
+      await expect(link).toHaveCSS('color', 'rgb(200, 200, 224)');
+      await link.hover();
+      await expect(link).toHaveCSS('color', 'rgb(255, 212, 59)');
+    }
   });
 
-  test('#333 a plain color still works on the gradient-typed background option', async ({
-    page,
-  }) => {
-    // `gradient` is a color-OR-gradient UNION, so widening the type must not break the
-    // plain-color case that #300 shipped.
+  test('a plain colour still works on the chrome background', async ({ page }) => {
     pageId = createPage('E2E Header Solid Color');
     setComposition(pageId, [{ component: 'hero', props: { id: 'pp-hero01', title: 'Hero' } }]);
 
-    setSiteOption('pp_header_bg', '#1a1a2e');
+    setChromeUdc({ nav: { _band: { background: { fill: '#1a1a2e' } } } });
 
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto(`/?page_id=${pageId}`);
 
     const header = page.locator('.site-header');
     await expect(header).toBeVisible({ timeout: 10000 });
-
     const bgColor = await header.evaluate((el) => getComputedStyle(el).backgroundColor);
     expect(bgColor).toBe('rgb(26, 26, 46)');
   });
 
-  test('#333 an unstyled header is unchanged (no gradient, no inline style)', async ({ page }) => {
-    // Defaults stay neutral: this issue adds a capability, never a color opinion.
+  test('an unstyled header is unchanged (no gradient, no inline style, no chrome block)', async ({
+    page,
+  }) => {
+    // Defaults stay neutral: ruling A1 adds a capability and changes no default.
     pageId = createPage('E2E Header Default');
     setComposition(pageId, [{ component: 'hero', props: { id: 'pp-hero01', title: 'Hero' } }]);
 
@@ -4392,11 +4454,135 @@ test.describe('#333 chrome site options render', () => {
     const header = page.locator('.site-header');
     await expect(header).toBeVisible({ timeout: 10000 });
 
-    const bgImage = await header.evaluate((el) => getComputedStyle(el).backgroundImage);
-    expect(bgImage).toBe('none');
+    expect(await header.evaluate((el) => getComputedStyle(el).backgroundImage)).toBe('none');
+    expect(await header.evaluate((el) => el.getAttribute('style'))).toBeNull();
 
-    const inlineStyle = await header.evaluate((el) => el.getAttribute('style'));
-    expect(inlineStyle).toBeNull();
+    // A site with no chrome styling emits no chrome block at all.
+    const html = await page.content();
+    expect(html).not.toContain('[data-pp-chrome=');
+  });
+
+  /**
+   * RULING A2 — a REAL Media Library attachment resolving to a painted background.
+   *
+   * Everything about this feature is decided by things only a browser can confirm.
+   * The engine builds the `url()` itself from an attachment id, so the unit tests can
+   * prove the STRING is right but not that Chromium fetched it, not that the overlay
+   * composited above it rather than below, and not that a single `background-size`
+   * applied to both layers. The scrim ordering in particular is the kind of thing that
+   * looks correct in a diff and renders inverted.
+   *
+   * Uses a genuine `wp media import`, because the point is referential: a fabricated
+   * attachment row would prove the id plumbing and skip the half that can rot.
+   */
+  test('a real attachment paints as a background with its overlay @smoke', async ({ page }) => {
+    pageId = createPage('E2E Background Image');
+
+    // A tiny solid-colour PNG, imported the way an operator's asset would be.
+    const attachmentId = importTestImage('pp-e2e-bg');
+    expect(attachmentId).toBeGreaterThan(0);
+
+    setComposition(pageId, [
+      {
+        component: 'testimonials',
+        id: 'pp-bgimg001',
+        props: { title: 'Proof', items: [{ quote: 'Great work.', author: 'Ada' }] },
+        udc: {
+          _band: {
+            background: {
+              fill: '#0b7285',
+              image: attachmentId,
+              // RESPONSIVE ON PURPOSE. A breakpoint-keyed overlay is minted into a
+              // band token, so the emitted layer becomes a var() — and a bare custom
+              // property in a background-image layer list is invalid, which makes the
+              // browser drop the WHOLE declaration (scrim and photograph together).
+              // No unit assertion can see that: the CSS string looks reasonable and
+              // only a real engine rejects it. This fixture is the one that would
+              // have caught it.
+              overlay: { d: 'rgba(0,0,0,0.55)', p: 'rgba(0,0,0,0.75)' },
+              size: 'cover',
+              position: 'center',
+              repeat: 'no-repeat',
+            },
+          },
+        },
+      },
+    ]);
+
+    for (const width of [375, 768, 1280]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`/?page_id=${pageId}`);
+
+      const band = page.locator('[data-pp-band="pp-bgimg001"]');
+      await expect(band).toBeVisible({ timeout: 10000 });
+
+      const bg = await band.evaluate((el) => {
+        const cs = getComputedStyle(el);
+        return { image: cs.backgroundImage, size: cs.backgroundSize, color: cs.backgroundColor };
+      });
+
+      // Both layers, scrim FIRST (CSS paints the first layer on top). `none` here
+      // is the failure this fixture exists to catch: an invalid layer list.
+      expect(bg.image).not.toBe('none');
+      expect(bg.image).toContain('gradient');
+      expect(bg.image).toContain('url(');
+      expect(bg.image.indexOf('gradient')).toBeLessThan(bg.image.indexOf('url('));
+      // One declared `cover` applies to BOTH layers, so the scrim tracks the image.
+      expect(bg.size).toBe('cover, cover');
+      // The fill still shows through wherever the image does not cover.
+      expect(bg.color).toBe('rgb(11, 114, 133)');
+
+      await page.screenshot({
+        path: `test-results/a2-background-image-${width}.png`,
+        fullPage: false,
+      });
+    }
+  });
+
+  /**
+   * THE DEGRADE, in a browser. Valid at write, attachment deleted afterwards: the band
+   * must keep painting its own fill and must NOT emit a url() of a dead id. A broken
+   * image request here would be a visible defect on a page that reported a clean write.
+   */
+  test('an attachment deleted after the write degrades without breaking the band', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E Background Image Degrade');
+    const attachmentId = importTestImage('pp-e2e-bg-degrade');
+
+    setComposition(pageId, [
+      {
+        component: 'testimonials',
+        id: 'pp-bgimg002',
+        props: { title: 'Proof', items: [{ quote: 'Great work.', author: 'Ada' }] },
+        udc: {
+          _band: {
+            background: { fill: '#0b7285', image: attachmentId, overlay: 'rgba(0,0,0,0.55)' },
+          },
+        },
+      },
+    ]);
+
+    deleteAttachment(attachmentId);
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+
+    const band = page.locator('[data-pp-band="pp-bgimg002"]');
+    await expect(band).toBeVisible({ timeout: 10000 });
+
+    const bg = await band.evaluate((el) => {
+      const cs = getComputedStyle(el);
+      return { image: cs.backgroundImage, color: cs.backgroundColor };
+    });
+
+    expect(bg.image).toBe('none');
+    // The band did not lose everything — its own fill still paints.
+    expect(bg.color).toBe('rgb(11, 114, 133)');
+    // And nothing anywhere emitted a url() of the dead id.
+    expect(await page.content()).not.toContain(`image-${attachmentId}`);
+
+    await page.screenshot({ path: 'test-results/a2-background-degrade-1280.png' });
   });
 
   /**
@@ -5108,16 +5294,18 @@ test.describe('#333 chrome site options render', () => {
 });
 
 /**
- * #355 — the active/current header link must honor pp_header_link_color.
+ * #355 — the active/current header link must be reachable, and keep its bold weight.
  *
  * Bug: `.nav__menu li.current-menu-item > a` (and the `aria-current="page"` variant)
- * hard-coded `color: var(--color-accent)`, which won over `--header-link-color`. On a
- * one-page anchor-nav marketing site every link points at the current page, so WordPress
- * marks them all current and the WHOLE menu ignored pp_header_link_color, rendering the
- * accent instead. Fix: the active link color routes through
- * `var(--header-link-color, var(--color-accent))`, keeping `font-weight:700` — the operator's
- * color wins when set, the accent stays the fallback when unset (so an unstyled header is
- * byte-identical to before), and the current item stays bold either way.
+ * hard-coded `color: var(--color-accent)`, which won over the operator's chosen link
+ * colour. On a one-page anchor-nav marketing site every link points at the current page,
+ * so WordPress marks them all current and the WHOLE menu ignored it.
+ *
+ * REPRICED BY RULING A1 (#976): the option that fix routed through is gone, and the
+ * active link is now its own `link-current` UDC role. The defect is the same one — an
+ * active link nobody can recolour — so the pin is the same shape against the new surface:
+ * set `link-current`, prove it wins on a REAL current-menu-item, and prove the bold
+ * weight (structural) survives.
  *
  * Static CSS-text pins (css-lint.test.js) can prove the declaration is present; only
  * getComputedStyle on a REAL current-menu-item can prove the rendered cascade. That needs a
@@ -5158,13 +5346,13 @@ function deleteMenu(menuId: number): void {
   }
 }
 
-test.describe('#355 active header link honors pp_header_link_color', () => {
+test.describe('#355 the active header link is reachable through the link-current role', () => {
   let pageId = 0;
   let menuId = 0;
 
   test.afterEach(async () => {
     // Site option + menu are site-global — a leak would style/route every later test's page.
-    deleteSiteOption('pp_header_link_color');
+    deleteSiteOption('pp_site_udc');
     if (menuId) {
       deleteMenu(menuId);
       menuId = 0;
@@ -5189,12 +5377,12 @@ test.describe('#355 active header link honors pp_header_link_color', () => {
     assignMenuToPrimary(menuId);
   }
 
-  test('#355 the active link follows pp_header_link_color, keeping its bold weight @smoke', async ({
+  test('#355 the active link follows the link-current role, keeping its bold weight @smoke', async ({
     page,
   }) => {
     seedCurrentItemPage('E2E Active Link Color');
     // #c8c8e0 = rgb(200, 200, 224); distinct from the accent default #3157f4 = rgb(49, 87, 244).
-    setSiteOption('pp_header_link_color', '#c8c8e0');
+    setChromeUdc({ nav: { 'link-current': { typography: { color: '#c8c8e0' } } } });
 
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto(`/?page_id=${pageId}`);
@@ -5202,8 +5390,9 @@ test.describe('#355 active header link honors pp_header_link_color', () => {
     const activeLink = page.locator('.nav__menu li.current-menu-item > a');
     await expect(activeLink).toBeVisible({ timeout: 10000 });
 
-    // THE assertion. Before the fix this came back rgb(49, 87, 244) — the hard-coded
-    // var(--color-accent) won over --header-link-color and the operator's color was ignored.
+    // THE assertion. Before #355 this came back rgb(49, 87, 244) — the hard-coded
+    // var(--color-accent) won and the operator's colour was ignored. The role has to
+    // beat that same structural rule, which it does from the authored layer.
     const color = await activeLink.evaluate((el) => getComputedStyle(el).color);
     expect(color).toBe('rgb(200, 200, 224)');
 
@@ -5212,11 +5401,11 @@ test.describe('#355 active header link honors pp_header_link_color', () => {
     expect(weight).toBe('700');
   });
 
-  test('#355 an unset header link color leaves the active link on the accent (unchanged)', async ({
+  test('#355 an unstyled header leaves the active link on the accent (unchanged)', async ({
     page,
   }) => {
-    // Default stays neutral: with no pp_header_link_color, the active link falls back to
-    // --color-accent, so existing sites render byte-identically to before the fix.
+    // Default stays neutral: with no chrome styling, the active link keeps
+    // --color-accent, so an unstyled site renders byte-identically.
     seedCurrentItemPage('E2E Active Link Default');
 
     await page.setViewportSize({ width: 1280, height: 900 });

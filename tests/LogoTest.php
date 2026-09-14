@@ -626,11 +626,11 @@ class LogoTest extends TestCase
     /** The props base.php passes today, resolved live so a drop here fails loudly. */
     private function navPropsFromBaseTemplate(): array
     {
+        // The three pp_header_* colour props are gone (#976, ruling A1) — chrome
+        // styling is the pp_site_udc container and reaches nav through a scoped CSS
+        // block, not through props. What base.php still passes is content.
         return [
             'location'   => 'primary',
-            'bg'         => (string) get_option('pp_header_bg', ''),
-            'text'       => (string) get_option('pp_header_text', ''),
-            'link_color' => (string) get_option('pp_header_link_color', ''),
             'logo_alt'   => (string) get_option('pp_logo_alt', ''),
         ];
     }

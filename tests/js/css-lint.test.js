@@ -99,34 +99,33 @@ describe('CSS lint: positional selectors', () => {
     });
 });
 
-// Issue 355: the active/current header link must route its COLOR through
-// --header-link-color (falling back to --color-accent) instead of hard-coding the
-// accent, so an operator's pp_header_link_color reaches the active link too. The
-// bold weight (the emphasis) must stay. The e2e render pin proves the current-menu-item
-// path in a real browser; this static pin also covers the aria-current declaration
-// (which WP sets on the same element, so the render pin can't isolate it) and guards
-// against a regression back to the bare `color: var(--color-accent)`.
-describe('CSS lint: #355 active header link honors --header-link-color', () => {
+// Issue 355, REPRICED BY RULING A1 (#976). The original pin required the active/current
+// header link to route its COLOR through --header-link-color so an operator's
+// pp_header_link_color reached it. That option is gone and chrome is styled through
+// pp_site_udc, where the active link is its own `link-current` role — so the routing
+// is not just unnecessary, it no longer exists, and asserting it would pin a lie.
+//
+// The DEFECT #355 found still has to stay fixed, and it was never really about the
+// custom property: the active link had no colour surface of its own at all. Both
+// selectors must still carry their own colour declaration (so the role can reach them)
+// and keep the bold emphasis (which is structural, not authored).
+describe('CSS lint: #355 the active header link is its own colour surface', () => {
     const css = stripComments(COMPONENTS_CSS);
-    const ACTIVE_COLOR = 'color: var(--header-link-color, var(--color-accent))';
-    const BARE_ACCENT = /color:\s*var\(--color-accent\)\s*;/;
 
-    test('current-menu-item / current_page_item link routes color through --header-link-color, keeping bold weight', () => {
+    test('current-menu-item / current_page_item carries its own colour and the bold weight', () => {
         const rule = css.match(
             /\.nav__menu ul li\.current-menu-item > a,\s*\.nav__menu ul li\.current_page_item > a\s*\{([^}]*)\}/,
         );
         expect(rule).not.toBeNull();
         expect(rule[1]).toContain('font-weight: 700');
-        expect(rule[1]).toContain(ACTIVE_COLOR);
-        expect(rule[1]).not.toMatch(BARE_ACCENT);
+        expect(rule[1]).toMatch(/color:\s*var\(--color-accent\)/);
     });
 
-    test('aria-current="page" link routes color through --header-link-color, keeping bold weight', () => {
+    test('aria-current="page" carries its own colour and the bold weight', () => {
         const rule = css.match(/\.nav__menu ul li a\[aria-current="page"\]\s*\{([^}]*)\}/);
         expect(rule).not.toBeNull();
         expect(rule[1]).toContain('font-weight: 700');
-        expect(rule[1]).toContain(ACTIVE_COLOR);
-        expect(rule[1]).not.toMatch(BARE_ACCENT);
+        expect(rule[1]).toMatch(/color:\s*var\(--color-accent\)/);
     });
 });
 
@@ -140,8 +139,8 @@ describe('CSS lint: #355 active header link honors --header-link-color', () => {
  * logo/toggle row is byte-identical open vs closed. This pin locks that MECHANISM:
  * a refactor that drops `position: absolute` from the mobile `.nav__menu` rule (or
  * moves it back into the flow) must fail here, not just in a nightly E2E. It also
- * pins the panel background to the --header-bg chrome slot (so a themed header
- * carries into the panel) and the aria-expanded-driven icon swap (the close
+ * pins that the panel declares a background at all (so it is
+ * readable over page content, and so the `menu` UDC role has something to override) and the aria-expanded-driven icon swap (the close
  * affordance). The layout rule lives in a max-width:767px block, so the media
  * context is part of its identity (a desktop-scoped copy would not satisfy this).
  */
@@ -180,8 +179,13 @@ describe('CSS lint: mobile nav menu is an out-of-flow panel (#426)', () => {
         expect(body).toMatch(/position\s*:\s*absolute/);
     });
 
-    test('the panel background routes the --header-bg chrome slot', () => {
-        expect(body).toMatch(/background\s*:\s*var\(\s*--header-bg\b/);
+    test('the panel declares its own background, which the `menu` role overrides', () => {
+        // Was: routes the --header-bg chrome slot. That inline custom property is gone
+        // with the pp_header_bg option (#976, ruling A1); the panel is the `menu` UDC
+        // role now. What must stay true is that the panel declares a background AT ALL
+        // — an out-of-flow panel over page content with no fill is unreadable, and
+        // that is the regression this test was added to catch.
+        expect(body).toMatch(/background\s*:\s*var\(\s*--color-bg\b/);
     });
 
     // Detection proof: the mechanism pin must CATCH an in-flow regression and PASS
@@ -291,13 +295,18 @@ describe('CSS lint: footer column grid + #382 landing slot (#427)', () => {
     expect(body).toMatch(/display\s*:\s*flex/);
   });
 
-  test('the contact <address> resets italic and routes --footer-link-color (no slot-defeating literal)', () => {
+  test('the contact <address> resets italic and its links carry no slot-defeating literal', () => {
     const addr = ruleBody('.site-footer__address');
     expect(addr).not.toBeNull();
     expect(addr).toMatch(/font-style\s*:\s*normal/);
     const link = ruleBody('.site-footer__address a');
     expect(link).not.toBeNull();
-    expect(link).toMatch(/color\s*:\s*var\(--footer-link-color,\s*var\(--color-muted\)\)/);
+    // The routing through --footer-link-color is gone with that option (#976, ruling
+    // A1); these links are the `address-link` role now. The half that still matters is
+    // that the default is a TOKEN, not a hardcoded colour — a literal here would
+    // outrank nothing but would make the role's value look broken next to its siblings.
+    expect(link).toMatch(/color\s*:\s*var\(--color-muted\)/);
+    expect(link).not.toMatch(/color\s*:\s*#[0-9a-f]{3,8}/i);
   });
 });
 
@@ -2918,7 +2927,18 @@ describe('CSS lint: schema styling.tokens are reachable BY THE COMPONENT THAT LI
         const entry = components.find(c => c.name === component);
         const { blocks } = entry;
 
-        if (entry.roles) {
+        // CHROME TAKES THE STYLESHEET PATH, not the role-defaults path.
+        //
+        // It is a v2 component — nav and footer are on the engine — but ruling A1 as
+        // issued keeps its resting appearance in components.css ("default chrome
+        // styling from base.css/components.css stays"), so it ships EMPTY role
+        // defaults and consumes its tokens exactly the way a v1 component does:
+        // through `var(--token)` in its own CSS block. Routing it down the role
+        // branch would demand defaults the ruling says not to add. The reachability
+        // question is unchanged — it is just answered by the stylesheet.
+        const chrome = ['nav', 'footer'].includes(component);
+
+        if (entry.roles && !chrome) {
             // `--color-text` is referenced as `@color-text` in a role default.
             const ref = '"@' + token.replace(/^--/, '') + '"';
             expect(
@@ -3089,7 +3109,23 @@ describe('CSS lint: v2 components keep NO designable value in their stylesheet',
             const file = path.join(componentsDir, name, 'schema.json');
             if (!fs.existsSync(file)) return false;
             const schema = JSON.parse(fs.readFileSync(file, 'utf-8'));
-            return Boolean(schema.roles && Object.keys(schema.roles).length);
+            if (!(schema.roles && Object.keys(schema.roles).length)) return false;
+            // CHROME IS ON THE ENGINE BUT KEEPS ITS RESTING APPEARANCE IN THIS FILE,
+            // by explicit ruling (#976, ruling A1 as issued: "default chrome styling
+            // from base.css/components.css stays — that's component CSS, not the
+            // options"). The §2 boundary says a v2 component's designable values come
+            // from the engine; for a BAND that works because the defaults tier prints
+            // before components.css and the file declares nothing competing. Chrome's
+            // header and footer are painted by this file today, and moving ~40
+            // declarations into role defaults is a separate change with its own visual
+            // risk on every page of every site — not something to smuggle in behind a
+            // lint. So chrome ships EMPTY role defaults (pinned in ChromeUdcTest) and
+            // this file keeps its resting values; an authored chrome value still wins,
+            // because the authored layer prints after this stylesheet.
+            //
+            // CARVE-OUT, NOT AN EXEMPTION: it is named, it cites the ruling, and it
+            // lapses the moment chrome's CSS block is retired. Remove this filter then.
+            return !['nav', 'footer'].includes(name);
         });
 
     // Fail-closed: if discovery breaks, every check below would pass vacuously.

@@ -210,31 +210,43 @@ class RenderStyleBoundaryTest extends TestCase
 
     // ── Footer color sink (components/footer/footer.php) ─────────────────────
 
-    public function testFooterDropsStoredUrlColorSiblingSurvives(): void
+    /**
+     * THE CHROME INLINE-STYLE SURFACE IS CLOSED, which is a stronger guarantee than
+     * the two tests this replaces.
+     *
+     * They exercised the #330 render boundary over the footer's inline `--footer-*`
+     * custom properties: a stored `url()` background was dropped while its valid
+     * sibling still painted. That boundary was doing real work, but only because the
+     * footer emitted an inline style attribute at all — and an inline style attribute
+     * outranks every stylesheet, which is precisely why chrome styling could not
+     * participate in the cascade the UDC engine provides.
+     *
+     * Ruling A1 removed the surface rather than hardening it further. So the thing to
+     * pin is no longer "a bad value is dropped from the attribute" but "there is no
+     * attribute": no value of any shape, passed as any prop, can put an inline style
+     * on chrome. A regression here would not be a dropped declaration — it would be
+     * chrome quietly climbing back out of the cascade.
+     */
+    public function testChromeEmitsNoInlineStyleAttributeForAnyPropAtAll(): void
     {
-        // Props go straight into the footer's inline --footer-* custom props,
-        // simulating an out-of-band stored option value. The url() bg is
-        // dropped; the valid text color still renders.
-        $html = $this->render('footer', [
-            'location' => 'footer',
-            'bg'       => 'url(https://example.test/ping)',
-            'text'     => '#e5e7eb',
-        ]);
-        $this->assertStringNotContainsString('url(', $html);
-        $this->assertStringNotContainsString('--footer-bg', $html);
-        $this->assertStringContainsString('--footer-text: #e5e7eb', $html);
+        foreach ([
+            ['bg' => 'url(https://example.test/ping)', 'text' => '#e5e7eb'],
+            ['bg' => '#0b0f0a', 'text' => 'currentColor', 'link_color' => 'var(--color-accent)'],
+            ['bg' => 'linear-gradient(135deg, #1a1a2e, #16121f)'],
+        ] as $props) {
+            foreach (['footer' => 'footer', 'nav' => 'header'] as $component => $tag) {
+                $html = $this->render($component, ['location' => $component] + $props);
+                $this->assertDoesNotMatchRegularExpression(
+                    '/<' . $tag . '[^>]*\sstyle=/',
+                    $html,
+                    "{$component} must emit no inline style attribute — the UDC block is the only styling source"
+                );
+                $this->assertStringNotContainsString('--footer-bg', $html);
+                $this->assertStringNotContainsString('--header-bg', $html);
+                $this->assertStringNotContainsString('url(', $html);
+            }
+        }
     }
 
-    public function testFooterPassSetRendersUnchanged(): void
-    {
-        $html = $this->render('footer', [
-            'location'   => 'footer',
-            'bg'         => '#0b0f0a',
-            'text'       => 'currentColor',
-            'link_color' => 'var(--color-accent)',
-        ]);
-        $this->assertStringContainsString('--footer-bg: #0b0f0a', $html);
-        $this->assertStringContainsString('--footer-text: currentColor', $html);
-        $this->assertStringContainsString('--footer-link-color: var(--color-accent)', $html);
-    }
+
 }

@@ -350,6 +350,18 @@ function pp_inspect_site(?int $post_id = null): array {
         'drift'                    => $drift,
         'preflight'                => pp_preflight([], $drift),
         'tokens'                   => pp_design_tokens(),
+        // SITE CHROME, so that "re-read and re-apply" is an instruction with a
+        // supported means behind it. The chrome styling container is the only
+        // CAS-covered site option, and its conflict refusal tells the caller to
+        // re-read it — but until this line there was no registered action and no
+        // subcommand that returned a site-option value, so the only way to see the
+        // stored map was a throwaway preview write. Chrome is site-scoped and this
+        // is the site document; it belongs here.
+        //
+        // `version` is the baseline a caller passes back as `expected_version`, and
+        // `corrupt` is reported rather than hidden, because an unreadable row is the
+        // one state where a baselined write will be refused however fresh it is.
+        'chrome'                   => pp_udc_site_map(),
         'conflicts'                => pp_check_custom_css_conflicts(),
         'smells'                   => $smells,
         // #386: base/derived token incoherence — a derived-family override that
@@ -874,6 +886,29 @@ function pp_preflight(array $context = [], ?array $drift = null): array {
     // that stopped painting, since the drop itself is silent by design.
     foreach (pp_check_token_override_validity() as $token_check) {
         $checks[] = $token_check;
+    }
+
+    // Check 8c: UDC background images that no longer resolve (warning-grade,
+    // advisory — never blocks a mutation). The same splice pattern and the same
+    // reason as 8b: the emitter DROPS a background whose attachment has been deleted
+    // since it was written, and that drop is otherwise silent. This is the only
+    // operator-visible account of a stored background that stopped painting.
+    //
+    // Chrome is site-scoped so it is always checked; a page's bands are checked only
+    // when this preflight has a post_id, matching the other page-scoped checks.
+    $pp_bg_post = isset($context['post_id']) && is_numeric($context['post_id'])
+        ? (int) $context['post_id']
+        : null;
+    foreach (pp_check_udc_background_images($pp_bg_post) as $bg_check) {
+        $checks[] = $bg_check;
+    }
+
+    // Check 8d: chrome colour options that are stored but no longer read
+    // (warning-grade, advisory). Ruling A1 retired them; an install that still holds
+    // them loses its header and footer styling on upgrade with nothing anywhere
+    // saying why. Same splice, same reasoning as 8b and 8c.
+    foreach (pp_check_retired_chrome_options() as $retired_check) {
+        $checks[] = $retired_check;
     }
 
     // Check 9: Screenshot readiness (warning-grade, advisory — never blocks a mutation).
@@ -2701,12 +2736,12 @@ function pp_component_schema_index(): array {
  * WHAT IT DELIBERATELY DOES NOT EMIT, named so the omission is a decision and not a
  * silence. #688 scoped this surface to props, style slots with their conditions, and
  * recipes. The other declarations in `styling` — `root_class`, `variant_classes`,
- * `tokens`, and `chrome_custom_properties` — plus the top-level `safe_to_edit` /
+ * `tokens`, and the `udc_roles` mirror — plus the top-level `safe_to_edit` /
  * `do_not_touch` file-maintenance notes stay out. One consequence is worth knowing before
  * reading a report: `nav` and `footer` declare NO style slots and NO recipes at all, so
- * their reports show empty lists while their real styling surface is
- * `chrome_custom_properties` (`--header-bg`, `--header-text`, `--header-link-color`) —
- * still readable only in `schema.json` or ai-instructions/style-component.md. Widening
+ * their reports show empty lists while their real styling surface is their UDC ROLES,
+ * written through the `pp_site_udc` site option — carried by the `roles` projection, and
+ * described in `schema.json` or ai-instructions/style-component.md. Widening
  * this envelope is a scope decision for a follow-up, not something to do in passing.
  *
  * READ-ONLY, NO RUN TOKEN. Same class as `inspect-composition`: it reads declarations off

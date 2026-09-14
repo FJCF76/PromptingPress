@@ -584,10 +584,9 @@ Add a row to the Component index table in `AI_CONTEXT.md`:
       somewhere; the css-lint `#581` ownership pin proves *this* component can reach it;
       the `SchemaTruthfulnessTest` `#616` registry pin proves it is a token at all. A
       token consumed only by another component's block is a false advertisement.
-      Template-owned chrome keeps its `--header-*` / `--footer-*` inline custom
-      properties in `chrome_custom_properties`, not in `tokens` — those come from site
-      options, not the design system, and conflating them on one array misrepresents
-      both.
+      Template-owned chrome declares its styling surface in `roles` (the UDC roles),
+      not in `tokens` — chrome styling comes from the `pp_site_udc` site option, not
+      from the design system, and conflating them on one array misrepresents both.
 - [ ] `styling.variant_classes` lists **exactly** the root-element modifier classes
       the template can emit. It is derived from the template by
       `SchemaValidationTest::testVariantClassesListExactlyWhatTheTemplateCanEmit`,
