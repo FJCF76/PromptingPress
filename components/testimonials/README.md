@@ -37,24 +37,30 @@ Each item in `items`:
 
 ## Roles
 
-A role is a named part of the component. Each one accepts the groups listed here, per breakpoint and on hover.
+A role is a named part of the component. Each one accepts the groups listed here, per breakpoint and in three states: `:hover`, `:focus-visible` and `:active`. Those three are the whole set, and they do not nest — `:disabled`, pseudo-elements like `::before`, and states on an ancestor are refused at write.
+
+A role can also take a shared look by name through a `_preset` key. Write the name **bare**: `"_preset": "button"`, never `"@button"`, because an `@name` always means a design token.
 
 | Role | What it is | Groups |
 |---|---|---|
-| `_band` | The band itself (the `<section>`) | typography, spacing, border, background, sizing, shadow |
-| `eyebrow` | The kicker pill above the heading | typography, spacing, border, background, sizing |
-| `heading` | The band heading (`<h2>`) | typography, spacing, border, background, sizing |
-| `heading-accent` | The accented substring inside the heading | typography, spacing, border, background, sizing |
-| `subheading` | The supporting line below the heading | typography, spacing, border, background, sizing |
-| `list` | The container the cards lay out in | typography, spacing, border, background, sizing |
-| `card` | One testimonial's surface | typography, spacing, border, background, sizing, shadow |
-| `quote` | The quotation itself | typography, spacing, border, background, sizing |
-| `attribution` | The attribution row (avatar + name + role/company) | typography, spacing, border, background, sizing |
-| `author` | The quoted person's name | typography, spacing, border, background, sizing |
-| `meta` | The role/company line under the name | typography, spacing, border, background, sizing |
-| `avatar` | The author's picture | spacing, border, background, sizing, shadow |
+| `_band` | The band itself (the `<section>`) | typography, spacing, border, background, sizing, shadow, motion |
+| `eyebrow` | The kicker pill above the heading | typography, spacing, border, background, sizing, motion |
+| `heading` | The band heading (`<h2>`) | typography, spacing, border, background, sizing, motion |
+| `heading-accent` | The accented substring inside the heading | typography, spacing, border, background, sizing, motion |
+| `subheading` | The supporting line below the heading | typography, spacing, border, background, sizing, motion |
+| `list` | The container the cards lay out in | typography, spacing, border, background, sizing, motion |
+| `card` | One testimonial's surface | typography, spacing, border, background, sizing, shadow, motion |
+| `quote` | The quotation itself | typography, spacing, border, background, sizing, motion |
+| `attribution` | The attribution row (avatar + name + role/company) | typography, spacing, border, background, sizing, motion |
+| `author` | The quoted person's name | typography, spacing, border, background, sizing, motion |
+| `meta` | The role/company line under the name | typography, spacing, border, background, sizing, motion |
+| `avatar` | The author's picture | spacing, border, background, sizing, shadow, motion |
+
+`motion` carries `transition-duration` and `timing-function`, both defaulting to the theme's `--transition`. You never write a `prefers-reduced-motion` rule: the engine emits that guard for every motion value it emits, and there is no parameter for it.
 
 `shadow` is deliberately absent from the text roles. A `box-shadow` on a run of text is a smell; the elevation you want belongs on the `card`.
+
+A `_preset` applies the groups the target role permits and skips the rest, and the write envelope names which were skipped. That is why `avatar` takes the `button` preset's spacing, border, background, sizing and motion but not its typography: the role does not permit typography at all. If a preset declares nothing the role permits at all, the write is refused naming both the preset and the role, rather than accepting a reference that would do nothing.
 
 ### Worked example — the #901 brand card
 

@@ -810,6 +810,101 @@ function _pp_validate_number(string $value): bool {
 }
 
 /**
+ * Validates a CSS `transition-timing-function` value (v2 UDC motion group).
+ *
+ * Three forms, and nothing else:
+ *
+ *   keyword        linear | ease | ease-in | ease-out | ease-in-out
+ *                  | step-start | step-end
+ *   cubic-bezier   four numbers. x1 and x2 are constrained to [0,1] BECAUSE CSS
+ *                  constrains them — a control point outside that range makes the
+ *                  curve non-monotonic in time and the whole declaration invalid,
+ *                  so accepting it would store a value that paints nothing. y1
+ *                  and y2 are deliberately UNBOUNDED and SIGNED: that is what
+ *                  gives the overshoot and anticipation easings people actually
+ *                  reach for (`cubic-bezier(.34,1.56,.64,1)`), and the shared
+ *                  number body is unsigned, so the sign is added here rather than
+ *                  quietly losing half the useful curve space.
+ *   steps          a positive integer, optionally a jump keyword. All six CSS
+ *                  keywords are accepted; `jump-none` additionally requires two
+ *                  or more steps, which is CSS's own rule (with one step there is
+ *                  no interior jump to omit).
+ *
+ * `linear()` with a stop list, and the `steps()` alias `step-start`/`step-end`
+ * written as `steps(1, start)` are NOT special-cased: the first is a newer
+ * function this ruling does not cover, the second already parses as a plain
+ * `steps()`.
+ */
+function _pp_validate_timing_function(string $value): bool {
+    $value = trim($value);
+
+    // CASE-SENSITIVE, deliberately. CSS itself is case-insensitive here, but
+    // every grammar in this file is case-sensitive — including `duration`, this
+    // param's own sibling in the motion group, where `150MS` is refused. Two
+    // params written side by side in one group must not disagree about whether
+    // the value is folded, and the fix that keeps the file coherent is to match
+    // the file rather than to widen one param.
+    static $keywords = [
+        'linear', 'ease', 'ease-in', 'ease-out', 'ease-in-out', 'step-start', 'step-end',
+    ];
+    if (in_array($value, $keywords, true)) {
+        return true;
+    }
+
+    // BOUND THE TEXT, NOT JUST THE VALUE. Every number here is emitted VERBATIM
+    // into an inline <style> block — the author's digits, not the number we
+    // parsed — and nothing downstream trims it. A numeric range test does not
+    // bound text: `cubic-bezier(0.<2000 zeros>,0,0,0)` is numerically 0.0 and
+    // sails through a [0,1] check while carrying two kilobytes into every render
+    // of the page. Same trap one line down for `steps()`, where `(int)` discards
+    // leading zeros before any bound can see them. So the LENGTH is capped in the
+    // pattern itself, which is the only place that sees what will actually be
+    // printed. Four integer digits and six fractional ones are far past any real
+    // easing curve.
+    $number = '-?(?:\d{1,4}(?:\.\d{1,6})?|\.\d{1,6})';
+    $ws     = '\s*';
+
+    $bezier = '/^cubic-bezier\(' . $ws
+        . '(' . $number . ')' . $ws . ',' . $ws
+        . '(' . $number . ')' . $ws . ',' . $ws
+        . '(' . $number . ')' . $ws . ',' . $ws
+        . '(' . $number . ')' . $ws . '\)$/';
+    if (preg_match($bezier, $value, $m)) {
+        foreach ([1, 3] as $x) {
+            $point = (float) $m[$x];
+            if ($point < 0.0 || $point > 1.0) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    // `\d{1,4}` rather than `\d+`: the count is emitted verbatim too, and a
+    // numeric bound alone does not stop `steps(0000…0005)` — the cast throws the
+    // leading zeros away before any range test can see them, so a two-kilobyte
+    // literal reaches the stylesheet as a perfectly legal `5`.
+    $steps = '/^steps\(' . $ws . '(\d{1,4})' . $ws
+        . '(?:,' . $ws . '(jump-start|jump-end|jump-none|jump-both|start|end)' . $ws . ')?\)$/';
+    if (preg_match($steps, $value, $m)) {
+        $count = (int) $m[1];
+        if ($count < 1) {
+            return false;
+        }
+        // 1000 is far past any real step animation (sprite sheets live in the
+        // tens); the pattern already bounds the TEXT, this bounds the meaning.
+        if ($count > 1000) {
+            return false;
+        }
+        if ($count < 2 && isset($m[2]) && $m[2] === 'jump-none') {
+            return false;
+        }
+        return true;
+    }
+
+    return false;
+}
+
+/**
  * Validates a CSS box-shadow value for the bounded `shadow` slot type.
  *
  * Accepts ONE of:
@@ -1534,6 +1629,11 @@ function _pp_validate_token_value(string $value, ?string $type, ?array $allowed 
         case 'background-repeat':
             if (!_pp_validate_background_repeat($value)) {
                 return new WP_Error('invalid_background_repeat', 'Value must be a background-repeat keyword: repeat, no-repeat, repeat-x, repeat-y, space, or round.');
+            }
+            break;
+        case 'timing-function':
+            if (!_pp_validate_timing_function($value)) {
+                return new WP_Error('invalid_timing_function', 'Value must be a transition timing function: a keyword (linear, ease, ease-in, ease-out, ease-in-out, step-start, step-end), cubic-bezier() with four numbers whose 1st and 3rd are between 0 and 1 (the 2nd and 4th may be any number, including negative, which is what produces overshoot), or steps() with a positive integer (at most 1000) and an optional jump keyword (jump-start, jump-end, jump-none, jump-both, start, end); jump-none additionally needs two or more steps. Values are case-sensitive: write ease, not EASE.');
             }
             break;
         case 'raw':
