@@ -4,7 +4,7 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
-## [Unreleased — v2.0.0-alpha.1] — v2 Sprint 1: the contract-boundary gate fixes, then presets, states and motion (#962, #965, #970)
+## [Unreleased — v2.0.0-alpha.1] — v2 Sprint 1: the contract-boundary gate fixes, presets/states/motion, then chrome and background images (#962, #965, #970, #976)
 
 **The three things the Sprint-0 contract-boundary review said had to be true before anything else is built on the UDC contract.** One value could take a page's styling down to the last rule; the editor preview ranked the cascade differently from the page it was previewing; and a test promised coverage of the consent gate that its assertions never delivered. None of the three changes what the contract IS — they make the contract hold.
 
@@ -136,6 +136,76 @@ A `motion` group carries `transition-duration` and `timing-function`, both defau
 ### Tests
 
 PHP 4865 → 4927; JS 1879 unchanged. Warnings and deprecations unchanged. Two regression pins lead the new file because they are the two ways this change could have quietly broken stored data: minted token names now carry a state segment and `focus-visible` is two hyphen segments where `hover` was one, so a guard popping one segment would have turned every band already holding such a token into a permanent refusal; and a band that references no preset compiles byte-identically to before the tier existed, verified against an unmodified checkout rather than a hand-written literal. The skipped-groups disclosure is pinned against a mutation that keeps the apply and drops the finding. Two tests that a reviewer proved vacuous by mutation were replaced with pins that go red. Emitted CSS for a 50-band page is byte-identical to before at 3.12 ms against 3.13 ms; the same page with every band carrying a preset, three states and motion builds in 7.56 ms.
+
+### Your header and footer are designable now (#976)
+
+The site header and footer were the two things on every page you could barely touch. Between them they had six colour options — a background, a text colour and a link colour each — and that was the entire surface. No spacing, no typography, no borders, no hover, nothing per-breakpoint, and nothing that could reach the mobile menu panel, the dropdown, the active link, the social row or the contact block separately from everything else.
+
+They are on the same styling engine as the rest of the site now. `pp_site_udc` holds one `udc` map per chrome component, in exactly the shape a band's takes: same roles, groups and parameters, same `@token` references, same breakpoint maps, same `:hover` / `:focus-visible` / `:active` states, same presets.
+
+```json
+{"nav": {"_band": {"background": {"fill": "#101828"}},
+         "link":  {"typography": {"color": "#f7f8fa",
+                                  ":hover": {"color": "@color-accent"}}}}}
+```
+
+The header declares eight roles (`_band`, `logo`, `logo-image`, `menu`, `submenu`, `link`, `link-current`, `toggle`) and the footer thirteen. `menu` and `submenu` are deliberately separate: one colour option used to paint both the mobile disclosure panel and the desktop dropdown, with two different fallbacks, which was impossible to reason about from the name.
+
+**You own the contrast on a dark header or footer.** Nothing re-lights text for you. Set a colour on every text and link role you put over the new background and check each against it, exactly as on a dark band.
+
+### Background images, without ever writing a URL
+
+The `background` group takes an `image`, and its value is a Media Library **attachment ID** — never a URL, never a path. The engine resolves the attachment, checks it is a real image on this site, and builds the CSS `url()` itself. Author-written `url()` stays refused everywhere it always was; nothing about that gate moved.
+
+Pair it with `overlay`, a colour or gradient scrim laid over the image in the same layer, whenever text sits on the picture:
+
+```json
+{"background": {"image": 42, "overlay": "@overlay-bg",
+                "size": "cover", "position": "center"}}
+```
+
+An `overlay` with no `image` paints nothing rather than a mystery tint. `image` is the one parameter that takes a single value: per-breakpoint art direction and per-state image swapping are **refused**, not quietly ignored, and the refusal names the parameters that do vary per breakpoint. The scrim itself can vary — a narrower breakpoint's overlay still lies over the same image.
+
+**An ID that does not resolve is refused at write, naming it.** An image deleted *after* a good write degrades instead: that one declaration drops, the band keeps its own fill and everything else on it, no broken image is requested, and `wp pp apply preflight` tells you which stored ID stopped painting and how to fix it.
+
+### ⚠️ Breaking: the six chrome colour options are gone
+
+`pp_header_bg`, `pp_header_text`, `pp_header_link_color`, `pp_footer_bg`, `pp_footer_text` and `pp_footer_link_color` no longer exist. Keeping them beside the new container would mean two mechanisms reaching one outcome, and the UDC value would have won anyway — silently, because it outranks an inline custom property.
+
+There is **no migration**, per the v2 no-backward-compatibility directive. What you get instead:
+
+- A write to any of the six is refused with a message naming `pp_site_udc` as the replacement, not a bare "not whitelisted".
+- If a site still *holds* those rows, `wp pp apply preflight` says so, names them, and tells you the header and footer are rendering in theme defaults until you restate the styling.
+
+To migrate by hand, read the roles your component declares and set them through `pp_site_udc`:
+
+```bash
+wp pp action execute update_site_option --run-id=<uuid> \
+  --params='{"key":"pp_site_udc","value":"{\"nav\":{\"_band\":{\"background\":{\"fill\":\"#1a1a2e\"}},\"link\":{\"typography\":{\"color\":\"#c8c8e0\"}}}}"}'
+```
+
+The footer's **content** options — blurb, contact, copyright, column labels, note, logo, social row — are untouched. Only the six colour options went.
+
+### Chrome writes are concurrency-checked
+
+`pp_site_udc` is the first site option with a compare-and-swap. The stored object carries a `_version`; pass it back as `expected_version` and a write that would overwrite someone else's newer edit is refused with `site_option_conflict` instead of clobbering it. Read the current map and its version from `wp pp operate inspect`, which reports both as `chrome`.
+
+If you do the obvious thing — read the whole map, change one role, send it back — the `_version` you carry comes along and **is** taken as your baseline, so the round trip is protected without you asking for it. A write REPLACES the whole option, so send every chrome component you want to keep; `""` clears all chrome styling. A row that cannot be read at all refuses every baselined write rather than being overwritten blind, because "unreadable" and "empty" are different facts.
+
+### Fixed
+
+- **A CSS shorthand could silently erase a longhand you had just written.** Declarations were emitted in the order you happened to type your keys, so `{"size": "cover", "fill": "#fff"}` emitted `background-size` and then the `background` shorthand, which resets it — the `size` was gone. The same shape hit `padding` against `padding-top` and `border.width` against `border-top-width`. Same intent, same grammar, two different renderings decided by key order, with nothing reporting it. Emission order now comes from the parameter registry, so a shorthand always prints before the longhands it resets and two maps differing only in key order emit byte-identical CSS. Where your key order already matched the registry, output is unchanged.
+- A site-option refusal raised during execution lost its `error_code` on the way out, so a caller could not tell a concurrency conflict from a bad value without reading the prose. The code travels with the message now.
+
+### Notes
+
+- Chrome's resting appearance stays in `components.css`; chrome roles ship no defaults, so an unstyled header and footer render exactly as before. An authored value wins by printing after the stylesheet, not by outranking it.
+- Emitted CSS for a 50-band page with no chrome and no background images is byte-identical to before. The 50-band build moved 2.01 ms → 2.13 ms, the cost of ordering declarations deterministically.
+- Chrome CSS is not gated on the page composition, so a 404 or search page carries it too.
+
+### Tests
+
+PHP 4927 → 4962; JS 1879 → 1880. Warnings and deprecations unchanged. `HeaderChromeTest` is replaced by `ChromeUdcTest` rather than edited: all 26 of its tests were about the surface that was removed. Repricing kept the footer's 75 content tests and re-pointed the batch-rollback specimen at `pp_site_udc`, where "a failed run leaves chrome as it found it" is a bigger promise than it was for one colour. The silent-shorthand loss was red-proofed on `main` before the fix and is pinned in both directions, including a determinism pin that the same map in two key orders emits identical bytes. The review army found four defects that unit assertions could not see — a compare-and-swap reading through a cache a concurrent writer cannot invalidate, an overlay resolving through a token emitting an invalid layer list that dropped the image with it, a size cap measured on the submitted bytes rather than the stored ones, and a corrupt row being overwritable by a baseline of `0` — and each is fixed with its own pin.
 
 ---
 
