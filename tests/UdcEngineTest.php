@@ -1540,4 +1540,116 @@ final class UdcEngineTest extends TestCase
             $this->assertSame('', pp_udc_band_css(['component' => $name, 'id' => 'pp-aabbccdd']));
         }
     }
+
+    // ── sizing.aspect-ratio (ruling D1, #986) ────────────────────────────────
+
+    /**
+     * THE FORWARD DIRECTION: a valid ratio authors through and paints.
+     *
+     * `aspect-ratio` is the one property the hero rebuild found with NO home in
+     * either v2 system — absent from the taxonomy AND from the structural-CSS
+     * lint's classification, which is fail-closed. Without this param the
+     * capability would have been deleted rather than migrated (the #901 class).
+     *
+     * The four accepted shapes are the v1 `ratio` type's, unchanged: the `auto`
+     * keyword (natural proportions — the type's own documented default, the same
+     * "own preset is settable" pattern `shadow: none` has), a bare positive
+     * number, and two positive numbers around a slash with or without spaces.
+     */
+    public function testAValidAspectRatioAuthorsThroughAndPaints(): void
+    {
+        foreach (['auto', '1', '1.6', '16/9', '4 / 3'] as $value) {
+            $band = $this->band(['avatar' => ['sizing' => ['aspect-ratio' => $value]]]);
+
+            $this->assertNull(
+                pp_udc_validate_map($band['udc'], 'testimonials'),
+                "aspect-ratio {$value} must be accepted at write"
+            );
+            $this->assertStringContainsString(
+                'aspect-ratio:' . $value . ';',
+                pp_udc_band_css(pp_udc_normalize_band($band)),
+                "aspect-ratio {$value} must reach the emitted band block verbatim"
+            );
+        }
+    }
+
+    /**
+     * THE REVERSE DIRECTION, and the half the ruling asked to be proven with the
+     * slash edge cases specifically — because `/` is GRAMMAR here, not a banned
+     * construct.
+     *
+     * The shared reject set bans the COMMENT delimiters `/*` and `*​/` but not a
+     * bare slash, so `16/9` clears the injection gate on its own merits and the
+     * ratio grammar is what has to reject everything below. Two failure families
+     * are deliberately covered together, because they are refused by different
+     * gates and a test that only covered one would let the other regress:
+     *
+     *   grammar      0, 16/0, -16/9, 1/2/3, 16//9, 16 9, calc(16/9), ''
+     *   injection    16/*9*​/, 16/9}, auto;color:red, url(x)
+     *
+     * Zero and negative are refused on BOTH sides of the slash: a zero denominator
+     * is a declaration that validates green and paints nothing, which is the I19
+     * class the engine refuses rather than emits.
+     */
+    public function testAMalformedOrHostileAspectRatioIsRefusedAtWrite(): void
+    {
+        $cases = [
+            '0', '16/0', '0/16', '-16/9', '16/-9', '1/2/3', '16//9', '16 9',
+            'calc(16/9)', '', '  ', 'auto auto', '16/9px', 'none',
+            '16/*9*/', '16/9}', 'auto;color:red', 'url(x)', 'var(--r)',
+        ];
+
+        foreach ($cases as $value) {
+            $error = pp_udc_validate_map(
+                ['avatar' => ['sizing' => ['aspect-ratio' => $value]]],
+                'testimonials'
+            );
+            $this->assertInstanceOf(
+                WP_Error::class,
+                $error,
+                sprintf('aspect-ratio %s must be refused at write', json_encode($value))
+            );
+        }
+    }
+
+    /**
+     * The emitter re-rejects a stored ratio the write gate would have refused, so
+     * data that reached storage another way (raw meta, a restore per #233) drops
+     * its own declaration instead of painting an inert or hostile one. The sibling
+     * of testAStoredValueThatNoLongerFitsItsGrammarDropsOnlyItsOwnDeclaration,
+     * pinned for this param because it is the newest one.
+     */
+    public function testAStoredHostileAspectRatioDropsOnlyItsOwnDeclaration(): void
+    {
+        $band = $this->band([
+            'avatar' => ['sizing' => ['aspect-ratio' => '16/9}', 'width' => '3rem']],
+        ]);
+        $css = pp_udc_band_css(pp_udc_normalize_band($band));
+
+        $this->assertStringNotContainsString('aspect-ratio', $css);
+        $this->assertStringNotContainsString('}' . 'aspect', $css);
+        $this->assertStringContainsString('width:3rem;', $css, 'the sibling declaration must survive');
+    }
+
+    /**
+     * ONE OWNER. The ratio grammar is _pp_validate_ratio() in lib/apply.php,
+     * reached through _pp_validate_token_value()'s `case 'ratio'` — the same route
+     * a v1 `ratio`-typed style slot takes. If this param ever grew its own
+     * validator the two surfaces could drift, which is the forked-grammar the repo
+     * architecture forbids; so the pin is that both routes agree, value for value.
+     */
+    public function testTheAspectRatioParamUsesTheSharedRatioGrammarAndNotASecondOne(): void
+    {
+        $param = pp_udc_groups()['sizing']['params']['aspect-ratio'];
+        $this->assertSame('ratio', $param['type']);
+        $this->assertSame('aspect-ratio', $param['property']);
+
+        foreach (['auto', '16/9', '1.6', '0', '16/0', '1/2/3', 'calc(16/9)'] as $value) {
+            $this->assertSame(
+                _pp_validate_token_value($value, 'ratio') === true,
+                pp_udc_validate_value($value, $param) === true,
+                sprintf('the udc param and the shared ratio grammar must agree on %s', json_encode($value))
+            );
+        }
+    }
 }

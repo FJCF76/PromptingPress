@@ -3160,6 +3160,19 @@ describe('CSS lint: v2 components keep NO designable value in their stylesheet',
         'letter-spacing', 'text-transform', 'text-decoration', 'text-decoration-line',
         'border-radius', 'border-width', 'border-color', 'border', 'gap', 'row-gap', 'column-gap',
         'opacity', 'text-align',
+        // aspect-ratio joined the engine as `sizing.aspect-ratio` (ruling D1, #986),
+        // so it is designable and belongs to a role, never to this stylesheet.
+        //
+        // IT WAS IN NEITHER SET BEFORE, WHICH IS THE WHOLE POINT. The unlisted-property
+        // arm below is fail-closed ("unrecognised property — classify it"), so while
+        // `aspect-ratio` had no engine param it had no legal home at all: a component
+        // declaring roles could neither author it nor keep it here. Classifying it
+        // lands in the SAME commit as the param, so the property has exactly one home
+        // at every commit — never zero, and never two.
+        //
+        // Legacy components are untouched: this set is scoped to the v2 boundary rule,
+        // and section/grid keep their own `aspect-ratio` rules until their rebuild.
+        'aspect-ratio',
     ]);
 
     // The box-spacing family is judged BY VALUE, not by name. `margin: 0 auto` centres a
@@ -3230,6 +3243,10 @@ describe('CSS lint: v2 components keep NO designable value in their stylesheet',
             'shadow':     'box-shadow: 0 2px 4px #0001',
             'background': 'background: #ffffff',
             'custom property': '--testimonials-quote-color: #111111',
+            // Ruling D1 (#986): the family that had no home until `sizing.aspect-ratio`
+            // shipped. Planted here so the boundary's power over it is proven rather
+            // than inferred — the same discipline as every other family above.
+            'aspect ratio': 'aspect-ratio: 16 / 9',
         };
         // A four-selector rule entirely inside ONE component must NOT be exempt.
         const wide = parseRules(

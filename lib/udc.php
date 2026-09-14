@@ -473,6 +473,29 @@ function pp_udc_groups(): array {
             // `none` is a real input and the declared default (#579, A-30).
             'max-width'  => ['property' => 'max-width',  'type' => 'length-or-none', 'signed' => false, 'max_values' => 1, 'keywords' => []],
             'max-height' => ['property' => 'max-height', 'type' => 'length-or-none', 'signed' => false, 'max_values' => 1, 'keywords' => []],
+            // ASPECT-RATIO (ruling D1, #986). The one property hero's rebuild found
+            // with NO home in either v2 system: no group emitted it, and the
+            // structural-CSS lint is fail-closed on unlisted properties
+            // (tests/js/css-lint.test.js, designOffencesIn()), so the moment a
+            // component declares roles its `aspect-ratio` could be neither authored
+            // here nor kept in the stylesheet. That is a capability DELETION, which
+            // is the #901 class the UDC exists to end — so the param joins the
+            // group rather than the capability being dropped.
+            //
+            // NO NEW GRAMMAR. `ratio` is the v1 slot type (#108), already owned by
+            // _pp_validate_ratio() in lib/apply.php and already dispatched by
+            // _pp_validate_token_value()'s `case 'ratio'`. Wiring it here is the
+            // whole change; a second validator would be the forked-grammar the repo
+            // architecture forbids.
+            //
+            // THE SLASH IS GRAMMAR HERE, NOT A DELIMITER. `16/9` carries a `/`, which
+            // the shared reject set deliberately does NOT ban (only the COMMENT
+            // delimiters `/*` and `*/`), so `16/9` clears _pp_forbidden_css_construct()
+            // while `16/*9*/` does not. The ratio grammar itself is what rejects
+            // `1/2/3`, `16//9`, `16 9` and `calc(16/9)`; zero and negative values are
+            // refused on both sides of the slash, because a zero denominator paints an
+            // inert declaration the browser silently drops (the I19 class).
+            'aspect-ratio' => ['property' => 'aspect-ratio', 'type' => 'ratio', 'signed' => false, 'max_values' => 1, 'keywords' => []],
         ]],
         // MOTION (Addendum A, ruling A3). Exactly two params, by the ruling.
         //
