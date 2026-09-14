@@ -686,4 +686,69 @@ final class CompositionFindingsBoundsTest extends TestCase
             . ' blocker (#655); either restore the order or make that selector severity-aware'
         );
     }
+
+    // ── E2: what the truncation dropped, by species (#981) ───────────────────
+
+    /**
+     * THE RED PROOF (E2). A truncated report lost the minting disclosure with no
+     * trace that it had ever existed.
+     *
+     * Findings arrive errors, then smells, then the UDC engine's disclosures, and
+     * the bound slices the HEAD — so the disclosures go first. One of them is not an
+     * observation about the composition but the no-coercion promise itself ("you
+     * wrote 19px; it is stored as a band token"). Losing it silently means the
+     * author is told their literal was rewritten by nobody.
+     */
+    public function testTheTruncationEntryCountsWhatItDroppedBySpecies(): void
+    {
+        $findings = [];
+        for ($i = 0; $i < PP_WRITE_FINDINGS_BUDGET; $i++) {
+            $findings[] = ['type' => 'invalid_prop_value', 'severity' => 'error', 'message' => 'x', 'index' => $i];
+        }
+        $findings[] = ['type' => 'udc_token_minted', 'severity' => 'warning', 'message' => 'm', 'index' => 0];
+        $findings[] = ['type' => 'udc_token_minted', 'severity' => 'warning', 'message' => 'm', 'index' => 1];
+        $findings[] = ['type' => 'udc_unused_band_token', 'severity' => 'warning', 'message' => 'u', 'index' => 2];
+
+        $bounded = _pp_bounded_findings($findings, 42);
+        $tail    = end($bounded);
+
+        $this->assertSame('findings_truncated', $tail['type']);
+        $this->assertSame(
+            ['udc_token_minted' => 2, 'udc_unused_band_token' => 1],
+            $tail['omitted_by_type'],
+            'the tail must say which species were dropped, and how many of each'
+        );
+    }
+
+    /**
+     * ANTI-DRIFT. The ratified #687 wording, severity and cap are untouched — this
+     * is an additive key, in exactly the shape `total` already set.
+     */
+    public function testTheRatifiedTruncationMessageAndSeverityAreUnchanged(): void
+    {
+        $findings = array_fill(0, PP_WRITE_FINDINGS_BUDGET + 1, [
+            'type' => 'invalid_prop_value', 'severity' => 'error', 'message' => 'x', 'index' => 0,
+        ]);
+
+        $bounded = _pp_bounded_findings($findings, 42);
+        $tail    = end($bounded);
+
+        $this->assertSame('warning', $tail['severity']);
+        $this->assertSame(
+            'Showing 100 of 101 findings and 1 more were omitted. Run `wp pp check page --post_id=42` for the complete report.',
+            $tail['message']
+        );
+        $this->assertSame(101, $tail['total']);
+    }
+
+    /** An untruncated report carries no key at all, so absence honestly means nothing was dropped. */
+    public function testAnUntruncatedReportCarriesNoOmittedCount(): void
+    {
+        $bounded = _pp_bounded_findings([
+            ['type' => 'udc_token_minted', 'severity' => 'warning', 'message' => 'm', 'index' => 0],
+        ], 42);
+
+        $this->assertCount(1, $bounded);
+        $this->assertArrayNotHasKey('omitted_by_type', $bounded[0]);
+    }
 }

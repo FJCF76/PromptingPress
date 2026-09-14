@@ -5317,6 +5317,39 @@ function _pp_bounded_findings(array $findings, ?int $post_id = null, int $budget
                 : 'wp pp check page --post_id=' . $post_id
         ),
         'index'    => null,
+        // WHAT WAS OMITTED, BY SPECIES (#981, boundary-review item E2).
+        //
+        // THE PROBLEM THIS CLOSES. Findings arrive errors, then smells, then the
+        // UDC engine's own disclosures (_pp_composition_findings), and this bounds
+        // by slicing the HEAD. So the disclosures are the first thing lost — and one
+        // of them, `udc_token_minted`, is not an observation about the composition
+        // but the §3.1 no-coercion promise itself: "you wrote 19px; it is stored as
+        // a band token". On a page with more than PP_WRITE_FINDINGS_BUDGET errors,
+        // that promise silently did not arrive, and nothing in the truncation tail
+        // hinted that a disclosure had been among the omitted. The author was told
+        // their literal was rewritten by nobody.
+        //
+        // WHY A COUNT RATHER THAN AN EXEMPTION, which is what the review first
+        // proposed. Hoisting the mint disclosure in front of the budget (the
+        // _pp_prepend_write_disclosures shape) would decide that one advisory
+        // species outranks up to 100 errors — reopening #687's ratified "flat
+        // per-report cap, not a per-severity quota" — and it would unbound the
+        // report on exactly the pathological page the cap exists for: one mint
+        // disclosure per minted token, with no ceiling. A count is honest about
+        // what is missing without deciding what may be dropped.
+        //
+        // Additive and severity-neutral in exactly the way `total` was: the message
+        // text is unchanged and still byte-identical to #687's ratified wording, the
+        // severity is unchanged, every existing consumer ignores the key, and it is
+        // present ONLY on a truncation entry — so an absent key honestly means
+        // nothing was omitted. The complete report is still one `wp pp check page`
+        // away, and that command is deliberately unbounded.
+        'omitted_by_type' => array_count_values(
+            array_map(
+                static fn(array $finding): string => (string) ($finding['type'] ?? ''),
+                array_slice($findings, $budget)
+            )
+        ),
         // THE TRUE TOTAL, STRUCTURALLY (#654). The message has always stated it in prose;
         // this states it in a field, because a consumer that RENDERS A COUNT cannot parse
         // prose and must not fall back to counting the array it was handed. The chat undo

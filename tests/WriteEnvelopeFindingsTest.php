@@ -555,12 +555,23 @@ final class WriteEnvelopeFindingsTest extends TestCase
      * anything that renders findings renders it without a branch.
      *
      * #654 added ONE key after those four — `total`, the true finding count as an integer —
-     * and the assertion is written as "the ordinary four, then exactly total" rather than
-     * relaxed to a subset check. A subset check would let a fifth key appear unnoticed, and
-     * the whole value of this pin is that a consumer can treat the tail as an ordinary
-     * finding. `total` earns its place because a consumer that renders a COUNT cannot parse
-     * the message and must not count the delivered array (the chat undo card did exactly
-     * that and reported 101 for 20,001); every other consumer ignores it.
+     * and the assertion is written as "the ordinary four, then exactly these" rather than
+     * relaxed to a subset check. A subset check would let a key appear unnoticed, and the
+     * whole value of this pin is that a consumer can treat the tail as an ordinary finding.
+     * `total` earns its place because a consumer that renders a COUNT cannot parse the
+     * message and must not count the delivered array (the chat undo card did exactly that
+     * and reported 101 for 20,001); every other consumer ignores it.
+     *
+     * #981 added `omitted_by_type` on the same terms and for the same kind of reason: the
+     * report is sliced from the head, so the UDC disclosures at the tail are the first
+     * thing dropped — including `udc_token_minted`, which is not an observation about the
+     * composition but the no-coercion promise itself. Without a count, a truncated envelope
+     * gave the author no hint that the promise had been omitted. Additive, severity-neutral,
+     * ignored by every existing consumer, and present only on a truncation entry.
+     *
+     * THE EXPECTED LIST IS DELIBERATELY EXHAUSTIVE. Adding a key here is a change to what
+     * every findings consumer receives, so it should cost a failing test and a decision —
+     * that is this pin working, not this pin being in the way.
      */
     public function testTheTruncationFindingHasTheOrdinaryFindingShape(): void
     {
@@ -570,13 +581,17 @@ final class WriteEnvelopeFindingsTest extends TestCase
         ]);
         $tail = end($result['findings']);
 
-        $this->assertSame(['type', 'severity', 'message', 'index', 'total'], array_keys($tail));
+        $this->assertSame(
+            ['type', 'severity', 'message', 'index', 'omitted_by_type', 'total'],
+            array_keys($tail)
+        );
         $this->assertSame(
             ['type', 'severity', 'message', 'index'],
             array_slice(array_keys($tail), 0, 4),
             'the ordinary four come first and in order, so a generic renderer needs no branch'
         );
         $this->assertIsInt($tail['total']);
+        $this->assertIsArray($tail['omitted_by_type']);
     }
 
     // ── 5b. The bounding helper, directly at its boundaries ─────────────────────
