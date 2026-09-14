@@ -120,10 +120,34 @@ add_action('wp_enqueue_scripts', function () {
         $ver
     );
 
+    // DEPENDS ON pp-components, AND THAT IS THE CASCADE, NOT HOUSEKEEPING (B2).
+    //
+    // The authored UDC tier and the authored chrome tier both ride this handle
+    // precisely because it prints AFTER components.css — position is the entire
+    // ranking mechanism (see the two-layer note below; both layers are zero- or
+    // low-specificity by construction, so nothing else expresses the order).
+    //
+    // Declaring only ['pp-base'] made pp-utilities a SIBLING of pp-components in
+    // WordPress's dependency graph, which left their relative print order decided
+    // by nothing but which of these two calls runs first in this closure. Reorder
+    // them, split the closure, or let a plugin dequeue and re-enqueue
+    // pp-components (which moves it to the tail of the queue) and every authored
+    // band value and every authored chrome value silently drops BENEATH the
+    // stylesheet it exists to override — with no error, and with the whole suite
+    // still green, because the inline-style attachments would be unchanged.
+    //
+    // Naming the dependency hands that ordering to WordPress's resolver instead.
+    // It is a no-op on a clean request — these calls are already in this order —
+    // which is what makes it safe to state.
+    //
+    // It closes the ACCIDENT, not the adversary: anything printed after this
+    // handle (Customizer Additional CSS, a child theme, a plugin's late enqueue)
+    // still outranks the authored tier at equal specificity. Only @layer closes
+    // that, and §3.4 forbids `!important`; that stays its own ruling.
     wp_enqueue_style(
         'pp-utilities',
         $dir . '/assets/css/utilities.css',
-        ['pp-base'],
+        ['pp-base', 'pp-components'],
         $ver
     );
 

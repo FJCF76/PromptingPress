@@ -227,6 +227,44 @@ final class PreviewCascadeParityTest extends TestCase
     }
 
     /**
+     * The authored tier's RANK is a stylesheet dependency, not a queue accident (B2).
+     *
+     * THE WHOLE CASCADE RESTS ON ONE ORDERING and until this pin the ordering rested
+     * on nothing. `pp-components` and `pp-utilities` both declared `['pp-base']`, which
+     * makes them SIBLINGS in WordPress's dependency graph: their relative print order
+     * was decided purely by which `wp_enqueue_style()` call happened to run first inside
+     * one anonymous closure. The authored UDC tier and the authored chrome tier both ride
+     * `pp-utilities` and both are supposed to outrank `components.css` — so anything that
+     * reordered those two calls, split the closure, or dequeued and re-enqueued
+     * `pp-components` (which moves it to the tail of the queue) would have silently put
+     * every authored band value and every authored chrome value BENEATH the stylesheet
+     * they exist to override. Nothing in the suite would have gone red: the four
+     * `wp_add_inline_style` assertions above stay green because the attachments are
+     * unchanged.
+     *
+     * Declaring the dependency hands the ordering to WordPress's own resolver, which
+     * survives dequeue/re-enqueue and queue reordering. It is a no-op on a clean request
+     * — the calls are already in this order — which is exactly why it is safe.
+     *
+     * BE PRECISE ABOUT WHAT THIS DOES NOT BUY. It closes the ACCIDENT, not the
+     * adversary: anything printed after `pp-utilities` (Customizer Additional CSS, a
+     * child theme, a plugin's late enqueue) still outranks the authored tier at equal
+     * specificity. Only `@layer` closes that, and §3.4 forbids `!important`; that is a
+     * ruling on its own axis, not this pin's business.
+     */
+    public function testTheAuthoredTierRanksByDependencyRatherThanByQueueOrder(): void
+    {
+        $source = file_get_contents(dirname(__DIR__) . '/functions.php');
+        $this->assertIsString($source);
+
+        $this->assertMatchesRegularExpression(
+            "/wp_enqueue_style\(\s*'pp-utilities',[^;]*\[\s*'pp-base',\s*'pp-components'\s*\]/s",
+            $source,
+            'pp-utilities must DEPEND on pp-components, or the authored tier can print first'
+        );
+    }
+
+    /**
      * AND THE PREVIEW ENDPOINT MUST ACTUALLY CALL IT.
      *
      * Everything above exercises pp_preview_document_head() in isolation, which
