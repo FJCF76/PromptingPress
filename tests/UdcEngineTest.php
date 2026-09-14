@@ -418,7 +418,7 @@ final class UdcEngineTest extends TestCase
 
             $this->assertSame('', pp_udc_band_css($item), 'no id, no block');
 
-            $compiled = pp_udc_compile_band($item);
+            $compiled = pp_udc_compile_band($item, 'all');
             $this->assertSame('', $compiled['id'], 'and the read must not invent one');
             $this->assertSame([], $compiled['blocks']);
         }
@@ -623,7 +623,7 @@ final class UdcEngineTest extends TestCase
             'quote'   => ['typography' => ['size' => '@used']],
         ]);
 
-        $compiled = pp_udc_compile_band($item);
+        $compiled = pp_udc_compile_band($item, 'all');
         $this->assertArrayHasKey('used', $compiled['tokens']);
         $this->assertArrayNotHasKey('orphan', $compiled['tokens'], 'an unreferenced token emits nothing');
 
@@ -695,11 +695,189 @@ final class UdcEngineTest extends TestCase
         $this->assertStringContainsString('tk', $error->get_error_message());
     }
 
+    // ── The same gate, on the door the author actually uses ──────────────────
+
+    /**
+     * THE AUTHORED HALF OF THE SAME HAZARD, which the guard did not cover.
+     *
+     * `_pp_udc_delimiters_balanced()` was called from one place — the `_tokens`
+     * loop — so a value submitted as a PARAMETER never met it. It met only the
+     * shared reject set (which bans `{ } ; < >` and says nothing about an
+     * unbalanced `(`) and its parameter's grammar, and `font-family`'s grammar
+     * accepted any non-empty string. `rgb(` therefore validated, stored, and
+     * emitted into the band's block as CSS source text.
+     *
+     * These are the review's own vectors, built here rather than pasted so the
+     * shape of each one is visible: an odd quote count, an open paren, and the
+     * open paren that also looks like a function.
+     */
+    public function testAnAuthoredValueWithAnUnbalancedDelimiterIsRefusedAtWrite(): void
+    {
+        $vectors = [
+            'odd double quote' => 'Foo' . '"' . 'Bar',
+            'open paren'       => 'Foo' . '(',
+            'function-shaped'  => 'rgb' . '(',
+            'odd apostrophe'   => 'Foo' . "'" . 'Bar',
+        ];
+
+        foreach ($vectors as $label => $payload) {
+            $error = pp_udc_validate_map(
+                ['quote' => ['typography' => ['family' => $payload]]],
+                'testimonials'
+            );
+            $this->assertInstanceOf(WP_Error::class, $error, "{$label}: must be refused");
+            $this->assertSame('invalid_prop_value', $error->get_error_code(), $label);
+            // The message has to name the parameter, or the author cannot act on it.
+            $this->assertStringContainsString('family', $error->get_error_message(), $label);
+            // AND IT HAS TO BE THE GATE THAT REFUSED, not the family grammar.
+            //
+            // Both now refuse these vectors, so "it was refused" proves nothing
+            // about the fix this issue is about: deleting the gate call from
+            // pp_udc_validate_value() leaves the whole suite green, because
+            // `font-family` falls through to the tightened _pp_validate_font_family()
+            // which independently rejects all four. The gate runs FIRST and its
+            // message is the only one that says this, so asserting the message is
+            // what makes this test go red when the gate is removed.
+            $this->assertStringContainsString(
+                'swallow every declaration',
+                $error->get_error_message(),
+                "{$label}: the delimiter gate must be what refuses, not the per-type grammar"
+            );
+        }
+    }
+
+    /**
+     * THE SAME REFUSAL THROUGH THE REAL AUTHORING SURFACE (rule 14.1).
+     *
+     * Everything above calls pp_udc_validate_map() directly, one hop below where
+     * an author actually writes. That hop matters: lib/admin.php wraps a udc
+     * refusal through `_pp_claim_item_finding()`, and whether a finding BLOCKS a
+     * write or is merely reported depends on the sink — `restore_composition`
+     * reports without blocking (#233). So a direct-validator test cannot tell
+     * "refused" from "stored with a finding attached", which is the difference
+     * the whole gate exists to make.
+     *
+     * This one goes through `create_page`, the surface the authoring model uses.
+     */
+    public function testAnUnbalancedAuthoredValueIsRefusedThroughTheRealWriteSurface(): void
+    {
+        $result = pp_validate_action('create_page', [
+            'title'       => 'Hostile family',
+            'composition' => [$this->band(['quote' => ['typography' => ['family' => 'rgb' . '(']]])],
+        ]);
+
+        $this->assertInstanceOf(WP_Error::class, $result, 'the real write surface must refuse it');
+        $this->assertSame('invalid_prop_value', $result->get_error_code());
+
+        $message = $result->get_error_message();
+        // Locates the failure for the author: which band, which role, which
+        // group, which parameter — and that the delimiter gate is what fired.
+        $this->assertStringContainsString('testimonials', $message);
+        $this->assertStringContainsString('quote', $message);
+        $this->assertStringContainsString('typography', $message);
+        $this->assertStringContainsString('family', $message);
+        $this->assertStringContainsString('swallow every declaration', $message);
+    }
+
+    /**
+     * And the second layer, for data that never passed the write gate — a raw
+     * meta write, a row written before this rule, or restore_composition, which
+     * reports findings without blocking (#233).
+     *
+     * The declaration drops; the band keeps painting. A guard that blanked the
+     * whole block would turn one bad value into a dead page, which is the
+     * failure the #330 render boundary was shaped to avoid.
+     */
+    public function testAStoredAuthoredValueWithAnUnbalancedDelimiterCannotSwallowTheStylesheet(): void
+    {
+        foreach (['Foo' . '"' . 'Bar', 'Foo' . '(', 'rgb' . '('] as $payload) {
+            $css = pp_udc_page_authored_css([[
+                'component' => 'testimonials',
+                'id'        => 'pp-aabbccdd',
+                'props'     => [],
+                'udc'       => ['quote' => ['typography' => [
+                    'family' => $payload,
+                    'style'  => 'italic',
+                ]]],
+            ]]);
+
+            $this->assertStringNotContainsString('font-family', $css, "{$payload}: must not be emitted");
+            $this->assertSame(substr_count($css, '{'), substr_count($css, '}'), "{$payload}: braces balanced");
+            $this->assertSame(substr_count($css, '('), substr_count($css, ')'), "{$payload}: parens balanced");
+            $this->assertSame(0, substr_count($css, '"') % 2, "{$payload}: quotes balanced");
+            // The sibling declaration in the same group still paints.
+            $this->assertStringContainsString('font-style:italic', $css, "{$payload}: siblings survive");
+        }
+    }
+
+    /**
+     * THE GATE MUST COST NOTHING THAT THE GRAMMARS ALREADY ALLOW.
+     *
+     * A balance check placed ahead of every typed grammar is only safe if no
+     * value those grammars accept is unbalanced — otherwise it silently narrows
+     * the accepted set of every parameter at once, which is the opposite of the
+     * defect it was added for. Every well-formed CSS value IS balanced, so this
+     * should hold by construction; asserting it converts "should" into a pin
+     * that fails the day someone adds a grammar with a string literal in it.
+     *
+     * The corpus is the shapes the unified grammar actually accepts, one per
+     * family, including the function-bearing ones where the risk would live.
+     */
+    public function testTheDelimiterGateRefusesNothingTheGrammarsAccept(): void
+    {
+        // Addressed by ROLE.GROUP.PARAM so each value goes through the parameter
+        // that really carries it. Asserting against _pp_udc_delimiters_balanced()
+        // directly would decouple this from the grammars it claims to speak for:
+        // a hand-written literal proves only that the literal is balanced, while
+        // pp_udc_validate_value() proves the gate and the grammar agree — which
+        // is the property that matters, since the gate now runs ahead of every
+        // grammar and can veto any of them.
+        $groups = pp_udc_groups();
+        $corpus = [
+            ['typography', 'size',           ['19px', '0', '1.5rem', '70ch', '100%', '4vmin',
+                                              'calc(100% - 2rem)', 'clamp(1rem, 2vw, 3rem)']],
+            ['typography', 'letter-spacing', ['-0.02em', '0']],
+            ['typography', 'color',          ['#fff', '#ffffff', 'rgb(255, 0, 0)', 'rgba(0, 0, 0, 0.55)',
+                                              'hsl(120, 50%, 50%)', 'transparent', 'currentColor']],
+            ['typography', 'family',         ['system-ui, sans-serif', '"Helvetica Neue", Helvetica, sans-serif',
+                                              "ui-monospace, 'Cascadia Code', monospace", 'var(--font-heading)']],
+            ['typography', 'style',          ['italic', 'normal']],
+            ['typography', 'weight',         ['600', 'bold']],
+            ['typography', 'line-height',    ['1.6']],
+            ['typography', 'transform',      ['uppercase']],
+            ['typography', 'align',          ['center']],
+            ['typography', 'wrap',           ['balance']],
+            ['typography', 'decoration',     ['underline']],
+            ['spacing',    'margin',         ['0 auto']],
+            ['spacing',    'padding',        ['1rem 2rem 3rem 4rem']],
+            // The two remaining FUNCTION-BEARING types, which is exactly where a
+            // paren-counting gate could plausibly bite.
+            ['shadow',     'box',            ['0 4px 12px rgba(0, 0, 0, 0.1)', 'none', 'var(--shadow-md)']],
+            ['background', 'fill',           ['#ffffff', 'transparent',
+                                              'linear-gradient(135deg, #fff, #000)',
+                                              'radial-gradient(circle at top left, #fff, #000)']],
+        ];
+
+        $checked = 0;
+        foreach ($corpus as [$group, $param, $values]) {
+            $spec = $groups[$group]['params'][$param] ?? null;
+            $this->assertNotNull($spec, "the corpus names a real parameter: {$group}.{$param}");
+            foreach ($values as $value) {
+                $checked++;
+                $this->assertTrue(
+                    pp_udc_validate_value($value, $spec) === true,
+                    "{$group}.{$param}: the engine must still accept {$value}"
+                );
+            }
+        }
+        $this->assertGreaterThan(30, $checked, 'the corpus must actually be exercised');
+    }
+
     public function testEveryEmittedDeclarationKnowsWhichLayerProducedIt(): void
     {
         $compiled = pp_udc_compile_band($this->band([
             'quote' => ['typography' => ['size' => '19px']],
-        ]));
+        ]), 'all');
 
         $quote = null;
         foreach ($compiled['blocks'] as $block) {

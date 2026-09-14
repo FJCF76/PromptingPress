@@ -4883,27 +4883,74 @@ add_action('wp_ajax_pp_preview_composition', function () {
 
     $body = ob_get_clean();
 
-    // Same emitter, same output, one function: a preview that computed its CSS
-    // a second way would diverge from the live page exactly where it matters.
-    $pp_udc_css = pp_udc_page_css($composition);
-    $pp_udc_preview_style = $pp_udc_css !== '' ? '<style id="pp-udc-bands">' . $pp_udc_css . '</style>' : '';
-
     $html = '<!DOCTYPE html><html><head>'
-        . '<meta charset="UTF-8">'
-        . '<meta name="viewport" content="width=device-width,initial-scale=1">'
-        . '<link rel="stylesheet" href="' . esc_url($dir_uri) . '/assets/css/base.css">'
-        . '<link rel="stylesheet" href="' . esc_url($dir_uri) . '/assets/css/components.css">'
-        . '<link rel="stylesheet" href="' . esc_url($dir_uri) . '/assets/css/utilities.css">'
-        // The preview builds its own <head> and never calls wp_head(), so the v2
-        // band blocks have to be emitted here EXPLICITLY. Without this line the
-        // preview would render every v2 band with structural CSS only — showing
-        // the operator something the live page will never look like, which is
-        // worse than showing nothing.
-        . $pp_udc_preview_style
+        . pp_preview_document_head($composition, $dir_uri)
         . '</head><body>' . $body . '</body></html>';
 
     wp_send_json_success(['html' => $html]);
 });
+
+/**
+ * The preview iframe's <head>: the theme stylesheets plus the v2 UDC layers,
+ * each at the position the front end puts it.
+ *
+ * A NAMED FUNCTION BECAUSE THE ORDER IS THE CONTRACT. The preview builds its own
+ * head and never calls wp_head(), so nothing about the front end's emission
+ * reaches it automatically — it has to be restated, and a restatement that is
+ * not pinned is a copy waiting to drift. It lived inside the AJAX closure, where
+ * no test could reach it, and it drifted immediately.
+ *
+ * WHAT IT DRIFTED INTO, and why it mattered: the preview emitted
+ * pp_udc_page_css() — both tiers concatenated — in ONE block after all three
+ * stylesheets. Both tiers are zero-or-low specificity by construction, so their
+ * ranking IS their position and nothing else; printing the defaults tier after
+ * components.css inverted it. In the preview a component's own role default beat
+ * the shared design-system rules; on the front end it loses to them. The
+ * operator was shown a page the site will never render, and the divergence is
+ * invisible until two v2 components are on one page.
+ *
+ * The positions below mirror functions.php's two stylesheet handles. Only the
+ * INLINE blocks are the cascade tiers; the three stylesheets are the structural
+ * CSS they rank against.
+ *
+ *     front end (wp_head)                      preview (this function)
+ *     ───────────────────────────────────      ──────────────────────────────
+ *     <link base.css>                          <link base.css>
+ *     inline on `pp-base`: :root overrides     (ABSENT — see #963)
+ *     inline on `pp-base`      <- DEFAULTS     <style id="pp-udc-defaults">
+ *     <link components.css>                    <link components.css>
+ *     <link utilities.css>                     <link utilities.css>
+ *     inline on `pp-utilities` <- AUTHORED     <style id="pp-udc-authored">
+ *
+ * THE THIRD ROW IS A KNOWN DIVERGENCE, not an omission in this drawing. The
+ * site's design-token overrides (`pp_token_overrides`) and its enqueued webfonts
+ * are emitted by the same front-end callback and reach the preview nowhere, so a
+ * site that has retuned a token previews with the theme's stock value. That
+ * predates this function and is filed as #963; it is NOT the tier inversion this
+ * function fixes, and it is drawn here so the next reader does not have to
+ * rediscover it.
+ *
+ * Keep this in step with the enqueue callback in functions.php; the ordering is
+ * pinned from both ends (PreviewCascadeParityTest) so a one-sided edit fails.
+ */
+function pp_preview_document_head(array $composition, string $dir_uri): string {
+    $link = static fn(string $file): string =>
+        '<link rel="stylesheet" href="' . esc_url($dir_uri) . '/assets/css/' . $file . '">';
+
+    // Same emitter, same output, same two functions the front end calls: a
+    // preview that computed its CSS a second way would diverge from the live
+    // page exactly where it matters.
+    $defaults = pp_udc_page_defaults_css($composition);
+    $authored = pp_udc_page_authored_css($composition);
+
+    return '<meta charset="UTF-8">'
+        . '<meta name="viewport" content="width=device-width,initial-scale=1">'
+        . $link('base.css')
+        . ($defaults !== '' ? '<style id="pp-udc-defaults">' . $defaults . '</style>' : '')
+        . $link('components.css')
+        . $link('utilities.css')
+        . ($authored !== '' ? '<style id="pp-udc-authored">' . $authored . '</style>' : '');
+}
 
 // ── AJAX: Save Title ──────────────────────────────────────────────────────────
 

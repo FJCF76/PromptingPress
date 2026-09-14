@@ -893,6 +893,247 @@ class ApplyTest extends TestCase
         $this->assertEquals('empty_value', $result->get_error_code());
     }
 
+    /**
+     * The font-family grammar is an ALLOWLIST now, and this is the accepted set.
+     *
+     * It used to be "split on commas, accept anything left", which made every
+     * string a font family. That is load-bearing because two of this type's
+     * sinks are CSS SOURCE TEXT, not the escaped `style` attribute the shared
+     * reject set was written for: the v2 `typography.family` parameter, and the
+     * `--font-*` design tokens that functions.php emits as `:root { … }`.
+     */
+    public function testFontFamilyAcceptsEveryLegitimateStackShape(): void
+    {
+        $accepted = [
+            'generic'              => 'sans-serif',
+            'plain stack'          => 'Inter, system-ui, sans-serif',
+            'hyphenated system'    => '-apple-system, BlinkMacSystemFont, ui-monospace',
+            'digits and spaces'    => 'Font Awesome 5 Free, sans-serif',
+            'underscore'           => 'My_Face, serif',
+            'double-quoted'        => '"Helvetica Neue", Helvetica, Arial, sans-serif',
+            'single-quoted'        => "ui-monospace, 'Cascadia Code', 'DejaVu Sans Mono', monospace",
+            'token reference'      => 'var(--font-heading)',
+            'token in a stack'     => 'var(--font-mono), monospace',
+            'inherit'              => 'inherit',
+        ];
+
+        foreach ($accepted as $label => $value) {
+            $this->assertTrue(
+                _pp_validate_font_family($value),
+                "{$label}: {$value} must stay accepted"
+            );
+        }
+    }
+
+    /**
+     * The vectors from the contract-boundary review, plus the shapes the new
+     * grammar necessarily excludes. Built programmatically so each payload's
+     * shape is visible rather than buried in a quoted literal.
+     */
+    public function testFontFamilyRefusesUnbalancedAndUngrammaticalNames(): void
+    {
+        $refused = [
+            'odd double quote'    => 'Foo' . '"' . 'Bar',
+            'open paren'          => 'Foo' . '(',
+            'function-shaped'     => 'rgb' . '(',
+            'odd apostrophe'      => "Foo'Bar",
+            'quote closes early'  => '"Foo"Bar"',
+            'unterminated quote'  => '"Helvetica Neue',
+            'var with fallback'   => 'var(--font-heading, serif)',
+            'nested var'          => 'var(var(--x))',
+            'empty name'          => 'Inter,, serif',
+            'trailing comma'      => 'Inter, ',
+            'punctuation'         => 'Foo.Bar',
+        ];
+
+        foreach ($refused as $label => $value) {
+            $this->assertFalse(
+                _pp_validate_font_family($value),
+                "{$label}: {$value} must be refused"
+            );
+        }
+    }
+
+    /**
+     * A RECORDED GAP, pinned rather than described.
+     *
+     * `font-family` accepts a `var()` reference by SHAPE only: it never checks
+     * that the token exists or is font-typed, so `var(--font-headingg)` (a typo)
+     * validates and then paints nothing. `color` does check both (#230), which
+     * makes this an inconsistency in the no-dangling-references guarantee rather
+     * than a security gap — the shape itself cannot carry a delimiter.
+     *
+     * It is pinned HERE, in a test, for the same reason E3 exists in this change:
+     * a claim about what is and is not covered, living only in a comment, is a
+     * claim nobody re-checks. This records the CURRENT behaviour and the
+     * asymmetry, so closing the gap is a deliberate red/green decision instead of
+     * a silent one.
+     *
+     * @todo #230 — decide whether font-family should require a registered,
+     *       font-typed token the way color does. Narrowing an accepted input is
+     *       a ruling, not a cleanup, so it was not taken here.
+     */
+    public function testAFontFamilyTokenReferenceIsShapeCheckedOnlyUnlikeColor(): void
+    {
+        // Accepted today: the shape is right, the target is not checked.
+        $this->assertTrue(_pp_validate_font_family('var(--font-headingg)'));
+        $this->assertTrue(_pp_validate_font_family('var(--space-lg)'));
+
+        // The colour equivalent is refused, which is the asymmetry being recorded.
+        $this->assertInstanceOf(
+            WP_Error::class,
+            _pp_validate_token_value('var(--color-accentt)', 'color')
+        );
+
+        // What the shape check DOES own stays closed: no fallback, no nesting.
+        $this->assertFalse(_pp_validate_font_family('var(--font-heading, serif)'));
+        $this->assertFalse(_pp_validate_font_family('var(var(--x))'));
+    }
+
+    /**
+     * THE OTHER TWO SURFACES THAT REACH CSS, refused through their REAL entry
+     * points rather than through the validator.
+     *
+     * The font-family docblock names three sinks; only the v2 one had a negative
+     * test. These are the other two: `enqueue_font`'s `family` (which becomes a
+     * `--font-heading`/`--font-body` override) and a direct design-token write
+     * (which functions.php emits as a `:root { … }` inline stylesheet). Both also
+     * record the NARROWING — `Foo (Bold)` was accepted by the old any-string
+     * check and is refused now — so the boundary is visible rather than implied.
+     */
+    public function testTheOtherFontFamilySurfacesRefuseTheSameValues(): void
+    {
+        foreach (['rgb' . '(', 'Foo' . '"' . 'Bar', 'Foo (Bold), sans-serif'] as $bad) {
+            $enqueue = pp_validate_apply('enqueue_font', [
+                'url'    => 'https://fonts.googleapis.com/css2?family=Inter',
+                'family' => $bad,
+            ]);
+            $this->assertInstanceOf(WP_Error::class, $enqueue, "enqueue_font must refuse {$bad}");
+            $this->assertSame('invalid_font_family', $enqueue->get_error_code(), $bad);
+
+            $token = pp_validate_apply('update_design_token', [
+                'token' => '--font-body',
+                'value' => $bad,
+            ]);
+            $this->assertInstanceOf(WP_Error::class, $token, "the design token must refuse {$bad}");
+        }
+
+        // The boundary in the other direction: a well-formed stack still lands on
+        // both surfaces, so the narrowing did not swallow the ordinary case.
+        $this->assertTrue(pp_validate_apply('enqueue_font', [
+            'url'    => 'https://fonts.googleapis.com/css2?family=Inter',
+            'family' => '"Inter", system-ui, sans-serif',
+        ]));
+        $this->assertTrue(pp_validate_apply('update_design_token', [
+            'token' => '--font-body',
+            'value' => '"Inter", system-ui, sans-serif',
+        ]));
+    }
+
+    /**
+     * THE VALIDATOR MUST BE SAFE WHEN CALLED ALONE.
+     *
+     * Two of its three callers run the shared reject set before it; `enqueue_font`'s
+     * validate arm does not, and on `apply_to` the family it accepts is concatenated
+     * straight into a `--font-heading`/`--font-body` override that functions.php
+     * emits as a `:root { … }` inline stylesheet. A fully quoted name accepts any
+     * interior byte that is not its own quote character, so without the reject set
+     * inside the validator a "font name" could close the declaration, the rule and
+     * the style element. Asserted against the validator DIRECTLY, not through a
+     * caller that would mask it.
+     */
+    public function testFontFamilyRefusesCssSourceEscapesEvenInsideAQuotedName(): void
+    {
+        $escapes = [
+            'closes the style element' => '"a;}</style><script>x</script>"',
+            'closes the rule'          => '"a}body{display:none"',
+            'declaration separator'    => '"Helvetica; color:red"',
+            'comment delimiter'        => '"Helvetica/*"',
+            'url function'             => '"url(evil)"',
+        ];
+
+        foreach ($escapes as $label => $value) {
+            $this->assertFalse(
+                _pp_validate_font_family($value),
+                "{$label}: {$value} must be refused by the validator itself"
+            );
+        }
+    }
+
+    /**
+     * THE REACH CHECK, run as a test rather than asserted in a commit message.
+     *
+     * A grammar that narrows is only honest if the narrowing was measured, and
+     * the measurement has to keep running: a schema default or a base.css font
+     * token added later must not be a value no author could author. Every
+     * font-family-typed default the theme ships is swept here against the
+     * grammar that now guards the type.
+     */
+    public function testEveryShippedFontFamilyValueStillValidates(): void
+    {
+        $tokens = 0;
+        $slots  = 0;
+        $params = 0;
+
+        foreach (pp_design_tokens() as $name => $meta) {
+            if (($meta['type'] ?? null) !== 'font-family') {
+                continue;
+            }
+            $tokens++;
+            $this->assertTrue(
+                _pp_validate_font_family((string) $meta['value']),
+                "design token {$name} ships a value its own type now refuses: {$meta['value']}"
+            );
+        }
+
+        // `styling.style_slots`, which is where a component schema actually keeps
+        // its slots. An earlier draft of this test read `$schema['style']`, a key
+        // no schema has: the loop swept ZERO slots, and the one guard meant to
+        // catch that was satisfied by the design tokens from the loop above. The
+        // test reported a reach check it had not performed — which is the same
+        // class of defect as the E3 pin this change exists to fix. Hence three
+        // counters and three guards below, one per source, so a dead loop cannot
+        // hide behind a live one.
+        foreach (glob(dirname(__DIR__) . '/components/*/schema.json') as $file) {
+            $schema = json_decode((string) file_get_contents($file), true);
+            foreach (($schema['styling']['style_slots'] ?? []) as $slot => $def) {
+                if (($def['type'] ?? null) !== 'font-family' || !isset($def['default'])) {
+                    continue;
+                }
+                $slots++;
+                $this->assertTrue(
+                    _pp_validate_font_family((string) $def['default']),
+                    "{$slot} in " . basename(dirname($file)) . " defaults to a value its type now refuses: {$def['default']}"
+                );
+            }
+        }
+
+        // And the v2 side: any role default declared on a font-family UDC param.
+        foreach (glob(dirname(__DIR__) . '/components/*/schema.json') as $file) {
+            $schema = json_decode((string) file_get_contents($file), true);
+            foreach (($schema['roles'] ?? []) as $role => $def) {
+                $family = $def['defaults']['typography']['family'] ?? null;
+                if (!is_string($family)) {
+                    continue;
+                }
+                $params++;
+                // A role default may be an `@token` reference, which is resolved
+                // by the engine and never reaches the family grammar as a literal.
+                if (pp_udc_parse_reference($family) !== null) {
+                    continue;
+                }
+                $this->assertTrue(
+                    _pp_validate_font_family($family),
+                    "role {$role} in " . basename(dirname($file)) . " defaults to a family its type now refuses: {$family}"
+                );
+            }
+        }
+
+        $this->assertGreaterThan(0, $tokens, 'the design-token sweep must find font-family tokens');
+        $this->assertGreaterThan(0, $slots, 'the style-slot sweep must find font-family slots');
+        $this->assertGreaterThan(0, $params, 'the UDC role-default sweep must find a family default');
+    }
+
     // ── Type-specific validation: duration ──────────────────────────────────
 
     public function testDurationValidMs(): void
