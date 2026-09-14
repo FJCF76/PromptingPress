@@ -301,7 +301,12 @@ function _pp_check_token_reference_cycle(string $token, string $value) {
             ));
         }
         if (!isset($tokens[$next])) {
-            return true; // dangling — the type validator already rejects this
+            // Dangling. The type validator rejects this for `color`, which is the
+            // type this walk was written for; `font-family` also accepts a bare
+            // var() but checks only its SHAPE, so a dangling font reference is
+            // accepted there and paints nothing (see _pp_validate_font_family()).
+            // Either way there is no cycle to report, which is all this owns.
+            return true;
         }
         $follow = _pp_parse_token_reference(trim($tokens[$next]['value']));
         if ($follow === null) {
@@ -547,17 +552,114 @@ function _pp_validate_length(string $value, bool $allow_none = false): bool {
 }
 
 /**
- * Validates a CSS font-family value.
- * Accepts: comma-separated font names.
+ * The one refusal message for a font-family value — every caller says it.
+ *
+ * It states the ACCEPTED grammar rather than restating the type's name. The old
+ * message ("must be a comma-separated list of font names") described a check
+ * that accepted everything, so it could never tell an author what was wrong.
+ */
+function _pp_font_family_message(string $subject = 'Value'): string {
+    return $subject . ' must be a comma-separated list of font names, each one either an '
+        . 'unquoted name of letters, digits, spaces, hyphens or underscores (e.g. Helvetica, '
+        . '-apple-system, sans-serif), a fully quoted name (e.g. "Helvetica Neue" — quote any '
+        . 'name carrying other characters), or a single token reference such as '
+        . 'var(--font-heading), with no fallback and no nesting.';
+}
+
+/**
+ * Validates a CSS font-family value: a comma-separated list of font names.
+ *
+ * THIS USED TO BE A LENGTH CHECK WEARING A GRAMMAR'S NAME. It split on commas
+ * and returned true when anything was left, so every string was a font family —
+ * `rgb(`, `Foo"Bar`, `x;}</style>` included. That is load-bearing in two places
+ * whose sink is CSS SOURCE TEXT, not the escaped `style` attribute the shared
+ * reject set was written for:
+ *
+ *   - the v2 UDC `typography.family` parameter, emitted into a band's block;
+ *   - the `--font-body` / `--font-heading` / `--font-mono` design tokens, which
+ *     functions.php emits as a `:root { … }` inline stylesheet.
+ *
+ * In both, CSS tokenization treats an unbalanced `(` or an unclosed quote as
+ * still open and consumes the terminating `;`, the closing `}`, and every rule
+ * after it. An allowlist is the only shape that closes that, so each
+ * comma-separated name must now be one of exactly three things:
+ *
+ *   1. a bare `var(--token)` reference, through _pp_parse_token_reference() —
+ *      the SAME parser `color` uses, so the no-fallback/no-nesting/no-space
+ *      rule has one owner. Required: lib/ai-context.php tells the authoring
+ *      model that `font-family` takes a font token, two component schemas
+ *      instruct `var(--font-heading)` by name, and a test pins it.
+ *      ONLY THE SHAPE, NOT THE TARGET — and the difference is worth naming
+ *      because `color` does more here. _pp_validate_color() additionally
+ *      requires the referenced token to EXIST in pp_design_tokens() and to be
+ *      colour-typed, so a dangling or wrong-typed colour reference is refused
+ *      (#230). font-family has never checked either, and this change did not
+ *      add it: `var(--font-headingg)` and `var(--space-lg)` validate here and
+ *      then paint nothing. That is a live gap in the no-dangling-references
+ *      guarantee rather than a security one — the shape itself cannot carry a
+ *      delimiter — and closing it would narrow an accepted input, so it is
+ *      recorded rather than taken. The refusal messages and the AI-facing docs
+ *      were corrected to stop calling it a checked "font token";
+ *   2. a fully-quoted name whose quote character does not recur inside it, so
+ *      the string cannot terminate early and leave the declaration open;
+ *   3. an unquoted name of letters, digits, spaces, `-` and `_` — which covers
+ *      every generic family, every hyphenated system font (`-apple-system`,
+ *      `ui-monospace`) and every ASCII face name.
+ *
+ * DELIBERATE NARROWINGS, all fail-closed and all with a legal rewrite: an
+ * unquoted non-ASCII family name (quote it), an empty name from a doubled or
+ * trailing comma (remove it), and a name carrying punctuation outside quotes
+ * (quote it). None of them appear in any schema default, design token or
+ * shipped fixture — the accepted set was swept before this landed.
  */
 function _pp_validate_font_family(string $value): bool {
     $value = trim($value);
     if ($value === '') {
         return false;
     }
-    // Must contain at least one non-whitespace font name
-    $fonts = array_filter(array_map('trim', explode(',', $value)));
-    return count($fonts) > 0;
+    // THE SHARED REJECT SET, HERE AND NOT ONLY IN THE CALLERS.
+    //
+    // Two of this function's three callers run it first — _pp_validate_token_value()
+    // for design tokens and style slots, pp_udc_validate_value() for UDC values —
+    // and the third does not: `enqueue_font`'s validate arm calls this directly on
+    // the caller's `family`, and on `apply_to` that string is concatenated into a
+    // `--font-body`/`--font-heading` override that functions.php emits as a
+    // `:root { … }` inline stylesheet. Without this line the quoted branch below
+    // accepts any interior byte that is not its own quote character, `{ } ; < >`
+    // included, so a "font name" could close the rule and the style element.
+    // Relying on callers to gate first is how the delimiter guard came to be wired
+    // to one of its two doors; a validator whose output reaches CSS source text
+    // has to be safe when called alone. Cheap, and deliberately the SAME set
+    // rather than a second list of characters.
+    if (_pp_forbidden_css_construct($value) !== null) {
+        return false;
+    }
+    foreach (explode(',', $value) as $name) {
+        $name = trim($name);
+        if ($name === '') {
+            return false;
+        }
+        if (_pp_parse_token_reference($name) !== null) {
+            continue;
+        }
+        $quote = $name[0];
+        if ($quote === '"' || $quote === "'") {
+            $len = strlen($name);
+            // Opens and closes with the same quote, and does not carry that
+            // quote in between — `"Foo"Bar"` would close at character five and
+            // leave `Bar"` as loose source text.
+            if ($len < 2
+                || $name[$len - 1] !== $quote
+                || strpos(substr($name, 1, $len - 2), $quote) !== false) {
+                return false;
+            }
+            continue;
+        }
+        if (!preg_match('/^[A-Za-z0-9 _-]+$/', $name)) {
+            return false;
+        }
+    }
+    return true;
 }
 
 /**
@@ -1280,7 +1382,7 @@ function _pp_validate_token_value(string $value, ?string $type, ?array $allowed 
             break;
         case 'font-family':
             if (!_pp_validate_font_family($value)) {
-                return new WP_Error('invalid_font_family', 'Value must be a comma-separated list of font names.');
+                return new WP_Error('invalid_font_family', _pp_font_family_message());
             }
             break;
         case 'duration':
@@ -1710,7 +1812,7 @@ pp_register_apply('enqueue_font', [
 
         $family = $params['family'] ?? '';
         if ($family !== '' && !_pp_validate_font_family($family)) {
-            return new WP_Error('invalid_font_family', 'family must be a comma-separated list of font names.');
+            return new WP_Error('invalid_font_family', _pp_font_family_message('family'));
         }
 
         $apply_to = $params['apply_to'] ?? '';

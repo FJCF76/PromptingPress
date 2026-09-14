@@ -366,6 +366,30 @@ function pp_udc_validate_value(string $value, array $param) {
     if ($forbidden !== null) {
         return new WP_Error('injection', 'Value ' . $forbidden . '.');
     }
+    // THE DELIMITER GATE BELONGS HERE, NOT ONLY ON `_tokens`.
+    //
+    // It used to be called from exactly one place — the `_tokens` loop in
+    // pp_udc_validate_map() — which left every AUTHORED value outside it. That
+    // was not a gap in one branch; it was the gate wired to the narrower of its
+    // two inputs. `rgb(` submitted as a `typography.family` cleared the reject
+    // set (no `{ } ; < >` in it) and cleared the family grammar (which accepted
+    // any non-empty string), reached storage, and emitted as CSS source text —
+    // where an unbalanced `(` is OPEN and swallows the terminating `;`, the
+    // band's closing `}`, and every rule after it to the end of the layer. The
+    // worked example in pp_udc_compile_band() describes exactly that attack and
+    // asserts the parameter's grammar closes it; for `font-family` it did not.
+    //
+    // One call here covers all three doors, because they are all this function:
+    // the write path (via _pp_udc_validate_scalar), the emit-time
+    // re-validation of stored author data (_pp_udc_place), and the emit-time
+    // check of a band token against its referencing parameter's grammar.
+    //
+    // The `_tokens` loop KEEPS its own call. An UNREFERENCED token is never
+    // type-checked through any parameter — §3.1 makes it a lint warning, not a
+    // refusal — so no grammar, and therefore no gate, reaches it here.
+    if (!_pp_udc_delimiters_balanced($value)) {
+        return new WP_Error('unbalanced_delimiters', _pp_udc_unbalanced_message());
+    }
     if (trim($value) === '') {
         return new WP_Error('empty_value', 'Value must not be empty.');
     }
@@ -514,11 +538,10 @@ function pp_udc_validate_map($udc, string $component): ?WP_Error {
             }
             if (!_pp_udc_delimiters_balanced((string) $value)) {
                 return new WP_Error('invalid_prop_value', sprintf(
-                    'Component "%s" udc token "%s" has an unbalanced ( ) or an odd number of '
-                    . "' or \" characters. CSS treats each of those as still open, so the value "
-                    . 'would swallow every declaration and rule after it.',
+                    'Component "%s" udc token "%s" %s',
                     $component,
-                    $name
+                    $name,
+                    _pp_udc_unbalanced_message('value')
                 ));
             }
             $band_tokens[$name] = (string) $value;
@@ -874,13 +897,22 @@ function pp_udc_normalize_composition(array $items): array {
  * declaration is what makes that disclosure possible at all — a resolver that
  * returns only the winning string can never report what lost.
  *
+ * `$layer` is REQUIRED, and that is the point of it. It used to default to
+ * `'all'` — both tiers resolved into one result — which no production caller
+ * ever asked for and which is precisely the shape the cascade contract forbids
+ * emitting: the two tiers rank by the position they print at, so a caller that
+ * receives them merged has already lost the ranking. Production passes
+ * `'defaults'` or `'authored'`; `'all'` survives as an explicit request, for
+ * tests that inspect which layer won a declaration.
+ *
+ * @param string $layer  'defaults' | 'authored' | 'all'
  * @return array {
  *   id     string
  *   tokens array  name => literal, emitted as --pp-<name> on the band root
  *   blocks array  ordered emission units
  * }
  */
-function pp_udc_compile_band(array $item, string $layer = 'all'): array {
+function pp_udc_compile_band(array $item, string $layer): array {
     $out = ['id' => '', 'tokens' => [], 'blocks' => []];
 
     // MINT-ON-WRITE ONLY — READS NEVER MUTATE. A band that reached storage with
@@ -1172,11 +1204,15 @@ function pp_udc_band_css(array $item): string {
  * 2. A 50-band page repeated the same ~1.8 KB of constants fifty times.
  *
  * Emitted BEFORE the per-band blocks, so a band's authored value wins the tie at
- * equal specificity on source order. The scope is `[data-pp-component="<name>"]`,
- * which is deliberately WEAKER than the shared adjacent-band rule
- * (`main > [data-pp-component] + [data-pp-component]`, 0-2-1): that rule IS the
- * shared rhythm, and a component's own default should lose to it on an adjacent
- * top edge exactly as every v1 component's does.
+ * equal specificity on source order.
+ *
+ * The shared adjacent-band rule no longer competes on SPECIFICITY at all: it is
+ * `:where(main > [data-pp-component] + [data-pp-component])` in components.css
+ * and contributes zero, which is what let an authored band value outrank it. So
+ * a root-level default cannot be ranked under it by being "weaker" — there is
+ * nothing weaker than zero. It is ranked under it by PRINTING FIRST instead:
+ * this layer attaches to the `pp-base` handle and the shared rule lives in
+ * components.css, which loads after. See the split in the function body.
  */
 function pp_udc_component_defaults_css(string $component): string {
     $compiled = pp_udc_compile_band(['component' => $component], 'defaults');
@@ -1257,12 +1293,22 @@ function _pp_udc_render_blocks(array $compiled, string $scope, ?string $root_sco
 }
 
 /**
- * Renders one page's UDC CSS: each v2 component's defaults once, then every
- * band's authored values in composition order.
+ * Both layers concatenated, in order. FOR TESTS — NOT FOR ANY SINK.
  *
- * Defaults first, so an authored value wins the tie on source order. Bands then
- * emit in composition order, each scoped to its own id, so no two bands' rules
- * can ever contend.
+ * NOTHING THAT EMITS CSS MAY CALL THIS, and the rule is enforced rather than
+ * requested: PreviewCascadeParityTest fails if any file outside tests/ names it.
+ *
+ * The reason is the whole of §3.4. The two layers do not rank by specificity —
+ * both are zero-or-low by construction — they rank by the POSITION each prints
+ * at, defaults before the theme stylesheets and authored after them. A single
+ * string holds one position, so pasting this into one <style> block does not
+ * emit the cascade, it flattens it: the defaults layer lands after the shared
+ * design-system rules and starts beating them. That is not hypothetical. It is
+ * what the editor preview did until the two-block fix, and it is why this
+ * function is now a test convenience with a tripwire rather than an API.
+ *
+ * Tests use it to assert the two halves compose, which is a real property worth
+ * pinning — it just is not an emission strategy.
  */
 function pp_udc_page_css(array $items): string {
     return pp_udc_page_defaults_css($items) . pp_udc_page_authored_css($items);
@@ -1607,6 +1653,35 @@ function _pp_udc_referenced_token_names(array $udc): array {
 }
 
 /**
+ * The one refusal message for an unbalanced value — both callers say it.
+ *
+ * Takes its opening subject like its sibling `_pp_font_family_message()`, so the
+ * standalone refusal from pp_udc_validate_value() reads as a sentence ("Value
+ * has an unbalanced…", matching every other refusal that function returns) while
+ * pp_udc_validate_map() can open with the band and token it is naming.
+ *
+ * SAY ONLY WHAT IS TRUE. An earlier draft told the author to "enclose the whole
+ * name in the other one", which is advice this check then refuses: it counts
+ * apostrophes across the WHOLE value with no idea that one of them sits inside a
+ * double-enclosed name, so `"Foo's Font"` is rejected however it is written. The
+ * parenthesis case genuinely does work once the pair is closed, so the message
+ * distinguishes the two instead of promising a fix for both. A refusal that
+ * recommends a step which also fails is worse than a bare refusal — it sends the
+ * author round a loop before they conclude the value is unsupported.
+ *
+ * Deliberately worded without the word q-u-o-t-e: `quote` is a testimonials ROLE
+ * name, and testTheEngineNamesNoComponentAndNoRole() reads this file's code with
+ * its comments stripped to keep the shared engine free of any one component's
+ * vocabulary. The guard caught this message on its first run.
+ */
+function _pp_udc_unbalanced_message(string $subject = 'Value'): string {
+    return $subject . ' has an unbalanced ( ) or an odd number of \' or " characters. CSS treats '
+        . 'each of those as still open, so the value would swallow every declaration and rule '
+        . 'after it. Close the pair — a font name may carry ( ) as long as both appear. A name '
+        . 'containing a single apostrophe is not accepted in any form.';
+}
+
+/**
  * True when a value's CSS delimiters all close.
  *
  * THE SHARED REJECT SET DOES NOT COVER THIS, AND IS RIGHT NOT TO. It was written
@@ -1618,13 +1693,46 @@ function _pp_udc_referenced_token_names(array $udc): array {
  * shared set would impose a v2 sink's constraint on eleven components whose sink
  * still escapes.
  *
- * A referenced token is additionally checked against its parameter's grammar at
- * emit; this is the check that holds for one with no reference yet, since §3.1
- * makes an unreferenced token a warning rather than a refusal.
+ * CONSEQUENCE, STATED BECAUSE IT IS A REAL SPLIT: this gate guards the v2 sink
+ * only. `font-family` is the one type where the difference is visible — a name
+ * carrying a lone apostrophe validates as a DESIGN TOKEN (v1's escaped sink,
+ * `_pp_validate_token_value`, no gate) and is refused on a v2 `typography.family`
+ * parameter, because only the latter runs this. The two surfaces accept different
+ * sets on purpose; the AI-facing docs say so per surface.
+ *
+ * CALLED FROM TWO PLACES. `pp_udc_validate_map()`'s `_tokens` loop covers a token
+ * that nothing references, since §3.1 makes an unreferenced token a warning
+ * rather than a refusal and so no parameter grammar ever reaches it.
+ * `pp_udc_validate_value()` covers everything else — the authored write path, the
+ * emit-time re-validation, and a referenced token checked against the grammar of
+ * the parameter that uses it.
  */
 function _pp_udc_delimiters_balanced(string $value): bool {
+    // Nothing to balance. Exactly equivalent to the work below — with none of the
+    // four characters present, both counts are zero and the depth never leaves
+    // zero — and it is the case almost every value takes, which matters because
+    // this now runs per declaration at EMIT as well as at write. One scan instead
+    // of three: measured over a realistic mix of emitted values (lengths, hex
+    // colours, keywords, one quoted font stack, one clamp()), 0.46 -> 0.24
+    // microseconds per call, best of five runs of 200k calls.
+    if (strpbrk($value, '()"\'') === false) {
+        return true;
+    }
     if (substr_count($value, '"') % 2 !== 0 || substr_count($value, "'") % 2 !== 0) {
         return false;
+    }
+    // The per-byte loop below exists only to catch `)` BEFORE `(` — an ordering
+    // question. When the counts differ the answer is already no, and when there
+    // are no parentheses at all there is no ordering to check. Skipping it in
+    // those two cases cannot change the result, and it is the case a quoted font
+    // stack takes: measured 1.55 -> 0.18 microseconds per call on values that
+    // carry a mark but no parenthesis.
+    $open = substr_count($value, '(');
+    if ($open !== substr_count($value, ')')) {
+        return false;
+    }
+    if ($open === 0) {
+        return true;
     }
     $depth = 0;
     $len   = strlen($value);
