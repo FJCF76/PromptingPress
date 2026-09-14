@@ -263,6 +263,49 @@ function pp_udc_parse_reference($value): ?string {
 }
 
 /**
+ * Every custom property declared on a `:root` in the theme's base stylesheet.
+ *
+ * WIDER THAN pp_design_tokens() ON PURPOSE. That registry reads the FIRST
+ * `:root` block only — the authorable design tokens — because those are what
+ * `update_design_token` may write. The shared design-system properties live in a
+ * second block that base.css explicitly keeps out of it ("not authored via
+ * update_design_token"): `--pp-band-padding`, `--pp-band-padding-adjacent-top`
+ * and `--pp-band-heading-size`, the site-level rhythm and heading scale that
+ * EVERY band shares and that #431/#430/#436 ruled must stay one definition.
+ *
+ * A v2 component still has to participate in those shared contracts, and it can
+ * only do that by REFERENCING them — a copied literal would stop tracking the
+ * token the moment someone retunes it, which is the drift those rulings exist to
+ * prevent. So role defaults resolve against this wider set; author values do not
+ * (see pp_udc_resolve_reference()'s $allow_shared argument), which keeps the
+ * authorable surface exactly where it was.
+ */
+function pp_udc_shared_site_properties(): array {
+    static $props = null;
+    if ($props !== null) {
+        return $props;
+    }
+    $props = [];
+    $file  = get_template_directory() . '/assets/css/base.css';
+    if (!file_exists($file)) {
+        return $props;
+    }
+    $css = file_get_contents($file);
+    if (preg_match_all('/:root\s*\{([^}]*)\}/s', $css, $blocks)) {
+        foreach ($blocks[1] as $block) {
+            preg_match_all('/(--[\w-]+)\s*:\s*([^;]+);/', $block, $decls, PREG_SET_ORDER);
+            foreach ($decls as $decl) {
+                $name = trim($decl[1]);
+                if (!isset($props[$name])) {
+                    $props[$name] = trim($decl[2]);
+                }
+            }
+        }
+    }
+    return $props;
+}
+
+/**
  * Resolves an `@name` reference to `['value' => …, 'css' => …]`, or null.
  *
  * Precedence is band `_tokens` first, then site design tokens (§3.1). A name
@@ -270,7 +313,7 @@ function pp_udc_parse_reference($value): ?string {
  * mapped to an empty value or to the literal text (invariant I9: a failed read
  * is never mapped to a valid answer).
  */
-function pp_udc_resolve_reference(string $name, array $band_tokens): ?array {
+function pp_udc_resolve_reference(string $name, array $band_tokens, bool $allow_shared = false): ?array {
     if (isset($band_tokens[$name]) && is_scalar($band_tokens[$name])) {
         return [
             'value' => (string) $band_tokens[$name],
@@ -286,6 +329,21 @@ function pp_udc_resolve_reference(string $name, array $band_tokens): ?array {
             'css'   => 'var(' . $key . ')',
             'scope' => 'site',
         ];
+    }
+    // Schema defaults only: the shared design-system properties (band rhythm,
+    // heading scale) that base.css deliberately keeps out of the authorable
+    // registry. A component must be able to REFERENCE them to stay in the shared
+    // contracts; an author still cannot, so nothing about the authorable surface
+    // moves.
+    if ($allow_shared) {
+        $shared = pp_udc_shared_site_properties();
+        if (isset($shared[$key])) {
+            return [
+                'value' => (string) $shared[$key],
+                'css'   => 'var(' . $key . ')',
+                'scope' => 'shared',
+            ];
+        }
     }
     return null;
 }
@@ -822,7 +880,7 @@ function pp_udc_normalize_composition(array $items): array {
  *   blocks array  ordered emission units
  * }
  */
-function pp_udc_compile_band(array $item): array {
+function pp_udc_compile_band(array $item, string $layer = 'all'): array {
     $out = ['id' => '', 'tokens' => [], 'blocks' => []];
 
     // MINT-ON-WRITE ONLY — READS NEVER MUTATE. A band that reached storage with
@@ -840,7 +898,7 @@ function pp_udc_compile_band(array $item): array {
     // here would make every such request pay a scandir plus twelve schema reads
     // to produce no CSS at all.
     $id = isset($item['id']) && is_scalar($item['id']) ? (string) $item['id'] : '';
-    if (!pp_udc_valid_band_id($id)) {
+    if ($layer !== 'defaults' && !pp_udc_valid_band_id($id)) {
         return $out;
     }
 
@@ -852,6 +910,9 @@ function pp_udc_compile_band(array $item): array {
         return $out; // A legacy component; the v1 styling path owns it.
     }
     $out['id'] = $id;
+    if ($layer === 'defaults') {
+        $out['id'] = $component;
+    }
 
     $udc         = isset($item['udc']) && is_array($item['udc']) ? $item['udc'] : [];
     $band_tokens = isset($udc['_tokens']) && is_array($udc['_tokens']) ? $udc['_tokens'] : [];
@@ -887,7 +948,10 @@ function pp_udc_compile_band(array $item): array {
         // states: '' (base) and ':hover'.
         $resolved = []; // state => bp => property => ['css'=>, 'source'=>, 'literal'=>]
 
-        foreach ([['defaults', $defaults], ['udc', $declared]] as [$source, $map]) {
+        $sources = $layer === 'defaults'
+            ? [['defaults', $defaults]]
+            : ($layer === 'authored' ? [['udc', $declared]] : [['defaults', $defaults], ['udc', $declared]]);
+        foreach ($sources as [$source, $map]) {
             foreach ($map as $group_name => $group_map) {
                 if (!isset($groups[$group_name]) || !is_array($group_map)) {
                     continue;
@@ -1020,7 +1084,7 @@ function _pp_udc_place(
             if (!preg_match('/^[A-Za-z0-9_-]{1,64}$/', $ref)) {
                 continue;
             }
-            $target = pp_udc_resolve_reference($ref, $band_tokens);
+            $target = pp_udc_resolve_reference($ref, $band_tokens, $source === 'defaults');
             if ($target === null) {
                 // Unresolvable at render. The write gate refuses this, so
                 // reaching here means stored-before-the-rule data: drop the one
@@ -1086,11 +1150,44 @@ function pp_udc_valid_band_id(string $id): bool {
  * role's own selector, so specificity is flat and `!important` never appears.
  */
 function pp_udc_band_css(array $item): string {
-    $compiled = pp_udc_compile_band($item);
+    $compiled = pp_udc_compile_band($item, 'authored');
     if ($compiled['id'] === '') {
         return '';
     }
-    $scope = '[data-pp-band="' . $compiled['id'] . '"]';
+    return _pp_udc_render_blocks($compiled, '[data-pp-band="' . $compiled['id'] . '"]');
+}
+
+/**
+ * A component's ROLE DEFAULTS, emitted once per page under a component scope.
+ *
+ * THIS IS WHY IT IS NOT PER BAND. Defaults are component-level constants —
+ * identical for every band of that component — so scoping them to a band id
+ * bought nothing and cost two things that turned out to matter:
+ *
+ * 1. A band that reached storage without an id got NO defaults at all, because
+ *    the whole block was gated on the id. Raw `_pp_composition` meta writes are
+ *    exactly that case, which meant a component could silently fall out of the
+ *    shared cross-band contracts (#431 band rhythm, #430 symmetry, #436 heading
+ *    scale) while every band that HAD an id looked fine.
+ * 2. A 50-band page repeated the same ~1.8 KB of constants fifty times.
+ *
+ * Emitted BEFORE the per-band blocks, so a band's authored value wins the tie at
+ * equal specificity on source order. The scope is `[data-pp-component="<name>"]`,
+ * which is deliberately WEAKER than the shared adjacent-band rule
+ * (`main > [data-pp-component] + [data-pp-component]`, 0-2-1): that rule IS the
+ * shared rhythm, and a component's own default should lose to it on an adjacent
+ * top edge exactly as every v1 component's does.
+ */
+function pp_udc_component_defaults_css(string $component): string {
+    $compiled = pp_udc_compile_band(['component' => $component], 'defaults');
+    if ($compiled['id'] === '') {
+        return '';
+    }
+    return _pp_udc_render_blocks($compiled, '[data-pp-component="' . $component . '"]');
+}
+
+/** Renders a compiled result under one scope selector. */
+function _pp_udc_render_blocks(array $compiled, string $scope): string {
     $css   = '';
 
     if ($compiled['tokens'] !== []) {
@@ -1139,14 +1236,26 @@ function pp_udc_band_css(array $item): string {
 }
 
 /**
- * Renders every band's block for one page, in band order.
+ * Renders one page's UDC CSS: each v2 component's defaults once, then every
+ * band's authored values in composition order.
  *
- * Bands emit in composition order so a later band's block follows an earlier
- * one's, which is the only ordering the cascade contract needs — every rule is
- * scoped to its own band id, so no two bands' rules can ever contend.
+ * Defaults first, so an authored value wins the tie on source order. Bands then
+ * emit in composition order, each scoped to its own id, so no two bands' rules
+ * can ever contend.
  */
 function pp_udc_page_css(array $items): string {
-    $css = '';
+    $css        = '';
+    $components = [];
+    foreach ($items as $item) {
+        if (!is_array($item) || !isset($item['component']) || !is_scalar($item['component'])) {
+            continue;
+        }
+        $name = (string) $item['component'];
+        if (!isset($components[$name]) && pp_udc_is_v2_component($name)) {
+            $components[$name] = true;
+            $css .= pp_udc_component_defaults_css($name);
+        }
+    }
     foreach ($items as $item) {
         if (is_array($item)) {
             $css .= pp_udc_band_css($item);

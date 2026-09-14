@@ -2798,17 +2798,27 @@ class ComponentPropsTest extends TestCase
      */
     public function testTestimonialsUdcValueCarryingAnInjectionNeverReachesTheEmittedCss(): void
     {
-        $css = pp_udc_band_css([
+        $css = pp_udc_page_css([[
             'component' => 'testimonials',
             'id'        => 'pp-aabbccdd',
             'props'     => [],
-            'udc'       => ['quote' => ['typography' => ['color' => '#fff; background:url(evil)']]],
-        ]);
+            'udc'       => ['quote' => ['typography' => [
+                'color' => '#fff; background:url(evil)',
+                // A well-formed sibling, authored on the same role and group, so
+                // the survival below is demonstrated rather than inferred.
+                'size'  => '19px',
+            ]]],
+        ]]);
 
         $this->assertStringNotContainsString('url(evil)', $css);
-        // The sibling declarations still paint: one refused value drops its own
+        // The sibling declaration still paints: one refused value drops its own
         // declaration and nothing else, the same degradation a refused slot had.
         $this->assertStringContainsString('[data-pp-band="pp-aabbccdd"]', $css);
+        $this->assertMatchesRegularExpression(
+            '/\[data-pp-band="pp-aabbccdd"\][^{]*\{[^}]*font-size:19px/',
+            $css,
+            'the refused value must not take its valid sibling down with it'
+        );
     }
 
     /**

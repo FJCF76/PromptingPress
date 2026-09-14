@@ -499,15 +499,22 @@ final class UdcEngineTest extends TestCase
      */
     public function testAStoredBandTokenCannotEscapeItsRuleAndInjectCss(): void
     {
-        $css = pp_udc_band_css([
+        $css = pp_udc_page_css([[
             'component' => 'testimonials',
             'id'        => 'pp-aabbccdd',
             'props'     => [],
             'udc'       => [
                 '_tokens' => ['x' => 'red} body{display:none} .z{color:red'],
-                'quote'   => ['typography' => ['color' => '@x']],
+                'quote'   => [
+                    'typography' => [
+                        'color' => '@x',
+                        // Authored, well-formed, same role and group: what the
+                        // refused token must NOT be able to take down with it.
+                        'size'  => '19px',
+                    ],
+                ],
             ],
-        ]);
+        ]]);
 
         $this->assertStringNotContainsString('body{display:none}', $css, 'the payload must never reach the stylesheet');
         $this->assertStringNotContainsString('--pp-x:', $css, 'and the hostile token is not emitted at all');
@@ -518,7 +525,16 @@ final class UdcEngineTest extends TestCase
 
         // The band still paints. One refused token drops itself, not the band.
         $this->assertStringContainsString('[data-pp-band="pp-aabbccdd"]', $css);
-        $this->assertStringContainsString('font-style:normal', $css, 'the role defaults still apply');
+        $this->assertMatchesRegularExpression(
+            '/\[data-pp-band="pp-aabbccdd"\][^{]*\{[^}]*font-size:19px/',
+            $css,
+            'the authored sibling of the refused token still applies'
+        );
+        $this->assertStringContainsString(
+            'font-style:normal',
+            $css,
+            'and the role defaults still apply, from the component-scoped defaults block'
+        );
     }
 
     /**
@@ -650,7 +666,7 @@ final class UdcEngineTest extends TestCase
             'both'             => 'rgb("',
             'rule escape'      => 'red} body{display:none} .z{color:red',
         ] as $label => $payload) {
-            $css = pp_udc_band_css([
+            $css = pp_udc_page_css([[
                 'component' => 'testimonials',
                 'id'        => 'pp-aabbccdd',
                 'props'     => [],
@@ -658,7 +674,7 @@ final class UdcEngineTest extends TestCase
                     '_tokens' => ['tk' => $payload],
                     'quote'   => ['typography' => ['color' => '@tk']],
                 ],
-            ]);
+            ]]);
 
             $this->assertStringNotContainsString('--pp-tk', $css, "{$label}: the token must not be emitted");
             $this->assertSame(substr_count($css, '{'), substr_count($css, '}'), "{$label}: braces balanced");
@@ -930,10 +946,13 @@ final class UdcEngineTest extends TestCase
 
                             $ref = pp_udc_parse_reference($literal);
                             if ($ref !== null) {
-                                $resolved = pp_udc_resolve_reference($ref, []);
+                                // `true`: a schema default may also reference the shared
+                                // design-system properties (band rhythm, heading scale)
+                                // that base.css keeps out of the authorable registry.
+                                $resolved = pp_udc_resolve_reference($ref, [], true);
                                 $this->assertNotNull(
                                     $resolved,
-                                    "{$component}.{$role}.{$group}.{$param} references @{$ref}, which is not a registered design token — the declaration would silently vanish"
+                                    "{$component}.{$role}.{$group}.{$param} references @{$ref}, which resolves to neither a registered design token nor a shared :root property — the declaration would silently vanish"
                                 );
                                 $literal = $resolved['value'];
                             }
