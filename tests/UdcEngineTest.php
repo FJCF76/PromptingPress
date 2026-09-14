@@ -905,6 +905,69 @@ final class UdcEngineTest extends TestCase
      * "a repo-CI invariant, not a runtime gate"): a shipped schema is repo-
      * controlled, so the place to catch a typo is the build, not the page view.
      */
+    /**
+     * The three-tier cascade, pinned at the emitter.
+     *
+     * Which tier a UDC rule lands in is carried by two things and nothing else:
+     * the specificity its scope contributes, and where the layer prints. Both are
+     * easy to undo by accident and neither is visible in the rendered page until a
+     * brand does not render, so both are pinned here as well as in the browser.
+     *
+     * The history is the argument for this test. The shared adjacent-band rhythm
+     * rule first outranked authored band values (an authored padding-top rendered
+     * the shared value instead); flattening that rule then let the DEFAULTS layer
+     * outrank it, and an unauthored band fell out of the shared rhythm rulings.
+     * Both were silent. The tiers only work as a set.
+     */
+    public function testTheDefaultsLayerCarriesNoScopeSpecificityAndIsSeparableFromAuthoredValues(): void
+    {
+        $defaults = pp_udc_component_defaults_css('testimonials');
+        $this->assertNotSame('', $defaults, 'the defaults layer must not be empty, or this pins nothing');
+
+        // A BAND-ROOT default carries zero specificity: the design system's
+        // contextual band rules aim at the same element and must win over it, or
+        // an unauthored band falls out of the #430/#431 rhythm rulings.
+        $this->assertMatchesRegularExpression(
+            '/:where\(\[data-pp-component="testimonials"\]\)\s*\{[^}]*padding-top:/',
+            $defaults,
+            'the band root emits inside :where(), so it yields to the shared rhythm'
+        );
+
+        // An ELEMENT default keeps the full scope weight — [0,2,0]. Nothing in the
+        // design system aims at these elements, but ordinary structural CSS does,
+        // including rules like base.css's `p:last-child` [0,1,1] that zeroed the
+        // subheading rhythm in #336. Zeroing this scope reintroduces that bug.
+        $this->assertStringContainsString(
+            '[data-pp-component="testimonials"] .testimonials__heading{',
+            $defaults
+        );
+        $this->assertStringNotContainsString(
+            ':where([data-pp-component="testimonials"]) .testimonials__',
+            $defaults,
+            'element defaults must NOT be wrapped — at [0,1,0] they lose to p:last-child [0,1,1]'
+        );
+
+        // The two layers are separately obtainable, because they print in different
+        // places: defaults before the theme stylesheets, authored after. A single
+        // combined emitter could not express that, and the ordering is the only
+        // thing separating two zero-specificity layers.
+        $band = [
+            'component' => 'testimonials',
+            'id'        => 'pp-aabbccdd',
+            'props'     => [],
+            'udc'       => ['_band' => ['spacing' => ['padding-top' => '5px']]],
+        ];
+        $authored = pp_udc_page_authored_css([$band]);
+        $this->assertStringContainsString('[data-pp-band="pp-aabbccdd"]', $authored);
+        $this->assertStringNotContainsString(
+            'data-pp-component',
+            $authored,
+            'the authored layer carries no defaults — it would print on the wrong side of the stylesheets'
+        );
+        $this->assertSame($defaults, pp_udc_page_defaults_css([$band]));
+        $this->assertSame(pp_udc_page_css([$band]), $defaults . $authored);
+    }
+
     public function testEveryV2SchemaDefaultIsAValueTheEngineWouldAccept(): void
     {
         $groups  = pp_udc_groups();

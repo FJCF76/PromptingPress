@@ -4378,10 +4378,27 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
    this catch-all's [0,2,1] was silently outranking that slot on the adjacent edge,
    which is the dead slot issue 577 fixes.) Either way every band consumes the one
    shared rhythm definition (issue 431).
+
+   SPECIFICITY IS DELIBERATELY ZERO (v2 Sprint 0). The selector is wrapped in
+   `:where()`, so this rule contributes nothing to the cascade and ANY rule that
+   declares the same property wins on source order alone. That is what this rule
+   has always meant: it is the design system's baseline rhythm — a DEFAULT the
+   per-component rules and the per-instance slots fall back to — never a lock. Its
+   old [0,2,1] was a v1-era artifact, and it silently outranked the v2 authored
+   band block `[data-pp-band="<id>"]` [0,1,0]: an authored `_band` padding-top on
+   an adjacent band validated, stored, reported applied, and then rendered the
+   shared value instead (measured: authored 5px rendered 76.8px). §3.4 ranks an
+   authored band value above a default, so the default is the thing that had to
+   stop claiming specificity.
+
+   Inert for the nine legacy bands: each already lands on its own per-component
+   adjacent rule further down, which is equal-specificity-and-later today and
+   strictly-higher now. Their per-instance slots feed VALUES into those rules
+   through custom properties, which specificity does not touch.
    ========================================================================== */
 
 @media (min-width: 768px) {
-  main > [data-pp-component] + [data-pp-component] {
+  :where(main > [data-pp-component] + [data-pp-component]) {
     padding-top: var(--pp-band-padding-adjacent-top);
   }
 }
@@ -4460,10 +4477,14 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
 
    SPECIFICITY IS UNCHANGED, and that is load-bearing for the issue-434 rhythm pins
    below: `[data-pp-component][data-pp-spacing="x"]` is two attributes (0,2,0) and
-   `.hero[data-pp-spacing="x"]` is a class plus an attribute (0,2,0) — identical, so the
-   equal-specificity/source-order relationship with `main > [data-pp-component] +
-   [data-pp-component]` (0,2,1) is preserved at both breakpoints. Byte-identical: no
-   element other than a hero root can carry these attributes today.
+   `.hero[data-pp-spacing="x"]` is a class plus an attribute (0,2,0) — identical.
+   Byte-identical: no element other than a hero root can carry these attributes today.
+
+   The shared adjacent-top catch-all these once had to be weighed against is now
+   `:where(...)` at zero specificity (v2 Sprint 0), so it no longer competes with
+   anything here. That changes no hero rendering: an ADJACENT hero lands on
+   `main > [data-pp-component] + .hero` (0,2,1), which still outranks both rules
+   above, and a non-adjacent hero never matched the catch-all in the first place.
    ========================================================================== */
 
 .hero[data-pp-spacing="compact"] {
@@ -5541,8 +5562,13 @@ main .btn {
      class as issue 302). Route the slot per component with the shared
      --pp-band-padding-adjacent-top as the fallback (3.35rem at this breakpoint
      via its :root override); unset output stays uniform. testimonials joins the
-     list so its adjacent-top slot is live on mobile too (issue 431). */
-  main > [data-pp-component] + [data-pp-component] {
+     list so its adjacent-top slot is live on mobile too (issue 431).
+
+     ZERO SPECIFICITY (v2 Sprint 0): wrapped in `:where()` for the same reason as
+     its desktop twin above — this is the baseline rhythm DEFAULT, and a v2
+     authored band block must outrank it. The per-component rules below still
+     win over it, now on specificity rather than on source order. */
+  :where(main > [data-pp-component] + [data-pp-component]) {
     padding-top: var(--pp-band-padding-adjacent-top);
   }
   main > [data-pp-component] + .section {

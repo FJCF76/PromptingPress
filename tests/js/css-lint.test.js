@@ -2289,7 +2289,7 @@ describe('CSS lint: premium layer honors padding/type/width slots (#302)', () =>
     // which is itself pinned to --pp-band-padding (issue 430 symmetry). Neither
     // may re-introduce the flattening clamp() literal in components.css.
     test('adjacent-sibling rhythm no longer flattened by a bare clamp()', () => {
-        const bodies = bodiesForExactSelector('main > [data-pp-component] + [data-pp-component]');
+        const bodies = bodiesForExactSelector(':where(main > [data-pp-component] + [data-pp-component])');
         expect(bodies.length).toBeGreaterThanOrEqual(2);
         bodies.forEach(body => {
             expect(body).not.toMatch(/clamp\(\s*4\.25rem/);
@@ -2574,13 +2574,29 @@ describe('CSS lint: section-level bands share one rhythm definition (#431)', () 
     //     the per-component rules fall back to rather than the rule any band lands on,
     //     and it must keep consuming the shared prop either way.
     test('the generic adjacent-sibling rule routes through --pp-band-padding-adjacent-top', () => {
-        const bodies = bodiesForExactSelector('main > [data-pp-component] + [data-pp-component]');
+        const bodies = bodiesForExactSelector(':where(main > [data-pp-component] + [data-pp-component])');
         expect(bodies.length).toBeGreaterThanOrEqual(2); // desktop + mobile
         const decls = bodies.flatMap(b => b.match(/padding-top\s*:[^;}]+/g) || []);
         expect(decls.length).toBeGreaterThanOrEqual(2);
         decls.forEach(d => {
             expect(d).toMatch(/padding-top\s*:\s*var\(\s*--pp-band-padding-adjacent-top\s*\)/);
         });
+    });
+
+    // 3b-ii. The catch-all's ZERO SPECIFICITY is itself load-bearing (v2 Sprint 0).
+    //     It is the design system's baseline rhythm — a DEFAULT — and §3.4 ranks an
+    //     authored v2 band value above a default. While it was a bare
+    //     `main > [data-pp-component] + [data-pp-component]` [0,2,1] it outranked the
+    //     authored band block `[data-pp-band="<id>"]` [0,1,0], and an authored
+    //     padding-top on an adjacent band rendered the shared value instead — silently,
+    //     because the write itself succeeded. Unwrapping the `:where()` reinstates that
+    //     bug, so the wrapper is pinned here rather than left to a comment.
+    test('the generic adjacent-sibling catch-all contributes ZERO specificity', () => {
+        expect(bodiesForExactSelector(':where(main > [data-pp-component] + [data-pp-component])').length)
+            .toBeGreaterThanOrEqual(2); // desktop + mobile, both wrapped
+        // And the unwrapped form is gone from both tiers.
+        expect(bodiesForExactSelector('main > [data-pp-component] + [data-pp-component]'))
+            .toHaveLength(0);
     });
 
     // 3c. SOURCE ORDER IS LOAD-BEARING for hero's DESKTOP adjacent rule (issue 577).

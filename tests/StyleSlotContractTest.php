@@ -3092,6 +3092,67 @@ class StyleSlotContractTest extends TestCase
     }
 
     /**
+     * Pins the :where() parser upgrade that v2 Sprint 0 required.
+     *
+     * `selectorSpecificity()` feeds the slot-bypass guard's "does this rule outrank
+     * a bare component class" decision. Before the upgrade the whole construct was
+     * banned outright, so this path had never run; scoring `:where()`'s arguments
+     * would silently inflate every wrapped rule and mis-flag it. The zero-specificity
+     * wrapper is load-bearing in components.css, so the scorer that reasons about it
+     * gets its own pin rather than being exercised only incidentally.
+     */
+    public function testWhereContributesNoSpecificityIncludingItsArguments(): void
+    {
+        $spec = new \ReflectionMethod($this, 'selectorSpecificity');
+        $spec->setAccessible(true);
+        $score = fn (string $sel): array => $spec->invoke($this, $sel);
+
+        // The real selector this upgrade exists for: [0,2,1] unwrapped, [0,0,0] wrapped.
+        $this->assertSame([0, 2, 1], $score('main > [data-pp-component] + [data-pp-component]'));
+        $this->assertSame([0, 0, 0], $score(':where(main > [data-pp-component] + [data-pp-component])'));
+
+        // :where() zeroes only itself — what sits outside it still counts.
+        $this->assertSame([0, 1, 0], $score(':where(main > [data-pp-component]) .testimonials__quote'));
+
+        // Contrast with :not(), whose ARGUMENTS do count while the pseudo-class
+        // itself does not — the distinction the stripper must not flatten.
+        $this->assertSame([0, 1, 0], $score(':not(.a)'));
+
+        // Nested parentheses must not end the scan early.
+        $this->assertSame([0, 0, 1], $score(':where(.a:not(.b)) main'));
+    }
+
+    /**
+     * Remove every `:where(...)` and its arguments, honouring nested parentheses.
+     * Used by selectorSpecificity(): :where() adds nothing to specificity, and its
+     * arguments add nothing either, so the whole construct must go before counting.
+     */
+    private function stripWhere(string $selector): string
+    {
+        while (($at = stripos($selector, ':where(')) !== false) {
+            $depth = 0;
+            $end   = null;
+            for ($i = $at + 6, $len = strlen($selector); $i < $len; $i++) {
+                if ($selector[$i] === '(') {
+                    $depth++;
+                } elseif ($selector[$i] === ')') {
+                    $depth--;
+                    if ($depth === 0) {
+                        $end = $i;
+                        break;
+                    }
+                }
+            }
+            if ($end === null) {
+                break; // unbalanced; leave it rather than loop forever
+            }
+            $selector = substr($selector, 0, $at) . ' ' . substr($selector, $end + 1);
+        }
+
+        return $selector;
+    }
+
+    /**
      * CSS specificity [a=ids, b=classes/attrs/pseudo-classes, c=elements/pseudo-elements]
      * for a single (comma-free) selector. Accurate enough to compare against a bare
      * component class (0,1,0). :not()/:is() add no specificity themselves (their
@@ -3101,6 +3162,12 @@ class StyleSlotContractTest extends TestCase
     private function selectorSpecificity(string $selector): array
     {
         $s = trim($selector);
+
+        // `:where()` contributes zero specificity INCLUDING its arguments, unlike
+        // :not()/:is() whose arguments do count. Remove it wholesale before any
+        // counting, or a `:where(main > [data-pp-component] + [data-pp-component])`
+        // would be scored [0,2,1] — the very weight wrapping it was meant to drop.
+        $s = $this->stripWhere($s);
 
         $ids            = preg_match_all('/#[\w-]+/', $s);
         $classes        = preg_match_all('/\.[\w-]+/', $s);
@@ -3247,15 +3314,18 @@ class StyleSlotContractTest extends TestCase
     {
         $strippedCss = $this->stripComments($css);
 
-        // The subject parser splits selector lists on commas; a comma inside
-        // :is()/:where() would mis-attribute subjects. Neither exists in this
-        // stylesheet (nor may they: css-lint bans modern selector features) —
-        // fail fast here so introducing one forces a parser upgrade instead of
-        // silently corrupting the guard.
+        // The subject parser splits selector lists on commas, so a COMMA inside
+        // :is()/:where() would mis-attribute subjects. That comma is the hazard —
+        // not the construct. `:where()` without one parses correctly here and is
+        // load-bearing since v2 Sprint 0, where the shared adjacent-band rhythm
+        // rule is wrapped in it precisely so it contributes no specificity and an
+        // authored v2 band block outranks it. So the guard is scoped to the real
+        // failure mode: a comma-bearing functional pseudo-class still fails fast
+        // and forces the parser upgrade.
         $this->assertDoesNotMatchRegularExpression(
-            '/:(is|where)\s*\(/',
+            '/:(?:is|where)\s*\([^()]*,/',
             $strippedCss,
-            'components.css uses :is()/:where() — the issue 305 subject parser must be upgraded first.'
+            'components.css uses a COMMA inside :is()/:where() — the issue 305 subject parser splits selector lists on commas and must be upgraded first.'
         );
 
         $slotToComponent = [];

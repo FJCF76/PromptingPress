@@ -6173,26 +6173,177 @@ test.describe('Shared section-band rhythm (#431)', () => {
     }
   });
 
-  // RETIRED (v2 Sprint 0): this test drove --testimonials-padding-top, and that slot
-  // no longer exists — testimonials declares no style_slots at all. The slot half is
-  // therefore unportable and gone.
+  // SUCCEEDS the retired --testimonials-padding-top test.
   //
-  // Its UNDERLYING truth is a standing ruling and is NOT retired: a per-instance
-  // band padding must win on the adjacent-top edge, exactly as section does in
-  // #305/#302. Under v2 the per-instance surface is the band's own `udc` map
-  // (`_band` role, Spacing group). Measured behaviour of that surface today, at
-  // 1280 with a section leading the stack:
+  // The slot is gone, but the ruling it encoded is not: a per-instance band
+  // padding must win on the adjacent-top edge, exactly as section does in
+  // #305/#302. Under v2 the per-instance surface is the band's own `udc` map.
   //
-  //     authored _band padding-top: 5px   -> renders 76.8px   (overridden)
-  //     authored _band padding-bottom: 6px -> renders 6px     (wins)
+  // This test exists because that ruling BROKE when testimonials moved to the
+  // contract, and it broke silently: the shared rhythm rule
+  // `main > [data-pp-component] + [data-pp-component]` was [0,2,1] and the
+  // authored block `[data-pp-band="<id>"]` is [0,1,0], so an authored padding-top
+  // validated, stored, reported applied — and then rendered 76.8px instead of 5px.
+  // The fix was to stop the shared rule claiming specificity it never meant to
+  // claim (it is `:where()`-wrapped now), because §3.4 ranks an authored band
+  // value above a default and that rule IS a default, not a lock.
   //
-  // The authored block is `[data-pp-band="…"]` (0,1,0); the shared rhythm rule
-  // `main > [data-pp-component] + [data-pp-component]` is (0,2,1) and outranks it.
-  // Only the adjacent-top edge is affected, and only for the `_band` role — every
-  // element-scoped role (heading, quote, card, …) wins from both stack positions.
-  // Resolving that is a contract-level decision about §3.4/§3.5 emission
-  // specificity, so the v2 successor to this test lands with that decision rather
-  // than being guessed at here.
+  // Both stack positions are asserted. Only the adjacent one regressed, but a test
+  // that checked only the broken case would not notice a fix that broke the other.
+  test('#431 an authored _band padding wins from BOTH stack positions at 1280 and 375', async ({
+    page,
+  }) => {
+    const section = { component: 'section', props: { id: 'pp-sec01', body: '<p>Body.</p>' } };
+    const band = {
+      component: 'testimonials',
+      props: { id: 'pp-tst01', items: [{ quote: 'It works.', author: 'A' }] },
+      udc: { _band: { spacing: { 'padding-top': '5px', 'padding-bottom': '6px' } } },
+    };
+
+    for (const [position, composition] of [
+      ['leading', [band, section]],
+      ['adjacent', [section, band]],
+    ] as const) {
+      pageId = createPage(`E2E Testimonials v2 Band Padding ${position}`);
+      setComposition(pageId, [section]);
+
+      await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+      await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+      const res = await updateComposition(page, pageId, composition as unknown[]);
+      expect(res.success, `${position} write: ${JSON.stringify(res)}`).toBe(true);
+
+      for (const width of [1280, 375]) {
+        await page.setViewportSize({ width, height: 900 });
+        await page.goto(`/?page_id=${pageId}`);
+        const tst = page.locator('main > .testimonials');
+        await expect(tst).toBeVisible({ timeout: 10000 });
+        const box = await tst.evaluate((el) => ({
+          top: getComputedStyle(el).paddingTop,
+          bottom: getComputedStyle(el).paddingBottom,
+        }));
+        expect(box.top, `authored band padding-top, ${position} @${width}`).toBe('5px');
+        expect(box.bottom, `authored band padding-bottom, ${position} @${width}`).toBe('6px');
+      }
+    }
+  });
+
+  // THE CLASS PIN behind the test above (invariant I35).
+  //
+  // The padding-top regression was one instance of a general hazard: a v2 band
+  // block is [0,1,0], and ANY structural rule with more weight silently beats it.
+  // Pinning the one property that broke would leave the next one to be found the
+  // same way — by a brand not rendering.
+  //
+  // So this asserts the CLASS. It reads the band block the engine actually
+  // emitted, walks every declaration in it, and requires the computed value on the
+  // matched element to equal what the band declared. It is data-driven from the
+  // emitted CSS, so a role, group or parameter added later is covered the day it
+  // is emitted, with no edit here. Values are authored absolute (px, hex) so both
+  // sides canonicalize through the browser and the comparison is exact.
+  test('#431/I35 no structural CSS outranks any declaration a v2 band block makes @smoke', async ({
+    page,
+  }) => {
+    // Adjacent position deliberately: it is the one that carries the extra
+    // sibling-combinator rules, so it is where an outranking rule is most likely.
+    const composition = [
+      { component: 'section', props: { id: 'pp-sec01', body: '<p>Body.</p>' } },
+      {
+        component: 'testimonials',
+        props: { id: 'pp-tst01', title: 'Voices', subheading: 'What they say', items: [{ quote: 'It works.', author: 'A', role: 'CTO', company: 'Co' }] },
+        udc: {
+          _band: { spacing: { 'padding-top': '5px', 'padding-bottom': '6px' }, background: { fill: '#f4f5f7' } },
+          heading: { typography: { size: '41px', color: '#112233' }, spacing: { 'margin-bottom': '7px' } },
+          subheading: { typography: { size: '17px', color: '#223344' }, spacing: { 'margin-bottom': '8px' } },
+          card: { border: { width: '2px', color: '#345678', radius: '9px' }, background: { fill: '#fffefd' }, spacing: { padding: '11px' } },
+          quote: { typography: { size: '19px', color: '#334455', 'line-height': '1.5' } },
+          author: { typography: { size: '13px', color: '#445566' } },
+          meta: { typography: { size: '12px', color: '#556677' } },
+        },
+      },
+    ];
+
+    pageId = createPage('E2E v2 Band Block Outranked Guard');
+    setComposition(pageId, [{ component: 'section', props: { id: 'pp-sec01', body: '<p>Body.</p>' } }]);
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+    const res = await updateComposition(page, pageId, composition);
+    expect(res.success, `udc write: ${JSON.stringify(res)}`).toBe(true);
+
+    for (const width of [1280, 375]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`/?page_id=${pageId}`);
+      await expect(page.locator('main > .testimonials')).toBeVisible({ timeout: 10000 });
+
+      const report = await page.evaluate(() => {
+        const root = document.querySelector('main > .testimonials') as HTMLElement | null;
+        if (!root) return { error: 'no band' as const, checked: 0, mismatches: [] as string[] };
+        const bandId = root.getAttribute('data-pp-band');
+        if (!bandId) return { error: 'no band id' as const, checked: 0, mismatches: [] as string[] };
+        const scope = `[data-pp-band="${bandId}"]`;
+
+        const mismatches: string[] = [];
+        let checked = 0;
+
+        // Whether a declaration WINS is asked directly, by re-declaring it at the
+        // top of the cascade on the element itself and seeing whether anything
+        // moves. If forcing the band's own value changes the computed result, then
+        // something was outranking the band block. This needs no canonicalization
+        // of the authored literal — which is the point: an earlier version of this
+        // test compared against a probe element and reported `line-height: 1.5` as
+        // a failure, because a ratio resolves against each element's own font-size
+        // and the probe's differed. Asking the element itself cannot drift that way.
+        const winsOnItsOwnElement = (el: HTMLElement, prop: string, declared: string): boolean => {
+          const before = getComputedStyle(el).getPropertyValue(prop);
+          const priorValue = el.style.getPropertyValue(prop);
+          const priorPriority = el.style.getPropertyPriority(prop);
+          el.style.setProperty(prop, declared, 'important');
+          const forced = getComputedStyle(el).getPropertyValue(prop);
+          el.style.removeProperty(prop);
+          if (priorValue) el.style.setProperty(prop, priorValue, priorPriority);
+          return before === forced;
+        };
+
+        const visit = (rules: CSSRuleList) => {
+          for (const rule of Array.from(rules)) {
+            if (rule instanceof CSSMediaRule) {
+              // Only the tier actually in force at this viewport.
+              if (window.matchMedia(rule.conditionText).matches) visit(rule.cssRules);
+              continue;
+            }
+            if (!(rule instanceof CSSStyleRule)) continue;
+            if (!rule.selectorText.includes(scope)) continue;
+            const el = document.querySelector(rule.selectorText) as HTMLElement | null;
+            if (!el) continue;
+            for (const prop of Array.from(rule.style)) {
+              const declared = rule.style.getPropertyValue(prop);
+              checked++;
+              if (!winsOnItsOwnElement(el, prop, declared)) {
+                mismatches.push(
+                  `${rule.selectorText} { ${prop}: ${declared} } is outranked — computed ${getComputedStyle(el).getPropertyValue(prop)}`,
+                );
+              }
+            }
+          }
+        };
+        for (const sheet of Array.from(document.styleSheets)) {
+          let rules: CSSRuleList;
+          try {
+            rules = sheet.cssRules;
+          } catch {
+            continue; // cross-origin
+          }
+          visit(rules);
+        }
+        return { error: null, checked, mismatches };
+      });
+
+      expect(report.error, `@${width}`).toBeNull();
+      // Non-vacuity: if the walker stops finding declarations, this test stops
+      // testing anything, and that must fail rather than pass quietly.
+      expect(report.checked, `declarations examined @${width}`).toBeGreaterThanOrEqual(15);
+      expect(report.mismatches, `structural CSS outranks the band block @${width}`).toEqual([]);
+    }
+  });
 
   // One knob retunes the whole site's rhythm: overriding the shared definition at
   // :root moves every band's every edge together. Proves the fallback chains really

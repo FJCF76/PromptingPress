@@ -119,20 +119,38 @@ add_action('wp_enqueue_scripts', function () {
         $ver
     );
 
-    // v2 UDC band blocks (BUILD-SPEC §3.5). Attached to `pp-utilities` rather
-    // than registered as its own wp_head action for two reasons: it inherits the
-    // enqueue system's ordering for free, so the blocks always land after all
-    // three stylesheets and never fight them on source order; and it sits in the
-    // SAME callback that just enqueued that handle, so the handle is guaranteed
+    // v2 UDC CSS (BUILD-SPEC §3.5), emitted as TWO layers attached to two
+    // different handles, because the cascade tier each belongs to IS its source
+    // position and nothing else expresses that:
+    //
+    //   defaults -> `pp-base`, so they print BEFORE components.css. Role defaults
+    //     carry only their own selector's weight (the scope is :where()), and the
+    //     `_band` role has no selector, so its defaults sit at zero — the same
+    //     zero as the shared adjacent-band rhythm rule. Printing them first is
+    //     what makes the shared rule win, keeping an unauthored v2 band inside
+    //     the #430/#431 rhythm rulings.
+    //
+    //   authored -> `pp-utilities`, so they print AFTER all three stylesheets and
+    //     outrank both the defaults layer and the shared design-system rules,
+    //     which is the ranking §3.4 requires.
+    //
+    // Both attach to handles this same callback just enqueued, so each handle is
     // registered by construction rather than by assumption.
     //
     // The emitter reads the composition itself: this callback runs inside
     // wp_head(), which fires BEFORE the <main> loop paints the bands, so there is
     // no render pass to collect from. It resolves the page exactly the way the
     // templates do — see pp_udc_current_composition().
-    $pp_udc_css = pp_udc_page_css(pp_udc_current_composition());
-    if ($pp_udc_css !== '') {
-        wp_add_inline_style('pp-utilities', $pp_udc_css);
+    $pp_udc_composition = pp_udc_current_composition();
+
+    $pp_udc_defaults = pp_udc_page_defaults_css($pp_udc_composition);
+    if ($pp_udc_defaults !== '') {
+        wp_add_inline_style('pp-base', $pp_udc_defaults);
+    }
+
+    $pp_udc_authored = pp_udc_page_authored_css($pp_udc_composition);
+    if ($pp_udc_authored !== '') {
+        wp_add_inline_style('pp-utilities', $pp_udc_authored);
     }
 
     wp_enqueue_script(

@@ -1183,19 +1183,38 @@ function pp_udc_component_defaults_css(string $component): string {
     if ($compiled['id'] === '') {
         return '';
     }
-    return _pp_udc_render_blocks($compiled, '[data-pp-component="' . $component . '"]');
+    // Defaults that target the BAND ROOT carry no specificity; defaults that
+    // target an element inside the band carry the normal scope weight.
+    //
+    // The split is not about roles, it is about what else is aiming at the same
+    // element. The design system's contextual band rules (the adjacent-band
+    // rhythm) target the band root, and an UNAUTHORED band must still obey them —
+    // the #430/#431 rulings survive the pivot — so a root-level default has to be
+    // the weakest statement in the cascade and yield to them. Nothing in the
+    // design system aims at `.testimonials__quote`, so an element-level default
+    // has no such rule to yield to; what it does have to beat is ordinary
+    // structural CSS, including rules like base.css's `p:last-child` [0,1,1] that
+    // once zeroed the subheading rhythm (#336). At [0,2,0] it clears them.
+    //
+    // Authored values outrank both tiers; see pp_udc_band_css().
+    $scope = '[data-pp-component="' . $component . '"]';
+
+    return _pp_udc_render_blocks($compiled, $scope, ':where(' . $scope . ')');
 }
 
 /** Renders a compiled result under one scope selector. */
-function _pp_udc_render_blocks(array $compiled, string $scope): string {
+function _pp_udc_render_blocks(array $compiled, string $scope, ?string $root_scope = null): string {
     $css   = '';
+    // Rules aimed at the band root may need a different weight from rules aimed
+    // at elements inside it; callers that do not care pass one scope for both.
+    $root_scope = $root_scope ?? $scope;
 
     if ($compiled['tokens'] !== []) {
         $decls = '';
         foreach ($compiled['tokens'] as $name => $value) {
             $decls .= '--pp-' . $name . ':' . $value . ';';
         }
-        $css .= $scope . '{' . $decls . '}';
+        $css .= $root_scope . '{' . $decls . '}';
     }
 
     // Bucketed once. The emission order below is a 4-tier x 3-breakpoint product,
@@ -1222,7 +1241,9 @@ function _pp_udc_render_blocks(array $compiled, string $scope): string {
                 if ($decls === '') {
                     continue;
                 }
-                $selector = $scope . ($block['selector'] !== '' ? ' ' . $block['selector'] : '') . $state;
+                $selector = ($block['selector'] !== ''
+                    ? $scope . ' ' . $block['selector']
+                    : $root_scope) . $state;
                 $rules   .= $selector . '{' . $decls . '}';
             }
             if ($rules === '') {
@@ -1244,6 +1265,19 @@ function _pp_udc_render_blocks(array $compiled, string $scope): string {
  * can ever contend.
  */
 function pp_udc_page_css(array $items): string {
+    return pp_udc_page_defaults_css($items) . pp_udc_page_authored_css($items);
+}
+
+/**
+ * Layer 1: every v2 component's role defaults, once each.
+ *
+ * Printed BEFORE the theme stylesheets (see functions.php). Source order is
+ * load-bearing, not incidental: `_band` defaults and the shared adjacent-band
+ * rhythm rule both sit at zero specificity, so whichever prints later wins, and
+ * the shared rhythm must. Printing this layer first is what keeps an unauthored
+ * v2 band inside the #430/#431 rulings.
+ */
+function pp_udc_page_defaults_css(array $items): string {
     $css        = '';
     $components = [];
     foreach ($items as $item) {
@@ -1256,6 +1290,18 @@ function pp_udc_page_css(array $items): string {
             $css .= pp_udc_component_defaults_css($name);
         }
     }
+    return $css;
+}
+
+/**
+ * Layer 2: each band's authored values, in composition order.
+ *
+ * Printed AFTER the theme stylesheets, scoped `[data-pp-band="<id>"]`, so an
+ * authored value outranks both the defaults layer and the shared design-system
+ * rules. Bands are scoped to their own id, so no two can ever contend.
+ */
+function pp_udc_page_authored_css(array $items): string {
+    $css = '';
     foreach ($items as $item) {
         if (is_array($item)) {
             $css .= pp_udc_band_css($item);
