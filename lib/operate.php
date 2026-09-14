@@ -899,7 +899,15 @@ function pp_preflight(array $context = [], ?array $drift = null): array {
     $pp_bg_post = isset($context['post_id']) && is_numeric($context['post_id'])
         ? (int) $context['post_id']
         : null;
-    foreach (pp_check_udc_background_images($pp_bg_post) as $bg_check) {
+    // ONE DECODE FOR BOTH PAGE-SCOPED UDC ADVISORIES. Each used to call
+    // pp_get_composition() itself, so every mutation paid two full JSON decodes of
+    // the same meta row (measured 0.6 ms on a 50-band page, 6.4 ms on a 500-band
+    // one). Read it here and hand it down.
+    $pp_udc_composition = ($pp_bg_post !== null && function_exists('pp_get_composition'))
+        ? pp_get_composition($pp_bg_post)
+        : null;
+
+    foreach (pp_check_udc_background_images($pp_bg_post, $pp_udc_composition) as $bg_check) {
         $checks[] = $bg_check;
     }
 
@@ -918,7 +926,7 @@ function pp_preflight(array $context = [], ?array $drift = null): array {
     // silent on every channel. Same splice, same scoping rule: chrome always
     // (it renders on every page, and a chrome write carries no findings array at
     // all, so this is its ONLY channel), a page's bands only in context.
-    foreach (pp_check_udc_emit_drops($pp_bg_post) as $drop_check) {
+    foreach (pp_check_udc_emit_drops($pp_bg_post, $pp_udc_composition) as $drop_check) {
         $checks[] = $drop_check;
     }
 

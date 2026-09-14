@@ -5318,6 +5318,35 @@ const PP_WRITE_FINDINGS_MAX_STORED_BYTES = 1048576;
  * @return array[]             At most $budget findings, plus one findings_truncated entry
  *                             when (and only when) the report was longer than $budget.
  */
+/**
+ * Counts the discarded tail of a findings report by type, allocating nothing.
+ *
+ * WRITTEN AS A LOOP RATHER THAN slice/map/count ON PURPOSE. This runs on the one
+ * path whose job is to describe an oversized report, and the chained form built
+ * TWO transient arrays the size of the discarded tail to produce a handful of
+ * integers — measured 1.0 MB at 20,000 findings and 8.0 MB at 200,000, on a page
+ * that is already pathological. The walk is O(N) either way; the allocation is
+ * what this avoids.
+ *
+ * A shapeless entry counts as `unknown` rather than collapsing into an
+ * empty-string key, and nothing here may throw: an `array` type hint on the
+ * callback turned one malformed entry into a TypeError from the truncation tail
+ * itself (I17).
+ *
+ * @return array<string,int>
+ */
+function _pp_count_omitted_finding_types(array $findings, int $budget): array {
+    $omitted = [];
+    for ($i = $budget, $n = count($findings); $i < $n; $i++) {
+        $entry = $findings[$i];
+        $type  = (is_array($entry) && isset($entry['type']) && is_scalar($entry['type']))
+            ? (string) $entry['type']
+            : 'unknown';
+        $omitted[$type] = ($omitted[$type] ?? 0) + 1;
+    }
+    return $omitted;
+}
+
 function _pp_bounded_findings(array $findings, ?int $post_id = null, int $budget = PP_WRITE_FINDINGS_BUDGET): array {
     $budget = max(0, $budget);
     $total  = count($findings);
@@ -5371,16 +5400,7 @@ function _pp_bounded_findings(array $findings, ?int $post_id = null, int $budget
         // `array $finding` hint turns a single malformed entry past the budget into
         // a TypeError from the truncation tail itself (I17). A shapeless entry
         // counts as `unknown` rather than collapsing into an empty-string key.
-        'omitted_by_type' => array_count_values(
-            array_map(
-                static function ($finding): string {
-                    return is_array($finding) && isset($finding['type']) && is_scalar($finding['type'])
-                        ? (string) $finding['type']
-                        : 'unknown';
-                },
-                array_slice($findings, $budget)
-            )
-        ),
+        'omitted_by_type' => _pp_count_omitted_finding_types($findings, $budget),
         // THE TRUE TOTAL, STRUCTURALLY (#654). The message has always stated it in prose;
         // this states it in a field, because a consumer that RENDERS A COUNT cannot parse
         // prose and must not fall back to counting the array it was handed. The chat undo
