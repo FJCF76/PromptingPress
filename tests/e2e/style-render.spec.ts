@@ -109,6 +109,51 @@ async function styleComponent(
 }
 
 /**
+ * The v2 authoring path. Testimonials has no style slots, so `styleComponent`
+ * cannot reach it: a UDC band is authored by writing the whole composition,
+ * `udc` map and all, through `update_composition` — the same validated action
+ * the chat and the CLI call. Seeding the map with `setComposition` would write
+ * it straight to post meta and prove nothing about validation (Section 14.1),
+ * so every v2 styling pin below goes through here.
+ */
+async function updateComposition(page: any, postId: number, composition: unknown[]) {
+  return page.evaluate(
+    async (args: { pid: number; composition: unknown[] }) => {
+      const config = (window as any).ppAiChat;
+
+      const baselineData = new FormData();
+      baselineData.append('action', 'pp_ai_page_baseline');
+      baselineData.append('nonce', config.executeNonce);
+      baselineData.append('post_id', String(args.pid));
+      const baselineResp = await fetch(config.ajaxUrl, {
+        method: 'POST',
+        credentials: 'same-origin',
+        body: baselineData,
+      });
+      const baseline = await baselineResp.json();
+
+      const data = new FormData();
+      data.append('action', 'pp_ai_execute');
+      data.append('nonce', config.executeNonce);
+      data.append('type', 'action');
+      data.append('name', 'update_composition');
+      data.append('params[post_id]', String(args.pid));
+      data.append('params[composition]', JSON.stringify(args.composition));
+      if (baseline && baseline.success && baseline.data) {
+        data.append('params[expected_version]', String(baseline.data.version));
+      }
+      const resp = await fetch(config.ajaxUrl, {
+        method: 'POST',
+        credentials: 'same-origin',
+        body: data,
+      });
+      return resp.json();
+    },
+    { pid: postId, composition },
+  );
+}
+
+/**
  * Where a flex row's CONTENT actually sits, versus the column it is supposed to align to
  * (issue 338).
  *
@@ -2879,13 +2924,22 @@ test.describe('Safe-surface rendered proof', () => {
   // issue 332 and is 27 today; the set-equality guard below is what keeps this array
   // honest as the slot surface grows, so never hardcode the number here.
   //
-  // COVERAGE RESTORED (#696, 2026-08-17): --grid-item-border-color and
-  // --testimonials-item-border-color were missing. #576 ("apply the canonical slot and
-  // prop vocabulary across all ten components") renamed --grid-card-border-width ->
-  // --grid-item-border-width and --testimonials-card-border-width ->
-  // --testimonials-item-border-width AND newly ADDED the two colour slots; this array
-  // was updated for the renames only. That is exactly the drift the guard below exists
-  // to catch, and it caught it — the array was stale, the guard was right.
+  // COVERAGE RESTORED (#696, 2026-08-17): --grid-item-border-color was missing.
+  // #576 ("apply the canonical slot and prop vocabulary across all ten components")
+  // renamed --grid-card-border-width -> --grid-item-border-width AND newly ADDED the
+  // colour slots; this array was updated for the renames only. That is exactly the
+  // drift the guard below exists to catch, and it caught it — the array was stale,
+  // the guard was right.
+  //
+  // REPRICED (v2 Sprint 0): testimonials' four entries are gone because its four
+  // border slots are gone — it is the first component on the Universal Design
+  // Contract and declares no style_slots at all. The set-equality guard below is
+  // schema-derived, so it follows that removal on its own. What replaced the case
+  // is NOT a like-for-like port: this whole strand exists because a slot NAME lands
+  // in the root's inline `style` attribute, where WP core's substring selector
+  // `:where([style*=border-width])` can see it. A v2 component emits no inline
+  // style attribute at all, so the trigger cannot be constructed — a stronger
+  // guarantee than immunity, and it is pinned as such in the v2 test below.
   //
   // On the VALUES: what trips WP core's `:where([style*=border-color])` is the slot
   // NAME appearing in the root's inline style attribute, not the colour it resolves
@@ -2914,16 +2968,6 @@ test.describe('Safe-surface rendered proof', () => {
         '--faq-item-border-color': '#ff0080',
         '--faq-eyebrow-border-width': '0px',
         '--faq-eyebrow-border-color': 'transparent',
-      },
-    },
-    {
-      component: 'testimonials',
-      props: { id: 'pp-tst01', items: [{ quote: 'It works.', author: 'A' }] },
-      slots: {
-        '--testimonials-item-border-width': '0px',
-        '--testimonials-item-border-color': 'transparent',
-        '--testimonials-eyebrow-border-width': '0px',
-        '--testimonials-eyebrow-border-color': 'transparent',
       },
     },
     {
@@ -3060,6 +3104,65 @@ test.describe('Safe-surface rendered proof', () => {
       expect(border).toEqual({ top: '0px', right: '0px', bottom: '0px', left: '0px' });
     });
   }
+
+  // REPLACES the testimonials row of BORDER_TRIGGER_CASES.
+  //
+  // The v1 strand asked "does the slot name in the inline style attribute trip WP
+  // core's :where([style*=border-width]) into painting a 3px border?" For a v2
+  // component that question is unaskable: the border values live in a
+  // `[data-pp-band]` block in the head, and the root carries no `style` attribute
+  // for a substring selector to match. This pins the absence of the SINK, which is
+  // what actually makes the component immune — and it is authored the v2 way, with
+  // real border values in flight, so a regression that reintroduced inline style
+  // emission would fail here rather than silently restoring the old exposure.
+  test('#332 a v2 band carries border values with no inline style attribute to trigger core', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E Testimonials v2 Border Sink');
+    setComposition(pageId, [
+      { component: 'testimonials', props: { id: 'pp-tst01', items: [{ quote: 'It works.', author: 'A' }] } },
+    ]);
+
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+
+    const res = await updateComposition(page, pageId, [
+      {
+        component: 'testimonials',
+        props: { id: 'pp-tst01', items: [{ quote: 'It works.', author: 'A' }] },
+        udc: {
+          card: { border: { width: '2px', color: '#345678' } },
+          eyebrow: { border: { width: '3px', color: '#876543' } },
+        },
+      },
+    ]);
+    expect(res.success, `udc border write: ${JSON.stringify(res)}`).toBe(true);
+
+    await page.goto(`/?page_id=${pageId}`);
+    const root = page.locator('main > .testimonials');
+    await expect(root).toBeVisible({ timeout: 10000 });
+
+    // The sink is absent: no inline style attribute anywhere in the band.
+    expect(await root.getAttribute('style'), 'a v2 band root emits no inline style').toBeNull();
+    expect(
+      await root.locator('[style]').count(),
+      'and no descendant of a v2 band emits one either',
+    ).toBe(0);
+
+    // Non-vacuity: the values really did travel, via the scoped band block.
+    const cardBorder = await root
+      .locator('.testimonials__item')
+      .first()
+      .evaluate((el) => getComputedStyle(el).borderTopWidth);
+    expect(cardBorder, 'the authored card border reached the card').toBe('2px');
+
+    // And the root itself still takes no border from core's substring rule.
+    const rootBorder = await root.evaluate((el) => {
+      const c = getComputedStyle(el);
+      return { top: c.borderTopWidth, right: c.borderRightWidth, bottom: c.borderBottomWidth, left: c.borderLeftWidth };
+    });
+    expect(rootBorder).toEqual({ top: '0px', right: '0px', bottom: '0px', left: '0px' });
+  });
 
   // The OTHER inline-slot surface: issue 306's per-card style renders the custom property
   // on the .grid__item itself (components/grid/grid.php), so core's [style*=border-width]
@@ -3564,7 +3667,6 @@ test.describe('Safe-surface rendered proof', () => {
   for (const { component, slot, expected } of [
     { component: 'section', slot: '--section-subheading-margin-bottom', expected: '16px' },
     { component: 'grid', slot: '--grid-subheading-margin-bottom', expected: '32px' },
-    { component: 'testimonials', slot: '--testimonials-subheading-margin-bottom', expected: '32px' },
   ]) {
     test(`#336 ${component} subheading keeps its bottom rhythm as the header's last child @smoke`, async ({
       page,
@@ -3578,12 +3680,9 @@ test.describe('Safe-surface rendered proof', () => {
             title: 'Rhythm',
             eyebrow: 'Kicker',
             subheading: 'The sub-heading must not collide with the content below it.',
-            // Each component's own required props (section: body, grid/testimonials: items).
+            // Each component's own required props (section: body, grid: items).
             ...(component === 'section' ? { body: '<p>Body copy.</p>' } : {}),
             ...(component === 'grid' ? { items: [{ title: 'One', text: 'Card' }] } : {}),
-            ...(component === 'testimonials'
-              ? { items: [{ quote: 'Great.', author: 'A. Person' }] }
-              : {}),
           },
         },
       ]);
@@ -3638,13 +3737,15 @@ test.describe('Safe-surface rendered proof', () => {
   // at >=768px (this test's 1280px viewport) and 1.25rem below it. The slot is
   // routed through the base rule AND both premium breakpoints (the #302 split), so
   // a declaration-level assertion would not prove the slot survives the premium
-  // override — only computed style does. testimonials has no premium override, so
-  // its base var(--space-lg) (32px) is what renders. 1.65rem @ 16px root = 26.4px.
+  // override — only computed style does. 1.65rem @ 16px root = 26.4px.
+  //
+  // REPRICED (v2 Sprint 0): testimonials left this loop with its slots. The header
+  // rhythm it pinned is not gone — it moved onto the UDC roles, where the same two
+  // halves are pinned in the v2 test that follows this loop.
   // Pinned twice: unset -> the real rendered default, and set -> the operator wins.
   for (const { component, locator, slot, expected } of [
     { component: 'section', locator: '.section__title', slot: '--section-heading-margin-bottom', expected: '26.4px' },
     { component: 'grid', locator: '.grid__heading', slot: '--grid-heading-margin-bottom', expected: '26.4px' },
-    { component: 'testimonials', locator: '.testimonials__heading', slot: '--testimonials-heading-margin-bottom', expected: '32px' },
   ]) {
     test(`#343 ${component} title keeps its slot-driven gap above the subheading @smoke`, async ({
       page,
@@ -3658,12 +3759,9 @@ test.describe('Safe-surface rendered proof', () => {
             title: 'Rhythm',
             eyebrow: 'Kicker',
             subheading: 'The title must not collide with the sub-heading below it.',
-            // Each component's own required props (section: body, grid/testimonials: items).
+            // Each component's own required props (section: body, grid: items).
             ...(component === 'section' ? { body: '<p>Body copy.</p>' } : {}),
             ...(component === 'grid' ? { items: [{ title: 'One', text: 'Card' }] } : {}),
-            ...(component === 'testimonials'
-              ? { items: [{ quote: 'Great.', author: 'A. Person' }] }
-              : {}),
           },
         },
       ]);
@@ -3696,6 +3794,80 @@ test.describe('Safe-surface rendered proof', () => {
       expect(set).toBe('61px');
     });
   }
+
+  // REPLACES the testimonials rows of BOTH the #336 and the #343 loops above.
+  //
+  // Those two strands pinned one thing in two halves: the header rhythm renders a
+  // documented default when unset, and the operator's value wins when set. Both
+  // halves survive the v2 rewrite — only the mechanism changed, from two style
+  // slots to two UDC roles (`subheading` and `heading`, Spacing group). Keeping
+  // them in one test keeps the pair legible: the #336 half is the one that lost
+  // the cascade to base.css's `p:last-child { margin-bottom: 0 }`, so it is still
+  // asserted together with the last-child fact that made it fragile.
+  test('#336/#343 the testimonials header rhythm holds on its UDC roles, unset and set @smoke', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E Testimonials v2 Header Rhythm');
+    setComposition(pageId, [
+      {
+        component: 'testimonials',
+        props: {
+          id: 'pp-tst01',
+          title: 'Title',
+          subheading: 'Subheading copy.',
+          items: [{ quote: 'Great.', author: 'A. Person' }],
+        },
+      },
+    ]);
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+
+    const sub = page.locator('.testimonials__subheading');
+    const head = page.locator('.testimonials__heading');
+    await expect(sub).toBeVisible({ timeout: 10000 });
+
+    // Unset -> the documented defaults, carried by the role-defaults block. Same
+    // 32px both strands pinned before; the v2 path must not quietly retune them.
+    expect(
+      await sub.evaluate((el) => getComputedStyle(el).marginBottom),
+      'subheading keeps its bottom rhythm as the header\'s last child',
+    ).toBe('32px');
+    expect(
+      await sub.evaluate((el) => el === el.parentElement?.lastElementChild),
+      'and it really is the last child — the condition that broke it in #336',
+    ).toBe(true);
+    expect(
+      await head.evaluate((el) => getComputedStyle(el).marginBottom),
+      'title keeps its gap above the subheading',
+    ).toBe('32px');
+
+    // Set -> the author wins, through the validated v2 write path. Values no
+    // token resolves to, so a default leaking through is unmistakable.
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+    const res = await updateComposition(page, pageId, [
+      {
+        component: 'testimonials',
+        props: {
+          id: 'pp-tst01',
+          title: 'Title',
+          subheading: 'Subheading copy.',
+          items: [{ quote: 'Great.', author: 'A. Person' }],
+        },
+        udc: {
+          subheading: { spacing: { 'margin-bottom': '61px' } },
+          heading: { spacing: { 'margin-bottom': '62px' } },
+        },
+      },
+    ]);
+    expect(res.success, `udc header rhythm write: ${JSON.stringify(res)}`).toBe(true);
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+    expect(await sub.evaluate((el) => getComputedStyle(el).marginBottom)).toBe('61px');
+    expect(await head.evaluate((el) => getComputedStyle(el).marginBottom)).toBe('62px');
+  });
 
   // Strand 1. The eyebrow had color/bg slots but no radius slot, so the pill
   // shape was unreachable.
@@ -6001,36 +6173,26 @@ test.describe('Shared section-band rhythm (#431)', () => {
     }
   });
 
-  // The resurrected dead slot: testimonials was absent from both adjacent routing
-  // lists, so --testimonials-padding-top no-op'd on the adjacent-top edge. It must
-  // now win at both breakpoints, exactly like section did in #305/#302.
-  test('#431 --testimonials-padding-top wins on an adjacent testimonials band at 1280 and 375', async ({
-    page,
-  }) => {
-    pageId = createPage('E2E Testimonials Adjacent Slot Resurrected');
-    // section first, testimonials second => testimonials is in the adjacent position.
-    setComposition(pageId, [
-      { component: 'section', props: { id: 'pp-sec01', body: '<p>Body.</p>' } },
-      { component: 'testimonials', props: { id: 'pp-tst01', items: [{ quote: 'It works.', author: 'A' }] } },
-    ]);
-
-    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
-    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
-
-    // A pixel value no token resolves to, so a dead-slot no-op is unmistakable.
-    // component_index 1 = the testimonials band (index 0 is the leading section).
-    const res = await styleComponent(page, pageId, { '--testimonials-padding-top': '5px' }, undefined, 1);
-    expect(res.success).toBe(true);
-
-    for (const width of [1280, 375]) {
-      await page.setViewportSize({ width, height: 900 });
-      await page.goto(`/?page_id=${pageId}`);
-      const tst = page.locator('main > .testimonials');
-      await expect(tst).toBeVisible({ timeout: 10000 });
-      const paddingTop = await tst.evaluate((el) => getComputedStyle(el).paddingTop);
-      expect(paddingTop, `adjacent-top slot @${width}`).toBe('5px');
-    }
-  });
+  // RETIRED (v2 Sprint 0): this test drove --testimonials-padding-top, and that slot
+  // no longer exists — testimonials declares no style_slots at all. The slot half is
+  // therefore unportable and gone.
+  //
+  // Its UNDERLYING truth is a standing ruling and is NOT retired: a per-instance
+  // band padding must win on the adjacent-top edge, exactly as section does in
+  // #305/#302. Under v2 the per-instance surface is the band's own `udc` map
+  // (`_band` role, Spacing group). Measured behaviour of that surface today, at
+  // 1280 with a section leading the stack:
+  //
+  //     authored _band padding-top: 5px   -> renders 76.8px   (overridden)
+  //     authored _band padding-bottom: 6px -> renders 6px     (wins)
+  //
+  // The authored block is `[data-pp-band="…"]` (0,1,0); the shared rhythm rule
+  // `main > [data-pp-component] + [data-pp-component]` is (0,2,1) and outranks it.
+  // Only the adjacent-top edge is affected, and only for the `_band` role — every
+  // element-scoped role (heading, quote, card, …) wins from both stack positions.
+  // Resolving that is a contract-level decision about §3.4/§3.5 emission
+  // specificity, so the v2 successor to this test lands with that decision rather
+  // than being guessed at here.
 
   // One knob retunes the whole site's rhythm: overriding the shared definition at
   // :root moves every band's every edge together. Proves the fallback chains really
@@ -6435,13 +6597,16 @@ test.describe('Band heading scale (#436)', () => {
   // (--pp-band-heading-size) as the fallback of its own size slot. Before #436
   // section/grid/cta collapsed to 16px body size on mobile (cta at every
   // viewport) and the rest disagreed. Selector + size slot per band.
-  const HEADINGS: { band: string; sel: string; slot: string }[] = [
+  const HEADINGS: { band: string; sel: string; slot?: string }[] = [
     { band: 'section', sel: '.section__title', slot: '--section-heading-size' },
     { band: 'grid', sel: '.grid__heading', slot: '--grid-heading-size' },
     { band: 'cta', sel: '.cta__title', slot: '--cta-heading-size' },
     { band: 'stats', sel: '.stats__heading', slot: '--stats-heading-size' },
     { band: 'table', sel: '.table-section__heading', slot: '--table-heading-size' },
-    { band: 'testimonials', sel: '.testimonials__heading', slot: '--testimonials-heading-size' },
+    // No `slot`: testimonials is on the UDC contract and has none. Only `band`
+    // and `sel` are read by the equality test below, which it still joins —
+    // its heading resolves the same shared --pp-band-heading-size scale.
+    { band: 'testimonials', sel: '.testimonials__heading' },
     { band: 'logos', sel: '.logos__heading', slot: '--logos-heading-size' },
     { band: 'embed', sel: '.embed__heading', slot: '--embed-heading-size' },
     { band: 'faq', sel: '.faq__heading', slot: '--faq-heading-size' },
@@ -6520,8 +6685,8 @@ test.describe('Band heading scale (#436)', () => {
 
   // Slot contract preserved AND every newly-minted slot works end-to-end: the
   // existing slot (--cta-heading-size) plus ALL FOUR slots first introduced by #436
-  // (--table-heading-size, --logos-heading-size, --embed-heading-size,
-  // --testimonials-heading-size) must each validate (styleComponent success) and
+  // (--table-heading-size, --logos-heading-size, --embed-heading-size) must each
+  // validate (styleComponent success) and
   // win over the shared scale at mobile AND desktop. This is the only render-level
   // proof that the fresh pp_render_style_vars wiring in table/logos/embed.php uses
   // the correct component-name string — a typo there would validate but never
@@ -6536,7 +6701,6 @@ test.describe('Band heading scale (#436)', () => {
       { component: 'table', props: { id: 'pp-tbl01', title: 'Table', headers: ['A', 'B'], rows: [['1', '2']] } },
       { component: 'logos', props: { id: 'pp-logo01', title: 'Logos', items: [{ image_url: 'https://example.com/l.png', image_alt: 'Logo' }] } },
       { component: 'embed', props: { id: 'pp-emb01', title: 'Embed', content: 'https://example.com/video' } },
-      { component: 'testimonials', props: { id: 'pp-tst01', title: 'Testimonials', items: [{ quote: 'It works.', author: 'A' }] } },
     ]);
 
     await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
@@ -6549,7 +6713,6 @@ test.describe('Band heading scale (#436)', () => {
       { idx: 1, slot: '--table-heading-size', px: '61px', sel: '.table-section__heading' },
       { idx: 2, slot: '--logos-heading-size', px: '62px', sel: '.logos__heading' },
       { idx: 3, slot: '--embed-heading-size', px: '63px', sel: '.embed__heading' },
-      { idx: 4, slot: '--testimonials-heading-size', px: '64px', sel: '.testimonials__heading' },
     ];
     for (const o of overrides) {
       const r = await styleComponent(page, pageId, { [o.slot]: o.px }, undefined, o.idx);
@@ -6788,29 +6951,16 @@ test.describe('#437 inverted link contrast (rendered)', () => {
       mode: 'contrast',
       minRatio: 4.5,
     },
-    {
-      // #439: testimonials.quote became an inline-HTML surface. In the STACK layout
-      // the quote sits directly on the dark band (transparent card), so its link
-      // must reach AA. (The GRID layout keeps a light card — covered below.)
-      name: 'testimonials stack quote link on the dark band → on-inverted (AA)',
-      composition: [
-        {
-          component: 'testimonials',
-          props: {
-            id: 'pp-tst01',
-            theme: 'inverted',
-            layout: 'stack',
-            title: 'Inverted stack',
-            items: [
-              { quote: 'A great <a href="/case">case study</a> to read.', author: 'Ana' },
-            ],
-          },
-        },
-      ],
-      linkSelector: '.testimonials--inverted.testimonials--stack .testimonials__quote a',
-      mode: 'contrast',
-      minRatio: 4.5,
-    },
+    // RETIRED (v2 Sprint 0): the testimonials case drove `theme: 'inverted'` and
+    // selected on `.testimonials--inverted`. Both are gone with the theme prop, so
+    // the case cannot be constructed. Its truth — a quote link on a dark band must
+    // reach AA — is not dropped but RELOCATED: under v2 the dark band and the
+    // colours that must read against it are both authored values, so meeting AA is
+    // the authoring layer's job, and the requirement is stated to the model in
+    // components/testimonials/README.md ("You own the contrast", which names link
+    // colour explicitly). It is not pinnable as a rendered default here because
+    // there is no longer a default to pin. The other eight cases below are
+    // untouched — their components still carry the theme prop.
     {
       // #439: grid.items[].text became an inline-HTML surface, but the card stays a
       // LIGHT surface even on the inverted band, so its link must STAY on
@@ -11688,58 +11838,23 @@ test.describe('#577 dead and defeated style slots render', () => {
     expect(cs.color, 'plain band title_accent must be byte-identical').toBe(ACCENT);
   });
 
-  // ── A-14 / register row 5 — inverted-stack testimonials meta ───────────────
+  // ── A-14 / register row 5 — RETIRED (v2 Sprint 0) ─────────────────────────
   //
-  // --testimonials-quote-color and --testimonials-author-color each get an
-  // inverted+stack rule supplying a light default. --testimonials-meta-color got none,
-  // so the role/company line resolved to --color-muted on a dark band.
+  // Both tests in this row drove `theme: 'inverted'`. That prop is gone from
+  // testimonials' v2 schema by ruling, and with it the `testimonials--inverted`
+  // class the two light-default rules keyed on. Neither test can be ported: the
+  // first asserted a light default that no longer has a trigger, and the second
+  // asserted the GRID layout was unaffected by a prop that no longer exists — it
+  // still passes today, but only vacuously, which is worse than not having it.
+  //
+  // The decision they encoded does NOT survive as component CSS. Under the
+  // standing never-fix-colors-in-components rule, a dark band's contrast is the
+  // authoring layer's job: the author sets the band background AND the role
+  // colours that must read against it. That guidance ships in the AI-facing doc
+  // rather than as a baked-in default, so there is no rendered default left here
+  // to pin. The rendered proof that role colours reach these elements at all is
+  // carried by the v2 role tests elsewhere in this file.
 
-  test('#577 row 5: the inverted-STACK testimonials meta line takes a light default @smoke', async ({
-    page,
-  }) => {
-    pageId = createPage('E2E 577 testimonials inverted stack meta');
-    setComposition(pageId, [
-      {
-        component: 'testimonials',
-        props: {
-          id: 'pp-tst-inv',
-          theme: 'inverted',
-          layout: 'stack',
-          items: [{ quote: 'It works.', author: 'Ada Lovelace', role: 'Head of Engineering', company: 'Analytical Ltd' }],
-        },
-      },
-    ]);
-
-    for (const width of [1280, 375]) {
-      await page.setViewportSize({ width, height: 900 });
-      await page.goto(`/?page_id=${pageId}`);
-      await expect(page.locator('#pp-tst-inv .testimonials__meta')).toBeVisible({ timeout: 10000 });
-      const cs = await computed(page, '#pp-tst-inv .testimonials__meta', ['color']);
-      expect(cs.color, `inverted stack meta @${width}`).toBe(PAGE_BG);
-      expect(cs.color, 'must no longer resolve to the light-surface muted ink').not.toBe(MUTED_INK);
-    }
-  });
-
-  test('#577 A-14: the GRID layout keeps its light card, so meta stays muted', async ({ page }) => {
-    pageId = createPage('E2E 577 testimonials inverted grid meta unchanged');
-    setComposition(pageId, [
-      {
-        component: 'testimonials',
-        props: {
-          id: 'pp-tst-grid',
-          theme: 'inverted',
-          layout: 'grid',
-          items: [{ quote: 'It works.', author: 'Ada Lovelace', role: 'Head of Engineering', company: 'Analytical Ltd' }],
-        },
-      },
-    ]);
-    await page.setViewportSize({ width: 1280, height: 900 });
-    await page.goto(`/?page_id=${pageId}`);
-    const cs = await computed(page, '#pp-tst-grid .testimonials__meta', ['color']);
-    // The grid variant's item is a LIGHT card, so the muted ink is correct there and
-    // the new rule (scoped to .testimonials--stack) must not reach it.
-    expect(cs.color, 'inverted GRID meta must be byte-identical').toBe(MUTED_INK);
-  });
 
   // ── A-36 / register rows 6 and 7 — the two MEASURED contrast corrections ───
   //
