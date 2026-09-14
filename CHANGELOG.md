@@ -38,9 +38,24 @@ The preview now emits two blocks at the front end's two positions. The ordering 
 
 The test is renamed to say what it pins, carries a `@todo` pointing at the deferred fix, and the one approved-spec line claiming I8 was PINNED is corrected in place. I8 remains unpinned and unfixed, both deferred. A test whose name claims coverage its body does not carry is worse than no test: it makes the invariant look guarded and stops anyone looking.
 
+### The font path validates what it derives, and stored overrides are checked before they paint (#965)
+
+Two input-validation boundaries on the design-token path, one at write and one at render.
+
+`enqueue_font` takes an optional `family`. Omit it and the family name is read out of the URL's `family=` parameter — and with `apply_to`, that derived name is what gets written into the `--font-heading`/`--font-body` override the theme emits. It is now held to the same grammar as a name you type. All three arms of the action resolve the family through one owner, so validate-time and apply-time cannot disagree about which string is at stake, and a refusal names the derived value, because you never typed it and otherwise could not see what was read out of your URL.
+
+**One narrowing, stated rather than discovered.** A URL whose `family=` parameter does not parse as a font family name is refused even when `apply_to` is omitted and no token would have been written. One rule beats two: a check that fired only under `apply_to` would put the two arms back on separate rules, which is the shape this change removes. Every Google Fonts and Bunny Fonts URL in the repo's code, tests and docs still passes — `css` and `css2`, multi-family, `ital`/`wght` axes, `+`-joined names. What refuses is a name carrying punctuation or non-ASCII outside quotes, and the fix is to pass `family` explicitly and quoted, which the refusal now tells you.
+
+**Stored design-token overrides are re-validated before they are emitted.** The `:root` block the theme prints from `pp_token_overrides` is now built from rows that still pass the type `assets/css/base.css` declares for them — the same render boundary v1 already applies to stored component style values. A row that does not pass is left out and the rest still emit; it is logged by name and reported by `wp pp readiness status` as a `token_override_validity` finding, with `update_design_token` / `reset_design_token` as the next action, so a token that stops painting is always accounted for somewhere you can read. If the token registry itself cannot be read, that is reported once as a theme-integrity finding rather than once per token — the overrides are intact in that case and nothing advises clearing them.
+
+**Delimiter balancing now covers square brackets and CSS strings.** The shared guard already required parentheses and quote marks to close; it now requires `[` and `]` to close and nest the same way, and it consumes a CSS string whole so a delimiter sitting inside one is neither counted nor able to discharge a real one. Balanced brackets stay legal, so a grid track list such as `[full-start] 1fr [full-end]` is accepted. **The narrowing:** a `udc` value with an unmatched bracket is refused at write, and a design-token override with one is accepted at write but dropped at render and reported. Measured before shipping: no shipped token default, component slot default or UDC role default is affected.
+
 ### Known issues
 
 - **The editor preview does not emit design-token overrides or enqueued fonts** (#963), so a site that has retuned a token or loaded a webfont previews with the theme's stock values. Pre-existing, found by the new parity test, and deliberately not folded into this change.
+- Seven shipped `--btn-*` defaults declare a type their own default value does not satisfy (#967) — `var()` under a `length`, `initial` under `color`/`shadow`. They are defaults, never stored overrides, so nothing is dropped today; the type metadata is what is wrong. Inventoried by a test so the set cannot grow unnoticed.
+- `update_design_token` does not check delimiter balance for the one `raw`-typed token (#966): the write succeeds and the value is dropped at render with an advisory. Recorded as a write/render asymmetry for a decision rather than narrowed unasked.
+- `_pp_derive_font_family_from_url()` derives the LAST `family=` parameter, not the first as its docblock says (#968). Behaviour left unchanged here, because either direction is a decision of its own.
 - A `font-family` `var()` reference is checked for SHAPE only. Unlike `color`, the token is not required to exist or to be font-typed, so a misspelled reference validates and paints nothing. Recorded and pinned as current behaviour rather than silently narrowed.
 
 ### Fixed
@@ -48,15 +63,19 @@ The test is renamed to say what it pins, carries a `@todo` pointing at the defer
 - The CSS delimiter guard now covers authored values, not only band tokens — the write path, the emit-time re-validation and the referenced-token gate through one call.
 - `font-family` is validated against a real grammar on every surface that reaches CSS, and the validator no longer depends on its caller having run the shared reject set first.
 - The editor preview emits the two cascade layers at the front end's positions instead of one concatenated block.
+- A font family derived from a URL is validated like one passed explicitly, through a single owner shared by all three arms of `enqueue_font` (#965).
+- Stored design-token overrides are re-validated against their declared type before the theme emits them, and a row that no longer validates is dropped rather than printed (#965).
+- The delimiter guard balances `[` and `]`, and skips over CSS strings instead of counting the delimiters inside them (#965).
 
 ### Docs
 
 - The runtime system prompt and `ai-instructions/style-component.md` state the font-family grammar, the per-surface difference, and the shape-only nature of its `var()` arm. `AI_CONTEXT.md` records that `enqueue_font`'s `family` is validated.
 - A stale docblock describing the pre-`:where()` cascade is corrected, and the preview head carries a diagram of both surfaces including the layer the preview does not emit.
+- `ai-instructions/style-component.md` states the delimiter limits once and names where each bites, since they now apply to design-token overrides as well as `udc` values; `AI_CONTEXT.md` records that a derived family is validated like an explicit one; `docs/reference-apply-cli.md` documents the `token_override_validity` readiness check and its finding keys (#965).
 
 ### Tests
 
-PHP 4813 → 4832; JS 1879 unchanged. Both halves of the delimiter fix are red-proven against the pre-fix code, including through `create_page` rather than the validator alone; the preview's block ORDER and the fact that the AJAX endpoint still routes through the shared head builder are each pinned against a mutation that reverts them; `pp_udc_page_css()` — the concatenation that was the preview's bug — is now a test-only convenience with a tokenized source tripwire that fails if any production file calls it. `pp_udc_compile_band()`'s `$layer` argument is required, so no caller can silently ask for both tiers merged.
+PHP 4813 → 4865; JS 1879 unchanged. Both halves of the delimiter fix are red-proven against the pre-fix code, including through `create_page` rather than the validator alone; the preview's block ORDER and the fact that the AJAX endpoint still routes through the shared head builder are each pinned against a mutation that reverts them; `pp_udc_page_css()` — the concatenation that was the preview's bug — is now a test-only convenience with a tokenized source tripwire that fails if any production file calls it. `pp_udc_compile_band()`'s `$layer` argument is required, so no caller can silently ask for both tiers merged. The font-path boundaries are pinned in both directions (#965): the refused shapes are refused at every boundary the guard serves, and a legitimate bracketed value and every real font-URL shape still pass. The emitter is a named function so a test asserts the string it produces rather than a copy of its loop, and each gate of the render predicate is pinned by a case where it alone decides. Hostile fixtures are built with `chr()`/`mb_chr()`, never as literal escapes.
 
 ---
 

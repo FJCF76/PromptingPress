@@ -866,6 +866,16 @@ function pp_preflight(array $context = [], ?array $drift = null): array {
         $checks[] = $nav_check;
     }
 
+    // Check 8b: Design-token override validity (warning-grade, advisory — never
+    // blocks a mutation). Unconditional and site-scoped for the same reason as
+    // Check 8: the :root token block is emitted on every page regardless of which
+    // page (if any) this mutation targets. Reports the overrides functions.php
+    // DROPS from that block — the only operator-visible account of a stored token
+    // that stopped painting, since the drop itself is silent by design.
+    foreach (pp_check_token_override_validity() as $token_check) {
+        $checks[] = $token_check;
+    }
+
     // Check 9: Screenshot readiness (warning-grade, advisory — never blocks a mutation).
     // The operating loop forbids native VERIFIED without screenshots, so surface capture
     // readiness BEFORE mutation. A missing browser is a capability warning, not a gate:

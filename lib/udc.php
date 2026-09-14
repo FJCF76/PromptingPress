@@ -1675,10 +1675,12 @@ function _pp_udc_referenced_token_names(array $udc): array {
  * vocabulary. The guard caught this message on its first run.
  */
 function _pp_udc_unbalanced_message(string $subject = 'Value'): string {
-    return $subject . ' has an unbalanced ( ) or an odd number of \' or " characters. CSS treats '
-        . 'each of those as still open, so the value would swallow every declaration and rule '
-        . 'after it. Close the pair — a font name may carry ( ) as long as both appear. A name '
-        . 'containing a single apostrophe is not accepted in any form.';
+    return $subject . ' has an unbalanced ( ), an unbalanced [ ], or an odd number of \' or " '
+        . 'characters. CSS treats each of those as still open, so the value would swallow every '
+        . 'declaration and rule after it. Close the pair — a value may carry ( ) or [ ] as long '
+        . 'as both appear and they nest, so a grid track list such as "[full-start] 1fr '
+        . '[full-end]" is accepted. A name containing a single apostrophe is not accepted in '
+        . 'any form.';
 }
 
 /**
@@ -1693,57 +1695,137 @@ function _pp_udc_unbalanced_message(string $subject = 'Value'): string {
  * shared set would impose a v2 sink's constraint on eleven components whose sink
  * still escapes.
  *
- * CONSEQUENCE, STATED BECAUSE IT IS A REAL SPLIT: this gate guards the v2 sink
- * only. `font-family` is the one type where the difference is visible — a name
- * carrying a lone apostrophe validates as a DESIGN TOKEN (v1's escaped sink,
- * `_pp_validate_token_value`, no gate) and is refused on a v2 `typography.family`
- * parameter, because only the latter runs this. The two surfaces accept different
- * sets on purpose; the AI-facing docs say so per surface.
+ * CONSEQUENCE, STATED BECAUSE IT IS A REAL SPLIT, AND THE SPLIT MOVED (#965): this
+ * gate is no longer v2-only. It now also runs at the v1 design-token RENDER
+ * boundary — pp_token_override_renders() (lib/wp.php) — because the `:root { … }`
+ * block functions.php emits is CSS source text, the same kind of sink v2 has, and
+ * not the escaped `style` attribute the split was originally drawn around.
  *
- * CALLED FROM TWO PLACES. `pp_udc_validate_map()`'s `_tokens` loop covers a token
+ * What survives of the split is narrower and worth naming exactly. The v1 design
+ * token WRITE path still does not run this: `_pp_validate_token_value()` has no
+ * balance gate, so a name carrying a lone apostrophe is still ACCEPTED as a design
+ * token and still REFUSED on a v2 `typography.family` parameter. The difference is
+ * now only that the accepted v1 value does not paint — it is dropped at render and
+ * reported by `wp pp readiness status` — rather than emitting broken CSS. The
+ * AI-facing docs state the accepted set per surface.
+ *
+ * CALLED FROM THREE PLACES. `pp_udc_validate_map()`'s `_tokens` loop covers a token
  * that nothing references, since §3.1 makes an unreferenced token a warning
  * rather than a refusal and so no parameter grammar ever reaches it.
- * `pp_udc_validate_value()` covers everything else — the authored write path, the
- * emit-time re-validation, and a referenced token checked against the grammar of
- * the parameter that uses it.
+ * `pp_udc_validate_value()` covers everything else on the v2 side — the authored
+ * write path, the emit-time re-validation, and a referenced token checked against
+ * the grammar of the parameter that uses it. `pp_token_override_renders()`
+ * (lib/wp.php) covers the v1 design-token render boundary.
  */
 function _pp_udc_delimiters_balanced(string $value): bool {
+    // `[` AND `]` ARE HERE FOR THE SAME REASON `(` AND `)` ARE, and leaving them
+    // out was a hole rather than a scope line (#965). CSS Syntax L3 "consume a
+    // simple block" treats `[` exactly as it treats `(`: an unclosed one consumes
+    // across the terminating `;` and the closing `}` to EOF. The shared reject set
+    // does not ban a bracket, and for the `raw` type nothing else looks at the
+    // value either, so before this an unmatched `[` walked through every boundary
+    // this function serves and took the following rules with it. A function whose
+    // name is "delimiters balanced" has to balance the delimiters CSS has, not the
+    // subset that happened to be written first.
+    //
+    // Balanced brackets stay legal, and that is not a theoretical allowance: a
+    // grid track list names its lines with them — `[full-start] 1fr [full-end]` —
+    // and a bracket inside a CSS string is inert either way.
+    //
     // Nothing to balance. Exactly equivalent to the work below — with none of the
-    // four characters present, both counts are zero and the depth never leaves
-    // zero — and it is the case almost every value takes, which matters because
-    // this now runs per declaration at EMIT as well as at write. One scan instead
-    // of three: measured over a realistic mix of emitted values (lengths, hex
-    // colours, keywords, one quoted font stack, one clamp()), 0.46 -> 0.24
-    // microseconds per call, best of five runs of 200k calls.
-    if (strpbrk($value, '()"\'') === false) {
+    // six characters present the counts are all zero and the walk never pushes —
+    // and it is the case most values take, which matters because this runs per
+    // declaration at EMIT as well as at write.
+    //
+    // MEASURED, and the numbers moved when the walk became string-aware (#965), so
+    // they are restated rather than carried over. A value with no delimiter costs
+    // 0.05-0.07 microseconds and never leaves this line; one that carries a
+    // delimiter costs 2.1-2.6 (a clamp(), a quoted font stack, a grid track list
+    // all land in that band). Over the shipped registry that is 10 of 61 values
+    // taking the walk, and pp_partition_token_overrides() at N=61 measures 139
+    // microseconds end to end — a fraction of a percent of a page render, against
+    // the alternative of emitting a block that swallows the rest of the
+    // stylesheet. Best of 5-7 runs of 200k/2k calls.
+    if (strpbrk($value, '()[]"\'') === false) {
         return true;
     }
     if (substr_count($value, '"') % 2 !== 0 || substr_count($value, "'") % 2 !== 0) {
         return false;
     }
-    // The per-byte loop below exists only to catch `)` BEFORE `(` — an ordering
-    // question. When the counts differ the answer is already no, and when there
-    // are no parentheses at all there is no ordering to check. Skipping it in
-    // those two cases cannot change the result, and it is the case a quoted font
-    // stack takes: measured 1.55 -> 0.18 microseconds per call on values that
-    // carry a mark but no parenthesis.
-    $open = substr_count($value, '(');
-    if ($open !== substr_count($value, ')')) {
+    // The counts below are a cheap pre-check, not the answer: equal counts do not
+    // mean balanced (`)(` counts one each), so the walk still has to run. What the
+    // counts DO settle early is the common unbalanced case, and they settle one
+    // thing the walk deliberately cannot — a delimiter shielded inside a string,
+    // which the walk skips over entirely. Keeping the counts is what preserves the
+    // long-standing conservative treatment of `"Foo(Bar"`, and makes a bracket in
+    // that position behave the same way (a pinned consistency, not an accident).
+    //
+    // The two pairs are counted separately, so `(]` cannot pass on a combined
+    // total, and the depth walk then rejects any interleaving.
+    $parens   = substr_count($value, '(');
+    $brackets = substr_count($value, '[');
+    if ($parens !== substr_count($value, ')') || $brackets !== substr_count($value, ']')) {
         return false;
     }
-    if ($open === 0) {
-        return true;
-    }
-    $depth = 0;
+    // NO EARLY RETURN FOR "no brackets, so nothing to order". There used to be
+    // one, and it was correct while the walk only checked bracket ORDERING: with
+    // no brackets there was no ordering to get wrong. The walk now also pairs
+    // STRINGS, and a value can reach this line with no bracket of either kind and
+    // still be unbalanced — `"'"'` has an even count of both marks, yet CSS reads
+    // `"'"` as one string and the trailing `'` opens a second that never closes.
+    // Returning early there skipped the only check that could see it. Anything
+    // past the fast path carries at least one of the six characters, so the walk
+    // has work to do by construction.
+    // THE WALK CONSUMES STRINGS WHOLE, because CSS does.
+    //
+    // A closer inside a string is string CONTENT, not a closer — CSS Syntax L3
+    // 4.3.5 consumes the string before anything else looks at its bytes. A walk
+    // that does not know that will discharge a real opener against a shielded
+    // closer and call the value balanced: `(")"` counts one `(` and one `)`, has
+    // even quote parity, and leaves the parenthesis OPEN at end of value. That is
+    // the whole escape again, wearing a different delimiter.
+    //
+    // Note the asymmetry, because it is why only one direction is a hole: an
+    // OPENER inside a string makes this stricter (the count pre-check may refuse a
+    // value CSS would have accepted), which is conservative and harmless. A CLOSER
+    // inside a string makes it laxer, which is the escape. Consuming the string
+    // removes both readings by not looking inside at all.
+    //
+    // The parity pre-check above stays, and is not redundant with this: it is what
+    // refuses a lone apostrophe in any position (`"Foo's Font"`), which
+    // _pp_udc_unbalanced_message() promises and a test pins. A tokenizer-only walk
+    // would accept that value, since CSS reads the apostrophe as string content.
+    $stack = [];
     $len   = strlen($value);
-    for ($i = 0; $i < $len; $i++) {
-        if ($value[$i] === '(') {
-            $depth++;
-        } elseif ($value[$i] === ')' && --$depth < 0) {
-            return false;
+    $i     = 0;
+    while ($i < $len) {
+        $char = $value[$i];
+
+        if ($char === '"' || $char === "'") {
+            // Skip to just past the partner. Parity guarantees one exists in a
+            // value that got this far, but a value whose marks interleave
+            // (`"'"'` — even counts of both, yet CSS opens a second string that
+            // never closes) reaches here and is refused on the missing partner.
+            $end = strpos($value, $char, $i + 1);
+            if ($end === false) {
+                return false;
+            }
+            $i = $end + 1;
+            continue;
         }
+
+        if ($char === '(' || $char === '[') {
+            $stack[] = $char;
+        } elseif ($char === ')' || $char === ']') {
+            if (array_pop($stack) !== ($char === ')' ? '(' : '[')) {
+                return false;
+            }
+        }
+
+        $i++;
     }
-    return $depth === 0;
+
+    return $stack === [];
 }
 
 /**

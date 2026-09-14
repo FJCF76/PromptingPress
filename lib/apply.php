@@ -692,6 +692,72 @@ function _pp_derive_font_family_from_url(string $url): string {
 }
 
 /**
+ * Resolves the font family `enqueue_font` will use, and says where it came from.
+ *
+ * THE ONE OWNER OF "WHICH FAMILY IS THIS CALL ABOUT". All three arms of
+ * `enqueue_font` need the answer and all three used to spell it out for
+ * themselves — the validate arm at one line, the preview and apply arms at four
+ * each. Three copies of a rule is three rules, and the one that mattered was the
+ * one the validate arm did NOT have: it called the deriver only to compare the
+ * result against `''`, then let the apply arm derive again and write the result
+ * into a `--font-heading`/`--font-body` override without anyone checking its
+ * grammar. An explicit `family` was validated; the derived twin of the same
+ * value was not, because the two arms were separate transcriptions of the same
+ * sentence and only one of them carried the check.
+ *
+ * So the resolution moves here and the arms call it. Validate-time and
+ * apply-time now cannot disagree about WHICH string is at stake, which is the
+ * precondition for them agreeing about whether it is allowed.
+ *
+ * `source` is what the arms actually branch on, and it is deliberately a
+ * three-state rather than a boolean: 'explicit' (the caller passed `family`),
+ * 'derived' (we read it out of the URL's `family=` parameter), or null (there is
+ * no family at all — no `family` param and nothing derivable, so no token is
+ * written and none needs checking). The apply arm already reported exactly this
+ * distinction back to the caller as `family_source`; it is now computed once
+ * instead of reconstructed there.
+ *
+ * @param  array $params  The `enqueue_font` params (`url`, optional `family`).
+ * @return array          ['family' => string, 'source' => 'explicit'|'derived'|null].
+ */
+function _pp_enqueue_font_family(array $params): array {
+    $family = (string) ($params['family'] ?? '');
+    if ($family !== '') {
+        return ['family' => $family, 'source' => 'explicit'];
+    }
+
+    $family = _pp_derive_font_family_from_url((string) ($params['url'] ?? ''));
+
+    return ['family' => $family, 'source' => $family !== '' ? 'derived' : null];
+}
+
+/**
+ * The refusal message for a derived family that fails the font-family grammar.
+ *
+ * Names the DERIVED value, because the caller never typed it: they passed a URL
+ * and the engine read a family name out of its `family=` parameter. A message
+ * that only said "invalid font family" would be describing a string the operator
+ * cannot see in their own request. The value goes through the reflected-text
+ * owner (`_pp_clean_reflected_text`, lib/wp.php) at PP_REFLECTED_NAME_MAX, on the
+ * same grounds as every other caller-derived name this engine echoes: it is
+ * attacker-influenced text, `parse_str()` URL-decodes it, and a control or
+ * bidi-formatting character in it would otherwise reach whatever renders the
+ * refusal — including the model reading its own tool output.
+ *
+ * @param  string $derived  The family name derived from the URL.
+ * @return string
+ */
+function _pp_derived_font_family_message(string $derived): string {
+    return sprintf(
+        'No family was passed, so one was derived from the URL: "%s". %s'
+        . ' To enqueue this URL, pass family explicitly (quoted if the name carries'
+        . ' punctuation or non-ASCII, e.g. "Suisse Int\'l").',
+        _pp_clean_reflected_text($derived, PP_REFLECTED_NAME_MAX),
+        _pp_font_family_message('A derived family')
+    );
+}
+
+/**
  * Maps an enqueue_font `apply_to` value to the design token(s) it targets
  * (issue 135). `--font-heading`/`--font-body` are the theme's real token
  * names (assets/css/base.css) — not the `--font-family-*` naming an AI
@@ -1787,7 +1853,7 @@ pp_register_apply('reset_all_design_tokens', [
 pp_register_apply('enqueue_font', [
     'domain'      => 'design',
     'target'      => ['type' => 'option', 'key' => 'pp_font_urls'],
-    'description' => 'Adds a web font URL (e.g. Google Fonts, Bunny Fonts) to the site. Max 5 fonts. Loading the stylesheet alone changes nothing visible — pass family (the CSS font-family name the stylesheet defines) with apply_to ("heading" | "body" | "both") to also point the matching --font-heading/--font-body design token(s) at it in the same call. Omit family and the result returns a best-effort family derived from the URL as a suggestion, without changing any token.',
+    'description' => 'Adds a web font URL (e.g. Google Fonts, Bunny Fonts) to the site. Max 5 fonts. Loading the stylesheet alone changes nothing visible — pass family (the CSS font-family name the stylesheet defines) with apply_to ("heading" | "body" | "both") to also point the matching --font-heading/--font-body design token(s) at it in the same call. Omit family and the result returns a best-effort family derived from the URL as a suggestion, without changing any token. A derived family must satisfy the same font-family grammar as an explicit one; when it does not, the call is refused as invalid_font_family naming the derived value, and the fix is to pass family explicitly (quoted if it carries punctuation or non-ASCII).',
     'params'      => [
         'url'      => ['type' => 'string', 'required' => true],
         'family'   => ['type' => 'string', 'required' => false],
@@ -1810,9 +1876,49 @@ pp_register_apply('enqueue_font', [
             return new WP_Error('font_limit', 'Maximum 5 font URLs allowed. Remove one first.');
         }
 
-        $family = $params['family'] ?? '';
+        // THE DERIVED FAMILY GETS THE SAME GRAMMAR AS AN EXPLICIT ONE.
+        //
+        // Both branches call _pp_validate_font_family() on the SAME resolved
+        // string, so there is no shape that is legal as a derived family and
+        // illegal as an explicit one. That symmetry is the whole point: the apply
+        // arm concatenates this value into `<family>, system-ui, sans-serif` and
+        // writes it to a --font-heading/--font-body override, which functions.php
+        // emits as CSS SOURCE TEXT in a `:root { … }` inline stylesheet. A
+        // grammar that only guards the parameter the caller typed is not guarding
+        // the sink; it is guarding one of the two doors into it.
+        //
+        // `parse_str()` URL-DECODES, which is why FILTER_VALIDATE_URL above is not
+        // already this check: percent-encoded bytes are a perfectly valid URL and
+        // arrive here decoded.
+        //
+        // NARROWING, disclosed: a URL whose `family=` parameter does not parse as a
+        // font family name is now refused even when `apply_to` is omitted and no
+        // token would have been written. One rule beats two — a check that fired
+        // only under `apply_to` would put validate-time and apply-time back on
+        // separate rules, which is the shape this change exists to remove. Every
+        // Google Fonts and Bunny Fonts URL shape in this repo's code, tests and
+        // docs still passes (css and css2, multi-family, ital/wght axes,
+        // `+`-joined names); what refuses is a family name carrying punctuation or
+        // non-ASCII outside quotes, and its legal rewrite is to pass `family`
+        // explicitly, quoted.
+        $resolved      = _pp_enqueue_font_family($params);
+        $family        = $resolved['family'];
+        $family_source = $resolved['source'];
+
+        // ONE call site, not one per source. `$family !== ''` is exactly
+        // `$family_source !== null` by _pp_enqueue_font_family()'s contract, so
+        // this covers both doors and adds no case. Written as a single call
+        // deliberately: two parallel branches would make the symmetry above a
+        // property of two lines staying in step, which is the shape this change
+        // exists to remove. Only the MESSAGE differs, because only the message
+        // depends on whether the caller typed the value or the engine read it.
         if ($family !== '' && !_pp_validate_font_family($family)) {
-            return new WP_Error('invalid_font_family', _pp_font_family_message('family'));
+            return new WP_Error(
+                'invalid_font_family',
+                $family_source === 'derived'
+                    ? _pp_derived_font_family_message($family)
+                    : _pp_font_family_message('family')
+            );
         }
 
         $apply_to = $params['apply_to'] ?? '';
@@ -1820,7 +1926,10 @@ pp_register_apply('enqueue_font', [
             if (!in_array($apply_to, ['heading', 'body', 'both'], true)) {
                 return new WP_Error('invalid_apply_to', 'apply_to must be "heading", "body", or "both".');
             }
-            if ($family === '' && _pp_derive_font_family_from_url($url) === '') {
+            // `$family === ''` is exactly the old two-part test (no `family` param
+            // AND nothing derivable), read off the resolver instead of deriving a
+            // second time here.
+            if ($family === '') {
                 return new WP_Error('missing_family', 'apply_to requires family — no family name could be derived from this URL, so pass one explicitly.');
             }
         }
@@ -1833,10 +1942,7 @@ pp_register_apply('enqueue_font', [
         $after = array_merge($current, [$params['url']]);
         $changes = [['action' => 'add', 'url' => $params['url']]];
 
-        $family = $params['family'] ?? '';
-        if ($family === '') {
-            $family = _pp_derive_font_family_from_url($params['url']);
-        }
+        $family   = _pp_enqueue_font_family($params)['family'];
         $apply_to = $params['apply_to'] ?? '';
         if ($apply_to !== '' && $family !== '') {
             $tokens = pp_design_tokens();
@@ -1860,16 +1966,40 @@ pp_register_apply('enqueue_font', [
         pp_set_font_urls($current);
         $changes = [['action' => 'add', 'url' => $params['url']]];
 
-        $family = $params['family'] ?? '';
-        $family_source = $family !== '' ? 'explicit' : null;
-        if ($family === '') {
-            $family = _pp_derive_font_family_from_url($params['url']);
-            if ($family !== '') {
-                $family_source = 'derived';
-            }
-        }
+        $resolved      = _pp_enqueue_font_family($params);
+        $family        = $resolved['family'];
+        $family_source = $resolved['source'];
 
         $apply_to = $params['apply_to'] ?? '';
+        // LAST-DITCH RE-CHECK, IMMEDIATELY BEFORE THE WRITE.
+        //
+        // Unreachable through pp_execute_apply(), which runs the validate arm
+        // first (lib/apply.php, pp_execute_apply) — and that is the point. This
+        // guard is for a FUTURE caller that reaches this closure by some other
+        // route, and it sits here rather than anywhere earlier because the line it
+        // is protecting is the next one: pp_set_token_override() is where a
+        // font-family string stops being a parameter and becomes stored CSS.
+        //
+        // It SKIPS the token write rather than refusing the action, because by
+        // this point pp_set_font_urls() above has already committed the URL. A
+        // refusal here would report failure for a write that happened. Degrading
+        // to "the font is enqueued, no token was pointed at it" is the honest
+        // outcome. The validate arm remains the owner of REFUSING; this one only
+        // declines to widen the damage.
+        //
+        // CLEARING `$family` REACHES THE ENVELOPE, deliberately. `$family` is read
+        // twice below: by the token-write guard, and by the result assembly, which
+        // omits BOTH `family` and `family_source` when it is empty. So the result
+        // does not name a family at all rather than naming one it declined to use.
+        // Stated here because it is a second effect of one assignment, and a later
+        // edit that reorders these blocks would change what the caller is told.
+        // `$apply_to` is deliberately NOT cleared: its only remaining read is the
+        // guard on the next line, which an empty `$family` already closes.
+        if ($apply_to !== '' && $family !== '' && !_pp_validate_font_family($family)) {
+            $family        = '';
+            $family_source = null;
+        }
+
         if ($apply_to !== '' && $family !== '') {
             $tokens = pp_design_tokens();
             $value = $family . ', system-ui, sans-serif';
