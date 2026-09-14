@@ -195,4 +195,178 @@ class SiteOptionWriteTruthTest extends TestCase
             'a refused write must not describe a change that did not happen'
         );
     }
+
+    // ── #979: the rollback that replays pp_site_udc must take its lock ──────
+
+    /** A full-shaped snapshot bundle with only the site_options arm populated. */
+    private function bundle(array $site_options): array
+    {
+        return [
+            'posts'               => [],
+            'compositions'        => [],
+            'created_posts'       => [],
+            'created_attachments' => [],
+            'redirects'           => [],
+            'redirects_written'   => [],
+            'unreadable'          => [],
+            'site_options'        => $site_options,
+            'custom_css'          => null,
+            'token_overrides'     => null,
+            'font_urls'           => null,
+            'menus'               => ['locations' => []],
+        ];
+    }
+
+    /**
+     * THE RED PROOF (#979). The restore wrote pp_site_udc with no lock at all.
+     *
+     * Every FORWARD write of this key runs inside _pp_site_udc_lock_name()
+     * (_pp_update_site_udc, lib/wp.php), because the row carries a version counter
+     * that a concurrent writer can clobber. The rollback replaying that same row
+     * took no lock, so it could land on top of a CAS-guarded write that had just
+     * committed — the one writer in the system able to defeat the guarantee ruling
+     * A1 introduced.
+     */
+    public function testTheSiteUdcRollbackTakesTheLockItsForwardWritesTake(): void
+    {
+        $GLOBALS['wpdb'] = new PP_SiteOptionWriteTruth_RecordingWpdb();
+        $GLOBALS['_pp_test_store']['options'][PP_SITE_UDC_OPTION] = '{"_version":9,"nav":{}}';
+
+        _pp_restore_batch_snapshot_report($this->bundle([
+            PP_SITE_UDC_OPTION => ['exists' => true, 'value' => '{"_version":4,"nav":{}}'],
+        ]));
+
+        $locks = array_filter(
+            $GLOBALS['wpdb']->recorded,
+            static fn(string $q): bool => str_contains($q, 'GET_LOCK')
+        );
+        $this->assertNotEmpty(
+            $locks,
+            'the site-udc restore must run inside the advisory lock its forward writes take'
+        );
+    }
+
+    /**
+     * And the live compare must read the ROW, not the autoload cache.
+     *
+     * The forward writer refuses get_option() here on purpose
+     * (_pp_read_site_udc_locked): an autoloaded option is served from a per-request
+     * snapshot that a concurrent commit cannot invalidate. A rollback comparing
+     * against those stale bytes can conclude "already equal" and skip a restore it
+     * genuinely owed, then report the rollback clean.
+     */
+    public function testTheSiteUdcRollbackComparesAgainstTheRowNotTheCache(): void
+    {
+        $baseline = '{"_version":4,"nav":{}}';
+        $wpdb = new PP_SiteOptionWriteTruth_RecordingWpdb();
+        // The ROW holds a third party's newer map; the request cache still holds the
+        // baseline, so a cached compare reads "nothing to do".
+        $wpdb->row_value = '{"_version":11,"nav":{}}';
+        $GLOBALS['wpdb'] = $wpdb;
+        $GLOBALS['_pp_test_store']['options'][PP_SITE_UDC_OPTION] = $baseline;
+        $GLOBALS['_pp_test_option_writes'][PP_SITE_UDC_OPTION] = 0;
+
+        _pp_restore_batch_snapshot_report($this->bundle([
+            PP_SITE_UDC_OPTION => ['exists' => true, 'value' => $baseline],
+        ]));
+
+        $this->assertSame(
+            1,
+            $GLOBALS['_pp_test_option_writes'][PP_SITE_UDC_OPTION] ?? 0,
+            'the restore was owed against the real row and must not be skipped on stale cached bytes'
+        );
+    }
+
+    /**
+     * A busy lock is reported, never silent.
+     *
+     * PP_ROLLBACK_ERROR_FAILED is the ruled vocabulary for it: the discriminator at
+     * lib/actions.php:2238-2241 reads "a restore or a removal was owed, was attempted
+     * (or WAS IMPOSSIBLE), and did not happen". Owed + impossible + did not happen.
+     */
+    public function testABusyLockMakesTheSiteUdcRollbackReportAFailureRatherThanSucceedQuietly(): void
+    {
+        $GLOBALS['wpdb'] = new PP_SiteOptionWriteTruth_LockDeniedWpdb();
+        $GLOBALS['_pp_test_store']['options'][PP_SITE_UDC_OPTION] = '{"_version":9,"nav":{}}';
+
+        $report = _pp_restore_batch_snapshot_report($this->bundle([
+            PP_SITE_UDC_OPTION => ['exists' => true, 'value' => '{"_version":4,"nav":{}}'],
+        ]));
+
+        // The report is a FLAT LIST of ['kind' => ..., 'message' => ...] entries.
+        $this->assertNotEmpty($report, 'a restore that could not be attempted must be reported');
+        $this->assertSame(
+            PP_ROLLBACK_ERROR_FAILED,
+            $report[0]['kind'] ?? '',
+            'owed + impossible + did not happen is FAILED, not WITHHELD'
+        );
+        $this->assertStringContainsString(
+            PP_SITE_UDC_OPTION,
+            $report[0]['message'] ?? '',
+            'the entry must name the option that was not rolled back'
+        );
+    }
+
+    /** Every OTHER whitelisted key still restores without a lock it never needed. */
+    public function testANonChromeSiteOptionRestoresWithoutTakingTheChromeLock(): void
+    {
+        $GLOBALS['wpdb'] = new PP_SiteOptionWriteTruth_RecordingWpdb();
+        $GLOBALS['_pp_test_store']['options']['pp_logo_alt'] = 'after the batch';
+
+        $report = _pp_restore_batch_snapshot_report($this->bundle([
+            'pp_logo_alt' => ['exists' => true, 'value' => 'before the batch'],
+        ]));
+
+        $this->assertSame('before the batch', get_option('pp_logo_alt'));
+        $this->assertSame([], $report, 'a faithful restore reports nothing');
+    }
+}
+
+/** Records every query so a test can assert the lock was taken, and grants it. */
+class PP_SiteOptionWriteTruth_RecordingWpdb extends wpdb
+{
+    /**
+     * Core wpdb declares $options; the harness's stand-in does not, and the locked
+     * read is guarded on isset($wpdb->options) exactly as _pp_read_site_udc_locked()
+     * is. Without this the row-vs-cache branch is unreachable from a test and the
+     * stale-compare defect could not be pinned at all.
+     */
+    public string $options = 'wp_options';
+
+    /** @var string[] */
+    public $recorded = [];
+
+    /** Bytes the pp_site_udc ROW holds, when a test stages a cache/row divergence. */
+    public $row_value = null;
+
+    public function get_var(string $query)
+    {
+        $this->recorded[] = $query;
+        if (str_contains($query, 'GET_LOCK')) {
+            return '1';
+        }
+        if ($this->row_value !== null && str_contains($query, 'option_value')) {
+            return $this->row_value;
+        }
+        return parent::get_var($query);
+    }
+
+    public function query(string $query)
+    {
+        $this->recorded[] = $query;
+        return 1; // RELEASE_LOCK
+    }
+}
+
+/** Denies the lock, so the restore cannot be attempted at all. */
+class PP_SiteOptionWriteTruth_LockDeniedWpdb extends PP_SiteOptionWriteTruth_RecordingWpdb
+{
+    public function get_var(string $query)
+    {
+        $this->recorded[] = $query;
+        if (str_contains($query, 'GET_LOCK')) {
+            return '0'; // busy
+        }
+        return wpdb::get_var($query);
+    }
 }

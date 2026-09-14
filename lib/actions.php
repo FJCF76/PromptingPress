@@ -2863,26 +2863,99 @@ function _pp_restore_batch_snapshot_report(array $snapshot): array {
         // reliable presence test. Without it a stored false, a stored '' and a missing row
         // all look alike, and the guard below would skip a delete that was genuinely
         // needed or report a refusal for a row that was already gone.
-        $live_sentinel = new \stdClass();
-        $live_raw      = get_option($key, $live_sentinel);
-        $live_present  = $live_raw !== $live_sentinel;
-        // Compared as the (string) the snapshotter captured. Every whitelisted option
-        // stores a scalar string, so a non-scalar live value is a hand-written row: it
-        // compares unequal to any captured string and the restore proceeds, which is the
-        // right degradation — write the trusted baseline over the unrecognized shape.
-        $live_value = ($live_present && is_scalar($live_raw)) ? (string) $live_raw : null;
+        // ── THE READ-COMPARE-WRITE, AS ONE UNIT THE LOCK CAN WRAP (#979) ─────
+        //
+        // pp_site_udc is the one whitelisted key whose FORWARD writes all run inside
+        // an advisory lock: _pp_update_site_udc() (lib/wp.php) wraps both its write
+        // and its clear arm in _pp_with_advisory_lock(_pp_site_udc_lock_name(), …),
+        // because the row carries a version counter and a lost update there silently
+        // discards a concurrent author's chrome. This restore replays that same row
+        // and was taking no lock at all — making the rollback the one writer in the
+        // system able to land on top of a CAS-guarded write that had just committed,
+        // defeating the guarantee ruling A1 introduced.
+        //
+        // The live read moves inside the section with the write, which is the other
+        // half and the half that is easy to miss: get_option() on an AUTOLOADED row
+        // is served from a per-request snapshot a concurrent commit cannot
+        // invalidate, so comparing against it can conclude "already equal" and skip a
+        // restore that was genuinely owed — a rollback reported clean that restored
+        // nothing. _pp_read_site_udc_locked() exists for exactly this and is NOT
+        // reused here only because it returns a PARSED map; the rollback compares the
+        // captured BYTES, so it needs the raw row.
+        //
+        // NO CAS IS ADDED, deliberately. A rollback replays a captured baseline and
+        // has no baseline of its own to compare against; #233 (a restore is never
+        // blocked by current rules) governs, and the verbatim-replay contract above
+        // stays exactly as it was. The lock serialises; it does not re-validate.
+        $restore_one = static function ($wpdb) use ($key, $exists, $value) {
+            if (is_object($wpdb) && method_exists($wpdb, 'get_var') && isset($wpdb->options)) {
+                $row = $wpdb->get_var(
+                    $wpdb->prepare(
+                        "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 1",
+                        $key
+                    )
+                );
+                $live_present = $row !== null;
+                $live_value   = $live_present ? (string) $row : null;
+            } else {
+                // No DB handle: the unit context, and the cached read is all there is
+                // and all that is needed. Same posture as _pp_read_site_udc_locked().
+                //
+                // READ WITH A SENTINEL (#857): the whole point of the #291
+                // (exists, value) shape is that ABSENT and '' are different outcomes,
+                // and get_option()'s default would collapse them back together. A
+                // fresh object can never equal a stored value, so identity inequality
+                // is a reliable presence test.
+                $live_sentinel = new \stdClass();
+                $live_raw      = get_option($key, $live_sentinel);
+                $live_present  = $live_raw !== $live_sentinel;
+                // Compared as the (string) the snapshotter captured. Every whitelisted
+                // option stores a scalar string, so a non-scalar live value is a
+                // hand-written row: it compares unequal to any captured string and the
+                // restore proceeds, which is the right degradation — write the trusted
+                // baseline over the unrecognized shape.
+                $live_value = ($live_present && is_scalar($live_raw)) ? (string) $live_raw : null;
+            }
 
-        if (!$exists) {
-            // Target is NO ROW. delete_option() returns false both for a refused delete
-            // and for a row that was not there, so the presence test is what makes the
-            // report honest — see _pp_restore_write_if_changed()'s docblock.
-            $restored_option = _pp_restore_write_if_changed(
-                $live_present,
-                false,
-                static function () use ($key) {
-                    return delete_option($key);
+            if (!$exists) {
+                // Target is NO ROW. delete_option() returns false both for a refused
+                // delete and for a row that was not there, so the presence test is what
+                // makes the report honest — see _pp_restore_write_if_changed().
+                return _pp_restore_write_if_changed(
+                    $live_present,
+                    false,
+                    static function () use ($key) {
+                        return delete_option($key);
+                    }
+                );
+            }
+            return _pp_restore_write_if_changed(
+                $live_value,
+                $value,
+                static function () use ($key, $value) {
+                    return update_option($key, $value);
                 }
             );
+        };
+
+        // A DENIED LOCK RETURNS false, which lands in the existing failure branches
+        // below rather than needing a producer of its own. That is the ruled
+        // vocabulary, not a convenience: PP_ROLLBACK_ERROR_FAILED is defined as "a
+        // restore or a removal was owed, was attempted (OR WAS IMPOSSIBLE), and did
+        // not happen" — owed, impossible, did not happen. The rollback-entry census
+        // above is therefore unchanged: no new producer, no new sentence.
+        if ($key === PP_SITE_UDC_OPTION && function_exists('_pp_with_advisory_lock')) {
+            $restored_option = _pp_with_advisory_lock(
+                _pp_site_udc_lock_name(),
+                $restore_one,
+                false,
+                'site chrome styling rollback'
+            );
+        } else {
+            $restored_option = $restore_one(null);
+        }
+
+        if (!$exists) {
             if (!$restored_option) {
                 $entries[] = _pp_rollback_entry(PP_ROLLBACK_ERROR_FAILED, sprintf(
                     'The site setting "%s" was NOT rolled back: it did not exist before this'
@@ -2893,13 +2966,6 @@ function _pp_restore_batch_snapshot_report(array $snapshot): array {
             }
             continue;
         }
-        $restored_option = _pp_restore_write_if_changed(
-            $live_value,
-            $value,
-            static function () use ($key, $value) {
-                return update_option($key, $value);
-            }
-        );
         if (!$restored_option) {
             $entries[] = _pp_rollback_entry(PP_ROLLBACK_ERROR_FAILED, sprintf(
                 'The site setting "%s" was NOT rolled back: its previous value could not be'
