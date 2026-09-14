@@ -7083,8 +7083,70 @@ function pp_update_site_option(string $key, string $value, ?int $expected_versio
         // value always re-validates through the snapshot/rollback path.
         $value = trim($value) === '' ? '' : strtolower(trim($value));
     }
-    update_option($key, $value);
-    return true;
+    // ── The write, and an honest claim about it (I1, #978) ──────────────────
+    //
+    // THIS USED TO BE `update_option($key, $value); return true;` — the return
+    // discarded, the `true` unconditional. The one production caller (the
+    // update_site_option execute arm) branches only on is_wp_error(), so a refused
+    // write shipped an ok:true envelope carrying a `changes[]` row describing a
+    // change that had not happened, and the batch snapshot for that step counted
+    // it as successful and never rolled back.
+    //
+    // WHY IT IS NOT A ONE-LINER. I1 runs in BOTH directions: "no success over a
+    // write that was refused, skipped, or never checked, and no failure reported
+    // over an ambiguous API return the code did not disambiguate." A bare
+    // `if (!update_option(...)) return new WP_Error(...)` trades the first
+    // violation for the second, because core returns false for a write whose value
+    // is UNCHANGED just as it does for one that was refused.
+    //
+    // So: compare first, then disambiguate what is left.
+    //
+    //   stored === value ──► true (verified-unnecessary; nothing to write)
+    //   update_option() ──┬─ true  ──► true
+    //                     └─ false ──► read back ──┬─ stored === value ──► true
+    //                                              └─ otherwise ──► WP_Error
+    //
+    // THE COMPARE RUNS ON THE NORMALIZED VALUE, above, not on the caller's raw
+    // string: `'00042'` and `'42'` are the same pp_logo_id row, and comparing
+    // before normalising would make the skip depend on how the caller spelled it.
+    //
+    // This is the `_pp_restore_write_if_changed()` idiom (lib/actions.php), which
+    // this repo already ships at five call sites and whose docblock states the
+    // rule: "Comparing first removes the ambiguity, so past the guard a false
+    // return is a refused write, because there was a real difference to write."
+    // It is INLINED rather than called because that helper lives in lib/actions.php,
+    // which loads AFTER this file (functions.php) — calling up the layer to reach
+    // it would invert the load order for three lines. If the two ever need to move
+    // together, move the helper down here; do not add a second definition.
+    //
+    // THE READ-BACK IS ON THE FALSE BRANCH ONLY, and that distinction is the whole
+    // reason it is allowed. A `pre_update_option_*` / `sanitize_option_*` filter can
+    // rewrite a submitted value to whatever is already stored, which makes core
+    // return false for a write that was not refused; one read decides it. This is
+    // disambiguation of an ambiguous return, NOT read-back verification of every
+    // write — that posture is the concurrency cluster's open axis
+    // (_pp_restore_write_if_changed()'s docblock parks it) and stays parked.
+    //
+    // NOT ATOMIC, AND NOT CLAIMED TO BE. Another writer can land between the read
+    // and the write. This makes the RETURN honest; it does not make the write a
+    // transaction. The one key that needs more already has it: `pp_site_udc` carries
+    // a version counter and an advisory lock (_pp_update_site_udc, above).
+    $sentinel = new \stdClass();
+    $live     = get_option($key, $sentinel);
+    if ($live !== $sentinel && is_scalar($live) && (string) $live === $value) {
+        return true;
+    }
+    if (update_option($key, $value)) {
+        return true;
+    }
+    $after = get_option($key, $sentinel);
+    if ($after !== $sentinel && is_scalar($after) && (string) $after === $value) {
+        return true;
+    }
+    return new WP_Error('site_option_write_failed', sprintf(
+        'Could not write option "%s"; the stored value is unchanged. Nothing else was modified.',
+        $key
+    ));
 }
 
 /**
