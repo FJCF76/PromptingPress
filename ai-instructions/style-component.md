@@ -158,7 +158,7 @@ not.
 | `length-or-none` | `none`, `60rem`, `100%` — the `length` grammar plus the keyword `none` ("no cap"). Carried by the width-cap slots whose **declared default IS `none`**, so the built-in uncapped state stays authorable: `--stats-max-width` (band geometry) plus the four measures that ship uncapped — `--hero-heading-measure`, `--section-heading-measure`, `--cta-body-measure`, `--faq-body-measure`. Every other measure slot has a real length default and stays plain `length`. A plain `length` slot still rejects `none`. | `_pp_validate_length()` (with the `none` keyword) |
 | `number` | `700`, `1.5` | `_pp_validate_number()` |
 | `duration` | `250ms`, `0.3s` | `_pp_validate_duration()` |
-| `font-family` | `"Inter", sans-serif` | `_pp_validate_font_family()` |
+| `font-family` | `"Inter", sans-serif`, `system-ui, sans-serif`, `-apple-system, BlinkMacSystemFont`, `var(--font-heading)` — a comma-separated list where every name is one of three shapes: an **unquoted** name of letters, digits, spaces, `-` or `_`; a **fully quoted** name (`"Helvetica Neue"`, `'Cascadia Code'`) whose quote character does not recur inside it; or a **single token reference** (`var(--font-mono)`, no fallback, no nesting — unlike `color`, this is not checked against the token registry, so a typo validates and paints nothing). Quote any name carrying other characters, a non-ASCII face name included. Empty names (`Inter,, serif`) and trailing commas are rejected. **Two extra limits apply only on a v2 `udc` `typography.family` parameter** (its sink is raw CSS source text, unlike a design token or a v1 slot): parentheses must be closed pairs (`"Foo (Display)"` ok, `"Foo (Display"` rejected), and a name with a single apostrophe (`"Foo's Font"`) is rejected in every form — quoting does not rescue it. | `_pp_validate_font_family()` (+ the v2 delimiter gate on `udc` values) |
 | `shadow` | `var(--shadow-sm)`, `var(--shadow-md)`, `var(--shadow-lg)`, `none`, `0 4px 12px rgba(0,0,0,0.1)` | `_pp_validate_shadow()` |
 | `gradient` | `#1a1a2e`, `transparent`, `var(--color-accent)`, `linear-gradient(135deg, #fff, #000)`, `radial-gradient(circle at top left, #fff, #000)` | `_pp_validate_color()` or `_pp_validate_gradient()` |
 | `position` | `center`, `top left`, `20% 80%` | `_pp_validate_position()` |
@@ -170,7 +170,10 @@ not.
 > (that same single color-token reference, as its plain-color half — **never**
 > `var()` *inside* a `linear-gradient()`/`radial-gradient()`, and never a "gradient
 > token"), `shadow` (only the fixed presets `var(--shadow-none|sm|md|lg)`, never
-> an arbitrary token), and `font-family` (a font token such as `var(--font-mono)`).
+> an arbitrary token), and `font-family` (any single bare reference such as
+> `var(--font-mono)` — note this is the ONE of the four that is checked for SHAPE
+> only: unlike `color`, the token is not required to exist or to be font-typed, so
+> a misspelled name validates and then paints nothing).
 > Every other type — `length`, `length-or-none`, `number`, `duration`, `position`,
 > and `ratio` — is **literal-only**: `var()` is rejected in every form, bare or
 > nested. Look up the token's current value (`inspect-composition`, or the
