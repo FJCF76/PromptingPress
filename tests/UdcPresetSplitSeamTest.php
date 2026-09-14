@@ -87,35 +87,82 @@ class UdcPresetSplitSeamTest extends TestCase
      * A3 sub-ruling clause 4, enforced rather than reviewed.
      *
      * "The write gate and the emitter intersect through one predicate, so what the
-     * envelope reports as skipped is what the page omits." Nothing enforced that.
-     * The mutation the issue names — give the gate its own narrower copy of the
-     * split — leaves every behavioural test green, because no fixture can build a
-     * preset whose groups the two copies would disagree about.
+     * envelope reports as skipped is what the page omits." Nothing enforced that,
+     * and the mutation the issue names — give the gate its own narrower copy of the
+     * split — leaves every behavioural test green.
      *
-     * THIS COUNTS THE INTERSECT'S SHAPE, NOT ITS NAME, and the difference is the
-     * whole point. Asserting that only one function is CALLED
-     * `_pp_udc_split_preset_by_permitted` proves nothing: PHP fatals on a duplicate
-     * definition anyway, so that assertion can never go red. A second copy arrives
-     * under a DIFFERENT name, and what gives it away is that it has to build the
-     * same `['applied' => …, 'skipped' => …]` return. So the pin counts those
-     * returns and expects exactly one.
-     *
-     * Mutation-proven: adding a second function that returns that shape turns this
-     * red, and so does re-pointing the gate at it (the test below).
-     *
-     * Read as SOURCE because that is the only place the property is visible — it is
-     * a claim about how many definitions exist, and a runtime test can only observe
-     * the one it happens to call.
+     * COUNTS THE SHAPE, VIA THE TOKENIZER, NOT A REGEX OVER SOURCE TEXT. Two earlier
+     * attempts at this pin were both evaded under mutation, and the way they failed
+     * is the lesson: counting the function NAME proves nothing (PHP fatals on a
+     * duplicate definition, so it can never go red), and a regex for
+     * `return ['applied' => ...]` is dodged by three ordinary spellings — a local
+     * (`$out = [...]; return $out;`), reversed keys, or `compact()`. What a second
+     * copy cannot easily avoid is BUILDING an array keyed by both words, so that is
+     * what is counted — array literals and `compact()` alike — on the token stream,
+     * where comments and strings cannot be mistaken for code. All three observed
+     * evasions are covered; a determined rewrite could still dodge any source pin,
+     * which is why the call-site assertion below is the load-bearing half and this
+     * one is the tripwire.
      */
     public function testOnlyOnePlaceBuildsTheAppliedSkippedIntersect(): void
     {
         $source = file_get_contents(dirname(__DIR__) . '/lib/udc.php');
         $this->assertIsString($source);
 
+        // Walk the tokens and count array literals whose keys include BOTH
+        // 'applied' and 'skipped'. Bracket depth tracking keeps each literal
+        // separate from its neighbours.
+        $tokens  = token_get_all($source);
+        $stack   = [];
+        $builds  = 0;
+        $compact = false;
+        foreach ($tokens as $token) {
+            // `compact('applied', 'skipped')` builds the same array without an
+            // array literal, so it opens a frame too. Found by mutation review:
+            // it was the one spelling the literal-only walk let through.
+            if (is_array($token) && $token[0] === T_STRING && strtolower($token[1]) === 'compact') {
+                $compact = true;
+                continue;
+            }
+            if ($token === '(') {
+                if ($compact) {
+                    $stack[] = ['applied' => false, 'skipped' => false, 'paren' => true];
+                }
+                $compact = false;
+                continue;
+            }
+            if ($token === ')') {
+                if ($stack !== [] && !empty($stack[count($stack) - 1]['paren'])) {
+                    $frame = array_pop($stack);
+                    if ($frame['applied'] && $frame['skipped']) {
+                        $builds++;
+                    }
+                }
+                continue;
+            }
+            if ($token === '[') {
+                $stack[] = ['applied' => false, 'skipped' => false, 'paren' => false];
+                continue;
+            }
+            if ($token === ']') {
+                $frame = array_pop($stack);
+                if ($frame !== null && $frame['applied'] && $frame['skipped']) {
+                    $builds++;
+                }
+                continue;
+            }
+            if (is_array($token) && $token[0] === T_CONSTANT_ENCAPSED_STRING && $stack !== []) {
+                $literal = trim($token[1], "'\"");
+                if ($literal === 'applied' || $literal === 'skipped') {
+                    $stack[count($stack) - 1][$literal] = true;
+                }
+            }
+        }
+
         $this->assertSame(
             1,
-            preg_match_all('/return\s*\[\s*[\x27"]applied[\x27"]\s*=>/', $source),
-            'a second place building the intersect is how the gate and the emitter start disagreeing'
+            $builds,
+            'a second place building the applied/skipped intersect is how the gate and the emitter start disagreeing'
         );
     }
 

@@ -52,22 +52,37 @@ class SiteOptionWriteTruthTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        // 'next_id' is part of the shared store contract (bootstrap.php mints post,
+        // menu-item and attachment ids from it). A suite that replaces the store
+        // without it leaves the next post-creating test with an undefined index —
+        // green only by accident of filename order, which is what I40 forbids.
         $GLOBALS['_pp_test_store']              = [
             'options'             => [],
             'posts'               => [],
             'post_meta'           => [],
             'attachment_urls'     => [],
             'attachment_is_image' => [],
+            'next_id'             => 100,
         ];
         $GLOBALS['_pp_test_option_writes']      = [];
         $GLOBALS['_pp_test_unwritable_options'] = [];
+        $GLOBALS['_pp_test_option_rewrites']    = [];
     }
 
     protected function tearDown(): void
     {
+        // Hand the next suite the store contract back, not a truncated map.
+        $GLOBALS['_pp_test_store'] = [
+            'post_meta' => [],
+            'posts'     => [],
+            'options'   => [],
+            'next_id'   => 100,
+        ];
         unset(
             $GLOBALS['_pp_test_unwritable_options'],
-            $GLOBALS['_pp_test_option_writes']
+            $GLOBALS['_pp_test_option_rewrites'],
+            $GLOBALS['_pp_test_option_writes'],
+            $GLOBALS['wpdb']
         );
         parent::tearDown();
     }
@@ -92,6 +107,43 @@ class SiteOptionWriteTruthTest extends TestCase
         $this->assertFalse(
             isset($GLOBALS['_pp_test_store']['options']['pp_logo_alt']),
             'the fixture must really not have stored the row'
+        );
+    }
+
+    /**
+     * I1'S SECOND CLAUSE AGAIN, on the branch that exists to serve it.
+     *
+     * A `pre_update_option_*` / `sanitize_option_*` filter can rewrite a submitted
+     * value into bytes the row already holds: core stores them and returns FALSE,
+     * which is the one way a write can look refused without having been refused.
+     * Reporting that as a failure is the second clause of I1 violated instead of
+     * the first, which is why the false branch reads back before deciding.
+     *
+     * The harness could not stage this at all until the update_option stub grew a
+     * rewrite affordance, so the branch the docblock calls "the whole reason it is
+     * allowed" was unpinned and unreachable. Found by mutation review: deleting the
+     * read-back left the suite green.
+     */
+    public function testAFilterRewrittenWriteIsNotReportedAsAFailure(): void
+    {
+        $GLOBALS['_pp_test_option_rewrites']['pp_logo_alt'] = 'Acme, Inc.';
+
+        $this->assertTrue(
+            pp_update_site_option('pp_logo_alt', 'Acme, Inc.'),
+            'core returned false, but the row holds what was asked for, so this is not a failure'
+        );
+        $this->assertSame('Acme, Inc.', $GLOBALS['_pp_test_store']['options']['pp_logo_alt']);
+    }
+
+    /** And a false return whose row does NOT match is still a failure. */
+    public function testAFilterRewriteToSomethingElseIsStillReportedAsAFailure(): void
+    {
+        $GLOBALS['_pp_test_option_rewrites']['pp_logo_alt'] = 'Something Else';
+
+        $this->assertInstanceOf(
+            WP_Error::class,
+            pp_update_site_option('pp_logo_alt', 'Acme, Inc.'),
+            'the store does not hold what was asked for, so success would be a lie'
         );
     }
 
@@ -319,6 +371,14 @@ class SiteOptionWriteTruthTest extends TestCase
 
         $this->assertSame('before the batch', get_option('pp_logo_alt'));
         $this->assertSame([], $report, 'a faithful restore reports nothing');
+        $this->assertSame(
+            [],
+            array_values(array_filter(
+                $GLOBALS['wpdb']->recorded,
+                static fn(string $q): bool => str_contains($q, 'GET_LOCK')
+            )),
+            'a non-chrome key must not serialise on the chrome lock'
+        );
     }
 }
 

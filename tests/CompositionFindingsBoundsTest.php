@@ -744,11 +744,21 @@ final class CompositionFindingsBoundsTest extends TestCase
     /** An untruncated report carries no key at all, so absence honestly means nothing was dropped. */
     public function testAnUntruncatedReportCarriesNoOmittedCount(): void
     {
-        $bounded = _pp_bounded_findings([
-            ['type' => 'udc_token_minted', 'severity' => 'warning', 'message' => 'm', 'index' => 0],
-        ], 42);
+        // ASSERTED ON A TRUNCATED REPORT, because an untruncated one is returned
+        // verbatim — checking the caller's own literal for a key production never
+        // touches is an assertion that cannot fail.
+        $findings = array_fill(0, PP_WRITE_FINDINGS_BUDGET + 1, [
+            'type' => 'invalid_prop_value', 'severity' => 'error', 'message' => 'x', 'index' => 0,
+        ]);
+        $bounded = _pp_bounded_findings($findings, 42);
 
-        $this->assertCount(1, $bounded);
-        $this->assertArrayNotHasKey('omitted_by_type', $bounded[0]);
+        foreach (array_slice($bounded, 0, -1) as $finding) {
+            $this->assertArrayNotHasKey(
+                'omitted_by_type',
+                $finding,
+                'the count belongs to the truncation tail alone, never to a composition finding'
+            );
+        }
+        $this->assertArrayHasKey('omitted_by_type', end($bounded));
     }
 }

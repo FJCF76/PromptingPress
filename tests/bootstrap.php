@@ -791,6 +791,18 @@ if (!function_exists('update_option')) {
         if (!empty($GLOBALS['_pp_test_unwritable_options'][$key])) {
             return false;
         }
+        // Test-controlled FILTER REWRITE: set
+        // $GLOBALS['_pp_test_option_rewrites'][$key] = '<bytes>' to model a
+        // pre_update_option_* / sanitize_option_* filter that rewrites the
+        // submitted value. Core stores the rewritten bytes and returns FALSE when
+        // they match what was already there — the one way a write can be refused-
+        // looking without having been refused. Without this affordance the
+        // disambiguating read-back in pp_update_site_option() is unreachable from
+        // the harness and therefore unprovable (#981).
+        if (isset($GLOBALS['_pp_test_option_rewrites'][$key])) {
+            $GLOBALS['_pp_test_store']['options'][$key] = $GLOBALS['_pp_test_option_rewrites'][$key];
+            return false;
+        }
         $GLOBALS['_pp_test_store']['options'][$key] = $value;
         return true;
     }

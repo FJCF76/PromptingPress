@@ -153,14 +153,40 @@ class UdcEmitDropAdvisoryTest extends TestCase
         ]));
     }
 
-    /** A role default that is NOT emitted band-scoped is not a drop the author owns. */
-    public function testRoleDefaultsDoNotProduceOperatorFacingDrops(): void
+    /**
+     * A ROLE DEFAULT'S DISCARD NEVER REACHES THE OPERATOR.
+     *
+     * Called directly, because that is the only way to reach it: no shipped schema
+     * declares a default the emitter would drop, so the filter cannot be exercised
+     * through a composition fixture. The previous version of this test asserted on a
+     * band with an EMPTY udc map and therefore pinned nothing — removing the
+     * `$source !== 'defaults'` guard left it green. The production code spends a
+     * paragraph justifying that guard; this is what holds it up.
+     */
+    public function testADefaultsSourcedDiscardIsNotLedgered(): void
     {
-        $this->assertSame(
-            [],
-            $this->drops([]),
-            'a band that authors nothing has nothing the operator can fix'
+        $params      = pp_udc_groups()['typography']['params'];
+        $breakpoints = pp_udc_breakpoints();
+        $where       = 'role "quote" group "typography"';
+
+        $resolved = [];
+        $ref      = [];
+        $from_defaults = [];
+        _pp_udc_place(
+            $resolved, '', $params, 'no-such-param', '19px', 'defaults',
+            [], $breakpoints, $ref, $from_defaults, $where
         );
+
+        $resolved = [];
+        $ref      = [];
+        $from_author = [];
+        _pp_udc_place(
+            $resolved, '', $params, 'no-such-param', '19px', 'udc',
+            [], $breakpoints, $ref, $from_author, $where
+        );
+
+        $this->assertSame([], $from_defaults, 'a repo-owned schema fault is not site misconfiguration');
+        $this->assertCount(1, $from_author, 'the identical discard from author data IS reported');
     }
 
     // ── 3. The advisory and the emitter cannot disagree ──────────────────────
@@ -356,11 +382,23 @@ class UdcEmitDropAdvisoryTest extends TestCase
         );
     }
 
-    /** A corrupt site map degrades to no rows rather than warning on a foreach (I17). */
-    public function testACorruptSiteMapDoesNotWarnOrFatal(): void
+    /**
+     * A corrupt stored chrome row yields no rows, rather than spurious ones.
+     *
+     * NAMED FOR WHAT IT PINS. An earlier version of this test claimed to prove the
+     * shape guard in pp_check_udc_emit_drops(), and could not: pp_udc_site_map()
+     * normalises every unreadable or malformed row to `chrome => []` before this
+     * function sees it, so the non-array branch is unreachable from stored data and
+     * reverting the guard left the test green. The guard stays as defence for a
+     * filtered or future-extended map; what is PROVEN here is the reachable
+     * property, which is the one that matters for an operator: a corrupt row
+     * produces silence, not invented findings.
+     */
+    public function testACorruptStoredChromeRowProducesNoRows(): void
     {
         $GLOBALS['_pp_test_store']['options'][PP_SITE_UDC_OPTION] = 'NOT_JSON{{{';
 
+        $this->assertSame([], pp_udc_site_map()['chrome'], 'the premise: it normalises to empty');
         $this->assertSame([], pp_check_udc_emit_drops(null));
     }
 
@@ -455,5 +493,83 @@ class UdcEmitDropAdvisoryTest extends TestCase
             $referenced,
             'lib/udc.php must not REFERENCE a constant defined in the later-loaded lib/admin.php'
         );
+    }
+
+    // ── 8. The bounding rows themselves (#981) ───────────────────────────────
+
+    /** More drops than the report shows are summarised by one overflow row. */
+    public function testMoreDropsThanFitAreSummarisedByAnOverflowRow(): void
+    {
+        $typography = [];
+        for ($i = 0; $i < 30; $i++) {
+            $typography['no-such-param-' . $i] = '19px';
+        }
+        $GLOBALS['_pp_test_store']['options'][PP_SITE_UDC_OPTION] = wp_json_encode([
+            '_version' => 1,
+            'nav'      => ['link' => ['typography' => $typography]],
+        ]);
+
+        $checks = pp_check_udc_emit_drops(null);
+        $keys   = array_column($checks, 'finding_key');
+
+        $this->assertCount(11, $checks, 'ten rows plus one overflow');
+        $this->assertContains('udc_value_cannot_take_effect:overflow', $keys);
+        $this->assertStringContainsString('At least', end($checks)['message']);
+    }
+
+    /** A page with more styled bands than the walk reads says the list may be incomplete. */
+    public function testAPageWithMoreStyledBandsThanTheWalkReadsSaysSo(): void
+    {
+        // ONE band with a drop, then enough healthy styled bands to exhaust the band
+        // bound. Both conditions have to hold at once: the row budget must NOT fill
+        // first (or the walk stops for the other reason), and rows must be non-empty
+        // (or the caveat is about nothing and is correctly suppressed).
+        $composition = [$this->band(
+            ['quote' => ['typography' => ['size' => '@no-such-token']]],
+            'pp-00000000'
+        )];
+        for ($i = 1; $i < 30; $i++) {
+            $composition[] = $this->band(
+                ['quote' => ['typography' => ['size' => '19px']]],
+                sprintf('pp-%08x', $i)
+            );
+        }
+        $GLOBALS['_pp_test_store']['post_meta'][7]['_pp_composition'] = wp_json_encode($composition);
+
+        $checks = pp_check_udc_emit_drops(7);
+        $keys   = array_column($checks, 'finding_key');
+
+        $truncation = array_values(array_filter(
+            $keys,
+            static fn(string $k): bool => str_starts_with($k, 'udc_value_cannot_take_effect:bands_truncated')
+        ));
+        $this->assertNotEmpty($truncation, 'a partial walk must say it was partial');
+        $this->assertSame(
+            'udc_value_cannot_take_effect:bands_truncated:7',
+            $truncation[0],
+            'the row names one page, so its acknowledgement key must too'
+        );
+    }
+
+    /**
+     * A HEALTHY PAGE WITH MANY BANDS REPORTS NOTHING.
+     *
+     * The truncation flag is set by the band count alone, so before this was gated
+     * a correct 26-band page emitted a warning saying its list might be incomplete
+     * — a warning about an empty list. That is precisely the cry-wolf row that
+     * teaches an operator to acknowledge this check blind. Found by mutation review.
+     */
+    public function testManyHealthyBandsProduceNoReadinessRowsAtAll(): void
+    {
+        $composition = [];
+        for ($i = 0; $i < 30; $i++) {
+            $composition[] = $this->band(
+                ['quote' => ['typography' => ['size' => '19px']]],
+                sprintf('pp-%08x', $i)
+            );
+        }
+        $GLOBALS['_pp_test_store']['post_meta'][7]['_pp_composition'] = wp_json_encode($composition);
+
+        $this->assertSame([], pp_check_udc_emit_drops(7), 'a correct page says nothing, however long it is');
     }
 }

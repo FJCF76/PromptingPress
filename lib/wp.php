@@ -2472,7 +2472,14 @@ function pp_check_udc_emit_drops(?int $post_id = null): array {
             'message'         => sprintf('At least %d more stored value(s) are not painted.', $remainder),
         ];
     }
-    if ($truncated) {
+    // ONLY WARN ABOUT AN INCOMPLETE LIST WHEN THERE IS A LIST. $truncated says the
+    // walk stopped early, which on a HEALTHY page means nothing was found and
+    // nothing was missed worth naming — emitting a row there puts a warning on a
+    // correct 26-band page and teaches the operator to acknowledge this check
+    // blind, which is the failure mode the no-false-positive rule exists to stop.
+    // When rows DO exist the caveat is load-bearing, because the list really is
+    // partial.
+    if ($truncated && $rows !== []) {
         $checks[] = [
             'check'           => 'udc_value_cannot_take_effect',
             'pass'            => false,
