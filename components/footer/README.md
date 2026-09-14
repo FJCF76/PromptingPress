@@ -20,23 +20,46 @@ so in practice only `location` is ever set.
 | `logo_text` | string | No       | —          | Logo text (falls back to site title). Not reachable from any surface; change the site title instead |
 | `logo_id`   | int    | No       | —          | Media Library attachment ID for an image logo (takes priority over `logo_text`). Set via the `pp_footer_logo_id` option (footer override; falls back to `pp_logo_id`) |
 | `logo_alt`  | string | No       | —          | Alt text for the image logo. Template-supplied from the `pp_logo_alt` site option (#582) — the **same** option the header uses; not page-authored, and never empty |
-| `bg`         | string | No | — | Footer background. Set via the `pp_footer_bg` site option → `--footer-bg`. A CSS color **or** a bounded `linear-gradient()`/`radial-gradient()` (the shared `gradient` slot type, #333) |
-| `text`       | string | No | — | Footer text color. Set via `pp_footer_text` → `--footer-text`. Reaches **every non-link text surface**: blurb, contact, copyright, column headings, bottom-bar note — see below |
-| `link_color` | string | No | — | Footer link color. Set via `pp_footer_link_color` → `--footer-link-color`. Reaches **every link surface**: both menu columns, the social row, and the contact block's mailto:/tel: links — see below |
-| `social`     | string | No | — | Social-icon row under the brand blurb. Set via the `pp_footer_social` site option — a JSON string of `{network, url}` objects. Not page-authored (rejected since #223); see the `pp_footer_social` notes below |
+| `social`    | string | No       | —          | Social-icon row under the brand blurb. Set via the `pp_footer_social` site option — a JSON string of `{network, url}` objects. Not page-authored (rejected since #223); see the `pp_footer_social` notes below |
 
-### What the footer custom properties actually reach (#582)
+## Styling: the UDC roles
 
-| Property | Surfaces it paints | Fallback when unset |
-|----------|--------------------|---------------------|
-| `--footer-bg` | the footer band | `--color-surface` |
-| `--footer-text` | the footer body; the brand blurb; the contact block; the copyright line; the column headings (`.site-footer__heading`); the bottom-bar note (`.site-footer__note`) | `inherit`, or `--color-muted` on the copyright and note |
-| `--footer-link-color` | the footer menu links (both columns); the social-icon row; the `mailto:`/`tel:` links inside the contact `<address>` | `--color-muted` |
+The footer is styled through the **`footer` entry of the `pp_site_udc` site option**, in
+exactly the shape a band's `udc` map takes — same engine, same grammar, same groups,
+same `@token` references, same breakpoint and `:hover` / `:focus-visible` / `:active`
+state maps, same presets.
 
-Hover is **not** reachable from any of them: all three link surfaces hover to the global
-`--color-accent` design token. Change it with `update_design_token` if it is illegible on a
-dark footer — there is no per-footer hover option, and adding one would mean giving chrome a
-style slot, which the chrome contract (#223) rules out.
+This replaced three colour options (`pp_footer_bg`, `pp_footer_text`,
+`pp_footer_link_color`), which are gone. Their problem was reach: `--footer-text` painted
+the blurb, the contact block, the copyright, every column heading and the bottom-bar note,
+with two different fallbacks among them, and `--footer-link-color` painted the menu links,
+the social row and the contact block's `mailto:`/`tel:` links. Each of those is its own
+role now.
+
+| Role | Selector | What it is |
+|------|----------|------------|
+| _band | the `<footer>` itself | the footer band — set the dark or gradient fill here |
+| inner | `.site-footer__inner` | the inner container: the footer's width and padding |
+| columns | `.site-footer__columns` | the column row |
+| brand | `.site-footer__brand` | the brand column (logo/wordmark plus blurb) |
+| blurb | `.site-footer__blurb` | the short brand paragraph |
+| heading | `.site-footer__heading` | every optional column heading |
+| link | `.site-footer__nav ul li a` | footer menu links, both columns |
+| social-link | `.site-footer__social-link` | the social icon links |
+| address | `.site-footer__address` | the contact block |
+| address-link | `.site-footer__address a` | the `mailto:` / `tel:` links inside it |
+| copyright | `.site-footer__copyright` | the copyright line |
+| bottom | `.site-footer__bottom` | the delimited bottom bar (only when a note is set) |
+| note | `.site-footer__note` | the optional secondary line |
+
+Hover, focus and the active state are ordinary value dimensions: put a `:hover` map
+inside a role's group. The global `--color-accent` token is still the default, so an
+unstyled footer is unchanged.
+
+YOU OWN THE CONTRAST on a dark footer. Set a colour on every text role you put over the
+new background — `blurb`, `heading`, `copyright`, `note`, `address`, plus the three link
+roles — and check each against the fill for WCAG AA. A dark footer with one role left
+un-recoloured renders dark ink on dark.
 
 `.site-footer__blurb` is capped at `32ch`, the footer's only measure cap. The footer is a
 tight dark-marketing-footer surface, not a general footer builder, so a brand blurb stays a
@@ -82,19 +105,19 @@ pp_get_component('footer', ['location' => 'footer']);
 | Show/hide the footer logo | `update_site_option` with key `pp_footer_show_logo` (boolean) |
 | Footer logo override (light variant for a dark footer) | `update_site_option` with key `pp_footer_logo_id` (image attachment ID; unset falls back to `pp_logo_id`) |
 | Logo alt text | `update_site_option` with key `pp_logo_alt` (text, #582) — site-wide, shared with the header. When set it wins over the footer attachment's own alt metadata too. Empty **or whitespace-only** counts as unprovided and falls through the chain |
-| Dark marketing footer (background) | `update_site_option` with key `pp_footer_bg` (a CSS color **or** a bounded gradient) |
-| Footer text / link colors | `update_site_option` with keys `pp_footer_text` / `pp_footer_link_color` (CSS colors) |
+| Dark marketing footer, text and link colours, spacing, typography | `update_site_option` with key `pp_site_udc`, setting the roles above |
 | Brand blurb under the logo | `update_site_option` with key `pp_footer_blurb` (text) |
 | Contact block (address/email) | `update_site_option` with key `pp_footer_contact` (text) |
 | Custom copyright line | `update_site_option` with key `pp_footer_copyright` (text; empty = default line) |
 | Column headings (menu / contact) | `update_site_option` with keys `pp_footer_menu_label` / `pp_footer_contact_label` (text; empty = unlabelled) |
 | Delimited bottom bar with a secondary note | `update_site_option` with key `pp_footer_note` (text; when set, moves the copyright into its own band with the note opposite it) |
 
-The color options accept the same values as any style-slot color (hex, `rgb()`/`hsl()`,
-`transparent`, `currentColor`, or a known color-token reference like `var(--color-accent)`);
-they are validated by the shared color engine. They render as inline `--footer-*` custom
-properties, so an unset footer looks exactly as before. This is a tight dark-marketing-footer
-surface (issue #300), not a general footer builder.
+Colour values inside a `udc` map are hex, `rgb()`/`hsl()`, `transparent`, `currentColor`, or
+an **`@token` reference** — `@color-muted`, not `var(--color-muted)`; the `--` prefix and the
+`var()` wrapper are v1 style-slot syntax and are refused here. A role `background.fill` also
+takes a bounded gradient, and `background.image` takes a Media Library **attachment ID** (never
+a URL) with `background.overlay` for the scrim over it. Unset, the footer looks exactly as
+before.
 
 `wp pp apply preflight` reports a `nav_readiness` warning when the `footer` location has no
 menu assigned, or its menu is empty. The optional `footer_secondary` location is diagnosed
@@ -113,10 +136,11 @@ If no menu is assigned to the location, the nav area is empty but the footer sti
 
 Styles in `assets/css/components.css` under `/* === COMPONENT: footer === */`.
 
-Background: `var(--footer-bg, --color-surface)`. Text: `var(--footer-text, inherit)`. Nav-link
-color: `var(--footer-link-color, --color-muted)`. Border top: `1px solid --color-border`. The
-`--footer-*` custom properties are emitted inline by the template from the `pp_footer_*` site
-options; unset, every rule falls back to its original value.
+Background: `--color-surface`. Text: inherited. Nav-link colour: `--color-muted`.
+Border top: `1px solid --color-border`. Every one of those is the resting value a
+`pp_site_udc` role overrides — the footer emits no inline style attribute at all, so an
+authored value wins on source order from the `pp-utilities` handle rather than by outranking
+the cascade.
 
 ### Layout and semantics (#427)
 
@@ -140,5 +164,5 @@ inline-SVG icon links under the brand blurb. Set it with the `pp_footer_social` 
 JSON list of `{network, url}` from a closed set of known networks (x, linkedin, facebook,
 instagram, youtube, github, tiktok, mastodon) whose glyphs ship inline (no icon font, no external
 requests). Each link carries an `aria-label` (the network name) and a decorative `aria-hidden`
-SVG; color follows `pp_footer_link_color`. Unknown networks or non-http(s) URLs are rejected at
+SVG; its colour is the `social-link` role. Unknown networks or non-http(s) URLs are rejected at
 validation; empty/unset leaves the footer byte-identical.

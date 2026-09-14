@@ -102,21 +102,23 @@ The value is a boolean — `1`, `0`, `true`, or `false`. When on, the footer res
 
 ---
 
-## Dark marketing footer (background, text, blurb, contact, copyright)
+## Dark marketing footer (styling, blurb, contact, copyright)
 
-The footer is template-owned (#223) with no composition style slots, so a dark marketing footer is built through site options too (#300), the same `update_site_option` safe surface. All are optional; unset, the footer looks exactly as before.
+The footer is template-owned (#223), so it is never composed. Its **styling** is the `footer` entry of the `pp_site_udc` option — the same UDC map a band takes, reaching every role the footer declares. Its **content** stays on the individual `pp_footer_*` options. All optional; unset, the footer looks exactly as before.
 
 ```bash
-# Dark band with light text and a brand blurb
-wp pp action execute update_site_option --run-id=<uuid> --params='{"key":"pp_footer_bg","value":"#1a1a2e"}'
-wp pp action execute update_site_option --run-id=<uuid> --params='{"key":"pp_footer_text","value":"#e8e8f0"}'
-wp pp action execute update_site_option --run-id=<uuid> --params='{"key":"pp_footer_link_color","value":"#c8c8e0"}'
+# Dark band with light text, through the chrome UDC container
+wp pp action execute update_site_option --run-id=<uuid> --params='{"key":"pp_site_udc","value":"{\"footer\":{\"_band\":{\"background\":{\"fill\":\"#1a1a2e\"}},\"blurb\":{\"typography\":{\"color\":\"#e8e8f0\"}},\"heading\":{\"typography\":{\"color\":\"#e8e8f0\"}},\"copyright\":{\"typography\":{\"color\":\"#c8c8e0\"}},\"link\":{\"typography\":{\"color\":\"#c8c8e0\",\":hover\":{\"color\":\"@color-accent\"}}}}}"}'
+
+# Content stays on its own keys
 wp pp action execute update_site_option --run-id=<uuid> --params='{"key":"pp_footer_blurb","value":"Ship credible sites in an afternoon."}'
 wp pp action execute update_site_option --run-id=<uuid> --params='{"key":"pp_footer_contact","value":"hello@example.com\nSan Francisco, CA"}'
 wp pp action execute update_site_option --run-id=<uuid> --params='{"key":"pp_footer_copyright","value":"© 2026 Example Inc. Beta."}'
 ```
 
-`pp_footer_text` and `pp_footer_link_color` accept the same values as any style-slot color: hex, `rgb()`/`hsl()`, `transparent`, `currentColor`, or a single known color-token reference like `var(--color-accent)`. `pp_footer_bg` accepts all of those **and** a gradient (see below). They are validated by the shared engines (the same ones style slots use) and rendered as inline `--footer-*` custom properties. `pp_footer_text` colors the blurb, contact block, and copyright line. `pp_footer_copyright` replaces the default `© <year> <site title>. All rights reserved.` line verbatim, so include the year yourself; leave it empty to keep the default. This is a tight dark-footer surface, not a general footer builder.
+**You own the contrast.** A dark `_band` fill does not re-light anything: set a colour on every text and link role you put over it — `blurb`, `heading`, `copyright`, `note`, `address`, `link`, `address-link`, `social-link` — and check each against the fill for WCAG AA. One role left un-recoloured renders dark ink on dark, which is the most common way this goes wrong. Read the footer's declared roles from the component catalog.
+
+`pp_footer_copyright` replaces the default `© <year> <site title>. All rights reserved.` line verbatim, so include the year yourself; leave it empty to keep the default.
 
 ---
 
@@ -143,24 +145,22 @@ wp pp action execute update_site_option --run-id=<uuid> --params='{"key":"pp_foo
 
 ## Dark / gradient header (background, text, link color)
 
-The header is template-owned (#223) exactly like the footer, so it has no composition style slots either — and before #333 it had no styling surface at all. Its background, text, and link colors are now set through the same `update_site_option` surface. All are optional; unset, the header looks exactly as before.
+The header is template-owned (#223) exactly like the footer, so it is never composed. Its styling is the `nav` entry of the same `pp_site_udc` option. All optional; unset, the header looks exactly as before.
 
 ```bash
 # Dark header with a subtle gradient and light links
-wp pp action execute update_site_option --run-id=<uuid> --params='{"key":"pp_header_bg","value":"linear-gradient(135deg, #1a1a2e, #16121f)"}'
-wp pp action execute update_site_option --run-id=<uuid> --params='{"key":"pp_header_text","value":"#e8e8f0"}'
-wp pp action execute update_site_option --run-id=<uuid> --params='{"key":"pp_header_link_color","value":"#c8c8e0"}'
+wp pp action execute update_site_option --run-id=<uuid> --params='{"key":"pp_site_udc","value":"{\"nav\":{\"_band\":{\"background\":{\"fill\":\"linear-gradient(135deg, #1a1a2e, #16121f)\"}},\"logo\":{\"typography\":{\"color\":\"#e8e8f0\"}},\"toggle\":{\"typography\":{\"color\":\"#e8e8f0\"}},\"link\":{\"typography\":{\"color\":\"#c8c8e0\",\":hover\":{\"color\":\"@color-accent\"}}},\"link-current\":{\"typography\":{\"color\":\"#ffffff\"}}}}"}'
 ```
 
-`pp_header_text` colors the logo wordmark and the mobile hamburger toggle; `pp_header_link_color` colors the nav links, including the active/current link (#355 — it follows `pp_header_link_color` and only falls back to `--color-accent` when you leave the link color unset; the current item keeps its bold weight either way). Hover keeps `--color-accent` — that is a global design token, so change it with `update_design_token` if the accent needs to suit a dark header. Style the header to match the SITE's real header, not the hero: a dark hero is not a reason to make the header dark. Layout, sticky behavior, and menu structure are not configurable here: this is a color surface, not a header builder.
+The header's roles are `_band`, `logo`, `logo-image`, `menu`, `submenu`, `link`, `link-current` and `toggle`. `menu` is the mobile disclosure panel and `submenu` is the desktop dropdown — separate roles, because they are separate surfaces. `link-current` is the active/current link; it keeps its bold weight, which is structural. Hover, focus and active are ordinary states inside a role's group.
 
-## Gradients on the background options
+Style the header to match the SITE's real header, not the hero: a dark hero is not a reason to make the header dark. Layout, sticky behavior and menu structure are not configurable here — the UDC is a design surface, not a header builder.
 
-`pp_header_bg` and `pp_footer_bg` are the only two chrome options that accept a **gradient** as well as a plain color. Both go through the shared `gradient` slot type:
+## Writing the container safely
 
-- Accepted: any CSS color (hex, `rgb()`/`rgba()`, `hsl()`/`hsla()`, `transparent`, `currentColor`, a bare `var(--token)` reference to a registered color token), **or** a bounded `linear-gradient()` / `radial-gradient()` with 2 or more color stops — e.g. `linear-gradient(135deg, #1a1a2e, #16121f)`, `radial-gradient(circle at top left, #2a2a4e, #16121f)`.
-- Rejected: `conic-gradient()`, `repeating-linear-gradient()`, `repeating-radial-gradient()`, and any `var()` / `url()` / `env()` **inside** a gradient function.
-- The four text/link options (`pp_header_text`, `pp_header_link_color`, `pp_footer_text`, `pp_footer_link_color`) take a plain color only — a gradient on those is rejected.
+`pp_site_udc` holds BOTH chrome components, and a write REPLACES the whole option. So send `nav` and `footer` together when both are styled, or you will drop the one you left out. The option carries a `_version`; pass it back as `expected_version` and a write that would overwrite someone else's newer edit is refused (`site_option_conflict`) instead of clobbering it — re-read, re-apply, retry.
+
+Backgrounds accept a plain colour **or** a bounded `linear-gradient()` / `radial-gradient()` with 2+ stops. `conic-gradient()`, the `repeating-*` gradients, and any `var()` / `url()` / `env()` inside a gradient function are rejected. For a background IMAGE, set `background.image` to a Media Library attachment ID and pair it with `background.overlay` — never a URL.
 
 ---
 
@@ -183,13 +183,8 @@ Setting it through this action renders the attachment as-is: the Customizer's sq
 | `pp_logo_id` | Media Library attachment ID (integer) | Must be an image. Never a URL. |
 | `pp_logo_alt` | string | Optional. Overrides the alt on BOTH chrome logos (header and footer — there is no `pp_footer_logo_alt`). Unset defaults to the attachment's own alt metadata, then the site title; the alt is never empty. Empty or whitespace-only counts as unprovided and falls through the chain. |
 | `site_icon` | Media Library attachment ID (integer) | Optional (#414). Must be an image. Never a URL. WP core favicon / app icon; rendered as-is on a direct write (no auto-crop), so supply a square source (ideally >=512px). Renders via `wp_site_icon` in `wp_head`. |
-| `pp_header_bg` | CSS color **or** gradient | Optional. Header background (`--header-bg`). The primary dark/gradient-header control. |
-| `pp_header_text` | CSS color | Optional. Header text color (`--header-text`) — logo wordmark and mobile toggle. |
-| `pp_header_link_color` | CSS color | Optional. Header nav-link color (`--header-link-color`). |
+| `pp_site_udc` | JSON object | Optional. **All** chrome styling: `{"nav": {<udc map>}, "footer": {<udc map>}}`, each in the same shape a band's `udc` takes. Replaces the whole option on write; carries a `_version` you may pass back as `expected_version`. |
 | `pp_footer_show_logo` | boolean (`1`/`0`/`true`/`false`) | Optional, default off. Turns the footer logo on/off. Uses the same resolved logo as the header. |
-| `pp_footer_bg` | CSS color **or** gradient | Optional. Footer background (`--footer-bg`). The primary dark-footer control. |
-| `pp_footer_text` | CSS color | Optional. Footer text color (`--footer-text`) — blurb, contact, copyright. |
-| `pp_footer_link_color` | CSS color | Optional. Footer nav-link color (`--footer-link-color`). |
 | `pp_footer_blurb` | string | Optional. Brand/description line under the footer logo. |
 | `pp_footer_contact` | string | Optional. Contact/secondary text block (newlines become line breaks). |
 | `pp_footer_copyright` | string | Optional. Replaces the default copyright line; empty keeps the default. |

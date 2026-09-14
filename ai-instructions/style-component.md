@@ -69,10 +69,10 @@ reaches them — retuning them site-wide is a theme-source change, not something
 The per-band `--<comp>-padding-top` / `--<comp>-padding-bottom` / `--<comp>-heading-size` slots
 are your only surface for them, and each one moves that band alone.
 
-The template-owned chrome pair (`nav`, `footer`) additionally lists
-`chrome_custom_properties`: those are the `--header-*` / `--footer-*` inline custom
-properties the chrome renders from **site options**, which are a different thing from
-design tokens and are set with `update_site_option`, never as style slots.
+The template-owned chrome pair (`nav`, `footer`) declares `roles` instead: chrome's
+styling surface is its UDC roles, written into the `pp_site_udc` **site option** with
+`update_site_option`. That is a different thing from a design token and a different
+thing from a style slot — chrome has neither.
 
 ---
 
