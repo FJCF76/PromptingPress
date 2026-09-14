@@ -233,7 +233,10 @@ reporting the value applied and leaving you to notice the text never changed.
 rendering every page with stock design tokens, no webfonts, and a stock header
 and footer, so a site that had retuned a colour or styled its header previewed
 something it would never ship. All four now emit at the same positions the real
-page uses, and a token the page refuses is refused in the preview too.
+page uses, and a token the page refuses is refused in the preview too. This is
+parity of VALUES, not of the whole document: the preview still builds its own
+head, so page meta, the front-end script and cache-busting versions are not
+there. What it now gets right is what every declaration resolves to.
 
 **A site setting that fails to save says so.** `update_site_option` returned
 success unconditionally, so a refused write produced a cheerful envelope
@@ -287,8 +290,8 @@ landed item was red-proven against the pre-fix code first. The review train foun
 what the first cut missed and each is now pinned: the drop ledger was bounded
 only by its reader, so one corrupt band could exhaust memory before every
 mutation; the ledger allocated a closure and a locator on the render path, costing
-a measured 13-18% on a 50-band page, now back to parity at 1.64-1.69 ms against
-main's 1.60-1.73 ms; stored keys as well as stored values reach operator-facing
+a measured 13% on a 50-band page and 9% at 500 bands, now back to parity with
+main on an independently re-measured A/B; stored keys as well as stored values reach operator-facing
 text and are bounded; a healthy page with many bands emitted a spurious warning. A
 mutation pass then proved seven of the new tests vacuous — a defaults filter
 "proven" by an empty map, a guard the parser makes unreachable, an assertion

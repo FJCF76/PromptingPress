@@ -2611,9 +2611,11 @@ function _pp_udc_place(
         // different reason and a different next action. One value, one classifier
         // (I25) — pp_check_udc_background_images owns every drop of this parameter,
         // well-shaped or not.
-        $owned_by_background_check = ($params[$param_name]['type'] ?? '') === 'attachment_id';
         if ($source !== 'defaults' && pp_udc_validate_value($literal, $params[$param_name]) !== true) {
-            if (!$owned_by_background_check) {
+            // The type test lives INSIDE the ledger branch for the same reason the
+            // closure and the locator do: it is per-breakpoint work that only a
+            // collector ever reads.
+            if ($note && ($params[$param_name]['type'] ?? '') !== 'attachment_id') {
                 // THE STORED VALUE IS REFLECTED, SO IT IS BOUNDED AND CLEANED.
                 // This message rides the preflight envelope of every later
                 // mutation, and a stored value has no length limit of its own.
