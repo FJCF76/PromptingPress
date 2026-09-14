@@ -48,6 +48,8 @@ no breakpoint, no state, no spacing, no typography.
 | link-current | `.nav__menu ul li.current-menu-item a` | the link for the page you are on |
 | toggle | `.nav__toggle` | the hamburger button (phones only) |
 
+A role's `background` takes a colour, a bounded gradient, or a Media Library **attachment ID** via `background.image` (never a URL) with `background.overlay` for a scrim over it — so a photographic header band is expressible. Pair image and overlay whenever text sits on the picture.
+
 `menu` and `submenu` are deliberately SEPARATE roles. One option used to paint both,
 with two different fallbacks, which was impossible to reason about from the name.
 
