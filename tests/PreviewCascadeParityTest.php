@@ -36,6 +36,24 @@ use PHPUnit\Framework\TestCase;
 
 final class PreviewCascadeParityTest extends TestCase
 {
+    /**
+     * The preview now reads SITE state (token overrides, fonts, chrome), so each
+     * test starts from a site that has none of it. Without this the fixtures leak
+     * forward and the suite becomes order-dependent — the I40 failure mode where a
+     * test passes only because of what ran before it.
+     */
+    protected function setUp(): void
+    {
+        parent::setUp();
+        $GLOBALS['_pp_test_store']['options'] = [];
+    }
+
+    protected function tearDown(): void
+    {
+        $GLOBALS['_pp_test_store']['options'] = [];
+        parent::tearDown();
+    }
+
     /** A band that authors one value in a group whose other values come from defaults. */
     private function fixture(): array
     {
@@ -50,6 +68,120 @@ final class PreviewCascadeParityTest extends TestCase
     private function head(): string
     {
         return pp_preview_document_head($this->fixture(), 'https://example.test/theme');
+    }
+
+    // ── 0. Value parity: the four sources the preview used to omit (#963) ────
+
+    /**
+     * THE LEAD RED PROOF (#963). Authored chrome never reached the preview.
+     *
+     * This one is a LIVE regression rather than a latent gap, and it is newer than
+     * the issue: ruling A1 put the site header and footer on this same engine, and
+     * the preview renders nav and footer markup (pp_get_component('nav'/'footer'),
+     * both carrying data-pp-chrome). So a site with a dark styled header previewed
+     * a stock light header above its own page, on every preview, for every page.
+     *
+     * Emitting it is I15 ("preview promises exactly what execute delivers"), not a
+     * new product choice — the front end emits it, so the preview must. That it is
+     * site-scoped state the composition editor cannot itself edit is a real
+     * observation and the wrong lever: the answer to "you can see it but not change
+     * it here" is a route to where it IS editable, never a preview that lies.
+     */
+    public function testThePreviewEmitsAuthoredChromeAfterEveryStylesheet(): void
+    {
+        $GLOBALS['_pp_test_store']['options'][PP_SITE_UDC_OPTION] =
+            '{"_version":1,"nav":{"_band":{"background":{"fill":"#101828"}}}}';
+
+        $head = $this->head();
+
+        $this->assertStringContainsString(
+            '[data-pp-chrome="nav"]',
+            $head,
+            'the preview renders chrome markup, so it must rank chrome CSS too (I15)'
+        );
+        $this->assertStringContainsString('#101828', $head, 'the authored chrome value must reach the preview');
+
+        $chrome = strpos($head, '[data-pp-chrome="nav"]');
+        foreach (['base.css', 'components.css', 'utilities.css'] as $sheet) {
+            $this->assertLessThan(
+                $chrome,
+                strpos($head, $sheet),
+                "authored chrome must print after {$sheet}, exactly as it does on the front end"
+            );
+        }
+    }
+
+    /**
+     * Design-token overrides, at the front end's position: inline on `pp-base`,
+     * after base.css and before components.css.
+     *
+     * Without them every `var(--token)` in band CSS, chrome CSS and components.css
+     * resolves to base.css's stock `:root` value, so the operator previews a page
+     * built from values the site does not have.
+     */
+    public function testThePreviewEmitsDesignTokenOverridesAfterBaseAndBeforeComponents(): void
+    {
+        $GLOBALS['_pp_test_store']['options']['pp_token_overrides'] = ['--color-accent' => '#ff0000'];
+
+        $head = $this->head();
+
+        $this->assertStringContainsString('--color-accent: #ff0000', $head, 'the override must reach the preview');
+
+        $override = strpos($head, '--color-accent: #ff0000');
+        $this->assertLessThan($override, strpos($head, 'base.css'), 'overrides print after base.css');
+        $this->assertGreaterThan(
+            $override,
+            strpos($head, 'components.css'),
+            'overrides print before components.css, which is where the front end puts them'
+        );
+    }
+
+    /**
+     * A token override the FRONT END drops must be dropped here too.
+     *
+     * The preview calls pp_token_overrides_inline_css(), which carries the T1.5
+     * render boundary, rather than reading the option raw. A preview that printed
+     * a row the page refuses would promise a value the site will never paint —
+     * the same class of lie as the tier inversion, one layer down.
+     */
+    public function testAnOverrideTheFrontEndDropsIsDroppedInThePreviewToo(): void
+    {
+        $GLOBALS['_pp_test_store']['options']['pp_token_overrides'] = [
+            '--color-accent' => 'rgb(',      // unbalanced: refused at the boundary
+            '--color-text'   => '#123456',   // legitimate, must survive
+        ];
+
+        $head = $this->head();
+
+        $this->assertStringNotContainsString('rgb(', $head, 'a dropped row must not reach the preview');
+        $this->assertStringContainsString('--color-text: #123456', $head, 'the surviving rows still emit');
+    }
+
+    /** Enqueued webfonts, as links, before base.css — or typography previews in a fallback face. */
+    public function testThePreviewLinksEnqueuedWebfontsBeforeBaseCss(): void
+    {
+        $GLOBALS['_pp_test_store']['options']['pp_font_urls'] =
+            ['https://fonts.example.test/css2?family=Inter:wght@400'];
+
+        $head = $this->head();
+
+        $font = strpos($head, 'fonts.example.test');
+        $this->assertNotFalse($font, 'the preview must link the site\'s enqueued fonts');
+        $this->assertLessThan(
+            strpos($head, 'base.css'),
+            $font,
+            'fonts load before base.css on the front end, so they do here'
+        );
+    }
+
+    /** A site with none of the four still gets a clean head and no empty blocks. */
+    public function testASiteWithNoOverridesFontsOrChromeEmitsNothingExtra(): void
+    {
+        $head = $this->head();
+
+        $this->assertStringNotContainsString('data-pp-chrome', $head);
+        $this->assertStringNotContainsString('<link rel="stylesheet" href="https://fonts', $head);
+        $this->assertSame(2, substr_count($head, '<style'), 'still exactly the two cascade tiers');
     }
 
     // ── 1. The preview's own positions ───────────────────────────────────────

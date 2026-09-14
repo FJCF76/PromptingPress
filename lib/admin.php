@@ -4915,20 +4915,35 @@ add_action('wp_ajax_pp_preview_composition', function () {
  *
  *     front end (wp_head)                      preview (this function)
  *     ───────────────────────────────────      ──────────────────────────────
+ *     <link> per enqueued webfont              <link> per enqueued webfont
  *     <link base.css>                          <link base.css>
- *     inline on `pp-base`: :root overrides     (ABSENT — see #963)
- *     inline on `pp-base`      <- DEFAULTS     <style id="pp-udc-defaults">
+ *     inline on `pp-base`: :root overrides  ┐
+ *     inline on `pp-base`      <- DEFAULTS  ├─ <style id="pp-udc-defaults">
+ *     inline on `pp-base`      <- CHROME    ┘
  *     <link components.css>                    <link components.css>
  *     <link utilities.css>                     <link utilities.css>
- *     inline on `pp-utilities` <- AUTHORED     <style id="pp-udc-authored">
+ *     inline on `pp-utilities` <- AUTHORED  ┐─ <style id="pp-udc-authored">
+ *     inline on `pp-utilities` <- CHROME    ┘
  *
- * THE THIRD ROW IS A KNOWN DIVERGENCE, not an omission in this drawing. The
- * site's design-token overrides (`pp_token_overrides`) and its enqueued webfonts
- * are emitted by the same front-end callback and reach the preview nowhere, so a
- * site that has retuned a token previews with the theme's stock value. That
- * predates this function and is filed as #963; it is NOT the tier inversion this
- * function fixes, and it is drawn here so the next reader does not have to
- * rediscover it.
+ * THE BRACES ARE NOT AN APPROXIMATION. WordPress concatenates every inline style
+ * attached to one handle into ONE <style> element, so the front end's three
+ * `pp-base` blocks are already a single element in source order, and so are its
+ * two `pp-utilities` blocks. Emitting them as one block each here reproduces the
+ * front end byte-for-byte rather than merely resembling it — functions.php says
+ * the same thing at its token-override block, which relies on exactly this.
+ *
+ * VALUE PARITY, NOT STRUCTURAL PARITY — say which, because I15 ("preview promises
+ * exactly what execute delivers") is easy to over-claim. What is emitted here is
+ * every source that decides what a declaration COMPUTES TO: webfonts, design-token
+ * overrides, both UDC tiers, both chrome tiers. What is still absent is everything
+ * structural — this function never calls wp_head(), so SEO/OG meta, pp-main.js and
+ * anything a plugin hooks are not here, and the stylesheet links carry no `?ver=`.
+ * Those remain on #963; they change what the page IS, not what its CSS resolves to.
+ *
+ * The overrides go through pp_token_overrides_inline_css() rather than a raw read
+ * of `pp_token_overrides`, so the T1.5 render boundary applies identically: a row
+ * the front end DROPS is dropped here too. A preview that printed a row the page
+ * refuses would promise a value the site will never paint.
  *
  * Keep this in step with the enqueue callback in functions.php; the ordering is
  * pinned from both ends (PreviewCascadeParityTest) so a one-sided edit fails.
@@ -4937,19 +4952,36 @@ function pp_preview_document_head(array $composition, string $dir_uri): string {
     $link = static fn(string $file): string =>
         '<link rel="stylesheet" href="' . esc_url($dir_uri) . '/assets/css/' . $file . '">';
 
-    // Same emitter, same output, same two functions the front end calls: a
-    // preview that computed its CSS a second way would diverge from the live
-    // page exactly where it matters.
-    $defaults = pp_udc_page_defaults_css($composition);
-    $authored = pp_udc_page_authored_css($composition);
+    // Same emitters, same output, same functions the front end calls: a preview
+    // that computed its CSS a second way would diverge from the live page exactly
+    // where it matters.
+    $overrides = pp_get_token_overrides();
+    $token_css = $overrides ? pp_token_overrides_inline_css($overrides, pp_design_tokens()) : '';
+
+    $defaults        = pp_udc_page_defaults_css($composition);
+    $authored        = pp_udc_page_authored_css($composition);
+    $chrome_defaults = pp_udc_chrome_defaults_css();
+    $chrome_authored = pp_udc_chrome_authored_css();
+
+    // CHROME IS NOT GATED ON THE COMPOSITION, here or on the front end. The preview
+    // renders nav and footer markup (both carry data-pp-chrome), so a site with a
+    // styled header previewed a stock one above its own page until this landed.
+    $base_block      = $token_css . $defaults . $chrome_defaults;
+    $utilities_block = $authored . $chrome_authored;
+
+    $fonts = '';
+    foreach (pp_get_font_urls() as $font_url) {
+        $fonts .= '<link rel="stylesheet" href="' . esc_url($font_url) . '">';
+    }
 
     return '<meta charset="UTF-8">'
         . '<meta name="viewport" content="width=device-width,initial-scale=1">'
+        . $fonts
         . $link('base.css')
-        . ($defaults !== '' ? '<style id="pp-udc-defaults">' . $defaults . '</style>' : '')
+        . ($base_block !== '' ? '<style id="pp-udc-defaults">' . $base_block . '</style>' : '')
         . $link('components.css')
         . $link('utilities.css')
-        . ($authored !== '' ? '<style id="pp-udc-authored">' . $authored . '</style>' : '');
+        . ($utilities_block !== '' ? '<style id="pp-udc-authored">' . $utilities_block . '</style>' : '');
 }
 
 // ── AJAX: Save Title ──────────────────────────────────────────────────────────
