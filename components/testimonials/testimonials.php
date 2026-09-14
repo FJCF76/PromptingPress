@@ -29,47 +29,44 @@ $raw_title_accent  = $props['title_accent']  ?? '';
 $title_accent      = is_scalar($raw_title_accent) ? (string) $raw_title_accent : '';
 $eyebrow       = $props['eyebrow']       ?? '';
 $subheading    = $props['subheading']    ?? '';
-$title_align = $props['title_align'] ?? 'start';
 $items   = $props['items']   ?? [];
 $layout  = $props['layout']  ?? 'grid';
-$theme   = $props['theme']   ?? 'default';
 
 $allowed_layouts = ['grid', 'stack'];
 if (!in_array($layout, $allowed_layouts, true)) {
     $layout = 'grid';
 }
 
-$allowed_title_aligns = ['start', 'center'];
-if (!in_array($title_align, $allowed_title_aligns, true)) {
-    $title_align = 'start';
-}
-$header_align_class = $title_align === 'center' ? ' testimonials__header--center' : '';
-
 $is_stack      = $layout === 'stack';
 $layout_class  = $is_stack ? ' testimonials--stack' : '';
-// theme coercion lives in pp_theme_class(); `muted` emits the legacy `--dark` class (#570 DG-4).
-$theme_class   = pp_theme_class($theme, 'testimonials');
 
-// Style slot overrides (per-instance visual customization).
-// #708: guard the raw `__pp_style` map before it reaches the typed
-// pp_render_style_vars(array $style, ...). A stored non-array raises a TypeError that
-// no caller catches, so the whole PUBLIC PAGE 500s. It arrives as `__pp_style` stored
-// INSIDE props: all four top-level `style` promotions are already is_array guarded, so
-// this read is the only reachable boundary and the only place a guard can help.
-// is_array, NOT is_scalar — an array IS the contract at this parameter. Degrades to no
-// inline custom properties and no `style` attribute at all, byte-identical to a band
-// that stored no style. Full reasoning in components/grid/grid.php.
-$raw_style = $props['__pp_style'] ?? null;
-$style     = is_array($raw_style) ? $raw_style : [];
-$slot_style = pp_render_style_vars($style, 'testimonials');
-$style_attr = $slot_style ? ' style="' . $slot_style . ';"' : '';
+// ── v2: the band's styling identity ─────────────────────────────────────────
+//
+// THE FIRST COMPONENT ON THE UNIVERSAL DESIGN CONTRACT. Where v1 read a
+// `__pp_style` map and painted it into an inline `style` attribute, this emits
+// one attribute and nothing else: `data-pp-band`. Every designable value for
+// this band is in a scoped block in the document head, keyed on that attribute
+// (lib/udc.php). No inline style means no specificity cliff — a band's rules and
+// the stylesheet's structural rules sit at comparable weight and resolve in
+// source order, which is what makes the cascade a cascade.
+//
+// An absent or malformed id emits NO attribute. That is the whole guard: the
+// engine mints ids on WRITE only, so a band that reached storage without one
+// (raw meta, data written before the rule, or restore_composition, which reports
+// without blocking per #233) must render structurally rather than be handed a
+// fabricated id here. An EMPTY attribute would be worse than none — it would
+// make `[data-pp-band=""]` match every other id-less band on the page and paint
+// one band's design onto another.
+$raw_band  = $props['__pp_udc_band'] ?? '';
+$band_id   = (is_scalar($raw_band) && pp_udc_valid_band_id((string) $raw_band)) ? (string) $raw_band : '';
+$band_attr = $band_id !== '' ? ' data-pp-band="' . esc_attr($band_id) . '"' : '';
 
 ?>
-<section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="testimonials<?php echo esc_attr($layout_class); ?><?php echo esc_attr($theme_class); ?>" data-pp-component="testimonials"<?php echo $style_attr; ?>>
+<section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="testimonials<?php echo esc_attr($layout_class); ?>" data-pp-component="testimonials"<?php echo $band_attr; ?>>
     <div class="container">
 
         <?php if ($title || $eyebrow || $subheading) : ?>
-            <div class="testimonials__header<?php echo esc_attr($header_align_class); ?>">
+            <div class="testimonials__header">
                 <?php if ($eyebrow) : ?>
                     <span class="testimonials__eyebrow"><?php echo esc_html($eyebrow); ?></span>
                 <?php endif; ?>

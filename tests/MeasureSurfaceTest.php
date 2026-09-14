@@ -43,7 +43,11 @@ use PHPUnit\Framework\TestCase;
 class MeasureSurfaceTest extends TestCase
 {
     /** The eight band components whose heading measure routes the shared token. */
-    private const ROUTED = ['cta', 'grid', 'testimonials', 'faq', 'stats', 'table', 'embed', 'logos'];
+    // The components that route the shared --measure-heading token through a
+    // style slot. This is the v1 STYLE-SLOT roster; testimonials left it when it was rebuilt on the Universal Design Contract (v2) and now declares roles instead of slots: its heading cap is the `heading` role's
+    // `sizing.max-width` default, which still resolves @measure-heading, so the
+    // shared token still governs it — through the engine rather than through a slot.
+    private const ROUTED = ['cta', 'grid', 'faq', 'stats', 'table', 'embed', 'logos'];
 
     /** The two exempt from it, both uncapped by default and for different reasons. */
     private const EXEMPT = ['hero', 'section'];

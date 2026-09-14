@@ -26,10 +26,22 @@ echo "Version: $VERSION"
 # (package.test.js runs this script), and the release workflow (release.yml
 # runs this script before uploading the ZIP) — no duplicated check elsewhere.
 
-PP_VERSION=$(grep -m1 "define('PP_VERSION'" functions.php | grep -oP "'[0-9]+\.[0-9]+\.[0-9]+'" | tr -d "'")
-PKG_VERSION=$(grep -m1 '"version"' package.json | grep -oP '[0-9]+\.[0-9]+\.[0-9]+')
-README_VERSION=$(grep -m1 -oP 'badge/version-\K[0-9]+\.[0-9]+\.[0-9]+' README.md)
-READMETXT_VERSION=$(grep -m1 -oP '^Stable tag:[[:space:]]*\K[0-9]+\.[0-9]+\.[0-9]+' readme.txt)
+# SemVer, INCLUDING a prerelease suffix. The v2 line ships as 2.0.0-alpha.N, and
+# the old X.Y.Z-only patterns failed in two different ways on it: the quoted
+# PP_VERSION match needs a closing quote directly after the patch number, so it
+# found NOTHING, while the three unanchored patterns matched the leading "2.0.0"
+# and silently dropped the suffix. Both produced a mismatch against style.css's
+# full string and failed the gate on a correctly-synced tree.
+SEMVER='[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?'
+PP_VERSION=$(grep -m1 "define('PP_VERSION'" functions.php | grep -oP "'\K${SEMVER}(?=')")
+PKG_VERSION=$(grep -m1 '"version"' package.json | grep -oP '"version":\s*"\K'"${SEMVER}"'(?=")')
+# The README badge is a shields.io URL, `badge/version-<value>-<colour>`, so the
+# colour is separated from the version by the SAME character a prerelease suffix
+# uses. A permissive suffix class swallows it ("1.20.0-6366F1"). Anchored on the
+# six-hex-digit colour that must follow, and the suffix class here excludes the
+# hyphen so it cannot cross the separator.
+README_VERSION=$(grep -m1 -oP 'badge/version-\K[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?(?=-[0-9A-Fa-f]{6})' README.md)
+READMETXT_VERSION=$(grep -m1 -oP '^Stable tag:[[:space:]]*\K'"${SEMVER}" readme.txt)
 
 MISMATCH=0
 if [[ "$VERSION" != "$PP_VERSION" ]]; then

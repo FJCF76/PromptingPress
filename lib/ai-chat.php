@@ -828,7 +828,13 @@ function _pp_build_friendly_error(WP_Error $error, array $params): array {
 
             $format_hints = [
                 'color'       => 'Use hex (#1a1a2e), rgb(), rgba(), hsl(), or hsla() format.',
-                'length'      => 'Use a number with a unit like rem, px, em, %, vw, or vh (e.g. 4rem, 200px).',
+                // DERIVED, never restated. This hint used to be a hand-maintained
+                // second copy of the accepted unit set with no test pinning it to
+                // the validator — it happened to agree, until the v2 consolidation
+                // would have silently made it a lie. pp_css_grammar_summary() is
+                // the single owner (lib/apply.php); FriendlyErrorMessageBoundTest
+                // pins this string against it.
+                'length'      => sprintf('Use a number with a CSS unit (%s), e.g. 4rem, 200px.', pp_css_grammar_summary()),
                 'number'      => 'Use a plain number without units (e.g. 650, 1.6).',
                 'duration'    => 'Use a number with ms or s (e.g. 300ms, 0.3s).',
                 'font-family' => 'Use a comma-separated list of font names.',

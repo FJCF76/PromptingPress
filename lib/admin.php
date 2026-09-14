@@ -3845,6 +3845,67 @@ function pp_validate_composition_errors(array $items, ?int $limit = null): array
                 }
             }
         }
+
+        // ── v2: the band identity and the `udc` map ─────────────────────────
+        //
+        // Appended AFTER every existing rule ON PURPOSE. Rule order is
+        // load-bearing here (see _pp_finding_location): the first rule in
+        // traversal order wins a contested location, so adding these at the end
+        // keeps every pre-existing errors[0] byte-identical — which is exactly
+        // what testFirstCollectedErrorIsExactlyWhatValidateReturns() and
+        // testTheWritePathReturnsTheSameErrorItWouldHaveWithoutABudget() pin.
+        //
+        // AND THIS GATE HAS TO EXIST AT ALL, which is easy to miss: nothing in
+        // this validator ever iterated an item's own top-level keys, so before
+        // v2 an item carrying `udc` was accepted, stored and ignored. A
+        // misspelled role would have returned ok:true and rendered nothing —
+        // the reported-success-without-effect class the #147 and #643 gates
+        // close one level down, arriving one level up.
+        if (array_key_exists('id', $item)) {
+            $band_id = $item['id'];
+            if (!is_scalar($band_id) || !pp_udc_valid_band_id((string) $band_id)) {
+                if (_pp_claim_item_finding($sink, 'udc', 'id')) {
+                    $errors[] = _pp_composition_item_error($i, 'invalid_composition', sprintf(
+                        'Component "%s" band id must be 1-64 characters of letters, digits, hyphen or underscore; got %s. '
+                        . 'The id scopes this band\'s styling rules, so the character set is what keeps it a selector and nothing else.',
+                        $name,
+                        _pp_schema_value_for_message($band_id)
+                    ));
+                    continue;
+                }
+            }
+        }
+
+        if (array_key_exists('udc', $item)) {
+            $udc_error = pp_udc_validate_map($item['udc'], $name);
+            if ($udc_error !== null) {
+                if (_pp_claim_item_finding($sink, 'udc')) {
+                    $errors[] = _pp_composition_item_error($i, $udc_error->get_error_code(), $udc_error->get_error_message());
+                    continue;
+                }
+            }
+        }
+    }
+
+    // Duplicate BAND ids (v2, BUILD-SPEC §3.1/§3.4). A band id scopes that
+    // band's emitted CSS block, so two bands sharing one id would paint each
+    // other's design — and, unlike the props.id collision below, no targeting
+    // command is involved at all. Its own code: overloading
+    // `duplicate_component_id`, whose message explains itself in terms of
+    // update/remove/style targeting, would make the diagnostic name the wrong
+    // namespace. Carries no `index` — it belongs to no single band.
+    foreach (($sink['budget'] !== null && $errors !== []) ? [] : _pp_find_duplicate_band_ids($items) as $dupe) {
+        $errors[] = new WP_Error(
+            'duplicate_band_id',
+            sprintf(
+                'Duplicate band id "%s" on items %s. Band ids must be unique within a composition because each one scopes that band\'s styling rules.',
+                $dupe['id'],
+                implode(', ', array_map(
+                    static fn ($key) => _pp_item_index_label($key, $items),
+                    $dupe['indices']
+                ))
+            )
+        );
     }
 
     // Duplicate authored component ids (issue 238). Two components sharing a
@@ -4798,6 +4859,7 @@ add_action('wp_ajax_pp_preview_composition', function () {
             if ($style) {
                 $props['__pp_style'] = $style;
             }
+            $props = pp_udc_promote_band_identity($item, $props);
             if ($name !== '') {
                 pp_get_component($name, $props);
             }
@@ -4821,12 +4883,23 @@ add_action('wp_ajax_pp_preview_composition', function () {
 
     $body = ob_get_clean();
 
+    // Same emitter, same output, one function: a preview that computed its CSS
+    // a second way would diverge from the live page exactly where it matters.
+    $pp_udc_css = pp_udc_page_css($composition);
+    $pp_udc_preview_style = $pp_udc_css !== '' ? '<style id="pp-udc-bands">' . $pp_udc_css . '</style>' : '';
+
     $html = '<!DOCTYPE html><html><head>'
         . '<meta charset="UTF-8">'
         . '<meta name="viewport" content="width=device-width,initial-scale=1">'
         . '<link rel="stylesheet" href="' . esc_url($dir_uri) . '/assets/css/base.css">'
         . '<link rel="stylesheet" href="' . esc_url($dir_uri) . '/assets/css/components.css">'
         . '<link rel="stylesheet" href="' . esc_url($dir_uri) . '/assets/css/utilities.css">'
+        // The preview builds its own <head> and never calls wp_head(), so the v2
+        // band blocks have to be emitted here EXPLICITLY. Without this line the
+        // preview would render every v2 band with structural CSS only — showing
+        // the operator something the live page will never look like, which is
+        // worse than showing nothing.
+        . $pp_udc_preview_style
         . '</head><body>' . $body . '</body></html>';
 
     wp_send_json_success(['html' => $html]);

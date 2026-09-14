@@ -2289,7 +2289,7 @@ describe('CSS lint: premium layer honors padding/type/width slots (#302)', () =>
     // which is itself pinned to --pp-band-padding (issue 430 symmetry). Neither
     // may re-introduce the flattening clamp() literal in components.css.
     test('adjacent-sibling rhythm no longer flattened by a bare clamp()', () => {
-        const bodies = bodiesForExactSelector('main > [data-pp-component] + [data-pp-component]');
+        const bodies = bodiesForExactSelector(':where(main > [data-pp-component] + [data-pp-component])');
         expect(bodies.length).toBeGreaterThanOrEqual(2);
         bodies.forEach(body => {
             expect(body).not.toMatch(/clamp\(\s*4\.25rem/);
@@ -2310,8 +2310,10 @@ describe('CSS lint: premium layer honors padding/type/width slots (#302)', () =>
         ['main > [data-pp-component] + .cta', '--cta-padding-top'],
         ['main > [data-pp-component] + .stats', '--stats-padding-top'],
         ['main > [data-pp-component] + .faq', '--faq-padding-top'],
-        ['main > [data-pp-component] + .testimonials', '--testimonials-padding-top'],
-    ])('adjacent %s routes top-padding through the slot to the shared def at both breakpoints', (selector, slot) => {
+// testimonials is absent from this table: it is a v2 component whose CSS block is
+        // structural only, so it routes nothing through a slot. The value this row used to
+        // guard is now a role default in components/testimonials/schema.json.
+            ])('adjacent %s routes top-padding through the slot to the shared def at both breakpoints', (selector, slot) => {
         const bodies = bodiesForExactSelector(selector);
         const decls = bodies.flatMap(b => b.match(/padding-top\s*:[^;}]+/g) || []);
         // Desktop + mobile = two declarations minimum.
@@ -2442,8 +2444,10 @@ describe('CSS lint: section-level bands share one rhythm definition (#431)', () 
         { comp: 'cta', cls: '.cta', slot: '--cta' },
         { comp: 'stats', cls: '.stats', slot: '--stats' },
         { comp: 'faq', cls: '.faq', slot: '--faq' },
-        { comp: 'testimonials', cls: '.testimonials', slot: '--testimonials' },
-        { comp: 'table', cls: '.table-section', slot: '--table' },
+// testimonials is absent from this table: it is a v2 component whose CSS block is
+        // structural only, so it routes nothing through a slot. The value this row used to
+        // guard is now a role default in components/testimonials/schema.json.
+                { comp: 'table', cls: '.table-section', slot: '--table' },
         { comp: 'logos', cls: '.logos', slot: '--logos' },
         { comp: 'embed', cls: '.embed', slot: '--embed' },
         // hero joins the ADJACENT-TOP contract only (issue 577), and it is the ONE
@@ -2570,13 +2574,29 @@ describe('CSS lint: section-level bands share one rhythm definition (#431)', () 
     //     the per-component rules fall back to rather than the rule any band lands on,
     //     and it must keep consuming the shared prop either way.
     test('the generic adjacent-sibling rule routes through --pp-band-padding-adjacent-top', () => {
-        const bodies = bodiesForExactSelector('main > [data-pp-component] + [data-pp-component]');
+        const bodies = bodiesForExactSelector(':where(main > [data-pp-component] + [data-pp-component])');
         expect(bodies.length).toBeGreaterThanOrEqual(2); // desktop + mobile
         const decls = bodies.flatMap(b => b.match(/padding-top\s*:[^;}]+/g) || []);
         expect(decls.length).toBeGreaterThanOrEqual(2);
         decls.forEach(d => {
             expect(d).toMatch(/padding-top\s*:\s*var\(\s*--pp-band-padding-adjacent-top\s*\)/);
         });
+    });
+
+    // 3b-ii. The catch-all's ZERO SPECIFICITY is itself load-bearing (v2 Sprint 0).
+    //     It is the design system's baseline rhythm — a DEFAULT — and §3.4 ranks an
+    //     authored v2 band value above a default. While it was a bare
+    //     `main > [data-pp-component] + [data-pp-component]` [0,2,1] it outranked the
+    //     authored band block `[data-pp-band="<id>"]` [0,1,0], and an authored
+    //     padding-top on an adjacent band rendered the shared value instead — silently,
+    //     because the write itself succeeded. Unwrapping the `:where()` reinstates that
+    //     bug, so the wrapper is pinned here rather than left to a comment.
+    test('the generic adjacent-sibling catch-all contributes ZERO specificity', () => {
+        expect(bodiesForExactSelector(':where(main > [data-pp-component] + [data-pp-component])').length)
+            .toBeGreaterThanOrEqual(2); // desktop + mobile, both wrapped
+        // And the unwrapped form is gone from both tiers.
+        expect(bodiesForExactSelector('main > [data-pp-component] + [data-pp-component]'))
+            .toHaveLength(0);
     });
 
     // 3c. SOURCE ORDER IS LOAD-BEARING for hero's DESKTOP adjacent rule (issue 577).
@@ -2736,8 +2756,10 @@ describe('CSS lint: band-level headings share one responsive scale (#436)', () =
         { selectors: ['.table-section__heading'], slot: '--table-heading-size' },
         { selectors: ['.logos__heading'], slot: '--logos-heading-size' },
         { selectors: ['.embed__heading'], slot: '--embed-heading-size' },
-        { selectors: ['.testimonials__heading'], slot: '--testimonials-heading-size' },
-    ];
+// testimonials is absent from this table: it is a v2 component whose CSS block is
+        // structural only, so it routes nothing through a slot. The value this row used to
+        // guard is now a role default in components/testimonials/schema.json.
+            ];
 
     // 1. Every band-heading font-size routes through its slot AND falls back to the
     //    shared --pp-band-heading-size — at every declaration site (base + premium).
@@ -2872,7 +2894,12 @@ describe('CSS lint: schema styling.tokens are reachable BY THE COMPONENT THAT LI
             const styling = schema.styling || {};
             const blocks = new Set([name, styling.root_class || name]);
             (styling.variant_classes || []).forEach(v => blocks.add(blockOf(v)));
-            return { name, blocks, tokens: styling.tokens || [] };
+            // A v2 component reaches its tokens through ROLE DEFAULTS (`@token-name`),
+            // not through `var()` in a stylesheet — its CSS block is structural only.
+            // Same contract, different vocabulary: a token a schema LISTS must be a
+            // token that component actually uses, or the list is decoration.
+            const roleDefaults = JSON.stringify(schema.roles || {});
+            return { name, blocks, tokens: styling.tokens || [], roles: schema.roles || null, roleDefaults };
         });
 
     const rules = parseRules();
@@ -2888,7 +2915,19 @@ describe('CSS lint: schema styling.tokens are reachable BY THE COMPONENT THAT LI
     const cases = components.flatMap(c => c.tokens.map(token => ({ component: c.name, token })));
 
     test.each(cases)('$component can actually reach the $token it lists', ({ component, token }) => {
-        const { blocks } = components.find(c => c.name === component);
+        const entry = components.find(c => c.name === component);
+        const { blocks } = entry;
+
+        if (entry.roles) {
+            // `--color-text` is referenced as `@color-text` in a role default.
+            const ref = '"@' + token.replace(/^--/, '') + '"';
+            expect(
+                entry.roleDefaults.includes(ref),
+                `${component} lists ${token} in styling.tokens but no role default references it as @${token.replace(/^--/, '')}`
+            ).toBe(true);
+            return;
+        }
+
         const consumes = new RegExp('var\\(\\s*' + token.replace(/[-]/g, '\\$&') + '\\s*[,)]');
         const owned = rules.filter(r =>
             consumes.test(r.body) &&
@@ -3005,8 +3044,8 @@ describe('CSS lint: band heading-color slots route through the slot (#438)', () 
         // section / grid / cta need no entry here: the #222 THEMED list covers them.
         { selector: '.stats__heading', slot: '--stats-heading-color', fallback: '--color-text' },
         { selector: '.stats--inverted .stats__heading', slot: '--stats-heading-color', fallback: '--color-bg' },
-        { selector: '.testimonials__heading', slot: '--testimonials-heading-color', fallback: '--color-text' },
-        { selector: '.testimonials--inverted .testimonials__heading', slot: '--testimonials-heading-color', fallback: '--color-bg' },
+        // testimonials is absent: it is a v2 component whose CSS block is structural
+        // only. Its heading colour is the `heading` role's typography.color default.
         { selector: '.faq--inverted .faq__heading', slot: '--faq-heading-color', fallback: '--color-bg' },
     ];
 
@@ -3020,6 +3059,212 @@ describe('CSS lint: band heading-color slots route through the slot (#438)', () 
             expect(d).toMatch(new RegExp('color\\s*:\\s*var\\(\\s*' + slot + '\\s*,\\s*var\\(\\s*' + fallback + '\\s*\\)'));
         });
     });
+});
+
+/**
+ * THE v2 STRUCTURAL-CSS BOUNDARY (docs/v2/BUILD-SPEC-sprint0.md §2).
+ *
+ * A component rebuilt on the Universal Design Contract may keep exactly three
+ * things in assets/css/: layout scaffolding, wrapper geometry, and accessibility
+ * affordances. Everything value-styled — colour, type, size, spacing, border,
+ * shadow — belongs to a role in that component's schema and is emitted by the
+ * engine into a band-scoped block in the document head.
+ *
+ * THIS RULE IS WHAT MAKES THE BOUNDARY REAL. Without it the boundary is a
+ * sentence in a spec, and the first hurried fix that adds `font-size: 0.9rem`
+ * back into the stylesheet silently re-creates the split authority the whole
+ * program exists to end: a value in CSS that no role owns is a value no author
+ * can reach and no envelope can report on — which is exactly the #901 defect.
+ *
+ * Scoped to the components that have actually been rebuilt, discovered from the
+ * schemas rather than hardcoded, so each later sprint's component joins the rule
+ * on the day it declares roles.
+ */
+describe('CSS lint: v2 components keep NO designable value in their stylesheet', () => {
+    const componentsDir = path.resolve(__dirname, '../../components');
+    const v2Components = fs.readdirSync(componentsDir, { withFileTypes: true })
+        .filter(d => d.isDirectory())
+        .map(d => d.name)
+        .filter(name => {
+            const file = path.join(componentsDir, name, 'schema.json');
+            if (!fs.existsSync(file)) return false;
+            const schema = JSON.parse(fs.readFileSync(file, 'utf-8'));
+            return Boolean(schema.roles && Object.keys(schema.roles).length);
+        });
+
+    // Fail-closed: if discovery breaks, every check below would pass vacuously.
+    test('discovery finds the rebuilt components', () => {
+        expect(v2Components).toContain('testimonials');
+    });
+
+    // STRUCTURE, not design. Layout scaffolding (how boxes relate), wrapper
+    // geometry (how wide the column is), and the resets a component needs so a
+    // role's value lands predictably.
+    const STRUCTURAL = new Set([
+        'display', 'position', 'top', 'right', 'bottom', 'left', 'z-index',
+        'flex', 'flex-direction', 'flex-wrap', 'flex-grow', 'flex-shrink', 'flex-basis',
+        'align-items', 'align-self', 'align-content', 'justify-content', 'justify-items', 'justify-self',
+        'grid-template-columns', 'grid-template-rows', 'grid-template-areas',
+        'grid-column', 'grid-row', 'grid-area', 'grid-auto-flow', 'grid-auto-rows', 'grid-auto-columns',
+        'max-width', 'min-width', 'width', 'max-height', 'min-height', 'height',
+        'margin', 'margin-left', 'margin-right', 'margin-inline', 'margin-block',
+        'overflow', 'overflow-x', 'overflow-y', 'object-fit', 'object-position',
+        'box-sizing', 'list-style', 'border-left', 'border-right', 'border-top', 'border-bottom',
+        'padding', 'content', 'visibility', 'pointer-events', 'order', 'isolation',
+        // Accessibility affordances.
+        'scroll-margin-top', 'outline', 'outline-offset', 'clip', 'clip-path', 'white-space',
+    ]);
+
+    // Properties that are NEVER structural, whatever value they carry. A
+    // structural property with a designable value (`margin: 0 auto` vs
+    // `margin-bottom: 2rem`) is caught by the value check below instead.
+    const ALWAYS_DESIGN = new Set([
+        'color', 'background', 'background-color', 'background-image', 'box-shadow',
+        'font-size', 'font-family', 'font-weight', 'font-style', 'line-height',
+        'letter-spacing', 'text-transform', 'text-decoration', 'text-decoration-line',
+        'border-radius', 'border-width', 'border-color', 'border', 'gap', 'row-gap', 'column-gap',
+        'opacity', 'text-align',
+    ]);
+
+    // The box-spacing family is judged BY VALUE, not by name. `margin: 0 auto` centres a
+    // wrapper and `margin-top: 0` resets a UA default — both geometry. `margin-bottom:
+    // 2rem` is rhythm an author should own. The same declaration name is structural or
+    // designable depending on what it says, which is why it cannot live in either set.
+    const SPACING_FAMILY = new Set([
+        'margin', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left',
+        'margin-inline', 'margin-block',
+        'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left',
+    ]);
+    const GEOMETRY_ONLY = /^(0|auto)(\s+(0|auto))*$/;
+
+    // The component's OWN banner block, sliced the way the PHP contract test does it.
+    // rulesMatching('.testimonials') is the wrong tool here: it is a class-BOUNDARY
+    // match, so it sees `.testimonials` and never `.testimonials__quote` — the rule
+    // would pass while every sub-element declaration went unread. (Caught by planting
+    // a `font-size` on `.testimonials__quote p` and watching the rule stay green.)
+    const componentBlock = (component) => {
+        // Slice the RAW css: the banner that delimits a block is itself a comment, so
+        // stripping comments first erases the very markers the slice needs. Strip
+        // afterwards, on the slice.
+        const css = COMPONENTS_CSS;
+        const start = css.indexOf(`COMPONENT: ${component}`);
+        if (start === -1) return '';
+        const bodyStart = css.indexOf('*/', start);
+        const next = css.indexOf('/* =====', bodyStart);
+        return stripComments(css.slice(bodyStart + 2, next === -1 ? undefined : next));
+    };
+
+    v2Components.forEach(component => {
+        test(`${component}'s CSS block declares only structure`, () => {
+            const block = componentBlock(component);
+            expect(block, `no CSS banner block found for ${component}`).not.toBe('');
+            const rules = parseRules(block);
+            // Floor: the slice must actually contain the sub-element rules, or every
+            // check below reads an empty list and passes for the wrong reason.
+            expect(rules.length).toBeGreaterThan(5);
+            expect(
+                rules.some(r => r.selectors.some(sel => sel.includes('__'))),
+                'the slice must reach the component\'s sub-element rules'
+            ).toBe(true);
+
+            const offences = designOffencesIn(rules);
+            expect(
+                offences,
+                `${component} is on the Universal Design Contract, so every designable value belongs to a role in ` +
+                `components/${component}/schema.json — not to assets/css/components.css. Offending declarations:\n  ` +
+                offences.join('\n  ')
+            ).toEqual([]);
+        });
+    });
+
+    /**
+     * DETECTION PROOF. A boundary rule that never fires is indistinguishable from
+     * one that cannot fire, and this one guards a stylesheet that is currently
+     * clean — so its power has to be proven against planted violations rather
+     * than inferred from a green run. One per designable family the boundary
+     * exists to keep out.
+     */
+    test('detection proof: each designable family is caught', () => {
+        const cases = {
+            'typography': 'font-size: 0.9rem',
+            'colour':     'color: #333333',
+            'spacing':    'gap: 1rem',
+            'rhythm':     'margin-bottom: 2rem',
+            'border':     'border-radius: 8px',
+            'shadow':     'box-shadow: 0 2px 4px #0001',
+            'background': 'background: #ffffff',
+            'custom property': '--testimonials-quote-color: #111111',
+        };
+        // A four-selector rule entirely inside ONE component must NOT be exempt.
+        const wide = parseRules(
+            '.testimonials__quote, .testimonials__author, .testimonials__meta, .testimonials__eyebrow { color: #333; }'
+        );
+        expect(
+            designOffencesIn(wide),
+            'a designable value hidden in a 4-selector single-component rule must still be caught'
+        ).not.toEqual([]);
+        Object.entries(cases).forEach(([family, declaration]) => {
+            const planted = parseRules(`.testimonials__quote p { margin: 0; ${declaration}; }`);
+            expect(
+                designOffencesIn(planted),
+                `a planted ${family} declaration (${declaration}) must be caught`
+            ).not.toEqual([]);
+        });
+    });
+
+    /** …and the structural declarations it must NOT flag. */
+    test('detection proof: real structural declarations are not flagged', () => {
+        const structural = parseRules(
+            '.testimonials__list { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(20rem, 100%), 1fr)); }' +
+            '.testimonials__item { display: flex; flex-direction: column; margin: 0; }' +
+            '.testimonials--stack .testimonials__list { max-width: 42rem; margin-left: auto; margin-right: auto; }' +
+            '.testimonials__avatar { object-fit: cover; flex-shrink: 0; }' +
+            '.testimonials__subheading { margin-top: 0; }'
+        );
+        expect(designOffencesIn(structural)).toEqual([]);
+    });
+
+    function designOffencesIn(rules) {
+        const offences = [];
+        rules.forEach(rule => {
+                // The shared scroll-margin list names many components at once; it is
+                // an accessibility affordance and belongs to no single one. Scoped to
+                // that ACTUAL case — selectors spanning more than one component — so
+                // it cannot become a blanket bypass: a designable declaration hidden
+                // in a four-selector rule entirely inside one v2 component was
+                // previously never reported.
+                const blocks = new Set(
+                    rule.selectors
+                        .map(sel => (sel.match(/\.([A-Za-z][\w-]*)/) || [])[1])
+                        .filter(Boolean)
+                        .map(cls => cls.split(/__|--/)[0])
+                );
+                if (rule.selectors.length > 3 && blocks.size > 1) return;
+
+                rule.body.split(';').forEach(decl => {
+                    const [rawProp, ...rest] = decl.split(':');
+                    const prop = (rawProp || '').trim();
+                    const value = rest.join(':').trim();
+                    if (!prop || !value) return;
+                    if (prop.startsWith('--')) {
+                        offences.push(`${rule.selectors.join(', ')} { ${prop}: ${value} }  (a v2 component declares no custom properties in CSS)`);
+                        return;
+                    }
+                    if (ALWAYS_DESIGN.has(prop)) {
+                        offences.push(`${rule.selectors.join(', ')} { ${prop}: ${value} }`);
+                        return;
+                    }
+                    if (!STRUCTURAL.has(prop) && !SPACING_FAMILY.has(prop)) {
+                        offences.push(`${rule.selectors.join(', ')} { ${prop}: ${value} }  (unrecognised property — classify it)`);
+                        return;
+                    }
+                    if (SPACING_FAMILY.has(prop) && !GEOMETRY_ONLY.test(value)) {
+                        offences.push(`${rule.selectors.join(', ')} { ${prop}: ${value} }  (a non-zero ${prop} is spacing, not geometry)`);
+                    }
+                });
+        });
+        return offences;
+    }
 });
 
 describe('CSS lint: no raw hex in components.css', () => {
@@ -3288,7 +3533,11 @@ describe('CSS lint: inverted dark-band links route through the on-inverted accen
         '.embed--inverted a',
         // #439: inline-HTML supporting-text surfaces that sit directly on the dark band.
         '.cta--inverted .cta__body a',
-        '.testimonials--inverted.testimonials--stack .testimonials__quote a',
+        // testimonials is absent. The `--inverted` class died with the `theme` prop in
+        // the v2 rebuild, so the selector this row named no longer exists — and the
+        // standing rule is that contrast fixes belong in token values chosen by the
+        // authoring layer, never baked into component CSS. A dark v2 band sets its
+        // link and text role colours to meet contrast; the AI-facing docs say so.
     ];
 
     function ruleBody(selector) {

@@ -22,6 +22,7 @@ pp_base_template(function () {
         if ($style) {
             $props['__pp_style'] = $style;
         }
+        $props = pp_udc_promote_band_identity($item, $props);
         pp_get_component((string) $item['component'], $props);
     }
 });

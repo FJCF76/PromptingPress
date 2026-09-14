@@ -5005,6 +5005,21 @@ function _pp_composition_findings(array $items): array {
         ];
     }
 
+    // v2: the UDC engine's own disclosures. The mint one is load-bearing rather
+    // than cosmetic — minting rewrites an author's responsive literal into a
+    // band-token reference at write, and §3.1's no-coercion rule is that the
+    // envelope reports what the AUTHOR wrote with the normalization disclosed
+    // beside it. Without this join the literal is silently rewritten from the
+    // caller's point of view, which is the I35 class the engine claims to close.
+    foreach (pp_udc_composition_findings($items) as $disclosure) {
+        $findings[] = [
+            'type'     => $disclosure['type'],
+            'severity' => 'warning',
+            'message'  => $disclosure['message'],
+            'index'    => $disclosure['index'],
+        ];
+    }
+
     return $findings;
 }
 

@@ -97,7 +97,12 @@ class SchemaThemeConsistencyTest extends TestCase
      */
     public function testThemeEnumAdvertisesMutedNotDark(): void
     {
-        $bandComponents = ['cta', 'section', 'faq', 'grid', 'embed', 'logos', 'stats', 'testimonials'];
+        // testimonials is absent: it was rebuilt on the Universal Design Contract (v2),
+        // so it declares no `theme` prop and no style slots at all. A dark testimonials band
+        // is now expressed directly: the `_band` role's background plus the text
+        // roles' colours. The other eleven components keep `theme` untouched until
+        // their own rebuild sprints, which is what this list still guards.
+        $bandComponents = ['cta', 'section', 'faq', 'grid', 'embed', 'logos', 'stats'];
         $schemas        = $this->loadSchemas();
 
         foreach ($bandComponents as $component) {
@@ -144,7 +149,11 @@ class SchemaThemeConsistencyTest extends TestCase
         // testThemeEnumAdvertisesMutedNotDark() above: `table` has no `theme` prop
         // (so it is absent from the #442 theme list) but DOES route padding through
         // the band rhythm, so it belongs here. Do not "sync" the two lists.
-        $bandComponents = ['section', 'grid', 'cta', 'stats', 'faq', 'testimonials', 'table', 'logos', 'embed'];
+        // testimonials is absent: its band padding is no longer a style slot with a
+        // `var(--pp-band-padding)` default but the `_band` role's `spacing.padding-top`
+        // / `padding-bottom` defaults, which carry the same clamp() literal AND the
+        // narrow-viewport tier the old second :root block supplied.
+        $bandComponents = ['section', 'grid', 'cta', 'stats', 'faq', 'table', 'logos', 'embed'];
         $schemas        = $this->loadSchemas();
 
         $expected = 'var(--pp-band-padding)';

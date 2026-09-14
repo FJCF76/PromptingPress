@@ -4,6 +4,133 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v2.0.0-alpha.0] — 2026-09-13 — v2 Sprint 0: the Universal Design Contract, and testimonials rebuilt on it (#958)
+
+The first code of the v2 program. A component's designable surface stops being a hand-curated list of CSS custom properties and becomes a typed contract: named ROLES, each accepting families of parameters, per breakpoint and on hover, validated by one shared engine and emitted as a band-scoped block in the document head. `testimonials` is the first component on it. The other eleven are untouched and keep the v1 style-slot system exactly as it is until their own rebuild sprint — this is a build order, not a compatibility layer.
+
+**Why this exists, in one paragraph.** A brand specified its testimonial as a serif-italic 19px pull-quote in a white 1px-bordered card. Four of those five properties were unreachable: `testimonials` exposed 27 style slots and not one of them reached the quote's family, style, size or alignment, so the band rendered as centred 22px sans (#901). Adding four more slots would have fixed that brand and not the next one, because the defect was never a missing slot — it was that the reachable surface was whatever someone had thought to add in advance. The Universal Design Contract inverts it: every role accepts the whole design vocabulary, so the question "can this brand be expressed" stops depending on anticipation.
+
+### The unified value grammar
+
+Six independent, mutually inconsistent unit lists lived in `lib/apply.php`. None derived from any other, no test compared them, and they had drifted far enough that the same literal was legal in one slot type and illegal in its sibling. They are now one grammar. The quirks are gone, not deprecated:
+
+| Grammar | Before | After |
+|---|---|---|
+| `length` / `length-or-none` | `rem px em % vw vh`, hardened number body | the full unit set below |
+| …inside `calc()`/`clamp()` | `rem px em vw vh` (a SECOND list; no `%`) | the same set as outside |
+| `shadow` lengths | `px rem` only, **loose `[\d.]+` body** | the full set minus `%` (box-shadow takes `<length>`), hardened body |
+| `position` | `% px rem em` — **no `vw`/`vh`** — loose body | the full set, hardened body |
+| gradient colour stops | `% px rem em vw vh`, **no negatives** | the full set, negatives accepted |
+| radial `at <position>` | **percentages only** | the shared position-token grammar, lengths included |
+| (sibling) `duration` | `ms s`, **whitespace allowed before the unit** | the shared hardened number body |
+
+The accepted units are now `rem px em % vw vh vmin vmax ch ex lh rlh` everywhere. `ch` is in that list because the theme's own `--measure-body: 70ch` had been shipping in `base.css` while the validator refused `ch` from every authoring surface.
+
+**Two of those changes are NARROWINGS, and both are stated rather than discovered.** `shadow` and `position` lose the loose `[\d.]+` number body, so `1.2.3px` is now refused where it used to be accepted and persisted as CSS the browser silently dropped; it has always been refused as a `length`. `duration` loses the space-before-unit latitude (`1.5 s`). Reach was enumerated before shipping: **no component schema declares a `duration`-typed slot, no design token is `duration`-typed, and no shipped value carries a space before a time unit** — zero shipped values are newly rejected by the duration change. A stored `1.2.3px` on a shadow or position slot will now be refused at write; re-send it as a well-formed length.
+
+The AI-facing surfaces now STATE the accepted grammar. v1 never did: the runtime system prompt described the `var()` policy and the `none` policy and never once named the legal units, so the authoring model learned the set from rejection messages one refusal at a time. The unit list is derived from the one owner in every place it appears, and the markdown copy is pinned against it by test.
+
+### The contract
+
+- **Roles.** A component's schema declares named sub-elements mapped to stable selectors, each listing the parameter groups it permits. Declaration is data; the engine is shared and names no component and no role. `_band` is the implicit root role.
+- **Groups and parameters.** Typography, Spacing, Border, Shadow, Background and Sizing, each a set of typed parameters. The CSS property a parameter emits is looked up in the registry and never taken from author input.
+- **References.** `@token-name` FOLLOWS a design token instead of freezing a copy of its value, and works on every parameter including lengths — which the v1 style slots could not express at all. An unresolvable reference is refused at write, never resolved to nothing.
+- **Breakpoints.** Any value may be `{"d": …, "t": …, "p": …}` — desktop (the base), tablet 768-1023px, phone ≤767px. The ranges do not overlap, so a value set at one breakpoint can never be silently cancelled by another.
+- **Hover.** A `:hover` state scope inside a group, whose values may themselves be breakpoint-keyed.
+- **Minting.** A responsive value is normalised into band-scoped tokens at write. The envelope reports the author's literal with the minted reference disclosed beside it — the normalisation is visible, never silent.
+- **Band identity.** Every v2 band carries a top-level `id`, minted `pp-<hex8>` at write when absent and carried forward across a whole-composition re-apply by index and component match. It is the CSS scope, distinct from `props.id`, which remains the author's HTML anchor. A band that reaches render without one emits no attribute and no styling block rather than borrowing another band's design.
+- **Emission.** Two layers in the document head. A component's role DEFAULTS are emitted once under `[data-pp-component="<name>"]`; each band then emits only its AUTHORED values under `[data-pp-band="<id>"]`, base declarations first, then `@media` blocks narrow-first, then hover. Every selector is one of those two scopes plus the role's selector, so specificity is flat by construction and `!important` never appears. **No v2 component emits an inline style attribute.**
+- **Schema defaults may follow the site's own design system.** A role default — repo-authored schema data, never author input — resolves `@name` against the registered design tokens and, failing that, against the shared `:root` properties `base.css` defines for the cross-band contracts (band rhythm, the shared heading scale). This is how `testimonials` keeps participating in the site-wide rhythm and heading-scale rulings through the ENGINE rather than through structural CSS: its `_band` padding and `heading` size are declared as `@pp-band-padding` and `@pp-band-heading-size`, so retuning the site token still moves the band. The extension is deliberately one-directional and does not widen the authorable surface: an author's `@name` still resolves only against band tokens and registered design tokens, exactly as before.
+- **Truth spine.** Because the map lives inside the composition value, validation, CAS, preview/approve, undo and rollback cover `udc` writes with the same guarantees they gave `props`. Refusals name band, role, group and parameter.
+
+### testimonials
+
+Rebuilt v2-native. It declares twelve roles (`_band`, `eyebrow`, `heading`, `heading-accent`, `subheading`, `list`, `card`, `quote`, `attribution`, `author`, `meta`, `avatar`) and **no style slots**. Its block in `assets/css/components.css` is layout scaffolding, wrapper geometry and accessibility affordances only; a lint enforces that boundary on this component's block and carries a detection proof so it cannot quietly stop working.
+
+Four behaviour changes worth knowing:
+
+- **The `theme` and `title_align` props are gone from this component.** Their entire effect was value-styling, which the structural-CSS boundary removes; a prop whose only effect is deleted would be accepted, stored, reported applied and change nothing. A dark band is now `_band` background plus the text roles' colours, and header alignment is each header role's `typography.align`. **You own the contrast when you build a dark band** — nothing re-lights text for you, and the AI-facing docs say so with the WCAG thresholds.
+- **A lone card now spans its container.** The grid track is `auto-fit`, so one testimonial fills the row, two share it, three share it three ways. The old rule hard-coded two columns at 768px and three at 1024px, which left a single testimonial — the normal starting state for a real client — as a narrow card with a large dead space beside it.
+- **Both layouts render the same card.** The `stack` variant's card-less reset is gone. It necessarily defeated the card slots, which is why #901's brand could express its framed single quote in neither layout. A frameless quote is now authored: set the `card` role's border width to `0` and its background to `transparent`.
+- **The decorative opening-quote glyph is removed.** It was a designable decoration no slot could switch off, so a quote whose own text carried typographic quotation marks rendered two opening quotes.
+
+The 27 retired slots and the two retired props are each recorded in the schema migration registers with the role and parameter that owns the value now.
+
+### Measured
+
+Emission is layered, and the layer a rule lands in is expressed by where it prints. A component's role DEFAULTS are emitted once per page under `[data-pp-component="<name>"]` — band-root defaults wrapped in `:where()` so they yield to the design system's contextual band rules — and printed BEFORE the theme stylesheets; each band then emits only what its author actually declared, scoped `[data-pp-band="<id>"]` and printed AFTER them. The defaults are identical for every band of a component, so repeating them per band was pure duplication.
+
+- Role defaults for `testimonials`: **1747 bytes**, emitted **once** no matter how many bands are on the page.
+- A band's own authored block: **305 bytes** for a representative brand (band background and padding, quote family/style/size, card border referencing a band token) — well inside the ≤2 KB per-band budget.
+- A 50-band page: **16,997 bytes** of CSS, **1,198 bytes gzipped**, generated in a **mean 1.56 ms** of PHP over 20 runs.
+- First contentful paint, re-measured against the shipped emission: a 50-band page where every band carries authored values versus the same 50 bands carrying none — **104.0 ms vs 104.0 ms**, median of 10 runs each. Identical; the authored blocks cost nothing observable. (True LCP was not observable in the measurement harness; FCP is reported instead. The absolute figure tracks the machine, not the feature — the comparison is the result.)
+
+### What the legacy system still owns
+
+Everything else. Eleven components keep their 234 style slots, their `theme` props, their recipes and their inline-style rendering, unchanged and untested-against by the new engine — the UDC engine is inert for any component that declares no roles, mints them no band ids and emits them no blocks. `style_component` refuses a v2 component with the existing `no_style_slots` code.
+
+### The shared rhythm rule stops outranking authored values
+
+**An authored `_band` padding-top was silently overridden wherever a v2 band followed another band.** The band block `[data-pp-band="<id>"]` is specificity 0-1-0; the shared adjacent-band rule `main > [data-pp-component] + [data-pp-component]` was 0-2-1 and won. The write validated, stored and reported applied, and then the page painted something else — the exact failure mode invariants I35/I36 name.
+
+| Adjacent band, 1280 | before | after |
+|---|---|---|
+| authored `padding-top: 5px` | **76.8px** (shared value) | **5px** |
+| authored `padding-bottom: 6px` | 6px | 6px |
+
+The fix is not a specificity nudge on the band block. The shared rhythm rule IS a default — the design system's baseline, the thing per-component rules and per-instance slots fall back to — and §3.4 already ranks an authored band value above a default. Its 0-2-1 was a v1-era artifact of the kind "flat specificity by construction" exists to eliminate. Both catch-alls (desktop and mobile) are now wrapped in `:where()` and contribute zero specificity, so any rule declaring the same property wins on source order.
+
+Flattening the shared rule alone was not sufficient, and the full suite is what said so. With the shared rhythm at zero, testimonials' own DEFAULTS block — which declares `padding-top` from `@pp-band-padding` — began outranking it, so an unauthored v2 band stopped following the adjacent-band tier (5px where every sibling took 7px) and fell out of the #431/#432 contracts it had just been put back into. One bug had been traded for its mirror image.
+
+That forced the tier the cascade was actually missing. There are three, not two: the design system's baseline, its CONTEXTUAL rules, and the author. A default that targets the BAND ROOT now emits inside `:where(...)` at zero specificity, so the shared rhythm beats it; a default that targets an element INSIDE the band keeps the full `[data-pp-component="…"] .role` weight [0,2,0]. The split is not about roles, it is about what else aims at the same element: the design system's band rules target the band root and an unauthored band must obey them, while nothing in the design system aims at `.testimonials__quote` — what an element default has to clear is ordinary structural CSS. The first attempt zeroed BOTH, and the #336 subheading rhythm immediately regressed to 0px, because base.css's `p:last-child` is [0,1,1] and beats a zeroed [0,1,0]. That test was written earlier in this same slice and caught it on the next run, which is the argument for having rewritten it rather than retired it.
+
+The two zero-specificity layers are then separated by SOURCE ORDER — defaults print before the theme stylesheets, authored blocks after — which is why the layers attach to different stylesheet handles rather than one. Nothing about the ranking is left to chance or to a comment: the emitter's tiering is pinned in PHP as well as in the browser.
+
+**Inert for the eleven legacy components**, and pinned as such by the full suite. Each of the nine legacy bands already lands on its own per-component adjacent rule, which was equal-specificity-and-later before and is strictly higher now; per-instance slots feed VALUES into those rules through custom properties, which specificity does not touch. Hero is unaffected in both directions: an adjacent hero lands on `main > [data-pp-component] + .hero` (0-2-1), which still outranks the `[data-pp-spacing]` rules, and a non-adjacent hero never matched the catch-all.
+
+Two tests carry it. The instance: an authored band padding wins from BOTH stack positions at both breakpoints — the leading position never regressed, but a test pinning only the broken case would not notice a fix that broke the other. And the class (I35), which is the one that matters going forward: it reads the band block the engine actually emitted, and for every declaration in it re-declares that value at the top of the cascade on the element itself, requiring the computed result not to move. Anything a structural rule outranks is reported by name. It is data-driven from the emitted CSS, so a role, group or parameter added later is covered the day it is emitted. Both were confirmed to fail against the pre-fix specificity and pass after it.
+
+### Not in this release
+
+The other eleven components, Layer 2 (scoped custom declarations) and Layer 3 (the sanitizer model), the AI-instruction rewrite, the accordion UDC editing UI, and any 1.x removal beyond this component's own slot map. No migration path exists or is planned for 1.x compositions: v2 is a fresh build by directive.
+
+### Fixed
+
+- CSS injection through a stored band-token value. A band token is emitted as a custom-property declaration, which makes its value CSS source text; the write gate checked it and the emitter did not, so anything bypassing the write gate — a raw meta write, data written before the rule, `restore_composition` (which reports findings without blocking) — reached the stylesheet unchecked. A value of `red} body{display:none} .z{` escaped the band's own rule and injected a rule of its own.
+- The same class through an unbalanced `(` or an odd number of quote characters, which CSS tokenization treats as still open: `--pp-t:rgb(;` consumed the terminating semicolon, the band's closing brace, and every rule after it — the band's own, every later band's, and the rest of the shared inline stylesheet. Token definitions are now validated against the grammar of the parameter that references them, and against a delimiter-balance rule that exists because v2's sink is CSS source text where v1's was an escaped attribute.
+- The mint disclosure was computed and discarded, so the no-coercion promise the runtime prompt makes to the authoring model was not kept on any operator-facing surface. It now rides the write envelope through the shared findings assembler, alongside the unused-band-token lint.
+- A role default carrying a typo or an unresolvable reference silently deleted that declaration from every band of the component. Schema defaults are now validated as strictly as author values.
+- The band-identity promotion was copy-pasted into all three band loops; it has one owner.
+
+### Tests
+
+PHP 4749 → 4813; JS 1866 → 1879. Testimonials' style-slot and render-guard pins are replaced by UDC contract tests; the grammar pins are rewritten onto the unified grammar with the six dead quirk-lists enumerated as executable evidence; every all-component matrix now partitions legacy from v2-native; the truth-spine suites are kept with adjusted fixtures. New: `tests/UnifiedCssGrammarTest.php`, `tests/UdcEngineTest.php`, `tests/UdcTruthSpineTest.php`, and a structural-CSS boundary rule in `tests/js/css-lint.test.js`.
+
+**The rendered suite is repriced on the same rule as the PHP matrices: a row that pins a mechanism testimonials no longer has is retired, and a row whose underlying truth survives is rewritten onto the surface that replaced it.** Nine rows in `tests/e2e/style-render.spec.ts` moved, and two new pins land with the cascade fix above; the other eleven components' rows in every shared array are untouched.
+
+| Row | Pinned | Disposition |
+|---|---|---|
+| #332 border-trigger case | 4 `--testimonials-*` border slots landing in the root's inline `style`, vs WP core's `:where([style*=…])` | **Rewritten.** A v2 band emits no inline style attribute at all, so the trigger is unconstructible — pinned as the absence of the sink, with real border values in flight, which is stronger than immunity |
+| #332 schema set-equality guard | every border slot declared in any schema is covered | **Kept**, unedited — it is schema-derived and followed the removal on its own |
+| #336 subheading rhythm | unset 32px + the `--testimonials-subheading-margin-bottom` slot | **Rewritten** onto the `subheading` role (Spacing), both halves kept |
+| #343 title gap | unset 32px + the `--testimonials-heading-margin-bottom` slot | **Rewritten** onto the `heading` role (Spacing), both halves kept — merged with the #336 row, since the two are one header-rhythm decision |
+| #431 adjacent padding-top | `--testimonials-padding-top` winning on the adjacent-top edge | **Rewritten.** The slot is gone; the ruling is not. Its v2 successor pins an authored `_band` padding winning from both stack positions, and it found a real defect — see *The shared rhythm rule stops outranking authored values* above |
+| #436 HEADINGS entry | the shared heading scale | **Kept.** Only the now-meaningless `slot` key is dropped; testimonials still joins the nine-band equality test |
+| #436 slot override | `--testimonials-heading-size` beating the shared scale | **Retired** with the slot; the other four components' entries stay |
+| #437 dark-band quote link | AA contrast via the `theme: "inverted"` default | **Retired, truth relocated.** Both the prop and the `--inverted` class it keyed on are gone, and under the standing never-fix-colors-in-components rule a dark band's contrast is the author's to set. The requirement is stated to the model in `components/testimonials/README.md` instead of defaulted in CSS |
+| #577 A-14 pair | inverted-stack meta taking a light default; inverted-grid staying muted | **Retired.** The first has no trigger left; the second still passes but only vacuously, which is worse than absent |
+| #584 avatar srcset | markup, `object-fit`, square geometry | **Kept**, unedited — it never touched a slot or a theme |
+
+Two lint-layer guards moved with the `:where()` change, and both got stricter rather than looser. `tests/js/css-lint.test.js` now pins the wrapper itself — unwrapping it reinstates the silent-override bug, so it is a test rather than a comment. And `StyleSlotContractTest`'s selector parser, which previously banned `:is()`/`:where()` outright and so failed closed on this change, is upgraded: the ban narrows to the actual hazard (a COMMA inside those pseudo-classes, which would mis-split selector lists), and the specificity scorer learned that `:where()` contributes nothing *including its arguments* — without which every wrapped rule would score its old weight and mis-flag. That scorer had never run against the construct before, so it gets its own pin.
+
+Every v2 styling pin authors through `update_composition`, the same validated action the chat and CLI call, via a new `updateComposition()` helper. Seeding a `udc` map through post meta would have proved nothing about validation (Section 14.1) — and the helper earned its place immediately, catching a wrong parameter name in one of these very tests.
+
+### Docs
+
+`docs/v2/BUILD-SPEC-sprint0.md` and `docs/v2/INVARIANTS.md` enter the repo as the in-repo source of truth.
+
+---
+
 ## [v1.20.0] — 2026-09-10 — Approval-Surface & Write-Path Truth: what the operator approves is true, what the model is told is true, and the write path closes its remaining gaps (#880, #875, #876, #871, #872, #887, #888, #883, #864, #821, #830, #842, #941, #889)
 
 Rollup of the v1.19.1–v1.19.11 patch train (milestone 23). Fourteen issues in eleven iterations. Every entry retains its full engineering detail in the per-patch entries that follow; this rollup states the shape of the release, what changes in behavior, and what was deliberately deferred.

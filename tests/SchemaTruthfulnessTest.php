@@ -148,7 +148,10 @@ class SchemaTruthfulnessTest extends TestCase
      */
     public function testEveryBandHeadingSizeDefaultsToTheSharedScale(): void
     {
-        $bands = ['section', 'grid', 'cta', 'faq', 'stats', 'table', 'logos', 'embed', 'testimonials'];
+        // testimonials is absent: its heading size is the `heading` role's
+        // `typography.size` default, which carries the shared scale's clamp() literal
+        // directly rather than routing --pp-band-heading-size through a slot.
+        $bands = ['section', 'grid', 'cta', 'faq', 'stats', 'table', 'logos', 'embed'];
         foreach ($bands as $component) {
             $slot = "--{$component}-heading-size";
             $slots = $this->slots($component);

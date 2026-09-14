@@ -1,12 +1,12 @@
 {
   "component": "testimonials",
-  "description": "Customer quotes with attribution — for social proof sections. 'grid' layout lays out quote cards 1-col mobile / 2-3 col desktop; 'stack' layout is a single centered column for one or two large quotes.",
+  "description": "Customer quotes with attribution — for social proof sections. 'grid' layout lays out quote cards 1-col mobile / 2-3 col desktop; 'stack' layout is a single centered column for one or two large quotes. THE FIRST COMPONENT REBUILT ON THE UNIVERSAL DESIGN CONTRACT (v2): it declares no style slots. Every designable value — colour, type, spacing, border, shadow, size — is set through the `udc` map on the band, per role. See docs/v2/BUILD-SPEC-sprint0.md §3.",
   "props": {
     "id": {
       "type": "string",
       "required": false,
       "default": "",
-      "description": "Optional HTML id attribute for anchor linking (e.g. navigation anchors)."
+      "description": "Optional HTML id attribute for anchor linking (e.g. navigation anchors). This is the author's anchor name and is NOT the band id that scopes this band's styling — that one is the top-level \"id\" on the composition item and the engine mints it."
     },
     "title": {
       "type": "string",
@@ -18,13 +18,13 @@
       "type": "string",
       "required": false,
       "default": "",
-      "description": "Optional exact substring of title to render in an accent color. Must match title exactly (case-sensitive) or it is ignored."
+      "description": "Optional exact substring of title to render in an accent color. Must match title exactly (case-sensitive) or it is ignored. Colour it through the `heading-accent` role."
     },
     "eyebrow": {
       "type": "string",
       "required": false,
       "default": "",
-      "description": "Optional short kicker/label rendered as a pill above the title. Plain text — HTML is escaped."
+      "description": "Optional short kicker/label rendered above the title. Plain text — HTML is escaped. Its pill treatment (background, radius, padding, casing) is the `eyebrow` role's design, not a fixed style."
     },
     "subheading": {
       "type": "string",
@@ -32,26 +32,16 @@
       "default": "",
       "description": "Optional supporting line below the title. Plain text — HTML is escaped."
     },
-    "title_align": {
-      "type": "enum", "strict": true,
-      "values": ["start", "center"],
-      "required": false,
-      "default": "start",
-      "description": "Alignment of the eyebrow/title/subheading header block. 'start' = left-aligned (default, unchanged historical behavior). 'center' = centered."
-    },
     "layout": {
-      "type": "enum", "strict": true,
-      "values": ["grid", "stack"],
+      "type": "enum",
+      "strict": true,
+      "values": [
+        "grid",
+        "stack"
+      ],
       "required": false,
       "default": "grid",
-      "description": "Structural layout. 'grid' = card grid, 1-col mobile / 2-3 col desktop. 'stack' = single centered column, for one or two large pull-quotes."
-    },
-    "theme": {
-      "type": "enum", "strict": true,
-      "values": ["default", "muted", "inverted"],
-      "required": false,
-      "default": "default",
-      "description": "Background color/tone for this band. 'default' = the band's own default background (no tone override). 'muted' = light tinted surface band (renders the --color-surface background with framing top and bottom borders). 'inverted' = inverted dark background for strong contrast; use 'inverted' for a genuinely dark band."
+      "description": "Structural layout — this is scaffolding, not styling, which is why it is still a prop. 'grid' = card grid, 1-col mobile / 2-3 col desktop, and a lone card spans the full track rather than sitting in a half-width column. 'stack' = single centered column, for one or two large pull-quotes. BOTH layouts get the same card design: to render a frameless quote, set the `card` role's border width to 0 and its background to transparent."
     },
     "items": {
       "type": "array",
@@ -59,62 +49,325 @@
       "required": true,
       "description": "Array of testimonial items. Each: { quote (req), author, role, company, image_url, image_alt, image_id }.",
       "items": {
-        "quote":     { "type": "string", "required": true,  "description": "The testimonial text. Inline HTML allowed: a, strong, em, br." },
-        "author":    { "type": "string", "required": false, "description": "Name of the person quoted. Plain text — HTML is escaped." },
-        "role":      { "type": "string", "required": false, "description": "The author's job title, e.g. 'CEO'." },
-        "company":   { "type": "string", "required": false, "description": "The author's company or organization." },
-        "image_url": { "type": "string", "required": false, "format": "image_url", "description": "Optional avatar image URL." },
-        "image_alt": { "type": "string", "required": false, "default": "", "description": "Alt text for the avatar. Use the author's name; empty string only if image is purely decorative." },
-        "image_id":  { "type": "number", "required": false, "default": 0, "description": "Media Library attachment ID (NOT a URL). When it resolves to a real attachment, the image renders responsively with srcset/sizes via wp_get_attachment_image() instead of a single fixed-size <img>. Falls back to image_url when unset or unresolvable. Get an attachment id via the import_media apply." }
+        "quote": {
+          "type": "string",
+          "required": true,
+          "description": "The testimonial text. Inline HTML allowed: a, strong, em, br."
+        },
+        "author": {
+          "type": "string",
+          "required": false,
+          "description": "Name of the person quoted. Plain text — HTML is escaped."
+        },
+        "role": {
+          "type": "string",
+          "required": false,
+          "description": "The author's job title, e.g. 'CEO'."
+        },
+        "company": {
+          "type": "string",
+          "required": false,
+          "description": "The author's company or organization."
+        },
+        "image_url": {
+          "type": "string",
+          "required": false,
+          "format": "image_url",
+          "description": "Optional avatar image URL."
+        },
+        "image_alt": {
+          "type": "string",
+          "required": false,
+          "default": "",
+          "description": "Alt text for the avatar. Use the author's name; empty string only if image is purely decorative."
+        },
+        "image_id": {
+          "type": "number",
+          "required": false,
+          "default": 0,
+          "description": "Media Library attachment ID (NOT a URL). When it resolves to a real attachment, the image renders responsively with srcset/sizes via wp_get_attachment_image() instead of a single fixed-size <img>. Falls back to image_url when unset or unresolvable. Get an attachment id via the import_media apply."
+        }
+      }
+    }
+  },
+  "roles": {
+    "_band": {
+      "selector": "",
+      "description": "The band itself — the <section>. Set the band's own background here to make a dark or tinted band; the v1 `theme` prop is gone because a preset bundle of colours is exactly what the UDC expresses directly.",
+      "groups": [
+        "typography",
+        "spacing",
+        "border",
+        "background",
+        "sizing",
+        "shadow"
+      ],
+      "defaults": {
+        "spacing": {
+          "padding-top": "@pp-band-padding",
+          "padding-bottom": "@pp-band-padding"
+        },
+        "background": {
+          "fill": "transparent"
+        }
+      }
+    },
+    "eyebrow": {
+      "selector": ".testimonials__eyebrow",
+      "description": "The kicker pill above the heading.",
+      "groups": [
+        "typography",
+        "spacing",
+        "border",
+        "background",
+        "sizing"
+      ],
+      "defaults": {
+        "typography": {
+          "size": "0.8125rem",
+          "weight": "600",
+          "letter-spacing": "0.04em",
+          "transform": "uppercase",
+          "color": "@color-text"
+        },
+        "spacing": {
+          "padding": "0.35rem 0.85rem",
+          "margin-bottom": "@space-sm"
+        },
+        "border": {
+          "width": "0",
+          "style": "solid",
+          "color": "transparent",
+          "radius": "3px"
+        },
+        "background": {
+          "fill": "@color-surface-accent"
+        }
+      }
+    },
+    "heading": {
+      "selector": ".testimonials__heading",
+      "description": "The band heading (an <h2>).",
+      "groups": [
+        "typography",
+        "spacing",
+        "border",
+        "background",
+        "sizing"
+      ],
+      "defaults": {
+        "typography": {
+          "size": "@pp-band-heading-size",
+          "color": "@color-text"
+        },
+        "spacing": {
+          "margin-bottom": "@space-lg"
+        },
+        "sizing": {
+          "max-width": "@measure-heading"
+        }
+      }
+    },
+    "heading-accent": {
+      "selector": ".testimonials__heading-accent",
+      "description": "The accented substring inside the heading, rendered only when title_accent matches.",
+      "groups": [
+        "typography",
+        "spacing",
+        "border",
+        "background",
+        "sizing"
+      ],
+      "defaults": {
+        "typography": {
+          "color": "@color-accent"
+        }
+      }
+    },
+    "subheading": {
+      "selector": ".testimonials__subheading",
+      "description": "The supporting line below the heading.",
+      "groups": [
+        "typography",
+        "spacing",
+        "border",
+        "background",
+        "sizing"
+      ],
+      "defaults": {
+        "typography": {
+          "color": "@color-muted"
+        },
+        "spacing": {
+          "margin-bottom": "@space-lg"
+        },
+        "sizing": {
+          "max-width": "40rem"
+        }
+      }
+    },
+    "list": {
+      "selector": ".testimonials__list",
+      "description": "The container the cards lay out in. Its track geometry is structural; the space between cards is design.",
+      "groups": [
+        "typography",
+        "spacing",
+        "border",
+        "background",
+        "sizing"
+      ],
+      "defaults": {
+        "spacing": {
+          "gap": "@space-lg"
+        }
+      }
+    },
+    "card": {
+      "selector": ".testimonials__item",
+      "description": "One testimonial's surface. The #901 brand card — white, 1px border, no elevation — is this role's border, background and shadow.",
+      "groups": [
+        "typography",
+        "spacing",
+        "border",
+        "background",
+        "sizing",
+        "shadow"
+      ],
+      "defaults": {
+        "spacing": {
+          "padding": "@space-lg",
+          "gap": "@space-md"
+        },
+        "background": {
+          "fill": "@color-surface"
+        },
+        "border": {
+          "width": "1px",
+          "style": "solid",
+          "color": "@color-border",
+          "radius": "@radius"
+        },
+        "shadow": {
+          "box": "none"
+        }
+      }
+    },
+    "quote": {
+      "selector": ".testimonials__quote",
+      "description": "The quotation itself. Family, style, size and alignment all live here — the four properties #901 reported as unreachable in v1.",
+      "groups": [
+        "typography",
+        "spacing",
+        "border",
+        "background",
+        "sizing"
+      ],
+      "defaults": {
+        "typography": {
+          "family": "@font-body",
+          "style": "normal",
+          "size": "1.375rem",
+          "line-height": "1.5",
+          "color": "@color-text"
+        }
+      }
+    },
+    "attribution": {
+      "selector": ".testimonials__attribution",
+      "description": "The attribution row (avatar + name + role/company). A rule above it is this role's border-top.",
+      "groups": [
+        "typography",
+        "spacing",
+        "border",
+        "background",
+        "sizing"
+      ],
+      "defaults": {
+        "spacing": {
+          "gap": "@space-sm"
+        }
+      }
+    },
+    "author": {
+      "selector": ".testimonials__author",
+      "description": "The quoted person's name.",
+      "groups": [
+        "typography",
+        "spacing",
+        "border",
+        "background",
+        "sizing"
+      ],
+      "defaults": {
+        "typography": {
+          "weight": "700",
+          "color": "@color-text"
+        }
+      }
+    },
+    "meta": {
+      "selector": ".testimonials__meta",
+      "description": "The role/company line under the name.",
+      "groups": [
+        "typography",
+        "spacing",
+        "border",
+        "background",
+        "sizing"
+      ],
+      "defaults": {
+        "typography": {
+          "size": "0.875rem",
+          "color": "@color-muted"
+        }
+      }
+    },
+    "avatar": {
+      "selector": ".testimonials__avatar",
+      "description": "The author's picture. Its box is design, not structure: size and shape are both set here.",
+      "groups": [
+        "spacing",
+        "border",
+        "background",
+        "sizing",
+        "shadow"
+      ],
+      "defaults": {
+        "sizing": {
+          "width": "2.75rem",
+          "height": "2.75rem"
+        },
+        "border": {
+          "radius": "50%"
+        }
       }
     }
   },
   "styling": {
     "root_class": "testimonials",
-    "variant_classes": ["testimonials--stack", "testimonials--dark", "testimonials--inverted"],
-    "tokens": ["--color-bg", "--color-surface", "--color-border", "--color-bg-inverted"],
-    "style_slots": {
-      "--testimonials-padding-top": { "type": "length", "default": "var(--pp-band-padding)", "description": "Top padding of the band. Defaults to the shared symmetric band rhythm (fluid ~68-80px desktop, ~54px mobile); set an explicit length to override." },
-      "--testimonials-padding-bottom": { "type": "length", "default": "var(--pp-band-padding)", "description": "Bottom padding of the band. Defaults to the shared symmetric band rhythm; set an explicit length to override." },
-      "--testimonials-bg": { "type": "gradient", "default": "transparent", "description": "Background color or gradient" },
-      "--testimonials-heading-size": { "type": "length", "default": "var(--pp-band-heading-size)", "description": "Heading font size. Defaults to the shared responsive band-heading scale (fluid ~28px mobile to ~42px desktop), which every band heading in the theme routes. LEAVE IT UNSET unless THIS band must differ from the rest of the site: the shared scale is not a design token and no action in the write path can retune it, so setting this slot changes THIS band only and never the others.", "applies_when": [{"prop": "title", "present": true}] },
-      "--testimonials-heading-color": { "type": "color", "default": "var(--color-text)", "description": "Heading text color. Defaults to the theme text colour (the inverted variant supplies its own light default). LEAVE IT UNSET unless THIS band must differ: recolouring every heading on the site is ONE update_design_token write on --color-text, not one slot write per band.", "applies_when": [{"prop": "title", "present": true}] },
-      "--testimonials-heading-measure": { "type": "length", "role": "measure", "default": "var(--measure-heading)", "description": "Maximum width of the testimonials heading. Routes the shared --measure-heading design token (40rem) by default, so retuning that ONE token changes every routed band heading at once; set a length here only when THIS band must differ from the rest of the site.", "applies_when": [{"prop": "title", "present": true}] },
-      "--testimonials-heading-accent-color": { "type": "color", "default": "var(--color-accent)", "description": "Color of the title_accent substring within the heading. Ignored unless title_accent is set AND occurs as a substring of title — no accent span is rendered otherwise, so this slot has nothing to colour.", "applies_when": [{"prop": "title", "present": true}] },
-      "--testimonials-eyebrow-color": { "type": "color", "default": "var(--color-text)", "description": "Eyebrow pill text color", "applies_when": [{"prop": "eyebrow", "present": true}] },
-      "--testimonials-eyebrow-bg": { "type": "color", "default": "var(--color-surface-accent)", "description": "Eyebrow pill background color", "applies_when": [{"prop": "eyebrow", "present": true}] },
-      "--testimonials-eyebrow-radius": { "type": "length", "default": "3px", "description": "Eyebrow pill corner radius. Set a large value (e.g. 999px) for a fully rounded pill.", "applies_when": [{"prop": "eyebrow", "present": true}] },
-      "--testimonials-eyebrow-border-width": { "type": "length", "default": "0", "description": "Eyebrow pill border width. Set a non-zero width (with --testimonials-eyebrow-border-color) for an outlined pill; 0 (default) renders no border.", "applies_when": [{"prop": "eyebrow", "present": true}] },
-      "--testimonials-eyebrow-border-color": { "type": "color", "default": "transparent", "description": "Eyebrow pill border color. Takes effect when --testimonials-eyebrow-border-width is non-zero.", "applies_when": [{"prop": "eyebrow", "present": true}] },
-      "--testimonials-eyebrow-text-transform": { "type": "text-transform", "default": "uppercase", "description": "Eyebrow pill letter-casing. Default uppercase renders the kicker in caps; set none to keep it as authored (e.g. sentence case), or lowercase / capitalize.", "applies_when": [{"prop": "eyebrow", "present": true}] },
-      "--testimonials-subheading-color": { "type": "color", "default": "var(--color-muted)", "description": "Subheading text color", "applies_when": [{"prop": "subheading", "present": true}] },
-      "--testimonials-subheading-margin-bottom": { "type": "length", "default": "var(--space-lg)", "description": "Space between the subheading and the content below it", "applies_when": [{"prop": "subheading", "present": true}] },
-      "--testimonials-heading-margin-bottom": { "type": "length", "default": "var(--space-lg)", "description": "Space between the heading and the subheading below it", "applies_when": [{"prop": "title", "present": true}] },
-      "--testimonials-gap": { "type": "length", "default": "var(--space-lg)", "description": "Gap between testimonial cards (grid layout) or between stacked quotes (stack layout)" },
-      "--testimonials-item-bg": { "type": "gradient", "default": "var(--color-surface)", "description": "Card background color or gradient", "applies_when": [{"prop": "layout", "equals": "grid"}] },
-      "--testimonials-item-border-color": { "type": "color", "default": "var(--color-border)", "description": "Card border color", "applies_when": [{"prop": "layout", "equals": "grid"}] },
-      "--testimonials-item-border-width": { "type": "length", "default": "1px", "description": "Card border width", "applies_when": [{"prop": "layout", "equals": "grid"}] },
-      "--testimonials-item-radius": { "type": "length", "default": "var(--radius)", "description": "Card border radius" },
-      "--testimonials-item-shadow": { "type": "shadow", "default": "none", "description": "Card box shadow / glow (preset var(--shadow-sm|md|lg) or a bounded box-shadow)", "applies_when": [{"prop": "layout", "equals": "grid"}] },
-      "--testimonials-item-padding": { "type": "length", "default": "var(--space-lg)", "description": "Card padding", "applies_when": [{"prop": "layout", "equals": "grid"}] },
-      "--testimonials-quote-color": { "type": "color", "default": "var(--color-text)", "description": "Quote text color. The light dark-band fallback applies only when BOTH the inverted theme AND the stack layout are in play; an inverted GRID keeps its light cards, so the quote stays dark there by design." },
-      "--testimonials-quote-mark-color": { "type": "color", "default": "var(--color-accent)", "description": "Decorative opening quote-mark glyph color. Colour is the only authorable half: the GLYPH and its SIZE are stated defaults with no slots. The size is expressed in em, so it already scales with the quote's own type automatically — no slot is needed to keep it proportional. Deliberate mismatch worth knowing: the gutter it sits in is a rem, so the reserved space does NOT scale the way the glyph does. See components/testimonials/README.md, 'Stated defaults'" },
-      "--testimonials-author-color": { "type": "color", "default": "var(--color-text)", "description": "Author name text color. The light dark-band fallback applies only when BOTH the inverted theme AND the stack layout are in play; an inverted GRID keeps its light cards, so the author stays dark there by design." },
-      "--testimonials-meta-color": { "type": "color", "default": "var(--color-muted)", "description": "Author role/company line color" }
-    },
-    "recipes": {
-      "dark-showcase": {
-        "description": "Dark background with light cards for a strong social-proof section",
-        "slots": {
-          "--testimonials-bg": "#1a1a2e",
-          "--testimonials-heading-color": "#f0f0f0",
-          "--testimonials-item-bg": "#ffffff",
-          "--testimonials-gap": "2.5rem",
-          "--testimonials-item-radius": "1rem"
-        }
-      }
-    }
+    "variant_classes": [
+      "testimonials--stack"
+    ],
+    "tokens": [
+      "--color-text",
+      "--color-muted",
+      "--color-border",
+      "--color-surface",
+      "--color-surface-accent",
+      "--color-accent",
+      "--measure-heading",
+      "--radius",
+      "--font-body",
+      "--space-sm",
+      "--space-md",
+      "--space-lg"
+    ]
   },
-  "safe_to_edit": ["testimonials.php", "../../assets/css/components.css (COMPONENT: testimonials section)"],
-  "do_not_touch": ["schema.json without updating this component's README.md and the repo-root AI_CONTEXT.md"]
+  "safe_to_edit": [
+    "testimonials.php",
+    "../../assets/css/components.css (COMPONENT: testimonials section — STRUCTURAL CSS ONLY: layout scaffolding and accessibility affordances. No colour, type, size, spacing, border or shadow value may be added there; every one of those belongs to a role above.)"
+  ],
+  "do_not_touch": [
+    "schema.json without updating this component's README.md and the repo-root AI_CONTEXT.md"
+  ]
 }

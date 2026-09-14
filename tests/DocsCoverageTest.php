@@ -66,6 +66,34 @@ class DocsCoverageTest extends TestCase
         return array_values(array_diff(self::allComponents(), self::CHROME));
     }
 
+    /**
+     * The components still on the v1 STYLE-SLOT system, which is what every slot
+     * assertion below is about.
+     *
+     * DERIVED from the schemas through the engine's own predicate, never listed
+     * here: a hardcoded roster would drift exactly the way the docs it guards
+     * did. A component is v2 when its schema declares `roles`, and a v2
+     * component has no slots to document — it has ROLES, covered by
+     * testEveryDeclaredRoleIsNamedInItsReadme() below. The two assertions
+     * together still cover every composable component's authoring surface; the
+     * roster each walks is what changed.
+     */
+    private static function slotStyledComponents(): array
+    {
+        return array_values(array_filter(
+            self::composableComponents(),
+            static fn (string $name): bool => !pp_udc_is_v2_component($name)
+        ));
+    }
+
+    private static function roleStyledComponents(): array
+    {
+        return array_values(array_filter(
+            self::composableComponents(),
+            static fn (string $name): bool => pp_udc_is_v2_component($name)
+        ));
+    }
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -106,7 +134,7 @@ class DocsCoverageTest extends TestCase
      * authoring-surface mention at all. Derived from the schema, so a new slot
      * fails this the moment it lands undocumented.
      *
-     * @dataProvider composableComponentProvider
+     * @dataProvider slotStyledComponentProvider
      */
     public function testEveryDeclaredStyleSlotIsNamedInItsReadme(string $component): void
     {
@@ -157,7 +185,7 @@ class DocsCoverageTest extends TestCase
      * same table. Per-row scope would be a real improvement, not a defect this already
      * handles.
      *
-     * @dataProvider composableComponentProvider
+     * @dataProvider slotStyledComponentProvider
      */
     public function testReadmeNamesNoSlotTheSchemaDoesNotDeclare(string $component): void
     {
@@ -208,9 +236,12 @@ class DocsCoverageTest extends TestCase
      */
     public function testAiContextSlotCensusMatchesTheSchemas(): void
     {
+        // The census covers the components still ON the style-slot system. A v2
+        // component contributes no slots, so listing it as "(0)" would read as a
+        // component someone forgot to style rather than one that moved to roles.
         $total  = 0;
         $counts = [];
-        foreach (self::composableComponents() as $component) {
+        foreach (self::slotStyledComponents() as $component) {
             $n = count($this->slots($component));
             $counts[$component] = $n;
             $total += $n;
@@ -616,11 +647,68 @@ class DocsCoverageTest extends TestCase
         }
     }
 
+    /**
+     * THE v2 TWIN of testEveryDeclaredStyleSlotIsNamedInItsReadme().
+     *
+     * A component on the Universal Design Contract has no style slots to
+     * document; its authoring surface is the set of ROLES its schema declares,
+     * and each one has to be named in the README for the same reason a slot did
+     * — a role nobody can find is a design surface nobody can reach, which is
+     * the whole defect #901 reported about the quote's typography.
+     *
+     * Derived from the schema, so a role added in a later sprint fails this the
+     * moment it lands undocumented.
+     *
+     * @dataProvider roleStyledComponentProvider
+     */
+    public function testEveryDeclaredRoleIsNamedInItsReadme(string $component): void
+    {
+        $roles  = pp_udc_component_roles($component);
+        $readme = $this->readme($component);
+
+        $this->assertNotEmpty($roles, "{$component} is v2 but declares no roles.");
+
+        $missing = [];
+        foreach (array_keys($roles) as $role) {
+            // `_band` is the implicit root role every v2 component has; it is
+            // named in the shared contract doc rather than restated per README.
+            if ($role === '_band') {
+                continue;
+            }
+            // BACKTICKED, not bare prose. Most role names are ordinary English
+            // (`card`, `quote`, `author`, `meta`, `list`, `heading`), so a
+            // word-boundary match against the whole README passes on incidental
+            // usage: deleting every line that documents a role still satisfied 7
+            // of 11. The style-slot guard this replaced matched `--component-slot`
+            // strings that cannot occur by accident, and its v2 twin has to be
+            // just as hard to satisfy by coincidence.
+            if (!preg_match('/`' . preg_quote($role, '/') . '`/', $readme)) {
+                $missing[] = $role;
+            }
+        }
+
+        $this->assertSame(
+            [],
+            $missing,
+            "{$component}/README.md does not name these declared roles: " . implode(', ', $missing)
+        );
+    }
+
     // ── Providers ────────────────────────────────────────────────────────────
 
     public static function composableComponentProvider(): array
     {
         return array_map(static fn ($c) => [$c], self::composableComponents());
+    }
+
+    public static function slotStyledComponentProvider(): array
+    {
+        return array_map(static fn ($c) => [$c], self::slotStyledComponents());
+    }
+
+    public static function roleStyledComponentProvider(): array
+    {
+        return array_map(static fn ($c) => [$c], self::roleStyledComponents());
     }
 
     public static function allComponentProvider(): array

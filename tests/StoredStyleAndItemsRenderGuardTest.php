@@ -154,7 +154,10 @@ class StoredStyleAndItemsRenderGuardTest extends TestCase
      * component a decision someone takes, rather than something a glob absorbs.
      */
     private const STYLE_COMPONENTS = [
-        'hero', 'grid', 'section', 'cta', 'stats', 'faq', 'testimonials', 'logos', 'table', 'embed',
+        // testimonials is out: the v1 STYLE-SLOT roster; testimonials left it when it was rebuilt on the Universal Design Contract (v2) and now declares roles instead of slots, so it paints no stored style map and
+        // has no __pp_style read to guard. Its v2 equivalent — a hostile `udc` map
+        // reaching the emitter — is guarded in UdcEngineTest.
+        'hero', 'grid', 'section', 'cta', 'stats', 'faq', 'logos', 'table', 'embed',
     ];
 
     /**
@@ -380,7 +383,11 @@ class StoredStyleAndItemsRenderGuardTest extends TestCase
         $this->assertStringContainsString('<p>Section body</p>', $html, 'the section body still renders');
         $this->assertStringContainsString('40+', $html, 'the stats numbers still render');
         $this->assertStringContainsString('Q one', $html, 'the faq questions still render');
-        $this->assertStringContainsString('Great work', $html, 'the testimonial quotes still render');
+        // testimonials is no longer in STYLE_COMPONENTS (it is v2 and paints no stored
+        // style map), so this composition no longer carries a testimonials band and
+        // there are no quotes to assert on. The v2 equivalent of this guard — a
+        // hostile stored `udc` map reaching the emitter without taking the page down —
+        // is UdcEngineTest::testAHostileStoredUdcMapNeverFatalsTheRender.
         $this->assertStringContainsString('Acme', $html, 'the logo names still render');
 
         // And not one custom property was painted anywhere on the page.

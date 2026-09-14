@@ -2,18 +2,18 @@
 
 Customer quotes with attribution, for social-proof sections. Use this instead of embedding `<blockquote>` HTML inside a `section` body — it gives each quote its own structured attribution (author, role, company, avatar) and lets AI reorder or restyle individual testimonials.
 
+> **This is the first component on the Universal Design Contract (v2).** It declares **no style slots**. Everything you would once have set with `style_component` — colour, type, spacing, border, shadow, size — is now set through a `udc` map on the band, addressed by ROLE. See `docs/v2/BUILD-SPEC-sprint0.md` for the contract and `lib/udc.php` for the engine.
+
 ## Props
 
 | Prop            | Type   | Required | Default | Description |
 |-----------------|--------|----------|---------|-------------|
-| `id`            | string | No       | `''`    | HTML id for anchor linking |
+| `id`            | string | No       | `''`    | HTML id for anchor linking. This is the author's anchor name, NOT the band id that scopes this band's styling — that is the top-level `id` on the composition item, and the engine mints it. |
 | `title`         | string | No       | `''`    | Section heading |
 | `title_accent`  | string | No       | `''`    | Exact substring of `title` to render in an accent color |
 | `eyebrow`       | string | No       | `''`    | Short kicker/label above the title |
 | `subheading`    | string | No       | `''`    | Supporting line below the title |
-| `title_align` | enum   | No       | `start` | `start` or `center` |
-| `layout`       | enum   | No       | `grid`  | Layout: `grid` (card grid) or `stack` (single centered column) |
-| `theme`         | enum   | No       | `default` | Background color: `default` / `muted` (light tinted surface band) / `inverted` (genuinely dark band) |
+| `layout`        | enum   | No       | `grid`  | Layout: `grid` (card grid) or `stack` (single centered column) |
 | `items`         | array  | Yes      | —       | Array of testimonial objects |
 
 Each item in `items`:
@@ -28,74 +28,95 @@ Each item in `items`:
 | `image_alt` | string | No       | `''`    | Alt text for the avatar |
 | `image_id`  | int    | No       | `0`     | Media Library attachment ID for the avatar. When set and it resolves, renders responsively (`srcset`/`sizes`) via `wp_get_attachment_image()`; falls back to `image_url` otherwise. A companion to `image_url`, not a replacement — an item with only an id renders no avatar. |
 
-`layout` and `theme` are independent axes, same pattern as `grid` and `cta`: `layout` controls structure, `theme` controls background color.
+### Two props that used to exist
 
-## Usage
+`theme` and `title_align` are **gone**, and for the same reason: their entire effect was value-styling — a background tone, a text alignment — which v2 keeps out of the stylesheet. A prop whose only effect the structural-CSS boundary removes would be accepted, stored, reported applied, and change nothing. Both are now said directly:
 
-```php
-pp_get_component('testimonials', [
-    'title' => 'What our clients say',
-    'items' => [
-        [
-            'quote'   => 'PromptingPress cut our page-build time in half.',
-            'author'  => 'Jane Doe',
-            'role'    => 'CEO',
-            'company' => 'Acme Inc.',
-        ],
-        [
-            'quote'  => 'The AI never touches raw HTML — it just works.',
-            'author' => 'John Smith',
-        ],
-    ],
-]);
+- a dark band is `_band` background plus the text roles' colours (see **Dark bands** below);
+- a centred header is the `heading` / `eyebrow` / `subheading` roles' `typography.align`, with `spacing.margin-left` and `margin-right` set to `auto` to centre the block itself.
 
-// Single large pull-quote
-pp_get_component('testimonials', [
-    'layout' => 'stack',
-    'items' => [
-        ['quote' => 'The best WordPress theme for AI-first sites.', 'author' => 'Ada Lovelace'],
-    ],
-]);
+## Roles
+
+A role is a named part of the component. Each one accepts the groups listed here, per breakpoint and on hover.
+
+| Role | What it is | Groups |
+|---|---|---|
+| `_band` | The band itself (the `<section>`) | typography, spacing, border, background, sizing, shadow |
+| `eyebrow` | The kicker pill above the heading | typography, spacing, border, background, sizing |
+| `heading` | The band heading (`<h2>`) | typography, spacing, border, background, sizing |
+| `heading-accent` | The accented substring inside the heading | typography, spacing, border, background, sizing |
+| `subheading` | The supporting line below the heading | typography, spacing, border, background, sizing |
+| `list` | The container the cards lay out in | typography, spacing, border, background, sizing |
+| `card` | One testimonial's surface | typography, spacing, border, background, sizing, shadow |
+| `quote` | The quotation itself | typography, spacing, border, background, sizing |
+| `attribution` | The attribution row (avatar + name + role/company) | typography, spacing, border, background, sizing |
+| `author` | The quoted person's name | typography, spacing, border, background, sizing |
+| `meta` | The role/company line under the name | typography, spacing, border, background, sizing |
+| `avatar` | The author's picture | spacing, border, background, sizing, shadow |
+
+`shadow` is deliberately absent from the text roles. A `box-shadow` on a run of text is a smell; the elevation you want belongs on the `card`.
+
+### Worked example — the #901 brand card
+
+> "Testimonial card: white, 1px border. Quote in serif italic 19px, a 1px rule, and name, role and sector in sans."
+
+```json
+{
+  "component": "testimonials",
+  "props": {"layout": "stack", "items": [{"quote": "They shipped in six weeks.", "author": "Ada Lovelace", "role": "CTO", "company": "Analytical"}]},
+  "udc": {
+    "card":  {"background": {"fill": "#ffffff"},
+              "border": {"width": "1px", "style": "solid", "color": "#e6e6e6"},
+              "shadow": {"box": "none"}},
+    "quote": {"typography": {"family": "@font-heading", "style": "italic",
+                             "size": {"d": "19px", "p": "17px"}}},
+    "attribution": {"border": {"width-top": "1px", "style-top": "solid", "color-top": "#e6e6e6"},
+                    "spacing": {"padding-top": "1rem"}}
+  }
+}
 ```
 
-## Style slots
+Three things worth noting. `"@font-heading"` FOLLOWS the design token rather than freezing a copy of its value — that works on every parameter, including lengths, which the v1 style slots could not do. `{"d": "19px", "p": "17px"}` sets the size per breakpoint; the engine stores those as band-scoped tokens and the approval diff shows your literal beside the name it was stored as. And the card is styled in the `stack` layout, which v1 could not do at all: its card slots were gated to `grid`.
 
-27 per-instance style slots, declared in `schema.json` under `styling.style_slots`
-and set with the `style_component` action. This table is the map — read each slot's
-`type`, effective `default`, `applies_when` condition and full description from the
-schema itself, or with `wp pp operate inspect-composition --post_id=<id>`.
+### Dark bands
 
-`◦` = conditional (`applies_when`): setting it outside that configuration is accepted
-and stored but paints nothing, and `wp pp check page` reports a non-blocking
-`inert_slot` smell. The card slots marked `◦` need `layout: "grid"`; `--testimonials-item-radius` carries no condition and applies to both layouts.
+There is no `theme` prop. Set the band background, then recolour every text role that now sits on it:
 
-| Group | Slots |
-|---|---|
-| Band | `--testimonials-padding-top` · `--testimonials-padding-bottom` · `--testimonials-bg` · `--testimonials-gap` |
-| Heading | `--testimonials-heading-size` ◦ · `--testimonials-heading-color` ◦ · `--testimonials-heading-measure` ◦ · `--testimonials-heading-accent-color` ◦ · `--testimonials-heading-margin-bottom` ◦ · `--testimonials-subheading-color` ◦ · `--testimonials-subheading-margin-bottom` ◦ |
-| Eyebrow | `--testimonials-eyebrow-color` ◦ · `--testimonials-eyebrow-bg` ◦ · `--testimonials-eyebrow-radius` ◦ · `--testimonials-eyebrow-border-width` ◦ · `--testimonials-eyebrow-border-color` ◦ · `--testimonials-eyebrow-text-transform` ◦ |
-| Card | `--testimonials-item-bg` ◦ · `--testimonials-item-border-color` ◦ · `--testimonials-item-border-width` ◦ · `--testimonials-item-radius` · `--testimonials-item-shadow` ◦ · `--testimonials-item-padding` ◦ |
-| Quote and attribution | `--testimonials-quote-color` · `--testimonials-quote-mark-color` · `--testimonials-author-color` · `--testimonials-meta-color` |
+```json
+"udc": {
+  "_band":  {"background": {"fill": "#101828"}},
+  "quote":  {"typography": {"color": "#f7f8fa"}},
+  "author": {"typography": {"color": "#f7f8fa"}},
+  "meta":   {"typography": {"color": "#c8ccd4"}}
+}
+```
 
-**There is no `--testimonials-body-measure`.** The `--<component>-body-measure` family
-covers `section`, `cta`, `faq` and `embed` **only** — testimonials is not among them, so
-do not assume a measure retune reaches this component's text.
+**You own the contrast.** Nothing re-lights text for you: colour decisions belong to the values an author chooses, never baked into component CSS. Set a colour on every text role on the new background (`quote`, `author`, `meta`, `heading`, `subheading`, `eyebrow`) and on any link colour, and check each against the background for WCAG AA — 4.5:1 for body text, 3:1 for large text. A dark band with one role left un-recoloured renders dark ink on dark.
 
-## Stated defaults (and what would reopen them)
+## Layout
 
-These values are deliberate product defaults, not oversights, and are not authorable.
-Each names the condition that would reopen the decision. Adding a control needs a
-**named incident** — a real composition that could not be built — not a hypothesis.
+`grid` lays the cards out in an auto-fit track: one card spans its container, two share it, three share it three ways. That is a deliberate fix — the old rule hard-coded two columns at 768px and three at 1024px, so a band with a single testimonial (the normal starting state for a real client) rendered a narrow card in the left half of the track with a large dead space beside it.
 
-| Default | Why it is a default | What would reopen it |
-|---|---|---|
-| Avatar size `2.75rem` (44px) | An attribution avatar is an **identifying thumbnail, not an image surface**. At 44px it sits level with the author/role/company text block without competing with the quote, which is the element the band exists to show. | **An operator supplies real author portraits and finds them illegible at 44px, or wants a photo-forward testimonial treatment.** The remedy is already shaped — a `--testimonials-avatar-size` slot mirroring `--grid-item-icon-size` and `--logos-image-size` — so only the incident is missing. |
-| Avatar `border-radius: 50%` | 50% is a **shape identity, not a scale value** — circular is the avatar convention. **Deliberately NOT routed to `--radius`:** that token is the card-corner scale, so binding avatars to it would turn portraits into squircles the moment someone retunes card corners. | A squared-avatar treatment is requested. |
-| Avatar `object-fit: cover` | An avatar is a **crop model by definition** — a face should fill the circle. This is the deliberate contrast with `logos`, whose `object-fit: contain` is a **fit** model, which is why logos has no focal-point or aspect-ratio controls and this does not need them either. | None foreseeable. |
-| The opening quote mark: glyph fixed to `\201C` (a left double quotation mark), `font-size: 1.75em` | Decoration whose **colour is already authorable** (`--testimonials-quote-mark-color`), and whose size is expressed in `em`, so it scales with the quote's own type automatically — no slot is needed to keep it proportional. Note the deliberate mismatch: the gutter it sits in (`padding-left: 1.75rem`) is a `rem`, so the reserved space does **not** scale the way the glyph does. | The named-incident bar. A different glyph would be a glyph question, not a size one. |
-| `layout: "stack"` quote `font-size: 1.375rem`, at every viewport including 375px | Testimonials type is **viewport-invariant by ratified intent** — the stack layout is a pull-quote, and shrinking it on mobile would make it read as body copy. Carried here so the record is complete, not to reopen that decision. | That intentional difference's own condition. |
-| `layout: "stack"` list `max-width: 42rem` | `stack` is the one testimonials layout that is a **reading surface** rather than a card grid, and `42rem` is that reading measure. | An operator uses `stack` for a long-form testimonial and the measure is wrong for their type scale. The remedy would be a `--testimonials-body-measure` slot joining the four that exist — see the note above about testimonials being outside that family today. |
+`stack` is a single centred column, capped at a readable measure.
 
-## CSS
+Both layouts render the **same card**. To get a frameless quote, say so: set the `card` role's `border.width` to `0` and its `background.fill` to `transparent`.
 
-Styles in `assets/css/components.css` under the `COMPONENT: testimonials` block. Base `blockquote` styling (border-left accent, italic, muted color) lives in `base.css` since `blockquote` is a standard HTML element other components can pass through `wp_kses_post()`; the component overrides it for card presentation.
+## Structural CSS
+
+`assets/css/components.css` keeps only layout scaffolding, wrapper geometry and accessibility affordances for this component. It contains no colour, type, size, spacing, border or shadow value, and `tests/js/css-lint.test.js` fails CI if one is added. That rule carries a detection proof, so it cannot quietly stop working.
+
+## Stated defaults
+
+These values are fixed by the theme's structural CSS or by a role default, and each one is deliberate rather than unexamined.
+
+- **Avatar box: `2.75rem` square.** Large enough to read a face at a glance, small enough that the attribution row stays one line beside the name. It is a role default (`avatar` → `sizing.width`/`height`), so a band that wants a different size sets one.
+- **Avatar shape: `border-radius: 50%`.** The circular crop is the near-universal convention for a person's photograph in a testimonial, and it reads as a person rather than as an image. Role default on `avatar` → `border.radius`.
+- **Avatar crop: `object-fit: cover`.** Structural. A portrait and a landscape source both have to fill the same box without distorting; `cover` is the only fit that does.
+- **Stack quote type: `1.375rem`.** A pull-quote in a single centred column carries the band, so it sits above body size without competing with the heading. Role default on `quote` → `typography.size`.
+- **Stack measure: `max-width: 42rem`.** Structural wrapper geometry: the column IS the layout, and 42rem keeps a long quote inside a readable line length.
+
+**What would reopen it** (the reopening condition for any default above): a NAMED INCIDENT — a real brand whose specification these values cannot express even through the `udc` map, reported with the design that failed. Four of the five are already authorable per band, so the bar for changing the DEFAULT is that the default is wrong for most sites, not that one site wants something else.
+
+### One default that was removed
+
+The decorative opening-quote glyph (a `"` rendered via `::before`) is gone. It was a designable decoration that no slot could switch off, so a quote whose own text already carried typographic quotation marks rendered two opening quotes. The structural-CSS boundary has no room for a decoration, and Sprint 0's taxonomy has no generated-content group, so it was removed rather than reproduced. A quote now renders exactly the characters it was written with.

@@ -52,11 +52,17 @@ Used by: #99, #100, #108, #111, #61 (and the #99 scaffold issue defines the reus
 
 1. **Schema:** in `components/{name}/schema.json`, add under `styling.style_slots`:
    ```json
-   "--{name}-{slot}": { "type": "color|length|length-or-none|number|duration|font-family|shadow|gradient|position|ratio|enum", "default": "<css>", "description": "<what it controls>" }
+   "--{name}-{slot}": { "type": "color|length|length-or-none|number|duration|font-family|shadow|gradient|position|ratio|align|text-transform|enum", "default": "<css>", "description": "<what it controls>" }
    ```
    The definition object is a CLOSED key set (invariant 5 above): `type`/`default`/`description`
    are required, and the optional keys — `values`, `item_eligible`, `applies_when`,
    `conditionality_note`, `role` — are enumerated in `pp_slot_definition_keys()` (`lib/admin.php`),
+   The shared engine also validates eight typed keyword sets that only the v2 Universal
+   Design Contract reaches today — `font-style`, `font-weight`, `line-height`, `text-wrap`,
+   `text-decoration-line`, `border-style`, `background-size`, `background-repeat` — declared
+   beside their siblings in `lib/apply.php` and dispatched by the same type switch, so a
+   future slot could declare one without adding a validator.
+
    with the field-by-field contract in `ai-instructions/add-component.md`. Use `length-or-none`
    **only** when the slot's declared default IS the keyword `none`, so the built-in uncapped state
    stays authorable (`--stats-max-width`, `--hero-heading-measure`, `--section-heading-measure`,
@@ -81,7 +87,7 @@ Used by: #99, #100, #108, #111, #61 (and the #99 scaffold issue defines the reus
 
    The parameter is typed `array $style`, and a stored non-array reaches it from data the write path never saw (a restored snapshot per #233, a pre-rule composition, a raw `_pp_composition` write). Passing `$props['__pp_style'] ?? []` straight in raises a `TypeError` that `templates/composition.php` does not catch, which 500s the **whole public page** rather than dropping one declaration. Read the prop exactly ONCE into `$raw_style`; every consumer below reads `$style`. `tests/InvariantTest.php` (`testEveryStyleVarsCallSiteUsesArrayGuardedLocals`) fails the build on a raw read, a second read, or any other argument spelling, and `tests/StoredStyleAndItemsRenderGuardTest.php` pins the degradation in emitted HTML.
 
-   All ten slot-declaring components are wired (hero, section, grid, cta, faq, stats, testimonials, logos, table, embed); add the guarded call for any new component that declares slots. Reference the CSS var in `assets/css/components.css` with a fallback: `color: var(--{name}-{slot}, var(--color-text));`
+   All nine slot-declaring components are wired (hero, section, grid, cta, faq, stats, logos, table, embed); add the guarded call for any new component that declares slots. `testimonials` is NOT among them: it is the first component on the v2 Universal Design Contract, declares no style slots, and emits no inline style attribute at all — its designable values are role parameters resolved by the shared engine in `lib/udc.php` and emitted as a band-scoped block in the document head. See `docs/v2/BUILD-SPEC-sprint0.md`. Reference the CSS var in `assets/css/components.css` with a fallback: `color: var(--{name}-{slot}, var(--color-text));`
    **Declare it inside that component's OWN block, and never name another component's slot (#578).** A shared rule that caps six bands' headings from one selector list reading `var(--cta-heading-measure, …)` is not a slot for five of them: they can neither SET it (the write path rejects a foreign slot with `invalid_style_slot`) nor have it RESOLVE (slot custom properties are emitted on the owning component's root, so they never reach a sibling band's subtree). It renders as a literal wearing a `var()` costume, and because such a rule usually lives in some *other* component's block it is invisible to every per-component audit. Give each component its own slot, and route the shared default through a design token (`var(--measure-heading)`) when the bands are meant to move together. `tests/MeasureSurfaceTest.php` pins the severance from both sides — each component's own slot reaches its own element, and no non-cta selector still reads a cta slot.
    **Prefer a design token to a duplicated literal.** A bare `56rem` that happens to equal `--measure-centered` silently opts that rule out of a site-wide retune; reference the token instead.
 4. **Do not** hardcode a color that beats the slot (that is bug #61 for `.faq__heading`). If a hardcoded rule exists, relax it so the slot wins. This holds **across stylesheets, not just within `components.css`**: an automatic-match rule in `base.css`/`utilities.css` (a bare element/pseudo-class selector like `p:last-child` or `a:hover`) can outrank a bare component-class slot rule and silently kill the slot (bug #336). Out-specify it at header scope (`.{name}__header > .{name}__subheading`), not by deleting the legitimate global rule. `tests/StyleSlotContractTest.php` (check 8) fails the build when a new such cross-sheet rule appears on a slot-consumed property; the rendered pins in `tests/e2e/style-render.spec.ts` own the real-cascade proof.
