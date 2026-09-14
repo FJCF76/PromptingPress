@@ -2116,7 +2116,11 @@ function pp_udc_compile_band(array $item, string $layer, ?array &$drops = null):
                     continue;
                 }
                 $params = $groups[$group_name]['params'];
-                $where  = sprintf(
+                // BUILT ONLY FOR A COLLECTOR. This runs per group, per role, per
+                // band, per source on every front-end request, and its two
+                // reflected-text cleans plus a sprintf are pure waste when no
+                // ledger is being filled — which is every render.
+                $where = $drops === null ? '' : sprintf(
                     'role "%s" group "%s"',
                     _pp_udc_reflect((string) $role_name),
                     _pp_udc_reflect((string) $group_name)

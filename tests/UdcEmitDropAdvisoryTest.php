@@ -572,4 +572,54 @@ class UdcEmitDropAdvisoryTest extends TestCase
 
         $this->assertSame([], pp_check_udc_emit_drops(7), 'a correct page says nothing, however long it is');
     }
+
+    // ── 9. The ledger costs nothing when nobody is collecting (#981) ─────────
+
+    /**
+     * THE DIAGNOSTIC MUST NOT TAX THE RENDER PATH.
+     *
+     * _pp_udc_place() runs once per parameter, per role, per band, per source on
+     * every front-end request, and pp_udc_compile_band() builds a locator string per
+     * group. A first cut of this change constructed the closure and the locator
+     * unconditionally and cost a measured 13-18% on a 50-band page; both are now
+     * built only when a ledger is actually passed.
+     *
+     * Pinned STRUCTURALLY rather than by timing, because a wall-clock assertion in a
+     * unit suite is a flake generator. What is asserted is the property the timing
+     * depended on: the render path allocates neither.
+     */
+    public function testTheLedgerIsNotBuiltWhenNobodyIsCollecting(): void
+    {
+        $source = file_get_contents(dirname(__DIR__) . '/lib/udc.php');
+        $this->assertIsString($source);
+
+        $place = substr($source, strpos($source, 'function _pp_udc_place('));
+        $place = substr($place, 0, strpos($place, "\nfunction "));
+        $this->assertMatchesRegularExpression(
+            '/\$note\s*=\s*null;\s*\n\s*if\s*\(\s*\$drops\s*!==\s*null/',
+            $place,
+            'the closure must be constructed behind a null check, not on every placement'
+        );
+
+        $compile = substr($source, strpos($source, 'function pp_udc_compile_band('));
+        $compile = substr($compile, 0, strpos($compile, "\nfunction "));
+        $this->assertStringContainsString(
+            '$where = $drops === null',
+            $compile,
+            'the locator must not be sprintf-ed on every group of every render'
+        );
+    }
+
+    /** And it still records correctly when someone IS collecting. */
+    public function testTheLedgerStillRecordsWhenCollecting(): void
+    {
+        $drops = $this->drops(['quote' => ['typography' => ['size' => '@no-such-token']]]);
+
+        $this->assertNotEmpty($drops);
+        $this->assertStringContainsString(
+            'role "quote" group "typography"',
+            $drops[0]['where'],
+            'the locator is still built for a real collector'
+        );
+    }
 }
