@@ -1,0 +1,477 @@
+<?php
+/**
+ * tests/UdcBackgroundImageTest.php
+ *
+ * Ruling A2 — background images, where the ENGINE owns the url() and the author
+ * owns only an id.
+ *
+ * THE SHAPE OF THE PROBLEM. `_pp_forbidden_css_construct()` bans `url(` on every
+ * CSS-value surface in the program, and the #570 convergence ruling requires the
+ * write-accept and render-reject sets to stay identical. A background image is
+ * nonetheless a `url()`. The resolution is not an exemption: an author writes a
+ * Media Library attachment ID — a run of digits, which clears the ban trivially —
+ * and the engine builds the `url()` itself, AFTER both emit gates, out of
+ * WordPress's own URL for an attachment it has just proved is a live image here.
+ *
+ * So the two things this file has to prove, in both directions:
+ *
+ *   1. THE BAN DID NOT MOVE. An author-written `url()` is still refused, on this
+ *      parameter and on its neighbours, on bands and on chrome.
+ *   2. THE ID IS A REAL REFERENCE. A dangling one is refused at write NAMING the id;
+ *      one that goes dangling LATER degrades at emit instead of painting a broken
+ *      image or fatalling — and that degrade is disclosed, not silent.
+ *
+ * Plus the ruling's exclusions, which have to REFUSE rather than be ignored:
+ * per-breakpoint art direction and per-state image swapping.
+ */
+
+declare(strict_types=1);
+
+use PHPUnit\Framework\TestCase;
+
+class UdcBackgroundImageTest extends TestCase
+{
+    protected function setUp(): void
+    {
+        parent::setUp();
+        $GLOBALS['_pp_test_store'] = [
+            'post_meta' => [], 'posts' => [], 'options' => [], 'next_id' => 100,
+        ];
+        $this->liveAttachment(42);
+    }
+
+    private function liveAttachment(int $id): void
+    {
+        $GLOBALS['_pp_test_store']['posts'][$id]               = ['post_type' => 'attachment'];
+        $GLOBALS['_pp_test_store']['attachment_is_image'][$id] = true;
+    }
+
+    private function band(array $background): array
+    {
+        return [
+            'component' => 'testimonials',
+            'id'        => 'pp-deadbeef',
+            'udc'       => ['_band' => ['background' => $background]],
+        ];
+    }
+
+    private function validate(array $background)
+    {
+        return pp_udc_validate_map(['_band' => ['background' => $background]], 'testimonials');
+    }
+
+    // ── 1. The ban did not move ─────────────────────────────────────────────
+
+    public function testAnAuthorWrittenUrlIsStillRefusedOnEveryBackgroundParameter(): void
+    {
+        foreach (['fill', 'overlay'] as $param) {
+            $error = $this->validate([$param => 'url(https://evil.example/x.png)']);
+            $this->assertInstanceOf(WP_Error::class, $error, "{$param} must still refuse url()");
+            $this->assertStringContainsString('url()', $error->get_error_message());
+        }
+        // And on the image parameter itself, where a URL is the obvious wrong guess.
+        $error = $this->validate(['image' => 'https://example.com/photo.jpg']);
+        $this->assertInstanceOf(WP_Error::class, $error);
+        $this->assertStringContainsString('never a URL', $error->get_error_message());
+    }
+
+    public function testTheSharedInjectionGateIsUnchanged(): void
+    {
+        // The gate itself, not a caller of it: a regression that relaxed `url(` to let
+        // backgrounds through would show up here first.
+        $this->assertNotNull(_pp_forbidden_css_construct('url(x)'));
+        $this->assertNotNull(_pp_forbidden_css_construct('URL (x)'));
+        $this->assertNotNull(_pp_forbidden_css_construct('@import'));
+        $this->assertNotNull(_pp_forbidden_css_construct('expression(1)'));
+        // And the digits an author actually sends clear it, which is why no exemption
+        // was needed in the first place.
+        $this->assertNull(_pp_forbidden_css_construct('42'));
+    }
+
+    public function testTheEngineBuiltUrlIsQuotedAndEscapedForCssUrlContext(): void
+    {
+        $GLOBALS['_pp_test_store']['posts'][7]               = ['post_type' => 'attachment'];
+        $GLOBALS['_pp_test_store']['attachment_is_image'][7] = true;
+
+        $css = pp_udc_band_css($this->band(['image' => 42]));
+        $this->assertStringContainsString(
+            'background-image:url("https://example.com/wp-content/uploads/image-42.jpg")',
+            $css
+        );
+        // Quoted, because a quoted url token is the narrower sink.
+        $this->assertMatchesRegularExpression('/url\("[^"]*"\)/', $css);
+    }
+
+    public function testTheUrlGoesThroughTheSharedCssUrlEscaper(): void
+    {
+        // pp_esc_image_src() percent-encodes `)`, which esc_url() permits and which
+        // would otherwise close the url() token early and let trailing text out of it.
+        // Proving the engine routes through that escaper matters more than the exact
+        // bytes, so assert the escaper's characteristic transformation.
+        $this->assertStringNotContainsString(')', substr(pp_esc_image_src('https://e.test/a)b.png'), 0, -1));
+        $this->assertSame(null, pp_udc_background_image_url('not-a-number'));
+    }
+
+    // ── 2. The id is a real reference ───────────────────────────────────────
+
+    public function testADanglingIdIsRefusedAtWriteNamingTheId(): void
+    {
+        $error = $this->validate(['image' => 99]);
+        $this->assertInstanceOf(WP_Error::class, $error);
+        $this->assertStringContainsString('Attachment 99', $error->get_error_message());
+        $this->assertStringContainsString('import_media', $error->get_error_message());
+    }
+
+    public function testANonImageAttachmentIsRefused(): void
+    {
+        $GLOBALS['_pp_test_store']['posts'][55]               = ['post_type' => 'attachment'];
+        $GLOBALS['_pp_test_store']['attachment_is_image'][55] = false; // e.g. a PDF
+        $error = $this->validate(['image' => 55]);
+        $this->assertInstanceOf(WP_Error::class, $error);
+        $this->assertStringContainsString('Attachment 55', $error->get_error_message());
+    }
+
+    /**
+     * REJECT, NEVER COERCE (invariant I34). `(int) ['x' => 1]` and `(int) true` both
+     * evaluate to 1, so a cast-first predicate would silently resolve an array or a
+     * boolean to "attachment 1" — which on most sites is a real attachment.
+     */
+    public function testNonIntegerShapesAreRefusedRatherThanCastToAttachmentOne(): void
+    {
+        $this->liveAttachment(1);
+        foreach ([true, ['attachment_id' => 42], '4.5', '-3', '0', ' ', 'abc', '42abc'] as $bad) {
+            $this->assertNull(
+                pp_udc_background_image_url($bad),
+                'must not resolve: ' . var_export($bad, true)
+            );
+        }
+        // The one shape that IS an id still works, including as a numeric string.
+        $this->assertNotNull(pp_udc_background_image_url(1));
+        $this->assertNotNull(pp_udc_background_image_url('1'));
+    }
+
+    public function testAnAttachmentWhoseUrlCannotBeBuiltDoesNotPaint(): void
+    {
+        $GLOBALS['_pp_test_store']['attachment_url_missing'][42] = true;
+        $this->assertNull(pp_udc_background_image_url(42));
+    }
+
+    /**
+     * THE DEGRADE. Valid at write, deleted afterwards: drop that one declaration,
+     * keep every sibling painting, never emit url() of a dead id, never fatal.
+     */
+    public function testAnAttachmentDeletedAfterWriteDegradesWithoutTakingTheBandWithIt(): void
+    {
+        $item = $this->band(['fill' => '#0b7285', 'image' => 42, 'overlay' => 'rgba(0,0,0,0.55)']);
+        $this->assertNull($this->validate($item['udc']['_band']['background']), 'valid at write');
+
+        $GLOBALS['_pp_test_store']['attachment_is_image'][42] = false; // deleted later
+        $css = pp_udc_band_css($item);
+
+        $this->assertStringNotContainsString('url(', $css, 'no url() of a dead id');
+        $this->assertStringNotContainsString('background-image', $css);
+        $this->assertStringContainsString('background:#0b7285;', $css, 'siblings keep painting');
+    }
+
+    public function testTheDegradeIsDisclosedThroughThePreflightAdvisory(): void
+    {
+        $GLOBALS['_pp_test_store']['options'][PP_SITE_UDC_OPTION] = (string) wp_json_encode([
+            '_version' => 1,
+            'nav'      => ['_band' => ['background' => ['image' => 42]]],
+        ]);
+
+        // While it resolves, nothing is reported: a readiness report nobody reads is
+        // the failure mode these checks exist to prevent.
+        $this->assertSame([], pp_check_udc_background_images());
+
+        $GLOBALS['_pp_test_store']['attachment_is_image'][42] = false;
+        $rows = pp_check_udc_background_images();
+
+        $this->assertCount(1, $rows);
+        $this->assertSame('udc_background_image', $rows[0]['check']);
+        $this->assertFalse($rows[0]['pass']);
+        $this->assertSame('warning', $rows[0]['severity'], 'advisory only — it must never block a mutation');
+        $this->assertTrue($rows[0]['acknowledgeable']);
+        $this->assertStringContainsString('chrome "nav"', $rows[0]['message']);
+        $this->assertStringContainsString('attachment 42', $rows[0]['message']);
+        // A route back, not just a complaint (invariant I24).
+        $this->assertStringContainsString('import_media', $rows[0]['next_action']);
+    }
+
+    /**
+     * THE PAGE-SCOPED HALF of the advisory, which the chrome-only tests never reached.
+     * A band's dangling image has to be named with the band it is on, or an operator
+     * with a fifty-band page is told only that "something" stopped painting.
+     */
+    public function testABandsDanglingImageIsNamedWithItsBand(): void
+    {
+        $GLOBALS['_pp_test_store']['post_meta'][5]['_pp_composition'] = wp_json_encode([
+            ['component' => 'testimonials', 'id' => 'pp-aaaaaaaa',
+             'udc' => ['_band' => ['background' => ['image' => 99]]]],
+        ]);
+
+        $rows = pp_check_udc_background_images(5);
+        $this->assertCount(1, $rows);
+        $this->assertStringContainsString('band 1 ("testimonials")', $rows[0]['message']);
+        $this->assertStringContainsString('attachment 99', $rows[0]['message']);
+
+        // Chrome-only still reports nothing for this page's band.
+        $this->assertSame([], pp_check_udc_background_images());
+    }
+
+    /** The report is bounded, and says so rather than implying it saw everything. */
+    public function testTheAdvisoryIsBoundedAndDeclaresTheOverflow(): void
+    {
+        $chrome = [];
+        foreach (array_keys(pp_udc_component_roles('footer')) as $i => $role) {
+            $chrome[$role] = ['background' => ['image' => 900 + $i]];
+        }
+        $GLOBALS['_pp_test_store']['options'][PP_SITE_UDC_OPTION] =
+            (string) wp_json_encode(['_version' => 1, 'footer' => $chrome]);
+
+        $rows = pp_check_udc_background_images();
+        $this->assertCount(11, $rows, 'ten rows plus one overflow line');
+        $this->assertSame('udc_background_image:overflow', $rows[10]['finding_key']);
+        $this->assertStringContainsString('At least', $rows[10]['message']);
+    }
+
+    /** And it is spliced into preflight, which is where an operator meets it. */
+    public function testTheAdvisoryReachesPreflight(): void
+    {
+        $GLOBALS['_pp_test_store']['options'][PP_SITE_UDC_OPTION] = (string) wp_json_encode([
+            '_version' => 1, 'nav' => ['_band' => ['background' => ['image' => 99]]],
+        ]);
+        $GLOBALS['_pp_test_store']['post_meta'][5]['_pp_composition'] = wp_json_encode([
+            ['component' => 'testimonials', 'id' => 'pp-aaaaaaaa',
+             'udc' => ['_band' => ['background' => ['image' => 98]]]],
+        ]);
+
+        $checks = pp_preflight(['post_id' => 5])['checks'];
+        $rows   = array_values(array_filter(
+            $checks,
+            static fn(array $c): bool => ($c['check'] ?? '') === 'udc_background_image'
+        ));
+        $this->assertCount(2, $rows, 'the chrome one and the band one both reach the operator');
+        foreach ($rows as $row) {
+            $this->assertSame('warning', $row['severity'], 'advisory only — never blocks a mutation');
+        }
+        // A warning-grade row must not fail the preflight verdict, because this
+        // advisory must never block a mutation. Asserted against the row's own
+        // contribution rather than the whole verdict, which other checks also move.
+        $this->assertSame(
+            [],
+            array_filter($rows, static fn(array $c): bool => ($c['severity'] ?? 'error') === 'error'),
+            'no udc_background_image row may be error-grade'
+        );
+    }
+
+    /**
+     * ONE PREDICATE: what the advisory names is exactly what the page omits. Two
+     * hand-rolled copies would be two grammars, and the one that drifted would either
+     * warn about an image that paints or stay silent about one that does not.
+     */
+    public function testTheAdvisoryAndTheEmitterCannotDisagree(): void
+    {
+        foreach ([42 => true, 99 => false] as $id => $shouldPaint) {
+            $css      = pp_udc_band_css($this->band(['image' => $id]));
+            $paints   = str_contains($css, 'url(');
+            $resolves = pp_udc_background_image_url($id) !== null;
+            $this->assertSame($shouldPaint, $paints, "emitter disagrees for {$id}");
+            $this->assertSame($paints, $resolves, "advisory predicate disagrees with the emitter for {$id}");
+        }
+    }
+
+    // ── 3. The ruling's exclusions REFUSE ───────────────────────────────────
+
+    public function testPerBreakpointArtDirectionIsRefusedNotIgnored(): void
+    {
+        $error = $this->validate(['image' => ['d' => 42, 'p' => 42]]);
+        $this->assertInstanceOf(WP_Error::class, $error);
+        $this->assertStringContainsString('cannot be set per breakpoint', $error->get_error_message());
+        // And it names what IS breakpoint-keyable, so the author has somewhere to go.
+        $this->assertStringContainsString('position', $error->get_error_message());
+    }
+
+    public function testPerStateImageSwappingIsRefusedNotIgnored(): void
+    {
+        $error = pp_udc_validate_map(
+            ['_band' => ['background' => [':hover' => ['image' => 42]]]],
+            'testimonials'
+        );
+        $this->assertInstanceOf(WP_Error::class, $error);
+        $this->assertStringContainsString('cannot be set per state', $error->get_error_message());
+    }
+
+    /** The emit side closes the same two doors, for data that never passed the gate. */
+    public function testStoredDataInAnExcludedDimensionEmitsNothing(): void
+    {
+        $this->assertStringNotContainsString(
+            'url(',
+            pp_udc_band_css($this->band(['image' => ['d' => 42, 'p' => 42]]))
+        );
+        $this->assertStringNotContainsString('url(', pp_udc_band_css([
+            'component' => 'testimonials', 'id' => 'pp-deadbeef',
+            'udc' => ['_band' => ['background' => [':hover' => ['image' => 42]]]],
+        ]));
+    }
+
+    // ── 4. Composition with the overlay ─────────────────────────────────────
+
+    public function testAColourOverlayIsWrappedIntoALayerAndPaintsOverTheImage(): void
+    {
+        $css = pp_udc_band_css($this->band(['image' => 42, 'overlay' => 'rgba(0,0,0,0.55)']));
+        // The scrim is FIRST in the layer list — CSS paints the first layer on top.
+        $this->assertStringContainsString(
+            'background-image:linear-gradient(rgba(0,0,0,0.55),rgba(0,0,0,0.55)),url("',
+            $css
+        );
+    }
+
+    public function testAGradientOverlayIsUsedAsALayerNotWrappedAgain(): void
+    {
+        $css = pp_udc_band_css($this->band([
+            'image'   => 42,
+            'overlay' => 'linear-gradient(#000000,#ffffff)',
+        ]));
+        $this->assertStringContainsString('background-image:linear-gradient(#000000,#ffffff),url("', $css);
+        $this->assertStringNotContainsString('linear-gradient(linear-gradient', $css);
+    }
+
+    /** A scrim over nothing is a value that validates green and paints nothing (I19). */
+    public function testAnOverlayWithNoImageEmitsNothing(): void
+    {
+        $css = pp_udc_band_css($this->band(['fill' => '#0b7285', 'overlay' => 'rgba(0,0,0,0.55)']));
+        $this->assertSame('[data-pp-band="pp-deadbeef"]{background:#0b7285;}', $css);
+        $this->assertStringNotContainsString('linear-gradient', $css);
+        // And the carrier never leaks into a stylesheet.
+        $this->assertStringNotContainsString(PP_UDC_BACKGROUND_OVERLAY_CARRIER, $css);
+    }
+
+    /**
+     * AN OVERLAY THAT RESOLVES THROUGH A TOKEN MUST STILL BE WRAPPED.
+     *
+     * The wrap/no-wrap choice used to be made on the EMITTED css text, and a band
+     * token's css is `var(--pp-name)`, which is not in the design-token registry — so
+     * the colour check said no, the wrapper was skipped, and a bare custom property
+     * was spliced into a layer list. `background-image: var(--pp-scrim), url(...)` is
+     * invalid, because a custom property holding a colour is not an <image>, so the
+     * browser dropped the WHOLE declaration: the scrim and the photograph together.
+     *
+     * Reachable on a fully supported path, not an exotic one: `overlay` is
+     * deliberately breakpoint-keyable, and every responsive value is minted into a
+     * band token. The site-token case happened to work, which is exactly why this
+     * survived the first round of tests. Found by the security specialist.
+     *
+     * @dataProvider overlayResolutionProvider
+     */
+    public function testAnOverlayIsWrappedWhateverItResolvesThrough(array $udc): void
+    {
+        $css = pp_udc_band_css(pp_udc_normalize_band([
+            'component' => 'testimonials', 'id' => 'pp-deadbeef', 'udc' => $udc,
+        ]));
+        $this->assertStringContainsString('url("', $css, 'the image must survive');
+        // Every layer before the url() must be an <image>, i.e. a gradient.
+        $layers = substr($css, strpos($css, 'background-image:') + 17);
+        $layers = substr($layers, 0, strpos($layers, 'url("'));
+        $this->assertStringContainsString('linear-gradient(', $layers);
+        $this->assertDoesNotMatchRegularExpression(
+            '/background-image:\s*var\(/',
+            $css,
+            'a bare custom property as a layer makes the whole list invalid'
+        );
+    }
+
+    public static function overlayResolutionProvider(): array
+    {
+        return [
+            'literal colour' => [['_band' => ['background' => [
+                'image' => 42, 'overlay' => 'rgba(0,0,0,0.55)']]]],
+            'site token' => [['_band' => ['background' => [
+                'image' => 42, 'overlay' => '@overlay-bg']]]],
+            'band token' => [[
+                '_tokens' => ['my-scrim' => 'rgba(0,0,0,0.55)'],
+                '_band'   => ['background' => ['image' => 42, 'overlay' => '@my-scrim']]]],
+            'responsive (mints a band token)' => [['_band' => ['background' => [
+                'image' => 42, 'overlay' => ['d' => 'rgba(0,0,0,0.55)', 'p' => 'rgba(0,0,0,0.9)']]]]],
+        ];
+    }
+
+    /**
+     * The image is single-valued and the overlay is not, so a narrower breakpoint
+     * carrying only a scrim has to borrow the base image to lie over. Composed in
+     * isolation it would be dropped as "a scrim over nothing" and the author would
+     * get a desktop-only overlay with no refusal and no finding — the I35 class.
+     */
+    public function testANarrowerOverlayStillLiesOverTheSingleImage(): void
+    {
+        $css = pp_udc_band_css(pp_udc_normalize_band([
+            'component' => 'testimonials', 'id' => 'pp-deadbeef',
+            'udc' => ['_band' => ['background' => [
+                'image'   => 42,
+                'overlay' => ['d' => 'rgba(0,0,0,0.55)', 'p' => 'rgba(0,0,0,0.9)'],
+            ]]],
+        ]));
+        $this->assertStringContainsString('@media (max-width: 767px)', $css);
+        // The phone block carries BOTH layers, not a lone scrim and not nothing.
+        $phone = substr($css, strpos($css, '@media (max-width: 767px)'));
+        $this->assertStringContainsString('linear-gradient(', $phone);
+        $this->assertStringContainsString('url("', $phone);
+    }
+
+    /**
+     * THE url() TOKEN CANNOT BE CLOSED EARLY.
+     *
+     * The engine emits `url("<escaped>")`, so the two characters that would break
+     * out are `)` and `"`. They are neutralised by different halves of the escaper,
+     * and only one of those halves can be asserted by bytes here.
+     *
+     * `)` is pp_esc_image_src()'s OWN step — it percent-encodes it precisely because
+     * esc_url() permits it — so the bytes are the same in the stub and in
+     * production, and they are asserted directly.
+     *
+     * `"` is core esc_url()'s job, and the STUB IS MORE PERMISSIVE THAN CORE:
+     * tests/bootstrap.php implements esc_url as filter_var(FILTER_SANITIZE_URL),
+     * whose allowed set keeps a double quote, while core's allowed-character pass
+     * strips it. Asserting stub bytes here would enshrine a fiction as production
+     * behaviour, which is a trap this repo has been bitten by before. So the quote
+     * is pinned as a DELEGATION — the escaper must route through esc_url — plus the
+     * structural fact that makes the delegation sufficient: the emitted token is
+     * quoted, so `"` is the only remaining break-out character and core owns it.
+     */
+    public function testTheUrlTokenCannotBeClosedEarly(): void
+    {
+        // Same bytes in stub and core: pp_esc_image_src's own transformation.
+        $this->assertStringNotContainsString(')', pp_esc_image_src('https://e.test/a)b.png'));
+        $this->assertStringContainsString('%29', pp_esc_image_src('https://e.test/a)b.png'));
+        // A newline is stripped by both.
+        $this->assertStringNotContainsString("\n", pp_esc_image_src("https://e.test/a\nb.png"));
+
+        // The delegation that owns the quote, pinned at the source rather than by
+        // bytes the stub cannot produce faithfully.
+        $source = file_get_contents(dirname(__DIR__) . '/lib/wp.php');
+        $this->assertIsString($source);
+        $this->assertMatchesRegularExpression(
+            "/return str_replace\('\)', '%29', esc_url\(\\\$url\)\);/",
+            $source,
+            'the CSS-url escaper must stay esc_url() plus the paren step'
+        );
+
+        // And the sink is quoted, which is what limits the break-out set to `"`.
+        $css = pp_udc_band_css($this->band(['image' => 42]));
+        $this->assertMatchesRegularExpression('/url\("[^"]*"\)/', $css);
+    }
+
+    public function testTheOverlayCarrierNeverReachesAnyEmittedCss(): void
+    {
+        foreach ([
+            ['overlay' => 'rgba(0,0,0,0.55)'],
+            ['image' => 42, 'overlay' => 'rgba(0,0,0,0.55)'],
+            ['fill' => '#fff', 'image' => 42, 'overlay' => '#000'],
+        ] as $background) {
+            $this->assertStringNotContainsString(
+                PP_UDC_BACKGROUND_OVERLAY_CARRIER,
+                pp_udc_band_css($this->band($background))
+            );
+        }
+    }
+}

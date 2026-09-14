@@ -48,7 +48,16 @@
  *   @media (min-width: 768px) and (max-width: 1023px) { … }
  *   [data-pp-band="pp-3f9a1c2e"] .t__quote:hover { color: #000; }
  *
- * Every rule is exactly `[data-pp-band="<id>"]` plus the role's selector, so
+ * THREE SCOPES, one shape. A band's authored values scope to its id; a component's
+ * role DEFAULTS scope to `[data-pp-component="<name>"]` and emit once per page; and
+ * SITE CHROME — the nav and footer, which are rendered by the theme on every page
+ * and never composed — scopes to `[data-pp-chrome="<name>"]` and is stored in the
+ * `pp_site_udc` option rather than in a composition:
+ *
+ *   [data-pp-chrome="nav"]                    { background: #101828; }
+ *   [data-pp-chrome="nav"] .nav__menu ul li a { color: #f7f8fa; }
+ *
+ * Every rule is exactly one of those three scopes plus the role's selector, so
  * specificity is flat BY CONSTRUCTION and `!important` is never needed or used.
  * No v2 component emits an inline style attribute.
  *
@@ -264,6 +273,23 @@ function pp_udc_valid_preset_name(string $name): bool {
     return (bool) preg_match('/^[A-Za-z0-9_-]{1,64}$/', $name);
 }
 
+/**
+ * The internal carrier the `background.overlay` param resolves onto.
+ *
+ * NOT A CSS PROPERTY, and deliberately not one. An overlay scrim and a background
+ * image are the SAME CSS property — `background-image` takes a comma-separated
+ * layer list — so two params that both emitted `background-image` would collide in
+ * `$resolved[$state][$bp][$property]` and the second would simply overwrite the
+ * first. Giving the overlay its own carrier lets both resolve independently, carry
+ * their own provenance, and survive the preset/defaults ranking;
+ * _pp_udc_compose_background_layers() then folds the pair into the one declaration
+ * CSS actually accepts. The carrier never reaches a stylesheet.
+ *
+ * The leading `-pp-` cannot collide with a registry property: every real entry in
+ * pp_udc_groups() is a plain CSS property name.
+ */
+const PP_UDC_BACKGROUND_OVERLAY_CARRIER = '-pp-background-overlay';
+
 // ── Registry: groups and parameters ─────────────────────────────────────────
 
 /**
@@ -285,6 +311,16 @@ function pp_udc_valid_preset_name(string $name): bool {
  *               slash syntax and mixed token types that an arity count models
  *               either too weakly or too strictly.
  *   keywords    extra bare keywords this param accepts beyond its type.
+ *   single_valued
+ *               opts OUT of the two dimensions every other param gets for free.
+ *               Responsiveness and states are not opt-in anywhere else here — a
+ *               breakpoint map is accepted for any param and a group map accepts a
+ *               state sub-map — so a param that must stay one value has to say so,
+ *               and BOTH gates enforce it: _pp_udc_validate_param() refuses at write
+ *               and _pp_udc_place() drops at emit, because stored data does not only
+ *               arrive through the write gate. Carried today by `background.image`,
+ *               where ruling A2 places per-breakpoint art direction and per-state
+ *               image swapping out of scope and requires them REFUSED, not ignored.
  */
 function pp_udc_groups(): array {
     static $groups = null;
@@ -354,6 +390,9 @@ function pp_udc_groups(): array {
         'shadow' => ['params' => [
             'box' => $typed('box-shadow', 'shadow'),
         ]],
+        // BACKGROUND. `fill` MUST stay first: it emits the `background`
+        // shorthand, which resets every longhand below it, and
+        // _pp_udc_property_rank() derives emission order from this list.
         'background' => ['params' => [
             // `background` (the shorthand) legitimately takes either a color or
             // a gradient image, which is exactly what the `gradient` type means
@@ -362,6 +401,41 @@ function pp_udc_groups(): array {
             'position' => $typed('background-position', 'position'),
             'size'     => $typed('background-size', 'background-size'),
             'repeat'   => $typed('background-repeat', 'background-repeat'),
+            // IMAGE (Addendum A, ruling A2). The author writes an attachment ID
+            // and NOTHING ELSE — the engine resolves it through WordPress,
+            // verifies the attachment exists and is an image, and builds the
+            // `url()` itself. Author-written `url()` stays banned by
+            // _pp_forbidden_css_construct(); the digits an author sends here
+            // clear that gate trivially and the gate is not weakened.
+            //
+            // `single_valued` is the ruling's exclusions made enforceable rather
+            // than hoped for. Every other param in this taxonomy becomes
+            // responsive and state-able for free — _pp_udc_validate_param()
+            // accepts a breakpoint map for anything, and a group map accepts a
+            // state sub-map — so WITHOUT this flag, adding `image` would have
+            // shipped per-breakpoint art direction and hover-swapped imagery on
+            // day one, both of which ruling A2 places OUT of scope and requires
+            // to be REFUSED rather than silently ignored.
+            'image'    => [
+                'property'      => 'background-image',
+                'type'          => 'attachment_id',
+                'signed'        => false,
+                'max_values'    => 1,
+                'keywords'      => [],
+                'single_valued' => true,
+            ],
+            // OVERLAY. A scrim laid OVER the image in the same `background-image`
+            // layer list, which is how you tint an image without an extra element
+            // — and the UDC has no extra element to give, because a v2 component
+            // emits no markup of the engine's choosing. Typed `gradient` (the
+            // shared colour-OR-gradient union), so it accepts the theme's own
+            // `@overlay-bg` token value, a literal `rgba()`, or a real gradient.
+            //
+            // Resolves onto a carrier rather than onto `background-image`; see
+            // PP_UDC_BACKGROUND_OVERLAY_CARRIER. An overlay with no image emits
+            // NOTHING: a scrim over nothing is a value that validates green and
+            // paints nothing, which is the I19 class.
+            'overlay'  => $typed(PP_UDC_BACKGROUND_OVERLAY_CARRIER, 'gradient'),
         ]],
         'sizing' => ['params' => [
             'width'      => $len('width'),
@@ -756,6 +830,142 @@ function pp_udc_resolve_reference(string $name, array $band_tokens, bool $allow_
     return null;
 }
 
+// ── Background images ───────────────────────────────────────────────────────
+
+/**
+ * THE ONE PREDICATE for "does this background image paint, and as what URL?".
+ *
+ * Returns the CSS-ready, escaped URL for an attachment that exists on this
+ * install and is a displayable image, or null. Null means EXACTLY ONE thing at
+ * every caller: this ID does not resolve to a paintable image right now.
+ *
+ * THREE CALLERS, ONE ANSWER, AND THAT IS THE POINT — the same reason
+ * pp_style_declaration_renders() (lib/wp.php) was extracted and the same reason
+ * _pp_udc_split_preset_by_permitted() has both of its callers go through it:
+ *
+ *   1. the WRITE gate      -> refuses a dangling ID, naming it;
+ *   2. the EMITTER         -> drops the declaration when the attachment is gone;
+ *   3. the PREFLIGHT advisory -> tells the operator which stored ID stopped painting.
+ *
+ * Three hand-rolled copies would be three grammars, and the one that drifted
+ * would either drop an image that was fine or stay silent about one that was not.
+ *
+ * EXISTENCE IS pp_is_image_attachment(), NOT A SECOND RULE. That predicate
+ * (lib/wp.php) is already the repo's canonical attachment check — positive int,
+ * post type `attachment`, and wp_attachment_is_image() — and it is what
+ * pp_logo_id, site_icon, pp_footer_logo_id and pp_og_image are all validated
+ * against. A background image is the same question, so it gets the same answer.
+ *
+ * WHY THE URL IS NOT CHECKED AGAINST home_url(). The ruling says the engine
+ * builds the url() "from the escaped same-install URL", and same-install is
+ * satisfied HERE, by construction: the ID was just proved to be an attachment on
+ * this install, and the URL is WordPress's own answer for it. A host-equality
+ * test on top of that would add no safety — the string is never author input —
+ * while breaking every legitimate setup where WordPress resolves media to
+ * another host: a CDN-backed uploads dir, a domain-mapped multisite, an offloaded
+ * media plugin. Refusing those would be a product defect dressed as a guard.
+ *
+ * ESCAPING IS pp_esc_image_src(), the repo's one CSS-url()-context escaper: it is
+ * esc_url() PLUS the `)` -> `%29` step that exists precisely because esc_url()
+ * permits a literal `)` that would close a url() token early. The result is
+ * emitted QUOTED by the caller, which is the narrower sink again.
+ *
+ * @param  mixed  $id  Whatever was stored. Only a positive-integer-shaped scalar
+ *                     can resolve; everything else is null, never a coercion.
+ * @return string|null Escaped URL, or null when nothing paints.
+ */
+function pp_udc_background_image_url($id): ?string {
+    // REJECT, NEVER COERCE (invariant I34), and the cast is the trap this avoids:
+    // `(int) ['attachment_id' => 42]` and `(int) true` both evaluate to 1, so a
+    // stored array or boolean would silently become "attachment 1". The shape is
+    // checked before the cast, not by it.
+    if (!is_scalar($id) || is_bool($id)) {
+        return null;
+    }
+    $raw = trim((string) $id);
+    if ($raw === '' || !preg_match('/^[0-9]+$/', $raw)) {
+        return null;
+    }
+    $attachment_id = (int) $raw;
+    if (!function_exists('pp_is_image_attachment') || !pp_is_image_attachment($attachment_id)) {
+        return null;
+    }
+    $url = wp_get_attachment_url($attachment_id);
+    // A live attachment whose URL cannot be built is still "does not paint".
+    // wp_get_attachment_url() returns false when the upload dir is unreachable.
+    if (!is_string($url) || $url === '') {
+        return null;
+    }
+    $escaped = pp_esc_image_src($url);
+    return $escaped === '' ? null : $escaped;
+}
+
+/**
+ * Folds the resolved `image` and `overlay` entries into the one CSS declaration
+ * that can express them, and removes the carrier.
+ *
+ * CSS gives an element ONE `background-image`, holding a comma-separated layer
+ * list painted FIRST-LAYER-ON-TOP. So a scrim over a photograph is
+ * `background-image: <scrim>, url(<photo>)` — the overlay first, the image
+ * second. Verified in real Chromium before this was written (a prototype at
+ * three viewports, per the pipeline's mechanism-prototype rule): the scrim
+ * composites over the image, and a single `background-size: cover` applies to
+ * both layers, so the overlay tracks the image exactly with no second knob.
+ *
+ * THE COLOUR CASE NEEDS WRAPPING AND THE GRADIENT CASE DOES NOT. A background
+ * layer must be an <image>; a bare colour is not one. `rgba(0,0,0,.55)` therefore
+ * becomes `linear-gradient(rgba(0,0,0,.55), rgba(0,0,0,.55))` — the standard
+ * flat-scrim idiom — while an overlay the author already wrote as a gradient IS
+ * a layer and is used as-is. Wrapping a gradient in a gradient would be invalid.
+ *
+ * AN OVERLAY WITH NO IMAGE EMITS NOTHING. It is not an error — a band can carry
+ * an overlay whose image was dropped at emit because the attachment was deleted,
+ * and that band should keep painting its `fill`, not grow a mystery scrim over
+ * it. Emitting the scrim alone would be a declaration the author never asked for.
+ */
+function _pp_udc_compose_background_layers(array $declarations): array {
+    if (!array_key_exists(PP_UDC_BACKGROUND_OVERLAY_CARRIER, $declarations)) {
+        return $declarations;
+    }
+    $overlay = $declarations[PP_UDC_BACKGROUND_OVERLAY_CARRIER];
+    unset($declarations[PP_UDC_BACKGROUND_OVERLAY_CARRIER]);
+
+    if (!isset($declarations['background-image'])) {
+        return $declarations; // Scrim over nothing: drop it.
+    }
+
+    // DECIDE FROM THE LITERAL, EMIT THE CSS. The two are different strings whenever
+    // the overlay came through a token, and choosing on the wrong one is a silent
+    // page-breaking bug rather than a cosmetic slip.
+    //
+    // `css` is what reaches the stylesheet; for a token it is `var(--pp-name)` or
+    // `var(--color-x)`. `literal` is the value that token RESOLVES to. Asking
+    // _pp_validate_color() about the css text answers a different question: a BAND
+    // token's `var(--pp-name)` is never in pp_design_tokens(), so the colour check
+    // says no, the wrapper is skipped, and a bare custom property is spliced into a
+    // layer list — `background-image: var(--pp-scrim), url(...)`. A custom property
+    // holding a colour is not an <image>, so the WHOLE list is invalid and the
+    // browser drops the declaration: the scrim and the photograph both disappear.
+    //
+    // That is reachable on a fully supported path, not an exotic one. `overlay` is
+    // deliberately breakpoint-keyable, and ANY responsive value is minted into a band
+    // token by the normalizer — so `{"overlay": {"d": "...", "p": "..."}}` beside an
+    // image hit it every time. The site-token case (`@overlay-bg`) happened to work,
+    // which is exactly why it survived the first round of tests.
+    //
+    // Deciding on the literal wraps correctly and still emits the reference, so the
+    // value keeps following its token: `linear-gradient(var(--pp-scrim),var(--pp-scrim))`.
+    $css     = (string) $overlay['css'];
+    $literal = (string) ($overlay['literal'] ?? $css);
+    $layer   = (function_exists('_pp_validate_color') && _pp_validate_color($literal))
+        ? 'linear-gradient(' . $css . ',' . $css . ')'
+        : $css;
+
+    $declarations['background-image']['css'] =
+        $layer . ',' . $declarations['background-image']['css'];
+    return $declarations;
+}
+
 // ── Value validation ────────────────────────────────────────────────────────
 
 /**
@@ -800,6 +1010,39 @@ function pp_udc_validate_value(string $value, array $param) {
     }
     if (trim($value) === '') {
         return new WP_Error('empty_value', 'Value must not be empty.');
+    }
+
+    // ATTACHMENT IDS ARE NOT CSS, AND MUST NOT REACH THE CSS TYPE SWITCH.
+    //
+    // This branch is ahead of the dispatch below for a concrete reason, not for
+    // tidiness: _pp_validate_token_value() has no `attachment_id` case, and its
+    // default arm is a PERMISSIVE PASS: it has no case for the non-CSS types
+    // ('string', 'bool', 'attachment_id'), so an unrecognised type falls through
+    // accepting anything. Routing `background.image` through it would accept any
+    // string at all, which is the opposite of a referential check.
+    //
+    // The refusal NAMES THE ID, per ruling A2. An author who wrote 41 for 42
+    // needs to see 41 in the message; "invalid value" would send them to the
+    // wrong question.
+    if (($param['type'] ?? '') === 'attachment_id') {
+        $raw = trim($value);
+        if (!preg_match('/^[0-9]+$/', $raw) || (int) $raw <= 0) {
+            return new WP_Error('invalid_udc_value', sprintf(
+                'Value must be a Media Library attachment ID (a positive whole number), got "%s". '
+                . 'Pass the numeric id `import_media` returned, never a URL or a file path — '
+                . 'the engine builds the CSS url() itself.',
+                $raw
+            ));
+        }
+        if (pp_udc_background_image_url($raw) === null) {
+            return new WP_Error('invalid_udc_value', sprintf(
+                'Attachment %d is not a Media Library image on this site, so it cannot be used as a '
+                . 'background. Import the image first (`import_media` returns its attachment_id), '
+                . 'then set that id.',
+                (int) $raw
+            ));
+        }
+        return true;
     }
 
     $max      = $param['max_values'] ?? 1;
@@ -1361,6 +1604,41 @@ function _pp_udc_validate_param(
     }
     $param = $params[$param_name];
 
+    // SINGLE-VALUED PARAMS REFUSE THE TWO DIMENSIONS EVERYTHING ELSE GETS FREE.
+    //
+    // Responsiveness and states are not opt-in anywhere else in this taxonomy:
+    // the branch below accepts a breakpoint map for ANY param, and
+    // _pp_udc_validate_group_map() routes a state sub-map into this function for
+    // any param too. That is right for a colour or a length and wrong for
+    // `background.image`, because ruling A2 places per-breakpoint art direction
+    // OUT of scope — and its exclusions are to be REFUSED, not silently ignored.
+    // Without these two refusals the capability would simply exist, undeclared
+    // and untested, the day the param was added.
+    //
+    // Both refusals name the dimension and say what IS available, so the message
+    // routes an author to the thing that works rather than to a dead end.
+    if (!empty($param['single_valued'])) {
+        if ($state !== '') {
+            return new WP_Error('invalid_prop_value', sprintf(
+                '%s cannot be set per state: one %s applies in every state. '
+                . 'Set it once outside "%s"; `background.overlay`, `fill` and the other background '
+                . 'parameters do vary per state if you need the treatment to change.',
+                $where,
+                $param_name,
+                $state
+            ));
+        }
+        if (is_array($value)) {
+            return new WP_Error('invalid_prop_value', sprintf(
+                '%s cannot be set per breakpoint: one %s applies at every width. '
+                . 'Set a single value; `background.position`, `size` and `repeat` are '
+                . 'breakpoint-keyable and are how you adapt one image to a narrow screen.',
+                $where,
+                $param_name
+            ));
+        }
+    }
+
     if (is_array($value)) {
         if ($value === []) {
             return new WP_Error('invalid_prop_value', $where . ' must carry at least one breakpoint value.');
@@ -1778,6 +2056,30 @@ function pp_udc_compile_band(array $item, string $layer): array {
         }
 
         foreach ($resolved as $state => $by_bp) {
+            // THE IMAGE IS SINGLE-VALUED; THE OVERLAY IS NOT. So an author who sets
+            // one image and a narrower scrim — `{"image": 42, "overlay": {"d": …,
+            // "p": …}}` — resolves the image into the `d` bucket only, and the `p`
+            // bucket holds an overlay with nothing to lie over. Composed bucket by
+            // bucket in isolation, that phone scrim would be dropped as "a scrim over
+            // nothing" and the author would get a desktop-only overlay with no
+            // refusal and no finding: a declared authoring input silently cancelled,
+            // which is the I35 class this engine keeps closing.
+            //
+            // The image applies at every width — that is what single-valued MEANS —
+            // so a narrower bucket composing an overlay borrows it. The borrowed
+            // entry is only a compose input; it is not emitted as its own
+            // declaration, because the base bucket already emits it.
+            $base_image = $by_bp['d']['background-image'] ?? null;
+            if ($base_image !== null) {
+                foreach ($by_bp as $bp => $declarations) {
+                    if ($bp !== 'd'
+                        && isset($declarations[PP_UDC_BACKGROUND_OVERLAY_CARRIER])
+                        && !isset($declarations['background-image'])) {
+                        $by_bp[$bp]['background-image'] = $base_image;
+                    }
+                }
+            }
+
             foreach ($by_bp as $bp => $declarations) {
                 // THE DROP. In the authored layer a declaration whose winner is
                 // a role default is not the band's contribution — it is the
@@ -1792,6 +2094,12 @@ function pp_udc_compile_band(array $item, string $layer): array {
                         static fn(array $entry): bool => $entry['source'] !== 'defaults'
                     );
                 }
+                // ORDER, THEN COMPOSE — and the sequence matters. Sorting first
+                // means the fold below sees the same input whatever order the
+                // author wrote `image` and `overlay` in, so the composed layer
+                // list is deterministic too.
+                $declarations = _pp_udc_sort_declarations($declarations);
+                $declarations = _pp_udc_compose_background_layers($declarations);
                 if ($declarations === []) {
                     continue;
                 }
@@ -1933,6 +2241,92 @@ function _pp_udc_preset_sources(array $map, array $permitted): array {
 }
 
 /**
+ * The emission rank of every CSS property the taxonomy can produce.
+ *
+ * WHY ORDER IS A CORRECTNESS PROPERTY AND NOT A STYLE PREFERENCE. Declarations
+ * used to emit in the order the AUTHOR happened to write their keys, because
+ * pp_udc_compile_band() iterates `$group_map` directly and PHP preserves
+ * insertion order into `$resolved[$state][$bp][$property]`. Three groups carry a
+ * SHORTHAND alongside its own longhands — `spacing` (`padding` / `padding-top`),
+ * `border` (`width` / `width-top`, `style`, `color`, `radius`) and `background`
+ * (`fill`, which emits the `background` shorthand, alongside `position`, `size`,
+ * `repeat` and now `image`) — and a CSS shorthand RESETS every longhand in its
+ * family. So a map whose shorthand key came second silently erased the longhand
+ * the author had just written:
+ *
+ *     {"fill":"#fff","size":"cover"}  ->  background:#fff;background-size:cover;   (both apply)
+ *     {"size":"cover","fill":"#fff"}  ->  background-size:cover;background:#fff;   (size ERASED)
+ *
+ * Same intent, same grammar, two different renderings, decided by key order —
+ * a declared authoring input silently cancelled by another mechanism, which is
+ * exactly what invariant I35 forbids. It was reachable on every band of every v2
+ * component, and nothing on any surface reported it.
+ *
+ * Ranking by the REGISTRY's own declaration order fixes all three groups at once
+ * and needs no per-group special case, because pp_udc_groups() already lists every
+ * shorthand ahead of the longhands it resets. That ordering is therefore load-
+ * bearing: a future param must be declared AFTER any shorthand that would reset
+ * it. UdcDeclarationOrderTest::testEveryShorthandIsDeclaredBeforeItsLonghands
+ * pins the registry itself so this cannot silently regress.
+ *
+ * The second property this buys is DETERMINISM: two maps that differ only in key
+ * order now emit byte-identical CSS, which is what makes an emission diff mean
+ * something.
+ *
+ * @return array<string,int> property => rank
+ */
+function _pp_udc_property_rank(): array {
+    static $rank = null;
+    if ($rank !== null) {
+        return $rank;
+    }
+    $rank = [];
+    $i    = 0;
+    foreach (pp_udc_groups() as $group) {
+        foreach ($group['params'] as $param) {
+            // First declaration wins: no two params share a property today, and
+            // if one ever did, the earlier declaration is the one the registry
+            // order was reasoned about.
+            if (!isset($rank[$param['property']])) {
+                $rank[$param['property']] = $i++;
+            }
+        }
+    }
+    // The overlay's carrier is not a real CSS property and never reaches a
+    // stylesheet (_pp_udc_compose_background_layers folds it away), but it has to
+    // sort somewhere stable or the fold would depend on author key order again.
+    $rank[PP_UDC_BACKGROUND_OVERLAY_CARRIER] = $i;
+    return $rank;
+}
+
+/**
+ * Sorts one (state, breakpoint) declaration set into registry order.
+ *
+ * Applied at the single point where a block is built, so every emission path —
+ * band, chrome, component defaults, the editor preview — inherits it from one
+ * place rather than four.
+ */
+function _pp_udc_sort_declarations(array $declarations): array {
+    // A block of one cannot be out of order, and the overwhelmingly common block IS
+    // one: a role usually sets a colour, or a padding, not eight properties. Skipping
+    // the sort there skips a userland comparison closure per pair on every band of
+    // every request, which is where the measurable cost of this fix lives.
+    if (count($declarations) < 2) {
+        return $declarations;
+    }
+    $rank = _pp_udc_property_rank();
+    uksort($declarations, static function ($a, $b) use ($rank): int {
+        // An unranked property (stored data naming something the registry no
+        // longer declares) sorts last, keeping its relative order stable rather
+        // than jumping ahead of a shorthand it might belong to.
+        $ra = $rank[$a] ?? PHP_INT_MAX;
+        $rb = $rank[$b] ?? PHP_INT_MAX;
+        return $ra === $rb ? strcmp((string) $a, (string) $b) : $ra <=> $rb;
+    });
+    return $declarations;
+}
+
+/**
  * Places one param's value into the resolution table, recording where it came
  * from. A later source (udc) overwrites an earlier one (defaults) at the SAME
  * (state, breakpoint, property) key.
@@ -1957,6 +2351,16 @@ function _pp_udc_place(
         return;
     }
     $property = $params[$param_name]['property'];
+
+    // The emit-time twin of the write gate's single-valued refusal. The write
+    // gate is not the only way data arrives here — a raw meta write, a
+    // composition written before this rule existed, and restore_composition
+    // (which reports findings without blocking, #233) all reach this line
+    // directly — so the dimension the ruling excluded is closed on both sides
+    // rather than on the side that happens to be polite.
+    if (!empty($params[$param_name]['single_valued']) && ($state !== '' || is_array($value))) {
+        return;
+    }
 
     $per_bp = is_array($value) ? $value : ['d' => $value];
     foreach ($per_bp as $bp => $raw) {
@@ -2015,6 +2419,38 @@ function _pp_udc_place(
         // preset.
         if ($source !== 'defaults' && pp_udc_validate_value($literal, $params[$param_name]) !== true) {
             continue;
+        }
+
+        // THE ENGINE BUILDS THE url() HERE, DOWNSTREAM OF BOTH GATES.
+        //
+        // This ordering is the whole security argument for ruling A2, so it is
+        // worth stating plainly. `_pp_forbidden_css_construct()` bans `url(` on
+        // every CSS-value surface and that ban is NOT relaxed — what an author
+        // sends for this parameter is a run of digits, which clears the ban
+        // trivially. The `url()` is assembled only after the injection gate and
+        // the typed grammar have both passed, from a string the author never
+        // supplied: WordPress's own URL for an attachment that
+        // pp_udc_background_image_url() has just proved is a live image on this
+        // install, escaped for CSS-url() context. So the gate still refuses every
+        // author-written url(), and the one url() that does reach a stylesheet
+        // was built by the engine out of an id.
+        //
+        // QUOTED, deliberately: a quoted url token is the narrower sink, and the
+        // prototype confirmed Chromium resolves it identically.
+        //
+        // A NULL HERE IS THE DELETED-ATTACHMENT DEGRADE. The write gate refused a
+        // dangling id, so reaching this line with one means the attachment was
+        // deleted AFTER a valid write. Drop this one declaration — no fatal
+        // (I17), no `url()` of a dead id (I19) — and leave every sibling
+        // declaration on the band painting, exactly as the unresolvable-@ref
+        // branch above does. The operator is told through the preflight advisory
+        // (pp_check_udc_background_images), not left to notice a blank band.
+        if (($params[$param_name]['type'] ?? '') === 'attachment_id') {
+            $url = pp_udc_background_image_url($literal);
+            if ($url === null) {
+                continue;
+            }
+            $css = 'url("' . $url . '")';
         }
 
         // A token counts as REFERENCED only once the declaration that references
@@ -2307,6 +2743,410 @@ function pp_udc_page_authored_css(array $items): string {
         if (is_array($item)) {
             $css .= pp_udc_band_css($item);
         }
+    }
+    return $css;
+}
+
+// ── Chrome: the site-level UDC container (Addendum A, ruling A1) ────────────
+//
+// Chrome is the nav and the footer: rendered once by templates/base.php on EVERY
+// page, never composed (a composition naming them is refused outright with
+// `template_owned_component`). So the one thing a band's `udc` map cannot supply
+// is where chrome's would live — there is no band to hang it on.
+//
+// Ruling A1's answer is a SITE-level container with the identical internal shape:
+//
+//   pp_site_udc = {"_version": 7,
+//                  "nav":    {"_tokens": {...}, "_band": {...}, "link": {...}},
+//                  "footer": {"_tokens": {...}, "_band": {...}}}
+//
+// Each chrome entry is byte-for-byte the shape a band's `udc` is, and it goes
+// through pp_udc_validate_map() — the SAME function, the same grammar, the same
+// presets, states, motion, minting, provenance and refusal codes. There is no
+// second validator and no second grammar anywhere in this section; that is the
+// one-predicate rule (pp_style_declaration_renders(), lib/wp.php) applied to a
+// new surface rather than quietly excepted from it.
+//
+// Emission is `[data-pp-chrome="<name>"]` instead of `[data-pp-band="<id>"]`, and
+// rides the same two-layer cascade as every band: defaults on `pp-base` (before
+// the theme stylesheets), authored on `pp-utilities` (after them).
+
+/** The option holding every chrome component's `udc` map. */
+const PP_SITE_UDC_OPTION = 'pp_site_udc';
+
+/**
+ * The key carrying the CAS baseline INSIDE the map.
+ *
+ * NOT a sibling option, and that is the whole point. Ruling A1 requires chrome
+ * writes to be CAS-covered (invariant I8), and a version kept in a second option
+ * row would need two writes that cannot be made atomic — precisely the torn-write
+ * shape already recorded on pp_update_composition(), where a death between the
+ * content write and the version write leaves the marker certifying content that
+ * is not there and the next writer clears a CAS it should have failed. One row,
+ * one update_option(), one atomic swap of content AND baseline together.
+ *
+ * It lives in the engine-owned `_`-prefixed namespace alongside `_tokens`,
+ * `_band` and `_preset`, so it can never collide with a chrome component name
+ * (those are registry-controlled and carry no underscore).
+ */
+const PP_SITE_UDC_VERSION_KEY = '_version';
+
+/**
+ * Bounds on the stored map, checked BEFORE validation walks it.
+ *
+ * Every other producer spliced into this engine is bounded by a theme constant —
+ * the role list, the group registry, the breakpoint set. This one is bounded by
+ * whatever an author sent, and it is autoloaded on every request, so it needs its
+ * own ceiling in the same spirit as PP_FOOTER_SOCIAL_MAX. The depth cap matters
+ * independently of the byte cap: json_decode() on deeply nested input can exhaust
+ * the stack before any rule of ours runs.
+ *
+ * 64 KB is roughly thirty times the largest realistic chrome map; the cap is there
+ * to stop abuse, not to ration design. Depth 8 is the deepest LEGAL shape plus
+ * one: top -> chrome -> role -> group -> param -> state -> breakpoint is seven.
+ */
+const PP_SITE_UDC_MAX_BYTES = 65536;
+const PP_SITE_UDC_MAX_DEPTH = 8;
+
+/**
+ * The chrome components, derived from the template-owned list rather than retyped.
+ *
+ * ONE LIST, TWO READERS. pp_template_owned_components() already decides which
+ * components the composition validator REFUSES; this decides which ones the site
+ * container ACCEPTS. Those two sets are the same set by definition — a component
+ * is chrome exactly when it is rendered by the template and not composable — and
+ * writing the names twice would let them drift into a component that is refused
+ * by both surfaces, or accepted by both.
+ */
+function pp_udc_chrome_names(): array {
+    if (!function_exists('pp_template_owned_components')) {
+        return [];
+    }
+    $names = pp_template_owned_components();
+    return is_array($names) ? array_values(array_filter($names, 'is_string')) : [];
+}
+
+/** True when `$name` is a chrome component the site container may carry. */
+function pp_udc_is_chrome(string $name): bool {
+    // DELEGATES RATHER THAN RE-ASKS. pp_is_template_owned_component() already owns
+    // this membership test, and its docblock says why it was named: "so the rule
+    // reads the same at each call site and there is one place to change if the list
+    // ever stops being a flat array of names". A second in_array() here would be a
+    // second place, and the two could already disagree — pp_udc_chrome_names()
+    // filters non-strings out and a raw in_array() would not.
+    return function_exists('pp_is_template_owned_component')
+        && pp_is_template_owned_component($name);
+}
+
+/**
+ * The stored chrome container, read FAIL-CLOSED.
+ *
+ * Returns `['version' => int, 'chrome' => [name => map]]`. A row that is absent,
+ * unparseable, or not an object resolves to version 0 and NO chrome styling —
+ * never to a partial map, and never to a fatal.
+ *
+ * Both halves of that are invariants rather than taste. I9: a failed read is never
+ * mapped to a valid answer, so a corrupt row must not read as "the author styled
+ * nothing", which is indistinguishable from a clean empty site and would let the
+ * next write clobber a map that was merely unreadable — the version it reports is
+ * 0, which no real write can have produced, so a caller holding a real baseline
+ * gets a conflict rather than a silent overwrite. I17: no surface fatals on stored
+ * data, and this one is read on EVERY front-end request, so a TypeError here is a
+ * white screen on every page of the site rather than a broken band.
+ *
+ * `json_decode` returning null is ambiguous between "invalid JSON" and "the string
+ * was literally `null`"; both are corrupt for this option, so the ambiguity does
+ * not need resolving — but the shape check is what decides, not the null.
+ */
+function pp_udc_site_map(): array {
+    $raw = get_option(PP_SITE_UDC_OPTION, '');
+    if (!is_string($raw)) {
+        $raw = '';
+    }
+
+    // DECODE ONCE PER REQUEST, keyed on the stored bytes.
+    //
+    // Chrome CSS is built on every front-end request and the option is read by the
+    // defaults tier, the authored tier and each chrome component's compile — four
+    // reads of the same row, four json_decodes, for one page. Keying the cache on
+    // the RAW STRING rather than on "have I run yet" is what keeps it honest: a
+    // write during the same request changes the bytes and the cache misses, so this
+    // can never serve a stale map back to the code that just wrote one.
+    //
+    // NOTE FOR THE WRITE PATH: this reads through get_option(), which serves an
+    // autoloaded row from the request-local options cache. That is right for
+    // rendering and WRONG for a compare-and-swap, which needs to see a concurrent
+    // process's just-committed value. The CAS uses _pp_read_site_udc_locked()
+    // instead; see its docblock.
+    static $cached_raw = null;
+    static $cached     = null;
+    if ($cached_raw === $raw && $cached !== null) {
+        return $cached;
+    }
+    $cached_raw = $raw;
+    $cached     = pp_udc_parse_site_map($raw);
+    return $cached;
+}
+
+/**
+ * THE ONE GRAMMAR for "what is in this option row?", given its raw bytes.
+ *
+ * Extracted from pp_udc_site_map() when the CAS needed a cache-bypassing read
+ * (_pp_read_site_udc_locked). Two readers, one parse: a second hand-rolled copy
+ * would be a second set of rules about what counts as corrupt, and the one that
+ * drifted would either refuse writes on a readable row or accept them on an
+ * unreadable one.
+ *
+ * Returns `['version' => int, 'chrome' => [name => map], 'corrupt' => bool]`.
+ *
+ * ABSENT AND CORRUPT ARE DIFFERENT ANSWERS, and conflating them is a data-loss bug
+ * rather than a tidiness one. Both yield NO chrome styling — that part is the same
+ * — but a caller holding a CAS baseline must be able to tell "nothing was ever
+ * written here, version 0" from "something is written here and I could not read
+ * it". Reporting the second as the first lets a write with `expected_version: 0`
+ * pass the compare and overwrite bytes the operator would want back. That is
+ * invariant I9's "a failed read is never mapped to a valid answer", and the valid
+ * answer it was being mapped to was the empty site.
+ */
+function pp_udc_parse_site_map(string $raw): array {
+    $empty = ['version' => 0, 'chrome' => [], 'corrupt' => false];
+    if (trim($raw) === '') {
+        return $empty;
+    }
+    if (strlen($raw) > PP_SITE_UDC_MAX_BYTES) {
+        return ['version' => 0, 'chrome' => [], 'corrupt' => true];
+    }
+
+    $decoded = json_decode($raw, true, PP_SITE_UDC_MAX_DEPTH);
+    // CORRUPT IS A STATEMENT ABOUT THE CONTAINER, NOT ITS MEMBERS, and the line is
+    // drawn there on purpose. Unparseable, or parsed into something that is not a
+    // JSON OBJECT (a list, a scalar, null) means the row is not the kind of thing
+    // this option holds, so the `_version` in it — if any — cannot be trusted and no
+    // baseline may be checked against it. A well-formed object whose individual
+    // chrome entries are junk is a DIFFERENT case: the container read fine, the
+    // version is real, and the junk member simply contributes no styling. Treating
+    // that as corrupt would refuse baselined writes on a row the engine can read
+    // perfectly well.
+    if (!is_array($decoded)
+        || json_last_error() !== JSON_ERROR_NONE
+        || (function_exists('pp_is_list') && pp_is_list($decoded) && $decoded !== [])) {
+        return ['version' => 0, 'chrome' => [], 'corrupt' => true];
+    }
+
+    $out = ['version' => 0, 'chrome' => [], 'corrupt' => false];
+    if (isset($decoded[PP_SITE_UDC_VERSION_KEY]) && is_scalar($decoded[PP_SITE_UDC_VERSION_KEY])) {
+        $version = (string) $decoded[PP_SITE_UDC_VERSION_KEY];
+        // Reject, never coerce: a non-numeric version is a corrupt marker, and
+        // reading it as 0 would hand a caller a baseline the store never issued.
+        $out['version'] = preg_match('/^[0-9]+$/', $version) ? (int) $version : 0;
+    }
+    foreach (pp_udc_chrome_names() as $name) {
+        if (isset($decoded[$name]) && is_array($decoded[$name])) {
+            $out['chrome'][$name] = $decoded[$name];
+        }
+    }
+    return $out;
+}
+
+/**
+ * Validates the whole chrome container, as submitted.
+ *
+ * Runs the shape rules this container owns — the ones about which KEYS may
+ * appear — and then hands every chrome entry to pp_udc_validate_map(), which owns
+ * everything about what is INSIDE one. That split is deliberate: the container is
+ * new, the contents are not, and re-implementing "is this a legal udc map" here
+ * would be the forked validator the one-predicate rule forbids.
+ *
+ * AN UNKNOWN TOP-LEVEL KEY IS REFUSED, NOT IGNORED, and that is what satisfies
+ * ruling A1's out-of-scope clause. Per-page chrome overrides are a future ruling;
+ * the shape someone would reach for is a page id or a `pages` block beside `nav`,
+ * and if this accepted-and-dropped it, the author would be told the write
+ * succeeded and get nothing — the reported-success-without-effect class I35
+ * forbids. So anything that is not `_version` or a known chrome name refuses, and
+ * the message says per-page chrome is not available rather than leaving the author
+ * to guess whether they misspelled `footer`.
+ *
+ * @param  mixed $decoded The decoded container.
+ * @return WP_Error|null
+ */
+function pp_udc_validate_site_map($decoded): ?WP_Error {
+    if (!is_array($decoded) || $decoded === []) {
+        return new WP_Error('invalid_option_value', sprintf(
+            'Option "%s" must be a JSON object of chrome components (%s), each holding a udc map.',
+            PP_SITE_UDC_OPTION,
+            implode(', ', pp_udc_chrome_names()) ?: '(none registered)'
+        ));
+    }
+
+    $names = pp_udc_chrome_names();
+    foreach ($decoded as $key => $value) {
+        $key = (string) $key;
+        if ($key === PP_SITE_UDC_VERSION_KEY) {
+            // ACCEPTED AND THEN IGNORED, deliberately, and the caller is told so.
+            //
+            // The natural way to edit chrome is read-modify-write: fetch the option,
+            // change one role, send the whole object back. That round trip carries
+            // the `_version` the engine wrote, so REFUSING it here would break the
+            // obvious workflow to protect a field nobody sets by hand. It is
+            // validated for shape and then replaced with current+1 on write.
+            //
+            // THE BASELINE IS THE `expected_version` PARAM, NOT THIS. A caller who
+            // believes otherwise gets no concurrency protection at all while
+            // thinking they have it, so the message says which one is load-bearing.
+            if (!is_scalar($value) || !preg_match('/^[0-9]+$/', (string) $value)) {
+                return new WP_Error('invalid_option_value', sprintf(
+                    'Option "%s" key "%s" must be a whole number. The engine maintains it, and a value you '
+                    . 'send here is ignored — pass the baseline as the action\'s `expected_version` param '
+                    . 'if you want the write checked for conflicts.',
+                    PP_SITE_UDC_OPTION,
+                    PP_SITE_UDC_VERSION_KEY
+                ));
+            }
+            continue;
+        }
+        if (!in_array($key, $names, true)) {
+            return new WP_Error('invalid_option_value', sprintf(
+                'Option "%s" has no chrome component "%s". Available: %s. '
+                . 'Chrome styling is site-wide: there is no per-page chrome override, so a page id or '
+                . 'slug is not a valid key here. Style a single page through its bands instead.',
+                PP_SITE_UDC_OPTION,
+                $key,
+                implode(', ', $names) ?: '(none registered)'
+            ));
+        }
+        if (!is_array($value)) {
+            return new WP_Error('invalid_option_value', sprintf(
+                'Option "%s" chrome component "%s" must be an object of roles; got %s.',
+                PP_SITE_UDC_OPTION,
+                $key,
+                function_exists('_pp_schema_value_for_message') ? _pp_schema_value_for_message($value) : gettype($value)
+            ));
+        }
+        // THE SAME ENGINE. Not a chrome-flavoured copy of it.
+        $error = pp_udc_validate_map($value, $key);
+        if ($error !== null) {
+            // THE INNER CODE TRAVELS. Flattening every engine refusal into
+            // `invalid_option_value` would mean the SAME authoring mistake reports
+            // `unknown_udc_role` on a band and something else on chrome — on a
+            // surface whose whole claim is that it is validated by the same engine
+            // and the same grammar. The message already names the exact place; the
+            // code is the half a caller can branch on.
+            return new WP_Error(
+                $error->get_error_code(),
+                sprintf('Option "%s": %s', PP_SITE_UDC_OPTION, $error->get_error_message())
+            );
+        }
+    }
+    return null;
+}
+
+/**
+ * Normalizes a submitted container for storage: mints responsive values and sets
+ * the next CAS baseline.
+ *
+ * Minting goes through pp_udc_normalize_band() — the band normalizer, unchanged —
+ * by wrapping each chrome entry in the item shape it expects. Chrome therefore
+ * mints identical names to a band and the `udc_token_minted` disclosure means the
+ * same thing on both surfaces.
+ */
+function pp_udc_normalize_site_map(array $decoded, int $next_version): array {
+    $out = [PP_SITE_UDC_VERSION_KEY => $next_version];
+    foreach (pp_udc_chrome_names() as $name) {
+        if (!isset($decoded[$name]) || !is_array($decoded[$name])) {
+            continue;
+        }
+        $item = pp_udc_normalize_band(['component' => $name, 'udc' => $decoded[$name]]);
+        $out[$name] = isset($item['udc']) && is_array($item['udc']) ? $item['udc'] : $decoded[$name];
+    }
+    return $out;
+}
+
+/**
+ * One chrome component's CSS for one layer.
+ *
+ * Compiles through pp_udc_compile_band() — the same compiler, same cascade rung,
+ * same provenance — with the chrome NAME standing where a band id would. That is
+ * not a fabricated id: it is a registry constant, stable across every read, and it
+ * satisfies pp_udc_valid_band_id()'s charset, which is what the compiler gates on.
+ * The scope selector is the only thing that differs from a band.
+ *
+ * The defaults layer keeps the `:where()` root treatment bands get, so a chrome
+ * role default can never outrank the structural stylesheet it sits under.
+ */
+function pp_udc_chrome_css(string $name, string $layer): string {
+    if (!pp_udc_is_chrome($name)) {
+        return '';
+    }
+    // Second-layer gate on a value that becomes CSS SOURCE TEXT, mirroring the one
+    // pp_udc_compile_band() applies to a role selector and for the same stated
+    // reason: the registry is repo-controlled and integrity-checked, but this string
+    // is interpolated into a selector, and the cost of checking is a regex. The
+    // charset is the band-id charset, which every chrome name satisfies.
+    if (!pp_udc_valid_band_id($name)) {
+        return '';
+    }
+    $udc = [];
+    if ($layer !== 'defaults') {
+        $site = pp_udc_site_map();
+        $udc  = $site['chrome'][$name] ?? [];
+        if ($udc === []) {
+            return '';
+        }
+    }
+    $compiled = pp_udc_compile_band(
+        ['component' => $name, 'id' => $name, 'udc' => $udc],
+        $layer
+    );
+    if ($compiled['id'] === '') {
+        return '';
+    }
+    $scope = '[data-pp-chrome="' . $name . '"]';
+    return $layer === 'defaults'
+        ? _pp_udc_render_blocks($compiled, $scope, ':where(' . $scope . ')')
+        : _pp_udc_render_blocks($compiled, $scope);
+}
+
+/**
+ * Layer 1 for chrome: role defaults, emitted once per page.
+ *
+ * SHORT-CIRCUITS BEFORE THE COMPONENT REGISTRY IS WARMED when no chrome entry is
+ * stored, which is the overwhelmingly common case and the one that must cost
+ * nothing.
+ *
+ * THAT GATE HAS A BEHAVIOURAL CONSEQUENCE, not only a cost one, and it differs from
+ * the band path on purpose: pp_udc_page_defaults_css() emits a component's role
+ * defaults whether or not any band authored anything, while this emits chrome role
+ * defaults ONLY when a chrome entry is stored. It is inert today because nav and
+ * footer declare ZERO role defaults — ruling A1 as issued keeps chrome's resting
+ * appearance in components.css — and ChromeUdcTest pins that they stay empty. The
+ * first person to add a chrome role default will find it silently absent on every
+ * unstyled site, so this gate has to go at the same time. Chrome renders on every request — including 404 and search, where no
+ * composition exists at all — so unlike the band layers this cannot lean on a
+ * page lookup to stay off the hot path. Asking for the registry here would make
+ * every request on an unstyled site pay a scandir plus twelve schema reads to
+ * produce no CSS.
+ */
+function pp_udc_chrome_defaults_css(): string {
+    $site = pp_udc_site_map();
+    if ($site['chrome'] === []) {
+        return '';
+    }
+    $css = '';
+    foreach (array_keys($site['chrome']) as $name) {
+        $css .= pp_udc_chrome_css((string) $name, 'defaults');
+    }
+    return $css;
+}
+
+/** Layer 2 for chrome: the authored values, printed after the theme stylesheets. */
+function pp_udc_chrome_authored_css(): string {
+    $site = pp_udc_site_map();
+    if ($site['chrome'] === []) {
+        return '';
+    }
+    $css = '';
+    foreach (array_keys($site['chrome']) as $name) {
+        $css .= pp_udc_chrome_css((string) $name, 'authored');
     }
     return $css;
 }
