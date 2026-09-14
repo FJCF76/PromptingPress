@@ -286,10 +286,9 @@ class CliSchemaCommandTest extends TestCase
 
         // Empty because nav declares NO `styling.style_slots` and NO `styling.recipes`
         // key at all — not because its styling surface is empty. Its actual surface is
-        // `styling.chrome_custom_properties`, which #688 scoped out of this report (see
-        // pp_component_schema_report()'s "what it deliberately does not emit"). Pinned
-        // with the reason attached so the empty list is never read as "nav has no
-        // styling contract".
+        // its UDC ROLES, reported through the roles projection rather than the
+        // style-slot one. Pinned with the reason attached so the empty list is never
+        // read as "nav has no styling contract".
         $this->assertSame([], $report['style_slots']);
         $this->assertSame([], $report['recipes']);
         $this->assertArrayNotHasKey(
@@ -297,7 +296,8 @@ class CliSchemaCommandTest extends TestCase
             $this->shippedSchema('nav')['styling'],
             'the emptiness comes from the schema, not from the projection'
         );
-        $this->assertNotEmpty($this->shippedSchema('nav')['styling']['chrome_custom_properties']);
+        $this->assertNotEmpty($this->shippedSchema('nav')['roles'], 'nav\'s styling surface is its roles');
+        $this->assertNotEmpty($report['roles'] ?? [], 'and the report must carry them');
     }
 
     public function testComponentWithoutRecipesReportsAnEmptyList(): void

@@ -197,6 +197,33 @@ final class PreviewCascadeParityTest extends TestCase
             $source,
             'the authored layer must ride pp-utilities, which prints after every stylesheet'
         );
+
+        // CHROME RIDES THE SAME TWO HANDLES, so it belongs in the same pin.
+        //
+        // Ruling A1 puts site chrome on this engine, and its two tiers attach to the
+        // same handles for the same reason. Without these two assertions, swapping
+        // $pp_chrome_authored onto `pp-base` would print authored chrome BEFORE
+        // components.css — so every authored chrome value would silently lose to the
+        // stylesheet it is supposed to override — and the entire suite would stay
+        // green, because nothing else reads this wiring.
+        $this->assertMatchesRegularExpression(
+            '/wp_add_inline_style\(\s*[\'"]pp-base[\'"],\s*\$pp_chrome_defaults/',
+            $source,
+            'the chrome defaults tier must ride pp-base, which prints before components.css'
+        );
+        $this->assertMatchesRegularExpression(
+            '/wp_add_inline_style\(\s*[\'"]pp-utilities[\'"],\s*\$pp_chrome_authored/',
+            $source,
+            'authored chrome must ride pp-utilities, or it loses to the stylesheet it overrides'
+        );
+
+        // AND IT IS NOT GATED ON THE COMPOSITION. Chrome renders on every page,
+        // including 404 and search, where pp_udc_current_composition() answers [].
+        $this->assertMatchesRegularExpression(
+            '/\$pp_chrome_authored\s*=\s*pp_udc_chrome_authored_css\(\s*\)/',
+            $source,
+            'chrome CSS must be built from the option, not from the page composition'
+        );
     }
 
     /**

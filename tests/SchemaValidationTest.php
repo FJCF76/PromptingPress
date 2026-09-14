@@ -3920,6 +3920,24 @@ class SchemaValidationTest extends TestCase
             . "roles' `typography.align`, and their `spacing.margin-left`/`margin-right` "
             . 'set to `auto` to centre the block.',
         ],
+        // ── v2 Sprint 1 (#976): chrome joins the Universal Design Contract ──
+        //
+        // Six colour options and their three props per component are GONE, not renamed.
+        // Keeping them beside chrome `udc` would be two mechanisms reaching one outcome,
+        // which invariant I35 forbids and the pivot's "one styling system" directive
+        // rules out — and the UDC value would have won anyway, silently, because it
+        // outranks an inline custom property. Recorded here rather than dropped from the
+        // baseline because a removal is a documented breaking change (invariant I36).
+        'nav' => [
+            'bg'         => 'REMOVED in v2 (#976, Addendum A ruling A1). Chrome styling moved off props and off the pp_header_* colour site options onto the `nav` entry of the pp_site_udc container, which reaches every role the schema declares instead of a single background colour. There is no migration: the v2 pivot is fresh-build by directive, and a value stored under the old option is simply not read.',
+            'text'       => 'REMOVED in v2 (#976, Addendum A ruling A1). Chrome styling moved off props and off the pp_header_* colour site options onto the `nav` entry of the pp_site_udc container, which reaches every role the schema declares instead of the wordmark and the toggle. There is no migration: the v2 pivot is fresh-build by directive, and a value stored under the old option is simply not read.',
+            'link_color' => 'REMOVED in v2 (#976, Addendum A ruling A1). Chrome styling moved off props and off the pp_header_* colour site options onto the `nav` entry of the pp_site_udc container, which reaches every role the schema declares instead of resting and active link colour. There is no migration: the v2 pivot is fresh-build by directive, and a value stored under the old option is simply not read.',
+        ],
+        'footer' => [
+            'bg'         => 'REMOVED in v2 (#976, Addendum A ruling A1). Chrome styling moved off props and off the pp_footer_* colour site options onto the `footer` entry of the pp_site_udc container, which reaches every role the schema declares instead of a single background colour. There is no migration: the v2 pivot is fresh-build by directive, and a value stored under the old option is simply not read.',
+            'text'       => 'REMOVED in v2 (#976, Addendum A ruling A1). Chrome styling moved off props and off the pp_footer_* colour site options onto the `footer` entry of the pp_site_udc container, which reaches every role the schema declares instead of every non-link text surface at once. There is no migration: the v2 pivot is fresh-build by directive, and a value stored under the old option is simply not read.',
+            'link_color' => 'REMOVED in v2 (#976, Addendum A ruling A1). Chrome styling moved off props and off the pp_footer_* colour site options onto the `footer` entry of the pp_site_udc container, which reaches every role the schema declares instead of every link surface at once. There is no migration: the v2 pivot is fresh-build by directive, and a value stored under the old option is simply not read.',
+        ],
     ];
 
     /**

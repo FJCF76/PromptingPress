@@ -212,133 +212,116 @@ class ChromeAuthoringSurfaceTest extends TestCase
     //  A-21 — the chrome custom properties disclose their real reach
     // ══════════════════════════════════════════════════════════════════════
 
-    public function testHeaderBgDisclosesBothMenuPanelsAndTheirDifferentFallbacks(): void
+    /**
+     * A-21, REPRICED BY RULING A1 — the over-reach it documented is gone, because
+     * the mechanism that caused it is gone.
+     *
+     * The four disclosure tests that used to live here pinned prose warning an
+     * operator that one chrome option silently painted more than its name said:
+     * `--header-bg` also filled two menu panels (with two DIFFERENT fallbacks),
+     * `--footer-text` also coloured headings and the bottom-bar note,
+     * `--footer-link-color` also coloured the contact block's mailto:/tel: links.
+     * Six colours reaching sixteen surfaces, and the only fix available then was to
+     * write the coupling down.
+     *
+     * Every one of those surfaces is now its OWN declared role with its OWN
+     * selector, so the reach is not documented — it is DECLARED, and the schema is
+     * the disclosure. This test is the replacement invariant: the specific surfaces
+     * that used to be silently coupled must each be separately addressable, or the
+     * coupling is back under a new name.
+     */
+    public function testEverySurfaceTheOldChromeOptionsSilentlyCoupledIsNowItsOwnRole(): void
     {
-        $description = (string) $this->schema('nav')['props']['bg']['description'];
+        $expected = [
+            'nav' => [
+                'menu'         => '.nav__menu',        // the mobile disclosure panel
+                'submenu'      => '.nav__menu .sub-menu', // the desktop dropdown, once the same knob
+                'link'         => '.nav__menu ul li a',
+                'link-current' => '.nav__menu ul li.current-menu-item a',
+                'logo'         => '.nav__logo',
+                'toggle'       => '.nav__toggle',
+            ],
+            'footer' => [
+                'heading'      => '.site-footer__heading',
+                'note'         => '.site-footer__note',
+                'copyright'    => '.site-footer__copyright',
+                'address-link' => '.site-footer__address a',
+                'social-link'  => '.site-footer__social-link',
+                'link'         => '.site-footer__nav ul li a',
+            ],
+        ];
 
-        foreach (['mobile', 'dropdown'] as $panel) {
-            $this->assertStringContainsString(
-                $panel,
-                strtolower($description),
-                "--header-bg also paints the {$panel} panel; the schema must say so (issue 582)."
-            );
-        }
-        // The two panels fall back DIFFERENTLY when the option is unset. That is the
-        // part nobody could have guessed from the name.
-        $this->assertStringContainsString('--color-bg', $description);
-        $this->assertStringContainsString('--color-surface', $description);
-
-        // And the fact itself must still be true in the CSS. Whitespace-tolerant so a
-        // reformat cannot red the suite without a behaviour change.
-        $this->assertMatchesRegularExpression(
-            '/background:\s*var\(\s*--header-bg\s*,\s*var\(\s*--color-bg\s*\)\s*\)/',
-            $this->css()
-        );
-        $this->assertMatchesRegularExpression(
-            '/background:\s*var\(\s*--header-bg\s*,\s*var\(\s*--color-surface\s*\)\s*\)/',
-            $this->css()
-        );
-    }
-
-    public function testHeaderLinkColorDisclosesItsRestingFallbackNotOnlyTheActiveOne(): void
-    {
-        $description = (string) $this->schema('nav')['props']['link_color']['description'];
-
-        // Only the active-link half was documented; the resting half falls back to
-        // --color-text and was invisible.
-        $this->assertStringContainsString('--color-text', $description);
-        $this->assertStringContainsString('--color-accent', $description);
-        $this->assertMatchesRegularExpression(
-            '/color:\s*var\(\s*--header-link-color\s*,\s*var\(\s*--color-text\s*\)\s*\)/',
-            $this->css()
-        );
-    }
-
-    public function testFooterTextDisclosesTheHeadingAndNoteSurfaces(): void
-    {
-        $description = (string) $this->schema('footer')['props']['text']['description'];
-
-        $this->assertStringContainsString('heading', strtolower($description));
-        $this->assertStringContainsString('note', strtolower($description));
-        // True in the CSS: both surfaces route --footer-text.
-        $this->assertMatchesRegularExpression(
-            '/\.site-footer__heading\s*\{[^}]*var\(--footer-text/s',
-            $this->css()
-        );
-        $this->assertMatchesRegularExpression(
-            '/\.site-footer__note\s*\{[^}]*var\(--footer-text/s',
-            $this->css()
-        );
-    }
-
-    public function testFooterLinkColorDisclosesTheContactBlockLinks(): void
-    {
-        $description = (string) $this->schema('footer')['props']['link_color']['description'];
-
-        $this->assertStringContainsString('contact', strtolower($description));
-        $this->assertMatchesRegularExpression(
-            '/\.site-footer__address a\s*\{[^}]*var\(--footer-link-color/s',
-            $this->css()
-        );
-    }
-
-    public function testHoverIsDisclosedAsUnreachableOnBothChromeComponents(): void
-    {
-        // Six surfaces hover to the global --color-accent and NONE of them is
-        // reachable from a chrome option. Documented for nav links only before this.
-        $nav    = json_encode($this->schema('nav')['props']);
-        $footer = json_encode($this->schema('footer')['props']);
-
-        foreach ([['nav', $nav], ['footer', $footer]] as [$name, $blob]) {
-            $this->assertMatchesRegularExpression(
-                '/hover/i',
-                $blob,
-                "{$name}'s schema must disclose that hover is pinned to the global accent."
-            );
-            $this->assertStringContainsString(
-                'update_design_token',
-                $blob,
-                "{$name}'s schema must name the ONLY surface that can change the hover colour: "
-                . 'the global accent design token. Giving chrome a hover option would mean '
-                . 'giving chrome a style slot, which #223 rules out.'
-            );
-        }
-
-        // The pins are only worth anything while the CSS still does this.
-        $css = $this->css();
-        foreach ([
-            '.nav__logo:hover',
-            '.nav__toggle:hover',
-            // The nav LINK hover is the surface nav/schema.json's link_color
-            // description makes its "hover keeps --color-accent" claim about, so it
-            // is the one that most needs pinning — it was the omission this suite's
-            // own comment ("six surfaces") did not cover.
-            '.nav__menu ul li a:hover',
-            '.site-footer__nav ul li a:hover',
-            '.site-footer__address a:hover',
-            '.site-footer__social-link:hover',
-        ] as $selector) {
-            $this->assertMatchesRegularExpression(
-                '/' . preg_quote($selector, '/') . '\s*\{[^}]*var\(--color-accent\)/s',
-                $css,
-                "{$selector} is documented as hovering to the global accent."
-            );
+        foreach ($expected as $component => $roles) {
+            $declared = pp_udc_component_roles($component);
+            foreach ($roles as $role => $selector) {
+                $this->assertArrayHasKey(
+                    $role,
+                    $declared,
+                    "{$component}.{$role} used to be reachable only as a side effect of another "
+                    . 'option; it must be its own role now, not unreachable.'
+                );
+                $this->assertSame(
+                    $selector,
+                    $declared[$role]['selector'] ?? '',
+                    "{$component}.{$role} must target the element it claims to"
+                );
+            }
         }
     }
+
+    /**
+     * HOVER IS REACHABLE NOW, and this test is the inverse of the one it replaces.
+     *
+     * The old test pinned the DISCLOSURE that hover was pinned to the global accent
+     * on six chrome surfaces and reachable from none of them — an honest statement of
+     * a real limitation, because a chrome option could only ever be a resting colour.
+     * Ruling A3 gave the engine `:hover` / `:focus-visible` / `:active` as value
+     * dimensions and ruling A1 put chrome on that engine, so the limitation is gone.
+     * Asserting the old disclosure would now pin a lie.
+     */
+    public function testChromeStatesAreReachableThroughTheEngine(): void
+    {
+        $states = array_keys(pp_udc_states());
+        foreach ([':hover', ':focus-visible', ':active'] as $state) {
+            $this->assertContains($state, $states);
+        }
+
+        // And it actually paints: a hover colour on a nav link reaches the stylesheet.
+        $GLOBALS['_pp_test_store']['options'][PP_SITE_UDC_OPTION] = (string) wp_json_encode([
+            '_version' => 1,
+            'nav' => ['link' => ['typography' => [':hover' => ['color' => '#ffd43b']]]],
+        ]);
+        $this->assertStringContainsString(
+            '[data-pp-chrome="nav"] .nav__menu ul li a:hover{color:#ffd43b;}',
+            pp_udc_chrome_authored_css()
+        );
+    }
+
+
+
+
+
 
     public function testBothREADMEsCarryTheReachTable(): void
     {
         // The READMEs are where a human looks. Each must carry the same disclosure
         // the schema does, or the two surfaces drift and the schema wins silently.
-        $this->assertStringContainsString('--header-bg', $this->readme('nav'));
-        $this->assertStringContainsString('--header-link-color', $this->readme('nav'));
-        $this->assertStringContainsString('--footer-text', $this->readme('footer'));
-        $this->assertStringContainsString('--footer-link-color', $this->readme('footer'));
+        // The READMEs are where a human looks, so each must list the roles its
+        // schema declares — the drift this guards is a README describing a styling
+        // surface the component no longer has.
         foreach (['nav', 'footer'] as $component) {
-            $this->assertMatchesRegularExpression(
-                '/hover/i',
-                $this->readme($component),
-                "{$component}/README.md must disclose the unreachable hover colour."
+            $readme = $this->readme($component);
+            foreach (array_keys(pp_udc_component_roles($component)) as $role) {
+                $this->assertStringContainsString(
+                    $role,
+                    $readme,
+                    "{$component}/README.md must name the `{$role}` role"
+                );
+            }
+            $this->assertStringContainsString(
+                'pp_site_udc',
+                $readme,
+                "{$component}/README.md must name the option its styling actually comes from"
             );
         }
     }
@@ -372,7 +355,7 @@ class ChromeAuthoringSurfaceTest extends TestCase
         $this->assertStringContainsString('582', $comment);
         // The panel is PARTLY token-reachable already; say so, or the next reader
         // concludes the whole panel is off-limits to authoring.
-        $this->assertStringContainsString('--header-bg', $comment);
+        $this->assertStringContainsString('`menu` UDC role', $comment);
         $this->assertStringContainsString('--radius', $comment);
 
         // Pin the OTHER half of the claim too. Asserting only that the comment names
@@ -381,7 +364,7 @@ class ChromeAuthoringSurfaceTest extends TestCase
         // silently lies while this test stays green. Assert the rule body agrees.
         $rule = $this->cssRuleBody('.nav__menu .sub-menu');
         $this->assertNotNull($rule, '.nav__menu .sub-menu rule missing from components.css');
-        $this->assertStringContainsString('var(--header-bg', $rule);
+        $this->assertStringContainsString('var(--color-surface', $rule);
         $this->assertStringContainsString('var(--radius', $rule);
     }
 
@@ -424,10 +407,21 @@ class ChromeAuthoringSurfaceTest extends TestCase
                 . "the {$component}'s custom properties reach must never become a reason to "
                 . 'declare one.'
             );
+            // The honest home for chrome's styling surface is now its ROLES, and
+            // chrome_custom_properties is gone with the options that filled it.
+            $this->assertArrayNotHasKey(
+                'chrome_custom_properties',
+                $schema['styling'],
+                "{$component} no longer has inline chrome custom properties to list"
+            );
             $this->assertNotEmpty(
-                $schema['styling']['chrome_custom_properties'] ?? [],
-                "{$component} keeps its chrome_custom_properties list (issue 581) — the honest "
-                . 'home for properties that are not design tokens and not style slots.'
+                $schema['roles'] ?? [],
+                "{$component} declares UDC roles — that is its styling surface now"
+            );
+            $this->assertSame(
+                array_keys($schema['roles']),
+                $schema['styling']['udc_roles'] ?? [],
+                "{$component}'s styling block must name the same roles the schema declares"
             );
         }
     }

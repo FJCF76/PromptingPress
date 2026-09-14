@@ -942,6 +942,43 @@ final class UdcEngineTest extends TestCase
             $checked++;
             $template = file_get_contents(dirname($file) . "/{$name}.php");
 
+            // CHROME SCOPES ON A DIFFERENT ATTRIBUTE, AND FAILS THE SAME WAY.
+            //
+            // nav and footer are template-owned: they are never composed, so there
+            // is no band and no id to carry — their blocks scope to
+            // `[data-pp-chrome="<name>"]`, a template CONSTANT. The failure this
+            // lint exists to catch is identical either way (CSS generated, shipped
+            // in the head, matching nothing), so chrome is checked rather than
+            // exempted — just against the attribute it actually uses.
+            if (pp_udc_is_chrome($name)) {
+                $this->assertStringContainsString(
+                    'data-pp-chrome="' . $name . '"',
+                    $template,
+                    "{$name} declares roles but never emits data-pp-chrome — its blocks would match nothing"
+                );
+                $this->assertStringNotContainsString(
+                    'data-pp-band',
+                    $template,
+                    "{$name} is chrome, not a band: a band attribute here would scope its CSS to an id it can never have"
+                );
+                // Chrome's OWN inline-style escape hatch is gone too. It used to
+                // build one with pp_chrome_style_attr() from the pp_header_* /
+                // pp_footer_* options; an inline style attribute outranks every
+                // stylesheet, so leaving that path open beside the UDC would put
+                // chrome back outside the cascade the engine exists to provide.
+                $this->assertStringNotContainsString(
+                    'pp_chrome_style_attr',
+                    $template,
+                    "{$name} is on the UDC now: an inline chrome style attribute would outrank its own band block"
+                );
+                $this->assertStringNotContainsString(
+                    '$style_attr',
+                    $template,
+                    "{$name} must emit no style attribute — the scoped block is the only styling source"
+                );
+                continue;
+            }
+
             $this->assertStringContainsString(
                 'data-pp-band',
                 $template,
@@ -1239,7 +1276,47 @@ final class UdcEngineTest extends TestCase
                     'image_alt' => 'Ada Lovelace',
                 ]],
             ],
+            // CHROME FIXTURES MUST TURN EVERYTHING ON. Almost every footer block
+            // is optional and renders only when its content prop is set, so a
+            // sparse fixture would silently skip most of the role sweep and this
+            // lint would pass while declaring selectors nobody had checked.
+            'nav' => [
+                'location' => 'primary',
+            ],
+            'footer' => [
+                'location'      => 'footer',
+                'show_logo'     => true,
+                'blurb'         => 'We build things.',
+                'contact'       => "hello@example.com\n+34 600 000 000",
+                'copyright'     => '© Example',
+                'menu_label'    => 'Company',
+                'contact_label' => 'Contact',
+                'note'          => 'All rights reserved.',
+                'social'        => '[{"network":"x","url":"https://x.com/example"}]',
+            ],
         ];
+
+        // CLASSES WORDPRESS EMITS, NOT THE COMPONENT.
+        //
+        // Chrome renders its menus through wp_nav_menu(), so the <ul>/<li>/<a>
+        // tree and its state classes come from core's walker, not from nav.php.
+        // A role targeting one of those is still a real selector against real
+        // markup — the template simply is not where it can be read. Enumerated
+        // here rather than skipped by a wildcard so that adding a role on a class
+        // NOBODY emits still fails, which is the whole point of this lint.
+        $emittedByWordPress = [
+            'current-menu-item', // wp_nav_menu marks the <li> for the current page
+            'sub-menu',          // wp_nav_menu wraps a nested level in <ul class="sub-menu">
+        ];
+
+        // A resolvable logo, so the chrome fixtures render the IMAGE branch of the
+        // logo (.nav__logo-image) rather than the wordmark fallback. Without it
+        // that role's selector would go unchecked, which is the silent-skip this
+        // lint exists to prevent.
+        $GLOBALS['_pp_test_store']['posts'][7]                 = ['post_type' => 'attachment'];
+        $GLOBALS['_pp_test_store']['attachment_is_image'][7]   = true;
+        $GLOBALS['_pp_test_store']['attachment_urls'][7]       = 'https://example.com/logo.png';
+        $GLOBALS['_pp_test_store']['options']['pp_logo_id']    = '7';
 
         $checked = 0;
         foreach (glob(dirname(__DIR__) . '/components/*/schema.json') as $file) {
@@ -1270,6 +1347,10 @@ final class UdcEngineTest extends TestCase
                 preg_match_all('/\.([A-Za-z0-9_-]+)/', $selector, $m);
                 $this->assertNotEmpty($m[1], "{$component}.{$role} has a selector with no class to match");
                 foreach ($m[1] as $class) {
+                    if (in_array($class, $emittedByWordPress, true)) {
+                        $checked++;
+                        continue;
+                    }
                     $this->assertMatchesRegularExpression(
                         '/class="[^"]*\b' . preg_quote($class, '/') . '\b/',
                         $html,
@@ -1445,8 +1526,14 @@ final class UdcEngineTest extends TestCase
                 $legacy[] = $name;
             }
         }
-        $this->assertGreaterThanOrEqual(11, count($legacy), 'eleven components stay on the legacy system');
+        // Nine now, not eleven: testimonials was rebuilt in Sprint 0, and nav and
+        // footer joined the engine as the CHROME container in Sprint 1 (ruling A1).
+        // The number is asserted rather than loosened so that a component quietly
+        // falling OFF the engine still trips this.
+        $this->assertCount(9, $legacy, 'nine components stay on the legacy system');
         $this->assertNotContains('testimonials', $legacy);
+        $this->assertNotContains('nav', $legacy);
+        $this->assertNotContains('footer', $legacy);
 
         foreach ($legacy as $name) {
             $this->assertSame([], pp_udc_component_roles($name));
