@@ -236,18 +236,31 @@ final class UdcTruthSpineTest extends TestCase
     }
 
     /**
-     * INVARIANT I8 — THE BASELINE MUST BE EARNED.
+     * A udc write is accepted only when its baseline EQUALS the stored version.
      *
-     * CAS only protects anything if the version a write carries came from the read
-     * that write was reasoned against. A baseline that was guessed, replayed from
-     * another page, or invented is not a baseline; accepting one turns the whole
-     * mechanism into decoration that happens to pass.
+     * That is what this test pins, and the name says so, because the name it used
+     * to carry — "a baseline it never earned is refused" — promised invariant I8
+     * and did not deliver it. The assertions below are numeric equality with the
+     * stored version in all three directions: a version read from another page is
+     * refused because its NUMBER differs, a planted future version because it is
+     * not equal either, and the version this edit was actually read against is
+     * accepted. Nothing here examines PROVENANCE. Two pages sitting at the same
+     * version number would swap baselines and both writes would land.
      *
-     * Pinned here on the NEW udc path only. The known violation on the legacy chat
-     * cache (#909, a localStorage-persisted stale baseline) is deferred per §7 and
-     * is NOT fixed by this slice.
+     * The gap is not a defect in the CAS check; equality is what pp_update_composition
+     * implements and this pins it honestly. The gap is that I8 asks for something
+     * strictly stronger — that the baseline came from the read the write was
+     * reasoned against, for the page it targets — and no test in this suite pins
+     * that. A test whose name claims coverage its body does not carry is an I40
+     * violation: it makes the invariant look guarded and stops anyone looking.
+     *
+     * @todo #909 (CRITICAL) — pin I8 itself: a baseline must be traceable to the
+     *       read it came from, not merely numerically equal to the current one.
+     *       The known violation is the chat's localStorage-persisted baseline;
+     *       BUILD-SPEC §7 defers the fix to Sprint 3 or the first post-2.0.0 work.
+     *       Until then I8 is UNPINNED — see docs/v2/BUILD-SPEC-sprint0.md §6.
      */
-    public function testAUdcWriteCarryingABaselineItNeverEarnedIsRefused(): void
+    public function testAUdcWriteIsRefusedUnlessItsBaselineEqualsTheStoredVersion(): void
     {
         $page  = $this->seed('Target', [$this->band($this->brandUdc())]);
         $other = $this->seed('Other',  [$this->band($this->brandUdc())]);
@@ -258,7 +271,10 @@ final class UdcTruthSpineTest extends TestCase
         $mine    = pp_get_composition_marker($page)['version'];
         $this->assertNotSame($foreign, $mine, 'the fixture needs two genuinely different versions');
 
-        // A version read from a DIFFERENT page is not a baseline for this one.
+        // A version read from a DIFFERENT page is refused here — but note WHAT
+        // refuses it: the number differs from this page's stored version. The
+        // check is equality, not origin, so this case is evidence for equality
+        // and not for I8. See the @todo above.
         $edit = $this->band($this->brandUdc());
         $edit['udc']['quote']['typography']['style'] = 'oblique';
         $refused = pp_update_composition($page, [$edit], $foreign);
