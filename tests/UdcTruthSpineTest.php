@@ -365,6 +365,98 @@ final class UdcTruthSpineTest extends TestCase
      * EXACTLY as today — the slice's own scope boundary, asserted through the same
      * authoring surface rather than assumed.
      */
+    // ── RULING A3 THROUGH THE REAL AUTHORING SURFACE (14.1) ─────────────────
+    //
+    // Raw `_pp_composition` meta seeding bypasses validation entirely, so a
+    // capability that is only ever exercised that way has never met the contract
+    // it claims to satisfy. Presets, states and the motion group are all NEW
+    // schema/validation surface, so each is authored here the way a chat turn or
+    // a CLI call would author it.
+
+    public function testAPresetStatesAndMotionAllSurviveARealWrite(): void
+    {
+        $udc = [
+            'card' => [
+                '_preset'    => 'button',
+                'background' => [
+                    'fill'           => '#ffffff',
+                    ':hover'         => ['fill' => '#f4f7fb'],
+                    ':focus-visible' => ['fill' => '#eef2ff'],
+                    ':active'        => ['fill' => '#e4e9f7'],
+                ],
+                'motion' => ['transition-duration' => '240ms', 'timing-function' => 'cubic-bezier(.34,1.56,.64,1)'],
+            ],
+            'quote' => ['typography' => ['_preset' => 'link', 'size' => '1.25rem']],
+        ];
+
+        $this->assertTrue(
+            pp_validate_action('create_page', ['title' => 'A3', 'composition' => [$this->band($udc)]]),
+            'the whole A3 vocabulary must be expressible through the real write path'
+        );
+
+        $id    = $this->seed('A3 landed', [$this->band($udc)]);
+        $read  = pp_get_composition($id);
+        $this->assertSame('button', $read[0]['udc']['card']['_preset'], 'the reference is stored as written');
+        $this->assertSame(
+            ['fill' => '#e4e9f7'],
+            $read[0]['udc']['card']['background'][':active'],
+            'the state survives the round trip'
+        );
+
+        $css = pp_udc_band_css($read[0]);
+        $this->assertStringContainsString(':focus-visible{background:#eef2ff;}', $css);
+        $this->assertStringContainsString('transition-timing-function:cubic-bezier(.34,1.56,.64,1);', $css);
+        $this->assertStringContainsString('@media (prefers-reduced-motion: reduce)', $css);
+    }
+
+    public function testADanglingPresetIsRefusedAtWriteAndNamesTheBandAndTheReference(): void
+    {
+        $error = pp_validate_action('create_page', [
+            'title'       => 'Dangling',
+            'composition' => [$this->band(['card' => ['_preset' => 'buton']])],
+        ]);
+
+        $this->assertInstanceOf(WP_Error::class, $error);
+        $this->assertStringContainsString('buton', $error->get_error_message(), 'the refusal names the reference');
+        $this->assertStringContainsString('button', $error->get_error_message(), 'and lists what exists');
+        $this->assertMatchesRegularExpression('/Component \d+ \("testimonials"\)/', $error->get_error_message());
+    }
+
+    public function testAnUnknownStateIsRefusedAtWriteRatherThanStoredAndNeverEmitted(): void
+    {
+        $composition = [$this->band(['card' => ['background' => [':disabled' => ['fill' => '#eeeeee']]]])];
+
+        $error = pp_validate_action('create_page', ['title' => 'Disabled', 'composition' => $composition]);
+        $this->assertInstanceOf(WP_Error::class, $error);
+        $this->assertStringContainsString(':hover, :focus-visible, :active', $error->get_error_message());
+
+        // And the executor honours the refusal rather than reporting success over
+        // a write it did not make (invariant I1). pp_update_composition() is the
+        // storage primitive the fixtures seed through and does not gate; the real
+        // surface is validate-then-execute, which is what an author reaches.
+        $result = pp_execute_action('create_page', ['title' => 'Disabled', 'composition' => $composition]);
+        $this->assertFalse($result['ok'] ?? true, 'no success envelope over a refused write');
+    }
+
+    public function testAStoredDanglingPresetDegradesInsteadOfBlankingTheBand(): void
+    {
+        // The write gate refuses a dangling reference, so reaching the emitter
+        // with one means stored-before-the-rule data (a raw meta write, or a
+        // restore of an old snapshot — which by rule never blocks). The posture
+        // is the one _pp_udc_place() already takes for an unresolvable @ref: drop
+        // the unresolvable piece, keep every sibling declaration painting.
+        $item = [
+            'component' => 'testimonials',
+            'id'        => 'pp-deadbeef',
+            'props'     => [],
+            'udc'       => ['card' => ['_preset' => 'gone', 'sizing' => ['min-height' => '80px']]],
+        ];
+
+        $css = pp_udc_band_css($item);
+        $this->assertStringContainsString('min-height:80px;', $css, 'the siblings still paint');
+        $this->assertStringNotContainsString('font-weight', $css, 'and the missing preset contributes nothing');
+    }
+
     public function testALegacyComponentStillWritesReadsAndPaintsItsStyleMap(): void
     {
         $result = pp_execute_action('create_page', [

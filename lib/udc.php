@@ -33,8 +33,12 @@
  * A ROLE is a named sub-element of the component mapped to a stable selector.
  * A GROUP is a family of related CSS properties. A PARAM is one property inside
  * a group. A value is a literal, an `@reference`, or a breakpoint-keyed map of
- * either. `:hover` is a STATE scope inside a group, not a breakpoint — hover
- * values may themselves be breakpoint-keyed.
+ * either. `:hover`, `:focus-visible` and `:active` are STATE scopes inside a
+ * group, not breakpoints — a state's values may themselves be breakpoint-keyed.
+ *
+ * A PRESET is a named `udc` fragment the site shares: referenced by name through
+ * a `_preset` key at role grain or group grain, and always overridable by the
+ * band that referenced it. See pp_udc_presets().
  *
  * ── Emission ────────────────────────────────────────────────────────────────
  *
@@ -48,13 +52,23 @@
  * specificity is flat BY CONSTRUCTION and `!important` is never needed or used.
  * No v2 component emits an inline style attribute.
  *
- *   site tokens ──▶ role defaults (schema data) ──▶ band udc ──▶ breakpoint ──▶ hover
- *        │                  │                          │             │           │
- *        └──────────────────┴──── all resolve here ────┴─────────────┴───────────┘
+ *   site tokens ─▶ presets ─▶ role defaults (schema data) ─▶ band udc ─▶ breakpoint ─▶ state
+ *        │            │               │                        │            │           │
+ *        └────────────┴───────────────┴──── all resolve here ──┴────────────┴───────────┘
  *                                       │
- *                        pp_udc_resolve() — carries PROVENANCE, so a value that
- *                        cannot take effect is disclosed rather than silently
- *                        dropped (invariant I35).
+ *                        pp_udc_compile_band() — carries PROVENANCE, so a value
+ *                        that cannot take effect is disclosed rather than
+ *                        silently dropped (invariant I35). The preset tier is
+ *                        its OWN named source (`preset:<name>`), because I35/I36
+ *                        need a reader to see WHICH preset a value came from and
+ *                        what overrode it, not merely that some preset did.
+ *
+ * NOTE the ruled consequence of presets ranking UNDER role defaults: a preset
+ * contributes only where the target role is silent. Applying `button` to a role
+ * that already defaults its own background and border gives you the button's
+ * type, padding and motion, and NOT its fill — the component's own declaration
+ * wins. That is the cascade behaving as ruled, and it is why presets pay off most
+ * on lightly-defaulted roles.
  *
  * ── Why the breakpoints do not overlap ──────────────────────────────────────
  *
@@ -101,12 +115,153 @@ function pp_udc_breakpoints_in_emit_order(): array {
     return $ordered;
 }
 
-/** The state scope key. A state is not a viewport; it nests inside a group. */
-const PP_UDC_HOVER = ':hover';
+/**
+ * The STATE dimension, as data (Addendum A, ruling A3).
+ *
+ * A state is not a viewport. It nests inside a group, as a sibling of that
+ * group's params, and its own values may themselves be breakpoint-keyed:
+ *
+ *   "card": {"background": {"fill": "#fff",
+ *                           ":hover": {"fill": {"d": "#eee", "p": "#f6f6f6"}}}}
+ *
+ * `mint` is the segment this state contributes to a minted token name; it is
+ * deliberately the pseudo-class without its colon, because a mint name becomes a
+ * CSS custom-property name and `:` is not in that charset. NOTE that
+ * `focus-visible` mints TWO hyphen segments — every reader of a mint name has to
+ * pop by segment COUNT, never by popping one (see _pp_udc_state_from_mint()).
+ *
+ * `emit_order` is the cascade order the three states print in: hover, then
+ * focus-visible, then active. All three are the same specificity, so the order
+ * IS the ranking — a pressed control shows its pressed treatment rather than its
+ * hover treatment because `:active` prints last. This mirrors the LVHA ordering
+ * every CSS style guide has recommended since links had five states.
+ *
+ * WHAT IS DELIBERATELY ABSENT: `:disabled`, pseudo-ELEMENTS (`::before`), and
+ * ancestor states (`:hover` on a parent changing a child). Each is its own
+ * future ruling, and each is a different KIND of thing — a disabled control is a
+ * semantic state the markup must also carry, a pseudo-element is a new box
+ * rather than a new value for an existing one, and an ancestor state needs a
+ * selector shape the flat `[data-pp-band] <role>` contract does not have. An
+ * unknown state key is refused at write naming the three that exist, rather than
+ * being stored and silently never emitted.
+ */
+function pp_udc_states(): array {
+    static $states = null;
+    if ($states !== null) {
+        return $states;
+    }
+    $states = [
+        ':hover'         => ['mint' => 'hover',         'emit_order' => 0],
+        ':focus-visible' => ['mint' => 'focus-visible', 'emit_order' => 1],
+        ':active'        => ['mint' => 'active',        'emit_order' => 2],
+    ];
+    return $states;
+}
 
-/** Keys inside a `udc` map that are engine-owned rather than role names. */
+/** The state keys in emission order, base state (`''`) first. */
+function pp_udc_states_in_emit_order(): array {
+    static $ordered = null;
+    if ($ordered === null) {
+        $states = pp_udc_states();
+        uasort($states, static fn($a, $b) => $a['emit_order'] <=> $b['emit_order']);
+        $ordered = array_merge([''], array_keys($states));
+    }
+    return $ordered;
+}
+
+/**
+ * The state a minted name's trailing segments encode, or `''` for the base state.
+ *
+ * Returns `[$state, $remaining_parts]`. Pops by SEGMENT COUNT, which is the whole
+ * point of this function existing: `focus-visible` is two segments and the
+ * single-`array_pop()` idiom that served one state named `hover` reads it as a
+ * param called `…-focus` in a state called `visible`. Getting that wrong is not a
+ * cosmetic bug — pp_validate_composition* runs over STORED compositions, so a
+ * guard that fails to recognise the engine's OWN minted names turns every band
+ * already holding one into a permanent false refusal.
+ *
+ * @param array $parts Name segments, breakpoint already popped.
+ * @return array{0: string, 1: array}
+ */
+/**
+ * The registered state mints as segment lists, LONGEST FIRST.
+ *
+ * Longest-first is what makes decoding independent of the order the registry
+ * happens to declare states in. Today no mint is a suffix of another, so the two
+ * orders coincide and the sort changes nothing — which is precisely why it is
+ * worth having and worth testing separately: add a state whose mint ends in
+ * `visible` and an order-dependent matcher strips `visible` off `focus-visible`
+ * and hands back a state nobody wrote. That is not a cosmetic failure. This
+ * decoding decides whether a stored token name is the engine's own, and getting
+ * it wrong turns every band holding one into a permanent refusal.
+ *
+ * $states is an injection point for THAT test and nothing else: a review
+ * specialist showed by mutation that a test using the real registry cannot
+ * detect the sort's absence, because the real registry is already in longest
+ * order. Only a registry whose declaration order DISAGREES with length order can
+ * tell the two apart, and there is no other way to build one.
+ *
+ * @param array|null $states Defaults to pp_udc_states(); pass a map to test the ordering itself.
+ * @return array<string, array<int, string>>
+ */
+function _pp_udc_state_mints_longest_first(?array $states = null): array {
+    static $cached = null;
+    if ($states === null && $cached !== null) {
+        return $cached;
+    }
+
+    $by_length = [];
+    foreach ($states ?? pp_udc_states() as $key => $meta) {
+        $by_length[$key] = explode('-', (string) ($meta['mint'] ?? ''));
+    }
+    uasort($by_length, static fn(array $a, array $b): int => count($b) <=> count($a));
+
+    if ($states === null) {
+        $cached = $by_length;
+    }
+    return $by_length;
+}
+
+function _pp_udc_state_from_mint(array $parts): array {
+    foreach (_pp_udc_state_mints_longest_first() as $key => $segments) {
+        $count = count($segments);
+        if (count($parts) > $count && array_slice($parts, -$count) === $segments) {
+            array_splice($parts, -$count);
+            return [$key, $parts];
+        }
+    }
+    return ['', $parts];
+}
+
+/**
+ * Keys of the `udc` map that are engine-owned rather than ROLE names.
+ *
+ * `_tokens` sits BESIDE the roles, at the top of the map. `_preset` is
+ * engine-owned too but is NOT one of these: it lives inside a role map and
+ * inside a group map, and is handled at each of those grains (see
+ * PP_UDC_PRESET_KEY). Adding it here would make a role literally named
+ * `_preset` skip validation, which is the opposite of what it needs.
+ */
 function pp_udc_reserved_keys(): array {
     return ['_tokens'];
+}
+
+/**
+ * The key that names a PRESET, valid at ROLE grain and at GROUP grain.
+ *
+ * A BARE NAME, not an `@reference`, and the asymmetry is deliberate. `@name` has
+ * exactly one meaning in this grammar — resolve against the band's `_tokens`,
+ * then the site design tokens (pp_udc_resolve_reference()). Pointing the same
+ * sigil at a second, unrelated namespace would make a token called `button` and a
+ * preset called `button` indistinguishable in the source an author reads, which
+ * is precisely the hidden aliasing invariant I36 forbids. The `_` prefix instead
+ * joins the engine-owned family that already exists: `_tokens`, `_band`.
+ */
+const PP_UDC_PRESET_KEY = '_preset';
+
+/** A preset name is stable, not CSS: the charset matches a band token's name. */
+function pp_udc_valid_preset_name(string $name): bool {
+    return (bool) preg_match('/^[A-Za-z0-9_-]{1,64}$/', $name);
 }
 
 // ── Registry: groups and parameters ─────────────────────────────────────────
@@ -218,8 +373,261 @@ function pp_udc_groups(): array {
             'max-width'  => ['property' => 'max-width',  'type' => 'length-or-none', 'signed' => false, 'max_values' => 1, 'keywords' => []],
             'max-height' => ['property' => 'max-height', 'type' => 'length-or-none', 'signed' => false, 'max_values' => 1, 'keywords' => []],
         ]],
+        // MOTION (Addendum A, ruling A3). Exactly two params, by the ruling.
+        //
+        // `transition-property` is NOT one of them and does not need to be: CSS's
+        // initial value for it is `all`, so a duration alone animates every
+        // animatable property that changes — which is what an author asking for
+        // "ease this band's hover" means. A role whose STRUCTURAL css already sets
+        // a `transition` shorthand has its property LIST preserved and only the
+        // duration overridden, because the band block prints later.
+        //
+        // `timing-function` is named without the `transition-` prefix the CSS
+        // property carries, matching how every other group here names params after
+        // the DESIGN idea rather than the property string (`border.width`, not
+        // `border-width`). The property text is looked up from this table, never
+        // taken from author input.
+        'motion' => ['params' => [
+            'transition-duration' => ['property' => 'transition-duration',        'type' => 'duration',        'signed' => false, 'max_values' => 1, 'keywords' => []],
+            'timing-function'     => ['property' => 'transition-timing-function', 'type' => 'timing-function', 'signed' => false, 'max_values' => 1, 'keywords' => []],
+        ]],
     ];
     return $groups;
+}
+
+/** The motion properties the engine guards under `prefers-reduced-motion`. */
+function _pp_udc_motion_properties(): array {
+    static $properties = null;
+    if ($properties === null) {
+        $properties = [];
+        foreach (pp_udc_groups()['motion']['params'] as $param) {
+            $properties[$param['property']] = true;
+        }
+    }
+    return $properties;
+}
+
+/**
+ * The theme's motion defaults, derived from `--transition`.
+ *
+ * `assets/css/base.css` declares `--transition: 150ms ease` and lib/wp.php calls
+ * it the theme's ONLY `raw`-typed token. That is exactly why these two values are
+ * literals rather than `@transition` references: a raw `150ms ease` satisfies
+ * NEITHER the `duration` grammar nor the `timing-function` grammar, so no single
+ * param can reference it and still validate.
+ *
+ * Literals copied out of a token are a drift hazard — retune `--transition` and
+ * these silently stop matching it, which is the sort of quiet divergence I36
+ * exists to prevent. So the derivation is PINNED:
+ * UdcPresetStateMotionTest::testTheMotionDefaultsStillEqualTheThemesTransitionToken
+ * parses
+ * `--transition` out of base.css and fails if these two stop equalling its halves.
+ * Splitting `--transition` into two typed site tokens would remove the copy
+ * entirely; that is a token-registry change and therefore its own ruling.
+ */
+function pp_udc_motion_defaults(): array {
+    return ['transition-duration' => '150ms', 'timing-function' => 'ease'];
+}
+
+/**
+ * The SYSTEM presets — named `udc` fragments the theme ships (ruling A3).
+ *
+ * Sprint 1 ships the resolution MECHANISM plus these three. Sprint 2 adds
+ * author/AI-created presets; when it does, it merges its site-stored rows into
+ * pp_udc_resolve_preset() and nothing else about the contract moves. That is what
+ * "the Sprint-1/2 schemas encode against the preset contract from day one" buys:
+ * the grain declaration, the name charset and the lookup seam are all already the
+ * shape a custom preset needs.
+ *
+ * ── Where the values come from ──────────────────────────────────────────────
+ *
+ * Nothing here is invented. Every value is read off the theme's existing button
+ * and link styling, and `@`-references are used wherever the source used a token,
+ * so a preset FOLLOWS a retheme instead of freezing today's hexes:
+ *
+ *   button            assets/css/components.css:34-49  (.btn)
+ *                     assets/css/components.css:62-66  (.btn:hover)
+ *   button-secondary  the same, plus :84-95            (.btn--secondary)
+ *   link              assets/css/base.css:381-392      (a, a:hover)
+ *
+ * ── Two honest omissions ────────────────────────────────────────────────────
+ *
+ * 1. `.btn` also sets `display:inline-block` and `cursor:pointer`. Those are
+ *    STRUCTURAL, not designable, and §2 keeps structure in assets/css. So this
+ *    preset carries a button's LOOK, not its layout behaviour — applying it to a
+ *    <p> paints a button and does not make it act like one.
+ *
+ * 2. `.btn:focus-visible` is an `outline` ring, and §2 names focus rings as an
+ *    accessibility affordance that lives in assets/css. The UDC has no outline
+ *    group and this is not the ruling that adds one, so these presets carry
+ *    `:hover` (which the theme defines) and NOT `:focus-visible` or `:active`
+ *    (which it does not). Inventing state treatments here to look complete is
+ *    exactly the "nothing visually invents itself" line. The state MECHANISM is
+ *    proven on authored band values, which is where states are meant to be used.
+ *
+ * ── And one substitution, with its reason ───────────────────────────────────
+ *
+ * `.btn` reaches its padding through `--btn-padding-y` / `--btn-padding-x`, but
+ * those two tokens hold `var(--space-sm)` and `var(--space-lg)` — a CHAIN, not a
+ * literal. A reference is validated against the referencing param's grammar, and
+ * the `length` grammar is literal-only on purpose (a `var()` in a length was an
+ * injection-bypass surface in v1), so `@btn-padding-y` resolves to something a
+ * length parameter correctly refuses. These presets therefore reference
+ * `@space-sm` / `@space-lg` — the very tokens the button knobs alias — which
+ * paints identically and still follows a retheme of the spacing scale. The cost
+ * is real and worth naming: retuning `--btn-padding-x` alone moves `.btn` and
+ * does NOT move a preset-styled role. Filed as a follow-up; fixing it properly
+ * means either resolving one level of token chain in the registry or teaching
+ * the length grammar to follow one, and both are their own decision.
+ */
+function pp_udc_presets(): array {
+    static $presets = null;
+    if ($presets !== null) {
+        return $presets;
+    }
+
+    $motion = pp_udc_motion_defaults();
+
+    $presets = [
+        'button' => [
+            'grain'       => 'role',
+            'description' => "The theme's primary button: accent fill, accent border, inverted ink.",
+            'udc'         => [
+                'typography' => [
+                    'size'        => '1rem',
+                    'weight'      => '600',
+                    'line-height' => '1.4',
+                    'decoration'  => 'none',
+                    'color'       => '@color-bg',
+                    ':hover'      => ['color' => '@color-bg'],
+                ],
+                'spacing' => [
+                    'padding-top'    => '@space-sm',
+                    'padding-bottom' => '@space-sm',
+                    'padding-left'   => '@space-lg',
+                    'padding-right'  => '@space-lg',
+                ],
+                'background' => [
+                    'fill'   => '@color-accent',
+                    ':hover' => ['fill' => '@color-accent-hover'],
+                ],
+                'border' => [
+                    'width'  => '2px',
+                    'style'  => 'solid',
+                    'color'  => '@color-accent',
+                    'radius' => '@btn-radius',
+                    ':hover' => ['color' => '@color-accent-hover'],
+                ],
+                // NO `shadow` GROUP, deliberately. `.btn` sets
+                // `box-shadow: var(--btn-shadow, none)`, so the shipped button has
+                // no shadow and a `shadow: {box: none}` entry would paint nothing.
+                // It is dropped because it is not free: `shadow` is the narrowest
+                // group in the taxonomy (three of testimonials' twelve roles
+                // permit it), so carrying an inert entry would make the
+                // skipped-groups disclosure fire on nine roles to report that a
+                // no-op was not applied. A preset declares what it means to set,
+                // not what it means to leave alone.
+                //
+                // The 44px WCAG touch-target minimum `.btn` carries a comment
+                // about. A design value here, not a structural one.
+                'sizing' => ['min-height' => '44px'],
+                'motion' => $motion,
+            ],
+        ],
+
+        'button-secondary' => [
+            'grain'       => 'role',
+            'description' => 'The lower-emphasis button: muted surface fill, body ink, border-coloured edge.',
+            'udc'         => [
+                'typography' => [
+                    'size'        => '1rem',
+                    'weight'      => '600',
+                    'line-height' => '1.4',
+                    'decoration'  => 'none',
+                    'color'       => '@color-text',
+                    ':hover'      => ['color' => '@color-text'],
+                ],
+                'spacing' => [
+                    'padding-top'    => '@space-sm',
+                    'padding-bottom' => '@space-sm',
+                    'padding-left'   => '@space-lg',
+                    'padding-right'  => '@space-lg',
+                ],
+                'background' => [
+                    'fill'   => '@color-surface',
+                    ':hover' => ['fill' => '@color-border'],
+                ],
+                'border' => [
+                    'width'  => '2px',
+                    'style'  => 'solid',
+                    'color'  => '@color-border',
+                    'radius' => '@btn-radius',
+                    ':hover' => ['color' => '@color-border'],
+                ],
+                // No `shadow` group; see the note on `button` above.
+                'sizing' => ['min-height' => '44px'],
+                'motion' => $motion,
+            ],
+        ],
+
+        'link' => [
+            'grain'       => 'role',
+            'description' => "The theme's inline link: accent ink, underlined, accent-hover on hover.",
+            'udc'         => [
+                'typography' => [
+                    'color'      => '@color-accent',
+                    'decoration' => 'underline',
+                    ':hover'     => ['color' => '@color-accent-hover'],
+                ],
+                'motion' => $motion,
+            ],
+        ],
+    ];
+
+    return $presets;
+}
+
+/**
+ * Resolves a preset name to its fragment, or null when nothing carries that name.
+ *
+ * THE ONE LOOKUP POINT, and the reason it exists as its own function rather than
+ * an array read at the two call sites: Sprint 2's site-stored custom presets
+ * merge HERE and nowhere else. Returning null rather than an empty fragment is
+ * the same discipline pp_udc_resolve_reference() keeps — a failed read is never
+ * mapped to a valid answer (invariant I9), so the caller refuses instead of
+ * silently applying nothing.
+ *
+ * @return array{grain: string, udc: array}|null
+ */
+function pp_udc_resolve_preset(string $name): ?array {
+    $presets = pp_udc_presets();
+    return isset($presets[$name]) ? $presets[$name] : null;
+}
+
+/**
+ * The fragment a `_preset` reference contributes at one grain.
+ *
+ * At ROLE grain the fragment is a map of groups, used whole.
+ *
+ * At GROUP grain the fragment is a map of params for ONE group. A group-grain
+ * preset supplies it directly; a ROLE-grain preset is PROJECTED onto the group
+ * being referenced — "give this role the button preset's typography, nothing
+ * else" — which is what makes group-grain reachable with the three system
+ * presets Sprint 1 ships, while leaving Sprint 2's own group-grain presets a
+ * seam that needs no reshaping.
+ *
+ * @param string $grain 'role' or a group name.
+ * @return array|null   The fragment, or null when this preset says nothing here.
+ */
+function _pp_udc_preset_fragment(array $preset, string $grain): ?array {
+    $udc = isset($preset['udc']) && is_array($preset['udc']) ? $preset['udc'] : [];
+    if ($grain === 'role') {
+        return ($preset['grain'] ?? '') === 'role' ? $udc : null;
+    }
+    if (($preset['grain'] ?? '') === 'role') {
+        return isset($udc[$grain]) && is_array($udc[$grain]) ? $udc[$grain] : null;
+    }
+    return $udc; // Already a group-grain fragment.
 }
 
 /**
@@ -530,10 +938,11 @@ function pp_udc_validate_map($udc, string $component): ?WP_Error {
                 && !_pp_udc_name_is_the_engines_own_mint((string) $name, $udc)) {
                 return new WP_Error('invalid_prop_value', sprintf(
                     'Component "%s" udc token "%s" uses a name the engine mints for itself '
-                    . '(<role>-<group>-<param>[-hover]-<breakpoint>). Pick another name: a '
-                    . 'collision would have the engine overwrite the value you declared.',
+                    . '(<role>-<group>-<param>[-<state>]-<breakpoint>, where <state> is one of %s). '
+                    . 'Pick another name: a collision would have the engine overwrite the value you declared.',
                     $component,
-                    $name
+                    $name,
+                    implode(', ', array_column(pp_udc_states(), 'mint'))
                 ));
             }
             if (!_pp_udc_delimiters_balanced((string) $value)) {
@@ -570,64 +979,28 @@ function pp_udc_validate_map($udc, string $component): ?WP_Error {
         }
 
         $permitted = $roles[$role_name]['groups'] ?? [];
-        foreach ($role_map as $group_name => $group_map) {
-            if (!isset($groups[$group_name])) {
-                return new WP_Error('unknown_udc_group', sprintf(
-                    'Component "%s" role "%s" names the UDC group %s, which does not exist. Available groups: %s',
-                    $component,
-                    $role_name,
-                    _pp_render_undeclared_prop_keys([(string) $group_name]),
-                    implode(', ', array_keys($groups))
-                ));
-            }
-            if (!in_array($group_name, $permitted, true)) {
-                return new WP_Error('unknown_udc_group', sprintf(
-                    'Component "%s" role "%s" does not permit the UDC group "%s". Permitted groups: %s',
-                    $component,
-                    $role_name,
-                    $group_name,
-                    implode(', ', $permitted) ?: '(none)'
-                ));
-            }
-            if (!is_array($group_map)) {
-                return new WP_Error('invalid_prop_value', sprintf(
-                    'Component "%s" role "%s" group "%s" must be an object of parameters; got %s.',
-                    $component,
-                    $role_name,
-                    $group_name,
-                    _pp_schema_value_for_message($group_map)
-                ));
-            }
 
-            foreach ($group_map as $param_name => $param_value) {
-                if ($param_name === PP_UDC_HOVER) {
-                    if (!is_array($param_value)) {
-                        return new WP_Error('invalid_prop_value', sprintf(
-                            'Component "%s" role "%s" group "%s" ":hover" must be an object of parameters; got %s.',
-                            $component,
-                            $role_name,
-                            $group_name,
-                            _pp_schema_value_for_message($param_value)
-                        ));
-                    }
-                    foreach ($param_value as $hover_param => $hover_value) {
-                        $error = _pp_udc_validate_param(
-                            $component, $role_name, $group_name, (string) $hover_param,
-                            $hover_value, $groups[$group_name]['params'], $band_tokens, true
-                        );
-                        if ($error !== null) {
-                            return $error;
-                        }
-                    }
-                    continue;
-                }
-                $error = _pp_udc_validate_param(
-                    $component, $role_name, $group_name, (string) $param_name,
-                    $param_value, $groups[$group_name]['params'], $band_tokens, false
-                );
-                if ($error !== null) {
-                    return $error;
-                }
+        // ROLE-GRAIN preset. Validated BEFORE the role's own groups, because a
+        // dangling reference is a fact about the map that should be reported
+        // ahead of anything downstream of it.
+        if (array_key_exists(PP_UDC_PRESET_KEY, $role_map)) {
+            $error = _pp_udc_validate_preset_reference(
+                $component, $role_name, null, $role_map[PP_UDC_PRESET_KEY], 'role', $permitted, $band_tokens
+            );
+            if ($error !== null) {
+                return $error;
+            }
+        }
+
+        foreach ($role_map as $group_name => $group_map) {
+            if ($group_name === PP_UDC_PRESET_KEY) {
+                continue; // Already validated above.
+            }
+            $error = _pp_udc_validate_group_map(
+                $component, $role_name, (string) $group_name, $group_map, $permitted, $band_tokens, '', true
+            );
+            if ($error !== null) {
+                return $error;
             }
         }
     }
@@ -636,9 +1009,324 @@ function pp_udc_validate_map($udc, string $component): ?WP_Error {
 }
 
 /**
+ * Splits a ROLE-GRAIN preset fragment against what the target role permits.
+ *
+ * THE ONE PREDICATE FOR INTERSECT SEMANTICS (orchestrator ruling, T2). A preset
+ * is a bundle; a role declares which groups it accepts. When the bundle is wider
+ * than the role, the reference applies the groups that fit and skips the rest
+ * rather than being refused whole. That is what makes a shared preset usable
+ * across roles that differ in shape, and it is the same "fill in where you can"
+ * semantic the tier already has against role defaults.
+ *
+ * BOTH CALLERS GO THROUGH HERE, and that is the point. The write gate uses it to
+ * decide what to validate and what to disclose; the compiler uses it to decide
+ * what to emit. Two copies of this split would let a write say "shadow skipped"
+ * and the emitter paint a shadow anyway — a divergence between what the author
+ * was told and what the page does, which is the exact class the write-path
+ * honesty invariants exist to close.
+ *
+ * @return array{applied: array<string, mixed>, skipped: array<int, string>}
+ */
+function _pp_udc_split_preset_by_permitted(array $fragment, array $permitted): array {
+    $applied = [];
+    $skipped = [];
+    foreach ($fragment as $group => $map) {
+        $group = (string) $group;
+        if ($group === PP_UDC_PRESET_KEY) {
+            continue; // Nested presets are refused separately; never applied.
+        }
+        if (in_array($group, $permitted, true)) {
+            $applied[$group] = $map;
+            continue;
+        }
+        $skipped[] = $group;
+    }
+    return ['applied' => $applied, 'skipped' => $skipped];
+}
+
+/**
+ * The one sentence the "presets resolve one level only" rule produces.
+ *
+ * It used to be three refusals in two wordings, so the same author mistake read
+ * differently depending on which grain it was written at. One rule, one message.
+ */
+function _pp_udc_nested_preset_error(string $where, ?string $name): WP_Error {
+    return new WP_Error('invalid_prop_value', $name === null
+        ? $where . ' may not reference a preset here. Presets resolve one level only.'
+        : sprintf(
+            '%s references the preset "%s", which itself references another preset. Presets resolve one level only.',
+            $where,
+            $name
+        ));
+}
+
+/**
+ * Validates one `_preset` reference, at role grain or group grain.
+ *
+ * THE REFUSAL NAMES THE REFERENCE. That is the whole point of validating here
+ * rather than letting the emitter quietly find nothing: ruling A3 calls this "the
+ * @ref discipline one level up", and one level down (pp_udc_resolve_reference())
+ * a dangling `@name` is already a refusal that prints the name. A preset that
+ * does not exist is the same failure with a value MAP on the other end instead of
+ * a scalar, so it gets the same treatment.
+ *
+ * AT ROLE GRAIN THE FRAGMENT IS INTERSECTED WITH WHAT THE ROLE PERMITS
+ * (orchestrator ruling, T2 — pending maintainer review). A preset is a bundle and
+ * a role declares which groups it accepts; when the bundle is wider, the groups
+ * that fit apply and the rest are skipped rather than the whole reference being
+ * refused. Refusing whole made the shipped `button` preset writable on two of
+ * testimonials' twelve roles, which is not a contract anyone can build on.
+ *
+ * Two rules keep that honest, and neither is optional:
+ *
+ *   - THE SKIP IS DISCLOSED. pp_udc_composition_findings() emits
+ *     `udc_preset_groups_skipped` on the write envelope naming the role, the
+ *     preset, what was skipped and what was applied. A partial apply is fine; a
+ *     silent one is the reported-success-without-effect class I35 forbids.
+ *   - AN EMPTY INTERSECTION REFUSES, right here, naming both sides. Otherwise the
+ *     semantics degrade into a fully silent no-op in exactly the case where the
+ *     author is most wrong about what they asked for.
+ *
+ * Whatever survives the intersection is then validated exactly as if the author
+ * had written it inline — param names, value grammar, the lot — so a preset is no
+ * wider a door than writing the same map by hand. The COMPILER intersects through
+ * the same predicate (see _pp_udc_split_preset_by_permitted), so what the envelope
+ * says was skipped is what the page actually omits.
+ *
+ * At GROUP grain there is nothing to intersect: the author named one group, and
+ * if the role does not permit it that is a refusal like any other.
+ *
+ * @param string|null $group      Group name for group-grain, null for role-grain.
+ * @param string      $grain      'role', or the group name being projected onto.
+ * @return WP_Error|null
+ */
+function _pp_udc_validate_preset_reference(
+    string $component,
+    string $role,
+    ?string $group,
+    $value,
+    string $grain,
+    array $permitted,
+    array $band_tokens
+): ?WP_Error {
+    $where = $group === null
+        ? sprintf('Component "%s" role "%s" "%s"', $component, $role, PP_UDC_PRESET_KEY)
+        : sprintf('Component "%s" role "%s" group "%s" "%s"', $component, $role, $group, PP_UDC_PRESET_KEY);
+
+    if (!is_string($value) || !pp_udc_valid_preset_name($value)) {
+        return new WP_Error('invalid_prop_value', sprintf(
+            '%s must be a preset name of 1-64 characters of letters, digits, hyphen or underscore; got %s.',
+            $where,
+            _pp_schema_value_for_message($value)
+        ));
+    }
+
+    $preset = pp_udc_resolve_preset($value);
+    if ($preset === null) {
+        return new WP_Error('invalid_prop_value', sprintf(
+            '%s references the preset "%s", which does not exist. Available presets: %s',
+            $where,
+            $value,
+            implode(', ', array_keys(pp_udc_presets())) ?: '(none)'
+        ));
+    }
+
+    $fragment = _pp_udc_preset_fragment($preset, $grain);
+    if ($fragment === null || $fragment === []) {
+        return new WP_Error('invalid_prop_value', sprintf(
+            '%s references the preset "%s", which declares nothing for %s.',
+            $where,
+            $value,
+            $grain === 'role' ? 'a whole role' : 'the group "' . $grain . '"'
+        ));
+    }
+
+    // A preset may not reference a preset. One level, no cycles to detect and
+    // nothing to unwind — the identical discipline a band token already keeps
+    // (see the `_tokens` loop above).
+    if ($grain === 'role') {
+        if (isset($fragment[PP_UDC_PRESET_KEY])) {
+            return _pp_udc_nested_preset_error($where, $value);
+        }
+
+        $split = _pp_udc_split_preset_by_permitted($fragment, $permitted);
+
+        // THE EMPTY INTERSECTION REFUSES. Intersect semantics must never degrade
+        // into a fully silent no-op: a reference that contributes nothing is an
+        // authoring input with no effect, which is precisely what I35 forbids
+        // accepting quietly. Same posture as a dangling reference — refuse, and
+        // name both sides so the author can see why.
+        if ($split['applied'] === []) {
+            return new WP_Error('invalid_prop_value', sprintf(
+                '%s references the preset "%s", which declares no group role "%s" permits. '
+                . 'The preset declares: %s. The role permits: %s.',
+                $where,
+                $value,
+                $role,
+                implode(', ', $split['skipped']) ?: '(none)',
+                implode(', ', $permitted) ?: '(none)'
+            ));
+        }
+
+        // Only the groups that fit are validated — the rest are skipped, and the
+        // skip is DISCLOSED on the write envelope by pp_udc_composition_findings().
+        foreach ($split['applied'] as $fragment_group => $fragment_map) {
+            $error = _pp_udc_validate_group_map(
+                $component, $role, (string) $fragment_group, $fragment_map, $permitted, $band_tokens,
+                sprintf(' (via preset "%s")', $value)
+            );
+            if ($error !== null) {
+                return $error;
+            }
+        }
+        return null;
+    }
+
+    return _pp_udc_validate_group_map(
+        $component, $role, $grain, $fragment, $permitted, $band_tokens,
+        sprintf(' (via preset "%s")', $value)
+    );
+}
+
+/**
+ * Validates one group map — its params and its state sub-maps — against the
+ * role's permitted groups and the shared grammar.
+ *
+ * Extracted so a PRESET-supplied group map passes through exactly the checks an
+ * inline one does. Two copies of this walk would be two places for a preset to
+ * drift into accepting something an author cannot write.
+ *
+ * @return WP_Error|null
+ */
+function _pp_udc_validate_group_map(
+    string $component,
+    string $role,
+    string $group_name,
+    $group_map,
+    array $permitted,
+    array $band_tokens,
+    string $origin = '',
+    bool $allow_preset = false
+): ?WP_Error {
+    $groups = pp_udc_groups();
+    if (!isset($groups[$group_name])) {
+        return new WP_Error('unknown_udc_group', sprintf(
+            'Component "%s" role "%s"%s names the UDC group %s, which does not exist. Available groups: %s',
+            $component,
+            $role,
+            $origin,
+            _pp_render_undeclared_prop_keys([$group_name]),
+            implode(', ', array_keys($groups))
+        ));
+    }
+    if (!in_array($group_name, $permitted, true)) {
+        return new WP_Error('unknown_udc_group', sprintf(
+            'Component "%s" role "%s"%s does not permit the UDC group "%s". Permitted groups: %s',
+            $component,
+            $role,
+            $origin,
+            $group_name,
+            implode(', ', $permitted) ?: '(none)'
+        ));
+    }
+    if (!is_array($group_map)) {
+        return new WP_Error('invalid_prop_value', sprintf(
+            'Component "%s" role "%s" group "%s"%s must be an object of parameters; got %s.',
+            $component,
+            $role,
+            $group_name,
+            $origin,
+            _pp_schema_value_for_message($group_map)
+        ));
+    }
+
+    $states = pp_udc_states();
+    $params = $groups[$group_name]['params'];
+    foreach ($group_map as $param_name => $param_value) {
+        $param_name = (string) $param_name;
+
+        // GROUP-GRAIN preset. Never inside a preset fragment: a preset resolves
+        // one level only, and the caller has already refused a nested one.
+        if ($param_name === PP_UDC_PRESET_KEY) {
+            if (!$allow_preset) {
+                return _pp_udc_nested_preset_error(
+                    sprintf('Component "%s" role "%s" group "%s"%s', $component, $role, $group_name, $origin),
+                    null
+                );
+            }
+            $error = _pp_udc_validate_preset_reference(
+                $component, $role, $group_name, $param_value, $group_name, $permitted, $band_tokens
+            );
+            if ($error !== null) {
+                return $error;
+            }
+            continue;
+        }
+
+        if (isset($states[$param_name])) {
+            if (!is_array($param_value)) {
+                return new WP_Error('invalid_prop_value', sprintf(
+                    'Component "%s" role "%s" group "%s"%s "%s" must be an object of parameters; got %s.',
+                    $component, $role, $group_name, $origin, $param_name,
+                    _pp_schema_value_for_message($param_value)
+                ));
+            }
+            foreach ($param_value as $state_param => $state_value) {
+                // A state never nests inside a state. Without this the key falls
+                // through to the param check and is reported as a missing
+                // PARAMETER, sending the author hunting for a parameter named
+                // ":hover".
+                if (isset($states[(string) $state_param])) {
+                    return new WP_Error('invalid_prop_value', sprintf(
+                        'Component "%s" role "%s" group "%s"%s "%s" may not contain the state "%s". '
+                        . 'States do not nest; declare each state directly on the group.',
+                        $component, $role, $group_name, $origin, $param_name, (string) $state_param
+                    ));
+                }
+                $error = _pp_udc_validate_param(
+                    $component, $role, $group_name, (string) $state_param,
+                    $state_value, $params, $band_tokens, $param_name
+                );
+                if ($error !== null) {
+                    return $error;
+                }
+            }
+            continue;
+        }
+
+        // A KEY THAT LOOKS LIKE A STATE BUT IS NOT ONE gets its own refusal.
+        // `:disabled`, `:focus` and `::before` are all things an author or a
+        // model will reasonably try, and answering "no parameter named
+        // :disabled. Available parameters: fill, position, …" sends them hunting
+        // through the wrong list entirely. Ruling A3 defers each of those to its
+        // own decision, so the honest message names the three states that exist
+        // and says plainly that the rest are not supported yet.
+        if ($param_name !== '' && $param_name[0] === ':') {
+            return new WP_Error('invalid_prop_value', sprintf(
+                'Component "%s" role "%s" group "%s"%s names the state %s, which does not exist. '
+                . 'Available states: %s. Pseudo-elements (::before), disabled and ancestor states are not supported.',
+                $component, $role, $group_name, $origin,
+                _pp_render_undeclared_prop_keys([$param_name]),
+                implode(', ', array_keys($states))
+            ));
+        }
+
+        $error = _pp_udc_validate_param(
+            $component, $role, $group_name, $param_name,
+            $param_value, $params, $band_tokens, ''
+        );
+        if ($error !== null) {
+            return $error;
+        }
+    }
+    return null;
+}
+
+/**
  * Validates one param entry — the value may be a scalar, an `@reference`, or a
  * breakpoint-keyed map of either.
  *
+ * @param string $state The state this param sits in, or `''` for the base state.
  * @return WP_Error|null
  */
 function _pp_udc_validate_param(
@@ -649,14 +1337,14 @@ function _pp_udc_validate_param(
     $value,
     array $params,
     array $band_tokens,
-    bool $in_hover
+    string $state
 ): ?WP_Error {
     $where = sprintf(
         'Component "%s" role "%s" group "%s"%s parameter "%s"',
         $component,
         $role,
         $group,
-        $in_hover ? ' :hover' : '',
+        $state !== '' ? ' ' . $state : '',
         $param_name
     );
 
@@ -666,7 +1354,7 @@ function _pp_udc_validate_param(
             $component,
             $role,
             $group,
-            $in_hover ? ' :hover' : '',
+            $state !== '' ? ' ' . $state : '',
             _pp_render_undeclared_prop_keys([$param_name]),
             implode(', ', array_keys($params))
         ));
@@ -748,7 +1436,11 @@ function _pp_udc_validate_scalar(string $where, $value, array $param, array $ban
 /**
  * The deterministic mint name for one responsive value.
  *
- * `<role>-<group>-<param>[-hover][-<bp>]`, exactly as §3.1 states the rule.
+ * `<role>-<group>-<param>[-<state>]-<bp>`, where `<state>` is a pp_udc_states()
+ * mint segment and MAY ITSELF CONTAIN A HYPHEN (`focus-visible`). That is why
+ * every decoder pops by segment COUNT rather than popping one — see
+ * _pp_udc_state_from_mint(). §3.1 states the rule for the base state; ruling A3
+ * widened it to three states.
  * (§3.1's illustrative snippet elides the group — `quote-size-d` — but the RULE
  * is what has to be collision-free, and two groups can carry the same param
  * name, so the group segment stays.) Deterministic, never sequential and never
@@ -756,8 +1448,10 @@ function _pp_udc_validate_scalar(string $where, $value, array $param, array $ban
  * every write and make the composition false-conflict against itself, which is
  * the defect that put the props.id strip in the hash in the first place.
  */
-function pp_udc_mint_name(string $role, string $group, string $param, bool $hover, string $bp): string {
-    return $role . '-' . $group . '-' . $param . ($hover ? '-hover' : '') . '-' . $bp;
+function pp_udc_mint_name(string $role, string $group, string $param, string $state, string $bp): string {
+    $states  = pp_udc_states();
+    $segment = ($state !== '' && isset($states[$state])) ? '-' . $states[$state]['mint'] : '';
+    return $role . '-' . $group . '-' . $param . $segment . '-' . $bp;
 }
 
 /**
@@ -800,26 +1494,27 @@ function pp_udc_normalize_band(array $item): array {
         if (in_array($role, pp_udc_reserved_keys(), true) || !is_array($role_map)) {
             continue;
         }
+        $states = pp_udc_states();
         foreach ($role_map as $group => $group_map) {
             if (!is_array($group_map)) {
                 continue;
             }
             foreach ($group_map as $param => $value) {
-                if ($param === PP_UDC_HOVER && is_array($value)) {
-                    foreach ($value as $hover_param => $hover_value) {
+                if (isset($states[$param]) && is_array($value)) {
+                    foreach ($value as $state_param => $state_value) {
                         $minted = _pp_udc_mint_value(
-                            $hover_value, (string) $role, (string) $group, (string) $hover_param,
-                            true, $tokens
+                            $state_value, (string) $role, (string) $group, (string) $state_param,
+                            (string) $param, $tokens
                         );
                         if ($minted !== null) {
-                            $udc[$role][$group][$param][$hover_param] = $minted;
+                            $udc[$role][$group][$param][$state_param] = $minted;
                         }
                     }
                     continue;
                 }
                 $minted = _pp_udc_mint_value(
                     $value, (string) $role, (string) $group, (string) $param,
-                    false, $tokens
+                    '', $tokens
                 );
                 if ($minted !== null) {
                     $udc[$role][$group][$param] = $minted;
@@ -845,7 +1540,7 @@ function _pp_udc_mint_value(
     string $role,
     string $group,
     string $param,
-    bool $hover,
+    string $state,
     array &$tokens
 ): ?array {
     if (!is_array($value) || $value === []) {
@@ -865,7 +1560,7 @@ function _pp_udc_mint_value(
             $rewritten[$bp] = $bp_value; // Already a reference; the author's own.
             continue;
         }
-        $name           = pp_udc_mint_name($role, $group, $param, $hover, (string) $bp);
+        $name           = pp_udc_mint_name($role, $group, $param, $state, (string) $bp);
         $tokens[$name]  = $literal;
         $rewritten[$bp] = '@' . $name;
         $changed        = true;
@@ -946,6 +1641,7 @@ function pp_udc_compile_band(array $item, string $layer): array {
         $out['id'] = $component;
     }
 
+    $states      = pp_udc_states();
     $udc         = isset($item['udc']) && is_array($item['udc']) ? $item['udc'] : [];
     $band_tokens = isset($udc['_tokens']) && is_array($udc['_tokens']) ? $udc['_tokens'] : [];
     $groups      = pp_udc_groups();
@@ -974,15 +1670,95 @@ function pp_udc_compile_band(array $item, string $layer): array {
             continue;
         }
 
-        $declared = isset($udc[$role_name]) && is_array($udc[$role_name]) ? $udc[$role_name] : [];
-        $defaults = isset($role_def['defaults']) && is_array($role_def['defaults']) ? $role_def['defaults'] : [];
+        $declared  = isset($udc[$role_name]) && is_array($udc[$role_name]) ? $udc[$role_name] : [];
+        $defaults  = isset($role_def['defaults']) && is_array($role_def['defaults']) ? $role_def['defaults'] : [];
+        $permitted = isset($role_def['groups']) && is_array($role_def['groups']) ? $role_def['groups'] : [];
 
-        // states: '' (base) and ':hover'.
-        $resolved = []; // state => bp => property => ['css'=>, 'source'=>, 'literal'=>]
+        // state => bp => property => ['css'=>, 'source'=>, 'literal'=>]
+        $resolved = [];
 
-        $sources = $layer === 'defaults'
-            ? [['defaults', $defaults]]
-            : ($layer === 'authored' ? [['udc', $declared]] : [['defaults', $defaults], ['udc', $declared]]);
+        // ── THE CASCADE RUNG (Addendum A, ruling A3) ────────────────────────
+        //
+        //   site tokens → presets → component role defaults → band `udc`
+        //
+        // Site tokens are not a source row: they are what an `@name` in ANY row
+        // resolves through, which is what puts them under everything else.
+        //
+        // The other three rank by POSITION in this list, because _pp_udc_place()
+        // lets a later source overwrite an earlier one at the same (state,
+        // breakpoint, property) key.
+        //
+        // WHY PRESETS CANNOT SIMPLY EMIT BAND-SCOPED. Role defaults emit once per
+        // COMPONENT, under `[data-pp-component]`, printed BEFORE the theme
+        // stylesheets (see pp_udc_component_defaults_css). A preset reference is
+        // per BAND. So a preset-sourced declaration emitted the obvious way —
+        // band-scoped, in the authored layer — would outrank role defaults on
+        // specificity AND on source order, inverting the ruled rung.
+        //
+        // The fix is to rank in THIS TABLE rather than by emission position: the
+        // authored layer places the preset tier, then role defaults as a RANKING
+        // PARTICIPANT ONLY, then the band's own map — and then drops every
+        // declaration whose winner was `defaults`, because that one already
+        // emits, at its designed weight, in the defaults layer.
+        //
+        // Two consequences worth stating because a future reader will want them:
+        //   - a band that references NO preset compiles byte-identically to
+        //     before this tier existed (defaults place, udc overwrites them all
+        //     back, the drop removes what is left), which is a pinned regression;
+        //   - a declaration is never emitted twice, so the ranking costs bytes
+        //     only where a preset actually contributes something new.
+        $sources     = [];
+        $has_presets = false;
+        if ($layer === 'defaults' || $layer === 'all') {
+            foreach (_pp_udc_preset_sources($defaults, $permitted) as $preset_source) {
+                $sources[]   = $preset_source;
+                $has_presets = true;
+            }
+        }
+        if ($layer === 'authored' || $layer === 'all') {
+            // A band's own preset ranks ABOVE one named by a role default — same
+            // tier, more specific statement — and still below role defaults.
+            //
+            // NOT REACHABLE TODAY, and the honest place to say so is here rather
+            // than in a docblock that reads as a shipped guarantee. A role default
+            // naming a preset is part of ruling A3 ("referenced by name ... and
+            // from role defaults"), but no schema can currently express it:
+            // UdcEngineTest::testEveryV2SchemaDefaultIsAValueTheEngineWouldAccept
+            // walks a role's `defaults` as group names and fails on `_preset`,
+            // which is not a group. The branch above stays because the capability
+            // is ruled and the ordering it implements is the one Sprint 2 needs —
+            // but until the schema surface opens, it is inert, and the two T2
+            // honesty halves are missing for it: pp_udc_composition_findings()
+            // reads only `$item['udc']`, so a skipped group in a DEFAULT-named
+            // preset would not be disclosed, and pp_udc_validate_map() never walks
+            // `defaults`, so an empty intersection there would refuse nothing.
+            // Wiring all three together is its own change; see the filed follow-up.
+            foreach (_pp_udc_preset_sources($declared, $permitted) as $preset_source) {
+                $sources[]   = $preset_source;
+                $has_presets = true;
+            }
+        }
+
+        // ROLE DEFAULTS JOIN THE AUTHORED LAYER ONLY TO RANK A PRESET UNDER THEM,
+        // AND ONLY WHEN THERE IS ONE. With no preset in play there is nothing for
+        // them to outrank, so every entry they would place is either overwritten
+        // by the band's own value or dropped again — pure work for an identical
+        // result. Skipping it is not an optimisation detail; measured on a
+        // 50-band page it is the difference between 2.96 ms and 7.08 ms, and the
+        // overwhelmingly common page has no preset on it at all.
+        // ONE FACT, ONE NAME. The placement below and the drop further down must
+        // stay exact complements — defaults are dropped precisely when they were
+        // placed for ranking only. Deriving both from this local keeps a later
+        // edit (a fourth layer name, say) from silently double-emitting the
+        // defaults tier band-scoped, or dropping the band's own declarations.
+        $defaults_rank_only = ($layer === 'authored' && $has_presets);
+        if ($layer !== 'authored' || $defaults_rank_only) {
+            $sources[] = ['defaults', $defaults];
+        }
+        if ($layer === 'authored' || $layer === 'all') {
+            $sources[] = ['udc', $declared];
+        }
+
         foreach ($sources as [$source, $map]) {
             foreach ($map as $group_name => $group_map) {
                 if (!isset($groups[$group_name]) || !is_array($group_map)) {
@@ -990,9 +1766,9 @@ function pp_udc_compile_band(array $item, string $layer): array {
                 }
                 $params = $groups[$group_name]['params'];
                 foreach ($group_map as $param_name => $value) {
-                    if ($param_name === PP_UDC_HOVER && is_array($value)) {
-                        foreach ($value as $hp => $hv) {
-                            _pp_udc_place($resolved, PP_UDC_HOVER, $params, (string) $hp, $hv, $source, $band_tokens, $breakpoints, $referenced);
+                    if (isset($states[$param_name]) && is_array($value)) {
+                        foreach ($value as $state_param => $state_value) {
+                            _pp_udc_place($resolved, (string) $param_name, $params, (string) $state_param, $state_value, $source, $band_tokens, $breakpoints, $referenced);
                         }
                         continue;
                     }
@@ -1003,6 +1779,19 @@ function pp_udc_compile_band(array $item, string $layer): array {
 
         foreach ($resolved as $state => $by_bp) {
             foreach ($by_bp as $bp => $declarations) {
+                // THE DROP. In the authored layer a declaration whose winner is
+                // a role default is not the band's contribution — it is the
+                // component's, and it has already been emitted once by
+                // pp_udc_component_defaults_css(). Re-emitting it band-scoped
+                // would say the same thing at a higher weight and quietly promote
+                // the defaults tier above anything the design system aims at the
+                // same element.
+                if ($defaults_rank_only) {
+                    $declarations = array_filter(
+                        $declarations,
+                        static fn(array $entry): bool => $entry['source'] !== 'defaults'
+                    );
+                }
                 if ($declarations === []) {
                     continue;
                 }
@@ -1070,6 +1859,77 @@ function pp_udc_compile_band(array $item, string $layer): array {
     }
 
     return $out;
+}
+
+/**
+ * The preset source rows one role map contributes, in tier order.
+ *
+ * Role grain places first and group grain second, so "give this role the button
+ * preset, but take its typography from the link preset" resolves the way it
+ * reads. Both sit inside the single preset tier, below role defaults.
+ *
+ * The `source` string carries the preset NAME, not a bare `'preset'`, and that is
+ * load-bearing rather than cosmetic: invariants I35 and I36 require that an
+ * author can see that a value came from preset X and was overridden by the band,
+ * and a resolver that recorded only "some preset" could never report which.
+ *
+ * A dangling reference resolves to nothing HERE and contributes no row. The write
+ * gate refuses it outright, so reaching this point means stored-before-the-rule
+ * data — and the posture for that is already settled one level down: drop the
+ * unresolvable piece and leave every sibling declaration painting, exactly as
+ * _pp_udc_place()'s `@ref` branch does.
+ *
+ * BE PRECISE ABOUT WHAT IS AND IS NOT DISCLOSED: that drop is SILENT at render.
+ * pp_udc_composition_findings() emits `udc_token_minted` and
+ * `udc_unused_band_token` and nothing else, so there is no finding for an
+ * unresolvable reference of either kind. The disclosure an operator actually
+ * gets is the write-path refusal in _pp_udc_validate_preset_reference().
+ *
+ * @return array<int, array{0: string, 1: array}>
+ */
+function _pp_udc_preset_sources(array $map, array $permitted): array {
+    if ($map === []) {
+        return []; // The common case: a role this band declares nothing for.
+    }
+    $sources = [];
+
+    if (isset($map[PP_UDC_PRESET_KEY]) && is_string($map[PP_UDC_PRESET_KEY])) {
+        $preset = pp_udc_resolve_preset($map[PP_UDC_PRESET_KEY]);
+        if ($preset !== null) {
+            $fragment = _pp_udc_preset_fragment($preset, 'role');
+            if (is_array($fragment) && $fragment !== []) {
+                // INTERSECTED THROUGH THE SAME PREDICATE THE WRITE GATE USED.
+                // The write path told the author which groups were skipped; if
+                // the emitter applied them anyway, that disclosure would be a
+                // lie and the page would carry design the author was told it
+                // would not get.
+                $split = _pp_udc_split_preset_by_permitted($fragment, $permitted);
+                if ($split['applied'] !== []) {
+                    $sources[] = ['preset:' . $map[PP_UDC_PRESET_KEY], $split['applied']];
+                }
+            }
+        }
+    }
+
+    foreach ($map as $group_name => $group_map) {
+        if (!is_array($group_map) || !isset($group_map[PP_UDC_PRESET_KEY])
+            || !is_string($group_map[PP_UDC_PRESET_KEY])) {
+            continue;
+        }
+        $preset = pp_udc_resolve_preset($group_map[PP_UDC_PRESET_KEY]);
+        if ($preset === null) {
+            continue;
+        }
+        $fragment = _pp_udc_preset_fragment($preset, (string) $group_name);
+        if (is_array($fragment) && $fragment !== []) {
+            $sources[] = [
+                'preset:' . $group_map[PP_UDC_PRESET_KEY],
+                [(string) $group_name => $fragment],
+            ];
+        }
+    }
+
+    return $sources;
 }
 
 /**
@@ -1145,7 +2005,15 @@ function _pp_udc_place(
         // the CSS file's own fallbacks. Re-checking ~45 fixed constants on every
         // band of every request cost 2.6x the whole page's CSS build and bought
         // nothing an operator could ever have changed.
-        if ($source === 'udc' && pp_udc_validate_value($literal, $params[$param_name]) !== true) {
+        //
+        // A PRESET-SOURCED VALUE TAKES THE AUTHOR BRANCH, NOT THE DEFAULTS ONE.
+        // Today every preset is theme-shipped and would survive either way, so
+        // this costs a little and buys the Sprint-2 shape for free: custom
+        // presets are SITE-STORED author data, and a tier that had been skipping
+        // re-validation would silently become a hole the day they land. The gate
+        // is cheap here because it runs only on bands that actually reference a
+        // preset.
+        if ($source !== 'defaults' && pp_udc_validate_value($literal, $params[$param_name]) !== true) {
             continue;
         }
 
@@ -1176,10 +2044,16 @@ function pp_udc_valid_band_id(string $id): bool {
 /**
  * Renders one band's scoped CSS block.
  *
- * Order is §3.4's, exactly: the band root's minted tokens, then base
- * declarations, then `@media` blocks narrow-first, then hover rules (and hover
- * inside each media block). Every selector is `[data-pp-band="<id>"]` plus the
- * role's own selector, so specificity is flat and `!important` never appears.
+ * Order: the band root's minted tokens; then, for each state in
+ * pp_udc_states_in_emit_order() (base, `:hover`, `:focus-visible`, `:active`),
+ * base declarations followed by `@media` blocks narrow-first; then the engine's
+ * own `prefers-reduced-motion` guard, last.
+ *
+ * Every tier sits at identical specificity by construction, so ORDER IS THE
+ * RANKING — `:active` beats `:hover` because it prints after it, and the guard
+ * neutralizes the motion above it for the same reason. Every selector is
+ * `[data-pp-band="<id>"]` plus the role's own selector, so specificity is flat
+ * and `!important` never appears.
  */
 function pp_udc_band_css(array $item): string {
     $compiled = pp_udc_compile_band($item, 'authored');
@@ -1253,43 +2127,124 @@ function _pp_udc_render_blocks(array $compiled, string $scope, ?string $root_sco
         $css .= $root_scope . '{' . $decls . '}';
     }
 
-    // Bucketed once. The emission order below is a 4-tier x 3-breakpoint product,
-    // so filtering the block list inside it would walk every block twelve times
-    // and discard almost all of them on eleven of the passes.
+    // Bucketed once. The emission order below is an 8-tier x 3-breakpoint
+    // product, so filtering the block list inside it would walk every block
+    // twenty-four times and discard almost all of them on twenty-three passes.
     $by_state_bp = [];
     foreach ($compiled['blocks'] as $block) {
         $by_state_bp[$block['state']][$block['bp']][] = $block;
     }
 
-    // 1. base, 2. media narrow-first, 3. hover, 4. hover in media.
-    foreach ([['', 'base'], ['', 'media'], [PP_UDC_HOVER, 'base'], [PP_UDC_HOVER, 'media']] as [$state, $tier]) {
-        foreach (pp_udc_breakpoints_in_emit_order() as $bp => $meta) {
-            $is_base = $meta['media'] === null;
-            if (($tier === 'base') !== $is_base) {
-                continue;
-            }
-            $rules = '';
-            foreach (($by_state_bp[$state][$bp] ?? []) as $block) {
-                $decls = '';
-                foreach ($block['decls'] as $property => $entry) {
-                    $decls .= $property . ':' . $entry['css'] . ';';
-                }
-                if ($decls === '') {
+    // Per state, base rules then narrow-first media; states in the order
+    // pp_udc_states() declares — base, :hover, :focus-visible, :active. All four
+    // sit at identical specificity by construction, so the ORDER is the ranking:
+    // a pressed control shows its `:active` treatment rather than the `:hover`
+    // one it is also matching, because `:active` prints last.
+    $motion_selectors  = [];
+    $motion_properties = _pp_udc_motion_properties();
+
+    $breakpoints_ordered = pp_udc_breakpoints_in_emit_order();
+    foreach (pp_udc_states_in_emit_order() as $state) {
+        // Widening to four states turned this into a 4x2x3 product, and the
+        // overwhelmingly common band declares values in the base state only. Skip
+        // a state with no buckets rather than walking six empty breakpoint passes
+        // for it: the bucketing above already knows which states exist.
+        if (!isset($by_state_bp[$state])) {
+            continue;
+        }
+        foreach (['base', 'media'] as $tier) {
+            foreach ($breakpoints_ordered as $bp => $meta) {
+                $is_base = $meta['media'] === null;
+                if (($tier === 'base') !== $is_base) {
                     continue;
                 }
-                $selector = ($block['selector'] !== ''
-                    ? $scope . ' ' . $block['selector']
-                    : $root_scope) . $state;
-                $rules   .= $selector . '{' . $decls . '}';
+                $rules = '';
+                foreach (($by_state_bp[$state][$bp] ?? []) as $block) {
+                    $decls = '';
+                    foreach ($block['decls'] as $property => $entry) {
+                        $decls .= $property . ':' . $entry['css'] . ';';
+                        // KEYED BY SELECTOR **AND STATE**, and the state is the
+                        // half that is easy to drop. A guard emitted without it
+                        // lands at `[data-pp-band] .role` [0,2,0] while the rule
+                        // it must neutralize is `[data-pp-band] .role:hover`
+                        // [0,3,0] — so the guard LOSES on specificity and a
+                        // reduced-motion user still gets the full transition on
+                        // hover. Matching the state puts both at equal weight,
+                        // where printing later is enough.
+                        if (isset($motion_properties[$property])) {
+                            $motion_selectors[$block['selector'] . "\0" . $state] = [$block['selector'], $state];
+                        }
+                    }
+                    if ($decls === '') {
+                        continue;
+                    }
+                    $selector = ($block['selector'] !== ''
+                        ? $scope . ' ' . $block['selector']
+                        : $root_scope) . $state;
+                    $rules   .= $selector . '{' . $decls . '}';
+                }
+                if ($rules === '') {
+                    continue;
+                }
+                $css .= $is_base ? $rules : '@media ' . $meta['media'] . '{' . $rules . '}';
             }
-            if ($rules === '') {
-                continue;
-            }
-            $css .= $is_base ? $rules : '@media ' . $meta['media'] . '{' . $rules . '}';
         }
     }
 
+    $css .= _pp_udc_reduced_motion_guard($motion_selectors, $scope, $root_scope);
+
     return $css;
+}
+
+/**
+ * The `prefers-reduced-motion` guard the ENGINE emits for its own motion values.
+ *
+ * Ruling A3 makes reduced motion STRUCTURAL: not an authored value, not
+ * authorable, emitted by the engine. This is that.
+ *
+ * WHAT IT IS AND IS NOT, stated plainly because the honest version is easy to
+ * overstate. `assets/css/base.css` already carries a global
+ * `*, *::before, *::after { transition-duration: 0.01ms !important }` under the
+ * same query — §2 names reduced motion as an accessibility affordance that lives
+ * in structural CSS, and that rule stays. While it is there, IT is what a
+ * reduced-motion user's browser actually obeys, and this guard changes nothing
+ * for them. What this guard buys is that a band block is self-consistent: the
+ * motion an author declares here is neutralized by a rule emitted here, so it
+ * does not depend on a shared structural rule that a later assets/css change
+ * could narrow or move. A prototype confirmed the difference is real — with the
+ * global rule absent, a guarded element drops to 0.01ms while an unguarded
+ * sibling keeps its 900ms.
+ *
+ * It is emitted LAST, in the same scope, AND WITH THE SAME STATE SUFFIX as the
+ * declarations it neutralizes, so it wins on source order. Carrying the state is
+ * not a detail: motion declared inside `:hover` emits at `[data-pp-band] .role:hover`
+ * [0,3,0], and a guard emitted at the bare `[data-pp-band] .role` [0,2,0] loses
+ * on specificity — the transition would keep running for exactly the users the
+ * guard exists to serve. No `!important`: §3.4 forbids the engine ever emitting
+ * one, and at equal specificity printing later is all it takes.
+ *
+ * Emitted only for (selector, state) pairs that actually received a motion
+ * property, so a band that declares no motion pays nothing.
+ *
+ * The REMEDY is one declaration while the TRIGGER is derived from the motion
+ * registry, so a third motion param would widen detection without widening
+ * neutralization. Zeroing the duration is sufficient for both params that exist
+ * (a timing function over 0.01ms is unobservable); add `transition-delay` and
+ * this needs a per-param remedy rather than a constant.
+ *
+ * @param array $motion_selectors key => [selector, state]
+ */
+function _pp_udc_reduced_motion_guard(array $motion_selectors, string $scope, string $root_scope): string {
+    if ($motion_selectors === []) {
+        return '';
+    }
+    $selectors = [];
+    foreach ($motion_selectors as [$selector, $state]) {
+        $selectors[] = ($selector !== '' ? $scope . ' ' . $selector : $root_scope) . $state;
+    }
+    return '@media (prefers-reduced-motion: reduce){'
+        . implode(',', $selectors)
+        . '{transition-duration:0.01ms;}}';
 }
 
 /**
@@ -1567,6 +2522,55 @@ function pp_udc_composition_findings(array $items): array {
             continue;
         }
 
+        // THE PARTIAL-APPLY DISCLOSURE (orchestrator ruling, T2).
+        //
+        // A role-grain preset applies the groups the role permits and skips the
+        // rest. A partial apply is fine; a SILENT partial apply is not — the
+        // author asked for a bundle and got part of one, and nothing else on any
+        // surface would ever tell them which part. So it rides the write envelope,
+        // the same channel the minting disclosure uses, rather than a log line
+        // nobody reads.
+        //
+        // Derived from the reference, which minting never rewrites, so this
+        // reconstructs identically from submitted and from stored data — the
+        // property `wp pp check page` and restore both depend on.
+        $roles = pp_udc_component_roles($component);
+        foreach ($item['udc'] as $role_name => $role_map) {
+            if (!is_array($role_map) || !isset($role_map[PP_UDC_PRESET_KEY])
+                || !is_string($role_map[PP_UDC_PRESET_KEY]) || !isset($roles[(string) $role_name])) {
+                continue;
+            }
+            $preset = pp_udc_resolve_preset($role_map[PP_UDC_PRESET_KEY]);
+            if ($preset === null) {
+                continue; // Dangling: refused at write, reported there.
+            }
+            $fragment = _pp_udc_preset_fragment($preset, 'role');
+            if (!is_array($fragment) || $fragment === []) {
+                continue;
+            }
+            $split = _pp_udc_split_preset_by_permitted(
+                $fragment,
+                $roles[(string) $role_name]['groups'] ?? []
+            );
+            if ($split['skipped'] === [] || $split['applied'] === []) {
+                continue; // Nothing skipped, or refused outright at write.
+            }
+            $findings[] = [
+                'type'    => 'udc_preset_groups_skipped',
+                'message' => sprintf(
+                    'Component "%s" role "%s": the preset "%s" also declares %s, which this role does not '
+                    . 'permit, so %s not applied. Applied: %s.',
+                    $component,
+                    (string) $role_name,
+                    $role_map[PP_UDC_PRESET_KEY],
+                    implode(', ', $split['skipped']),
+                    count($split['skipped']) === 1 ? 'it was' : 'they were',
+                    implode(', ', array_keys($split['applied']))
+                ),
+                'index'   => is_int($i) ? $i : null,
+            ];
+        }
+
         $tokens = isset($item['udc']['_tokens']) && is_array($item['udc']['_tokens'])
             ? $item['udc']['_tokens']
             : [];
@@ -1840,7 +2844,8 @@ function _pp_udc_delimiters_balanced(string $value): bool {
  * that keeps "no declared authoring input is silently cancelled" (I35) true.
  *
  * Derived from pp_udc_mint_name()'s own shape rather than restated: a name matches
- * when it ends in `-<breakpoint>` (optionally `-hover-<breakpoint>`) and the segments
+ * when it ends in `-<breakpoint>` (optionally `-<state>-<breakpoint>`, where
+ * `<state>` is a pp_udc_states() mint segment) and the segments
  * before it name a real group and one of that group's parameters.
  */
 /**
@@ -1862,10 +2867,10 @@ function _pp_udc_delimiters_balanced(string $value): bool {
 function _pp_udc_name_is_the_engines_own_mint(string $name, array $udc): bool {
     $parts = explode('-', $name);
     $bp    = array_pop($parts);
-    $hover = end($parts) === 'hover';
-    if ($hover) {
-        array_pop($parts);
-    }
+    // POP BY SEGMENT COUNT, never by one. `focus-visible` is two segments, and
+    // the single-array_pop() idiom that served one state called `hover` reads
+    // such a name as a param ending in `-focus` inside a state called `visible`.
+    [$state, $parts] = _pp_udc_state_from_mint($parts);
     $groups = pp_udc_groups();
     $count  = count($parts);
     for ($g = 1; $g < $count; $g++) {
@@ -1879,8 +2884,8 @@ function _pp_udc_name_is_the_engines_own_mint(string $name, array $udc): bool {
             continue;
         }
         $branch = $udc[$role][$group] ?? null;
-        if ($hover) {
-            $branch = is_array($branch) ? ($branch[PP_UDC_HOVER] ?? null) : null;
+        if ($state !== '') {
+            $branch = is_array($branch) ? ($branch[$state] ?? null) : null;
         }
         $value = is_array($branch) ? ($branch[$param] ?? null) : null;
         if (is_array($value) && isset($value[$bp]) && is_scalar($value[$bp])
@@ -1900,9 +2905,11 @@ function _pp_udc_is_mint_shaped_name(string $name): bool {
     if (!isset(pp_udc_breakpoints()[$bp])) {
         return false;
     }
-    if (end($parts) === 'hover') {
-        array_pop($parts);
-    }
+    // Same segment-count rule as _pp_udc_name_is_the_engines_own_mint(): these
+    // two functions decide together whether a stored token name is the engine's
+    // own, and a disagreement between them is exactly the shape that turns every
+    // already-written band into a permanent false refusal.
+    [, $parts] = _pp_udc_state_from_mint($parts);
     // Walk every split of the remainder into <role...>-<group>-<param...>: group
     // and param names both contain hyphens, so the boundary is not positional.
     $groups = pp_udc_groups();
