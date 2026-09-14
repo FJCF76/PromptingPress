@@ -43,14 +43,14 @@ Derived from: the approved UDC design doc (wfroot-n5i9y-main-design-20260910-224
 ```
 - `id` is REQUIRED on every band in v2 (auto-minted `pp-<hex8>` at write when absent; carried forward on full-array re-apply by index+component match, minted fresh on ambiguity — carried from the design doc, simplified: v2 has no optional-id legacy).
 - `@name` references resolve band-local `_tokens` first, then site tokens. A literal submitted where a reference could exist is legal AND stored as-is; minting is the ENGINE's normalization choice only when a value is used responsively (one value, N breakpoints) — the envelope always reports what the author wrote (no-coercion rule kept).
-- Mint names are deterministic: `<role>-<group>-<param>[-<bp>]`. Token lifecycle: band tokens live and die with their band (GC by construction); an unused `_tokens` entry is a lint warning, never an error.
+- Mint names are deterministic: `<role>-<group>-<param>[-<bp>]` *(widened by Addendum A ruling A3 to `<role>-<group>-<param>[-<state>]-<bp>`, where `<state>` may itself contain a hyphen — `focus-visible`)*. Token lifecycle: band tokens live and die with their band (GC by construction); an unused `_tokens` entry is a lint warning, never an error.
 - The legacy `style` map (261 slots) DOES NOT EXIST in v2 components. One styling system.
 
 **3.2 Role taxonomy.** Each component's schema declares `roles`: named sub-elements mapped to stable selectors, each listing its permitted UDC groups (declaration is data; the engine is shared). `_band` is the implicit root role. Sprint 0 defines the taxonomy grammar + testimonials' roles (`quote`, `attribution`, `card`); each rebuild sprint declares its components' roles.
 
 **3.3 Value grammar (unified — supersedes the six divergent lists).** One owner validates every dimension-bearing value program-wide: lengths (`rem px em % vw vh vmin vmax ch ex lh rlh`, signed where the property allows), keywords per-property (typed keyword sets — `text-wrap`, `font-style`, etc.), colors/gradients/shadows/durations as typed grammars sharing the same number/unit core, `calc()/clamp()` with the same unit core, multi-value shorthands where the property family allows (padding/margin/inset/radius: 1–4 values). The preserved unit-grammar inventory (notes/t6-unit-grammar-inventory-raw.jsonl) is the consolidation map: the five divergent sibling lists (shadow px/rem-only, position missing vw/vh, gradient-stop no-negatives, radial %-only, the loose `[\d.]+` bodies) are unified INTO the owner — their current quirks die (no compat). The injection gate (`_pp_forbidden_css_construct`) and hardened number-body survive as the shared core. The AI-facing docs state the ACCEPTED grammar explicitly (v1 never told the model its unit set — fix that).
 
-**3.4 Cascade contract.** Site tokens → component role defaults (schema data) → band `udc` values (desktop → breakpoint override → hover override). Emission order inside a band block: base declarations, then `@media` blocks narrow-first, then hover rules; later bands' blocks emit after earlier bands'; duplicate ids refuse at write (`duplicate_component_id` exists). No inline style emission anywhere in v2 components — the band block is the only styling source, so specificity is flat by construction (`[data-pp-band="<id>"] <role-selector>`, no `!important` ever).
+**3.4 Cascade contract.** *(SUPERSEDED IN PART by Addendum A ruling A3, below: the rung gains a PRESET tier — site tokens → presets → component role defaults → band `udc` — and `hover` widens to `hover` / `focus-visible` / `active`. The rest of this section still holds.)* Site tokens → component role defaults (schema data) → band `udc` values (desktop → breakpoint override → hover override). Emission order inside a band block: base declarations, then `@media` blocks narrow-first, then hover rules; later bands' blocks emit after earlier bands'; duplicate ids refuse at write (`duplicate_component_id` exists). No inline style emission anywhere in v2 components — the band block is the only styling source, so specificity is flat by construction (`[data-pp-band="<id>"] <role-selector>`, no `!important` ever).
 
 **3.5 Emission.** One shared engine renders each band's block from `udc` (+ role defaults). Blocks emit inline in the document `<head>` per page (perf budget below); caching to uploads/ is a post-2.0.0 optimization.
 
@@ -61,7 +61,7 @@ Derived from: the approved UDC design doc (wfroot-n5i9y-main-design-20260910-224
 ## 4. Sprint-0 vertical slice (the deliverable)
 
 Testimonials, end-to-end, on the dev install:
-1. Schema: testimonials declares `roles` (quote/attribution/card) + permitted groups (Typography, Spacing, Border, Shadow, Background, Sizing).
+1. Schema: testimonials declares `roles` (quote/attribution/card) + permitted groups (Typography, Spacing, Border, Shadow, Background, Sizing; Addendum A ruling A3 added Motion to every role).
 2. Grammar: the unified owner (lengths incl. new units, keyword sets, shorthands) wired for the slice's groups.
 3. Engine: `udc` validation + deterministic minting + the band-block emitter with the cascade contract.
 4. Component: testimonials rebuilt v2-native (structural skeleton CSS only; every designable value via UDC; the legacy slot map gone from this component).
@@ -95,3 +95,40 @@ The one-pass sweep classified all 187 open issues exactly once (verified by set-
 ## 7. Later-sprint pointers (scoped out of Sprint 0, named so they are not lost)
 
 Layer 2 (breakpoint-keyed declaration lists, PP-owned property/function ALLOWLIST) and Layer 3 (sanitizer model: kses delta, no event attrs/iframes/JS URLs; content islands) — Sprint 2/3, each with its own contract review. AI-instruction rewrite with prompt-regression cases (the ai-ready harness extends). The accordion UDC UI: post-2.0.0. #909 CRITICAL re-enters at Sprint 3 if capacity allows, else first post-2.0.0 work.
+
+---
+
+<!--
+  Addendum A is copied verbatim from the canonical spec. Sprint 1's tasks are
+  ruled here; where an implementation had to choose a shape the ruling
+  delegated, the reasoning lives in the code that made it (lib/udc.php's
+  pp_udc_states(), pp_udc_presets() and pp_udc_compile_band() for ruling A3).
+-->
+
+## Addendum A — Sprint-1 contract rulings (Fernando, confirmed one-by-one, 2026-09-14)
+
+**A1 — Chrome storage (CONFIRMED):** a site-level UDC container — the `pp_site_udc` option holding one entry per chrome component (nav, footer), identical internal shape to a band's `udc` map, validated by the same engine and grammar, emitted under `[data-pp-chrome="<name>"]`; writes ride the existing site-option truth-spine machinery (CAS/snapshot/rollback). Per-page chrome overrides explicitly OUT of scope.
+
+**A2 — Background images (CONFIRMED):** the Background group gains `image: attachment_id` (+ position/size/repeat/overlay companions). The ENGINE resolves the ID via WordPress, verifies referential existence (dangling ID = write refusal naming the ID), and constructs the `url()` from the escaped same-install URL. Author-written `url()` stays banned everywhere. External URLs, video backgrounds, and per-breakpoint art direction OUT of scope (each its own future ruling).
+
+**A3 — Presets, states, motion (CONFIRMED as amended — the Divi-complete contract, staged delivery):**
+- PRESETS are first-class: named `udc` fragments at ROLE grain and GROUP grain, site-stored, referenced by name, band-overridable, dangling references refused (the @ref discipline one level up — a reference resolving to a value map instead of a scalar). Cascade rung: site tokens → presets → component role defaults → band `udc`.
+- Sprint 1 ships the resolution mechanism + three SYSTEM presets (button, button-secondary, link); Sprint 2 ships author/AI-created custom presets (create/save/apply) with the AI-instruction rewrite. The Sprint-1/2 schemas encode against the preset contract from day one.
+- STATES widen to `hover` / `focus-visible` / `active` as value dimensions; `disabled`, pseudo-elements, ancestor-states deferred to their own ruling.
+- MOTION group: `transition-duration` + `timing-function`, defaulting to today's theme values; `prefers-reduced-motion` respected structurally (a §2 accessibility affordance, not an authored value).
+
+### A3 sub-ruling — preset/role group mismatch (orchestrator ruling, T2 — pending maintainer review)
+
+Ruling A3 settles the cascade rung and the dangling-reference refusal, but not what happens when a preset declares a group the target role does not permit. Implementing T2 forced the question: refusing the whole reference left the shipped `button` preset writable on 2 of testimonials' 12 roles (9 blocked by a `shadow` group carrying only the inert `box: none`, 1 by `typography`).
+
+Settled as follows. This is a sub-ruling INSIDE A3's confirmed contract, not a new maintainer-confirmed axis, and stays overridable:
+
+1. **INTERSECT.** A role-grain `_preset` applies the groups the target role permits and skips the rest. A group-grain `_preset` names one group and is refused as usual if the role does not permit it.
+2. **THE SKIP IS DISCLOSED.** Skipped groups are named in a `udc_preset_groups_skipped` write-envelope finding — the same channel as the minting disclosure, not a log line. A partial apply is acceptable; a silent partial apply is the reported-success-without-effect class I35 forbids.
+3. **AN EMPTY INTERSECTION REFUSES**, naming the preset and the role, in the same posture as a dangling reference. Intersect semantics must never degrade into a fully silent no-op.
+4. **The write gate and the emitter intersect through one predicate**, so what the envelope reports as skipped is what the page omits.
+5. The inert `shadow: {box: none}` is dropped from both button presets (`.btn` sets `box-shadow: var(--btn-shadow, none)`, so it painted nothing, and `shadow` is the narrowest group in the taxonomy — carrying it made the disclosure fire on nine roles to report a no-op).
+
+Sprint-2 custom presets inherit these semantics unchanged.
+
+Recorded context: the 2/12 figure is partly an artifact of testimonials having no button-like role; the hero/nav rebuilds are where the button presets earn their keep. That supports intersect (the wall would otherwise recur on every future component) without softening the honesty requirements above.

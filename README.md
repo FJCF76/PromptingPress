@@ -247,7 +247,7 @@ A single layer of CSS custom properties controls the entire visual system: color
 
 234 per-instance style slots let AI make this page's hero dark and spacious while that page's hero is tight, accent-bordered, and lifted with a drop shadow — all through composition data, no CSS edits. 10 named recipes (like `dark-spacious` or `compact`) expand to multiple slot values at once.
 
-`testimonials` has moved past slots entirely. It is the first component on the **Universal Design Contract** (v2): instead of a fixed list of slots someone had to think of in advance, it declares ROLES — the quote, the card, the attribution, the heading — and every role accepts the full design vocabulary (typography, spacing, border, shadow, background, sizing), per breakpoint and on hover. That is how a brand's serif-italic pull-quote in a white 1px-bordered card became expressible at all.
+`testimonials` has moved past slots entirely. It is the first component on the **Universal Design Contract** (v2): instead of a fixed list of slots someone had to think of in advance, it declares ROLES — the quote, the card, the attribution, the heading — and every role accepts the full design vocabulary (typography, spacing, border, shadow, background, sizing, motion), per breakpoint and in three states (`:hover`, `:focus-visible`, `:active`). Shared looks are named `presets` a band applies by name. That is how a brand's serif-italic pull-quote in a white 1px-bordered card became expressible at all.
 
 ```bash
 # Preview a token change without applying
