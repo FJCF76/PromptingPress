@@ -3495,6 +3495,42 @@ function pp_udc_composition_findings(array $items): array {
             ];
         }
 
+        // THE INERT-`_band` DISCLOSURE (boundary-review item C2, invariant I35).
+        //
+        // `_band` has no selector, so an inherited value it sets reaches the text
+        // inside the band by INHERITANCE — and a role default for the same property
+        // is a direct declaration on the child, which beats inheritance at any
+        // specificity and in any source order. There is no cascade position that
+        // would change it, so the author's value is accepted, stored, reported
+        // applied, and silently cancelled for every role that declares a default
+        // for the same property.
+        //
+        // WHY DISCLOSURE RATHER THAN THINNING THE DEFAULTS, which the boundary
+        // review offered as the alternative: those defaults are load-bearing.
+        // testimonials' `quote` declares `color` and `font-style` precisely to beat
+        // base.css's `blockquote { color: var(--color-muted); font-style: italic; }`.
+        // Thinning them would re-expose every quote to the structural rule and trade
+        // a disclosed cancellation for an undisclosed one.
+        //
+        // The docs already tell the model to set typography on every text role
+        // rather than rely on inheritance. That helps the author who reads them; I35
+        // is about the author who does not.
+        foreach (_pp_udc_band_values_cancelled_by_role_defaults($item['udc'], $component) as $property => $names) {
+            $findings[] = [
+                'type'    => 'udc_band_value_cannot_take_effect',
+                'message' => sprintf(
+                    'Component "%s": the "%s" you set on the whole band does not reach %s, because %s '
+                    . 'own default for it wins over inheritance. Set it on %s directly.',
+                    $component,
+                    (string) $property,
+                    implode(', ', $names),
+                    count($names) === 1 ? 'that role\'s' : 'those roles\'',
+                    count($names) === 1 ? 'that role' : 'those roles'
+                ),
+                'index'   => is_int($i) ? $i : null,
+            ];
+        }
+
         $tokens = isset($item['udc']['_tokens']) && is_array($item['udc']['_tokens'])
             ? $item['udc']['_tokens']
             : [];
@@ -3552,6 +3588,123 @@ function pp_udc_composition_findings(array $items): array {
     }
 
     return $findings;
+}
+
+/**
+ * The CSS properties a `_band` value reaches its content through INHERITANCE.
+ *
+ * `_band` has no selector, so its declarations land on the band root and reach
+ * the text inside it only because CSS inherits these properties down. A role
+ * default for the same property is a DIRECT declaration on the child element, and
+ * a direct declaration beats inheritance at any specificity and in any order —
+ * there is no cascade position that would change it. So the author's `_band`
+ * value is accepted, stored, reported applied, and cancelled for every role that
+ * declares a default for the same property.
+ *
+ * ONLY INHERITED PROPERTIES BELONG HERE. `padding` on the band root is not
+ * cancelled by a role's padding — they are different boxes, both paint. Listing a
+ * non-inherited property would make the disclosure fire on values that work,
+ * which is the way an advisory gets acknowledged into silence.
+ *
+ * Every entry is an inherited property per CSS, and every one is a `typography`
+ * parameter: that group is the whole inherited surface the vocabulary exposes
+ * today. If a future group adds one (`visibility`, `cursor`, a list-style), it
+ * belongs here too, or the disclosure goes quietly incomplete.
+ *
+ * @return array<string,true>
+ */
+function _pp_udc_inherited_properties(): array {
+    return [
+        'font-family'          => true,
+        'font-size'            => true,
+        'font-weight'          => true,
+        'font-style'           => true,
+        'line-height'          => true,
+        'letter-spacing'       => true,
+        'text-align'           => true,
+        'text-transform'       => true,
+        'text-indent'          => true,
+        'text-wrap'            => true,
+        'color'                => true,
+        'word-spacing'         => true,
+        'white-space'          => true,
+        'visibility'           => true,
+        'cursor'               => true,
+        'list-style'           => true,
+        'list-style-type'      => true,
+        'list-style-position'  => true,
+    ];
+}
+
+/**
+ * The roles whose own defaults cancel a `_band` value, per CSS property.
+ *
+ * Derived from the SCHEMA and the submitted `_band` map, both of which are on
+ * disk, so this reconstructs identically from stored and from submitted data —
+ * the property `wp pp check page` and restore both depend on.
+ *
+ * CURRENT-SCHEMA DIAGNOSTIC, STATED BECAUSE IT IS NOT OBVIOUS. Role defaults are
+ * not versioned, so this describes the defaults in force NOW, not the ones in
+ * force when the band was authored. A schema change can therefore make a finding
+ * appear over a band nobody touched. That is the honest behaviour for a
+ * "what is painting today" disclosure, and the alternative — versioning every
+ * component schema so a band could be diffed against the defaults of its own era
+ * — is a contract far larger than the disclosure it would serve.
+ *
+ * @return array<string,string[]> property => role names that shadow it
+ */
+function _pp_udc_band_values_cancelled_by_role_defaults(array $udc, string $component): array {
+    if (!isset($udc['_band']) || !is_array($udc['_band'])) {
+        return [];
+    }
+    $groups    = pp_udc_groups();
+    $roles     = pp_udc_component_roles($component);
+    $inherited = _pp_udc_inherited_properties();
+
+    // What `_band` declares, as CSS properties.
+    $declared = [];
+    foreach ($udc['_band'] as $group_name => $group_map) {
+        if ($group_name === PP_UDC_PRESET_KEY || !is_array($group_map)
+            || !isset($groups[(string) $group_name]['params'])) {
+            continue;
+        }
+        foreach ($group_map as $param_name => $unused) {
+            $param = $groups[(string) $group_name]['params'][(string) $param_name] ?? null;
+            if ($param === null || !isset($inherited[$param['property']])) {
+                continue;
+            }
+            $declared[$param['property']] = true;
+        }
+    }
+    if ($declared === []) {
+        return [];
+    }
+
+    // Which roles declare a DEFAULT for the same property.
+    $cancelled = [];
+    foreach ($roles as $role_name => $role_def) {
+        if ((string) $role_name === '_band') {
+            continue;
+        }
+        foreach (($role_def['defaults'] ?? []) as $group_name => $group_map) {
+            if (!is_array($group_map) || !isset($groups[(string) $group_name]['params'])) {
+                continue;
+            }
+            foreach ($group_map as $param_name => $unused) {
+                $param = $groups[(string) $group_name]['params'][(string) $param_name] ?? null;
+                if ($param === null || !isset($declared[$param['property']])) {
+                    continue;
+                }
+                $cancelled[$param['property']][] = (string) $role_name;
+            }
+        }
+    }
+    foreach ($cancelled as $property => $names) {
+        $cancelled[$property] = array_values(array_unique($names));
+        sort($cancelled[$property]);
+    }
+    ksort($cancelled);
+    return $cancelled;
 }
 
 /** Every `@name` a band's udc map references, as a lookup set. */

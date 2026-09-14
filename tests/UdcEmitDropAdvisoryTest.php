@@ -223,4 +223,76 @@ class UdcEmitDropAdvisoryTest extends TestCase
         $this->assertGreaterThan(1, count($keys));
         $this->assertSame($keys, array_unique($keys), 'two different drops must not share one acknowledgement');
     }
+
+    // ── 5. C2: a `_band` value cancelled by a role default ───────────────────
+
+    /**
+     * THE RED PROOF (C2, I35). An inherited `_band` value cancelled by role
+     * defaults reported applied and painted nothing on the roles that matter.
+     *
+     * testimonials declares `color` defaults on seven text roles, so a band-level
+     * text colour reaches the wrappers and none of the text.
+     */
+    public function testABandColourCancelledByRoleDefaultsIsDisclosed(): void
+    {
+        $findings = pp_udc_composition_findings([
+            $this->band(['_band' => ['typography' => ['color' => '#ff0000']]]),
+        ]);
+
+        $types = array_column($findings, 'type');
+        $this->assertContains('udc_band_value_cannot_take_effect', $types);
+
+        $message = implode(' ', array_column($findings, 'message'));
+        $this->assertStringContainsString('color', $message);
+        $this->assertStringContainsString('quote', $message, 'the shadowing roles must be named');
+    }
+
+    /**
+     * A NON-INHERITED property is not cancelled and must not be reported.
+     *
+     * `_band` padding and a role's padding are different boxes; both paint. This is
+     * the false positive that would teach an operator to ignore the finding.
+     */
+    public function testABandPaddingIsNotReportedAsCancelled(): void
+    {
+        $findings = pp_udc_composition_findings([
+            $this->band(['_band' => ['spacing' => ['padding-top' => '18px']]]),
+        ]);
+
+        $this->assertNotContains('udc_band_value_cannot_take_effect', array_column($findings, 'type'));
+    }
+
+    /** An inherited property NO role defaults is not cancelled either. */
+    public function testABandValueNoRoleDefaultsIsNotReported(): void
+    {
+        $findings = pp_udc_composition_findings([
+            $this->band(['_band' => ['typography' => ['align' => 'center']]]),
+        ]);
+
+        $this->assertNotContains(
+            'udc_band_value_cannot_take_effect',
+            array_column($findings, 'type'),
+            'no testimonials role defaults text-align, so nothing cancels it'
+        );
+    }
+
+    /**
+     * DERIVED FROM STORED DATA, so it reconstructs identically on every surface.
+     *
+     * The same function runs over the stored composition for `wp pp check page`
+     * and restore_composition. A finding computable only from a submitted map
+     * would report nothing on either.
+     */
+    public function testTheDisclosureReconstructsIdenticallyFromStoredData(): void
+    {
+        $item = $this->band(['_band' => ['typography' => ['color' => '#ff0000']]]);
+
+        $submitted = pp_udc_composition_findings([$item]);
+        $stored    = pp_udc_composition_findings(json_decode((string) wp_json_encode([$item]), true));
+
+        $this->assertSame(
+            array_column($submitted, 'message'),
+            array_column($stored, 'message')
+        );
+    }
 }
