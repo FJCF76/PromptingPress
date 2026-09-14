@@ -97,12 +97,20 @@ add_action('wp_enqueue_scripts', function () {
     );
 
     // Output overridden tokens as inline CSS after pp-base.
+    //
+    // Every row is re-validated against the type base.css declares for it before
+    // it is allowed into the block (pp_token_override_renders(), lib/wp.php — the
+    // #330 render boundary applied to this surface). A row that does not pass is
+    // dropped and the rest still emit: the block shares the `pp-base` handle with
+    // the UDC defaults tier below, and WordPress concatenates a handle's inline
+    // styles into ONE <style> element, so keeping this block well-formed is what
+    // keeps that tier painting. Dropped names are logged and reported by
+    // `wp pp readiness status` through the same predicate.
     if ($overrides) {
-        $lines = [];
-        foreach ($overrides as $token => $value) {
-            $lines[] = '  ' . $token . ': ' . $value . ';';
+        $pp_token_css = pp_token_overrides_inline_css($overrides, pp_design_tokens());
+        if ($pp_token_css !== '') {
+            wp_add_inline_style('pp-base', $pp_token_css);
         }
-        wp_add_inline_style('pp-base', ":root {\n" . implode("\n", $lines) . "\n}");
     }
 
     wp_enqueue_style(

@@ -1617,8 +1617,13 @@ function pp_get_style_recipes(string $component_name): array {
  * Two layers, no second grammar:
  *   1. A conservative reject set applied to every value regardless of type —
  *      `{ } ; < >`, backslash escapes, control characters, the CSS comment
- *      delimiters `/ *` / `* /`, and `url(` / `expression(` / `@import` (CSS
- *      network-request, dynamic-eval, and import primitives). Since #579 this is
+ *      delimiters `/ *` / `* /`, and `url(` / `expression(` / `@import`. Named
+ *      precisely rather than as a category: it is those three constructs, NOT
+ *      "every CSS network-request primitive" — `image-set()` and `src()` also
+ *      fetch and are not in the set. They are inert at every sink this reaches,
+ *      because each typed grammar refuses them and the one untyped token
+ *      (`--transition`) is only ever consumed as a transition value; but the set
+ *      is a literal list and the comment should not promise a class. Since #579 this is
  *      the SHARED set (`_pp_forbidden_css_construct`, lib/apply.php) the write
  *      engine applies too, not a second, stricter copy of it. It is the sole line
  *      of defense for a (hypothetical) slot with no declared type.
@@ -1692,6 +1697,409 @@ function pp_style_declaration_renders(string $name, $value, array $slots): bool 
         $slots[$name]['type'] ?? null,
         $slots[$name]['values'] ?? null
     );
+}
+
+/**
+ * Whether ONE stored design-token override will actually be emitted.
+ *
+ * The token-override twin of pp_style_declaration_renders() above, and it exists
+ * for the same two reasons, in the same order.
+ *
+ * FIRST, the boundary itself. functions.php emits `pp_token_overrides` into a
+ * `:root { … }` inline stylesheet, and until this predicate existed it emitted
+ * every stored row verbatim — the one stored-value surface in the theme with no
+ * re-validation between storage and CSS. The #330 render boundary was built for
+ * exactly this situation one level down (composition style slots), on the stated
+ * grounds that restore (#233) and out-of-band DB writes can both put a value into
+ * storage that never passed write-time validation. Design-token overrides are
+ * reachable by both of those routes too. So the same boundary, delegated to the
+ * same engine (pp_render_style_value_allowed -> _pp_validate_token_value), rather
+ * than a second grammar that could drift from the write path.
+ *
+ * SECOND, the one-predicate rule. pp_style_declaration_renders()'s docblock says
+ * why it is extracted: the renderer and the advisories "must give the SAME
+ * answer, or the advisories report on declarations the page never emits. Two
+ * hand-rolled copies of that test would be two grammars, and the one that drifted
+ * would drop styling silently or warn about nothing." That applies verbatim here:
+ * functions.php drops with this predicate and pp_check_token_override_validity()
+ * (the readiness advisory) reports with this predicate, so an operator is never
+ * told about a token that still paints, or left uninformed about one that stopped.
+ *
+ * Three gates, in order, mirroring the twin:
+ *
+ *   0. A STRING — and unlike the twin, that is a real gate here rather than a
+ *      cast. `pp_style_declaration_renders()` takes `mixed` and casts, following
+ *      the #641/#705 ruling that "is_string() would silently DROP stored scalars
+ *      the write path accepts" (lib/wp.php, the FAQ boundary): that surface runs
+ *      coercive and a stored `2` IS a legitimate stored style value there. This
+ *      surface is the opposite — `pp_set_token_override(string $token, string
+ *      $value)` and `update_design_token`'s `'value' => ['type' => 'string']` both
+ *      type the write as a string, so a non-string in this option never came from
+ *      the write path and has no accepted reading. Refusing it here rather than in
+ *      the caller is what keeps this predicate the single answer to "does it
+ *      paint" — a guard beside the loop instead would make the partition and the
+ *      advisory disagree about a float, which is exactly the drift the
+ *      one-predicate rule exists to stop. It also avoids an Array-to-string
+ *      conversion warning on a stored array.
+ *
+ *   1. REGISTERED — the token exists in pp_design_tokens(), i.e. it is declared in
+ *      base.css's `:root`. This gate is load-bearing beyond tidiness, because the
+ *      emitter concatenates the token NAME into the stylesheet as well as its
+ *      value, and nothing else in the theme validates a stored name. Membership
+ *      settles the name completely: pp_design_tokens() only ever produces names
+ *      its own `(--[\w-]+)` scan matched out of the theme's own base.css. It also
+ *      costs nothing real — `update_design_token` already refuses a token outside
+ *      the registry, and pp_design_tokens() itself ignores an unregistered
+ *      override when merging (see the `isset($cache[$token])` guard), so an
+ *      unregistered row was already invisible to every reader of the token set
+ *      while still being emitted. Dropping it makes the page agree with the
+ *      registry that the rest of the theme already agrees with.
+ *
+ *   3. BALANCED — the stored value leaves no delimiter open. Runs LAST, after the
+ *      type grammar, so the shared reject set has already refused a backslash
+ *      before this walk pairs quotes by byte. This gate is here and
+ *      not inside the shared #330 boundary because the two boundaries have
+ *      different SINKS, and the sink is what decides the rule. The style-slot
+ *      boundary emits into an inline `style` ATTRIBUTE through esc_attr(), where
+ *      an unclosed quote becomes `&quot;` and a dangling `(` is inert; this one
+ *      emits CSS SOURCE TEXT, where tokenization treats `rgb(` as still open and
+ *      consumes the terminating `;`, the closing `}`, and every rule after it.
+ *      Same bytes, different sink, different rule — which is exactly why
+ *      _pp_forbidden_css_construct() does not ban an unbalanced `(` and must not
+ *      start: that would impose a source-text constraint on eleven components
+ *      whose sink still escapes. v2 reached the same conclusion for the same
+ *      reason and applies this guard at its own emit-time re-validation
+ *      (pp_udc_validate_value(), lib/udc.php); this is that posture, here.
+ *
+ *      It is also the gate that covers the one type the type grammar does not:
+ *      `raw` HAS a case in _pp_validate_token_value(), and that case deliberately
+ *      does nothing — `case 'raw': break; // Injection check only, already done
+ *      above` (lib/apply.php) — so a raw value passes on the injection gate alone.
+ *      --transition is the theme's only raw token.
+ *
+ *   2. ALLOWED — the stored value clears the #330 render boundary for the type the
+ *      registry declares. Note this is the one caller that cannot reach the
+ *      boundary's typeless path: gate 1 guarantees a registry entry, and every
+ *      token in the shipped registry carries a declared type.
+ *
+ * Nothing legitimate is lost to gate 3: every one of the shipped token values is
+ * balanced, and a CSS value that leaves a delimiter open is malformed wherever it
+ * came from. The write path is deliberately untouched — a value that fails here
+ * still STORES, it just does not paint, and pp_check_token_override_validity()
+ * reports it with reset_design_token as the next action.
+ *
+ * @param  string $token     Token name exactly as stored (nothing resolves it).
+ * @param  mixed  $value     The stored override value.
+ * @param  array  $registry  pp_design_tokens() output: name => ['value', 'type'].
+ * @return bool
+ */
+function pp_token_override_renders(string $token, $value, array $registry): bool {
+    if (!is_string($value)) {
+        return false;
+    }
+    if (!isset($registry[$token])) {
+        return false;
+    }
+    // THE INJECTION SET RUNS BEFORE THE BALANCE WALK, matching the order the
+    // guard's other two callers already use. Not cosmetic: the shared reject set
+    // bans the backslash, and the balance walk pairs quotes by scanning for the
+    // next matching byte, so it would read an escaped `\"` as a real quote. Having
+    // the backslash refused upstream means the walk never sees one, which is why
+    // it can pair quotes by byte and still be right.
+    if (!pp_render_style_value_allowed((string) $value, $registry[$token]['type'] ?? null)) {
+        return false;
+    }
+    return _pp_udc_delimiters_balanced((string) $value);
+}
+
+/**
+ * The design-token overrides that will actually be emitted, and the ones dropped.
+ *
+ * One pass over the stored option so the caller does not run the predicate twice,
+ * and so "what paints" and "what was dropped" are necessarily complementary
+ * rather than two independent filters that could disagree.
+ *
+ * DEGRADE, NEVER FATAL. A failing row is left out of `emit` and named in
+ * `dropped`; the healthy rows beside it are untouched. That posture is not
+ * politeness — the `:root` block shares the `pp-base` handle with the v2 UDC
+ * defaults tier, and WordPress concatenates every inline style on a handle into
+ * one `<style>` element, so a block that fails to parse takes the tier below it
+ * down with it. Dropping the one bad row is what keeps the other ninety-nine
+ * declarations and the whole defaults tier painting.
+ *
+ * `dropped` carries token NAMES ONLY. The value is what failed validation, which
+ * makes it the last thing to copy into a log line or an admin screen.
+ *
+ * @param  array $overrides  pp_get_token_overrides() output.
+ * @param  array $registry   pp_design_tokens() output.
+ * @return array             ['emit' => array token=>value, 'dropped' => string[] token names].
+ */
+function pp_partition_token_overrides(array $overrides, array $registry): array {
+    $emit    = [];
+    $dropped = [];
+
+    foreach ($overrides as $token => $value) {
+        // THE PREDICATE IS THE ONLY TEST. No extra condition beside this call,
+        // however defensive it looks: one added here and not inside the predicate
+        // is a row the page drops and the advisory describes wrongly.
+        if (pp_token_override_renders((string) $token, $value, $registry)) {
+            $emit[$token] = $value;
+        } else {
+            $dropped[] = (string) $token;
+        }
+    }
+
+    return ['emit' => $emit, 'dropped' => $dropped];
+}
+
+/**
+ * The `:root { … }` inline stylesheet for the site's design-token overrides.
+ *
+ * THE EMITTER ITSELF, not a helper the emitter uses — and it lives here, with a
+ * name and a return value, precisely so it can be executed by a test. The
+ * partition, the drop log and the block assembly are one unit: the block must be
+ * built from the rows that survived, and the rows that did not must be reported,
+ * or the page silently loses styling with no account of it anywhere. Leaving the
+ * assembly inline in functions.php's `wp_enqueue_scripts` closure put it beyond
+ * reach of every test in the suite (an anonymous closure inside add_action() is
+ * never called by phpunit), so the only thing standing behind it was a source
+ * tripwire — and a tripwire that matches on variable names is defeated by a
+ * rename. A test can now assert the STRING THIS RETURNS.
+ *
+ * Returns '' when nothing survives, so the caller emits no block at all rather
+ * than an empty `:root { }`.
+ *
+ * @param  array $overrides  pp_get_token_overrides() output.
+ * @param  array $registry   pp_design_tokens() output.
+ * @return string            The CSS block, or '' when there is nothing to emit.
+ */
+function pp_token_overrides_inline_css(array $overrides, array $registry): string {
+    $partitioned = pp_partition_token_overrides($overrides, $registry);
+
+    pp_log_dropped_token_overrides($partitioned['dropped']);
+
+    if (!$partitioned['emit']) {
+        return '';
+    }
+
+    $lines = [];
+    foreach ($partitioned['emit'] as $token => $value) {
+        $lines[] = '  ' . $token . ': ' . $value . ';';
+    }
+
+    return ":root {\n" . implode("\n", $lines) . "\n}";
+}
+
+/** How many dropped token names one log line will name before summarizing the rest. */
+const PP_DROPPED_TOKEN_LOG_MAX = 10;
+
+/**
+ * Logs that stored design-token overrides were dropped from the emitted block.
+ *
+ * A named function rather than three lines inside the enqueue callback, because
+ * functions.php is a bootstrap (registration and enqueueing only) and because a
+ * log line assembled from stored data deserves a test.
+ *
+ * THE NAMES ARE STORED DATA, NOT THEME CONSTANTS, and that is the whole reason
+ * this is not a bare error_log(). A row reaches `dropped` precisely when it
+ * failed validation, and the commonest way to fail gate 1 is to be a token name
+ * nothing in the theme ever produced — so this function's input is the one part
+ * of the drop path that is attacker-influenced by construction. Untreated it
+ * would be a second sink with a first sink's guard: the emitted CSS is defended
+ * by the registry check while the log line, built from the same rejected names,
+ * took them verbatim. That is the exact shape of defect this whole change
+ * exists to remove, so it is closed here rather than argued about.
+ *
+ * Two bounds, both load-bearing:
+ *
+ *   - EACH NAME goes through the reflected-text owner at PP_REFLECTED_NAME_MAX.
+ *     _pp_clean_reflected_text() strips \p{Cc}, which includes newline and
+ *     carriage return, so a stored name cannot forge additional log lines, and
+ *     it truncates, so a multi-megabyte name cannot write a multi-megabyte line.
+ *   - THE COUNT is capped at PP_DROPPED_TOKEN_LOG_MAX and the remainder is
+ *     summarized. The total is still reported honestly; what is bounded is how
+ *     much of it one line spells out.
+ *
+ * The condition is persistent — it recurs on every request until an operator
+ * clears the override — and the line is bounded rather than deduplicated. Stating
+ * the reason precisely, because the obvious shortcut is wrong in both directions:
+ * under mod_php/php-fpm each request re-runs the script, so a once-per-process
+ * `static` latch (the _pp_log_reconnect_suspend_failure() pattern) buys nothing on
+ * the front end; under a persistent-worker SAPI it buys too much, going quiet for
+ * the worker's whole life. Neither is what this wants, so size is the axis
+ * controlled here. The durable, deduplicated account of the same condition is
+ * pp_check_token_override_validity() via `wp pp readiness status`; this line only
+ * has to be survivable, not the record.
+ *
+ * @param  string[] $dropped  Token names, exactly as stored.
+ * @return void
+ */
+function pp_log_dropped_token_overrides(array $dropped): void {
+    if (!$dropped) {
+        return;
+    }
+
+    $total = count($dropped);
+    $named = array_map(
+        static function ($token): string {
+            return _pp_clean_reflected_text((string) $token, PP_REFLECTED_NAME_MAX);
+        },
+        array_slice($dropped, 0, PP_DROPPED_TOKEN_LOG_MAX)
+    );
+    $remainder = $total - count($named);
+
+    error_log(
+        'PromptingPress: dropped ' . $total . ' design-token override(s) that no longer'
+        . ' validate, so the rest of the :root block still emits: '
+        . implode(', ', $named)
+        . ($remainder > 0 ? ' (+' . $remainder . ' more)' : '')
+        . '. Re-set or clear them; wp pp readiness status names them.'
+    );
+}
+
+/**
+ * Readiness rows for stored design-token overrides that no longer paint.
+ *
+ * The advisory half of the token-override render boundary. functions.php DROPS a
+ * row that fails re-validation so the `:root` block stays well-formed; without
+ * this the operator's only evidence would be an error_log line and a colour that
+ * quietly went back to its default. Both halves run pp_token_override_renders(),
+ * so this cannot report a token that still paints and cannot stay silent about
+ * one that stopped (the one-predicate rule — see pp_style_declaration_renders()).
+ *
+ * Configuration-class, warning-grade, acknowledgeable (#496): the condition is
+ * site state fixable through an existing safe surface, so it is actionable-now
+ * rather than an integrity or capability problem, and it never blocks a mutation.
+ * The finding_key is built two ways, because the two branches have two different
+ * name situations. A REGISTERED row keys on the token name, which is a base.css
+ * constant — readable and stable, exactly as pp_check_nav_readiness() keys on its
+ * template-owned location constants. An UNREGISTERED row keys on
+ * `unregistered:<sha1-12 of the raw stored bytes>`; the reasoning is at the
+ * assignment itself. The reflected-text owner still bounds and strips the name
+ * for `message` and `next_action`, where it is shown rather than keyed on.
+ *
+ * HEALTHY OVERRIDES REPORT NOTHING, deliberately, on the same grounds as the
+ * conditionally-rendered menu locations above: a passing row per override would
+ * put up to sixty-one standing rows on every site that has ever set a token, and
+ * a readiness report nobody reads is the failure mode #496 exists to prevent.
+ *
+ * @return array[]  Rows: ['check'=>'token_override_validity','pass'=>false,
+ *                  'severity'=>'warning','class'=>'configuration','finding_key',
+ *                  'acknowledgeable'=>true,'next_action','message'].
+ *                  Empty when every stored override still paints.
+ */
+function pp_check_token_override_validity(): array {
+    $overrides = pp_get_token_overrides();
+    if (!$overrides) {
+        return [];
+    }
+
+    $registry = pp_design_tokens();
+
+    // REGISTRY UNAVAILABLE IS NOT "EVERY TOKEN IS UNREGISTERED".
+    //
+    // pp_design_tokens() returns [] when base.css is missing or its first :root
+    // block does not parse — a mid-deploy read, a permissions problem, a partially
+    // written file, a build step that restructures the selector. Every stored
+    // override then fails gate 1, and without this branch the operator would be
+    // told, once per token they actually own, to clear it with reset_design_token
+    // "because it is not a token this theme declares". That is a destructive
+    // instruction produced by a transient file read, and it is wrong about every
+    // row: the tokens are fine, the file listing them could not be read.
+    //
+    // The DROP still happens — a value that cannot be validated is not emitted,
+    // and with base.css unreadable the stylesheet consuming these custom
+    // properties is missing anyway, so nothing is lost by failing closed. What
+    // changes is the account given: one integrity-class finding about the theme
+    // file, not N configuration-class findings about the operator's design.
+    if (!$registry) {
+        return [[
+            'check'           => 'token_override_validity',
+            'pass'            => false,
+            'severity'        => 'warning',
+            'class'           => 'integrity',
+            'finding_key'     => 'token_override_validity:registry_unavailable',
+            'acknowledgeable' => false,
+            'next_action'     => 'Check that assets/css/base.css is present and readable; run wp pp doctor for theme integrity.',
+            'message'         => 'No design tokens could be read from the theme (assets/css/base.css missing or unparseable), so all '
+                                 . count($overrides) . ' stored token override(s) are left out of the page. The overrides are intact; the theme file is the problem.',
+        ]];
+    }
+
+    $checks  = [];
+    $dropped = pp_partition_token_overrides($overrides, $registry)['dropped'];
+
+    // BOUNDED BY STORED DATA, exactly as the log line is.
+    //
+    // Every other producer spliced into pp_preflight() is bounded by a theme
+    // constant — pp_check_nav_readiness() iterates the registered menu locations —
+    // so this is the first one whose row count is a function of the option's
+    // contents. Preflight runs before every mutation and its rows ride the
+    // envelope, each carrying the name three times (key, message, next_action), so
+    // an option with thousands of keys would put megabytes into every apply
+    // result. Capping here and summarizing the remainder keeps the two sinks
+    // symmetric: bounding the log while leaving the advisory unbounded would be
+    // the same one-door-guarded shape this change exists to remove.
+    $overflow = array_splice($dropped, PP_DROPPED_TOKEN_LOG_MAX);
+
+    foreach ($dropped as $token) {
+        // The token name is a theme constant for a registered token, but a row
+        // that failed gate 1 was stored under a name nothing in the theme
+        // produced. Bound and strip it before it reaches a finding key or an
+        // admin screen, then escape it like every other message in this file.
+        $safe_token = esc_html(_pp_clean_reflected_text($token, PP_REFLECTED_NAME_MAX));
+        $registered = isset($registry[$token]);
+
+        // THE KEY IS NOT THE DISPLAY NAME, for the unregistered branch.
+        //
+        // A finding key is what an acknowledgement is recorded against, so two
+        // different findings must never produce the same key. For a REGISTERED
+        // token the name is a base.css constant and keying on it is both stable
+        // and readable, exactly as pp_check_nav_readiness() keys on its
+        // template-owned location constants. An UNREGISTERED name is stored data
+        // that has just been stripped of its \p{Cc}/\p{Cf} characters and
+        // truncated to 256 — and that treatment is many-to-one. Two distinct
+        // stored names differing only by a zero-width character, or only past
+        // character 256, would present identically and collapse to one key, so
+        // acknowledging one would silently acknowledge the other. Keying on a
+        // hash of the RAW bytes keeps the key injective and stable across
+        // requests; the readable name still reaches the operator in `message`.
+        $key_token = $registered ? $safe_token : 'unregistered:' . substr(sha1($token), 0, 12);
+
+        $checks[] = [
+            'check'           => 'token_override_validity',
+            'pass'            => false,
+            'severity'        => 'warning',
+            'class'           => 'configuration',
+            'finding_key'     => 'token_override_validity:' . $key_token
+                                 . ($registered ? ':invalid_value' : ''),
+            'acknowledgeable' => true,
+            'next_action'     => $registered
+                ? 'Re-set "' . $safe_token . '" with the update_design_token action, or clear it with reset_design_token (or acknowledge as intentional).'
+                : 'Clear "' . $safe_token . '" with the reset_design_token action — it is not a token this theme declares (or acknowledge as intentional).',
+            'message'         => $registered
+                ? 'Design-token override "' . $safe_token . '" is stored with a value that no longer validates for its declared type, so it is left out of the page and the token falls back to its default.'
+                : 'Design-token override "' . $safe_token . '" is not a design token this theme declares, so it is left out of the page.',
+        ];
+    }
+
+    // The remainder as ONE row, so the total stays honest while the envelope
+    // stays bounded. Keyed on the count rather than on any name, since the names
+    // it stands for are exactly the ones not being listed.
+    if ($overflow) {
+        $checks[] = [
+            'check'           => 'token_override_validity',
+            'pass'            => false,
+            'severity'        => 'warning',
+            'class'           => 'configuration',
+            'finding_key'     => 'token_override_validity:overflow',
+            'acknowledgeable' => true,
+            'next_action'     => 'Review the stored pp_token_overrides option directly — too many entries were dropped to name them one by one.',
+            'message'         => count($overflow) . ' further design-token override(s) were also left out of the page and are not named individually here.',
+        ];
+    }
+
+    return $checks;
 }
 
 /**
