@@ -473,3 +473,255 @@ test.describe('Composition Editor', () => {
     expect(stored).not.toContain('Stale editor edit');
   });
 });
+
+// ── Preview / front-end cascade parity (v2 UDC, boundary-review B1) ──────────
+
+/**
+ * THE PREVIEW MUST RANK THE TWO UDC LAYERS THE WAY THE PAGE DOES.
+ *
+ * The front end emits a component's role DEFAULTS before the theme stylesheets
+ * (inline on the `pp-base` handle) and each band's AUTHORED values after them
+ * (inline on `pp-utilities`). Both layers are zero-or-low specificity by
+ * construction, so those two positions ARE the ranking — there is nothing else
+ * expressing it.
+ *
+ * The preview builds its own <head> and used to emit both layers concatenated in
+ * ONE block after all three stylesheets. That inverts the ranking: a root-level
+ * role default emits inside `:where(...)` at zero specificity, exactly like the
+ * shared adjacent-band rhythm rule in components.css, so whichever prints later
+ * wins. Printed last, the component's own default started beating the design
+ * system — in the preview only. The operator was shown a page the site will
+ * never render.
+ *
+ * PreviewCascadeParityTest pins the ORDER in PHP. Only a browser can pin the
+ * CONSEQUENCE, which is this test: for one fixture, every measured value must
+ * agree between the preview iframe and the real page. The fixture is built to
+ * exercise all four ranks at once, because a single authored/default pair would
+ * have passed against the broken preview:
+ *
+ *   band 1  unauthored, first        → component default, unopposed
+ *   band 2  unauthored, adjacent     → SHARED rhythm rule beats the root default
+ *   band 3  authored,   adjacent     → authored beats the shared rule AND the default
+ *   quote   authored on band 3 only  → element-level default vs authored value
+ *
+ * Band 2 is the one that diverged. It is also the one a one-pair fixture misses.
+ */
+test.describe('UDC preview cascade parity', () => {
+  let pageId: number;
+
+  const BAND_1 = 'pp-11aa22bb';
+  const BAND_2 = 'pp-33cc44dd';
+  const BAND_3 = 'pp-55ee66ff';
+
+  /** One testimonials band; `udc` omitted entirely when nothing is authored. */
+  function band(id: string, udc?: Record<string, unknown>) {
+    const item: Record<string, unknown> = {
+      component: 'testimonials',
+      id,
+      props: { items: [{ quote: 'Parity is not a matter of opinion.', author: 'Ada' }] },
+    };
+    if (udc) item.udc = udc;
+    return item;
+  }
+
+  const FIXTURE = [
+    band(BAND_1),
+    band(BAND_2),
+    band(BAND_3, {
+      _band: { spacing: { 'padding-top': '37px' } },
+      quote: { typography: { size: '23px' } },
+    }),
+  ];
+
+  /**
+   * Every value whose rank the two surfaces must agree on, as one flat map.
+   *
+   * Takes the `body` LOCATOR rather than a page or a frame, because those two
+   * have no common evaluate(): a FrameLocator addresses elements and cannot run
+   * script, while a Page can. A Locator can, on both, so one function measures
+   * the preview iframe and the real page identically — which is the whole point
+   * of the comparison. (Caught by running this locally: the first draft called
+   * evaluate() on the FrameLocator and threw.)
+   */
+  async function measure(body: any): Promise<Record<string, string>> {
+    return body.evaluate((root: HTMLElement, ids: string[]) => {
+      const out: Record<string, string> = {};
+      // The breakpoint each surface actually resolved at. Reported as a measured
+      // VALUE rather than assumed, because it is the one way this comparison can
+      // report a difference that is not a cascade difference — see the width
+      // handling in the test body.
+      out['@breakpoint'] = window.matchMedia('(max-width: 767px)').matches
+        ? 'p'
+        : window.matchMedia('(max-width: 1023px)').matches
+          ? 't'
+          : 'd';
+      for (const id of ids) {
+        const band = root.querySelector(`[data-pp-band="${id}"]`);
+        if (!band) {
+          out[`${id}.missing`] = 'true';
+          continue;
+        }
+        out[`${id}.padding-top`] = getComputedStyle(band).paddingTop;
+        const quote = band.querySelector('.testimonials__quote');
+        if (quote) out[`${id}.quote-size`] = getComputedStyle(quote).fontSize;
+      }
+      return out;
+    }, [BAND_1, BAND_2, BAND_3]);
+  }
+
+  /**
+   * WHAT THIS TEST DELIBERATELY DOES NOT CLAIM, and why.
+   *
+   * There are three ranks in the cascade — the design system's baseline, its
+   * CONTEXTUAL rules, and the author — and only two of them can be told apart by
+   * measurement today. base.css pins `--pp-band-padding-adjacent-top` to
+   * `var(--pp-band-padding)` so the shared adjacent-band rhythm "can never
+   * diverge from the band's own edges", and testimonials' `_band` default is
+   * `@pp-band-padding` — the same token. The shared rule and the component's own
+   * root default therefore compute the SAME length, so which of the two wins is
+   * invisible in a rendered value. That is exactly why the tier inversion could
+   * sit in the preview for a sprint without anyone seeing it, and why the
+   * boundary review said it "diverges visibly the moment hero lands": a second
+   * v2 component with its own padding is what separates them.
+   *
+   * Separating them here by retuning the adjacent-top design token was tried and
+   * does not work, for a reason worth recording: the preview does not emit the
+   * site's design-token overrides at all, so the override moved the front end
+   * and left the preview on the stock value. That is a real preview-fidelity
+   * defect and it is filed; it is NOT this cascade, and folding a fix for it
+   * into this change would have made the test pass for the wrong reason.
+   *
+   * So the ranks this test proves are the ones that are genuinely observable —
+   * authored over default, at the band root and at an element role — plus the
+   * ORDER itself, which PreviewCascadeParityTest pins in PHP where it is not
+   * hostage to two tiers sharing a value.
+   *
+   * MEASURED, NOT ASSUMED: the computed-value comparison was run against the
+   * pre-fix preview (both layers concatenated after all three stylesheets) and
+   * PASSED, because the two ranks coincide in value today. So that half is a
+   * forward parity guard — it catches the day the coincidence ends, when a second
+   * v2 component lands with its own root padding.
+   *
+   * The HEAD-ORDER assertion added alongside it is the regression proof the
+   * value comparison cannot be: the pre-fix head has no `pp-udc-defaults`
+   * element at all, so it fails structurally whatever the computed values do.
+   * Both are kept — one pins the mechanism, the other pins the outcome.
+   */
+
+  test.afterEach(async () => {
+    if (pageId) {
+      try { deletePage(pageId); } catch { /* already cleaned up */ }
+      pageId = 0;
+    }
+  });
+
+  test('the preview and the front end compute the same values for every cascade rank', async ({ page }) => {
+    pageId = createPage('E2E UDC Cascade Parity', '');
+    execSync(`npx wp-env run cli wp post update ${pageId} --post_status=publish`, { cwd: process.cwd() });
+    execSync(`npx wp-env run cli wp post meta update ${pageId} _wp_page_template composition.php`, { cwd: process.cwd() });
+    const json = JSON.stringify(FIXTURE).replace(/'/g, "'\\''");
+    execSync(`npx wp-env run cli wp post meta update ${pageId} _pp_composition '${json}'`, { cwd: process.cwd() });
+
+    // A WIDE browser, so the preview iframe itself lands at the DESKTOP
+    // breakpoint. The preview pane is one column of the workspace and keeps
+    // whatever is left of the viewport — about 700px at the default 1280, which
+    // is the PHONE band. The shared adjacent-band rule lives inside
+    // `@media (min-width: 768px)`, so below that width it does not apply at all
+    // and the rank this test exists to check is simply absent. Desktop is where
+    // the two tiers meet, so desktop is where this has to be measured.
+    await page.setViewportSize({ width: 2400, height: 900 });
+
+    // The editor preview of the stored composition, measured FIRST — because it
+    // is the surface whose width we do not control, and the front end must then
+    // be matched to it. Comparing the two at different widths compares media
+    // queries, not cascade tiers: the first run of this test reported a
+    // 76.8px/53.6px difference on band 2 that was entirely the breakpoint.
+    await openWorkspace(page, pageId);
+    const preview = page.frameLocator('#pp-preview-frame');
+    await expect(preview.locator(`[data-pp-band="${BAND_3}"]`)).toBeVisible({ timeout: 15000 });
+    const previewed = await measure(preview.locator('body'));
+
+    // THE STRUCTURAL PROOF, which does not depend on the two tiers differing in
+    // value. The computed-value comparison below cannot go red against the
+    // pre-fix preview today (the ranks coincide — see the docblock), but the
+    // HEAD ITSELF is different: the pre-fix preview emitted one
+    // `<style id="pp-udc-bands">` after all three links, so there is no
+    // `pp-udc-defaults` element at all and this assertion fails. It also fails
+    // against a bypass that rebuilds the head inline inside the AJAX handler.
+    const headOrder = await preview.locator('body').evaluate(() => {
+      const nodes = Array.from(document.head.children);
+      const at = (sel: string) => nodes.findIndex((n) => n.matches(sel));
+      return {
+        defaults:   at('style#pp-udc-defaults'),
+        components: at('link[href*="components.css"]'),
+        utilities:  at('link[href*="utilities.css"]'),
+        authored:   at('style#pp-udc-authored'),
+        legacy:     at('style#pp-udc-bands'),
+      };
+    });
+
+    expect(headOrder.legacy, 'the single concatenated block must be gone').toBe(-1);
+    expect(headOrder.defaults, 'the preview must emit a defaults block').toBeGreaterThanOrEqual(0);
+    expect(headOrder.authored, 'the preview must emit an authored block').toBeGreaterThanOrEqual(0);
+    expect(
+      headOrder.defaults,
+      'the defaults layer must print before components.css, or it outranks the design system',
+    ).toBeLessThan(headOrder.components);
+    expect(
+      headOrder.authored,
+      'the authored layer must print after utilities.css, or structural CSS can outrank it',
+    ).toBeGreaterThan(headOrder.utilities);
+
+    // So the real page is rendered at the width the preview actually resolved at.
+    const previewWidth = await preview.locator('body').evaluate(() => window.innerWidth);
+    expect(previewWidth, 'the preview iframe must have a real width').toBeGreaterThan(200);
+    const viewport = page.viewportSize();
+    await page.setViewportSize({ width: previewWidth, height: viewport ? viewport.height : 720 });
+
+    // Plain permalinks are wp-env's default, so address the page by id rather
+    // than by slug (no permalink flush, no afterAll restore).
+    await page.goto(`/?page_id=${pageId}`);
+    await expect(page.locator(`[data-pp-band="${BAND_3}"]`)).toBeVisible();
+    const frontEnd = await measure(page.locator('body'));
+
+    // Guard the fixture itself: a measurement that found nothing agrees trivially.
+    expect(Object.keys(frontEnd).length).toBeGreaterThanOrEqual(7);
+    for (const key of Object.keys(frontEnd)) {
+      expect(key.endsWith('.missing'), `front end is missing ${key}`).toBe(false);
+    }
+
+    // Same breakpoint on both sides, or the comparison below is meaningless.
+    // Asserted separately so a width drift reports itself as a width drift
+    // rather than as a cascade failure.
+    expect(
+      previewed['@breakpoint'],
+      'preview and front end must resolve the same breakpoint before their values can be compared',
+    ).toBe(frontEnd['@breakpoint']);
+
+    // The parity claim.
+    expect(previewed).toEqual(frontEnd);
+
+    // THE RANKS MUST BE GENUINELY DISTINCT, or "the two surfaces agree" is a
+    // statement about two identical numbers. Each assertion below names the tier
+    // it proves, and each one is measured on BOTH surfaces.
+    for (const [surface, m] of [['front end', frontEnd], ['preview', previewed]] as const) {
+      // An AUTHORED band value beats everything below it — the shared adjacent
+      // rule included, since band 3 is adjacent to band 2. Before Sprint 0's
+      // cascade fix this rendered the shared value instead.
+      expect(m[`${BAND_3}.padding-top`], `${surface}: authored beats the shared rule and the default`)
+        .toBe('37px');
+
+      // And it is a real override, not a coincidence: the unauthored bands sit
+      // on the default rhythm, which is some other value.
+      expect(m[`${BAND_1}.padding-top`], `${surface}: band 1 is unauthored`).not.toBe('37px');
+      expect(m[`${BAND_2}.padding-top`], `${surface}: band 2 is unauthored`).not.toBe('37px');
+
+      // The same rank on an element-level role rather than the band root: these
+      // two emit at different weights and from different layers, so a preview
+      // that mis-ordered the layers would move one of them.
+      expect(m[`${BAND_3}.quote-size`], `${surface}: authored quote size wins`).toBe('23px');
+      expect(m[`${BAND_1}.quote-size`], `${surface}: the unauthored quote keeps the role default`)
+        .not.toBe('23px');
+    }
+  });
+});
