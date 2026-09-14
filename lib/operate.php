@@ -911,6 +911,17 @@ function pp_preflight(array $context = [], ?array $drift = null): array {
         $checks[] = $retired_check;
     }
 
+    // Check 8e: stored `udc` values the emitter discards at render (warning-grade,
+    // advisory). The GENERAL case of 8c — a deleted attachment was never the only
+    // way a stored value stops painting, it was only the one anybody could see. The
+    // emitter drops a declaration for sixteen reasons and every one but 8c's was
+    // silent on every channel. Same splice, same scoping rule: chrome always
+    // (it renders on every page, and a chrome write carries no findings array at
+    // all, so this is its ONLY channel), a page's bands only in context.
+    foreach (pp_check_udc_emit_drops($pp_bg_post) as $drop_check) {
+        $checks[] = $drop_check;
+    }
+
     // Check 9: Screenshot readiness (warning-grade, advisory — never blocks a mutation).
     // The operating loop forbids native VERIFIED without screenshots, so surface capture
     // readiness BEFORE mutation. A missing browser is a capability warning, not a gate:

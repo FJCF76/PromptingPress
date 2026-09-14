@@ -2283,6 +2283,176 @@ function pp_check_udc_background_images(?int $post_id = null): array {
 }
 
 /**
+ * Readiness rows for stored `udc` values the emitter discards at render (#981, D3).
+ *
+ * THE GENERAL CASE OF THE ONE pp_check_udc_background_images() ALREADY COVERS.
+ * A deleted attachment is not the only way a stored value stops painting; it was
+ * just the only one anybody could see. The emitter discards a declaration when its
+ * `@token` reference resolves to nothing, when the stored value no longer
+ * satisfies its parameter's grammar, when the parameter or group is no longer
+ * declared, when a breakpoint key is unknown, when a single-valued parameter holds
+ * a map — sixteen branches in all — and every one of them was silent on every
+ * channel: no envelope finding, no advisory, not even a log line.
+ *
+ * WHY THE AUTHOR CAN BE IN THIS STATE AT ALL, since the write gate refuses most of
+ * these shapes: the write gate is not the only way data arrives. A raw meta write,
+ * a composition written before a rule existed, a renamed parameter, and
+ * restore_composition (which reports findings without blocking, #233) all reach
+ * the emitter directly. The author's value is in storage, the page does not paint
+ * it, and until this existed nothing anywhere said so — the
+ * reported-success-without-effect class invariant I35 forbids.
+ *
+ * ONE PREDICATE WITH THE EMITTER, and here that is meant literally rather than as
+ * an aspiration. This does not re-derive the drop conditions and does not diff the
+ * emitted CSS against the stored map — the first would drift, and the second is
+ * ambiguous by construction, because the compile folds background layers, filters
+ * the defaults source and re-sorts every block. It calls pp_udc_compile_band(),
+ * the REAL emitter, and reads the ledger the emitter fills in as it discards. What
+ * this names is what the page omits, because the same line decided both.
+ *
+ * BOUNDED ON BOTH AXES, because preflight runs before every mutation and these
+ * rows ride the envelope. The findings are sliced, and so is the WORK: the walk
+ * stops after a bounded number of bands rather than compiling a 200-band page to
+ * discover nothing. A page that hits the band bound says so rather than implying
+ * it was read to the end — an advisory that quietly reports on a prefix is the
+ * fail-open shape I29 forbids.
+ *
+ * AND IT NEVER REPORTS SILENCE AS HEALTH. If the walk itself cannot run, that is
+ * one honest row saying diagnostics could not run, never zero rows — the same
+ * posture the token-override check takes when the registry is unreadable.
+ *
+ * SCOPE. Chrome is checked unconditionally: it renders on every page and has no
+ * page to be "in context" for, and it is the one surface where this is the ONLY
+ * channel — a chrome write returns no `findings` array at all. A page's bands are
+ * checked only when preflight has a post_id, the same posture as the other
+ * page-scoped checks.
+ *
+ * @param  int|null $post_id A page whose bands to check, or null for chrome only.
+ * @return array[]  Empty when every stored value still reaches the page.
+ */
+function pp_check_udc_emit_drops(?int $post_id = null): array {
+    if (!function_exists('pp_udc_compile_band')) {
+        return [];
+    }
+
+    $rows = [];
+    // Eleven fills ten rows and still knows there is an overflow; the band bound is
+    // the work half, and is deliberately the tighter of the two.
+    $row_budget  = 11;
+    $band_budget = 25;
+    $truncated   = false;
+
+    $collect = static function (array $item, string $layer, string $scope) use (&$rows, $row_budget): void {
+        $drops = [];
+        try {
+            pp_udc_compile_band($item, $layer, $drops);
+        } catch (\Throwable $e) {
+            // A diagnostic must survive the corruption it exists to report (I17),
+            // and must not report its own failure as a clean bill of health (I29).
+            $rows[] = ['scope' => $scope, 'where' => 'the whole band', 'reason' => 'it could not be compiled to find out'];
+            return;
+        }
+        foreach ($drops as $drop) {
+            if (count($rows) >= $row_budget) {
+                return;
+            }
+            $rows[] = ['scope' => $scope, 'where' => $drop['where'], 'reason' => $drop['reason']];
+        }
+    };
+
+    // Chrome, always.
+    if (function_exists('pp_udc_site_map')) {
+        foreach (pp_udc_site_map()['chrome'] as $name => $map) {
+            if (count($rows) >= $row_budget) {
+                break;
+            }
+            $collect(
+                ['component' => (string) $name, 'id' => (string) $name, 'udc' => $map],
+                'authored',
+                sprintf('site %s', (string) $name)
+            );
+        }
+    }
+
+    // The page in context, when there is one.
+    if ($post_id !== null && count($rows) < $row_budget && function_exists('pp_get_composition')) {
+        $composition = pp_get_composition($post_id);
+        if (is_array($composition)) {
+            $seen = 0;
+            foreach ($composition as $i => $item) {
+                if (count($rows) >= $row_budget) {
+                    break;
+                }
+                if (!is_array($item) || !isset($item['udc']) || !is_array($item['udc']) || $item['udc'] === []) {
+                    continue;
+                }
+                if ($seen >= $band_budget) {
+                    $truncated = true;
+                    break;
+                }
+                $seen++;
+                $component = isset($item['component']) && is_scalar($item['component'])
+                    ? (string) $item['component'] : '?';
+                $collect($item, 'authored', sprintf('band %d ("%s")', (int) $i + 1, $component));
+            }
+        }
+    }
+
+    $checks    = [];
+    $shown     = array_slice($rows, 0, 10);
+    $remainder = count($rows) - count($shown);
+
+    foreach ($shown as $row) {
+        $checks[] = [
+            'check'           => 'udc_value_cannot_take_effect',
+            'pass'            => false,
+            'severity'        => 'warning',
+            'class'           => 'configuration',
+            'finding_key'     => 'udc_value_cannot_take_effect:'
+                                 . substr(sha1($row['scope'] . '|' . $row['where']), 0, 12),
+            'acknowledgeable' => true,
+            'next_action'     => 'Re-set that value through the styling action, or remove it. '
+                                 . 'Run wp pp check page for the whole composition.',
+            'message'         => sprintf(
+                '%s: %s is stored but not painted, because %s. Everything else on it still renders.',
+                $row['scope'],
+                $row['where'],
+                $row['reason']
+            ),
+        ];
+    }
+    if ($remainder > 0) {
+        $checks[] = [
+            'check'           => 'udc_value_cannot_take_effect',
+            'pass'            => false,
+            'severity'        => 'warning',
+            'class'           => 'configuration',
+            'finding_key'     => 'udc_value_cannot_take_effect:overflow',
+            'acknowledgeable' => true,
+            'next_action'     => 'Run wp pp readiness status for the full list.',
+            'message'         => sprintf('At least %d more stored value(s) are not painted.', $remainder),
+        ];
+    }
+    if ($truncated) {
+        $checks[] = [
+            'check'           => 'udc_value_cannot_take_effect',
+            'pass'            => false,
+            'severity'        => 'warning',
+            'class'           => 'configuration',
+            'finding_key'     => 'udc_value_cannot_take_effect:bands_truncated',
+            'acknowledgeable' => true,
+            'next_action'     => 'Run wp pp check page --post_id=' . (int) $post_id . ' for the whole composition.',
+            'message'         => sprintf(
+                'Only the first %d styled bands on this page were checked, so this list may be incomplete.',
+                $band_budget
+            ),
+        ];
+    }
+
+    return $checks;
+}
+
+/**
  * Every `background.image` in one `udc` map whose attachment no longer paints.
  *
  * Returns `role "x"` => attachment id.

@@ -1885,8 +1885,17 @@ function pp_udc_normalize_composition(array $items): array {
  *   blocks array  ordered emission units
  * }
  */
-function pp_udc_compile_band(array $item, string $layer): array {
+function pp_udc_compile_band(array $item, string $layer, ?array &$drops = null): array {
     $out = ['id' => '', 'tokens' => [], 'blocks' => []];
+
+    // THE OPTIONAL DROP LEDGER (#981, D3). Pass an array to learn what this compile
+    // DISCARDED and why; pass nothing — as every render path does — and the
+    // recording is an identity check per discarded value. See _pp_udc_place() for
+    // why the ledger lives inside the emitter rather than in a checker that
+    // re-derives the same conditions.
+    //
+    // A role default's drop is filtered inside _pp_udc_place()'s ledger, which sees
+    // the source; see the note there for why.
 
     // MINT-ON-WRITE ONLY — READS NEVER MUTATE. A band that reached storage with
     // no id (raw meta, data written before the rule, or restore_composition,
@@ -1904,6 +1913,14 @@ function pp_udc_compile_band(array $item, string $layer): array {
     // to produce no CSS at all.
     $id = isset($item['id']) && is_scalar($item['id']) ? (string) $item['id'] : '';
     if ($layer !== 'defaults' && !pp_udc_valid_band_id($id)) {
+        if ($drops !== null && isset($item['udc']) && is_array($item['udc']) && $item['udc'] !== []) {
+            $drops[] = [
+                'where'  => 'the whole band',
+                'reason' => $id === ''
+                    ? 'the band has no id, so none of its styling can be addressed'
+                    : sprintf('the band id "%s" is not a usable CSS attribute value', $id),
+            ];
+        }
         return $out;
     }
 
@@ -1945,6 +1962,12 @@ function pp_udc_compile_band(array $item, string $layer): array {
         // repo-controlled and integrity-checked, but a selector is emitted into
         // raw CSS and the cost of checking is a regex.
         if ($selector !== '' && !preg_match('/^[A-Za-z0-9_ .\-]{1,120}$/', $selector)) {
+            if ($drops !== null) {
+                $drops[] = [
+                    'where'  => sprintf('role "%s"', (string) $role_name),
+                    'reason' => 'the role\'s selector is not one this engine may emit',
+                ];
+            }
             continue;
         }
 
@@ -2040,17 +2063,26 @@ function pp_udc_compile_band(array $item, string $layer): array {
         foreach ($sources as [$source, $map]) {
             foreach ($map as $group_name => $group_map) {
                 if (!isset($groups[$group_name]) || !is_array($group_map)) {
+                    if ($drops !== null && $source !== 'defaults') {
+                        $drops[] = [
+                            'where'  => sprintf('role "%s" group "%s"', (string) $role_name, (string) $group_name),
+                            'reason' => !isset($groups[$group_name])
+                                ? 'there is no such group in the design vocabulary'
+                                : 'the group is not a map of parameters',
+                        ];
+                    }
                     continue;
                 }
                 $params = $groups[$group_name]['params'];
+                $where  = sprintf('role "%s" group "%s"', (string) $role_name, (string) $group_name);
                 foreach ($group_map as $param_name => $value) {
                     if (isset($states[$param_name]) && is_array($value)) {
                         foreach ($value as $state_param => $state_value) {
-                            _pp_udc_place($resolved, (string) $param_name, $params, (string) $state_param, $state_value, $source, $band_tokens, $breakpoints, $referenced);
+                            _pp_udc_place($resolved, (string) $param_name, $params, (string) $state_param, $state_value, $source, $band_tokens, $breakpoints, $referenced, $drops, $where);
                         }
                         continue;
                     }
-                    _pp_udc_place($resolved, '', $params, (string) $param_name, $value, $source, $band_tokens, $breakpoints, $referenced);
+                    _pp_udc_place($resolved, '', $params, (string) $param_name, $value, $source, $band_tokens, $breakpoints, $referenced, $drops, $where);
                 }
             }
         }
@@ -2345,9 +2377,53 @@ function _pp_udc_place(
     string $source,
     array $band_tokens,
     array $breakpoints,
-    array &$referenced
+    array &$referenced,
+    ?array &$drops = null,
+    string $where = ''
 ): void {
+    // THE DROP LEDGER (#981, boundary-review item D3).
+    //
+    // Every `continue`/`return` below discards an authored value at EMIT time, and
+    // until this collector existed every one of them was silent on every channel —
+    // no envelope finding, no advisory, not even an error_log. The write path
+    // refuses most of these shapes, so reaching them means stored data the write
+    // path never saw: a raw meta write, a composition written before a rule
+    // existed, or restore_composition, which reports findings without blocking
+    // (#233). The author's value is in storage, the page does not paint it, and
+    // nothing says so — the reported-success-without-effect class I35 forbids.
+    //
+    // WHY IT LIVES HERE AND NOT IN A CHECKER THAT RE-DERIVES THE RULES. The same
+    // rule the background-image advisory states (pp_check_udc_background_images,
+    // lib/wp.php): ONE PREDICATE WITH THE EMITTER. A checker that re-ran these
+    // conditions by hand would be a second definition of "what gets dropped" and
+    // would drift from this one; diffing the emitted CSS against the stored map
+    // would be worse still, because the compile folds background layers, filters
+    // the defaults source and re-sorts every block, so "declared but absent" is
+    // ambiguous by construction. Recording the drop AT the branch that makes it is
+    // the only version that cannot disagree with itself, and it covers a drop site
+    // added tomorrow for free.
+    //
+    // Costs one identity check per discarded value when nobody is collecting,
+    // which is every front-end request.
+    $note = static function (string $reason) use (&$drops, $where, $param_name, $state, $source): void {
+        // A ROLE DEFAULT'S DROP IS NOT THE AUTHOR'S PROBLEM. Defaults are repo-owned
+        // schema constants, integrity-checked in CI by the schema suite; surfacing
+        // one in an operator advisory would report a repo bug as site misconfiguration
+        // and hand the operator a finding they cannot act on.
+        if ($drops === null || $source === 'defaults') {
+            return;
+        }
+        $drops[] = [
+            'where'  => $where . ' ' . $param_name . ($state !== '' ? ' (' . $state . ')' : ''),
+            'reason' => $reason,
+        ];
+    };
+
     if (!isset($params[$param_name])) {
+        // Not a parameter this group declares. The write gate refuses it; stored
+        // data can still carry one, and a renamed param leaves every band holding
+        // the old name in exactly this state.
+        $note('there is no such parameter in this group');
         return;
     }
     $property = $params[$param_name]['property'];
@@ -2359,12 +2435,16 @@ function _pp_udc_place(
     // directly — so the dimension the ruling excluded is closed on both sides
     // rather than on the side that happens to be polite.
     if (!empty($params[$param_name]['single_valued']) && ($state !== '' || is_array($value))) {
+        $note('this parameter takes one value only, so it accepts no state or breakpoint map');
         return;
     }
 
     $per_bp = is_array($value) ? $value : ['d' => $value];
     foreach ($per_bp as $bp => $raw) {
         if (!isset($breakpoints[$bp]) || !is_scalar($raw)) {
+            $note(!isset($breakpoints[$bp])
+                ? sprintf('"%s" is not a breakpoint this engine knows', (string) $bp)
+                : 'the value is not a single scalar');
             continue;
         }
         $literal       = (string) $raw;
@@ -2378,10 +2458,12 @@ function _pp_udc_place(
             // applies to a token name. Stored data is the reason: the write path
             // cannot have been the only thing that ever looked at this.
             if (!preg_match('/^[A-Za-z0-9_-]{1,64}$/', $ref)) {
+                $note(sprintf('the reference "@%s" is not a usable token name', $ref));
                 continue;
             }
             $target = pp_udc_resolve_reference($ref, $band_tokens, $source === 'defaults');
             if ($target === null) {
+                $note(sprintf('it references "@%s", which resolves to no token', $ref));
                 // Unresolvable at render. The write gate refuses this, so
                 // reaching here means stored-before-the-rule data: drop the one
                 // declaration rather than emit `var()` of a token that does not
@@ -2400,6 +2482,7 @@ function _pp_udc_place(
         // satisfies its parameter's grammar drops its own declaration and leaves
         // every sibling painting, exactly as a refused v1 slot did.
         if (_pp_forbidden_css_construct($css) !== null) {
+            $note('the stored value contains a construct that may not reach a stylesheet');
             continue;
         }
         // …on AUTHOR data. A role default is a repo-controlled schema constant,
@@ -2418,6 +2501,7 @@ function _pp_udc_place(
         // is cheap here because it runs only on bands that actually reference a
         // preset.
         if ($source !== 'defaults' && pp_udc_validate_value($literal, $params[$param_name]) !== true) {
+            $note(sprintf('the stored value "%s" no longer satisfies this parameter\'s grammar', $literal));
             continue;
         }
 
