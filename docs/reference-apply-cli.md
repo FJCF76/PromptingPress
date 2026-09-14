@@ -510,9 +510,12 @@ The checks that can run (`pp_preflight`, `lib/operate.php`):
 | `target_page` | `--post_id` given | yes |
 | `surface` | `planned_files` given | yes if a `core` file is planned |
 | `nav_readiness` | always (site chrome is not page-scoped, #223) | no (`severity: warning`) |
+| `token_override_validity` | always, and only when something was dropped (the `:root` token block is not page-scoped) | no (`severity: warning`) |
 | `screenshot_readiness` | always | no (`severity: warning`) |
 
-`ok` is `true` only when no **error-grade** check failed. Rows with `severity: warning` (nav readiness, screenshot readiness, non-overlapping drift) surface a problem without blocking.
+`ok` is `true` only when no **error-grade** check failed. Rows with `severity: warning` (nav readiness, token-override validity, screenshot readiness, non-overlapping drift) surface a problem without blocking.
+
+**Token-override validity (#965).** Stored design-token overrides are re-validated against the type `assets/css/base.css` declares for each one before the theme emits them. A row that does not validate is left out of the `:root` block — the rest still emit — and reported here, one finding per dropped token, so a token that stopped painting is always accounted for. Finding keys are `token_override_validity:<token>:invalid_value` for a declared token whose stored value no longer validates, and `token_override_validity:unregistered:<hash>` for an override naming a token the theme does not declare; both are configuration-class and acknowledgeable, with `update_design_token` / `reset_design_token` as the next action. Two rows are shaped differently: a run of more than ten dropped tokens is summarized by a single `token_override_validity:overflow` row, and if the token registry itself cannot be read (`assets/css/base.css` missing or unparseable) the check reports one **integrity**-class `token_override_validity:registry_unavailable` row about the theme file instead of one finding per token — the overrides are intact in that case, so it never advises clearing them.
 
 **Screenshot readiness tri-state (#497).** The `screenshot_readiness` row carries a `state`:
 `available` (healthy, no finding), `unavailable` (`PP_BROWSER_CMD` not configured), or
@@ -815,7 +818,7 @@ Readiness/preflight warnings carry a **class** and a sanctioned **next action**,
 
 | Class | Meaning | Sanctioned resolution |
 |---|---|---|
-| `integrity` | Theme file drift vs the recorded release baseline | `wp pp readiness rebaseline` |
+| `integrity` | A theme file is not what it should be — drift vs the recorded release baseline, or a shipped file that cannot be read | Run the finding's next action (`wp pp readiness rebaseline` for drift) |
 | `configuration` | Site-state gap resolvable through a safe surface (e.g. an unassigned menu location) | Fix through the surface (e.g. `set_menu`), **or** acknowledge as intentional |
 | `capability` | An environment tool is missing or misconfigured (e.g. a screenshot browser, #497 — the finding's `state` is `unavailable` or `broken`) | Run the finding's next action (e.g. `wp pp screenshot doctor`) |
 
