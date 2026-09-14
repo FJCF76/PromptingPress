@@ -161,6 +161,30 @@ add_action('wp_enqueue_scripts', function () {
         wp_add_inline_style('pp-utilities', $pp_udc_authored);
     }
 
+    // CHROME (BUILD-SPEC Addendum A, ruling A1) — the same two tiers, on the same
+    // two handles, so chrome and bands share one cascade contract rather than two.
+    //
+    // NOT GATED ON THE COMPOSITION, and that is the difference that matters. The
+    // band layers above are driven by pp_udc_current_composition(), which returns
+    // [] for anything that is not a singular page with a readable composition —
+    // 404, search, archives, a corrupt row, the no-front-page arm. Chrome renders
+    // on ALL of those, so gating its CSS the same way would leave a styled site
+    // with a stock-coloured header on exactly the pages a visitor reaches when
+    // something has already gone wrong.
+    //
+    // A site with no chrome styling stored pays one autoloaded option read and
+    // returns before the component registry is touched; see
+    // pp_udc_chrome_defaults_css().
+    $pp_chrome_defaults = pp_udc_chrome_defaults_css();
+    if ($pp_chrome_defaults !== '') {
+        wp_add_inline_style('pp-base', $pp_chrome_defaults);
+    }
+
+    $pp_chrome_authored = pp_udc_chrome_authored_css();
+    if ($pp_chrome_authored !== '') {
+        wp_add_inline_style('pp-utilities', $pp_chrome_authored);
+    }
+
     wp_enqueue_script(
         'pp-main',
         $dir . '/assets/js/main.js',

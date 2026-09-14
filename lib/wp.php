@@ -2103,6 +2103,221 @@ function pp_check_token_override_validity(): array {
 }
 
 /**
+ * Readiness rows for chrome colour options that are still stored but no longer read.
+ *
+ * THE REMOVAL IS SILENT FROM THE OPERATOR'S SIDE WITHOUT THIS. Ruling A1 retired
+ * pp_header_bg / pp_header_text / pp_header_link_color and the pp_footer_* twins.
+ * The write path handles a retired key well — it refuses and names the replacement —
+ * but an install that ALREADY HOLDS those rows gets nothing: the rows stay in the
+ * database, drop off the whitelist, stop being read by the template, and the site's
+ * dark header and footer quietly revert to stock on upgrade.
+ *
+ * There is no migration, by standing directive. But "no migration" is not the same
+ * as "no disclosure", and this branch added an advisory for a dropped background
+ * image on exactly the reasoning that a silent drop is the reported-success-without-
+ * effect class. The same standard applies to its own removal.
+ *
+ * Configuration-class, warning-grade, acknowledgeable: the fix is to restate the
+ * styling through pp_site_udc and delete the dead rows, both of which are existing
+ * safe surfaces. Never blocks a mutation. Reports nothing on a clean install.
+ *
+ * @return array[] Empty when no retired chrome row is present.
+ */
+function pp_check_retired_chrome_options(): array {
+    $retired = [
+        'pp_header_bg', 'pp_header_text', 'pp_header_link_color',
+        'pp_footer_bg', 'pp_footer_text', 'pp_footer_link_color',
+    ];
+    $present = [];
+    foreach ($retired as $key) {
+        $value = get_option($key, null);
+        if ($value !== null && $value !== false && trim((string) $value) !== '') {
+            $present[] = $key;
+        }
+    }
+    if ($present === []) {
+        return [];
+    }
+    return [[
+        'check'           => 'retired_chrome_options',
+        'pass'            => false,
+        'severity'        => 'warning',
+        'class'           => 'configuration',
+        'finding_key'     => 'retired_chrome_options',
+        'acknowledgeable' => true,
+        'next_action'     => 'Restate the styling through update_site_option on ' . PP_SITE_UDC_OPTION
+                             . ', then delete the dead rows (wp option delete <key>).',
+        'message'         => sprintf(
+            '%d chrome colour option(s) are still stored but no longer painted: %s. Chrome styling moved '
+            . 'to "%s", which reaches every role nav and footer declare. Until you restate it, the header '
+            . 'and footer render in the theme default colours.',
+            count($present),
+            implode(', ', $present),
+            PP_SITE_UDC_OPTION
+        ),
+    ]];
+}
+
+/**
+ * Readiness rows for stored UDC background images that no longer paint.
+ *
+ * THE ADVISORY HALF OF THE ONLY UDC VALUE THAT CAN ROT WITHOUT ANYONE TOUCHING IT.
+ *
+ * Every other value in a `udc` map means the same thing forever: `#101828` is that
+ * colour today and next year. A `background.image` is a REFERENCE to a row in
+ * another table, and that row can be deleted by someone who has never heard of this
+ * band. The write gate refuses a dangling id (ruling A2) — but the attachment that
+ * was valid at write can be deleted five minutes later, and at that point:
+ *
+ *   - the emitter DROPS the declaration, because emitting `url()` of a dead id would
+ *     paint a broken image and `background-image: none` at least leaves the band's
+ *     own fill showing (invariants I17, I19);
+ *   - and that drop is SILENT, which is where this function comes in.
+ *
+ * A silent drop is exactly the reported-success-without-effect class: the author's
+ * write succeeded, the envelope said so truthfully at the time, and the band now
+ * renders without the image with nothing anywhere saying why. Without an advisory
+ * the operator's only evidence is a band that looks wrong.
+ *
+ * ONE PREDICATE WITH THE EMITTER. Both halves call pp_udc_background_image_url(), so
+ * this cannot report an image that still paints and cannot stay silent about one
+ * that stopped — the rule stated on pp_style_declaration_renders() and applied again
+ * here. The emitter drops exactly what this names.
+ *
+ * Configuration-class, warning-grade, acknowledgeable: the condition is site state
+ * fixable through an existing safe surface (re-import the image, or clear the value),
+ * so it is actionable-now rather than an integrity or capability problem, and it
+ * never blocks a mutation.
+ *
+ * SCOPE. Chrome is checked unconditionally, because chrome renders on every page and
+ * has no page to be "in context" for. A page's bands are checked only when preflight
+ * has a post_id, which is the same posture the rest of the page-scoped checks take.
+ *
+ * @param  int|null $post_id A page whose bands to check, or null for chrome only.
+ * @return array[]  Empty when every stored background image still resolves.
+ */
+function pp_check_udc_background_images(?int $post_id = null): array {
+    $checks  = [];
+    $dangling = [];
+
+    // Chrome, always.
+    if (function_exists('pp_udc_site_map')) {
+        foreach (pp_udc_site_map()['chrome'] as $name => $map) {
+            foreach (_pp_udc_dangling_background_images($map) as $where => $id) {
+                $dangling[] = ['scope' => 'chrome "' . $name . '"', 'where' => $where, 'id' => $id];
+            }
+        }
+    }
+
+    // STOP RESOLVING ONCE THE REPORT IS FULL. The output was already bounded, but
+    // the WORK was not: every stored image was resolved through the predicate (two
+    // uncached queries each) before the slice threw most of the rows away, and
+    // preflight runs before every mutation. Eleven is enough to fill ten rows and
+    // still know there is an overflow.
+    $budget = 11;
+
+    // The page in context, when there is one.
+    if ($post_id !== null && count($dangling) < $budget && function_exists('pp_get_composition')) {
+        $composition = pp_get_composition($post_id);
+        if (is_array($composition)) {
+            foreach ($composition as $i => $item) {
+                if (count($dangling) >= $budget) {
+                    break;
+                }
+                if (!is_array($item) || !isset($item['udc']) || !is_array($item['udc'])) {
+                    continue;
+                }
+                $component = isset($item['component']) && is_scalar($item['component'])
+                    ? (string) $item['component'] : '?';
+                foreach (_pp_udc_dangling_background_images($item['udc']) as $where => $id) {
+                    $dangling[] = [
+                        'scope' => 'band ' . ((int) $i + 1) . ' ("' . $component . '")',
+                        'where' => $where,
+                        'id'    => $id,
+                    ];
+                }
+            }
+        }
+    }
+
+    // BOUNDED BY STORED DATA, exactly as the token-override advisory is: preflight
+    // runs before every mutation and its rows ride the envelope, so a composition
+    // with many broken images must not put kilobytes into every apply.
+    $shown     = array_slice($dangling, 0, 10);
+    $remainder = count($dangling) - count($shown);
+
+    foreach ($shown as $row) {
+        $checks[] = [
+            'check'           => 'udc_background_image',
+            'pass'            => false,
+            'severity'        => 'warning',
+            'class'           => 'configuration',
+            'finding_key'     => 'udc_background_image:' . substr(sha1($row['scope'] . '|' . $row['where']), 0, 12),
+            'acknowledgeable' => true,
+            'next_action'     => 'Re-import the image (import_media returns a new attachment_id) and set it, '
+                                 . 'or remove the background.image value.',
+            'message'         => sprintf(
+                '%s %s references attachment %d, which is no longer a Media Library image on this site, '
+                . 'so that background is not painted. Everything else on it still renders.',
+                $row['scope'],
+                $row['where'],
+                $row['id']
+            ),
+        ];
+    }
+    if ($remainder > 0) {
+        $checks[] = [
+            'check'           => 'udc_background_image',
+            'pass'            => false,
+            'severity'        => 'warning',
+            'class'           => 'configuration',
+            'finding_key'     => 'udc_background_image:overflow',
+            'acknowledgeable' => true,
+            'next_action'     => 'Run wp pp readiness status for the full list.',
+            // "at least" because the walk stops once the report is full — an exact
+            // count would mean resolving every remaining image to print a number.
+            'message'         => sprintf('At least %d more background image(s) no longer resolve.', $remainder),
+        ];
+    }
+    return $checks;
+}
+
+/**
+ * Every `background.image` in one `udc` map whose attachment no longer paints.
+ *
+ * Returns `role "x"` => attachment id.
+ *
+ * ONE IMAGE PER ROLE IS ALL THERE CAN BE, so a flat walk of the roles is complete
+ * rather than a shortcut. `background.image` is declared `single_valued`, which
+ * refuses a breakpoint map and a state sub-map at the write gate AND drops both at
+ * emit — so there is no nested position for a second image to hide in. If that
+ * ruling is ever widened (per-breakpoint art direction is a named future ruling),
+ * this walk has to widen with it or the advisory goes quietly incomplete while the
+ * emitter keeps dropping declarations.
+ *
+ * @return array<string,int>
+ */
+function _pp_udc_dangling_background_images(array $udc): array {
+    $out = [];
+    if (!function_exists('pp_udc_background_image_url')) {
+        return $out;
+    }
+    foreach ($udc as $role => $role_map) {
+        if (!is_array($role_map) || !isset($role_map['background']) || !is_array($role_map['background'])) {
+            continue;
+        }
+        $id = $role_map['background']['image'] ?? null;
+        if ($id === null || !is_scalar($id)) {
+            continue;
+        }
+        if (pp_udc_background_image_url($id) === null) {
+            $out['role "' . (string) $role . '"'] = (int) $id;
+        }
+    }
+    return $out;
+}
+
+/**
  * Renders style slot overrides as a CSS custom property string.
  *
  * Validates each property against the component's declared style slots.
@@ -2228,67 +2443,23 @@ function pp_grid_link_align_decl(array $style): string {
 }
 
 /**
- * Renders an inline ` style="..."` attribute of CSS custom properties for
- * TEMPLATE-OWNED chrome — the header and footer, whose styling surface is
- * whitelisted site options (pp_header_* / pp_footer_*) rather than component
- * style_slots, so pp_render_style_vars() (which reads a component's schema
- * slots) does not apply to them.
+ * WHAT USED TO BE HERE: pp_chrome_style_attr().
  *
- * Each entry maps a CSS custom-property name to its value plus the SITE-OPTION
- * KEY that declares its type. The type is read from pp_allowed_site_options()
- * — the single source of truth — never hand-copied into the caller. That is the
- * point: the drift that silently dropped gradients before #333 was a render-time
- * type ('color') hardcoded separately from the whitelist's declared type
- * ('gradient'). Deriving the type here makes that divergence impossible.
+ * It rendered an inline ` style="..."` attribute of CSS custom properties for the
+ * header and footer, built from the pp_header_* / pp_footer_* site options, because
+ * template-owned chrome had no component style_slots and therefore no other
+ * styling surface. Both of its call sites and all six of its options are gone (v2,
+ * BUILD-SPEC Addendum A ruling A1): chrome is styled through the pp_site_udc
+ * container, which reaches every declared role rather than three colours, and which
+ * emits a scoped CSS block rather than an inline attribute — so a chrome value now
+ * ranks in the same cascade as everything else instead of beating all of it.
  *
- * Each value is re-validated at the render boundary through the shared engine
- * (#330); a rejected or empty value is dropped while its siblings still render.
- * An all-empty/all-dropped set yields '' (no attribute at all), so unset chrome
- * is byte-identical to markup that never had the surface.
- *
- * @param array<string,array{value:string,option:string}> $vars
- *        CSS var name => ['value' => stored value, 'option' => whitelisted option key].
- * @return string  A ready-to-echo ` style="..."` attribute, or '' when nothing renders.
+ * Recorded rather than silently deleted because the function solved a real problem
+ * (deriving a value's TYPE from the whitelist instead of hand-copying it, which is
+ * what silently dropped gradients before #333) and a future template-owned surface
+ * would be tempted to reinvent it. If that happens, the lesson to carry over is the
+ * type-derivation, not the inline attribute.
  */
-function pp_chrome_style_attr(array $vars): string {
-    $allowed = pp_allowed_site_options();
-    $decls   = [];
-    foreach ($vars as $css_var => $slot) {
-        $value = (string) ($slot['value'] ?? '');
-        if ($value === '') {
-            continue;
-        }
-        // The CSS property name is developer-supplied (callers hardcode it), never
-        // user input — but this is a shared primitive, so keep it structurally safe:
-        // a custom property is `--` followed by name chars. Anything else is a caller
-        // bug; drop it rather than emit an odd token into the attribute.
-        if (!preg_match('/^--[A-Za-z0-9_-]+$/', (string) $css_var)) {
-            continue;
-        }
-        // Type comes from the whitelist, keyed by the option name — never a
-        // second, hand-maintained copy (the #333 drift class).
-        $type = $allowed[$slot['option']] ?? null;
-        // Fail CLOSED to an explicit CSS-color allowlist. This helper only ever emits
-        // background/text/link COLOR surfaces, so only 'color' and 'gradient' may reach
-        // the render boundary. An unresolved key (null) OR a resolved-but-non-style type
-        // — e.g. a caller that names 'blogname' (string) or 'pp_footer_show_logo' (bool)
-        // by mistake — is dropped here. Without this, pp_render_style_value_allowed()
-        // would validate the value under a non-CSS type: _pp_validate_token_value() has
-        // no case for 'string'/'bool'/'attachment_id', so it falls through to a permissive
-        // pass, leaving only the layer-1 injection reject set. Constraining the type is
-        // strictly safer and keeps the drift-proofing above meaningful.
-        if ($type !== 'color' && $type !== 'gradient') {
-            continue;
-        }
-        if (!pp_render_style_value_allowed($value, $type)) {
-            continue;
-        }
-        $decls[] = $css_var . ': ' . $value;
-    }
-    // esc_attr on the whole attribute value is defense-in-depth on output; the
-    // render boundary above is the real gate.
-    return $decls ? ' style="' . esc_attr(implode('; ', $decls)) . '"' : '';
-}
 
 /**
  * Renders a heading title with an optional accent-colored substring (#110).
@@ -5183,7 +5354,10 @@ function pp_set_font_urls(array $urls): bool {
  * transparent/currentColor, or a single known color-typed design-token
  * reference) | 'gradient' (the shared color-OR-gradient union: everything
  * 'color' accepts, PLUS a bounded linear-gradient()/radial-gradient() with 2+
- * color stops — used for the chrome BACKGROUND options, issue 333).
+ * color stops — NO key declares this today; the chrome background options that
+ * used it were retired by ruling A1) | 'udc_map' (a JSON object holding one `udc`
+ * map per chrome component, validated by the shared UDC engine; '' or '{}' clears
+ * it, and it is the one key on this list that is concurrency-versioned).
  * '0' (not '') is the canonical OFF form for bool so a stored
  * value always re-validates — the snapshot/rollback path re-applies it
  * through the validating writer.
@@ -5216,22 +5390,13 @@ function pp_allowed_site_options(): array {
         // chrome (issue 223), so it cannot be composed to pass show_logo; this
         // option is the only supported way to turn the footer logo on (issue 234).
         'pp_footer_show_logo'  => 'bool',
-        // Dark-marketing-footer chrome (issue 300). The footer is template-owned
-        // (issue 223) and not a composition component, so it has no style_slots;
-        // these site options are the supported surface. Colors emit inline
-        // --footer-* custom properties; strings render brand/contact/copyright.
-        //
-        // pp_footer_bg is 'gradient', not 'color' (issue 333). The 'gradient' type
-        // is a color-OR-gradient UNION (see _pp_validate_token_value()), so it is a
-        // strict superset of 'color': every value that validated before still does.
-        // Issue 300 typed it 'color' on the belief that the color engine already
-        // accepted gradients; it does not (_pp_validate_color() has no gradient
-        // branch), so a gradient footer was silently inexpressible. Widened here
-        // alongside the header rather than left as an asymmetry the AI would have
-        // to memorize ("header takes a gradient, footer does not").
-        'pp_footer_bg'         => 'gradient',
-        'pp_footer_text'       => 'color',
-        'pp_footer_link_color' => 'color',
+        // NOTE ON WHAT IS NOT HERE: pp_footer_bg / pp_footer_text /
+        // pp_footer_link_color (issue 300/333) are GONE, with their header twins.
+        // They were the footer's styling surface when chrome had no other one; v2
+        // gives chrome the UDC container below (pp_site_udc), and keeping both
+        // would be two mechanisms reaching one outcome — the I35 class, and the
+        // "one styling system" directive's whole point. The footer's CONTENT
+        // options that follow are untouched.
         'pp_footer_blurb'      => 'string',
         'pp_footer_contact'    => 'string',
         'pp_footer_copyright'  => 'string',
@@ -5273,16 +5438,10 @@ function pp_allowed_site_options(): array {
         // is http(s)-only (NOT the same-site redirect rule). No arbitrary icon URLs
         // or icon fonts: the network set is fixed and its glyphs ship inline.
         'pp_footer_social'        => 'social',
-        // Header chrome (issue 333). The header/nav is template-owned (issue 223)
-        // exactly like the footer, so it declares no style_slots and these site
-        // options are its ONLY styling surface. Before this, the header was the one
-        // above-the-fold element with no authorable surface at all: .site-header was
-        // hard-bound to --color-bg. Colors emit inline --header-* custom properties.
-        // pp_header_bg is 'gradient' (color OR gradient) so a gradient marketing
-        // header is expressible; text/link stay 'color'.
-        'pp_header_bg'         => 'gradient',
-        'pp_header_text'       => 'color',
-        'pp_header_link_color' => 'color',
+        // NOTE ON WHAT IS NOT HERE: pp_header_bg / pp_header_text /
+        // pp_header_link_color (issue 333) are GONE — see the footer twins above
+        // and the pp_site_udc entry below, which replaces all six with the full
+        // role taxonomy instead of three colours.
         // Open Graph / Twitter social-share defaults (issue 468). The theme
         // emits NO og:*/twitter:* tags without these — sharing a page produced
         // no rich card. Site-level defaults for the whole install; per-page
@@ -5310,6 +5469,23 @@ function pp_allowed_site_options(): array {
         'pp_og_site_name'           => 'string',
         'pp_og_default_description' => 'string',
         'pp_twitter_card'           => 'twitter_card',
+        // Site chrome styling (v2, BUILD-SPEC Addendum A ruling A1). A JSON
+        // object holding one `udc` map per chrome component (nav, footer) — the
+        // SAME shape, engine and grammar a band's `udc` gets, validated by
+        // pp_udc_validate_site_map() -> pp_udc_validate_map(). This is the ONLY
+        // way chrome is styled: the pp_header_* / pp_footer_* colour options it
+        // replaces are gone, because two mechanisms reaching one outcome is what
+        // invariant I35 forbids and the v2 pivot's "one styling system" directive
+        // rules out.
+        //
+        // The one key on this whitelist that is CAS-covered. Its baseline lives
+        // INSIDE the value (PP_SITE_UDC_VERSION_KEY) so content and marker swap
+        // in one atomic update_option(); see pp_update_site_option().
+        //
+        // Storing structured JSON in a site option is not new here —
+        // pp_footer_social does the same, with the same "dedicated validator for a
+        // structured option" shape.
+        'pp_site_udc'               => 'udc_map',
     ];
 }
 
@@ -5559,6 +5735,13 @@ function pp_validate_site_option_value(string $key, string $value) {
         }
     }
     if ($type === 'gradient') {
+        // CURRENTLY UNREACHABLE, and said so rather than left to look live. The only
+        // two keys ever typed 'gradient' were pp_header_bg and pp_footer_bg, which
+        // ruling A1 retired; no key on the whitelist declares it today. Kept rather
+        // than deleted because the branch is three lines of delegation to the shared
+        // engine and the next structured option that wants a gradient will want
+        // exactly this — but silence here would read as "a key still uses this".
+        //
         // Delegate to the shared slot-type engine (issue 333) — the SAME validator
         // every `gradient`-typed style slot goes through, for the same reason the
         // 'color' branch above delegates: no second, surface-specific rule. The
@@ -5575,6 +5758,42 @@ function pp_validate_site_option_value(string $key, string $value) {
                 $key, $value
             ));
         }
+    }
+    if ($type === 'udc_map') {
+        // '' IS AN EXPLICIT CLEAR, exactly as it is for the other structured option
+        // on this whitelist (pp_footer_social documents "'' clears the row"). Without
+        // this, there was no reachable way to remove chrome styling at all: '' failed
+        // as unparseable JSON and '{}' failed the container shape check, so an author
+        // who wanted their header back had to guess at `{"_version": N}`. An option
+        // documented as Optional has to be un-settable.
+        if (trim($value) === '' || trim($value) === '{}') {
+            return true;
+        }
+        // Bounded BEFORE it is parsed. The decode itself is an attack surface on
+        // deeply nested input, and this row is autoloaded on every request, so the
+        // ceiling is checked on the bytes rather than discovered afterwards.
+        if (strlen($value) > PP_SITE_UDC_MAX_BYTES) {
+            return new WP_Error('invalid_option_value', sprintf(
+                'Option "%s" is %d bytes; the limit is %d. Chrome styling is a handful of roles, '
+                . 'not a stylesheet — check for a value that was pasted in by mistake.',
+                $key,
+                strlen($value),
+                PP_SITE_UDC_MAX_BYTES
+            ));
+        }
+        $decoded = json_decode($value, true, PP_SITE_UDC_MAX_DEPTH);
+        if (json_last_error() !== JSON_ERROR_NONE) {
+            return new WP_Error('invalid_option_value', sprintf(
+                'Option "%s" must be a JSON object; it did not parse (%s).',
+                $key,
+                json_last_error_msg()
+            ));
+        }
+        $error = pp_udc_validate_site_map($decoded);
+        if ($error !== null) {
+            return $error;
+        }
+        return true;
     }
     if ($type === 'social') {
         // Footer social-icon row (issue 382). '' is a valid CLEAR (no row); any
@@ -6838,7 +7057,7 @@ function pp_promote_auto_draft(int $post_id): void {
  * @param string $value  New option value.
  * @return true|WP_Error
  */
-function pp_update_site_option(string $key, string $value) {
+function pp_update_site_option(string $key, string $value, ?int $expected_version = null) {
     if (!isset(pp_allowed_site_options()[$key])) {
         return new WP_Error('invalid_option', sprintf('Option "%s" is not whitelisted.', $key));
     }
@@ -6848,6 +7067,9 @@ function pp_update_site_option(string $key, string $value) {
     }
     // Normalize to each type's canonical stored form.
     $type = pp_allowed_site_options()[$key] ?? null;
+    if ($type === 'udc_map') {
+        return _pp_update_site_udc($value, $expected_version);
+    }
     if ($type === 'attachment_id') {
         $value = (string) (int) $value;
     } elseif ($type === 'bool') {
@@ -6863,6 +7085,319 @@ function pp_update_site_option(string $key, string $value) {
     }
     update_option($key, $value);
     return true;
+}
+
+/**
+ * The CAS write for `pp_site_udc` (ruling A1, invariant I8).
+ *
+ * THE RULING'S PREMISE WAS THAT THIS ALREADY EXISTED; IT DID NOT. Compare-and-swap
+ * in this codebase was composition-scoped only — the counter is the
+ * `_pp_composition_version` post meta and the refusal is in pp_update_composition()
+ * — and every site-scoped path explicitly opts out (a site action carries no
+ * post_id, so _pp_cli_composition_fresh_decision() hands back a null baseline and
+ * the CAS is skipped). What site options DID have is an advisory lock, and a lock
+ * is a different guarantee: it SERIALIZES two writers so neither is torn, but it
+ * cannot tell a writer that the state it reasoned about has moved. I8 is about
+ * exactly that second thing. So this is the ruled guarantee, built narrowly for the
+ * one key that was ruled to need it.
+ *
+ * TWO MECHANISMS, BOTH NEEDED, DOING DIFFERENT JOBS:
+ *
+ *   advisory lock  -> read-compare-write is atomic against a concurrent writer,
+ *                     so two callers cannot both pass the CAS on the same baseline.
+ *   version compare -> a caller whose baseline predates someone else's landed write
+ *                     is REFUSED rather than silently overwriting it.
+ *
+ * The baseline lives INSIDE the stored value, so the content and the marker swap in
+ * a single update_option(). A sibling version row would be two writes that cannot be
+ * made atomic, which is the torn-write shape recorded on pp_update_composition() —
+ * a death between them leaves the marker certifying content that is not there and
+ * the next writer clearing a CAS it should have failed.
+ *
+ * A NULL BASELINE SKIPS THE COMPARE, mirroring pp_update_composition() exactly
+ * rather than inventing a stricter local rule: the engine enforces the CAS when a
+ * baseline is supplied, and the fail-closed MANDATE that every conversational write
+ * must supply one lives one level up, on the surface. Chrome has no such mandate
+ * yet — see the residual noted in the PR.
+ *
+ * @param  string   $value            The validated JSON container.
+ * @param  int|null $expected_version Baseline, or null to skip the compare.
+ * @return true|WP_Error
+ */
+function _pp_update_site_udc(string $value, ?int $expected_version) {
+    // THE CLEAR PATH. Validation has already accepted '' / '{}' as "remove chrome
+    // styling"; deleting the row is what makes the next read report ABSENT rather
+    // than an empty-but-versioned container.
+    if (trim($value) === '' || trim($value) === '{}') {
+        $clear = static function ($wpdb) use ($expected_version) {
+            $current = _pp_read_site_udc_locked($wpdb);
+            if ($current === null) {
+                return new WP_Error('site_option_unreadable', sprintf(
+                    'Could not read %s to check your baseline against it, so nothing was changed.',
+                    PP_SITE_UDC_OPTION
+                ));
+            }
+            if ($expected_version !== null && !$current['corrupt']
+                && $current['version'] !== $expected_version) {
+                return new WP_Error('site_option_conflict', sprintf(
+                    'Site chrome styling has changed since you read it (you sent baseline %d, the stored '
+                    . 'version is %d), so it was not cleared. Re-read %s and decide again.',
+                    $expected_version,
+                    $current['version'],
+                    PP_SITE_UDC_OPTION
+                ));
+            }
+            delete_option(PP_SITE_UDC_OPTION);
+            return true;
+        };
+        return function_exists('_pp_with_advisory_lock')
+            ? _pp_with_advisory_lock(
+                _pp_site_udc_lock_name(),
+                static function ($wpdb) use ($clear) {
+                    return $clear($wpdb);
+                },
+                new WP_Error('site_option_locked', sprintf(
+                    'Could not take the write lock for %s; nothing was changed. Retry in a moment.',
+                    PP_SITE_UDC_OPTION
+                )),
+                'site chrome styling'
+            )
+            : $clear(null);
+    }
+
+    $decoded = json_decode($value, true, PP_SITE_UDC_MAX_DEPTH);
+    if (!is_array($decoded)) {
+        // Unreachable through pp_update_site_option() (validation ran first), but
+        // this function must not assume its only caller: I9 says a failed read is
+        // never mapped to a valid answer, and "decoded to nothing" is a failed read.
+        return new WP_Error('invalid_option_value', sprintf(
+            'Option "%s" must be a JSON object.',
+            PP_SITE_UDC_OPTION
+        ));
+    }
+
+    // A `_version` IN THE PAYLOAD IS A BASELINE, NOT A DECORATION.
+    //
+    // The documented way to edit chrome is read-modify-write: fetch the option,
+    // change one role, send the whole object back. That object carries the
+    // `_version` the engine wrote. Accepting it and silently discarding it — which
+    // is what this did — left the caller believing the round trip was protected when
+    // the CAS had never run, which is the reported-guarantee-without-effect shape
+    // I35 forbids and which this same action's own `expected_version` guard refuses
+    // for every other key. So the natural round trip now gets the protection it
+    // looks like it has.
+    //
+    // An explicit `expected_version` still wins, because it is the deliberate
+    // statement; the two DISAGREEING is a caller confusion worth refusing rather
+    // than silently resolving in either direction.
+    $payload_version = null;
+    if (isset($decoded[PP_SITE_UDC_VERSION_KEY]) && is_scalar($decoded[PP_SITE_UDC_VERSION_KEY])
+        && preg_match('/^[0-9]+$/', (string) $decoded[PP_SITE_UDC_VERSION_KEY])) {
+        $payload_version = (int) $decoded[PP_SITE_UDC_VERSION_KEY];
+    }
+    if ($expected_version === null) {
+        $expected_version = $payload_version;
+    } elseif ($payload_version !== null && $payload_version !== $expected_version) {
+        return new WP_Error('invalid_option_value', sprintf(
+            'Your write carries two different baselines: expected_version %d and a "%s" of %d in the '
+            . 'value. Send one. The param is the baseline; the key inside the value is the one the '
+            . 'engine wrote when you read it.',
+            $expected_version,
+            PP_SITE_UDC_VERSION_KEY,
+            $payload_version
+        ));
+    }
+
+    $write = static function ($wpdb) use ($decoded, $expected_version) {
+        // READ INSIDE THE LOCK, AND STRAIGHT FROM THE ROW.
+        //
+        // "Inside the lock" is necessary and not sufficient. pp_site_udc is
+        // AUTOLOADED, so pp_udc_site_map()'s get_option() is served from the
+        // request-local `alloptions` snapshot warmed during bootstrap — and this
+        // request may well have warmed the decode cache again in preflight, before
+        // the lock was taken. Neither can be invalidated by a writer in ANOTHER PHP
+        // process. Two writers both holding baseline N would therefore both pass the
+        // compare, and the second would silently clobber the first: precisely the
+        // lost update the CAS exists to refuse, with the lock held the whole time.
+        //
+        // The sibling site-option CAS already solved this — see
+        // _pp_read_token_overrides_locked_strict(), whose docblock says it reads
+        // "straight from the DB (bypassing the options cache) so a concurrent
+        // writer's just-committed value is visible and a stale cached map can't
+        // overwrite a newer one inside the critical section." Same problem, same
+        // answer, and the parse stays shared so there is still one grammar.
+        $current = _pp_read_site_udc_locked($wpdb);
+        if ($current === null) {
+            // A read that FAILED is not an empty row (#212's posture). Refusing is
+            // the only safe answer: we cannot check a baseline against a value we
+            // could not read, and we will not overwrite it blind.
+            return new WP_Error('site_option_unreadable', sprintf(
+                'Could not read %s to check your baseline against it, so nothing was written. Retry; '
+                . 'if it persists, the database is not answering reads.',
+                PP_SITE_UDC_OPTION
+            ));
+        }
+
+        // A CORRUPT ROW REFUSES EVERY BASELINED WRITE, and this is the sharp edge.
+        //
+        // An unreadable row reports version 0 for styling purposes, which is also
+        // what a NEVER-WRITTEN row reports. If the CAS compared on that number
+        // alone, a caller holding `expected_version: 0` — a perfectly ordinary
+        // baseline, earned by reading an option that looked empty — would pass the
+        // compare and overwrite bytes the operator may well want recovered. Absent
+        // and unreadable are different facts and only one of them is safe to
+        // overwrite blind.
+        //
+        // The recovery route stays open deliberately: a write with NO baseline is
+        // still accepted, because that is the caller saying "I know what is there
+        // and I am replacing it". What is refused is the caller who thinks they
+        // know and does not.
+        if ($current['corrupt'] && $expected_version !== null) {
+            return new WP_Error('site_option_corrupt', sprintf(
+                'The stored value of %s could not be read, so your baseline cannot be checked against it '
+                . 'and this write would overwrite it blind. Inspect the row and either repair it or clear '
+                . 'it (wp option delete %s), then write again; a write sent with no expected_version '
+                . 'replaces it deliberately.',
+                PP_SITE_UDC_OPTION,
+                PP_SITE_UDC_OPTION
+            ));
+        }
+
+        if ($expected_version !== null && $current['version'] !== $expected_version) {
+            return new WP_Error('site_option_conflict', sprintf(
+                'Site chrome styling has changed since you read it (you sent baseline %d, the stored '
+                . 'version is %d). Re-read it (wp pp operate inspect reports it as `chrome`) and re-apply '
+                . 'your change so you do not overwrite someone else\'s edit.',
+                $expected_version,
+                $current['version'],
+                PP_SITE_UDC_OPTION
+            ));
+        }
+        $next    = pp_udc_normalize_site_map($decoded, $current['version'] + 1);
+        $encoded = wp_json_encode($next);
+        if (!is_string($encoded)) {
+            // Never certify a write over a failed encode (invariant I3).
+            return new WP_Error('invalid_option_value', sprintf(
+                'Option "%s" could not be encoded for storage; nothing was written.',
+                PP_SITE_UDC_OPTION
+            ));
+        }
+        // THE CAP HAS TO BE MEASURED ON THE BYTES THAT LAND, NOT THE ONES THAT ARRIVE.
+        //
+        // Validation checks the SUBMITTED string, but what is stored is a re-encode:
+        // normalization adds `_version` and MINTS tokens, rewriting responsive values
+        // into `@name` references and appending a `_tokens` block, and wp_json_encode
+        // escapes non-ASCII as \uXXXX. The stored string is therefore strictly larger
+        // than the submitted one. A map that validated at 65,400 bytes could normalize
+        // past the ceiling, be written, be reported as a successful write — and then
+        // read back as CORRUPT forever, because pp_udc_site_map() enforces the same
+        // ceiling on the raw bytes before it decodes. All chrome styling would vanish
+        // from every page on the strength of an `ok: true`.
+        //
+        // Refusing here keeps the promise the envelope makes. Found by the
+        // performance specialist on this branch.
+        if (strlen($encoded) > PP_SITE_UDC_MAX_BYTES) {
+            return new WP_Error('invalid_option_value', sprintf(
+                'Option "%s" is %d bytes once the engine has normalized it (the limit is %d), so storing '
+                . 'it would leave a row nothing can read back. Nothing was written. Reduce the map — '
+                . 'per-breakpoint values in particular expand, because each one is stored as a named token.',
+                PP_SITE_UDC_OPTION,
+                strlen($encoded),
+                PP_SITE_UDC_MAX_BYTES
+            ));
+        }
+        // THE WRITE'S VERDICT IS READABLE HERE, unusually, so it is read.
+        //
+        // update_option() returns false for two different things — the write failed,
+        // and the value was already identical — which is why the codebase generally
+        // cannot branch on it (see _pp_restore_write_if_changed(), lib/actions.php).
+        // That ambiguity does not exist on this path: the version is incremented on
+        // every write, so the encoded string can never equal what is already stored,
+        // so "no change" is impossible and false means FAILED. Reporting ok:true over
+        // a write the store refused is exactly what invariant I1 forbids, and here
+        // there is no excuse for it.
+        // AUTOLOAD DECLARED, NOT INHERITED. Chrome CSS is built on every front-end
+        // request, so this row must be in the autoloaded set or every page pays an
+        // extra query; saying so at the write site means a future change to
+        // WordPress's autoload heuristic cannot quietly turn that into a regression.
+        if (!update_option(PP_SITE_UDC_OPTION, $encoded, true)) {
+            return new WP_Error('site_option_write_failed', sprintf(
+                'The database did not accept the write to %s; nothing was changed. Retry, and if it '
+                . 'persists check the database is writable.',
+                PP_SITE_UDC_OPTION
+            ));
+        }
+        return true;
+    };
+
+    if (!function_exists('_pp_with_advisory_lock')) {
+        return $write(null);
+    }
+    return _pp_with_advisory_lock(
+        _pp_site_udc_lock_name(),
+        static function ($wpdb) use ($write) {
+            return $write($wpdb);
+        },
+        new WP_Error('site_option_locked', sprintf(
+            'Could not take the write lock for %s; nothing was written. Retry in a moment.',
+            PP_SITE_UDC_OPTION
+        )),
+        'site chrome styling'
+    );
+}
+
+/**
+ * Reads pp_site_udc authoritatively INSIDE the lock, bypassing the options cache.
+ *
+ * The twin of _pp_read_token_overrides_locked_strict(), for the same reason and in
+ * the same shape: an autoloaded option read through get_option() comes from a
+ * per-request snapshot that a concurrent process's commit cannot invalidate, so a
+ * compare-and-swap built on it compares against possibly-stale bytes and both
+ * writers pass. Going to the row makes the other process's just-committed value
+ * visible, which is the whole point of holding the lock.
+ *
+ * Returns null when the row could NOT BE READ — distinct from an absent row, which
+ * parses to version 0 / no chrome. A non-empty `$wpdb->last_error` is checked before
+ * the null-row test because a failed get_var() also yields null, and treating a
+ * failed read as "absent" is the #212 blind spot that turns a refusal into an
+ * acceptance.
+ *
+ * @param object|null $wpdb The handle the advisory lock hands the mutator, or null
+ *                          in the unit context (no DB), where the cached read is all
+ *                          there is and is also all that is needed.
+ * @return array|null       Parsed map, or null when the row could not be read.
+ */
+function _pp_read_site_udc_locked($wpdb = null): ?array {
+    if (is_object($wpdb) && method_exists($wpdb, 'get_var') && isset($wpdb->options)) {
+        $raw = $wpdb->get_var(
+            $wpdb->prepare(
+                "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 1",
+                PP_SITE_UDC_OPTION
+            )
+        );
+        if (!empty($wpdb->last_error)) {
+            return null;
+        }
+        // An absent row is a real, readable answer: nothing has been written yet.
+        return pp_udc_parse_site_map($raw === null ? '' : (string) $raw);
+    }
+    // No DB handle (unit context): the option store IS the cache, so there is no
+    // staleness to bypass and the shared reader is authoritative.
+    return pp_udc_site_map();
+}
+
+/**
+ * Install-scoped advisory-lock name for pp_site_udc.
+ *
+ * Same construction as _pp_token_lock_name() and for the same reason: writers on
+ * the SAME store must serialize while unrelated sites and installs never collide,
+ * and MySQL caps lock names at 64 characters.
+ */
+function _pp_site_udc_lock_name(): string {
+    global $wpdb;
+    $db   = defined('DB_NAME') ? DB_NAME : (isset($wpdb->dbname) ? $wpdb->dbname : 'db');
+    $blog = function_exists('get_current_blog_id') ? (int) get_current_blog_id() : 0;
+    return 'pp_siteudc_' . substr(md5($db . '|' . $blog), 0, 32);
 }
 
 // ── Front-end redirects (#62) ────────────────────────────────────────────────

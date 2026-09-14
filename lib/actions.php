@@ -4260,16 +4260,60 @@ pp_register_action('create_page', [
 
 pp_register_action('update_site_option', [
     'scope'       => 'site',
-    'description' => 'Updates a whitelisted WordPress site option (blogname, blogdescription, pp_logo_id, pp_logo_alt, site_icon, pp_footer_show_logo, pp_footer_bg, pp_footer_text, pp_footer_link_color, pp_footer_blurb, pp_footer_contact, pp_footer_copyright, pp_footer_menu_label, pp_footer_contact_label, pp_footer_secondary_label, pp_footer_note, pp_footer_logo_id, pp_footer_social, pp_header_bg, pp_header_text, pp_header_link_color, pp_og_image, pp_og_site_name, pp_og_default_description, pp_twitter_card). pp_logo_id takes a Media Library attachment ID (not a URL) to set the site logo. site_icon takes a Media Library image attachment ID (not a URL) to set the browser-tab favicon and app/OS icon; this is WordPress core\'s site_icon option, so once set the favicon and apple-touch-icon tags render automatically (no page composition needed). Core renders the chosen attachment as-is on this path (the Customizer\'s square-crop step is not run), so pass a roughly square source (ideally >=512px) for a clean icon; any image is accepted. pp_footer_show_logo is a boolean (1/0/true/false) that turns the footer logo on/off. The header and footer are template-owned chrome: these site options are the ONLY way to style them (they cannot be composed). pp_header_bg / pp_footer_bg set the header and footer BACKGROUND and each accept a CSS color OR a gradient (hex, rgb()/hsl(), transparent, currentColor, a known color-token reference, or a bounded linear-gradient()/radial-gradient() with 2+ color stops) — this is how you build a dark or gradient marketing header/footer. pp_header_text / pp_footer_text set text color, and pp_header_link_color / pp_footer_link_color set nav-link color (pp_header_link_color also colors the active/current header link, which keeps its bold weight and falls back to the global accent only when the option is unset); those four take a CSS color only (no gradient). pp_footer_blurb, pp_footer_contact, and pp_footer_copyright are text (empty pp_footer_copyright keeps the default copyright line). Footer STRUCTURE: pp_footer_menu_label and pp_footer_contact_label are optional column headings (text) above the footer menu and contact block; pp_footer_note is an optional secondary line (text) that, when set, moves the copyright into a delimited bottom bar and renders opposite it (empty keeps the copyright inline). A SECOND footer menu column is available: assign a menu to the "footer_secondary" theme location (assign_menu_location / set_menu) and it renders as an extra footer column; pp_footer_secondary_label is its optional heading (text, empty = a headless second column). This is how to render a distinct footer menu such as a Legal column (Aviso legal / Privacidad / Cookies) alongside the primary footer menu; with no menu assigned to footer_secondary the footer is unchanged. pp_footer_logo_id is an optional footer logo override (Media Library attachment ID, not a URL) so a light logo variant can serve a dark footer while pp_logo_id stays the header logo; unset falls back to pp_logo_id. pp_footer_social renders the footer social-icon row: a JSON string holding an ordered list of {network, url} objects, where network is one of a CLOSED set (x, linkedin, facebook, instagram, youtube, github, tiktok, mastodon) and url is an http(s) profile URL. Unknown networks, non-http(s) values and malformed JSON are rejected; empty or unset renders no row. Open Graph / Twitter social-share defaults (#468): pp_og_image is the social-share image (a Media Library image attachment ID, not a URL, same rule as pp_logo_id) — it feeds og:image (+ width/height from the attachment metadata, alt from the attachment alt) and twitter:image; pp_og_site_name overrides the og:site_name (defaults to the site name); pp_og_default_description is the site-wide fallback social description used when a page has no meta_description (text, 320 chars or fewer, same cap as meta_description); pp_twitter_card is the Twitter card type, one of summary or summary_large_image (defaults to summary_large_image). These render as og:*/twitter:* tags in wp_head; per-page og_title/twitter_title overrides go through update_seo_meta.',
-    'semantics'   => 'Replace. Key must be whitelisted. Value replaces entirely and is validated against the key type (pp_logo_id, pp_footer_logo_id, site_icon, and pp_og_image must be an image attachment ID; pp_footer_show_logo must be a boolean; pp_header_bg/pp_footer_bg must be a CSS color OR a bounded gradient; pp_header_text/pp_header_link_color/pp_footer_text/pp_footer_link_color must be a CSS color; pp_twitter_card must be summary or summary_large_image; pp_og_default_description is capped at 320 characters; pp_footer_social must be a JSON array of {network, url} objects with a known network and an http(s) URL; the other pp_footer_*/pp_og_site_name keys — blurb, contact, copyright, menu_label, contact_label, secondary_label, note, og_site_name — are free text).',
+    'description' => 'Updates a whitelisted WordPress site option (blogname, blogdescription, pp_logo_id, pp_logo_alt, site_icon, pp_footer_show_logo, pp_footer_blurb, pp_footer_contact, pp_footer_copyright, pp_footer_menu_label, pp_footer_contact_label, pp_footer_secondary_label, pp_footer_note, pp_footer_logo_id, pp_footer_social, pp_site_udc, pp_og_image, pp_og_site_name, pp_og_default_description, pp_twitter_card). pp_logo_id takes a Media Library attachment ID (not a URL) to set the site logo. site_icon takes a Media Library image attachment ID (not a URL) to set the browser-tab favicon and app/OS icon; this is WordPress core\'s site_icon option, so once set the favicon and apple-touch-icon tags render automatically (no page composition needed). Core renders the chosen attachment as-is on this path (the Customizer\'s square-crop step is not run), so pass a roughly square source (ideally >=512px) for a clean icon; any image is accepted. pp_footer_show_logo is a boolean (1/0/true/false) that turns the footer logo on/off. The header and footer are template-owned chrome: they cannot be composed, and pp_site_udc is the ONLY way to style them. pp_site_udc is a JSON object holding one `udc` map per chrome component — {"nav": {...}, "footer": {...}} — in exactly the shape a band\'s `udc` takes, validated by the same engine and the same grammar: the same roles/groups/parameters, the same @token references, the same breakpoint and :hover/:focus-visible/:active state maps, the same presets. Read each component\'s declared roles from the catalog. Example: {"nav":{"_band":{"background":{"fill":"#101828"}},"link":{"typography":{"color":"#f7f8fa",":hover":{"color":"@color-accent"}}}}}. YOU OWN THE CONTRAST: set a colour on every text role you put over a new chrome background. Chrome styling is SITE-WIDE — there is no per-page chrome override, and a key that is not a chrome component name is refused. A write REPLACES the whole option, so send every chrome component you want to keep in the same write; `\'\'` clears all chrome styling. The write is CONCURRENCY-VERSIONED: the stored object carries a `_version`, and you may pass it back as expected_version — or simply leave it in the value you send back — so a write that would overwrite someone else\'s newer edit is refused instead (re-read with `wp pp operate inspect`, re-apply, retry). pp_footer_blurb, pp_footer_contact, and pp_footer_copyright are text (empty pp_footer_copyright keeps the default copyright line). Footer STRUCTURE: pp_footer_menu_label and pp_footer_contact_label are optional column headings (text) above the footer menu and contact block; pp_footer_note is an optional secondary line (text) that, when set, moves the copyright into a delimited bottom bar and renders opposite it (empty keeps the copyright inline). A SECOND footer menu column is available: assign a menu to the "footer_secondary" theme location (assign_menu_location / set_menu) and it renders as an extra footer column; pp_footer_secondary_label is its optional heading (text, empty = a headless second column). This is how to render a distinct footer menu such as a Legal column (Aviso legal / Privacidad / Cookies) alongside the primary footer menu; with no menu assigned to footer_secondary the footer is unchanged. pp_footer_logo_id is an optional footer logo override (Media Library attachment ID, not a URL) so a light logo variant can serve a dark footer while pp_logo_id stays the header logo; unset falls back to pp_logo_id. pp_footer_social renders the footer social-icon row: a JSON string holding an ordered list of {network, url} objects, where network is one of a CLOSED set (x, linkedin, facebook, instagram, youtube, github, tiktok, mastodon) and url is an http(s) profile URL. Unknown networks, non-http(s) values and malformed JSON are rejected; empty or unset renders no row. Open Graph / Twitter social-share defaults (#468): pp_og_image is the social-share image (a Media Library image attachment ID, not a URL, same rule as pp_logo_id) — it feeds og:image (+ width/height from the attachment metadata, alt from the attachment alt) and twitter:image; pp_og_site_name overrides the og:site_name (defaults to the site name); pp_og_default_description is the site-wide fallback social description used when a page has no meta_description (text, 320 chars or fewer, same cap as meta_description); pp_twitter_card is the Twitter card type, one of summary or summary_large_image (defaults to summary_large_image). These render as og:*/twitter:* tags in wp_head; per-page og_title/twitter_title overrides go through update_seo_meta.',
+    'semantics'   => 'Replace. Key must be whitelisted. Value replaces entirely and is validated against the key type (pp_logo_id, pp_footer_logo_id, site_icon, and pp_og_image must be an image attachment ID; pp_footer_show_logo must be a boolean; pp_site_udc must be a JSON object whose keys are chrome component names, each holding a valid udc map (an unknown key, an unknown role/group/parameter, or a bad value is refused naming the exact place); pp_twitter_card must be summary or summary_large_image; pp_og_default_description is capped at 320 characters; pp_footer_social must be a JSON array of {network, url} objects with a known network and an http(s) URL; the other pp_footer_*/pp_og_site_name keys — blurb, contact, copyright, menu_label, contact_label, secondary_label, note, og_site_name — are free text).',
     'params'      => [
         'key'   => ['type' => 'string', 'required' => true],
         'value' => ['type' => 'string', 'required' => true],
+        // The CAS baseline for pp_site_udc (ruling A1, invariant I8). Optional,
+        // and optional in the same sense pp_update_composition()'s
+        // `expected_version` is: the engine enforces the compare when a baseline
+        // is supplied, and nothing invents one when it is not. Read the current
+        // baseline from the `_version` key of the stored option.
+        'expected_version' => ['type' => 'int', 'required' => false],
     ],
     'validate' => function (array $params) {
         $allowed = pp_allowed_site_options();
         if (!isset($allowed[$params['key']])) {
+            // A RETIRED KEY GETS A ROUTE, NOT JUST A REJECTION.
+            //
+            // The six chrome colour options were a shipped, documented surface, and an
+            // agent working from anything written before ruling A1 will reach for them.
+            // "Not whitelisted" plus a list of twenty keys is technically true and
+            // practically useless: it makes the author guess which of the twenty
+            // replaced the one they wanted. Naming the replacement is what invariant
+            // I24 means by "a stated reason AND a route back".
+            if (in_array($params['key'], [
+                'pp_header_bg', 'pp_header_text', 'pp_header_link_color',
+                'pp_footer_bg', 'pp_footer_text', 'pp_footer_link_color',
+            ], true)) {
+                // ITS OWN CODE, not the generic one. The arm four lines below
+                // returns `invalid_option` for a key that never existed; a caller
+                // that cannot tell "you typo'd" from "this moved, and here is where"
+                // has to string-match the prose — the exact thing the execute-arm fix
+                // in this same change removed for the conflict code.
+                return new WP_Error('retired_option', sprintf(
+                    'Option "%s" no longer exists. Chrome styling moved to "%s", which holds one `udc` map '
+                    . 'per chrome component (%s) in the same shape a band\'s `udc` takes — so it reaches every '
+                    . 'role those components declare, not just a background and two colours. Read the roles '
+                    . 'from the component catalog and write them there.',
+                    $params['key'],
+                    PP_SITE_UDC_OPTION,
+                    implode(', ', pp_udc_chrome_names())
+                ));
+            }
             return new WP_Error('invalid_option', sprintf('Option "%s" is not whitelisted. Allowed: %s.', $params['key'], implode(', ', array_keys($allowed))));
+        }
+        if (isset($params['expected_version']) && ($allowed[$params['key']] ?? '') !== 'udc_map') {
+            // Refuse, never ignore: a caller who sent a baseline believes the
+            // write is CAS-covered. Accepting it on a key with no CAS would
+            // report a guarantee that was not applied (invariant I35).
+            return new WP_Error('invalid_param_value', sprintf(
+                'Option "%s" is not concurrency-versioned, so it takes no expected_version. '
+                . 'Only "%s" carries a baseline.',
+                $params['key'],
+                PP_SITE_UDC_OPTION
+            ));
         }
         return pp_validate_site_option_value($params['key'], (string) $params['value']);
     },
@@ -4287,12 +4331,39 @@ pp_register_action('update_site_option', [
         if (is_wp_error($current)) {
             $current = '';
         }
-        $result = pp_update_site_option($params['key'], $params['value']);
+        $expected = isset($params['expected_version']) && is_numeric($params['expected_version'])
+            ? (int) $params['expected_version']
+            : null;
+        $result = pp_update_site_option($params['key'], $params['value'], $expected);
         if (is_wp_error($result)) {
-            return _pp_action_error('update_site_option', 'site', $result->get_error_message());
+            // THE CODE TRAVELS WITH THE MESSAGE. This arm used to drop it, so an
+            // execute-stage site-option refusal shipped `error_code: ''` while the
+            // validate-stage twin kept its code — a caller could not branch on a
+            // CAS conflict without string-matching the prose. Invariant I28 wants
+            // every refusal to carry a machine-readable code, and a conflict is
+            // precisely the refusal a caller must recognise in order to re-read
+            // and retry.
+            return _pp_action_error(
+                'update_site_option',
+                'site',
+                $result->get_error_message(),
+                (string) $result->get_error_code()
+            );
+        }
+        // `to` IS WHAT LANDED, NOT WHAT WAS SENT.
+        //
+        // For pp_site_udc the two differ: the engine normalizes before storing, so
+        // the stored document carries a new `_version` and any minted breakpoint
+        // tokens. Reporting the submitted string as `to` put the two sides of one
+        // diff in different shapes — `from` was the real stored bytes — and hid the
+        // new baseline the caller needs for its NEXT concurrency-checked write. A
+        // re-read costs one option read on a path that just did a DB write.
+        $stored = pp_site_option($params['key']);
+        if (is_wp_error($stored)) {
+            $stored = $params['value'];
         }
         return _pp_action_result('update_site_option', 'site', ['key' => $params['key']], [
-            ['path' => $params['key'], 'from' => $current, 'to' => $params['value']],
+            ['path' => $params['key'], 'from' => $current, 'to' => $stored],
         ]);
     },
 ]);

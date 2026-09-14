@@ -83,20 +83,20 @@ $copyright_html = $copyright !== ''
     ? esc_html($copyright)
     : '&copy; ' . esc_html($year) . ' ' . esc_html(pp_site_title()) . '. All rights reserved.';
 
-// Dark-marketing-footer color slots (issue 300). Each maps a validated site option
-// to an inline CSS custom property the footer CSS reads via var(--footer-*, <literal>).
-// pp_chrome_style_attr() derives each value's type from pp_allowed_site_options() keyed
-// by the option name — so --footer-bg's 'gradient' (the color-OR-gradient union, widened
-// in #333) is single-sourced from the whitelist, not a hand-copied 'color' that would
-// silently DROP every stored gradient at the render boundary — and re-validates through
-// the shared engine (#330).
-$style_attr = pp_chrome_style_attr([
-    '--footer-bg'         => ['value' => (string) ($props['bg']         ?? ''), 'option' => 'pp_footer_bg'],
-    '--footer-text'       => ['value' => (string) ($props['text']       ?? ''), 'option' => 'pp_footer_text'],
-    '--footer-link-color' => ['value' => (string) ($props['link_color'] ?? ''), 'option' => 'pp_footer_link_color'],
-]);
+// STYLING: the site chrome UDC container, not props and not an inline style.
+//
+// The dark-marketing-footer colour slots (pp_footer_bg / pp_footer_text /
+// pp_footer_link_color) are GONE, replaced by the `footer` entry of the
+// pp_site_udc option (v2, BUILD-SPEC Addendum A ruling A1). The footer's CONTENT
+// options — blurb, contact, copyright, the column labels, the note, the logo, the
+// social row — are untouched: they are content, not styling, and the UDC has no
+// content surface. What changed is that the three colours became the whole role
+// taxonomy this schema declares.
+//
+// No style attribute is emitted. The CSS is a scoped block keyed to the
+// data-pp-chrome attribute below; see functions.php for the two tiers.
 ?>
-<footer class="site-footer" data-pp-component="footer"<?php echo $style_attr; ?>>
+<footer class="site-footer" data-pp-component="footer" data-pp-chrome="footer">
     <div class="container site-footer__inner">
 
         <?php // The three columns (brand · nav · contact) live in one grid track

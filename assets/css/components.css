@@ -178,23 +178,22 @@
   --pp-header-height: 65px;
 }
 
-/* Header chrome slots (issue 333). The header is template-owned (issue 223) and
-   declares no style_slots, so these are consumed from the pp_header_* site options
-   that base.php maps onto nav's props; the issue-305 slot guard does not cover them
-   and HeaderChromeTest pins the consume-plus-fallback contract instead.
+/* Header DEFAULTS. Structural-CSS boundary (BUILD-SPEC §2): what lives here is the
+   header's resting appearance, and nothing an author sets.
 
-   `background`, NOT `background-color`: --header-bg is a gradient-typed option
-   (color OR gradient), and a gradient is a CSS <image> — assigning one to
-   background-color is invalid, so the browser drops the declaration and the header
-   paints nothing. The shorthand accepts both a plain color and a gradient. Its
-   reset of the other background-* longhands is a no-op here: this rule is the only
-   place .site-header touches background at all. Unset, it resolves to the same
-   --color-bg as before, so default rendering is unchanged. */
+   This used to read `var(--header-bg, var(--color-bg))`, consuming an inline custom
+   property that base.php emitted from the pp_header_* site options. Those options
+   are gone (ruling A1) and chrome is styled through the pp_site_udc container, whose
+   block emits `background` on [data-pp-chrome="nav"] from the `pp-utilities` handle —
+   after this file — so an authored value outranks this one on source order at equal
+   specificity. The var() indirection was removed rather than left pointing at a
+   property nothing can set: a custom property no surface writes is a knob the
+   stylesheet advertises and the system does not have. */
 .site-header {
   position: sticky;
   top: 0;
   z-index: 100;
-  background: var(--header-bg, var(--color-bg));
+  background: var(--color-bg);
   border-bottom: 1px solid var(--color-border);
 }
 
@@ -210,7 +209,7 @@
   font-family: var(--font-heading);
   font-weight: 700;
   font-size: 1.25rem;
-  color: var(--header-text, var(--color-text));
+  color: var(--color-text);
   text-decoration: none;
   flex-shrink: 0;
   min-height: 44px;
@@ -244,7 +243,7 @@
   background: none;
   border: none;
   border-radius: var(--radius);
-  color: var(--header-text, var(--color-text));
+  color: var(--color-text);
   cursor: pointer;
   transition: color var(--transition);
 }
@@ -284,18 +283,17 @@
   list-style: none;
 }
 
-/* Nav links route through --header-link-color; the logo and toggle route through
-   --header-text. Two slots, mirroring the footer's text-vs-link split (issue 300),
+/* Nav links, logo and toggle default to the global text token; the `link`, `logo`
+   and `toggle` UDC roles are where an author changes them. Two roles, mirroring the
+   footer's text-vs-link split (issue 300),
    so a header can carry a muted wordmark with brighter links (or the reverse).
-   Hover keeps --color-accent (a global design token). The active/current link COLOR
-   also routes through --header-link-color (issue 355), falling back to --color-accent
-   when the operator hasn't set a header link color — so styling the header no longer
-   leaves the active link stuck on the global accent (the common one-page anchor-nav
-   case marks every link current). The active EMPHASIS (font-weight:700) is unchanged. */
+   Hover and the active/current link default to --color-accent (a global design token);
+   the `link` role's :hover state and the `link-current` role are where an author
+   changes each. The active EMPHASIS (font-weight:700) stays structural. */
 .nav__menu ul li a {
   display: block;
   padding: var(--space-sm) var(--space-sm);
-  color: var(--header-link-color, var(--color-text));
+  color: var(--color-text);
   text-decoration: none;
   border-radius: var(--radius);
   transition: color var(--transition);
@@ -307,19 +305,19 @@
 }
 
 /* Active link: WP sets current-menu-item on <li> — this is the primary active style.
-   Color follows --header-link-color so an operator's pp_header_link_color reaches the
+   Color defaults to the accent; the `link-current` UDC role is what reaches the
    active link too (issue 355); --color-accent stays the fallback, so an unset header
    renders byte-identically to before. The bold weight marks the current item either way. */
 .nav__menu ul li.current-menu-item > a,
 .nav__menu ul li.current_page_item > a {
   font-weight: 700;
-  color: var(--header-link-color, var(--color-accent));
+  color: var(--color-accent);
 }
 
 /* aria-current="page" is a secondary enhancement (e.g. set by other means). */
 .nav__menu ul li a[aria-current="page"] {
   font-weight: 700;
-  color: var(--header-link-color, var(--color-accent));
+  color: var(--color-accent);
 }
 
 /* Mobile (issue 426): the nav menu is a DISCLOSURE PANEL below the header row,
@@ -334,7 +332,8 @@
    stacking context — this z-index only orders the panel within that context, adding
    no new stacking context of its own. Scoped to max-width:767px so the >=768px desktop
    nav is entirely untouched. Short panel -> no body scroll-lock (see main.js). The
-   panel background routes the --header-bg chrome slot so a themed header carries into
+   panel background defaults to --color-bg; the `menu` UDC role is what carries a
+   themed header into
    the panel too (issue 333/426). */
 @media (max-width: 767px) {
   .nav__container {
@@ -347,7 +346,7 @@
     left: 0;
     right: 0;
     z-index: 99;
-    background: var(--header-bg, var(--color-bg));
+    background: var(--color-bg);
     border-bottom: 1px solid var(--color-border);
     box-shadow: 0 8px 24px rgba(16, 24, 40, 0.12);
   }
@@ -456,7 +455,7 @@
      stable object rather than a reflow. No style slot is available to make it
      authorable — chrome declares ZERO style slots by ratified contract (issue 223),
      so a stated reason is the only disposition open to this literal.
-     Note the panel is PARTLY token-reachable already: --header-bg routes its
+     Note the panel is reachable through the `menu` UDC role, which routes its
      background (with a --color-surface fallback that differs from the mobile
      panel's --color-bg), --radius its corners. Its box-shadow is a literal, like
      this width. REOPENING CONDITION for both literals: the chrome model's own
@@ -472,7 +471,7 @@
     align-items: stretch;
     gap: 0;
     padding: var(--space-xs);
-    background: var(--header-bg, var(--color-surface));
+    background: var(--color-surface);
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
     box-shadow: 0 8px 24px rgba(16, 24, 40, 0.12);
@@ -3688,19 +3687,20 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
 
 /* Dark-marketing-footer chrome (issue 300). The footer is template-owned
    (issue 223) with no composition style_slots, so its background/text/link
-   colors come from whitelisted site options (pp_footer_bg / pp_footer_text /
-   pp_footer_link_color) that base.php emits as inline --footer-* custom
+   colours are authored through the footer's UDC roles in pp_site_udc, which emit a
+   scoped block from the pp-utilities handle. What remains below is the resting
+   appearance, and the former inline --footer-* custom
    properties. Each property routes through var(--footer-*, <existing-literal>)
    so an unset footer renders byte-identical to before. These are NOT schema
    style_slots (footer declares none), so they are outside the issue 305 slot
    guard; FooterChromeTest pins the consume-plus-fallback contract instead. */
-/* `background`, NOT `background-color` (issue 333): --footer-bg is gradient-typed
+/* `background`, NOT `background-color` (issue 333): a footer fill may be gradient-typed
    (color OR gradient), and a gradient is a CSS <image> — background-color would drop
    it as invalid and the footer would paint nothing. The shorthand takes both. Its
    longhand reset is a no-op: this rule is the only place .site-footer sets background. */
 .site-footer {
-  background: var(--footer-bg, var(--color-surface));
-  color: var(--footer-text, inherit);
+  background: var(--color-surface);
+  color: inherit;
   border-top: 1px solid var(--color-border);
   padding-top: var(--space-lg);
   padding-bottom: var(--space-lg);
@@ -3756,8 +3756,8 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
 /* Social-icon row (issue 382), landing in the slot reserved by issue 427: a
    horizontal, wrapping row under the brand blurb. The row is a <ul>, so the
    list chrome is reset here. Each icon link routes its color through the footer
-   link slot (--footer-link-color, muted fallback) exactly like the nav links,
-   so the row follows pp_footer_link_color and an unset footer is unchanged; the
+   muted token exactly like the nav links; the `social-link` UDC role is what an
+   author changes, and an unstyled footer is unchanged; the
    inline SVG inherits that color via fill:currentColor. */
 .site-footer__social {
   display: flex;
@@ -3773,7 +3773,7 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: var(--footer-link-color, var(--color-muted));
+  color: var(--color-muted);
   transition: color var(--transition);
 }
 
@@ -3809,14 +3809,14 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
 
 /* The contact block is an <address> (issue 427). <address> defaults to italic;
    footer contact info is not, so reset it. Its email/phone links route the same
-   --footer-link-color chrome slot as the nav links (fallback --color-muted, so
+   muted token as the nav links (the `address-link` UDC role is the author's lever, so
    an unset footer is unchanged), underlined for the actionable affordance. */
 .site-footer__address {
   font-style: normal;
 }
 
 .site-footer__address a {
-  color: var(--footer-link-color, var(--color-muted));
+  color: var(--color-muted);
   text-decoration: underline;
   transition: color var(--transition);
 }
@@ -3844,7 +3844,7 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
 }
 
 .site-footer__nav ul li a {
-  color: var(--footer-link-color, var(--color-muted));
+  color: var(--color-muted);
   text-decoration: none;
   font-size: 0.9rem;
   transition: color var(--transition);
@@ -3855,14 +3855,14 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
   text-decoration: underline;
 }
 
-/* Copyright routes color through --footer-text (fallback --color-muted, so an
+/* Copyright defaults to --color-muted (the `copyright` UDC role is the lever, so an
    unset footer is unchanged). The old markup carried a .text-muted utility that
-   hardcoded --color-muted and would win over --footer-text on a dark footer;
+   hardcoded --color-muted and would win over an authored colour on a dark footer;
    footer.php dropped that class so the copyright follows the footer text color.
    issue 300 */
 .site-footer__copyright {
   font-size: 0.875rem;
-  color: var(--footer-text, var(--color-muted));
+  color: var(--color-muted);
   margin-bottom: 0;
 }
 
@@ -3870,7 +3870,7 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
    bar. Emitted only when the matching pp_footer_* option is set, so an unset
    footer renders exactly as issue 300 left it. Styling is deliberately NEUTRAL
    (no color/size opinion baked in): the heading inherits the footer text color
-   through --footer-text (so it follows whatever the dark/light footer sets),
+   through the `heading` UDC role (so it follows whatever the footer sets),
    and the bottom bar's divider reuses --color-border — the SAME token the
    footer's own top border uses. The capability is the structure and the slots
    that drive it, not a specific look. */
@@ -3878,7 +3878,7 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
   font-size: 0.9rem;
   font-weight: 600;
   margin-bottom: var(--space-sm);
-  color: var(--footer-text, inherit);
+  color: inherit;
 }
 
 /* Bottom bar: a delimited band below the main footer flow. Full-width divider
@@ -3906,7 +3906,7 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
 
 .site-footer__note {
   font-size: 0.875rem;
-  color: var(--footer-text, var(--color-muted));
+  color: var(--color-muted);
   margin-bottom: 0;
 }
 
