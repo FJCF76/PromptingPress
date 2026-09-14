@@ -2099,6 +2099,14 @@ function pp_udc_compile_band(array $item, string $layer, ?array &$drops = null):
 
         foreach ($sources as [$source, $map]) {
             foreach ($map as $group_name => $group_map) {
+                // A `_preset` KEY IS NOT A MISSING GROUP — IT IS THE PRESET
+                // MECHANISM, AND IT PAINTS. Ledgering it would put a "stored but
+                // not painted" warning on every band that uses a preset, which is
+                // the headline authoring affordance, on a value that renders
+                // correctly. The C2 helper skips this key for the same reason.
+                if ((string) $group_name === PP_UDC_PRESET_KEY) {
+                    continue;
+                }
                 if (!isset($groups[$group_name]) || !is_array($group_map)) {
                     if ($drops !== null && $source !== 'defaults'
                         && count($drops) < PP_UDC_MAX_EMIT_DROPS) {
@@ -2507,6 +2515,13 @@ function _pp_udc_place(
     }
 
     if (!isset($params[$param_name])) {
+        // THE GROUP-GRAIN `_preset` TAKES THE SAME CARVE-OUT as the role-grain one
+        // in pp_udc_compile_band(): it is not a parameter, it is the preset
+        // mechanism, and it paints. Fixing only the group level would leave this
+        // copy firing on `{"typography": {"_preset": "link", "size": "…"}}`.
+        if ($param_name === PP_UDC_PRESET_KEY) {
+            return;
+        }
         // Not a parameter this group declares. The write gate refuses it; stored
         // data can still carry one, and a renamed param leaves every band holding
         // the old name in exactly this state.
@@ -2589,16 +2604,24 @@ function _pp_udc_place(
         // re-validation would silently become a hole the day they land. The gate
         // is cheap here because it runs only on bands that actually reference a
         // preset.
+        // THE 8c CARVE-OUT HAS TO COME BEFORE THE GRAMMAR CHECK, not after it.
+        // Placed only at the resolution branch below, a non-numeric
+        // `background.image` never reached it: it failed the grammar first and was
+        // ledgered here, while check 8c reported the same stored value with a
+        // different reason and a different next action. One value, one classifier
+        // (I25) — pp_check_udc_background_images owns every drop of this parameter,
+        // well-shaped or not.
+        $owned_by_background_check = ($params[$param_name]['type'] ?? '') === 'attachment_id';
         if ($source !== 'defaults' && pp_udc_validate_value($literal, $params[$param_name]) !== true) {
-            // THE STORED VALUE IS REFLECTED, SO IT IS BOUNDED AND CLEANED. This
-            // message rides the preflight envelope of every later mutation, and a
-            // stored value has no length limit of its own — the repo bounds every
-            // other reflected value at PP_REFLECTED_VALUE_MAX_LENGTH for exactly
-            // this reason (#647/#649).
-            $note && $note(sprintf(
-                'the stored value "%s" no longer satisfies this parameter\'s grammar',
-                _pp_udc_reflect($literal)
-            ));
+            if (!$owned_by_background_check) {
+                // THE STORED VALUE IS REFLECTED, SO IT IS BOUNDED AND CLEANED.
+                // This message rides the preflight envelope of every later
+                // mutation, and a stored value has no length limit of its own.
+                $note && $note(sprintf(
+                    'the stored value "%s" no longer satisfies this parameter\'s grammar',
+                    _pp_udc_reflect($literal)
+                ));
+            }
             continue;
         }
 
@@ -3778,9 +3801,18 @@ function _pp_udc_band_values_cancelled_by_role_defaults(array $udc, string $comp
             || !isset($groups[(string) $group_name]['params'])) {
             continue;
         }
-        foreach ($group_map as $param_name => $unused) {
+        foreach ($group_map as $param_name => $value) {
             $param = $groups[(string) $group_name]['params'][(string) $param_name] ?? null;
             if ($param === null || !isset($inherited[$param['property']])) {
+                continue;
+            }
+            // ONE VALUE, ONE CLASSIFIER (I25). A `_band` value that does not
+            // satisfy its own grammar is not painted ANYWHERE, so it is the
+            // emit-drop advisory's to report — saying here that it "does not reach
+            // these roles" implies it reaches the others, and "set it on those
+            // roles directly" is advice that would not work either.
+            $scalar = is_array($value) ? ($value['d'] ?? null) : $value;
+            if (!is_scalar($scalar) || pp_udc_validate_value((string) $scalar, $param) !== true) {
                 continue;
             }
             $declared[$param['property']] = true;
@@ -3796,13 +3828,33 @@ function _pp_udc_band_values_cancelled_by_role_defaults(array $udc, string $comp
         if ((string) $role_name === '_band') {
             continue;
         }
+        // A ROLE THE AUTHOR ALREADY SET IS NOT CANCELLED. The authored value beats
+        // the role default, so the band-level value being shadowed there is moot —
+        // and telling someone to "set it on that role directly" when they already
+        // have is an unactionable finding on correct data, which is how an advisory
+        // gets acknowledged into silence.
+        $authored_here = [];
+        if (isset($udc[(string) $role_name]) && is_array($udc[(string) $role_name])) {
+            foreach ($udc[(string) $role_name] as $g => $gm) {
+                if ($g === PP_UDC_PRESET_KEY || !is_array($gm) || !isset($groups[(string) $g]['params'])) {
+                    continue;
+                }
+                foreach ($gm as $pn => $unused) {
+                    $pd = $groups[(string) $g]['params'][(string) $pn] ?? null;
+                    if ($pd !== null) {
+                        $authored_here[$pd['property']] = true;
+                    }
+                }
+            }
+        }
         foreach (($role_def['defaults'] ?? []) as $group_name => $group_map) {
             if (!is_array($group_map) || !isset($groups[(string) $group_name]['params'])) {
                 continue;
             }
             foreach ($group_map as $param_name => $unused) {
                 $param = $groups[(string) $group_name]['params'][(string) $param_name] ?? null;
-                if ($param === null || !isset($declared[$param['property']])) {
+                if ($param === null || !isset($declared[$param['property']])
+                    || isset($authored_here[$param['property']])) {
                     continue;
                 }
                 $cancelled[$param['property']][] = (string) $role_name;

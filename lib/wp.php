@@ -2377,7 +2377,8 @@ function pp_check_udc_emit_drops(?int $post_id = null, ?array $composition = nul
     $band_budget  = 25;
     $truncated   = false;
 
-    $collect = static function (array $item, string $layer, string $scope) use (&$rows, $row_budget): void {
+    $seen_drops = 0;
+    $collect = static function (array $item, string $layer, string $scope) use (&$rows, &$seen_drops, $row_budget): void {
         $drops = [];
         try {
             pp_udc_compile_band($item, $layer, $drops);
@@ -2394,6 +2395,13 @@ function pp_check_udc_emit_drops(?int $post_id = null, ?array $composition = nul
             $rows[] = ['scope' => $scope, 'where' => 'the whole band', 'reason' => 'it could not be compiled to find out'];
             return;
         }
+        // COUNT EVERY DROP, COLLECT ONLY WHAT FITS. The row budget stops one past
+        // what is shown, so a remainder derived from the collected rows can never
+        // exceed 1 — a page with 45 unpainted values would report "At least 1
+        // more". The sibling producers collect the full set and slice it, so their
+        // remainder is a true total; this one bounds the WORK as well, and so has
+        // to count separately to stay honest about it.
+        $seen_drops += count($drops);
         foreach ($drops as $drop) {
             if (count($rows) >= $row_budget) {
                 return;
@@ -2454,7 +2462,8 @@ function pp_check_udc_emit_drops(?int $post_id = null, ?array $composition = nul
 
     $checks    = [];
     $shown     = array_slice($rows, 0, $shown_budget);
-    $remainder = count($rows) - count($shown);
+    // Derived from what was SEEN, not from what was kept.
+    $remainder = max(0, $seen_drops - count($shown));
 
     foreach ($shown as $row) {
         $checks[] = [
@@ -2490,6 +2499,8 @@ function pp_check_udc_emit_drops(?int $post_id = null, ?array $composition = nul
             'finding_key'     => 'udc_value_cannot_take_effect:overflow',
             'acknowledgeable' => true,
             'next_action'     => 'Run wp pp readiness status for the full list.',
+            // "At least", because the walk itself stops at the band bound and the
+            // ledger caps per compile — so this is a floor, and the row says so.
             'message'         => sprintf('At least %d more stored value(s) are not painted.', $remainder),
         ];
     }

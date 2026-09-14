@@ -622,4 +622,140 @@ class UdcEmitDropAdvisoryTest extends TestCase
             'the locator is still built for a real collector'
         );
     }
+
+    // ── 10. Interaction defects found by the red team (#981) ─────────────────
+
+    /**
+     * A PRESET IS NOT A MISSING GROUP, AND IT PAINTS.
+     *
+     * The ledger read `_preset` as a group the vocabulary does not declare, so
+     * every band using a preset — the headline authoring affordance — drew a
+     * "stored but not painted" warning before every mutation, on a value that
+     * renders correctly. Caught by the red team; nothing in this file mentioned
+     * `_preset` until now.
+     */
+    public function testARoleGrainPresetIsNotReportedAsAnUnpaintedValue(): void
+    {
+        $udc = ['card' => [PP_UDC_PRESET_KEY => 'button']];
+
+        $this->assertNull(
+            pp_udc_validate_map($udc, 'testimonials'),
+            'the premise: this is an accepted authoring shape'
+        );
+        $this->assertSame([], $this->drops($udc), 'a preset that paints must not be reported as dropped');
+        $this->assertNotSame('', pp_udc_band_css($this->band($udc)), 'and it really does paint');
+    }
+
+    /** The same carve-out one level down, inside a permitted group. */
+    public function testAGroupGrainPresetIsNotReportedEither(): void
+    {
+        $udc = ['quote' => ['typography' => [PP_UDC_PRESET_KEY => 'link', 'size' => '1.25rem']]];
+
+        $this->assertNull(pp_udc_validate_map($udc, 'testimonials'));
+        $this->assertSame([], $this->drops($udc));
+    }
+
+    /**
+     * ONE VALUE, ONE CLASSIFIER (I25).
+     *
+     * A non-numeric `background.image` failed the grammar check before it ever
+     * reached the carve-out, so both advisories reported the same stored value
+     * with different reasons and different next actions — one saying the
+     * attachment is gone, the other saying the value fails its grammar.
+     */
+    public function testAMalformedBackgroundImageIsReportedByExactlyOneAdvisory(): void
+    {
+        $GLOBALS['_pp_test_store']['post_meta'][7]['_pp_composition'] = wp_json_encode([
+            $this->band(['card' => ['background' => ['image' => 'abc']]]),
+        ]);
+
+        $emit  = pp_check_udc_emit_drops(7);
+        $image = pp_check_udc_background_images(7);
+
+        $this->assertNotEmpty($image, 'the background check owns this parameter');
+        $this->assertSame(
+            [],
+            array_values(array_filter(
+                $emit,
+                static fn(array $c): bool => str_contains($c['message'], 'background')
+            )),
+            'and the emit-drop check must stay silent about it rather than tell a second story'
+        );
+    }
+
+    /**
+     * C2 MUST NOT DESCRIBE A VALUE THAT DOES NOT PAINT AT ALL.
+     *
+     * A `_band` value failing its own grammar is not painted anywhere, so saying
+     * it "does not reach these roles" implies it reaches the others, and "set it
+     * on those roles directly" is advice that would not work either. That value
+     * belongs to the emit-drop advisory alone.
+     */
+    public function testAnUnpaintableBandValueIsNotAlsoReportedAsShadowed(): void
+    {
+        $findings = pp_udc_composition_findings([
+            $this->band(['_band' => ['typography' => ['color' => 'not-a-real-color']]]),
+        ]);
+
+        $this->assertNotContains(
+            'udc_band_value_shadowed_by_role_default',
+            array_column($findings, 'type'),
+            'a value that paints nowhere is the drop advisory\'s, not the shadowing disclosure\'s'
+        );
+    }
+
+    /** And C2 must not fire when the author already did what it would advise. */
+    public function testARoleTheAuthorAlreadySetIsNotReportedAsShadowed(): void
+    {
+        $findings = pp_udc_composition_findings([
+            $this->band([
+                '_band' => ['typography' => ['style' => 'normal']],
+                'quote' => ['typography' => ['style' => 'normal']],
+            ]),
+        ]);
+
+        $shadowed = array_values(array_filter(
+            $findings,
+            static fn(array $f): bool => $f['type'] === 'udc_band_value_shadowed_by_role_default'
+        ));
+        foreach ($shadowed as $finding) {
+            $this->assertStringNotContainsString(
+                'quote',
+                $finding['message'],
+                'the author already set this role, so the cancellation is moot'
+            );
+        }
+        $this->assertTrue(true, 'asserted above, or nothing was reported at all');
+    }
+
+    /**
+     * THE OVERFLOW COUNT MUST BE A REAL FLOOR, NOT A STRUCTURAL 1.
+     *
+     * Collection stops one past what is shown, so a remainder derived from the
+     * collected rows could never exceed 1: a page with dozens of unpainted values
+     * reported "At least 1 more". The check that exists to end silent
+     * under-reporting was under-reporting itself.
+     */
+    public function testTheOverflowRowCountsWhatWasSeenNotWhatWasKept(): void
+    {
+        $typography = [];
+        for ($i = 0; $i < 40; $i++) {
+            $typography['no-such-param-' . $i] = '19px';
+        }
+        $GLOBALS['_pp_test_store']['options'][PP_SITE_UDC_OPTION] = wp_json_encode([
+            '_version' => 1,
+            'nav'      => ['link' => ['typography' => $typography]],
+        ]);
+
+        $checks   = pp_check_udc_emit_drops(null);
+        $overflow = end($checks);
+
+        $this->assertSame('udc_value_cannot_take_effect:overflow', $overflow['finding_key']);
+        preg_match('/At least (\d+) more/', $overflow['message'], $m);
+        $this->assertGreaterThan(
+            1,
+            (int) ($m[1] ?? 0),
+            'the remainder must reflect what was actually seen'
+        );
+    }
 }
