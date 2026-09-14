@@ -2200,12 +2200,22 @@ function pp_check_udc_background_images(?int $post_id = null): array {
     $checks  = [];
     $dangling = [];
 
-    // Chrome, always.
+    // Chrome, always — but never on an assumed shape. This runs before every
+    // mutation, so a corrupt or filtered site map must degrade to "nothing to
+    // report" rather than warn on a foreach over a non-iterable (I17).
+    $chrome = [];
     if (function_exists('pp_udc_site_map')) {
-        foreach (pp_udc_site_map()['chrome'] as $name => $map) {
-            foreach (_pp_udc_dangling_background_images($map) as $where => $id) {
-                $dangling[] = ['scope' => 'chrome "' . $name . '"', 'where' => $where, 'id' => $id];
-            }
+        $site_map = pp_udc_site_map();
+        if (is_array($site_map) && isset($site_map['chrome']) && is_array($site_map['chrome'])) {
+            $chrome = $site_map['chrome'];
+        }
+    }
+    foreach ($chrome as $name => $map) {
+        if (!is_array($map)) {
+            continue;
+        }
+        foreach (_pp_udc_dangling_background_images($map) as $where => $id) {
+            $dangling[] = ['scope' => 'chrome "' . $name . '"', 'where' => $where, 'id' => $id];
         }
     }
 
@@ -2291,8 +2301,10 @@ function pp_check_udc_background_images(?int $post_id = null): array {
  * `@token` reference resolves to nothing, when the stored value no longer
  * satisfies its parameter's grammar, when the parameter or group is no longer
  * declared, when a breakpoint key is unknown, when a single-valued parameter holds
- * a map — sixteen branches in all — and every one of them was silent on every
- * channel: no envelope finding, no advisory, not even a log line.
+ * a map. Every one of those EXCEPT the dangling attachment — which the check above
+ * already owns — was silent on every channel: no envelope finding, no advisory,
+ * not even a log line. The branch count is deliberately not restated here; it
+ * lives in the emitter and a number copied into prose goes stale unwatched.
  *
  * WHY THE AUTHOR CAN BE IN THIS STATE AT ALL, since the write gate refuses most of
  * these shapes: the write gate is not the only way data arrives. A raw meta write,
@@ -2337,9 +2349,13 @@ function pp_check_udc_emit_drops(?int $post_id = null): array {
 
     $rows = [];
     // Eleven fills ten rows and still knows there is an overflow; the band bound is
-    // the work half, and is deliberately the tighter of the two.
-    $row_budget  = 11;
-    $band_budget = 25;
+    // the work half, and is deliberately the tighter of the two. The +1 is written
+    // as arithmetic rather than as a second literal, because the pairing IS the
+    // contract: collect one more than you show, or the overflow row cannot know it
+    // is needed.
+    $shown_budget = 10;
+    $row_budget   = $shown_budget + 1;
+    $band_budget  = 25;
     $truncated   = false;
 
     $collect = static function (array $item, string $layer, string $scope) use (&$rows, $row_budget): void {
@@ -2349,6 +2365,13 @@ function pp_check_udc_emit_drops(?int $post_id = null): array {
         } catch (\Throwable $e) {
             // A diagnostic must survive the corruption it exists to report (I17),
             // and must not report its own failure as a clean bill of health (I29).
+            // The operator gets an honest row; the DEVELOPER gets the class and
+            // message, because an advisory that exists to end silent failure must
+            // not fail silently itself.
+            error_log(
+                'PromptingPress: udc emit-drop probe failed for ' . $scope . ': '
+                . get_class($e) . ': ' . $e->getMessage()
+            );
             $rows[] = ['scope' => $scope, 'where' => 'the whole band', 'reason' => 'it could not be compiled to find out'];
             return;
         }
@@ -2360,18 +2383,28 @@ function pp_check_udc_emit_drops(?int $post_id = null): array {
         }
     };
 
-    // Chrome, always.
+    // Chrome, always — but never on an assumed shape. This runs before every
+    // mutation, so a corrupt or filtered site map must degrade to "nothing to
+    // report" rather than warn on a foreach over a non-iterable (I17).
+    $chrome = [];
     if (function_exists('pp_udc_site_map')) {
-        foreach (pp_udc_site_map()['chrome'] as $name => $map) {
-            if (count($rows) >= $row_budget) {
-                break;
-            }
-            $collect(
-                ['component' => (string) $name, 'id' => (string) $name, 'udc' => $map],
-                'authored',
-                sprintf('site %s', (string) $name)
-            );
+        $site_map = pp_udc_site_map();
+        if (is_array($site_map) && isset($site_map['chrome']) && is_array($site_map['chrome'])) {
+            $chrome = $site_map['chrome'];
         }
+    }
+    foreach ($chrome as $name => $map) {
+        if (!is_array($map)) {
+            continue;
+        }
+        if (count($rows) >= $row_budget) {
+            break;
+        }
+        $collect(
+            ['component' => (string) $name, 'id' => (string) $name, 'udc' => $map],
+            'authored',
+            sprintf('site %s', _pp_udc_reflect((string) $name))
+        );
     }
 
     // The page in context, when there is one.
@@ -2393,13 +2426,13 @@ function pp_check_udc_emit_drops(?int $post_id = null): array {
                 $seen++;
                 $component = isset($item['component']) && is_scalar($item['component'])
                     ? (string) $item['component'] : '?';
-                $collect($item, 'authored', sprintf('band %d ("%s")', (int) $i + 1, $component));
+                $collect($item, 'authored', sprintf('band %d ("%s")', (int) $i + 1, _pp_udc_reflect($component)));
             }
         }
     }
 
     $checks    = [];
-    $shown     = array_slice($rows, 0, 10);
+    $shown     = array_slice($rows, 0, $shown_budget);
     $remainder = count($rows) - count($shown);
 
     foreach ($shown as $row) {
@@ -2408,8 +2441,14 @@ function pp_check_udc_emit_drops(?int $post_id = null): array {
             'pass'            => false,
             'severity'        => 'warning',
             'class'           => 'configuration',
+            // THE REASON IS IN THE KEY, and that is not belt-and-braces. Unlike the
+            // background-image check beside this one — where the reason is always
+            // "the attachment is gone" — a value at one location can stop painting
+            // for sixteen different reasons. Keying on location alone would let an
+            // operator acknowledge a harmless stale value and thereby silence a
+            // LATER, different drop at the same role and parameter.
             'finding_key'     => 'udc_value_cannot_take_effect:'
-                                 . substr(sha1($row['scope'] . '|' . $row['where']), 0, 12),
+                                 . substr(sha1($row['scope'] . '|' . $row['where'] . '|' . $row['reason']), 0, 12),
             'acknowledgeable' => true,
             'next_action'     => 'Re-set that value through the styling action, or remove it. '
                                  . 'Run wp pp check page for the whole composition.',
@@ -2439,7 +2478,11 @@ function pp_check_udc_emit_drops(?int $post_id = null): array {
             'pass'            => false,
             'severity'        => 'warning',
             'class'           => 'configuration',
-            'finding_key'     => 'udc_value_cannot_take_effect:bands_truncated',
+            // SCOPED TO THE PAGE IT DESCRIBES. The overflow row above is site-wide
+            // and matches the background-image check's precedent, but this row is
+            // about ONE page's band count — a global key would let acknowledging it
+            // on one page suppress it on every other.
+            'finding_key'     => 'udc_value_cannot_take_effect:bands_truncated:' . (int) $post_id,
             'acknowledgeable' => true,
             'next_action'     => 'Run wp pp check page --post_id=' . (int) $post_id . ' for the whole composition.',
             'message'         => sprintf(
@@ -7281,13 +7324,18 @@ function pp_update_site_option(string $key, string $value, ?int $expected_versio
     // before normalising would make the skip depend on how the caller spelled it.
     //
     // This is the `_pp_restore_write_if_changed()` idiom (lib/actions.php), which
-    // this repo already ships at five call sites and whose docblock states the
-    // rule: "Comparing first removes the ambiguity, so past the guard a false
-    // return is a refused write, because there was a real difference to write."
-    // It is INLINED rather than called because that helper lives in lib/actions.php,
-    // which loads AFTER this file (functions.php) — calling up the layer to reach
-    // it would invert the load order for three lines. If the two ever need to move
-    // together, move the helper down here; do not add a second definition.
+    // this repo already ships at five call sites.
+    //
+    // IT IS INLINED, AND THE HONEST REASON IS NOT LOAD ORDER. PHP resolves function
+    // bodies at call time, so this file can and does call up the layer already
+    // (pp_check_udc_emit_drops() above calls pp_udc_compile_band() from lib/udc.php,
+    // also loaded later). The real reason is narrower: that helper returns bool and
+    // this function must return true|WP_Error, so calling it would still leave the
+    // disambiguation and the error construction here — a call that saves one
+    // comparison and hides half the logic. THE RIGHT END STATE is to move
+    // _pp_restore_write_if_changed() down into this file and have both use it; that
+    // is a six-call-site move and belongs in its own change, not riding a batch.
+    // Until then: do not add a second definition of the idiom.
     //
     // THE READ-BACK IS ON THE FALSE BRANCH ONLY, and that distinction is the whole
     // reason it is allowed. A `pre_update_option_*` / `sanitize_option_*` filter can
@@ -7306,6 +7354,15 @@ function pp_update_site_option(string $key, string $value, ?int $expected_versio
     if ($live !== $sentinel && is_scalar($live) && (string) $live === $value) {
         return true;
     }
+    // THE TRUE BRANCH IS NOT A CLAIM ABOUT THE STORED BYTES, and that limit is
+    // parked deliberately rather than by omission. A `pre_update_option_*` /
+    // `sanitize_option_*` filter can rewrite the submitted value to a THIRD value:
+    // core writes that and returns true, and this returns true for a value that is
+    // not what was stored. Closing it means verifying every write by reading it
+    // back, which is the write-verification posture the concurrency cluster owns
+    // (see _pp_restore_write_if_changed(), lib/actions.php). What this function
+    // promises is narrower and now true: it never reports success over a write the
+    // store REFUSED.
     if (update_option($key, $value)) {
         return true;
     }

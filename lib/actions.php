@@ -2856,13 +2856,10 @@ function _pp_restore_batch_snapshot_report(array $snapshot): array {
         // baseline is written as '' (distinct outcomes, #291), and every other value
         // is written raw.
         //
-        // READ THE LIVE ROW WITH THE SNAPSHOTTER'S OWN SENTINEL (#857), because the whole
-        // point of the #291 (exists, value) shape is that ABSENT and '' are different
-        // outcomes — and get_option()'s default would collapse them right back together
-        // here. A fresh object can never equal a stored value, so identity inequality is a
-        // reliable presence test. Without it a stored false, a stored '' and a missing row
-        // all look alike, and the guard below would skip a delete that was genuinely
-        // needed or report a refusal for a row that was already gone.
+        // The live read and its sentinel are explained at the branch that performs
+        // them, inside $restore_one below — there are two arms now (raw row under
+        // the lock, cached read otherwise) and one paragraph up here could only
+        // describe one of them.
         // ── THE READ-COMPARE-WRITE, AS ONE UNIT THE LOCK CAN WRAP (#979) ─────
         //
         // pp_site_udc is the one whitelisted key whose FORWARD writes all run inside
@@ -2897,6 +2894,31 @@ function _pp_restore_batch_snapshot_report(array $snapshot): array {
                 );
                 $live_present = $row !== null;
                 $live_value   = $live_present ? (string) $row : null;
+
+                // AND THE WRITER HAS TO SEE THE SAME ROW THE COMPARE JUST READ.
+                //
+                // Reading the row authoritatively is only half the fix. The write
+                // below is update_option(), whose first act is its own get_option()
+                // against the autoloaded options cache — so without this the compare
+                // and the write look at two different views of one row inside a
+                // single critical section, which is the defect this lock exists to
+                // close, half-closed. Concretely: a concurrent commit lands before we
+                // took the lock, the row now differs from the baseline while the
+                // cached value still equals it, the compare correctly decides a
+                // restore is owed, and then update_option() compares against the
+                // stale cache, finds nothing to do, and returns false without
+                // writing. The rollback then reports FAILED over a baseline it never
+                // restored.
+                //
+                // Dropping the cached row inside the lock makes update_option()'s own
+                // old-value read authoritative too. Fail-safe either way — the worst
+                // case without it is a false FAILED, never a false success — but a
+                // rollback that reports failure over a restore it could have made is
+                // still a rollback that did not happen.
+                if (function_exists('wp_cache_delete')) {
+                    wp_cache_delete($key, 'options');
+                    wp_cache_delete('alloptions', 'options');
+                }
             } else {
                 // No DB handle: the unit context, and the cached read is all there is
                 // and all that is needed. Same posture as _pp_read_site_udc_locked().
@@ -5344,9 +5366,18 @@ function _pp_bounded_findings(array $findings, ?int $post_id = null, int $budget
         // present ONLY on a truncation entry — so an absent key honestly means
         // nothing was omitted. The complete report is still one `wp pp check page`
         // away, and that command is deliberately unbounded.
+        // UNTYPED ON PURPOSE. This builder describes an oversized and possibly
+        // corrupt report, so it is the last place that may throw on one: an
+        // `array $finding` hint turns a single malformed entry past the budget into
+        // a TypeError from the truncation tail itself (I17). A shapeless entry
+        // counts as `unknown` rather than collapsing into an empty-string key.
         'omitted_by_type' => array_count_values(
             array_map(
-                static fn(array $finding): string => (string) ($finding['type'] ?? ''),
+                static function ($finding): string {
+                    return is_array($finding) && isset($finding['type']) && is_scalar($finding['type'])
+                        ? (string) $finding['type']
+                        : 'unknown';
+                },
                 array_slice($findings, $budget)
             )
         ),

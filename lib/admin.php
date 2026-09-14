@@ -4969,8 +4969,18 @@ function pp_preview_document_head(array $composition, string $dir_uri): string {
     $base_block      = $token_css . $defaults . $chrome_defaults;
     $utilities_block = $authored . $chrome_authored;
 
+    // A NON-STRING ROW IS DROPPED, NOT FATAL. pp_get_font_urls() guarantees an
+    // array and says nothing about its elements, and esc_url() has no scalar type
+    // declaration — it reaches ltrim(), which is a TypeError on an array in PHP 8.
+    // This runs AFTER ob_get_clean() has closed the AJAX handler's try/catch, so
+    // one malformed row in the option would 500 the preview with no diagnosis
+    // instead of degrading. Same posture the token block two blocks up takes: drop
+    // the bad row, emit the healthy ones.
     $fonts = '';
     foreach (pp_get_font_urls() as $font_url) {
+        if (!is_string($font_url) || $font_url === '') {
+            continue;
+        }
         $fonts .= '<link rel="stylesheet" href="' . esc_url($font_url) . '">';
     }
 

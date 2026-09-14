@@ -356,6 +356,26 @@ final class PreviewCascadeParityTest extends TestCase
             $source,
             'chrome CSS must be built from the option, not from the page composition'
         );
+
+        // THE TWO SOURCES #963 ADDED NEED THE SAME TREATMENT, or the "pinned from
+        // both ends" claim covers four of six. Without these, moving the token
+        // block onto another handle or enqueuing the fonts after base.css would
+        // leave this suite green and the preview quietly wrong again.
+        $this->assertMatchesRegularExpression(
+            '/wp_add_inline_style\(\s*[\'"]pp-base[\'"],\s*\$pp_token_css/',
+            $source,
+            'the :root token overrides must ride pp-base, which prints after base.css'
+        );
+        $font_enqueue = strpos($source, "wp_enqueue_style(\n            'pp-font-'");
+        if ($font_enqueue === false) {
+            $font_enqueue = strpos($source, "'pp-font-'");
+        }
+        $this->assertNotFalse($font_enqueue, 'the webfont enqueue must exist');
+        $this->assertLessThan(
+            strpos($source, "'pp-base',"),
+            $font_enqueue,
+            'fonts must be enqueued before pp-base, or the face is not there when base.css asks for it'
+        );
     }
 
     /**

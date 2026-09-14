@@ -240,7 +240,7 @@ class UdcEmitDropAdvisoryTest extends TestCase
         ]);
 
         $types = array_column($findings, 'type');
-        $this->assertContains('udc_band_value_cannot_take_effect', $types);
+        $this->assertContains('udc_band_value_shadowed_by_role_default', $types);
 
         $message = implode(' ', array_column($findings, 'message'));
         $this->assertStringContainsString('color', $message);
@@ -259,7 +259,7 @@ class UdcEmitDropAdvisoryTest extends TestCase
             $this->band(['_band' => ['spacing' => ['padding-top' => '18px']]]),
         ]);
 
-        $this->assertNotContains('udc_band_value_cannot_take_effect', array_column($findings, 'type'));
+        $this->assertNotContains('udc_band_value_shadowed_by_role_default', array_column($findings, 'type'));
     }
 
     /** An inherited property NO role defaults is not cancelled either. */
@@ -270,7 +270,7 @@ class UdcEmitDropAdvisoryTest extends TestCase
         ]);
 
         $this->assertNotContains(
-            'udc_band_value_cannot_take_effect',
+            'udc_band_value_shadowed_by_role_default',
             array_column($findings, 'type'),
             'no testimonials role defaults text-align, so nothing cancels it'
         );
@@ -293,6 +293,167 @@ class UdcEmitDropAdvisoryTest extends TestCase
         $this->assertSame(
             array_column($submitted, 'message'),
             array_column($stored, 'message')
+        );
+    }
+
+    // ── 6. Bounds found by adversarial review (#981) ─────────────────────────
+
+    /**
+     * THE LEDGER IS BOUNDED AT THE SOURCE, not by its reader.
+     *
+     * Slicing the advisory's ROWS does not bound its INPUT. One stored band
+     * declaring thousands of invalid parameters would fill the ledger completely
+     * before the reader saw it — and preflight builds this before every mutation,
+     * so an unbounded ledger is a denial-of-service on the write path from a single
+     * corrupt band. Caught by the adversarial pass, which called it correctly.
+     */
+    public function testTheDropLedgerIsBoundedByAPathologicalBand(): void
+    {
+        $typography = [];
+        for ($i = 0; $i < 2000; $i++) {
+            $typography['no-such-param-' . $i] = '19px';
+        }
+
+        $drops = $this->drops(['quote' => ['typography' => $typography]]);
+
+        $this->assertLessThanOrEqual(
+            PP_UDC_MAX_EMIT_DROPS,
+            count($drops),
+            'the ledger must bound its own allocation, not rely on the advisory slicing it'
+        );
+        $this->assertNotEmpty($drops, 'and it must still report what it did see');
+    }
+
+    /**
+     * ACKNOWLEDGING ONE DROP MUST NOT SILENCE A DIFFERENT ONE AT THE SAME PLACE.
+     *
+     * Unlike the background-image check beside it — where the reason is always "the
+     * attachment is gone" — a value at one location can stop painting for sixteen
+     * different reasons. A key built from location alone would let a harmless stale
+     * value, once acknowledged, hide a later forbidden construct at the same role
+     * and parameter.
+     */
+    public function testTwoDifferentReasonsAtOneLocationGetDifferentFindingKeys(): void
+    {
+        $GLOBALS['_pp_test_store']['options'][PP_SITE_UDC_OPTION] = wp_json_encode([
+            '_version' => 1,
+            'nav'      => ['link' => ['typography' => ['color' => '@nope']]],
+        ]);
+        $unresolved = pp_check_udc_emit_drops(null)[0]['finding_key'] ?? '';
+
+        $GLOBALS['_pp_test_store']['options'][PP_SITE_UDC_OPTION] = wp_json_encode([
+            '_version' => 1,
+            'nav'      => ['link' => ['typography' => ['color' => 'not-a-colour']]],
+        ]);
+        $invalid = pp_check_udc_emit_drops(null)[0]['finding_key'] ?? '';
+
+        $this->assertNotSame('', $unresolved);
+        $this->assertNotSame('', $invalid);
+        $this->assertNotSame(
+            $unresolved,
+            $invalid,
+            'same location, different reason, so acknowledging one must not silence the other'
+        );
+    }
+
+    /** A corrupt site map degrades to no rows rather than warning on a foreach (I17). */
+    public function testACorruptSiteMapDoesNotWarnOrFatal(): void
+    {
+        $GLOBALS['_pp_test_store']['options'][PP_SITE_UDC_OPTION] = 'NOT_JSON{{{';
+
+        $this->assertSame([], pp_check_udc_emit_drops(null));
+    }
+
+    /** A reflected stored value is bounded, so one huge value cannot bloat every envelope. */
+    public function testAHugeStoredValueIsBoundedInTheAdvisoryMessage(): void
+    {
+        $GLOBALS['_pp_test_store']['options'][PP_SITE_UDC_OPTION] = wp_json_encode([
+            '_version' => 1,
+            'nav'      => ['link' => ['typography' => ['color' => str_repeat('z', 5000)]]],
+        ]);
+
+        $checks = pp_check_udc_emit_drops(null);
+
+        $this->assertNotEmpty($checks);
+        $this->assertLessThan(
+            1000,
+            strlen($checks[0]['message']),
+            'a stored value has no length limit of its own, so the message must impose one'
+        );
+    }
+
+    // ── 7. Reflected-text bounds found by the security specialist (#981) ─────
+
+    /**
+     * EVERY FRAGMENT OF THE MESSAGE IS STORED DATA, so every one is bounded.
+     *
+     * The role, group, parameter, state and breakpoint in the locator are all
+     * arbitrary array KEYS from the stored map, and the readiness `checks[]`
+     * channel is NOT inside the carve-out that lets `findings[].message` copy
+     * validator text verbatim. These rows ride the preflight envelope of every
+     * mutation, so an unbounded key means megabytes into every apply result.
+     */
+    public function testAHugeStoredKeyIsBoundedInTheAdvisoryLocator(): void
+    {
+        $huge = str_repeat('k', 5000);
+        $GLOBALS['_pp_test_store']['options'][PP_SITE_UDC_OPTION] = wp_json_encode([
+            '_version' => 1,
+            'nav'      => ['link' => ['typography' => [$huge => '19px']]],
+        ]);
+
+        $checks = pp_check_udc_emit_drops(null);
+
+        $this->assertNotEmpty($checks);
+        $this->assertLessThan(
+            1000,
+            strlen($checks[0]['message']),
+            'a stored KEY is as unbounded as a stored value and must be cleaned the same way'
+        );
+    }
+
+    /** The unresolvable-reference branch is reached BECAUSE the charset check failed, so it is unbounded by construction. */
+    public function testAHugeMalformedReferenceIsBoundedToo(): void
+    {
+        $GLOBALS['_pp_test_store']['options'][PP_SITE_UDC_OPTION] = wp_json_encode([
+            '_version' => 1,
+            'nav'      => ['link' => ['typography' => ['color' => '@' . str_repeat('!', 5000)]]],
+        ]);
+
+        $checks = pp_check_udc_emit_drops(null);
+
+        $this->assertNotEmpty($checks);
+        $this->assertLessThan(1000, strlen($checks[0]['message']));
+    }
+
+    /**
+     * The bound comes from an always-loaded file.
+     *
+     * lib/udc.php is loaded before lib/admin.php and _pp_udc_place() is the hottest
+     * loop on every front-end request, so reaching up to lib/admin.php's constant
+     * would be a layering inversion with a fatal at the bottom of it.
+     */
+    public function testTheReflectedBoundDoesNotReachIntoALaterLoadedFile(): void
+    {
+        $this->assertTrue(defined('PP_UDC_REFLECTED_MAX'));
+
+        $source = file_get_contents(dirname(__DIR__) . '/lib/udc.php');
+        $this->assertIsString($source);
+
+        // TOKENIZED, NOT GREPPED. The docblock above the helper NAMES that constant
+        // to explain why it is deliberately not used, and a text search cannot tell
+        // the record of a decision from a violation of it. Only a real T_STRING
+        // token is a reference.
+        $referenced = false;
+        foreach (token_get_all($source) as $token) {
+            if (is_array($token) && $token[0] === T_STRING && $token[1] === 'PP_REFLECTED_VALUE_MAX_LENGTH') {
+                $referenced = true;
+                break;
+            }
+        }
+
+        $this->assertFalse(
+            $referenced,
+            'lib/udc.php must not REFERENCE a constant defined in the later-loaded lib/admin.php'
         );
     }
 }

@@ -369,4 +369,35 @@ class PP_SiteOptionWriteTruth_LockDeniedWpdb extends PP_SiteOptionWriteTruth_Rec
         }
         return wpdb::get_var($query);
     }
+
+    /**
+     * The writer must see the same row the compare just read.
+     *
+     * Reading the row authoritatively is only half the lock's job: update_option()
+     * does its own get_option() against the autoloaded cache, so without an
+     * invalidation inside the section the compare and the write look at two
+     * different views of one row — and a restore that was genuinely owed gets
+     * skipped and reported FAILED. Found by the security specialist.
+     */
+    public function testTheSiteUdcRollbackInvalidatesTheCachedRowInsideTheLock(): void
+    {
+        $source = file_get_contents(dirname(__DIR__) . '/lib/actions.php');
+        $this->assertIsString($source);
+
+        $start = strpos($source, '$restore_one = static function ($wpdb)');
+        $this->assertNotFalse($start, 'the locked restore closure must exist');
+        $end = strpos($source, '};', $start);
+        $body = substr($source, $start, $end - $start);
+
+        $this->assertStringContainsString(
+            "wp_cache_delete($key, 'options')",
+            $body,
+            'the cached row must be dropped inside the lock, before the write'
+        );
+        $this->assertLessThan(
+            strpos($body, '_pp_restore_write_if_changed'),
+            strpos($body, 'wp_cache_delete'),
+            'the invalidation must happen BEFORE the compare-and-write, not after'
+        );
+    }
 }
