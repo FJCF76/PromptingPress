@@ -4,6 +4,62 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [Unreleased — v2.0.0-alpha.1] — v2 Sprint 1: the contract-boundary gate fixes (#962)
+
+**The three things the Sprint-0 contract-boundary review said had to be true before anything else is built on the UDC contract.** One value could take a page's styling down to the last rule; the editor preview ranked the cascade differently from the page it was previewing; and a test promised coverage of the consent gate that its assertions never delivered. None of the three changes what the contract IS — they make the contract hold.
+
+### One authored value could erase the rest of a page's styling
+
+A band's designable values are emitted as CSS SOURCE TEXT into the document head. CSS tokenization treats an unbalanced `(` or an unclosed quote as still OPEN: it consumes the terminating `;`, the band's closing `}`, and every rule after it to the end of the layer. The engine has a guard for exactly that — and it was wired to one of its two doors. It ran on band `_tokens` and not on the values an author actually writes, so `rgb(` submitted as a quote's font family validated, stored, reported applied, and then took out the styling of every band below it.
+
+Two things were wrong and both are fixed. The guard now runs inside the value validator, which is the one function the write path, the emit-time re-validation of stored data, and the referenced-token check all pass through — one call, three doors. And the `font-family` grammar, which had been the thing waving it past, is a real grammar now instead of "split on commas, accept anything left".
+
+**A font family is now an allowlist**, each comma-separated name one of exactly three shapes:
+
+| Shape | Example |
+|---|---|
+| Unquoted: letters, digits, spaces, `-`, `_` | `Helvetica`, `-apple-system`, `ui-monospace`, `sans-serif` |
+| Fully quoted, its own quote not recurring inside | `"Helvetica Neue"`, `'Cascadia Code'` |
+| A single bare token reference | `var(--font-heading)` |
+
+**The narrowings, stated rather than discovered.** An unquoted non-ASCII face name must now be quoted; an empty name (`Inter,, serif`) or a trailing comma is refused; and on a v2 `udc` `typography.family` parameter only, a name carrying a lone apostrophe (`"Foo's Font"`) is refused in every form, because the delimiter guard counts marks across the whole value and cannot see that one sits inside a quoted name. Reach was measured before shipping and is enforced by a test that keeps measuring it: **no design token, no component style-slot default and no UDC role default the theme ships is refused by the new grammar.** The AI-facing docs state the accepted set, the per-surface difference, and the workaround where one exists.
+
+The validator also runs the shared reject set itself now. Two of its three callers ran it first and the third did not, and a quoted name accepts any interior byte that is not its own quote character — so `{ } ; < >` could ride through the one door that skipped the gate. A validator whose output becomes CSS source text has to be safe when called alone.
+
+### The editor preview showed a cascade the site does not have
+
+The two emitted layers are ranked by WHERE they print and by nothing else: a component's role defaults before the theme stylesheets, a band's authored values after them. Both are zero-or-low specificity by construction, so position is the whole mechanism. The preview builds its own `<head>` and had restated that order wrong — both layers concatenated into one block after all three stylesheets, which lifted the defaults layer above the shared design-system rules it is supposed to lose to.
+
+The preview now emits two blocks at the front end's two positions. The ordering is pinned from both ends, so the preview and the enqueue callback cannot drift apart one edit at a time, and a rendered test compares computed values between the preview iframe and the real page on the same fixture.
+
+### A test promised the consent gate and pinned arithmetic
+
+`testAUdcWriteCarryingABaselineItNeverEarnedIsRefused` read as coverage of invariant I8 — that a write's baseline must be one the conversation EARNED for the page it targets. Its assertions only ever pinned numeric equality with the stored version: a baseline from another page is refused because its number differs, not because its origin is wrong, and two pages sitting at the same version would swap baselines and both writes would land.
+
+The test is renamed to say what it pins, carries a `@todo` pointing at the deferred fix, and the one approved-spec line claiming I8 was PINNED is corrected in place. I8 remains unpinned and unfixed, both deferred. A test whose name claims coverage its body does not carry is worse than no test: it makes the invariant look guarded and stops anyone looking.
+
+### Known issues
+
+- **The editor preview does not emit design-token overrides or enqueued fonts** (#963), so a site that has retuned a token or loaded a webfont previews with the theme's stock values. Pre-existing, found by the new parity test, and deliberately not folded into this change.
+- A `font-family` `var()` reference is checked for SHAPE only. Unlike `color`, the token is not required to exist or to be font-typed, so a misspelled reference validates and paints nothing. Recorded and pinned as current behaviour rather than silently narrowed.
+
+### Fixed
+
+- The CSS delimiter guard now covers authored values, not only band tokens — the write path, the emit-time re-validation and the referenced-token gate through one call.
+- `font-family` is validated against a real grammar on every surface that reaches CSS, and the validator no longer depends on its caller having run the shared reject set first.
+- The editor preview emits the two cascade layers at the front end's positions instead of one concatenated block.
+
+### Docs
+
+- The runtime system prompt and `ai-instructions/style-component.md` state the font-family grammar, the per-surface difference, and the shape-only nature of its `var()` arm. `AI_CONTEXT.md` records that `enqueue_font`'s `family` is validated.
+- A stale docblock describing the pre-`:where()` cascade is corrected, and the preview head carries a diagram of both surfaces including the layer the preview does not emit.
+
+### Tests
+
+PHP 4813 → 4832; JS 1879 unchanged. Both halves of the delimiter fix are red-proven against the pre-fix code, including through `create_page` rather than the validator alone; the preview's block ORDER and the fact that the AJAX endpoint still routes through the shared head builder are each pinned against a mutation that reverts them; `pp_udc_page_css()` — the concatenation that was the preview's bug — is now a test-only convenience with a tokenized source tripwire that fails if any production file calls it. `pp_udc_compile_band()`'s `$layer` argument is required, so no caller can silently ask for both tiers merged.
+
+---
+
 ## [v2.0.0-alpha.0] — 2026-09-13 — v2 Sprint 0: the Universal Design Contract, and testimonials rebuilt on it (#958)
 
 The first code of the v2 program. A component's designable surface stops being a hand-curated list of CSS custom properties and becomes a typed contract: named ROLES, each accepting families of parameters, per breakpoint and on hover, validated by one shared engine and emitted as a band-scoped block in the document head. `testimonials` is the first component on it. The other eleven are untouched and keep the v1 style-slot system exactly as it is until their own rebuild sprint — this is a build order, not a compatibility layer.
