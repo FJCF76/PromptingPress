@@ -677,8 +677,7 @@ function _pp_derive_font_family_from_url(string $url): string {
     if (!$query) {
         return '';
     }
-    parse_str($query, $query_params);
-    $family = $query_params['family'] ?? '';
+    $family = _pp_first_query_value($query, 'family');
     if ($family === '') {
         return '';
     }
@@ -689,6 +688,52 @@ function _pp_derive_font_family_from_url(string $url): string {
     $family = explode(':', $family)[0];
     $family = str_replace('+', ' ', $family);
     return trim($family);
+}
+
+/**
+ * The FIRST value for `$key` in a query string (#968).
+ *
+ * EXISTS BECAUSE `parse_str()` CANNOT EXPRESS "FIRST". It builds an array, so a
+ * repeated key keeps the LAST occurrence — and the CSS2 font API requests several
+ * families exactly that way (`?family=Inter&family=Playfair+Display`). The caller
+ * above documented "only the first family is used" and, through parse_str(), did
+ * the opposite.
+ *
+ * WHY FIRST IS THE RULING (#968, ruling D2) rather than the docblock being
+ * corrected to match: the function already took the FIRST family of a pipe-joined
+ * legacy list (`family=inter|playfair-display`), so the two multi-family syntaxes
+ * disagreed with each other — and `ai-instructions/retheme.md` ships both of them
+ * side by side as equivalent ways to request the same pair. One function answering
+ * "which family" two ways depending on URL syntax is the hidden divergence I36
+ * forbids. Since #965 the derived family decides whether the whole `enqueue_font`
+ * call is REFUSED, so it is load-bearing rather than cosmetic.
+ *
+ * DECODING MATCHES parse_str() DELIBERATELY, key and value alike: it urldecodes
+ * both, so `fam%69ly=X` reached the old code as `family`. Anything narrower here
+ * would silently change which URLs resolve at all, which is a second behaviour
+ * change riding along with the ruled one.
+ *
+ * @return string The decoded first value, or '' when the key is absent.
+ */
+function _pp_first_query_value(string $query, string $key): string {
+    foreach (explode('&', $query) as $pair) {
+        if ($pair === '') {
+            continue;
+        }
+        $eq = strpos($pair, '=');
+        if ($eq === false) {
+            // A bare `family` with no `=` is a present key with an empty value,
+            // which is what parse_str() makes of it too.
+            if (urldecode($pair) === $key) {
+                return '';
+            }
+            continue;
+        }
+        if (urldecode(substr($pair, 0, $eq)) === $key) {
+            return urldecode(substr($pair, $eq + 1));
+        }
+    }
+    return '';
 }
 
 /**
