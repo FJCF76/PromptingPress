@@ -1541,6 +1541,194 @@ final class UdcEngineTest extends TestCase
         }
     }
 
+    // ── Reference typing (#972, ruling D3) ───────────────────────────────────
+
+    /**
+     * ALL FIVE chain-holding tokens, each named explicitly.
+     *
+     * These are the whole population of shipped tokens whose value is one level of
+     * `var()` indirection rather than a literal. Before the ruling the three
+     * colours were ACCEPTED and the two lengths REFUSED — same shape of token,
+     * opposite answers, decided by whether the referencing param's grammar happened
+     * to tolerate a bare `var()`. They are pinned together, by name, because the
+     * invariant is that they are treated ALIKE; testing them apart would let the
+     * asymmetry come back one token at a time.
+     */
+    public function testEveryTokenHoldingAVarChainIsReferenceableByItsDeclaredType(): void
+    {
+        $cases = [
+            ['btn-padding-y',     'spacing',    'padding-top'],
+            ['btn-padding-x',     'spacing',    'padding-left'],
+            ['btn-text',          'typography', 'color'],
+            ['text-meta-color',   'typography', 'color'],
+            ['text-kicker-color', 'typography', 'color'],
+        ];
+
+        foreach ($cases as [$token, $group, $param]) {
+            // The premise: each really does hold a chain, not a literal. If a future
+            // retune flattens one, this row stops testing what it claims to.
+            $resolved = pp_udc_resolve_reference($token, []);
+            $this->assertNotNull($resolved, "@{$token} must resolve");
+            $this->assertStringContainsString(
+                'var(',
+                $resolved['value'],
+                "@{$token} is only interesting while its value is a var() chain"
+            );
+
+            $this->assertNull(
+                pp_udc_validate_map(['quote' => [$group => [$param => '@' . $token]]], 'testimonials'),
+                "@{$token} must be referenceable from {$group}.{$param} by its declared type"
+            );
+        }
+    }
+
+    /**
+     * The mismatch half, on BOTH paths.
+     *
+     * A literal-valued token keeps its old refusal verbatim, because the ruling
+     * only ever moves chain-holders — `@color-accent` in a length parameter was
+     * dead CSS before and is refused by the same value parse now. A CHAIN-holding
+     * token is the one whose refusal changes shape: there is no literal to quote,
+     * so the message names the two types instead.
+     */
+    public function testAReferenceWhoseTypeCannotSatisfyTheParamIsStillRefused(): void
+    {
+        // Literal-valued: unchanged path, unchanged message.
+        foreach ([['color-accent', 'spacing', 'padding-top'], ['space-sm', 'typography', 'color']] as [$t, $g, $p]) {
+            $error = pp_udc_validate_map(['quote' => [$g => [$p => '@' . $t]]], 'testimonials');
+            $this->assertInstanceOf(WP_Error::class, $error, "@{$t} must not satisfy {$g}.{$p}");
+        }
+
+        // Chain-holding: refused by declared type, and the message says so.
+        $error = pp_udc_validate_map(
+            ['quote' => ['typography' => ['color' => '@btn-padding-y']]],
+            'testimonials'
+        );
+        $this->assertInstanceOf(WP_Error::class, $error);
+        $this->assertStringContainsString('"length"-typed design token', $error->get_error_message());
+        $this->assertStringContainsString('takes a "color" value', $error->get_error_message());
+    }
+
+    /**
+     * THE NON-WIDENING PIN, and the reason the check parses a literal before it
+     * consults the type table at all.
+     *
+     * Five shipped button tokens declare `color`/`shadow` but hold the CSS-wide
+     * keyword `initial` as an "unset" sentinel, which their own grammars refuse.
+     * A type-first gate would have turned those standing refusals into
+     * acceptances — an extension of the accepted surface this ruling did not ask
+     * for, and one that would have emitted `var(--btn-bg)` resolving to `initial`.
+     */
+    public function testASentinelValuedTokenIsStillRefusedDespiteItsDeclaredType(): void
+    {
+        foreach ([['btn-bg', 'color'], ['btn-hover-bg', 'color'], ['btn-border-color', 'color']] as [$token, $type]) {
+            $resolved = pp_udc_resolve_reference($token, []);
+            $this->assertNotNull($resolved, "@{$token} must resolve");
+            $this->assertSame($type, $resolved['type'], "@{$token} declares {$type}");
+            $this->assertSame('initial', trim($resolved['value']), "@{$token} holds the sentinel");
+
+            $this->assertInstanceOf(
+                WP_Error::class,
+                pp_udc_validate_map(['quote' => ['typography' => ['color' => '@' . $token]]], 'testimonials'),
+                "@{$token} must stay refused: a declared type rescues a chain, not a sentinel"
+            );
+        }
+    }
+
+    /**
+     * `--transition` is refused for a STATED REASON, which is the ruling's point:
+     * it is the registry's only `raw` token (`150ms ease` — a duration and an
+     * easing in one string), so it satisfies neither motion param. Before, it was
+     * refused by a grammar accident and the author had to infer why from a parse
+     * error about time units. Splitting it into two typed tokens would make it
+     * referenceable and is its own token-registry ruling (#972 option C).
+     */
+    public function testTheRawTransitionTokenIsRefusedWithAStatedReason(): void
+    {
+        foreach (['transition-duration', 'timing-function'] as $param) {
+            $error = pp_udc_validate_map(['quote' => ['motion' => [$param => '@transition']]], 'testimonials');
+            $this->assertInstanceOf(WP_Error::class, $error);
+            $this->assertStringContainsString('"raw"-typed design token', $error->get_error_message());
+            $this->assertStringContainsString('declares no single CSS grammar', $error->get_error_message());
+        }
+    }
+
+    /**
+     * ONE PREDICATE, BOTH GATES (I29). A reference the write path accepts must
+     * emit, and one it refuses must not — otherwise a value validates green at
+     * write and silently drops at render, which is the write/render disagreement
+     * the diagnostics invariants forbid. This is the regression that would have
+     * shipped if only the write gate had been taught the new rule.
+     */
+    public function testTheWriteGateAndTheEmitterAgreeOnAChainHoldingReference(): void
+    {
+        $band = $this->band(['quote' => ['spacing' => ['padding-top' => '@btn-padding-y']]]);
+        $this->assertNull(pp_udc_validate_map($band['udc'], 'testimonials'), 'accepted at write');
+        $this->assertStringContainsString(
+            'padding-top:var(--btn-padding-y);',
+            pp_udc_band_css(pp_udc_normalize_band($band)),
+            'and therefore emitted, not dropped'
+        );
+
+        // The refusing direction, through the same two gates.
+        $dead = $this->band(['quote' => ['motion' => ['transition-duration' => '@transition']]]);
+        $this->assertInstanceOf(WP_Error::class, pp_udc_validate_map($dead['udc'], 'testimonials'));
+        $this->assertStringNotContainsString(
+            'transition-duration:var(--transition)',
+            pp_udc_band_css(pp_udc_normalize_band($dead))
+        );
+    }
+
+    /**
+     * NO BEHAVIOUR CHANGE FOR THE ORDINARY CASE. For every shipped token whose
+     * value is a plain literal, judging by declared type and parsing the value
+     * give the same answer on every param in the taxonomy. That is what makes this
+     * a narrowing of one seam rather than a new grammar: the ~50 literal-valued
+     * tokens are unaffected, and only the five chain-holders move.
+     */
+    public function testDeclaredTypeAndValueParsingAgreeOnEveryLiteralValuedToken(): void
+    {
+        $params = [];
+        foreach (pp_udc_groups() as $group => $definition) {
+            foreach ($definition['params'] as $name => $spec) {
+                $params[$group . '.' . $name] = $spec;
+            }
+        }
+
+        $checked = 0;
+        foreach (pp_design_tokens() as $name => $definition) {
+            $value = is_array($definition) ? ($definition['value'] ?? '') : (string) $definition;
+            $type  = is_array($definition) ? (string) ($definition['type'] ?? '') : '';
+            if (!is_string($value) || strpos($value, 'var(') !== false) {
+                continue; // the five chain-holders are the deliberate exception
+            }
+            if ($type === 'raw') {
+                // `--transition` is the other deliberate exception, and it is
+                // STRICTER than the value parse rather than looser: its literal
+                // `150ms ease` is accepted by the deliberately-permissive
+                // font-family grammar, and the ruling requires it refused for a
+                // stated reason instead. Covered by its own test above.
+                continue;
+            }
+            $resolved = pp_udc_resolve_reference(ltrim($name, '-'), []);
+            if ($resolved === null) {
+                continue;
+            }
+            foreach ($params as $where => $param) {
+                if (($param['type'] ?? '') === 'attachment_id') {
+                    continue; // not a CSS grammar; never reference-bearing
+                }
+                $this->assertSame(
+                    pp_udc_validate_value($resolved['value'], $param) === true,
+                    _pp_udc_reference_check($resolved, $param) === true,
+                    "declared-type and value-parse must agree for {$name} at {$where}"
+                );
+                $checked++;
+            }
+        }
+        $this->assertGreaterThan(500, $checked, 'the sweep must actually cover the registry');
+    }
+
     // ── sizing.aspect-ratio (ruling D1, #986) ────────────────────────────────
 
     /**

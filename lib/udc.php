@@ -589,20 +589,28 @@ function pp_udc_motion_defaults(): array {
  *    exactly the "nothing visually invents itself" line. The state MECHANISM is
  *    proven on authored band values, which is where states are meant to be used.
  *
- * ── And one substitution, with its reason ───────────────────────────────────
+ * ── The padding references, and the substitution that used to be here ───────
  *
- * `.btn` reaches its padding through `--btn-padding-y` / `--btn-padding-x`, but
- * those two tokens hold `var(--space-sm)` and `var(--space-lg)` — a CHAIN, not a
- * literal. A reference is validated against the referencing param's grammar, and
- * the `length` grammar is literal-only on purpose (a `var()` in a length was an
- * injection-bypass surface in v1), so `@btn-padding-y` resolves to something a
- * length parameter correctly refuses. These presets therefore reference
- * `@space-sm` / `@space-lg` — the very tokens the button knobs alias — which
- * paints identically and still follows a retheme of the spacing scale. The cost
- * is real and worth naming: retuning `--btn-padding-x` alone moves `.btn` and
- * does NOT move a preset-styled role. Filed as a follow-up; fixing it properly
- * means either resolving one level of token chain in the registry or teaching
- * the length grammar to follow one, and both are their own decision.
+ * `.btn` reaches its padding through `--btn-padding-y` / `--btn-padding-x`, and
+ * these presets now reference exactly those two tokens — so retuning a button
+ * knob moves `.btn` and every preset-styled role together, which is the whole
+ * point of routing a value through a token instead of copying it.
+ *
+ * It did not always work. Both tokens hold `var(--space-sm)` / `var(--space-lg)`
+ * — a CHAIN, not a literal — and a reference used to be validated by re-parsing
+ * the token's value text against the referencing param's grammar. The `length`
+ * grammar is literal-only on purpose (a `var()` in a length was an
+ * injection-bypass surface in v1), so `@btn-padding-y` resolved to something a
+ * length parameter correctly refused, and these presets referenced `@space-sm` /
+ * `@space-lg` instead — the tokens the button knobs alias. That painted
+ * identically but broke the indirection: retuning `--btn-padding-x` alone moved
+ * `.btn` and did NOT move a preset-styled role.
+ *
+ * #972 (ruling D3) removed the reason for the substitution: a reference is now
+ * judged by the type the registry DECLARES for the token, so a `length`-typed
+ * token is referenceable whatever its value text happens to say. Nothing is
+ * inlined and no chain is followed — emission was always `var(--name)`, and the
+ * browser resolves the rest. See _pp_udc_reference_check().
  */
 function pp_udc_presets(): array {
     static $presets = null;
@@ -626,10 +634,10 @@ function pp_udc_presets(): array {
                     ':hover'      => ['color' => '@color-bg'],
                 ],
                 'spacing' => [
-                    'padding-top'    => '@space-sm',
-                    'padding-bottom' => '@space-sm',
-                    'padding-left'   => '@space-lg',
-                    'padding-right'  => '@space-lg',
+                    'padding-top'    => '@btn-padding-y',
+                    'padding-bottom' => '@btn-padding-y',
+                    'padding-left'   => '@btn-padding-x',
+                    'padding-right'  => '@btn-padding-x',
                 ],
                 'background' => [
                     'fill'   => '@color-accent',
@@ -672,10 +680,10 @@ function pp_udc_presets(): array {
                     ':hover'      => ['color' => '@color-text'],
                 ],
                 'spacing' => [
-                    'padding-top'    => '@space-sm',
-                    'padding-bottom' => '@space-sm',
-                    'padding-left'   => '@space-lg',
-                    'padding-right'  => '@space-lg',
+                    'padding-top'    => '@btn-padding-y',
+                    'padding-bottom' => '@btn-padding-y',
+                    'padding-left'   => '@btn-padding-x',
+                    'padding-right'  => '@btn-padding-x',
                 ],
                 'background' => [
                     'fill'   => '@color-surface',
@@ -860,6 +868,13 @@ function pp_udc_resolve_reference(string $name, array $band_tokens, bool $allow_
             'value' => (string) $site[$key]['value'],
             'css'   => 'var(' . $key . ')',
             'scope' => 'site',
+            // The registry's DECLARED type (#972, ruling D3). Carried so a caller
+            // can ask what the token IS rather than re-parsing what it currently
+            // SAYS — the difference that decides whether a token holding one level
+            // of `var()` indirection is referenceable. Only the site registry
+            // declares types; band `_tokens` and the shared base.css properties are
+            // untyped, so they carry null and keep value-parsing.
+            'type'  => isset($site[$key]['type']) ? (string) $site[$key]['type'] : null,
         ];
     }
     // Schema defaults only: the shared design-system properties (band rhythm,
@@ -878,6 +893,131 @@ function pp_udc_resolve_reference(string $name, array $band_tokens, bool $allow_
         }
     }
     return null;
+}
+
+/**
+ * Which PARAM types a token of a given DECLARED type satisfies (#972, ruling D3).
+ *
+ * The registry declares exactly six types — `color`, `length`, `font-family`,
+ * `number`, `shadow`, `raw` — so this table is small and closed by construction.
+ * `raw` is deliberately ABSENT rather than mapped to nothing: absence is what
+ * _pp_udc_reference_check() turns into the stated refusal below, and an empty
+ * list would read as "satisfies nothing yet" rather than "declares no usable
+ * grammar".
+ *
+ * THIS TABLE GOVERNS ONLY CHAIN-HOLDING TOKENS. _pp_udc_reference_check() sends
+ * every literal-valued token to the value parser exactly as before, so a row here
+ * can only ever widen the five chain-holders' reach — never narrow anything that
+ * worked before. Rows are therefore written to match what CSS genuinely accepts,
+ * not to mirror the value parser's quirks: `length-or-none` is `length` plus the
+ * keyword `none`, `gradient` is the colour-OR-gradient union (`background.fill`
+ * takes a plain colour today), and `line-height` and `background-position` both
+ * take a length as readily as their own native forms.
+ */
+function pp_udc_reference_type_table(): array {
+    return [
+        'color'       => ['color', 'gradient'],
+        'length'      => ['length', 'length-or-none', 'line-height', 'position'],
+        'font-family' => ['font-family'],
+        'number'      => ['font-weight', 'line-height', 'ratio'],
+        'shadow'      => ['shadow'],
+    ];
+}
+
+/**
+ * THE ONE PREDICATE for "may this reference stand in for this parameter?".
+ *
+ * ── Why a declared type and not the value's text (#972, ruling D3) ──────────
+ *
+ * A reference is NEVER value-inlined: `@space-sm` emits `var(--space-sm)` and
+ * `@color-accent` emits `var(--color-accent)`. The token's stored text was only
+ * ever used to ANSWER A QUESTION about it, and re-parsing that text asks the
+ * wrong one the moment a token holds one level of indirection.
+ *
+ * Five shipped tokens do: `--btn-padding-y`/`-x` hold `var(--space-sm)`/
+ * `var(--space-lg)`, and `--btn-text`/`--text-meta-color`/`--text-kicker-color`
+ * hold `var(--color-bg)`/`var(--color-muted)`/`var(--color-accent)`. Under
+ * value-parsing the three colours were ACCEPTED (the colour grammar happens to
+ * take a bare registered `var()`) and the two lengths were REFUSED (the length
+ * grammar is literal-only, deliberately — a `var()` in a length was an
+ * injection-bypass surface in v1). Same shape of token, opposite answers,
+ * decided by a grammar quirk rather than by a rule: the hidden divergence I36
+ * forbids. The registry already knows `--btn-padding-y` IS a `length`.
+ *
+ * ── What this does NOT change ───────────────────────────────────────────────
+ *
+ * Nothing is inlined and no chain is followed: emission is still `var(--name)`,
+ * so deterministic minting (§3.1) and the provenance the cascade carries (I35)
+ * are untouched. The author-facing `var()` ban does not move an inch — this is
+ * about a REFERENCE to a registered token, never about author-written text,
+ * which still meets `_pp_forbidden_css_construct()` and the literal-only length
+ * grammar exactly as before. And a type MISMATCH still refuses: `@color-accent`
+ * from a length parameter is as dead as it ever was.
+ *
+ * ── raw ─────────────────────────────────────────────────────────────────────
+ *
+ * `--transition` is the registry's only `raw` token (`150ms ease`, a duration
+ * plus an easing in one string). It satisfies neither `duration` nor
+ * `timing-function`, and under the table above it declares no usable type at
+ * all. It is refused with a STATED REASON rather than by a grammar accident, so
+ * an author reads why instead of inferring it from a parse failure. Splitting it
+ * into two typed tokens would make it referenceable and is its own token-registry
+ * ruling (#972 option C), deliberately not folded in here.
+ *
+ * @param array $resolved A pp_udc_resolve_reference() result.
+ * @param array $param    The parameter definition being validated against.
+ * @return true|WP_Error
+ */
+function _pp_udc_reference_check(array $resolved, array $param) {
+    $declared = (string) ($resolved['type'] ?? '');
+    $value    = $resolved['value'];
+    $table    = pp_udc_reference_type_table();
+
+    // `raw` FIRST, so its refusal is a STATED REASON rather than a grammar
+    // accident. `--transition` (`150ms ease`) would fail the duration parse below
+    // anyway, but the author would then be reading a message about time units for
+    // a token that is simply not referenceable by a typed parameter at all.
+    if ($declared === 'raw') {
+        return new WP_Error('invalid_udc_value', sprintf(
+            'it is a "raw"-typed design token, which declares no single CSS grammar '
+            . '(its value "%s" is a compound), so it cannot be referenced by a typed '
+            . 'parameter. Set this parameter to a literal value instead.',
+            $value
+        ));
+    }
+
+    // THE DECLARED TYPE RESCUES A CHAIN, AND NOTHING ELSE. Everything whose value
+    // is a literal keeps being judged exactly as before — so the ~50 literal-valued
+    // tokens are bit-for-bit unaffected and only the five chain-holders move.
+    //
+    // This ordering is deliberate and was corrected after the sweep test caught the
+    // first cut widening things it should not have. Judging by declared type FIRST
+    // would have accepted five `initial`-valued button sentinels (`--btn-bg`,
+    // `--btn-shadow`, …) that declare `color`/`shadow` but hold the CSS-wide
+    // keyword `initial`, which their own grammars refuse. Those refusals are
+    // correct and predate this ruling; a type-first gate would have quietly turned
+    // them into acceptances, which is an extension of the accepted surface this
+    // ruling did not ask for.
+    if (strpos($value, 'var(') === false) {
+        return pp_udc_validate_value($value, $param);
+    }
+
+    // UNTYPED chain-holder (a band `_token`, or a shared base.css property). No
+    // declaration to trust, so the value is still the only evidence.
+    if ($declared === '' || !isset($table[$declared])) {
+        return pp_udc_validate_value($value, $param);
+    }
+
+    $wanted = (string) ($param['type'] ?? '');
+    if (in_array($wanted, $table[$declared], true)) {
+        return true;
+    }
+
+    return new WP_Error('invalid_udc_value', sprintf(
+        'it is a "%s"-typed design token and this parameter takes a "%s" value.',
+        $declared,
+        $wanted
+    ));
 }
 
 // ── Background images ───────────────────────────────────────────────────────
@@ -1735,11 +1875,17 @@ function _pp_udc_validate_scalar(string $where, $value, array $param, array $ban
                 $ref
             ));
         }
-        // The REFERENCED value must satisfy this param's grammar. A reference to
-        // a colour token from a length parameter resolves to "0.25rem"-class
-        // nonsense the browser drops, which is the same accepted-but-dead class
-        // the colour validator has rejected since #230.
-        $check = pp_udc_validate_value($resolved['value'], $param);
+        // The REFERENCE must be usable for this param. A reference to a colour
+        // token from a length parameter resolves to "0.25rem"-class nonsense the
+        // browser drops, which is the same accepted-but-dead class the colour
+        // validator has rejected since #230.
+        //
+        // Routed through the ONE predicate (#972, ruling D3) so the write gate and
+        // the emitter cannot drift: a typed token is judged by what the registry
+        // DECLARES it to be, an untyped one by parsing its value. The message keeps
+        // naming the token and its value either way, because the author wrote a
+        // name and needs to see what it resolved to.
+        $check = _pp_udc_reference_check($resolved, $param);
         if ($check !== true) {
             return new WP_Error('invalid_prop_value', sprintf(
                 '%s references "@%s", whose value "%s" is not valid here: %s',
@@ -2575,6 +2721,7 @@ function _pp_udc_place(
         $literal       = (string) $raw;
         $css           = $literal;
         $band_ref_name = null;
+        $ref_target    = null;
 
         $ref = pp_udc_parse_reference($literal);
         if ($ref !== null) {
@@ -2600,6 +2747,12 @@ function _pp_udc_place(
             $css          = $target['css'];
             $literal       = $target['value'];
             $band_ref_name = $target['scope'] === 'band' ? $ref : null;
+            // Carried to the re-validation below so the emitter asks the SAME
+            // question the write gate asked (#972, ruling D3). Without this the two
+            // gates disagree on exactly the five chain-holding tokens: a write of
+            // `@btn-padding-y` would be accepted and its declaration then dropped at
+            // emit, which is the write/render disagreement I29 forbids.
+            $ref_target = $target;
         }
 
         // Emit-time re-validation — the same engine the write path used, not a
@@ -2634,7 +2787,13 @@ function _pp_udc_place(
         // different reason and a different next action. One value, one classifier
         // (I25) — pp_check_udc_background_images owns every drop of this parameter,
         // well-shaped or not.
-        if ($source !== 'defaults' && pp_udc_validate_value($literal, $params[$param_name]) !== true) {
+        // ONE PREDICATE, BOTH GATES (#972, ruling D3): a reference is judged by
+        // _pp_udc_reference_check() here exactly as at the write gate, so what the
+        // write accepts is what the page emits. A literal is value-parsed as before.
+        $emit_check = $ref_target !== null
+            ? _pp_udc_reference_check($ref_target, $params[$param_name])
+            : pp_udc_validate_value($literal, $params[$param_name]);
+        if ($source !== 'defaults' && $emit_check !== true) {
             // The type test lives INSIDE the ledger branch for the same reason the
             // closure and the locator do: it is per-breakpoint work that only a
             // collector ever reads.
