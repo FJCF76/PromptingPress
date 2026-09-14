@@ -91,6 +91,33 @@
  * one page would be the hidden divergence I36 forbids.
  */
 
+/**
+ * Most emit-time drops one compile will RECORD (#981, D3).
+ *
+ * Bounds the ledger's ALLOCATION, which slicing the advisory's output cannot: a
+ * single stored band can declare thousands of invalid parameters, and preflight
+ * builds this before every mutation. Stated absolutely rather than as a ratio to
+ * the advisory's row budget, because that budget lives in another file and a
+ * restated relationship goes stale silently: 200 entries is far past any report
+ * that could be rendered, so a composition that reaches this cap is pathological
+ * rather than merely untidy.
+ */
+const PP_UDC_MAX_EMIT_DROPS = 200;
+
+/**
+ * Longest run of stored data any emit-drop reason reflects (#981).
+ *
+ * DECLARED HERE RATHER THAN REUSED FROM lib/admin.php. The obvious constant for
+ * this is PP_REFLECTED_VALUE_MAX_LENGTH, and it is the wrong one to reach for:
+ * it lives in lib/admin.php, which loads AFTER this file, and _pp_udc_place() is
+ * the hottest loop on every front-end request. An always-loaded engine file must
+ * not depend on a later one — that layering rule is why the shared cleaner itself
+ * was moved down into lib/wp.php rather than called across the boundary. The
+ * NUMBER is deliberately the same 100, because this is the same kind of bound on
+ * the same kind of data; only its home differs.
+ */
+const PP_UDC_REFLECTED_MAX = 100;
+
 // ── Registry: breakpoints ───────────────────────────────────────────────────
 
 /**
@@ -1885,8 +1912,26 @@ function pp_udc_normalize_composition(array $items): array {
  *   blocks array  ordered emission units
  * }
  */
-function pp_udc_compile_band(array $item, string $layer): array {
+/**
+ * @param array      $item   One composition item, or a chrome entry shaped like one.
+ * @param string     $layer  'defaults' | 'authored' — which tier to compile.
+ * @param array|null $drops  Pass an array to collect what this compile DISCARDED.
+ *                           Filled with ['where' => string, 'reason' => string]
+ *                           entries, bounded at PP_UDC_MAX_EMIT_DROPS, both fields
+ *                           already cleaned for reflection. Left untouched at null,
+ *                           which is what every render path passes.
+ */
+function pp_udc_compile_band(array $item, string $layer, ?array &$drops = null): array {
     $out = ['id' => '', 'tokens' => [], 'blocks' => []];
+
+    // THE OPTIONAL DROP LEDGER (#981, D3). Pass an array to learn what this compile
+    // DISCARDED and why; pass nothing — as every render path does — and the
+    // recording is an identity check per discarded value. See _pp_udc_place() for
+    // why the ledger lives inside the emitter rather than in a checker that
+    // re-derives the same conditions.
+    //
+    // A role default's drop is filtered inside _pp_udc_place()'s ledger, which sees
+    // the source; see the note there for why.
 
     // MINT-ON-WRITE ONLY — READS NEVER MUTATE. A band that reached storage with
     // no id (raw meta, data written before the rule, or restore_composition,
@@ -1904,6 +1949,15 @@ function pp_udc_compile_band(array $item, string $layer): array {
     // to produce no CSS at all.
     $id = isset($item['id']) && is_scalar($item['id']) ? (string) $item['id'] : '';
     if ($layer !== 'defaults' && !pp_udc_valid_band_id($id)) {
+        if ($drops !== null && count($drops) < PP_UDC_MAX_EMIT_DROPS
+            && isset($item['udc']) && is_array($item['udc']) && $item['udc'] !== []) {
+            $drops[] = [
+                'where'  => 'the whole band',
+                'reason' => $id === ''
+                    ? 'the band has no id, so none of its styling can be addressed'
+                    : sprintf('the band id "%s" is not a usable CSS attribute value', _pp_udc_reflect($id)),
+            ];
+        }
         return $out;
     }
 
@@ -1945,6 +1999,12 @@ function pp_udc_compile_band(array $item, string $layer): array {
         // repo-controlled and integrity-checked, but a selector is emitted into
         // raw CSS and the cost of checking is a regex.
         if ($selector !== '' && !preg_match('/^[A-Za-z0-9_ .\-]{1,120}$/', $selector)) {
+            // DELIBERATELY NOT LEDGERED. A role selector comes only from a
+            // repo-owned, integrity-checked component schema, never from an author
+            // — the same reason a role DEFAULT's discard is filtered out of the
+            // ledger. Surfacing it would hand the operator a configuration-class
+            // finding whose next_action ("re-set that value") is unactionable for a
+            // theme bug they cannot reach.
             continue;
         }
 
@@ -2039,18 +2099,48 @@ function pp_udc_compile_band(array $item, string $layer): array {
 
         foreach ($sources as [$source, $map]) {
             foreach ($map as $group_name => $group_map) {
+                // A `_preset` KEY IS NOT A MISSING GROUP — IT IS THE PRESET
+                // MECHANISM, AND IT PAINTS. Ledgering it would put a "stored but
+                // not painted" warning on every band that uses a preset, which is
+                // the headline authoring affordance, on a value that renders
+                // correctly. The C2 helper skips this key for the same reason.
+                if ((string) $group_name === PP_UDC_PRESET_KEY) {
+                    continue;
+                }
                 if (!isset($groups[$group_name]) || !is_array($group_map)) {
+                    if ($drops !== null && $source !== 'defaults'
+                        && count($drops) < PP_UDC_MAX_EMIT_DROPS) {
+                        $drops[] = [
+                            'where'  => sprintf(
+                                'role "%s" group "%s"',
+                                _pp_udc_reflect((string) $role_name),
+                                _pp_udc_reflect((string) $group_name)
+                            ),
+                            'reason' => !isset($groups[$group_name])
+                                ? 'there is no such group in the design vocabulary'
+                                : 'the group is not a map of parameters',
+                        ];
+                    }
                     continue;
                 }
                 $params = $groups[$group_name]['params'];
+                // BUILT ONLY FOR A COLLECTOR. This runs per group, per role, per
+                // band, per source on every front-end request, and its two
+                // reflected-text cleans plus a sprintf are pure waste when no
+                // ledger is being filled — which is every render.
+                $where = $drops === null ? '' : sprintf(
+                    'role "%s" group "%s"',
+                    _pp_udc_reflect((string) $role_name),
+                    _pp_udc_reflect((string) $group_name)
+                );
                 foreach ($group_map as $param_name => $value) {
                     if (isset($states[$param_name]) && is_array($value)) {
                         foreach ($value as $state_param => $state_value) {
-                            _pp_udc_place($resolved, (string) $param_name, $params, (string) $state_param, $state_value, $source, $band_tokens, $breakpoints, $referenced);
+                            _pp_udc_place($resolved, (string) $param_name, $params, (string) $state_param, $state_value, $source, $band_tokens, $breakpoints, $referenced, $drops, $where);
                         }
                         continue;
                     }
-                    _pp_udc_place($resolved, '', $params, (string) $param_name, $value, $source, $band_tokens, $breakpoints, $referenced);
+                    _pp_udc_place($resolved, '', $params, (string) $param_name, $value, $source, $band_tokens, $breakpoints, $referenced, $drops, $where);
                 }
             }
         }
@@ -2336,6 +2426,18 @@ function _pp_udc_sort_declarations(array $declarations): array {
  * The disclosures that exist today are built on the write side, from the same
  * data: see pp_udc_composition_findings().
  */
+/**
+ * One stored fragment, bounded and cleaned for an operator-facing diagnostic.
+ *
+ * Delegates to the shared owner so this is not a second definition of "clean";
+ * it only supplies the bound. `_pp_clean_reflected_text()` lives in lib/wp.php,
+ * which loads before this file, so no guard is needed and none is written — a
+ * function_exists() here would be checking a symbol that cannot be absent.
+ */
+function _pp_udc_reflect(string $text): string {
+    return _pp_clean_reflected_text($text, PP_UDC_REFLECTED_MAX);
+}
+
 function _pp_udc_place(
     array &$resolved,
     string $state,
@@ -2345,9 +2447,85 @@ function _pp_udc_place(
     string $source,
     array $band_tokens,
     array $breakpoints,
-    array &$referenced
+    array &$referenced,
+    ?array &$drops = null,
+    string $where = ''
 ): void {
+    // THE DROP LEDGER (#981, boundary-review item D3).
+    //
+    // Every `continue`/`return` below discards an authored value at EMIT time, and
+    // until this collector existed every one of them EXCEPT the dangling-attachment
+    // branch was silent on every channel — no envelope finding, no advisory, not
+    // even an error_log. That one branch already had a consumer
+    // (pp_check_udc_background_images) and deliberately takes no entry here, so the
+    // two advisories cannot both report it. The write path
+    // refuses most of these shapes, so reaching them means stored data the write
+    // path never saw: a raw meta write, a composition written before a rule
+    // existed, or restore_composition, which reports findings without blocking
+    // (#233). The author's value is in storage, the page does not paint it, and
+    // nothing says so — the reported-success-without-effect class I35 forbids.
+    //
+    // WHY IT LIVES HERE AND NOT IN A CHECKER THAT RE-DERIVES THE RULES. The same
+    // rule the background-image advisory states (pp_check_udc_background_images,
+    // lib/wp.php): ONE PREDICATE WITH THE EMITTER. A checker that re-ran these
+    // conditions by hand would be a second definition of "what gets dropped" and
+    // would drift from this one; diffing the emitted CSS against the stored map
+    // would be worse still, because the compile folds background layers, filters
+    // the defaults source and re-sorts every block, so "declared but absent" is
+    // ambiguous by construction. Recording the drop AT the branch that makes it is
+    // the only version that cannot disagree with itself, and it covers a drop site
+    // added tomorrow for free.
+    //
+    // BUILT ONLY WHEN SOMEONE IS COLLECTING. This function is the hottest loop in
+    // the engine — once per parameter, per role, per band, per source, on every
+    // front-end request — and a closure constructed here would be an allocation on
+    // every one of those calls to serve a diagnostic that is null in production
+    // rendering. One null check instead.
+    $note = null;
+    if ($drops !== null && $source !== 'defaults') {
+        // A ROLE DEFAULT'S DROP IS NOT THE AUTHOR'S PROBLEM. Defaults are repo-owned
+        // schema constants, integrity-checked in CI by the schema suite; surfacing
+        // one in an operator advisory would report a repo bug as site
+        // misconfiguration and hand the operator a finding they cannot act on.
+        $note = static function (string $reason) use (&$drops, $where, $param_name, $state): void {
+            // THE LEDGER IS BOUNDED AT THE SOURCE, not by its reader.
+            //
+            // The advisory that consumes this slices its ROWS, but slicing the output
+            // does not bound the INPUT: one stored band carrying thousands of invalid
+            // parameters would fill this array completely before the reader ever saw
+            // it, and preflight builds it before every mutation. That is the same
+            // shape as the report-that-kills-the-write-it-reports-on which
+            // PP_WRITE_FINDINGS_MAX_STORED_BYTES exists to stop, one layer down.
+            // Bounding here is the only place that bounds the ALLOCATION.
+            if (count($drops) >= PP_UDC_MAX_EMIT_DROPS) {
+                return;
+            }
+            // EVERY FRAGMENT HERE IS A STORED ARRAY KEY, so every one is bounded
+            // and cleaned at this sink. The sibling producer states the rule and
+            // the reason (pp_check_token_override_validity, lib/wp.php): these rows
+            // ride the preflight envelope of EVERY mutation, and the readiness
+            // `checks[]` channel is NOT inside the carve-out that lets
+            // `findings[].message` copy validator text verbatim.
+            $drops[] = [
+                'where'  => $where . ' ' . _pp_udc_reflect($param_name)
+                            . ($state !== '' ? ' (' . _pp_udc_reflect($state) . ')' : ''),
+                'reason' => $reason,
+            ];
+        };
+    }
+
     if (!isset($params[$param_name])) {
+        // THE GROUP-GRAIN `_preset` TAKES THE SAME CARVE-OUT as the role-grain one
+        // in pp_udc_compile_band(): it is not a parameter, it is the preset
+        // mechanism, and it paints. Fixing only the group level would leave this
+        // copy firing on `{"typography": {"_preset": "link", "size": "…"}}`.
+        if ($param_name === PP_UDC_PRESET_KEY) {
+            return;
+        }
+        // Not a parameter this group declares. The write gate refuses it; stored
+        // data can still carry one, and a renamed param leaves every band holding
+        // the old name in exactly this state.
+        $note && $note('there is no such parameter in this group');
         return;
     }
     $property = $params[$param_name]['property'];
@@ -2359,12 +2537,16 @@ function _pp_udc_place(
     // directly — so the dimension the ruling excluded is closed on both sides
     // rather than on the side that happens to be polite.
     if (!empty($params[$param_name]['single_valued']) && ($state !== '' || is_array($value))) {
+        $note && $note('this parameter takes one value only, so it accepts no state or breakpoint map');
         return;
     }
 
     $per_bp = is_array($value) ? $value : ['d' => $value];
     foreach ($per_bp as $bp => $raw) {
         if (!isset($breakpoints[$bp]) || !is_scalar($raw)) {
+            $note && $note(!isset($breakpoints[$bp])
+                ? sprintf('"%s" is not a breakpoint this engine knows', _pp_udc_reflect((string) $bp))
+                : 'the value is not a single scalar');
             continue;
         }
         $literal       = (string) $raw;
@@ -2378,10 +2560,14 @@ function _pp_udc_place(
             // applies to a token name. Stored data is the reason: the write path
             // cannot have been the only thing that ever looked at this.
             if (!preg_match('/^[A-Za-z0-9_-]{1,64}$/', $ref)) {
+                // UNBOUNDED BY CONSTRUCTION on this branch: it is reached precisely
+                // BECAUSE the 64-character charset check just failed.
+                $note && $note(sprintf('the reference "@%s" is not a usable token name', _pp_udc_reflect($ref)));
                 continue;
             }
             $target = pp_udc_resolve_reference($ref, $band_tokens, $source === 'defaults');
             if ($target === null) {
+                $note && $note(sprintf('it references "@%s", which resolves to no token', _pp_udc_reflect($ref)));
                 // Unresolvable at render. The write gate refuses this, so
                 // reaching here means stored-before-the-rule data: drop the one
                 // declaration rather than emit `var()` of a token that does not
@@ -2400,6 +2586,7 @@ function _pp_udc_place(
         // satisfies its parameter's grammar drops its own declaration and leaves
         // every sibling painting, exactly as a refused v1 slot did.
         if (_pp_forbidden_css_construct($css) !== null) {
+            $note && $note('the stored value contains a construct that may not reach a stylesheet');
             continue;
         }
         // …on AUTHOR data. A role default is a repo-controlled schema constant,
@@ -2417,7 +2604,26 @@ function _pp_udc_place(
         // re-validation would silently become a hole the day they land. The gate
         // is cheap here because it runs only on bands that actually reference a
         // preset.
+        // THE 8c CARVE-OUT HAS TO COME BEFORE THE GRAMMAR CHECK, not after it.
+        // Placed only at the resolution branch below, a non-numeric
+        // `background.image` never reached it: it failed the grammar first and was
+        // ledgered here, while check 8c reported the same stored value with a
+        // different reason and a different next action. One value, one classifier
+        // (I25) — pp_check_udc_background_images owns every drop of this parameter,
+        // well-shaped or not.
         if ($source !== 'defaults' && pp_udc_validate_value($literal, $params[$param_name]) !== true) {
+            // The type test lives INSIDE the ledger branch for the same reason the
+            // closure and the locator do: it is per-breakpoint work that only a
+            // collector ever reads.
+            if ($note && ($params[$param_name]['type'] ?? '') !== 'attachment_id') {
+                // THE STORED VALUE IS REFLECTED, SO IT IS BOUNDED AND CLEANED.
+                // This message rides the preflight envelope of every later
+                // mutation, and a stored value has no length limit of its own.
+                $note && $note(sprintf(
+                    'the stored value "%s" no longer satisfies this parameter\'s grammar',
+                    _pp_udc_reflect($literal)
+                ));
+            }
             continue;
         }
 
@@ -2448,6 +2654,9 @@ function _pp_udc_place(
         if (($params[$param_name]['type'] ?? '') === 'attachment_id') {
             $url = pp_udc_background_image_url($literal);
             if ($url === null) {
+                // NO $note HERE — check 8c (pp_check_udc_background_images) owns
+                // this drop and reports it with a next_action this one cannot give
+                // (re-import the image). A second entry would report it twice.
                 continue;
             }
             $css = 'url("' . $url . '")';
@@ -3411,6 +3620,42 @@ function pp_udc_composition_findings(array $items): array {
             ];
         }
 
+        // THE INERT-`_band` DISCLOSURE (boundary-review item C2, invariant I35).
+        //
+        // `_band` has no selector, so an inherited value it sets reaches the text
+        // inside the band by INHERITANCE — and a role default for the same property
+        // is a direct declaration on the child, which beats inheritance at any
+        // specificity and in any source order. There is no cascade position that
+        // would change it, so the author's value is accepted, stored, reported
+        // applied, and silently cancelled for every role that declares a default
+        // for the same property.
+        //
+        // WHY DISCLOSURE RATHER THAN THINNING THE DEFAULTS, which the boundary
+        // review offered as the alternative: those defaults are load-bearing.
+        // testimonials' `quote` declares `color` and `font-style` precisely to beat
+        // base.css's `blockquote { color: var(--color-muted); font-style: italic; }`.
+        // Thinning them would re-expose every quote to the structural rule and trade
+        // a disclosed cancellation for an undisclosed one.
+        //
+        // The docs already tell the model to set typography on every text role
+        // rather than rely on inheritance. That helps the author who reads them; I35
+        // is about the author who does not.
+        foreach (_pp_udc_band_values_cancelled_by_role_defaults($item['udc'], $component) as $property => $names) {
+            $findings[] = [
+                'type'    => 'udc_band_value_shadowed_by_role_default',
+                'message' => sprintf(
+                    'Component "%s": the "%s" you set on the whole band does not reach %s, because %s '
+                    . 'own default for it wins over inheritance. Set it on %s directly.',
+                    $component,
+                    (string) $property,
+                    implode(', ', $names),
+                    count($names) === 1 ? 'that role\'s' : 'those roles\'',
+                    count($names) === 1 ? 'that role' : 'those roles'
+                ),
+                'index'   => is_int($i) ? $i : null,
+            ];
+        }
+
         $tokens = isset($item['udc']['_tokens']) && is_array($item['udc']['_tokens'])
             ? $item['udc']['_tokens']
             : [];
@@ -3468,6 +3713,162 @@ function pp_udc_composition_findings(array $items): array {
     }
 
     return $findings;
+}
+
+/**
+ * The CSS properties a `_band` value reaches its content through INHERITANCE.
+ *
+ * `_band` has no selector, so its declarations land on the band root and reach
+ * the text inside it only because CSS inherits these properties down. A role
+ * default for the same property is a DIRECT declaration on the child element, and
+ * a direct declaration beats inheritance at any specificity and in any order —
+ * there is no cascade position that would change it. So the author's `_band`
+ * value is accepted, stored, reported applied, and cancelled for every role that
+ * declares a default for the same property.
+ *
+ * ONLY INHERITED PROPERTIES BELONG HERE. `padding` on the band root is not
+ * cancelled by a role's padding — they are different boxes, both paint. Listing a
+ * non-inherited property would make the disclosure fire on values that work,
+ * which is the way an advisory gets acknowledged into silence.
+ *
+ * Every entry is an inherited property per CSS. Most are `typography` parameters —
+ * that group is the whole inherited surface the vocabulary exposes TODAY — and the
+ * rest (`text-indent`, `word-spacing`, `white-space`, `visibility`, `cursor`, the
+ * list-style family) are deliberately stocked ahead of it: they are inherited
+ * properties no group declares yet, so they are unreachable lookups until one does.
+ * Listing them now is cheap and means a future group cannot add an inherited
+ * parameter and leave this disclosure quietly incomplete. What must NOT go here is
+ * a non-inherited property: that would fire the finding on values that work.
+ *
+ * @return array<string,true>
+ */
+function _pp_udc_inherited_properties(): array {
+    return [
+        'font-family'          => true,
+        'font-size'            => true,
+        'font-weight'          => true,
+        'font-style'           => true,
+        'line-height'          => true,
+        'letter-spacing'       => true,
+        'text-align'           => true,
+        'text-transform'       => true,
+        'text-indent'          => true,
+        'text-wrap'            => true,
+        'color'                => true,
+        'word-spacing'         => true,
+        'white-space'          => true,
+        'visibility'           => true,
+        'cursor'               => true,
+        'list-style'           => true,
+        'list-style-type'      => true,
+        'list-style-position'  => true,
+    ];
+}
+
+/**
+ * The roles whose own defaults cancel a `_band` value, per CSS property.
+ *
+ * Derived from the SCHEMA and the submitted `_band` map, both of which are on
+ * disk, so this reconstructs identically from stored and from submitted data —
+ * the property `wp pp check page` and restore both depend on.
+ *
+ * ONE CARVE-OUT, NAMED RATHER THAN DISCOVERED: a `_band` that takes its typography
+ * from a role-grain preset (`"_band": {"_preset": "button"}`) is not checked. The
+ * same cancellation happens there and is not disclosed. Resolving the preset
+ * fragment into the declared set first would close it; that is a real gap and it is
+ * written down rather than left for someone to trip over.
+ *
+ * CURRENT-SCHEMA DIAGNOSTIC, STATED BECAUSE IT IS NOT OBVIOUS. Role defaults are
+ * not versioned, so this describes the defaults in force NOW, not the ones in
+ * force when the band was authored. A schema change can therefore make a finding
+ * appear over a band nobody touched. That is the honest behaviour for a
+ * "what is painting today" disclosure, and the alternative — versioning every
+ * component schema so a band could be diffed against the defaults of its own era
+ * — is a contract far larger than the disclosure it would serve.
+ *
+ * @return array<string,string[]> property => role names that shadow it
+ */
+function _pp_udc_band_values_cancelled_by_role_defaults(array $udc, string $component): array {
+    if (!isset($udc['_band']) || !is_array($udc['_band'])) {
+        return [];
+    }
+    $groups    = pp_udc_groups();
+    $roles     = pp_udc_component_roles($component);
+    $inherited = _pp_udc_inherited_properties();
+
+    // What `_band` declares, as CSS properties.
+    $declared = [];
+    foreach ($udc['_band'] as $group_name => $group_map) {
+        if ($group_name === PP_UDC_PRESET_KEY || !is_array($group_map)
+            || !isset($groups[(string) $group_name]['params'])) {
+            continue;
+        }
+        foreach ($group_map as $param_name => $value) {
+            $param = $groups[(string) $group_name]['params'][(string) $param_name] ?? null;
+            if ($param === null || !isset($inherited[$param['property']])) {
+                continue;
+            }
+            // ONE VALUE, ONE CLASSIFIER (I25). A `_band` value that does not
+            // satisfy its own grammar is not painted ANYWHERE, so it is the
+            // emit-drop advisory's to report — saying here that it "does not reach
+            // these roles" implies it reaches the others, and "set it on those
+            // roles directly" is advice that would not work either.
+            $scalar = is_array($value) ? ($value['d'] ?? null) : $value;
+            if (!is_scalar($scalar) || pp_udc_validate_value((string) $scalar, $param) !== true) {
+                continue;
+            }
+            $declared[$param['property']] = true;
+        }
+    }
+    if ($declared === []) {
+        return [];
+    }
+
+    // Which roles declare a DEFAULT for the same property.
+    $cancelled = [];
+    foreach ($roles as $role_name => $role_def) {
+        if ((string) $role_name === '_band') {
+            continue;
+        }
+        // A ROLE THE AUTHOR ALREADY SET IS NOT CANCELLED. The authored value beats
+        // the role default, so the band-level value being shadowed there is moot —
+        // and telling someone to "set it on that role directly" when they already
+        // have is an unactionable finding on correct data, which is how an advisory
+        // gets acknowledged into silence.
+        $authored_here = [];
+        if (isset($udc[(string) $role_name]) && is_array($udc[(string) $role_name])) {
+            foreach ($udc[(string) $role_name] as $g => $gm) {
+                if ($g === PP_UDC_PRESET_KEY || !is_array($gm) || !isset($groups[(string) $g]['params'])) {
+                    continue;
+                }
+                foreach ($gm as $pn => $unused) {
+                    $pd = $groups[(string) $g]['params'][(string) $pn] ?? null;
+                    if ($pd !== null) {
+                        $authored_here[$pd['property']] = true;
+                    }
+                }
+            }
+        }
+        foreach (($role_def['defaults'] ?? []) as $group_name => $group_map) {
+            if (!is_array($group_map) || !isset($groups[(string) $group_name]['params'])) {
+                continue;
+            }
+            foreach ($group_map as $param_name => $unused) {
+                $param = $groups[(string) $group_name]['params'][(string) $param_name] ?? null;
+                if ($param === null || !isset($declared[$param['property']])
+                    || isset($authored_here[$param['property']])) {
+                    continue;
+                }
+                $cancelled[$param['property']][] = (string) $role_name;
+            }
+        }
+    }
+    foreach ($cancelled as $property => $names) {
+        $cancelled[$property] = array_values(array_unique($names));
+        sort($cancelled[$property]);
+    }
+    ksort($cancelled);
+    return $cancelled;
 }
 
 /** Every `@name` a band's udc map references, as a lookup set. */

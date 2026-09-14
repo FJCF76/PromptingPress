@@ -2856,33 +2856,128 @@ function _pp_restore_batch_snapshot_report(array $snapshot): array {
         // baseline is written as '' (distinct outcomes, #291), and every other value
         // is written raw.
         //
-        // READ THE LIVE ROW WITH THE SNAPSHOTTER'S OWN SENTINEL (#857), because the whole
-        // point of the #291 (exists, value) shape is that ABSENT and '' are different
-        // outcomes — and get_option()'s default would collapse them right back together
-        // here. A fresh object can never equal a stored value, so identity inequality is a
-        // reliable presence test. Without it a stored false, a stored '' and a missing row
-        // all look alike, and the guard below would skip a delete that was genuinely
-        // needed or report a refusal for a row that was already gone.
-        $live_sentinel = new \stdClass();
-        $live_raw      = get_option($key, $live_sentinel);
-        $live_present  = $live_raw !== $live_sentinel;
-        // Compared as the (string) the snapshotter captured. Every whitelisted option
-        // stores a scalar string, so a non-scalar live value is a hand-written row: it
-        // compares unequal to any captured string and the restore proceeds, which is the
-        // right degradation — write the trusted baseline over the unrecognized shape.
-        $live_value = ($live_present && is_scalar($live_raw)) ? (string) $live_raw : null;
+        // The live read and its sentinel are explained at the branch that performs
+        // them, inside $restore_one below — there are two arms now (raw row under
+        // the lock, cached read otherwise) and one paragraph up here could only
+        // describe one of them.
+        // ── THE READ-COMPARE-WRITE, AS ONE UNIT THE LOCK CAN WRAP (#979) ─────
+        //
+        // pp_site_udc is the one whitelisted key whose FORWARD writes all run inside
+        // an advisory lock: _pp_update_site_udc() (lib/wp.php) wraps both its write
+        // and its clear arm in _pp_with_advisory_lock(_pp_site_udc_lock_name(), …),
+        // because the row carries a version counter and a lost update there silently
+        // discards a concurrent author's chrome. This restore replays that same row
+        // and was taking no lock at all — making the rollback the one writer in the
+        // system able to land on top of a CAS-guarded write that had just committed,
+        // defeating the guarantee ruling A1 introduced.
+        //
+        // The live read moves inside the section with the write, which is the other
+        // half and the half that is easy to miss: get_option() on an AUTOLOADED row
+        // is served from a per-request snapshot a concurrent commit cannot
+        // invalidate, so comparing against it can conclude "already equal" and skip a
+        // restore that was genuinely owed — a rollback reported clean that restored
+        // nothing. _pp_read_site_udc_locked() exists for exactly this and is NOT
+        // reused here only because it returns a PARSED map; the rollback compares the
+        // captured BYTES, so it needs the raw row.
+        //
+        // NO CAS IS ADDED, deliberately. A rollback replays a captured baseline and
+        // has no baseline of its own to compare against; #233 (a restore is never
+        // blocked by current rules) governs, and the verbatim-replay contract above
+        // stays exactly as it was. The lock serialises; it does not re-validate.
+        $restore_one = static function ($wpdb) use ($key, $exists, $value) {
+            if (is_object($wpdb) && method_exists($wpdb, 'get_var') && isset($wpdb->options)) {
+                $row = $wpdb->get_var(
+                    $wpdb->prepare(
+                        "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 1",
+                        $key
+                    )
+                );
+                $live_present = $row !== null;
+                $live_value   = $live_present ? (string) $row : null;
 
-        if (!$exists) {
-            // Target is NO ROW. delete_option() returns false both for a refused delete
-            // and for a row that was not there, so the presence test is what makes the
-            // report honest — see _pp_restore_write_if_changed()'s docblock.
-            $restored_option = _pp_restore_write_if_changed(
-                $live_present,
-                false,
-                static function () use ($key) {
-                    return delete_option($key);
+                // AND THE WRITER HAS TO SEE THE SAME ROW THE COMPARE JUST READ.
+                //
+                // Reading the row authoritatively is only half the fix. The write
+                // below is update_option(), whose first act is its own get_option()
+                // against the autoloaded options cache — so without this the compare
+                // and the write look at two different views of one row inside a
+                // single critical section, which is the defect this lock exists to
+                // close, half-closed. Concretely: a concurrent commit lands before we
+                // took the lock, the row now differs from the baseline while the
+                // cached value still equals it, the compare correctly decides a
+                // restore is owed, and then update_option() compares against the
+                // stale cache, finds nothing to do, and returns false without
+                // writing. The rollback then reports FAILED over a baseline it never
+                // restored.
+                //
+                // Dropping the cached row inside the lock makes update_option()'s own
+                // old-value read authoritative too. Fail-safe either way — the worst
+                // case without it is a false FAILED, never a false success — but a
+                // rollback that reports failure over a restore it could have made is
+                // still a rollback that did not happen.
+                if (function_exists('wp_cache_delete')) {
+                    wp_cache_delete($key, 'options');
+                    wp_cache_delete('alloptions', 'options');
+                }
+            } else {
+                // No DB handle: the unit context, and the cached read is all there is
+                // and all that is needed. Same posture as _pp_read_site_udc_locked().
+                //
+                // READ WITH A SENTINEL (#857): the whole point of the #291
+                // (exists, value) shape is that ABSENT and '' are different outcomes,
+                // and get_option()'s default would collapse them back together. A
+                // fresh object can never equal a stored value, so identity inequality
+                // is a reliable presence test.
+                $live_sentinel = new \stdClass();
+                $live_raw      = get_option($key, $live_sentinel);
+                $live_present  = $live_raw !== $live_sentinel;
+                // Compared as the (string) the snapshotter captured. Every whitelisted
+                // option stores a scalar string, so a non-scalar live value is a
+                // hand-written row: it compares unequal to any captured string and the
+                // restore proceeds, which is the right degradation — write the trusted
+                // baseline over the unrecognized shape.
+                $live_value = ($live_present && is_scalar($live_raw)) ? (string) $live_raw : null;
+            }
+
+            if (!$exists) {
+                // Target is NO ROW. delete_option() returns false both for a refused
+                // delete and for a row that was not there, so the presence test is what
+                // makes the report honest — see _pp_restore_write_if_changed().
+                return _pp_restore_write_if_changed(
+                    $live_present,
+                    false,
+                    static function () use ($key) {
+                        return delete_option($key);
+                    }
+                );
+            }
+            return _pp_restore_write_if_changed(
+                $live_value,
+                $value,
+                static function () use ($key, $value) {
+                    return update_option($key, $value);
                 }
             );
+        };
+
+        // A DENIED LOCK RETURNS false, which lands in the existing failure branches
+        // below rather than needing a producer of its own. That is the ruled
+        // vocabulary, not a convenience: PP_ROLLBACK_ERROR_FAILED is defined as "a
+        // restore or a removal was owed, was attempted (OR WAS IMPOSSIBLE), and did
+        // not happen" — owed, impossible, did not happen. The rollback-entry census
+        // above is therefore unchanged: no new producer, no new sentence.
+        if ($key === PP_SITE_UDC_OPTION && function_exists('_pp_with_advisory_lock')) {
+            $restored_option = _pp_with_advisory_lock(
+                _pp_site_udc_lock_name(),
+                $restore_one,
+                false,
+                'site chrome styling rollback'
+            );
+        } else {
+            $restored_option = $restore_one(null);
+        }
+
+        if (!$exists) {
             if (!$restored_option) {
                 $entries[] = _pp_rollback_entry(PP_ROLLBACK_ERROR_FAILED, sprintf(
                     'The site setting "%s" was NOT rolled back: it did not exist before this'
@@ -2893,13 +2988,6 @@ function _pp_restore_batch_snapshot_report(array $snapshot): array {
             }
             continue;
         }
-        $restored_option = _pp_restore_write_if_changed(
-            $live_value,
-            $value,
-            static function () use ($key, $value) {
-                return update_option($key, $value);
-            }
-        );
         if (!$restored_option) {
             $entries[] = _pp_rollback_entry(PP_ROLLBACK_ERROR_FAILED, sprintf(
                 'The site setting "%s" was NOT rolled back: its previous value could not be'
@@ -5230,6 +5318,35 @@ const PP_WRITE_FINDINGS_MAX_STORED_BYTES = 1048576;
  * @return array[]             At most $budget findings, plus one findings_truncated entry
  *                             when (and only when) the report was longer than $budget.
  */
+/**
+ * Counts the discarded tail of a findings report by type, allocating nothing.
+ *
+ * WRITTEN AS A LOOP RATHER THAN slice/map/count ON PURPOSE. This runs on the one
+ * path whose job is to describe an oversized report, and the chained form built
+ * TWO transient arrays the size of the discarded tail to produce a handful of
+ * integers — measured 1.0 MB at 20,000 findings and 8.0 MB at 200,000, on a page
+ * that is already pathological. The walk is O(N) either way; the allocation is
+ * what this avoids.
+ *
+ * A shapeless entry counts as `unknown` rather than collapsing into an
+ * empty-string key, and nothing here may throw: an `array` type hint on the
+ * callback turned one malformed entry into a TypeError from the truncation tail
+ * itself (I17).
+ *
+ * @return array<string,int>
+ */
+function _pp_count_omitted_finding_types(array $findings, int $budget): array {
+    $omitted = [];
+    for ($i = $budget, $n = count($findings); $i < $n; $i++) {
+        $entry = $findings[$i];
+        $type  = (is_array($entry) && isset($entry['type']) && is_scalar($entry['type']))
+            ? (string) $entry['type']
+            : 'unknown';
+        $omitted[$type] = ($omitted[$type] ?? 0) + 1;
+    }
+    return $omitted;
+}
+
 function _pp_bounded_findings(array $findings, ?int $post_id = null, int $budget = PP_WRITE_FINDINGS_BUDGET): array {
     $budget = max(0, $budget);
     $total  = count($findings);
@@ -5251,6 +5368,39 @@ function _pp_bounded_findings(array $findings, ?int $post_id = null, int $budget
                 : 'wp pp check page --post_id=' . $post_id
         ),
         'index'    => null,
+        // WHAT WAS OMITTED, BY SPECIES (#981, boundary-review item E2).
+        //
+        // THE PROBLEM THIS CLOSES. Findings arrive errors, then smells, then the
+        // UDC engine's own disclosures (_pp_composition_findings), and this bounds
+        // by slicing the HEAD. So the disclosures are the first thing lost — and one
+        // of them, `udc_token_minted`, is not an observation about the composition
+        // but the §3.1 no-coercion promise itself: "you wrote 19px; it is stored as
+        // a band token". On a page with more than PP_WRITE_FINDINGS_BUDGET errors,
+        // that promise silently did not arrive, and nothing in the truncation tail
+        // hinted that a disclosure had been among the omitted. The author was told
+        // their literal was rewritten by nobody.
+        //
+        // WHY A COUNT RATHER THAN AN EXEMPTION, which is what the review first
+        // proposed. Hoisting the mint disclosure in front of the budget (the
+        // _pp_prepend_write_disclosures shape) would decide that one advisory
+        // species outranks up to 100 errors — reopening #687's ratified "flat
+        // per-report cap, not a per-severity quota" — and it would unbound the
+        // report on exactly the pathological page the cap exists for: one mint
+        // disclosure per minted token, with no ceiling. A count is honest about
+        // what is missing without deciding what may be dropped.
+        //
+        // Additive and severity-neutral in exactly the way `total` was: the message
+        // text is unchanged and still byte-identical to #687's ratified wording, the
+        // severity is unchanged, every existing consumer ignores the key, and it is
+        // present ONLY on a truncation entry — so an absent key honestly means
+        // nothing was omitted. The complete report is still one `wp pp check page`
+        // away, and that command is deliberately unbounded.
+        // UNTYPED ON PURPOSE. This builder describes an oversized and possibly
+        // corrupt report, so it is the last place that may throw on one: an
+        // `array $finding` hint turns a single malformed entry past the budget into
+        // a TypeError from the truncation tail itself (I17). A shapeless entry
+        // counts as `unknown` rather than collapsing into an empty-string key.
+        'omitted_by_type' => _pp_count_omitted_finding_types($findings, $budget),
         // THE TRUE TOTAL, STRUCTURALLY (#654). The message has always stated it in prose;
         // this states it in a field, because a consumer that RENDERS A COUNT cannot parse
         // prose and must not fall back to counting the array it was handed. The chat undo

@@ -4,7 +4,7 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
-## [Unreleased — v2.0.0-alpha.1] — v2 Sprint 1: the contract-boundary gate fixes, presets/states/motion, then chrome and background images (#962, #965, #970, #976)
+## [Unreleased — v2.0.0-alpha.1] — v2 Sprint 1: the contract-boundary gate fixes, presets/states/motion, chrome and background images, then the batched hardening (#962, #965, #970, #976, #981)
 
 **The three things the Sprint-0 contract-boundary review said had to be true before anything else is built on the UDC contract.** One value could take a page's styling down to the last rule; the editor preview ranked the cascade differently from the page it was previewing; and a test promised coverage of the consent gate that its assertions never delivered. None of the three changes what the contract IS — they make the contract hold.
 
@@ -52,7 +52,6 @@ Two input-validation boundaries on the design-token path, one at write and one a
 
 ### Known issues
 
-- **The editor preview does not emit design-token overrides or enqueued fonts** (#963), so a site that has retuned a token or loaded a webfont previews with the theme's stock values. Pre-existing, found by the new parity test, and deliberately not folded into this change.
 - Seven shipped `--btn-*` defaults declare a type their own default value does not satisfy (#967) — `var()` under a `length`, `initial` under `color`/`shadow`. They are defaults, never stored overrides, so nothing is dropped today; the type metadata is what is wrong. Inventoried by a test so the set cannot grow unnoticed.
 - `update_design_token` does not check delimiter balance for the one `raw`-typed token (#966): the write succeeds and the value is dropped at render with an advisory. Recorded as a write/render asymmetry for a decision rather than narrowed unasked.
 - `_pp_derive_font_family_from_url()` derives the LAST `family=` parameter, not the first as its docblock says (#968). Behaviour left unchanged here, because either direction is a decision of its own.
@@ -206,6 +205,100 @@ If you do the obvious thing — read the whole map, change one role, send it bac
 ### Tests
 
 PHP 4927 → 4962; JS 1879 → 1880. Warnings and deprecations unchanged. `HeaderChromeTest` is replaced by `ChromeUdcTest` rather than edited: all 26 of its tests were about the surface that was removed. Repricing kept the footer's 75 content tests and re-pointed the batch-rollback specimen at `pp_site_udc`, where "a failed run leaves chrome as it found it" is a bigger promise than it was for one colour. The silent-shorthand loss was red-proofed on `main` before the fix and is pinned in both directions, including a determinism pin that the same map in two key orders emits identical bytes. The review army found four defects that unit assertions could not see — a compare-and-swap reading through a cache a concurrent writer cannot invalidate, an overlay resolving through a token emitting an invalid layer list that dropped the image with it, a size cap measured on the submitted bytes rather than the stored ones, and a corrupt row being overwritable by a baseline of `0` — and each is fixed with its own pin.
+
+### Your site tells you when a value you set is not being used (#981)
+
+**Eight fixes that close the gap between what the system accepts and what it
+actually does.** Every one of them is a case where something reported success and
+then quietly did something else.
+
+**A value you stored that the page cannot paint is now accounted for.** A design
+value can reach storage and still never render: the token it points at is gone,
+the value no longer fits the parameter, a parameter was renamed, a breakpoint key
+is unknown. Sixteen ways, and exactly one of them had ever told you. `wp pp
+readiness status` and the preflight on every write now name the rest, with the
+role and parameter, the reason, and what to do about it. It reads the emitter's
+own record of what it discarded rather than guessing, so what it names is what
+the page omits. Chrome is checked always, because a chrome write returns no
+findings at all and this is the only channel it has. A healthy page reports
+nothing, however long it is.
+
+**Typography set on a whole band now tells you which roles ignored it.** `_band`
+has no element of its own, so a colour or font set there reaches the text by
+inheritance, and any role with its own default for that property wins. The write
+envelope now names the property and the roles that shadow it, instead of
+reporting the value applied and leaving you to notice the text never changed.
+
+**The editor preview shows your site's values, not the theme's.** It was
+rendering every page with stock design tokens, no webfonts, and a stock header
+and footer, so a site that had retuned a colour or styled its header previewed
+something it would never ship. All four now emit at the same positions the real
+page uses, and a token the page refuses is refused in the preview too. This is
+parity of VALUES, not of the whole document: the preview still builds its own
+head, so page meta, the front-end script and cache-busting versions are not
+there. What it now gets right is what every declaration resolves to.
+
+**A site setting that fails to save says so.** `update_site_option` returned
+success unconditionally, so a refused write produced a cheerful envelope
+describing a change that had not happened, and a batch counted it as done and
+never rolled it back. Setting a value it already holds still succeeds, and does
+not write twice.
+
+**Rolling back site chrome no longer races the writer.** Every normal write of
+the chrome styling container takes a lock. The rollback that restores it took
+none, and compared against a cached copy of the row, so it could clobber a
+concurrent edit or skip a restore it owed and call it clean.
+
+**The stylesheet that carries your authored values is now ordered by a rule
+rather than a habit.** Its rank came from the order two enqueue calls happened to
+appear in. Anything that reordered them would have dropped every authored value
+beneath the stylesheet it exists to override, silently.
+
+**A truncated findings report says what it dropped.** Long reports are cut at a
+fixed count, and the design disclosures sit at the end, so on a page with many
+errors the note saying "you wrote 19px, it is stored as a token" vanished with no
+trace. The report now counts what it omitted, by kind.
+
+### Fixed
+
+- Stored `udc` values the emitter discards are reported by a new
+  `udc_value_cannot_take_effect` readiness check, bounded in rows and in work,
+  keyed by reason as well as location so acknowledging one does not hide another.
+- A `_band` value cancelled by a role default is disclosed on the write envelope.
+- The editor preview emits design-token overrides, enqueued webfonts and both
+  chrome tiers at the front end's positions, through the same emitters.
+- `pp_update_site_option()` reports a refused write instead of succeeding over it,
+  and skips a write whose value the row already holds.
+- The batch rollback writes `pp_site_udc` inside the advisory lock its forward
+  writes take, reading the row rather than the autoload cache.
+- `pp-utilities` depends on `pp-components`, so the authored tier's rank survives
+  a dequeue, a re-enqueue, or a reordering.
+- `findings_truncated` carries a per-kind count of what was omitted.
+
+### Docs
+
+- `docs/reference-apply-cli.md` documents the new readiness check, its finding
+  keys and its two bounding rows, and records that `update_site_option` can now
+  refuse. The AI-facing instructions and runtime context explain why a `_band`
+  typography value does not reach a role that declares its own default, and name
+  the finding that discloses it.
+
+### Tests
+
+PHP 4962 → 5017; JS 1880 unchanged. Warnings and deprecations unchanged. Every
+landed item was red-proven against the pre-fix code first. The review train found
+what the first cut missed and each is now pinned: the drop ledger was bounded
+only by its reader, so one corrupt band could exhaust memory before every
+mutation; the ledger allocated a closure and a locator on the render path, costing
+a measured 13% on a 50-band page and 9% at 500 bands, now back to parity with
+main on an independently re-measured A/B; stored keys as well as stored values reach operator-facing
+text and are bounded; a healthy page with many bands emitted a spurious warning. A
+mutation pass then proved seven of the new tests vacuous — a defaults filter
+"proven" by an empty map, a guard the parser makes unreachable, an assertion
+against the caller's own literal, and three source pins evaded by a local
+variable, reversed keys, or `compact()`. Each was replaced by one that goes red,
+and the harness gained the affordance that made an unreachable branch testable.
+Local Playwright style-render @smoke: 199 passed, 1 skipped.
 
 ---
 

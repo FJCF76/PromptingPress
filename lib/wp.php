@@ -2196,16 +2196,26 @@ function pp_check_retired_chrome_options(): array {
  * @param  int|null $post_id A page whose bands to check, or null for chrome only.
  * @return array[]  Empty when every stored background image still resolves.
  */
-function pp_check_udc_background_images(?int $post_id = null): array {
+function pp_check_udc_background_images(?int $post_id = null, ?array $composition = null): array {
     $checks  = [];
     $dangling = [];
 
-    // Chrome, always.
+    // Chrome, always — but never on an assumed shape. This runs before every
+    // mutation, so a corrupt or filtered site map must degrade to "nothing to
+    // report" rather than warn on a foreach over a non-iterable (I17).
+    $chrome = [];
     if (function_exists('pp_udc_site_map')) {
-        foreach (pp_udc_site_map()['chrome'] as $name => $map) {
-            foreach (_pp_udc_dangling_background_images($map) as $where => $id) {
-                $dangling[] = ['scope' => 'chrome "' . $name . '"', 'where' => $where, 'id' => $id];
-            }
+        $site_map = pp_udc_site_map();
+        if (is_array($site_map) && isset($site_map['chrome']) && is_array($site_map['chrome'])) {
+            $chrome = $site_map['chrome'];
+        }
+    }
+    foreach ($chrome as $name => $map) {
+        if (!is_array($map)) {
+            continue;
+        }
+        foreach (_pp_udc_dangling_background_images($map) as $where => $id) {
+            $dangling[] = ['scope' => 'chrome "' . $name . '"', 'where' => $where, 'id' => $id];
         }
     }
 
@@ -2217,8 +2227,14 @@ function pp_check_udc_background_images(?int $post_id = null): array {
     $budget = 11;
 
     // The page in context, when there is one.
-    if ($post_id !== null && count($dangling) < $budget && function_exists('pp_get_composition')) {
-        $composition = pp_get_composition($post_id);
+    if ($post_id !== null && count($dangling) < $budget
+        && ($composition !== null || function_exists('pp_get_composition'))) {
+        // DECODED ONCE PER PREFLIGHT, NOT ONCE PER CHECK. Two advisories walk the
+        // same page, and pp_get_composition() is a full JSON decode of the meta row
+        // — measured 0.6 ms on a 50-band page and 6.4 ms on a 500-band one, paid
+        // before every mutation. The caller hands the decoded array to both; the
+        // fallback keeps each function usable on its own.
+        $composition = $composition ?? pp_get_composition($post_id);
         if (is_array($composition)) {
             foreach ($composition as $i => $item) {
                 if (count($dangling) >= $budget) {
@@ -2279,6 +2295,242 @@ function pp_check_udc_background_images(?int $post_id = null): array {
             'message'         => sprintf('At least %d more background image(s) no longer resolve.', $remainder),
         ];
     }
+    return $checks;
+}
+
+/**
+ * Readiness rows for stored `udc` values the emitter discards at render (#981, D3).
+ *
+ * THE GENERAL CASE OF THE ONE pp_check_udc_background_images() ALREADY COVERS.
+ * A deleted attachment is not the only way a stored value stops painting; it was
+ * just the only one anybody could see. The emitter discards a declaration when its
+ * `@token` reference resolves to nothing, when the stored value no longer
+ * satisfies its parameter's grammar, when the parameter or group is no longer
+ * declared, when a breakpoint key is unknown, when a single-valued parameter holds
+ * a map. Every one of those EXCEPT the dangling attachment — which the check above
+ * already owns — was silent on every channel: no envelope finding, no advisory,
+ * not even a log line. The branch count is deliberately not restated here; it
+ * lives in the emitter and a number copied into prose goes stale unwatched.
+ *
+ * WHY THE AUTHOR CAN BE IN THIS STATE AT ALL, since the write gate refuses most of
+ * these shapes: the write gate is not the only way data arrives. A raw meta write,
+ * a composition written before a rule existed, a renamed parameter, and
+ * restore_composition (which reports findings without blocking, #233) all reach
+ * the emitter directly. The author's value is in storage, the page does not paint
+ * it, and until this existed nothing anywhere said so — the
+ * reported-success-without-effect class invariant I35 forbids.
+ *
+ * ONE PREDICATE WITH THE EMITTER, and here that is meant literally rather than as
+ * an aspiration. This does not re-derive the drop conditions and does not diff the
+ * emitted CSS against the stored map — the first would drift, and the second is
+ * ambiguous by construction, because the compile folds background layers, filters
+ * the defaults source and re-sorts every block. It calls pp_udc_compile_band(),
+ * the REAL emitter, and reads the ledger the emitter fills in as it discards. What
+ * this names is what the page omits, because the same line decided both.
+ *
+ * WHAT IT COSTS, STATED RATHER THAN LEFT INCIDENTAL. This compiles up to
+ * `$band_budget` bands through the real emitter before every mutation, and a
+ * HEALTHY page pays the full walk to produce nothing. Measured on a 4-core box,
+ * php 8.3 with opcache, against a preflight that did not run this check: about
+ * +1.8 ms on a 10-band page, +4.7 ms on a 50-band page, +12.8 ms at 500 bands
+ * (the 500-band figure is bounded by the band budget, not by the page). The chrome
+ * arm is free — 0.000 ms with nothing stored, 0.055 ms with nav and footer styled.
+ * Against a WordPress request that costs 50-200 ms that is a few percent, and it
+ * buys the only account anyone gets of a value that stopped painting. If that
+ * trade stops being worth it, the lever is `$band_budget` below, and lowering it
+ * trades coverage for time — say so in the overflow row rather than shrinking the
+ * walk silently.
+ *
+ * BOUNDED ON BOTH AXES, because preflight runs before every mutation and these
+ * rows ride the envelope. The findings are sliced, and so is the WORK: the walk
+ * stops after a bounded number of bands rather than compiling a 200-band page to
+ * discover nothing. A page that hits the band bound says so rather than implying
+ * it was read to the end — an advisory that quietly reports on a prefix is the
+ * fail-open shape I29 forbids.
+ *
+ * AND IT NEVER REPORTS SILENCE AS HEALTH. If the walk itself cannot run, that is
+ * one honest row saying diagnostics could not run, never zero rows — the same
+ * posture the token-override check takes when the registry is unreadable.
+ *
+ * SCOPE. Chrome is checked unconditionally: it renders on every page and has no
+ * page to be "in context" for, and it is the one surface where this is the ONLY
+ * channel — a chrome write returns no `findings` array at all. A page's bands are
+ * checked only when preflight has a post_id, the same posture as the other
+ * page-scoped checks.
+ *
+ * @param  int|null $post_id A page whose bands to check, or null for chrome only.
+ * @return array[]  Empty when every stored value still reaches the page.
+ */
+function pp_check_udc_emit_drops(?int $post_id = null, ?array $composition = null): array {
+    if (!function_exists('pp_udc_compile_band')) {
+        return [];
+    }
+
+    $rows = [];
+    // Eleven fills ten rows and still knows there is an overflow; the band bound is
+    // the work half, and is deliberately the tighter of the two. The +1 is written
+    // as arithmetic rather than as a second literal, because the pairing IS the
+    // contract: collect one more than you show, or the overflow row cannot know it
+    // is needed.
+    $shown_budget = 10;
+    $row_budget   = $shown_budget + 1;
+    $band_budget  = 25;
+    $truncated   = false;
+
+    $seen_drops = 0;
+    $collect = static function (array $item, string $layer, string $scope) use (&$rows, &$seen_drops, $row_budget): void {
+        $drops = [];
+        try {
+            pp_udc_compile_band($item, $layer, $drops);
+        } catch (\Throwable $e) {
+            // A diagnostic must survive the corruption it exists to report (I17),
+            // and must not report its own failure as a clean bill of health (I29).
+            // The operator gets an honest row; the DEVELOPER gets the class and
+            // message, because an advisory that exists to end silent failure must
+            // not fail silently itself.
+            error_log(
+                'PromptingPress: udc emit-drop probe failed for ' . $scope . ': '
+                . get_class($e) . ': ' . $e->getMessage()
+            );
+            $rows[] = ['scope' => $scope, 'where' => 'the whole band', 'reason' => 'it could not be compiled to find out'];
+            return;
+        }
+        // COUNT EVERY DROP, COLLECT ONLY WHAT FITS. The row budget stops one past
+        // what is shown, so a remainder derived from the collected rows can never
+        // exceed 1 — a page with 45 unpainted values would report "At least 1
+        // more". The sibling producers collect the full set and slice it, so their
+        // remainder is a true total; this one bounds the WORK as well, and so has
+        // to count separately to stay honest about it.
+        $seen_drops += count($drops);
+        foreach ($drops as $drop) {
+            if (count($rows) >= $row_budget) {
+                return;
+            }
+            $rows[] = ['scope' => $scope, 'where' => $drop['where'], 'reason' => $drop['reason']];
+        }
+    };
+
+    // Chrome, always — but never on an assumed shape. This runs before every
+    // mutation, so a corrupt or filtered site map must degrade to "nothing to
+    // report" rather than warn on a foreach over a non-iterable (I17).
+    $chrome = [];
+    if (function_exists('pp_udc_site_map')) {
+        $site_map = pp_udc_site_map();
+        if (is_array($site_map) && isset($site_map['chrome']) && is_array($site_map['chrome'])) {
+            $chrome = $site_map['chrome'];
+        }
+    }
+    foreach ($chrome as $name => $map) {
+        if (!is_array($map)) {
+            continue;
+        }
+        if (count($rows) >= $row_budget) {
+            break;
+        }
+        $collect(
+            ['component' => (string) $name, 'id' => (string) $name, 'udc' => $map],
+            'authored',
+            sprintf('site %s', _pp_udc_reflect((string) $name))
+        );
+    }
+
+    // The page in context, when there is one.
+    if ($post_id !== null && count($rows) < $row_budget
+        && ($composition !== null || function_exists('pp_get_composition'))) {
+        // Shares the caller's decode; see the note on the sibling check above.
+        $composition = $composition ?? pp_get_composition($post_id);
+        if (is_array($composition)) {
+            $seen = 0;
+            foreach ($composition as $i => $item) {
+                if (count($rows) >= $row_budget) {
+                    break;
+                }
+                if (!is_array($item) || !isset($item['udc']) || !is_array($item['udc']) || $item['udc'] === []) {
+                    continue;
+                }
+                if ($seen >= $band_budget) {
+                    $truncated = true;
+                    break;
+                }
+                $seen++;
+                $component = isset($item['component']) && is_scalar($item['component'])
+                    ? (string) $item['component'] : '?';
+                $collect($item, 'authored', sprintf('band %d ("%s")', (int) $i + 1, _pp_udc_reflect($component)));
+            }
+        }
+    }
+
+    $checks    = [];
+    $shown     = array_slice($rows, 0, $shown_budget);
+    // Derived from what was SEEN, not from what was kept.
+    $remainder = max(0, $seen_drops - count($shown));
+
+    foreach ($shown as $row) {
+        $checks[] = [
+            'check'           => 'udc_value_cannot_take_effect',
+            'pass'            => false,
+            'severity'        => 'warning',
+            'class'           => 'configuration',
+            // THE REASON IS IN THE KEY, and that is not belt-and-braces. Unlike the
+            // background-image check beside this one — where the reason is always
+            // "the attachment is gone" — a value at one location can stop painting
+            // for sixteen different reasons. Keying on location alone would let an
+            // operator acknowledge a harmless stale value and thereby silence a
+            // LATER, different drop at the same role and parameter.
+            'finding_key'     => 'udc_value_cannot_take_effect:'
+                                 . substr(sha1($row['scope'] . '|' . $row['where'] . '|' . $row['reason']), 0, 12),
+            'acknowledgeable' => true,
+            'next_action'     => 'Re-set that value through the styling action, or remove it. '
+                                 . 'Run wp pp check page for the whole composition.',
+            'message'         => sprintf(
+                '%s: %s is stored but not painted, because %s. Everything else on it still renders.',
+                $row['scope'],
+                $row['where'],
+                $row['reason']
+            ),
+        ];
+    }
+    if ($remainder > 0) {
+        $checks[] = [
+            'check'           => 'udc_value_cannot_take_effect',
+            'pass'            => false,
+            'severity'        => 'warning',
+            'class'           => 'configuration',
+            'finding_key'     => 'udc_value_cannot_take_effect:overflow',
+            'acknowledgeable' => true,
+            'next_action'     => 'Run wp pp readiness status for the full list.',
+            // "At least", because the walk itself stops at the band bound and the
+            // ledger caps per compile — so this is a floor, and the row says so.
+            'message'         => sprintf('At least %d more stored value(s) are not painted.', $remainder),
+        ];
+    }
+    // ONLY WARN ABOUT AN INCOMPLETE LIST WHEN THERE IS A LIST. $truncated says the
+    // walk stopped early, which on a HEALTHY page means nothing was found and
+    // nothing was missed worth naming — emitting a row there puts a warning on a
+    // correct 26-band page and teaches the operator to acknowledge this check
+    // blind, which is the failure mode the no-false-positive rule exists to stop.
+    // When rows DO exist the caveat is load-bearing, because the list really is
+    // partial.
+    if ($truncated && $rows !== []) {
+        $checks[] = [
+            'check'           => 'udc_value_cannot_take_effect',
+            'pass'            => false,
+            'severity'        => 'warning',
+            'class'           => 'configuration',
+            // SCOPED TO THE PAGE IT DESCRIBES. The overflow row above is site-wide
+            // and matches the background-image check's precedent, but this row is
+            // about ONE page's band count — a global key would let acknowledging it
+            // on one page suppress it on every other.
+            'finding_key'     => 'udc_value_cannot_take_effect:bands_truncated:' . (int) $post_id,
+            'acknowledgeable' => true,
+            'next_action'     => 'Run wp pp check page --post_id=' . (int) $post_id . ' for the whole composition.',
+            'message'         => sprintf(
+                'Only the first %d styled bands on this page were checked, so this list may be incomplete.',
+                $band_budget
+            ),
+        ];
+    }
+
     return $checks;
 }
 
@@ -7083,8 +7335,84 @@ function pp_update_site_option(string $key, string $value, ?int $expected_versio
         // value always re-validates through the snapshot/rollback path.
         $value = trim($value) === '' ? '' : strtolower(trim($value));
     }
-    update_option($key, $value);
-    return true;
+    // ── The write, and an honest claim about it (I1, #978) ──────────────────
+    //
+    // THIS USED TO BE `update_option($key, $value); return true;` — the return
+    // discarded, the `true` unconditional. The one production caller (the
+    // update_site_option execute arm) branches only on is_wp_error(), so a refused
+    // write shipped an ok:true envelope carrying a `changes[]` row describing a
+    // change that had not happened, and the batch snapshot for that step counted
+    // it as successful and never rolled back.
+    //
+    // WHY IT IS NOT A ONE-LINER. I1 runs in BOTH directions: "no success over a
+    // write that was refused, skipped, or never checked, and no failure reported
+    // over an ambiguous API return the code did not disambiguate." A bare
+    // `if (!update_option(...)) return new WP_Error(...)` trades the first
+    // violation for the second, because core returns false for a write whose value
+    // is UNCHANGED just as it does for one that was refused.
+    //
+    // So: compare first, then disambiguate what is left.
+    //
+    //   stored === value ──► true (verified-unnecessary; nothing to write)
+    //   update_option() ──┬─ true  ──► true
+    //                     └─ false ──► read back ──┬─ stored === value ──► true
+    //                                              └─ otherwise ──► WP_Error
+    //
+    // THE COMPARE RUNS ON THE NORMALIZED VALUE, above, not on the caller's raw
+    // string: `'00042'` and `'42'` are the same pp_logo_id row, and comparing
+    // before normalising would make the skip depend on how the caller spelled it.
+    //
+    // This is the `_pp_restore_write_if_changed()` idiom (lib/actions.php), which
+    // this repo already ships at five call sites.
+    //
+    // IT IS INLINED, AND THE HONEST REASON IS NOT LOAD ORDER. PHP resolves function
+    // bodies at call time, so this file can and does call up the layer already
+    // (pp_check_udc_emit_drops() above calls pp_udc_compile_band() from lib/udc.php,
+    // also loaded later). The real reason is narrower: that helper returns bool and
+    // this function must return true|WP_Error, so calling it would still leave the
+    // disambiguation and the error construction here — a call that saves one
+    // comparison and hides half the logic. THE RIGHT END STATE is to move
+    // _pp_restore_write_if_changed() down into this file and have both use it; that
+    // is a six-call-site move and belongs in its own change, not riding a batch.
+    // Until then: do not add a second definition of the idiom.
+    //
+    // THE READ-BACK IS ON THE FALSE BRANCH ONLY, and that distinction is the whole
+    // reason it is allowed. A `pre_update_option_*` / `sanitize_option_*` filter can
+    // rewrite a submitted value to whatever is already stored, which makes core
+    // return false for a write that was not refused; one read decides it. This is
+    // disambiguation of an ambiguous return, NOT read-back verification of every
+    // write — that posture is the concurrency cluster's open axis
+    // (_pp_restore_write_if_changed()'s docblock parks it) and stays parked.
+    //
+    // NOT ATOMIC, AND NOT CLAIMED TO BE. Another writer can land between the read
+    // and the write. This makes the RETURN honest; it does not make the write a
+    // transaction. The one key that needs more already has it: `pp_site_udc` carries
+    // a version counter and an advisory lock (_pp_update_site_udc, above).
+    $sentinel = new \stdClass();
+    $live     = get_option($key, $sentinel);
+    if ($live !== $sentinel && is_scalar($live) && (string) $live === $value) {
+        return true;
+    }
+    // THE TRUE BRANCH IS NOT A CLAIM ABOUT THE STORED BYTES, and that limit is
+    // parked deliberately rather than by omission. A `pre_update_option_*` /
+    // `sanitize_option_*` filter can rewrite the submitted value to a THIRD value:
+    // core writes that and returns true, and this returns true for a value that is
+    // not what was stored. Closing it means verifying every write by reading it
+    // back, which is the write-verification posture the concurrency cluster owns
+    // (see _pp_restore_write_if_changed(), lib/actions.php). What this function
+    // promises is narrower and now true: it never reports success over a write the
+    // store REFUSED.
+    if (update_option($key, $value)) {
+        return true;
+    }
+    $after = get_option($key, $sentinel);
+    if ($after !== $sentinel && is_scalar($after) && (string) $after === $value) {
+        return true;
+    }
+    return new WP_Error('site_option_write_failed', sprintf(
+        'Could not write option "%s"; the stored value is unchanged. Nothing else was modified.',
+        $key
+    ));
 }
 
 /**
