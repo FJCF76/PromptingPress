@@ -65,7 +65,7 @@ Used by: #99, #100, #108, #111, #61 (and the #99 scaffold issue defines the reus
 
    with the field-by-field contract in `ai-instructions/add-component.md`. Use `length-or-none`
    **only** when the slot's declared default IS the keyword `none`, so the built-in uncapped state
-   stays authorable (`--stats-max-width`, `--hero-heading-measure`, `--section-heading-measure`,
+   stays authorable (`--stats-max-width`, `--section-heading-measure`,
    `--cta-body-measure`, `--faq-body-measure`); a width cap with a real length default stays plain
    `length`. Declare `"role": "fill"` on a button/surface fill and `"role": "measure"` on a text
    measure — the roles are bounded by `pp_slot_roles()` and the runtime AI catalog emits them.
@@ -99,12 +99,13 @@ Used by: #99, #100, #108, #111, #61 (and the #99 scaffold issue defines the reus
    source-text pin passes through it: another **slot-routed** rule, for a VARIANT of the same
    component, decides the same property and does not carry your new slot. Two shapes to check
    before you call the routing done:
-   - **A variant rule that wins.** `--hero-button-border` was added at the head of
-     `.hero .btn:not(...)` [0,5,0] and was dead on every `layout: "cover"` hero, because
-     `.hero--cover .hero__cta:not(...)` is [0,5,0] too and comes LATER in source order, so it
-     is the live border winner on that band — and it kept its old chain. The schema description
-     promised the slot applied. Grep every `.{name}--{variant}` and `.{name}--has-bg-image`
-     rule that declares your property, not just the base rule.
+   - **A variant rule that wins.** The worked example was hero's `--hero-button-border`,
+     added at the head of `.hero .btn:not(...)` [0,5,0] and dead on every `layout: "cover"`
+     hero, because `.hero--cover .hero__cta:not(...)` is [0,5,0] too, comes LATER in source
+     order, and kept its old chain. The schema description promised the slot applied. Hero is
+     on the UDC now and declares no slots (#986), so the example is history — but the FAILURE
+     is not: it is still live for every v1 component. Grep every `.{name}--{variant}` and
+     `.{name}--has-bg-image` rule that declares your property, not just the base rule.
    - **A base rule that never wins.** `.section__panel-cta:not(...)` is [0,4,0] and the shared
      premium `main .btn:not(...)` is [0,4,1], so the section block's rule NEVER decides a
      composed panel CTA's border. That block is the slot-contract keystone
