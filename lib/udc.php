@@ -58,8 +58,24 @@
  *   [data-pp-chrome="nav"] .nav__menu ul li a { color: #f7f8fa; }
  *
  * Every rule is exactly one of those three scopes plus the role's selector, so
- * specificity is flat BY CONSTRUCTION and `!important` is never needed or used.
- * No v2 component emits an inline style attribute.
+ * specificity is flat BY CONSTRUCTION *within this engine's own emission*, and
+ * `!important` is never needed or used. No v2 component emits an inline style
+ * attribute.
+ *
+ * THAT FLATNESS IS NOT YET GLOBAL, and the honest version matters (#986, ruling D5).
+ * A band block is [0,2,0] — one attribute plus one class. The v1 stylesheet that still
+ * ships carries rules well above that on elements a role can select: the premium button
+ * family reached [0,5,1], and a hero CTA authored through the `button` preset painted
+ * the stylesheet's gradient instead of the author's fill. Printing the authored layer
+ * after the stylesheet only settles ties, so the write was accepted, reported applied,
+ * and overruled — the I35 class.
+ *
+ * The rules hero collides with are wrapped in `:where()` (zero specificity: still the
+ * default treatment, no longer a competitor). The remaining v1 rules that can outrank a
+ * band block are enumerated and tracked in #989; each component's rebuild
+ * wraps or retires the ones IT collides with, by this same precedent. When that audit
+ * closes, the sentence above is true globally rather than within the engine — and until
+ * it does, this docblock says so rather than promising it.
  *
  *   site tokens ─▶ presets ─▶ role defaults (schema data) ─▶ band udc ─▶ breakpoint ─▶ state
  *        │            │               │                        │            │           │

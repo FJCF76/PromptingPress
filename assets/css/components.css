@@ -4430,7 +4430,16 @@ main .btn {
     transform var(--transition);
 }
 
-main .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary) {
+/* :where() — THE V1 STYLESHEET MUST NOT OUTRANK A v2 BAND BLOCK (#986, ruling D5).
+   Measured, not reasoned: a hero whose `cta` role carried `"_preset": "button"` painted
+   this gradient instead of the preset's fill, because this selector is [0,5,1] and the
+   band block is [0,2,0] — printing the authored layer later only settles ties. The write
+   was accepted and the envelope reported it applied, which is the I35 class.
+   `:where()` drops this rule to zero specificity, so it keeps doing its job as the
+   DEFAULT button treatment and stops competing with a value an author actually wrote.
+   Same move Sprint 0 applied to the adjacent-sibling catch-all, for the same reason.
+   The remaining v1 rules that can outrank a band block are audited in their own issue. */
+main :where(.btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary)) {
   border-width: 1px;
   border-style: solid;
   border-color: var(--cta-button-border, var(--color-accent-strong));
@@ -4463,7 +4472,16 @@ main .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary) {
   color: var(--section-panel-cta-color, var(--cta-button-color, var(--btn-text, var(--color-bg))));
 }
 
-main .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover {
+/* :where() — THE V1 STYLESHEET MUST NOT OUTRANK A v2 BAND BLOCK (#986, ruling D5).
+   Measured, not reasoned: a hero whose `cta` role carried `"_preset": "button"` painted
+   this gradient instead of the preset's fill, because this selector is [0,5,1] and the
+   band block is [0,2,0] — printing the authored layer later only settles ties. The write
+   was accepted and the envelope reported it applied, which is the I35 class.
+   `:where()` drops this rule to zero specificity, so it keeps doing its job as the
+   DEFAULT button treatment and stops competing with a value an author actually wrote.
+   Same move Sprint 0 applied to the adjacent-sibling catch-all, for the same reason.
+   The remaining v1 rules that can outrank a band block are audited in their own issue. */
+main :where(.btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary)):hover {
   border-color: var(--cta-button-hover-border, var(--color-accent));
   /* Superseded for background by the later "True final cascade" block; --hero-button-hover-bg
      leads the chain here too (issue 530) and the global --btn-hover-bg closes it (issue 539)
@@ -4513,7 +4531,16 @@ main .btn--ghost {
    fill and has the SAME specificity as `main .btn--outline` (both 0,1,1, since
    `main` is a type selector), so without the :not() it would win by source order
    and re-fill the transparent variants — the secondary-CTA contrast bug. */
-main .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary) {
+/* :where() — THE V1 STYLESHEET MUST NOT OUTRANK A v2 BAND BLOCK (#986, ruling D5).
+   Measured, not reasoned: a hero whose `cta` role carried `"_preset": "button"` painted
+   this gradient instead of the preset's fill, because this selector is [0,5,1] and the
+   band block is [0,2,0] — printing the authored layer later only settles ties. The write
+   was accepted and the envelope reported it applied, which is the I35 class.
+   `:where()` drops this rule to zero specificity, so it keeps doing its job as the
+   DEFAULT button treatment and stops competing with a value an author actually wrote.
+   Same move Sprint 0 applied to the adjacent-sibling catch-all, for the same reason.
+   The remaining v1 rules that can outrank a band block are audited in their own issue. */
+main :where(.btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary)) {
   /* The FILL and the RING snap; the bevel, the ink and the lift keep easing (issue 540).
      `main .btn` above sets a five-property transition. On a FILLED premium button two of those
      five animate a colour nobody chose and, worse, nobody ever saw. The resting fill is a
@@ -4609,7 +4636,16 @@ main .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary) {
     0 10px 22px color-mix(in srgb, var(--color-accent-strong) 14%, transparent))));
 }
 
-main .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover {
+/* :where() — THE V1 STYLESHEET MUST NOT OUTRANK A v2 BAND BLOCK (#986, ruling D5).
+   Measured, not reasoned: a hero whose `cta` role carried `"_preset": "button"` painted
+   this gradient instead of the preset's fill, because this selector is [0,5,1] and the
+   band block is [0,2,0] — printing the authored layer later only settles ties. The write
+   was accepted and the envelope reported it applied, which is the I35 class.
+   `:where()` drops this rule to zero specificity, so it keeps doing its job as the
+   DEFAULT button treatment and stops competing with a value an author actually wrote.
+   Same move Sprint 0 applied to the adjacent-sibling catch-all, for the same reason.
+   The remaining v1 rules that can outrank a band block are audited in their own issue. */
+main :where(.btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary)):hover {
   /* Global hover BORDER (issue 539) mirrors the rest twin's ordering above: after
      --cta-button-hover-border and --cta-accent-hover, ahead of the literal. Border stays
      INDEPENDENT of the fill in this rule exactly as at rest, so --btn-hover-bg is

@@ -449,8 +449,12 @@ describe('CSS lint: premium primary-button fill routes through the fill-slot cha
     // key on that exact shape rather than a bare `.btn--outline` substring (which would
     // wrongly reject the very selector we want, the trap the #305-era gradient guard hit).
     function targetsPrimaryFill(selector) {
+        // `:where(` is admitted because #986 (ruling D5) wrapped this rule to drop it to
+        // zero specificity — it is the same rule doing the same job, and a matcher keyed
+        // on the unwrapped spelling would silently stop finding it, which is the vacuous
+        // pass this whole block exists to prevent.
         return selector.split(',').some(sel =>
-            /(^|\s)main\s+\.btn:not\(\.btn--outline\)/.test(sel.trim())
+            /(^|\s)main\s+(?::where\()?\.btn:not\(\.btn--outline\)/.test(sel.trim())
         );
     }
 
@@ -4828,7 +4832,7 @@ describe('CSS lint: global button hover tier (#539)', () => {
         },
         {
             what: 'the shared premium hover rule (background-IMAGE winner; the panel CTA\'s only fill winner)',
-            sel: 'main .btn' + NOT3 + ':hover',
+            sel: 'main :where(.btn' + NOT3 + ')' + ':hover',
             decls: [
                 'var(--cta-button-hover-bg, var(--btn-hover-bg,',
             ],
@@ -4918,7 +4922,7 @@ describe('CSS lint: global button hover tier (#539)', () => {
         // --btn-border-color but deliberately does not follow --btn-bg, matching the bare .btn
         // primitive). The hover twin must keep that independence, or a fill-only site retheme
         // silently starts moving the premium ring too.
-        const body = bodyFor('main .btn' + NOT3 + ':hover');
+        const body = bodyFor('main :where(.btn' + NOT3 + '):hover');
         expect(body).not.toBeNull();
         const border = body.match(/border-color\s*:([^;]+)/)[1];
         expect(border).toContain('--btn-hover-border-color');
@@ -5593,14 +5597,14 @@ describe('CSS lint: per-instance ring slots for the hero primary and panel CTA (
         // `cta-secondary` role sets on top. Panel CTA keeps every row below.
         {
             what: 'panel CTA, rest — the LIVE winner, in the shared premium block',
-            body: () => lastTopLevel('main .btn' + NOT3),
+            body: () => lastTopLevel('main :where(.btn' + NOT3 + ')'),
             slot: '--section-panel-cta-border',
             chain: ['--section-panel-cta-border', '--cta-button-border', '--cta-accent',
                 '--btn-border-color', '--section-panel-cta-bg', '--color-accent-strong'],
         },
         {
             what: 'panel CTA, hover — the LIVE winner, in the shared premium block',
-            body: () => lastTopLevel('main .btn' + NOT3 + ':hover'),
+            body: () => lastTopLevel('main :where(.btn' + NOT3 + '):hover'),
             slot: '--section-panel-cta-hover-border',
             chain: ['--section-panel-cta-hover-border', '--cta-button-hover-border',
                 '--cta-accent-hover', '--btn-hover-border-color', '--color-accent'],
