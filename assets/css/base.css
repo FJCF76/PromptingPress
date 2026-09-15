@@ -1,3 +1,37 @@
+@layer pp-zero, pp-v1;
+/* ==========================================================================
+   CASCADE LAYER ORDER (#986, ruling D5 revised). Declared here, at the top of
+   the first stylesheet the theme enqueues, because a later @layer statement
+   cannot reorder layers that already exist.
+
+   Reading left to right is weakest to strongest:
+
+     pp-zero  the v2 engine's BAND-ROOT defaults tier. Zero-specificity rules
+              that are DESIGNED to lose to the shared design-system rules below
+              (the #430/#431 adjacent-band rhythm aims at the same element).
+              They used to be ranked under those rules by printing first; that
+              argument dies the moment this sheet is layered, so they get a
+              layer of their own, underneath.
+
+     pp-v1    this stylesheet, components.css and utilities.css — the whole v1
+              design system, in their existing source order. Layering them
+              TOGETHER is the point: relative order inside the layer is
+              unchanged, so nothing in v1 reshuffles against anything else in
+              v1. What changes is only their relationship to what is OUTSIDE.
+
+     (unlayered)  the v2 engine's in-band element defaults, then its authored
+              band and chrome blocks, then anything a site adds after us.
+              Unlayered always beats layered, at any specificity — which is the
+              entire point: a value an author actually wrote can no longer lose
+              to a v1 rule that happens to carry five classes.
+
+   This replaces the per-rule `:where()` surgery that #986 first attempted. That
+   approach fixed the band block but dropped the wrapped rules below `.btn`
+   [0,1,0] as well, silently regressing every composed primary button on the
+   components that have not been rebuilt yet. A layer moves the whole sheet at
+   once and cannot single out a rule by accident.
+   ========================================================================== */
+@layer pp-v1 {
 /* ==========================================================================
    base.css — PromptingPress Design Foundation
    Design tokens, reset, typography, and base element styles.
@@ -454,3 +488,4 @@ a:hover {
      @media (min-width: 1024px) { ... }   lg
      @media (min-width: 1280px) { ... }   xl
    ========================================================================== */
+}

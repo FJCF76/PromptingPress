@@ -1731,6 +1731,26 @@ class StyleSlotContractTest extends TestCase
      * trigger substring while the baseline does not cover the surface that carries it —
      * i.e. it keeps the immunity honest as the slot surface grows, without waiting for
      * someone to notice a 3px border on a page.
+     *
+     * WHICH LONGHAND CARRIES THE IMMUNITY CHANGED UNDER CASCADE LAYERS (#986), and the
+     * belt-and-braces in the baseline is why nothing broke. The v1 stylesheet now lives
+     * in `@layer pp-v1`; core's `html :where([style*="border-width"]){border-style:solid}`
+     * is UNLAYERED, and unlayered beats layered at any specificity. So the baseline's
+     * `border-style: none` now LOSES to core where it used to win on (0,1,0) vs (0,0,1).
+     *
+     * `border-width: 0` still wins, because core injects a STYLE and never a width, so
+     * nothing unlayered competes for that longhand. `solid` at a zero width paints
+     * nothing, so the rendered outcome is unchanged — verified by computed read, not
+     * assumed: a `.cta` carrying only `--cta-border-color` computes 0px on the edges no
+     * component rule draws, not the 3px `medium` that issue 332 was.
+     *
+     * That is exactly the contingency the baseline's own comment in components.css
+     * anticipated ("border-width: 0 keeps it defeated if core ever injects a width
+     * instead") arriving from the other direction. It is ALSO the reason the baseline
+     * was not hoisted out of the layer to restore the old mechanism: an unlayered
+     * baseline would outrank every layered component rule that legitimately draws a
+     * border (13 of them today — `.cta--dark`, `.grid--dark`, `.site-footer`, …) and
+     * erase all of them. The rendered pin remains the proof that matters.
      */
     public function testBorderTriggerSlotsHaveCascadeImmunity(): void
     {
@@ -2053,7 +2073,21 @@ class StyleSlotContractTest extends TestCase
                     $j++;
                 }
 
-                // An at-rule (@media/@supports/@layer) is NOT a style rule, and its inner
+                // A SHEET-WIDE `@layer <name> { … }` WRAPPER IS TRANSPARENT HERE (#986).
+                // The whole stylesheet is wrapped in one named layer, which changes how it
+                // ranks against everything OUTSIDE it and changes nothing at all inside it:
+                // no conditionality, no reordering, every rule still in the same sequence.
+                // Descending is therefore the faithful reading of "top-level" for this
+                // guard. A CONDITIONAL at-rule is the opposite — a baseline inside
+                // `@media` really does leave other breakpoints exposed — so @media and
+                // @supports are still skipped without descending.
+                if ($selector !== '' && preg_match('/^@layer\s+[A-Za-z0-9_-]+$/', $selector)) {
+                    $i        = $bodyStart;
+                    $selStart = $bodyStart;
+                    continue;
+                }
+
+                // An at-rule (@media/@supports) is NOT a style rule, and its inner
                 // rules are not top-level. Skip the block entirely — do not descend.
                 if ($selector !== '' && $selector[0] !== '@') {
                     $rules[] = [
@@ -2142,9 +2176,11 @@ class StyleSlotContractTest extends TestCase
                 $gaps[] = "no TOP-LEVEL rule selects exactly `{$surface}` while declaring "
                     . 'border-style:none + border-width:0 — WP core will inject '
                     . '`border-style: solid` at the initial 3px width on any element of this '
-                    . 'kind that carries a border-trigger slot. (A baseline nested in an '
-                    . '@media/@supports/@layer block, scoped under an ancestor, or declaring '
-                    . 'a non-zero/solid value does NOT count.)';
+                    . 'kind that carries a border-trigger slot. (A baseline nested in a '
+                    . 'CONDITIONAL @media/@supports block, scoped under an ancestor, or '
+                    . 'declaring a non-zero/solid value does NOT count. A sheet-wide '
+                    . '@layer wrapper DOES count — it is transparent to intra-sheet order; '
+                    . 'see the note on which longhand carries the immunity under layers.)';
                 continue;
             }
 

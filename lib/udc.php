@@ -2966,14 +2966,50 @@ function pp_udc_component_defaults_css(string $component): string {
     // once zeroed the subheading rhythm (#336). At [0,2,0] it clears them.
     //
     // Authored values outrank both tiers; see pp_udc_band_css().
+    //
+    // THE ROOT TIER IS RANKED BY A CASCADE LAYER, NOT BY PRINTING FIRST (#986,
+    // ruling D5 revised). It used to be ranked under the shared design-system
+    // rules by source position alone: this block rides `pp-base`, components.css
+    // loads after, and both sit at zero specificity, so later won. The moment the
+    // v1 stylesheet went into `@layer pp-v1` that argument inverted — an
+    // UNLAYERED rule beats a layered one at any specificity, so the zeroed root
+    // tier would have started BEATING the band rhythm it is designed to yield to,
+    // which is the Sprint-0 cascade hazard arriving from the other side.
+    //
+    // `pp-zero` is declared BEFORE `pp-v1` (see assets/css/base.css), so the
+    // total order is exactly what the two rulings together require:
+    //
+    //   pp-zero (this root tier) < pp-v1 (base/components/utilities)
+    //     < element defaults (unlayered, below) < authored blocks (unlayered)
+    //
+    // The root tier now yields to #430/#431 STRUCTURALLY rather than by load
+    // order, so a plugin reordering the enqueues can no longer invert it either.
     $scope = '[data-pp-component="' . $component . '"]';
 
-    return _pp_udc_render_blocks($compiled, $scope, ':where(' . $scope . ')');
+    return _pp_udc_render_blocks($compiled, $scope, ':where(' . $scope . ')', 'pp-zero');
 }
 
-/** Renders a compiled result under one scope selector. */
-function _pp_udc_render_blocks(array $compiled, string $scope, ?string $root_scope = null): string {
-    $css   = '';
+/**
+ * Renders a compiled result under one scope selector.
+ *
+ * `$root_layer` puts the BAND-ROOT rules into a named cascade layer while the
+ * element rules stay where they were (#986, ruling D5 revised). Only the
+ * defaults tier asks for it; see pp_udc_component_defaults_css() for why the
+ * root tier has to rank under the v1 stylesheet and the element tier over it.
+ *
+ * When `$root_layer` is null NOTHING changes: root and element rules ride the
+ * same buffer in the same order they always did, so the authored tier and the
+ * chrome tier emit byte-identical CSS to before.
+ */
+function _pp_udc_render_blocks(
+    array $compiled,
+    string $scope,
+    ?string $root_scope = null,
+    ?string $root_layer = null
+): string {
+    $css      = '';
+    $root_css = '';
+    $split    = $root_layer !== null;
     // Rules aimed at the band root may need a different weight from rules aimed
     // at elements inside it; callers that do not care pass one scope for both.
     $root_scope = $root_scope ?? $scope;
@@ -2983,7 +3019,11 @@ function _pp_udc_render_blocks(array $compiled, string $scope, ?string $root_sco
         foreach ($compiled['tokens'] as $name => $value) {
             $decls .= '--pp-' . $name . ':' . $value . ';';
         }
-        $css .= $root_scope . '{' . $decls . '}';
+        if ($split) {
+            $root_css .= $root_scope . '{' . $decls . '}';
+        } else {
+            $css .= $root_scope . '{' . $decls . '}';
+        }
     }
 
     // Bucketed once. The emission order below is an 8-tier x 3-breakpoint
@@ -3017,7 +3057,8 @@ function _pp_udc_render_blocks(array $compiled, string $scope, ?string $root_sco
                 if (($tier === 'base') !== $is_base) {
                     continue;
                 }
-                $rules = '';
+                $rules      = '';
+                $root_rules = '';
                 foreach (($by_state_bp[$state][$bp] ?? []) as $block) {
                     $decls = '';
                     foreach ($block['decls'] as $property => $entry) {
@@ -3037,17 +3078,37 @@ function _pp_udc_render_blocks(array $compiled, string $scope, ?string $root_sco
                     if ($decls === '') {
                         continue;
                     }
-                    $selector = ($block['selector'] !== ''
-                        ? $scope . ' ' . $block['selector']
-                        : $root_scope) . $state;
-                    $rules   .= $selector . '{' . $decls . '}';
+                    $is_root  = $block['selector'] === '';
+                    $selector = ($is_root
+                        ? $root_scope
+                        : $scope . ' ' . $block['selector']) . $state;
+                    if ($split && $is_root) {
+                        $root_rules .= $selector . '{' . $decls . '}';
+                    } else {
+                        $rules .= $selector . '{' . $decls . '}';
+                    }
                 }
-                if ($rules === '') {
-                    continue;
+                if ($rules !== '') {
+                    $css .= $is_base ? $rules : '@media ' . $meta['media'] . '{' . $rules . '}';
                 }
-                $css .= $is_base ? $rules : '@media ' . $meta['media'] . '{' . $rules . '}';
+                if ($root_rules !== '') {
+                    $root_css .= $is_base
+                        ? $root_rules
+                        : '@media ' . $meta['media'] . '{' . $root_rules . '}';
+                }
             }
         }
+    }
+
+    // THE GUARD FOLLOWS ITS DECLARATIONS INTO THE LAYER. A guard emitted outside
+    // the layer that holds the motion it neutralizes would outrank it always
+    // rather than by printing last, which is a different mechanism with a
+    // different failure mode; and one emitted inside the WRONG layer would lose
+    // outright. Split the same way the declarations were split.
+    if ($split) {
+        $root_css .= _pp_udc_reduced_motion_guard($motion_selectors, $scope, $root_scope, 'root');
+        $css      .= _pp_udc_reduced_motion_guard($motion_selectors, $scope, $root_scope, 'element');
+        return ($root_css !== '' ? '@layer ' . $root_layer . '{' . $root_css . '}' : '') . $css;
     }
 
     $css .= _pp_udc_reduced_motion_guard($motion_selectors, $scope, $root_scope);
@@ -3091,15 +3152,29 @@ function _pp_udc_render_blocks(array $compiled, string $scope, ?string $root_sco
  * (a timing function over 0.01ms is unobservable); add `transition-delay` and
  * this needs a per-param remedy rather than a constant.
  *
- * @param array $motion_selectors key => [selector, state]
+ * @param array  $motion_selectors key => [selector, state]
+ * @param string $want             'all', or 'root'/'element' to emit only the
+ *                                 half that belongs in one cascade layer.
  */
-function _pp_udc_reduced_motion_guard(array $motion_selectors, string $scope, string $root_scope): string {
+function _pp_udc_reduced_motion_guard(
+    array $motion_selectors,
+    string $scope,
+    string $root_scope,
+    string $want = 'all'
+): string {
     if ($motion_selectors === []) {
         return '';
     }
     $selectors = [];
     foreach ($motion_selectors as [$selector, $state]) {
-        $selectors[] = ($selector !== '' ? $scope . ' ' . $selector : $root_scope) . $state;
+        $is_root = $selector === '';
+        if (($want === 'root' && !$is_root) || ($want === 'element' && $is_root)) {
+            continue;
+        }
+        $selectors[] = ($is_root ? $root_scope : $scope . ' ' . $selector) . $state;
+    }
+    if ($selectors === []) {
+        return '';
     }
     return '@media (prefers-reduced-motion: reduce){'
         . implode(',', $selectors)
@@ -3524,8 +3599,13 @@ function pp_udc_chrome_css(string $name, string $layer): string {
         return '';
     }
     $scope = '[data-pp-chrome="' . $name . '"]';
+    // Chrome's defaults tier splits exactly like a band's and for the same
+    // reason (#986, ruling D5 revised): its zeroed root tier was ranked under the
+    // shared header/footer rules by printing first, and layering the v1
+    // stylesheet would have inverted that. `pp-zero` keeps it underneath
+    // structurally.
     return $layer === 'defaults'
-        ? _pp_udc_render_blocks($compiled, $scope, ':where(' . $scope . ')')
+        ? _pp_udc_render_blocks($compiled, $scope, ':where(' . $scope . ')', 'pp-zero')
         : _pp_udc_render_blocks($compiled, $scope);
 }
 

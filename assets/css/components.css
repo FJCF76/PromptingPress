@@ -1,3 +1,4 @@
+@layer pp-v1 {
 /* ==========================================================================
    components.css — PromptingPress Component Styles
 
@@ -3774,51 +3775,40 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
      keeps its own opener rhythm rather than the shared band tier (issue 577), and
      on v2 that opt-out is expressed once, as a role default, instead of by the pair
      of per-component adjacent rules that used to restate it here and at mobile.
-     Excluding it is what makes the role default reachable: this catch-all and the
-     defaults tier are both zero-specificity, and this stylesheet prints LATER, so
-     without the exclusion this rule would silently defeat hero's declared default —
-     the I35 class, and exactly the bug issue 577 fixed in the other direction.
-     An AUTHORED `_band` padding still wins either way: it emits in the authored
-     layer, which prints after this file. The `:not()` sits inside `:where()`, so it
+     Excluding it is what makes the role default reachable, and under cascade layers
+     that is not a source-order argument but a structural one: the band-root defaults
+     tier sits in `pp-zero`, strictly below this stylesheet's `pp-v1`, so a catch-all
+     matching hero would defeat hero's declared default at ANY specificity. The
+     ranking is deliberate — it is what keeps every OTHER unauthored v2 band inside
+     #430/#431 — so the exclusion, not a re-ranking, is the right lever.
+     An AUTHORED `_band` padding still wins either way: authored blocks are unlayered
+     and unlayered outranks every layer. The `:not()` sits inside `:where()`, so it
      contributes no specificity of its own. */
   :where(main > [data-pp-component] + [data-pp-component]:not(.hero)) {
     padding-top: var(--pp-band-padding-adjacent-top);
   }
 }
 
-/* HERO adjacent-top (issue 577), deliberately placed HERE and not with the other nine
-   per-component adjacent rules further down.
+/* HERO'S ADJACENT-TOP RULES ARE GONE, AND #577 SURVIVES THEM (#986).
    ------------------------------------------------------------------------------
-   TWO things make hero's rule different from its nine siblings:
+   Two rules used to live here — a desktop twin and a .hero--left twin — restating
+   hero's own opener rhythm on the adjacent edge, because the shared catch-all above
+   was quietly overriding it. On v2 that rhythm is stated ONCE, as the `_band` role's
+   padding-top/padding-bottom default in components/hero/schema.json, for the base
+   edge and the adjacent edge alike. Two hand-written rules restating a value the
+   role already declares is the duplication v2 exists to remove.
 
-   1. THE FALLBACK IS NOT THE SHARED BAND TIER. The other nine fall back to
-      --pp-band-padding-adjacent-top. Hero falls back to its OWN opener rhythm
-      (--space-2xl desktop / --space-xl mobile — the same values .hero's base rules
-      use), because hero's opt-out from the shared band rhythm is a stated intentional
-      difference and the adjacent edge is the one place the catch-all was quietly
-      overriding it. Hero keeps its opener rhythm on the adjacent edge too. This is a
-      deliberate render change: an unset adjacent hero's top edge moves from the band
-      tier (~5rem desktop / 3.35rem mobile) to 7rem / 4rem, which also makes an unset
-      adjacent hero SYMMETRIC with its own bottom edge.
+   What still has to be true is that the role default is REACHABLE, and that is the
+   `:not(.hero)` on the catch-alls above and in the mobile block. Under the cascade
+   layers (#986, ruling D5 revised) the defaults tier's band-root rules sit in
+   `pp-zero`, strictly BELOW this stylesheet in `pp-v1` — that is deliberate, it is
+   what keeps an unauthored v2 band obeying #430/#431 — so a catch-all that MATCHED
+   hero would beat hero's declared default every time. Excluding hero is what lets
+   its stated opt-out stand, and it is the same shape the nine legacy components
+   already use, each with its own adjacent rule.
 
-   2. PLACEMENT IS LOAD-BEARING. It must stay ABOVE the `[data-pp-spacing]` block
-      below. That block is [0,2,1] at desktop, identical to this rule, so source order
-      decides: an explicit compact/spacious override must keep governing BOTH edges of
-      an adjacent hero (issue 434's invariant, pinned at both breakpoints in
-      tests/e2e/style-render.spec.ts). Moving this rule down beside its siblings would
-      out-order that restatement and shave a spaced hero's top edge again. Mobile needs
-      no such care: the mobile block already restates the spacing rules AFTER its
-      per-component list, so hero's mobile rule lives with its siblings down there.
-
-   3. THE LEFT VARIANT GETS ITS OWN TWIN. OQ-1 (ii)'s principle is "hero keeps ITS OWN
-      opener rhythm on the adjacent edge", and .hero--left's own opener rhythm is
-      --space-xl on BOTH edges ("used by inner pages; compact vertical rhythm"), not
-      --space-2xl. A single flat value would have made the adjacent top edge follow the
-      WRONG hero's rhythm: measured, an adjacent .hero--left rendered 112px top against
-      its own 64px bottom at 1280 — an asymmetry the ruling never contemplated, on every
-      inner page. The twin below applies the same principle per variant, which also
-      makes left/split symmetric at both breakpoints. An image-less `split` hero degrades
-      to .hero--left (issue 440), so it is covered by the same rule. */
+   An AUTHORED `_band` padding wins over both regardless: authored blocks are
+   unlayered, and unlayered beats every layer at any specificity. */
 
 /* ==========================================================================
    SHARED: Text-Only Layout
@@ -4430,16 +4420,7 @@ main .btn {
     transform var(--transition);
 }
 
-/* :where() — THE V1 STYLESHEET MUST NOT OUTRANK A v2 BAND BLOCK (#986, ruling D5).
-   Measured, not reasoned: a hero whose `cta` role carried `"_preset": "button"` painted
-   this gradient instead of the preset's fill, because this selector is [0,5,1] and the
-   band block is [0,2,0] — printing the authored layer later only settles ties. The write
-   was accepted and the envelope reported it applied, which is the I35 class.
-   `:where()` drops this rule to zero specificity, so it keeps doing its job as the
-   DEFAULT button treatment and stops competing with a value an author actually wrote.
-   Same move Sprint 0 applied to the adjacent-sibling catch-all, for the same reason.
-   The remaining v1 rules that can outrank a band block are audited in their own issue. */
-main :where(.btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary)) {
+main .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary) {
   border-width: 1px;
   border-style: solid;
   border-color: var(--cta-button-border, var(--color-accent-strong));
@@ -4472,16 +4453,7 @@ main :where(.btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary)) {
   color: var(--section-panel-cta-color, var(--cta-button-color, var(--btn-text, var(--color-bg))));
 }
 
-/* :where() — THE V1 STYLESHEET MUST NOT OUTRANK A v2 BAND BLOCK (#986, ruling D5).
-   Measured, not reasoned: a hero whose `cta` role carried `"_preset": "button"` painted
-   this gradient instead of the preset's fill, because this selector is [0,5,1] and the
-   band block is [0,2,0] — printing the authored layer later only settles ties. The write
-   was accepted and the envelope reported it applied, which is the I35 class.
-   `:where()` drops this rule to zero specificity, so it keeps doing its job as the
-   DEFAULT button treatment and stops competing with a value an author actually wrote.
-   Same move Sprint 0 applied to the adjacent-sibling catch-all, for the same reason.
-   The remaining v1 rules that can outrank a band block are audited in their own issue. */
-main :where(.btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary)):hover {
+main .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover {
   border-color: var(--cta-button-hover-border, var(--color-accent));
   /* Superseded for background by the later "True final cascade" block; --hero-button-hover-bg
      leads the chain here too (issue 530) and the global --btn-hover-bg closes it (issue 539)
@@ -4531,16 +4503,7 @@ main .btn--ghost {
    fill and has the SAME specificity as `main .btn--outline` (both 0,1,1, since
    `main` is a type selector), so without the :not() it would win by source order
    and re-fill the transparent variants — the secondary-CTA contrast bug. */
-/* :where() — THE V1 STYLESHEET MUST NOT OUTRANK A v2 BAND BLOCK (#986, ruling D5).
-   Measured, not reasoned: a hero whose `cta` role carried `"_preset": "button"` painted
-   this gradient instead of the preset's fill, because this selector is [0,5,1] and the
-   band block is [0,2,0] — printing the authored layer later only settles ties. The write
-   was accepted and the envelope reported it applied, which is the I35 class.
-   `:where()` drops this rule to zero specificity, so it keeps doing its job as the
-   DEFAULT button treatment and stops competing with a value an author actually wrote.
-   Same move Sprint 0 applied to the adjacent-sibling catch-all, for the same reason.
-   The remaining v1 rules that can outrank a band block are audited in their own issue. */
-main :where(.btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary)) {
+main .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary) {
   /* The FILL and the RING snap; the bevel, the ink and the lift keep easing (issue 540).
      `main .btn` above sets a five-property transition. On a FILLED premium button two of those
      five animate a colour nobody chose and, worse, nobody ever saw. The resting fill is a
@@ -4636,16 +4599,7 @@ main :where(.btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary)) {
     0 10px 22px color-mix(in srgb, var(--color-accent-strong) 14%, transparent))));
 }
 
-/* :where() — THE V1 STYLESHEET MUST NOT OUTRANK A v2 BAND BLOCK (#986, ruling D5).
-   Measured, not reasoned: a hero whose `cta` role carried `"_preset": "button"` painted
-   this gradient instead of the preset's fill, because this selector is [0,5,1] and the
-   band block is [0,2,0] — printing the authored layer later only settles ties. The write
-   was accepted and the envelope reported it applied, which is the I35 class.
-   `:where()` drops this rule to zero specificity, so it keeps doing its job as the
-   DEFAULT button treatment and stops competing with a value an author actually wrote.
-   Same move Sprint 0 applied to the adjacent-sibling catch-all, for the same reason.
-   The remaining v1 rules that can outrank a band block are audited in their own issue. */
-main :where(.btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary)):hover {
+main .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover {
   /* Global hover BORDER (issue 539) mirrors the rest twin's ordering above: after
      --cta-button-hover-border and --cta-accent-hover, ahead of the literal. Border stays
      INDEPENDENT of the fill in this rule exactly as at rest, so --btn-hover-bg is
@@ -4914,10 +4868,10 @@ main .btn {
 
      `:not(.hero)` for the same reason as the desktop twin (#986): hero is a v2
      component and its padding on both edges is the `_band` role's default. Without
-     the exclusion this rule and the defaults tier are both zero-specificity and
-     this stylesheet prints later, so the shared tier would silently defeat hero's
-     declared default at mobile — where hero's own rhythm (--space-xl) and the band
-     tier genuinely differ. */
+     the exclusion this rule would defeat that default outright, because the
+     band-root defaults tier sits in the `pp-zero` layer and this stylesheet sits in
+     `pp-v1` above it. Mobile is where it would show most: hero's own rhythm
+     (--space-xl) and the shared band tier genuinely differ here. */
   :where(main > [data-pp-component] + [data-pp-component]:not(.hero)) {
     padding-top: var(--pp-band-padding-adjacent-top);
   }
@@ -4946,19 +4900,12 @@ main .btn {
   main > [data-pp-component] + .embed {
     padding-top: var(--embed-padding-top, var(--pp-band-padding-adjacent-top));
   }
-  /* hero joins the list on mobile (issue 577) — the generic rule above was outranking
-     its declared --hero-padding-top on this edge. THE FALLBACK IS THE ODD ONE OUT:
-     hero keeps its own opener rhythm (--space-xl, 4rem) instead of the shared
-     --pp-band-padding-adjacent-top (3.35rem here), matching .hero's own base rule.
-     Safe to sit with its siblings at this breakpoint because the [data-pp-spacing]
-     restatement below still out-orders it (issue 434); at desktop that restatement is
-     ABOVE the per-component list, which is why hero's desktop rule lives up in the
-     SHARED: Adjacent-Sibling Rhythm block instead.
-     NO .hero--left TWIN IS NEEDED HERE: the left variant's own opener rhythm at this
-     breakpoint is --space-xl, which is exactly what this rule already falls back to, so
-     left/split are symmetric on mobile through this one rule. The desktop twin exists
-     only because the two variants' rhythms DIVERGE there (--space-2xl vs --space-xl). */
-
+  /* HERO IS NOT IN THIS LIST, AND THAT IS THE v2 SHAPE (#986).
+     It used to be, with a fallback of its own (--space-xl rather than the shared
+     --pp-band-padding-adjacent-top) because #577 gave hero its own opener rhythm.
+     That rhythm is now the `_band` role's padding default at every breakpoint, so
+     the rule restating it here is gone and the `:not(.hero)` on the mobile catch-all
+     below is what keeps the default reachable — see the note by the desktop twin. */
 
   /* Own mobile padding, routed through the padding slots so a declared
      --*-padding-top/bottom takes effect at mobile too (issue 302). faq now routes
@@ -4980,4 +4927,5 @@ main .btn {
     padding-top: var(--faq-padding-top, var(--pp-band-padding));
     padding-bottom: var(--faq-padding-bottom, var(--pp-band-padding));
   }
+}
 }
