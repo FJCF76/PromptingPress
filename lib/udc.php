@@ -931,13 +931,22 @@ function pp_udc_resolve_reference(string $name, array $band_tokens, bool $allow_
  * take a length as readily as their own native forms.
  */
 function pp_udc_reference_type_table(): array {
-    return [
+    // Built once, like every other table in this file (pp_udc_groups(),
+    // pp_udc_presets(), pp_udc_breakpoints(), …). _pp_udc_reference_check() runs
+    // per reference per breakpoint inside the emitter's placement loop, so a
+    // rebuilt literal here is pure allocation on a hot path.
+    static $table = null;
+    if ($table !== null) {
+        return $table;
+    }
+    $table = [
         'color'       => ['color', 'gradient'],
         'length'      => ['length', 'length-or-none', 'line-height', 'position'],
         'font-family' => ['font-family'],
         'number'      => ['font-weight', 'line-height', 'ratio'],
         'shadow'      => ['shadow'],
     ];
+    return $table;
 }
 
 /**
@@ -987,7 +996,6 @@ function pp_udc_reference_type_table(): array {
 function _pp_udc_reference_check(array $resolved, array $param) {
     $declared = (string) ($resolved['type'] ?? '');
     $value    = $resolved['value'];
-    $table    = pp_udc_reference_type_table();
 
     // `raw` FIRST, so its refusal is a STATED REASON rather than a grammar
     // accident. `--transition` (`150ms ease`) would fail the duration parse below
@@ -998,7 +1006,11 @@ function _pp_udc_reference_check(array $resolved, array $param) {
             'it is a "raw"-typed design token, which declares no single CSS grammar '
             . '(its value "%s" is a compound), so it cannot be referenced by a typed '
             . 'parameter. Set this parameter to a literal value instead.',
-            $value
+            // BOUNDED AND CLEANED like every other value this engine reflects
+            // (_pp_udc_place() does the same with the stored value). A registry
+            // token's text has no length limit of its own and a `raw` token is
+            // injection-checked only, so it can still carry invisible formatting.
+            _pp_udc_reflect($value)
         ));
     }
 
@@ -1017,6 +1029,10 @@ function _pp_udc_reference_check(array $resolved, array $param) {
     if (strpos($value, 'var(') === false) {
         return pp_udc_validate_value($value, $param);
     }
+
+    // Built only now: the two returns above never read it, and the literal-value
+    // one is the overwhelmingly common path.
+    $table = pp_udc_reference_type_table();
 
     // UNTYPED chain-holder (a band `_token`, or a shared base.css property). No
     // declaration to trust, so the value is still the only evidence.

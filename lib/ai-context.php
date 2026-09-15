@@ -840,9 +840,21 @@ function _pp_resolve_component_bg(array $item): ?array {
     // THE HERO-COVER CARVE-OUT IS GONE (#986). It existed because a `cover` hero
     // painted `image_url` as its band background through an inline style, so the band
     // had a photographic background this flat-colour annotation must not describe.
-    // On v2 a band background image is the `_band` role's `background.image` — hero
-    // has no special case left, and an image-backed band of ANY component is already
-    // covered by the `$bg_image` test below.
+    // That inline style is gone, so the carve-out has nothing left to guard.
+    //
+    // WHAT THIS FUNCTION STILL CANNOT SEE, stated rather than implied: a v2 band
+    // background lives at `$item['udc']['_band']['background']`, and nothing here
+    // reads `udc`. The `$bg_image` test below is the v1 `background_image` PROP and
+    // does NOT cover it. The consequence is bounded and it is the SAFE direction: a
+    // v2 component carries no `theme` prop and no `--{name}-bg` style slot, so every
+    // v2 band falls through all four steps to null — the annotation stays silent
+    // about it rather than describing it wrongly. A v2 band with a flat
+    // `background.fill` is therefore under-described, never mis-described.
+    //
+    // This blindness predates hero: testimonials has had it since Sprint 0. It is
+    // tracked as its own issue rather than widened here, because teaching this
+    // function to read `udc` is a v2-wide change to what the chat AI is told, not
+    // part of hero's rebuild.
     if (is_string($bg_image) && trim($bg_image) !== '') {
         return null;
     }
