@@ -128,6 +128,22 @@
     "spacing": "the `_band` role's `spacing` group in the `udc` map (`padding-top` / `padding-bottom`)",
     "width": "the `inner` role's `sizing` group in the `udc` map (`max-width`)"
   },
+  "refuse_props_when": [
+    {
+      "_note": "Props that are declared and well-typed but paint nothing in a particular configuration, refused rather than stored dead (#1006, invariant I35). The `when` clauses use the shared applies_when grammar.",
+      "when": [
+        {
+          "prop": "layout",
+          "equals": "cover"
+        }
+      ],
+      "props": [
+        "image_url",
+        "image_id"
+      ],
+      "message": "paints nothing on the \"cover\" layout: a band background image is not a prop on v2. Set the band's `udc` map instead — `_band` -> `background` -> `image`, whose value is a Media Library attachment id (`import_media` returns one) — and pair it with `background.overlay` for the scrim. NOTE THE TWO ARE DIFFERENT THINGS DESPITE THE SIMILAR NAMES: the udc `background.image` PARAMETER paints the band background, while this component's `image_id` PROP is the inline <img> in the split layout's media column and paints no background anywhere. `image_url` and `image_id` are still live on `layout: \"split\"`, which is the only layout that renders them."
+    }
+  ],
   "roles": {
     "_band": {
       "selector": "",

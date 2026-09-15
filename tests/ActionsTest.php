@@ -863,6 +863,133 @@ class ActionsTest extends TestCase
         $this->assertStringContainsString('default, muted, inverted', $stale[0]['message']);
     }
 
+    // ── #1006: a prop that paints nothing is refused, not stored dead ───────
+
+    /**
+     * THE PAIR IS REFUSED THROUGH THE REAL AUTHORING SURFACE, on both media props.
+     *
+     * `{"layout": "cover", "image_url": "..."}` validated, stored, reported ok:true and
+     * painted nothing, on no channel — the render branch that made the pair mean something
+     * was deleted in the v2 rebuild but neither prop was, so nothing refused it and nothing
+     * reported it. A fresh author working from the live schema meets this on day one.
+     *
+     * BOTH props, not just the one #1006 filed: `image_id` is equally inert on `cover`, so
+     * refusing only `image_url` would leave the identical silent no-op reachable one prop
+     * over — the same I35 test, failed the same way.
+     */
+    public function testACoverHeroCarryingAMediaPropIsRefusedNamingTheUdcRoute(): void
+    {
+        foreach (['image_url' => '/hero.png', 'image_id' => 42] as $prop => $value) {
+            $result = pp_execute_action('create_page', [
+                'title'       => 'Cover hero ' . $prop,
+                'composition' => [[
+                    'component' => 'hero',
+                    'props'     => ['title' => 'Big claim', 'layout' => 'cover', $prop => $value],
+                ]],
+            ]);
+
+            $this->assertFalse($result['ok'], "a cover hero carrying {$prop} must be refused");
+            $this->assertSame('inert_prop', $result['error_code'], 'its own code, not a generic one');
+            $this->assertStringContainsString($prop, $result['error']);
+            // THE ROUTE.
+            $this->assertStringContainsString('`_band` -> `background` -> `image`', $result['error']);
+            $this->assertStringContainsString('import_media', $result['error']);
+            // AND THE DISAMBIGUATION, which is the part a model will otherwise get wrong:
+            // the udc `background.image` PARAMETER and hero's `image_id` PROP are different
+            // things with confusable names, and only one of them paints a background.
+            $this->assertStringContainsString('DIFFERENT THINGS DESPITE THE SIMILAR NAMES', $result['error']);
+        }
+    }
+
+    /**
+     * THE LAYOUT ITSELF IS STILL LIVE — the regression guard that keeps the refusal from
+     * being a layout removal.
+     *
+     * `cover` is a tall centred band (`.hero--cover` is real geometry) and pages using it
+     * correctly must keep working. Only the PAIR is dead, which is why the rule keys on a
+     * condition plus a prop set rather than on either alone.
+     */
+    public function testACoverHeroWithNoMediaPropIsStillPerfectlyValid(): void
+    {
+        $result = pp_execute_action('create_page', [
+            'title'       => 'Plain cover hero',
+            'composition' => [[
+                'component' => 'hero',
+                'props'     => ['title' => 'Big claim', 'layout' => 'cover'],
+            ]],
+        ]);
+
+        $this->assertTrue($result['ok'], $result['error'] ?? 'cover is a live layout, not a retired one');
+    }
+
+    /**
+     * And the media props are untouched on the layout that renders them.
+     *
+     * A refusal that reached `split` would break the one thing `image_url` still does.
+     */
+    public function testTheMediaPropsAreUntouchedOnTheSplitLayout(): void
+    {
+        $result = pp_execute_action('create_page', [
+            'title'       => 'Split hero',
+            'composition' => [[
+                'component' => 'hero',
+                'props'     => [
+                    'title' => 'Big claim', 'layout' => 'split',
+                    'image_url' => '/hero.png', 'image_alt' => 'Product', 'image_id' => 42,
+                ],
+            ]],
+        ]);
+
+        $this->assertTrue($result['ok'], $result['error'] ?? 'split is where these props live');
+    }
+
+    /**
+     * An EMPTY media prop on a cover band is not the author asking for a background, so it
+     * is not refused. Without this the rule would make a band merely CARRYING the key
+     * unwritable, which is a lockout wearing a fix's clothes — exactly what #1007 spent
+     * this same change removing.
+     */
+    public function testAnEmptyMediaPropOnACoverHeroIsNotRefused(): void
+    {
+        $result = pp_execute_action('create_page', [
+            'title'       => 'Cover hero with a cleared image',
+            'composition' => [[
+                'component' => 'hero',
+                'props'     => ['title' => 'Big claim', 'layout' => 'cover', 'image_url' => ''],
+            ]],
+        ]);
+
+        $this->assertTrue($result['ok'], $result['error'] ?? 'an empty value is not a request for a background');
+    }
+
+    /**
+     * A page that ALREADY holds the pair still restores, and the restore reports it (#233).
+     *
+     * A new write-time refusal must never make an existing page unrecoverable: restore is
+     * the route back from a bad state, so a rule that blocked it would take the undo away
+     * from exactly the pages that need it.
+     */
+    public function testAStoredCoverPairStillRestoresAndIsReportedNotBlocked(): void
+    {
+        $id = pp_create_page('Legacy cover hero', 'draft');
+        pp_update_composition($id, [
+            ['component' => 'hero', 'props' => ['title' => 'Old', 'layout' => 'cover', 'image_url' => '/old.png']],
+        ]);
+        pp_update_composition($id, [
+            ['component' => 'hero', 'props' => ['title' => 'Newer', 'layout' => 'centered']],
+        ]);
+
+        $restored = pp_execute_action('restore_composition', ['post_id' => $id, 'steps_back' => 1]);
+
+        $this->assertTrue($restored['ok'], $restored['error'] ?? 'restore is never blocked by current rules (#233)');
+        $this->assertContains(
+            'inert_prop',
+            array_column($restored['findings'], 'type'),
+            'and it reports what it brought back'
+        );
+        $this->assertSame('/old.png', pp_get_composition($id)[0]['props']['image_url'], 'restored verbatim');
+    }
+
     // ── #1007: the band-scoped write gate ───────────────────────────────────
 
     /**

@@ -2393,6 +2393,80 @@ function pp_validate_composition_errors(array $items, ?int $limit = null, ?int $
             }
         }
 
+        // Props that are declared, well-typed, stored — and paint nothing in the
+        // configuration the band is actually in (#1006, invariant I35).
+        //
+        // THE CASE THIS CLOSES. A hero written as {"layout": "cover", "image_url": "..."}
+        // validated, stored, reported ok:true and painted no background, on no channel.
+        // Neither prop was removed in the v2 rebuild — only the render branch that made
+        // the pair mean something — so nothing refused it and nothing reported it. A
+        // FRESH author, the only audience 2.0.0-alpha.1 has, could write both straight
+        // off the live schema and see nothing. That is the reported-success-without-effect
+        // class the whole sprint exists to eliminate, reachable on day one.
+        //
+        // A REFUSAL, NOT AN ADVISORY, and the asymmetry with `inert_slot` is deliberate:
+        // an inert SLOT is a value that does nothing on a band that is otherwise doing
+        // what the author asked, while this pair is the author asking for a background
+        // and getting no background. The right answer is to decline and say where
+        // backgrounds live now, the same posture `retired_option` takes for a key that
+        // moved.
+        //
+        // NOT A REFUSAL OF THE LAYOUT. `cover` is still a live layout — a tall centred
+        // band — and refusing it would break pages that use it correctly. Only the PAIR
+        // is dead, which is why the rule keys on a condition plus a prop set rather than
+        // on either alone.
+        //
+        // GENERIC AND SCHEMA-DRIVEN, the same shape as `content_requirement` above: no
+        // per-component branch here, and the condition reuses the `applies_when` clause
+        // grammar (pp_applies_when_clause_met) rather than inventing a second predicate
+        // language. restore_composition (#233) reports it without blocking, like every
+        // rule in this loop, so a page already holding the pair still restores.
+        if (!empty($schema['refuse_props_when']) && is_array($schema['refuse_props_when'])) {
+            $authored  = (isset($item['props']) && is_array($item['props'])) ? $item['props'] : [];
+            $prop_defs = isset($schema['props']) && is_array($schema['props']) ? $schema['props'] : [];
+            $style_map = (isset($item['style']) && is_array($item['style'])) ? $item['style'] : [];
+
+            foreach ($schema['refuse_props_when'] as $rule) {
+                if (!is_array($rule) || empty($rule['props']) || !is_array($rule['props'])) {
+                    continue;
+                }
+                $when = (isset($rule['when']) && is_array($rule['when'])) ? $rule['when'] : [];
+                $met  = true;
+                foreach ($when as $clause) {
+                    if (!pp_applies_when_clause_met($clause, $authored, $prop_defs, $style_map)) {
+                        $met = false;
+                        break;
+                    }
+                }
+                if (!$met || $when === []) {
+                    continue;
+                }
+                foreach ($rule['props'] as $dead_prop) {
+                    $dead_prop = (string) $dead_prop;
+                    // PRESENCE, judged the way the rest of this engine judges it: an unset
+                    // prop and an empty one are the author NOT asking for the thing, and
+                    // refusing those would make `"image_url": ""` unwritable on a cover
+                    // band that is merely carrying the key.
+                    if (!pp_applies_when_clause_met(
+                        ['prop' => $dead_prop, 'present' => true], $authored, [], $style_map
+                    )) {
+                        continue;
+                    }
+                    if (_pp_claim_item_finding($sink, 'prop', $dead_prop)) {
+                        $errors[] = _pp_composition_item_error($i,
+                            'inert_prop',
+                            sprintf(
+                                'Component "%s" prop "%s" %s',
+                                $name,
+                                $dead_prop,
+                                isset($rule['message']) ? (string) $rule['message'] : 'has no effect as configured.'
+                            )
+                        );
+                    }
+                }
+            }
+        }
+
         // Reject unknown prop keys (issue 147). The action layer shallow-merges
         // caller-supplied props and writes: update_component / add_component /
         // update_composition / create_page all validate through here, so a single

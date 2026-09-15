@@ -304,7 +304,7 @@ function pp_ai_system_prompt(): string {
     $parts[] = '  - testimonials items (author avatar): `items[].image_url` + `items[].image_alt`, optionally `items[].image_id` (same as hero)';
     $parts[] = '  - nav/footer logos are NOT props (issue 582): the header and footer are template-owned chrome, so a composition naming them is rejected. Use SITE OPTIONS instead — `update_site_option` with `pp_logo_id` (Media Library attachment ID, not a URL), optionally `pp_footer_logo_id` for a footer-specific variant, and `pp_logo_alt` for alt text. `pp_logo_alt` is one site-wide value shared by both logos; leave it unset and each attachment\'s own alt metadata is used, then the site title. The alt is never empty. A value that is empty or whitespace-only counts as unprovided and falls through the chain rather than rendering, so do not write a blank alt to "clear" it — it would announce nothing and suppress the attachment\'s own alt. A real value renders verbatim.';
     $parts[] = '- Background images (no `image_alt` needed):';
-    $parts[] = '  - hero (layout: "cover"): `image_url` rendered as CSS background-image';
+    $parts[] = '  - hero (layout: "cover"): NOT a prop, and the two names are easy to confuse. `cover` is still a tall centred band, but its background image is the BAND\'s `udc` map — `_band` `background.image`, whose value is a Media Library attachment id — while `image_url`/`image_id` are this component\'s inline <img> props. On a cover hero they paint nothing and are REFUSED with `inert_prop`; on `layout: "split"` they are live and render the media column.';
     $parts[] = '  - section: `background_image`';
     $parts[] = '  - cta: `background_image`';
     $parts[] = '  - stats: `background_image`';
