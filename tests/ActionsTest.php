@@ -37,9 +37,9 @@ class ActionsTest extends TestCase
     public function testRegistryReturnsAllTwentyActions(): void
     {
         $actions = pp_get_registered_actions();
-        $this->assertCount(24, $actions);
+        $this->assertCount(26, $actions);
         $expected = [
-            'create_page', 'update_site_option', 'update_page_title',
+            'create_page', 'update_site_option', 'save_preset', 'delete_preset', 'update_page_title',
             'update_page_slug', 'update_seo_meta',
             'update_composition', 'publish_page', 'add_component',
             'remove_component', 'restore_composition', 'reorder_components', 'update_component',

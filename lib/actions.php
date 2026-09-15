@@ -1112,8 +1112,25 @@ function _pp_snapshot_batch_targets(array $steps): array {
             $font_urls = pp_get_font_urls();
         }
 
+        // THE PRESET VERBS CAPTURE THE SAME ROW (#1016), because they write it.
+        //
+        // This arm is how a site option gets a rollback baseline, and it keyed on
+        // ONE action name. `save_preset` and `delete_preset` write `pp_site_udc`
+        // without going through `update_site_option`, so without this line a batch
+        // that saved a preset and then failed would roll back everything EXCEPT
+        // the preset — and `rollback_errors: []` would say so was fine.
+        //
+        // The restore arm needs no change: it restores any whitelisted key from
+        // the captured raw string, and the whole row is what is captured, so both
+        // subtrees and both baselines come back together rather than in halves.
+        $option_step_key = null;
         if ($name === 'update_site_option' && isset($params['key'])) {
-            $key = (string) $params['key'];
+            $option_step_key = (string) $params['key'];
+        } elseif ($name === 'save_preset' || $name === 'delete_preset') {
+            $option_step_key = PP_SITE_UDC_OPTION;
+        }
+        if ($option_step_key !== null) {
+            $key = $option_step_key;
             if (!array_key_exists($key, $site_options)) {
                 // Capture PRESENCE and VALUE separately (#291): an option that was
                 // absent (no DB row) and one that held an explicit '' both used to
@@ -4500,6 +4517,179 @@ pp_register_action('update_site_option', [
         }
         return _pp_action_result('update_site_option', 'site', ['key' => $params['key']], [
             ['path' => $params['key'], 'from' => $current, 'to' => $stored],
+        ]);
+    },
+]);
+
+// ── Actions: save_preset / delete_preset ────────────────────────────────────
+// Scope: site | Semantics: one preset per call. Store: pp_site_udc `_presets`.
+
+/**
+ * The definition a preset verb assembles from its params.
+ *
+ * Built in one place so the validate arm and the execute arm judge and store the
+ * SAME object. Two constructions would be two chances for a field that validated
+ * to differ from the field that landed — the shape of bug the write-path honesty
+ * invariants exist to close.
+ */
+function _pp_preset_definition_from_params(array $params): array {
+    $preset = [
+        'grain' => isset($params['grain']) && is_string($params['grain']) ? $params['grain'] : '',
+        'udc'   => isset($params['udc']) && is_array($params['udc']) ? $params['udc'] : [],
+    ];
+    // Omitted rather than stored empty: an absent description and a blank one are
+    // the same fact, and storing '' would spend bytes from a shared ceiling to say
+    // nothing.
+    if (isset($params['description']) && is_string($params['description']) && trim($params['description']) !== '') {
+        $preset['description'] = $params['description'];
+    }
+    return $preset;
+}
+
+pp_register_action('save_preset', [
+    'scope'       => 'site',
+    'description' => 'Creates or replaces ONE named site preset — a reusable `udc` fragment that any band or chrome role can apply by name through a `"_preset"` key. `name` is 1-64 characters of letters, digits, hyphen or underscore, written BARE at the reference site (an `@name` always means a design token, never a preset). `grain` is either "role" (a bundle of groups, applied beside a role\'s own groups: `"cta": {"_preset": "brand-cta", "border": {"radius": "12px"}}`) or ONE group name (applied beside that group\'s parameters: `"quote": {"typography": {"_preset": "brand-type", "size": "1.25rem"}}`). `udc` is the fragment itself, in exactly the shape the same grain takes inside a band: for "role" a map of groups, for a group grain a map of that group\'s parameters. It is validated by the SAME engine and the SAME grammar a band\'s `udc` gets — same parameters, same units, same `@token` references, same breakpoint maps, same `:hover`/`:focus-visible`/`:active` states. `@token` references resolve against the SITE design tokens only: a preset belongs to the site, not to a band, so a band-local token name is refused here. Every group in the taxonomy may be declared; what a preset may declare is NOT narrowed by where it will be applied, because a role-grain preset applies the groups each target role permits and skips the rest (the write that applies it discloses which). A name the theme already ships (button, button-secondary, link) is REFUSED — those are theme-owned and cannot be replaced, and shadowing them would put two different bundles behind one name. Replacing an existing preset of your own is allowed and takes effect everywhere it is referenced, immediately. The store is concurrency-versioned separately from chrome styling: pass the `presets_version` you read as `expected_version` and a write that would overwrite someone else\'s newer edit is refused instead. Read the current store with `wp pp operate inspect` (under `chrome`, as `presets` and `presets_version`).',
+    // NO CONSTANT INTERPOLATION HERE. Action definitions are built when this file
+    // loads, and lib/udc.php — where the two bounds live — loads after it. The
+    // numbers belong to the refusals, which run at write time and can read them;
+    // restating them in a string that loads earlier would either fatal or drift.
+    'semantics'   => 'Replace, at one-preset grain. Only the named preset is written; every other preset, and all chrome styling in the same row, is left exactly as it was. A preset that fails the shared grammar is refused naming the preset, the group and the parameter. Bounded two ways — a maximum number of presets per site, and a maximum size for any one preset — and the refusal names which bound it hit and what that limit is. Updating an existing preset is allowed even at the count limit, so a site that reached it can still edit its way back under it.',
+    'params'      => [
+        'name'             => ['type' => 'string', 'required' => true],
+        'grain'            => ['type' => 'string', 'required' => true],
+        'udc'              => ['type' => 'array',  'required' => true],
+        'description'      => ['type' => 'string', 'required' => false],
+        'expected_version' => ['type' => 'int',    'required' => false],
+    ],
+    'validate' => function (array $params) {
+        return pp_udc_validate_preset_definition(
+            (string) $params['name'],
+            _pp_preset_definition_from_params($params)
+        );
+    },
+    'preview' => function (array $params): array {
+        $stored = pp_udc_custom_presets();
+        $name   = (string) $params['name'];
+        $before = $stored[$name] ?? null;
+        $after  = _pp_preset_definition_from_params($params);
+        return _pp_action_preview('save_preset', 'site', ['name' => $name], $before, $after, [
+            ['path' => 'preset.' . $name, 'from' => $before, 'to' => $after],
+        ]);
+    },
+    'execute' => function (array $params): array {
+        $name   = (string) $params['name'];
+        $stored = pp_udc_custom_presets();
+        $before = $stored[$name] ?? null;
+        $after  = _pp_preset_definition_from_params($params);
+
+        $result = pp_update_site_preset(
+            $name,
+            $after,
+            isset($params['expected_version']) && is_numeric($params['expected_version'])
+                ? (int) $params['expected_version']
+                : null
+        );
+        if (is_wp_error($result)) {
+            // The code travels with the message, for the reason the site-option
+            // arm states: a conflict is precisely the refusal a caller must be
+            // able to recognise in order to re-read and retry, and string-matching
+            // prose is not recognising it.
+            return _pp_action_error(
+                'save_preset',
+                'site',
+                $result->get_error_message(),
+                (string) $result->get_error_code()
+            );
+        }
+        return _pp_action_result('save_preset', 'site', ['name' => $name], [
+            ['path' => 'preset.' . $name, 'from' => $before, 'to' => $after],
+        ]);
+    },
+]);
+
+pp_register_action('delete_preset', [
+    'scope'       => 'site',
+    'description' => 'Removes ONE named site preset. A preset that any band or chrome role still references is REFUSED, and the refusal LISTS the references — page, band and role — so you can retarget them first. That is the reverse of the rule that refuses a band naming a preset which does not exist: deleting out from under a reference would leave every one of those bands pointing at nothing, and the declarations would silently stop painting. Theme-shipped presets (button, button-secondary, link) cannot be deleted. The store is concurrency-versioned: pass the `presets_version` you read as `expected_version`.',
+    'semantics'   => 'Delete, at one-preset grain, refused while referenced. Only the named preset is removed; every other preset, and all chrome styling in the same row, is untouched. A page whose stored composition cannot be read also refuses the delete: a reference cannot be ruled out in bytes nobody can decode, and the refusal names the page so it can be repaired first. A name that is not stored is refused rather than reported as a successful no-op.',
+    'params'      => [
+        'name'             => ['type' => 'string', 'required' => true],
+        'expected_version' => ['type' => 'int',    'required' => false],
+    ],
+    'validate' => function (array $params) {
+        $name = (string) $params['name'];
+        if (!pp_udc_valid_preset_name($name)) {
+            return new WP_Error('invalid_param_value', sprintf(
+                'A preset name must be 1-64 characters of letters, digits, hyphen or underscore; got %s.',
+                _pp_schema_value_for_message($params['name'])
+            ));
+        }
+        if (isset(pp_udc_system_presets()[$name])) {
+            return new WP_Error('invalid_param_value', sprintf(
+                'The preset "%s" is shipped by the theme and cannot be deleted. Theme presets are: %s. '
+                . 'A band that should not use it can simply stop referencing it.',
+                $name,
+                implode(', ', array_keys(pp_udc_system_presets()))
+            ));
+        }
+
+        // THE REVERSE DANGLING-REFERENCE GATE (#1016). Run in `validate` so the
+        // refusal reaches a PREVIEW too: an author asking "what would this do"
+        // should be told it would break eleven bands before they run it, not after.
+        $scan = pp_udc_preset_references($name);
+        if ($scan['unreadable'] !== []) {
+            return new WP_Error('invalid_param_value', sprintf(
+                'Whether "%s" is still in use cannot be determined: the stored composition of %s could '
+                . 'not be read, and a preset may not be deleted while a page that might reference it is '
+                . 'unreadable. Repair %s first (wp pp operate composition-history --post_id=<id>), then '
+                . 'delete again.',
+                $name,
+                implode(', ', $scan['unreadable']),
+                count($scan['unreadable']) === 1 ? 'it' : 'those pages'
+            ));
+        }
+        if ($scan['references'] !== []) {
+            return new WP_Error('invalid_param_value', sprintf(
+                'The preset "%s" is still referenced by %s, so it was not deleted: %s. Change or remove '
+                . 'those references first — deleting now would leave each of them pointing at a preset '
+                . 'that does not exist, and those declarations would stop painting with nothing to say why.',
+                $name,
+                count($scan['references']) === 1 ? '1 place' : count($scan['references']) . ' places',
+                implode('; ', array_slice($scan['references'], 0, 20))
+                    . (count($scan['references']) > 20
+                        ? sprintf('; and %d more', count($scan['references']) - 20)
+                        : '')
+            ));
+        }
+        return null;
+    },
+    'preview' => function (array $params): array {
+        $name   = (string) $params['name'];
+        $before = pp_udc_custom_presets()[$name] ?? null;
+        return _pp_action_preview('delete_preset', 'site', ['name' => $name], $before, null, [
+            ['path' => 'preset.' . $name, 'from' => $before, 'to' => null],
+        ]);
+    },
+    'execute' => function (array $params): array {
+        $name   = (string) $params['name'];
+        $before = pp_udc_custom_presets()[$name] ?? null;
+
+        $result = pp_update_site_preset(
+            $name,
+            null,
+            isset($params['expected_version']) && is_numeric($params['expected_version'])
+                ? (int) $params['expected_version']
+                : null
+        );
+        if (is_wp_error($result)) {
+            return _pp_action_error(
+                'delete_preset',
+                'site',
+                $result->get_error_message(),
+                (string) $result->get_error_code()
+            );
+        }
+        return _pp_action_result('delete_preset', 'site', ['name' => $name], [
+            ['path' => 'preset.' . $name, 'from' => $before, 'to' => null],
         ]);
     },
 ]);

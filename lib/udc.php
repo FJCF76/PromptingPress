@@ -868,6 +868,251 @@ function pp_udc_shadowed_presets(): array {
 }
 
 /**
+ * Validates a custom preset definition, through the engine a band map uses (#1016).
+ *
+ * "One engine, no fork" is the ruled contract, and the only thing a preset needs
+ * that a band map does not is a different SUBJECT in the message — a preset is
+ * authored against no component and no role, so the band wording would name
+ * things the author never wrote. _pp_udc_validate_group_map() takes that subject
+ * as a parameter; everything else here is the same walk, the same grammar, the
+ * same refusals.
+ *
+ * WHAT A PRESET IS VALIDATED AGAINST, since it has no target role. Every group in
+ * the taxonomy is permitted at DEFINITION time, and applicability is decided at
+ * REFERENCE time by the ruled intersect: the groups the target role permits
+ * apply, the rest are skipped and disclosed, and an empty intersection refuses.
+ * Refusing a wide preset here instead would be a second, stricter gate the T2
+ * sub-ruling does not have — and it would make a shared bundle unusable for the
+ * thing bundles are for, which is spanning roles that differ in shape.
+ *
+ * BAND TOKENS ARE NOT IN SCOPE, and that falls out rather than being imposed: a
+ * preset belongs to the site, not to a band, so `[]` is the honest token scope and
+ * an `@name` that only resolves inside some band is refused here as dangling. Site
+ * tokens resolve normally, which is how the theme's own presets follow a retheme.
+ *
+ * @param mixed $preset The stored shape: ['grain' => …, 'udc' => …, 'description' => …].
+ */
+function pp_udc_validate_preset_definition(string $name, $preset): ?WP_Error {
+    if (!pp_udc_valid_preset_name($name)) {
+        return new WP_Error('invalid_prop_value', sprintf(
+            'A preset name must be 1-64 characters of letters, digits, hyphen or underscore; got %s. '
+            . 'The charset is the design-token charset, because a preset name is stable text, not CSS.',
+            _pp_schema_value_for_message($name)
+        ));
+    }
+    // A CUSTOM PRESET MAY NOT TAKE A THEME PRESET'S NAME (invariant I36).
+    //
+    // Shadowing would put two different bundles behind one bare name, and the
+    // reference site cannot show which one it got. That is the hidden aliasing
+    // I36 forbids, and it is the same reasoning that made `_preset` take a BARE
+    // name rather than an `@` sigil: one namespace, one meaning, visible in the
+    // source an author reads.
+    if (isset(pp_udc_system_presets()[$name])) {
+        return new WP_Error('invalid_prop_value', sprintf(
+            'The preset "%s" is shipped by the theme and cannot be replaced. Theme presets are: %s. '
+            . 'Pick another name — anything you set on a band beside a preset already overrides it, '
+            . 'so a variant does not need to shadow the original.',
+            $name,
+            implode(', ', array_keys(pp_udc_system_presets()))
+        ));
+    }
+    if (!is_array($preset)) {
+        return new WP_Error('invalid_prop_value', sprintf(
+            'Preset "%s" must be an object with "grain" and "udc"; got %s.',
+            $name,
+            _pp_schema_value_for_message($preset)
+        ));
+    }
+    foreach (array_keys($preset) as $key) {
+        if (!in_array((string) $key, ['grain', 'udc', 'description'], true)) {
+            return new WP_Error('invalid_prop_value', sprintf(
+                'Preset "%s" has no field %s. A preset carries "grain" (either "role" or one group '
+                . 'name), "udc" (the fragment), and an optional "description".',
+                $name,
+                _pp_render_undeclared_prop_keys([(string) $key])
+            ));
+        }
+    }
+    if (isset($preset['description']) && !is_string($preset['description'])) {
+        return new WP_Error('invalid_prop_value', sprintf(
+            'Preset "%s" description must be text; got %s.',
+            $name,
+            _pp_schema_value_for_message($preset['description'])
+        ));
+    }
+
+    $groups = pp_udc_groups();
+    $grain  = isset($preset['grain']) && is_string($preset['grain']) ? $preset['grain'] : '';
+    if ($grain !== 'role' && !isset($groups[$grain])) {
+        return new WP_Error('invalid_prop_value', sprintf(
+            'Preset "%s" grain must be "role" (a bundle of groups, applied beside a role\'s own) or '
+            . 'one group name (applied beside that group\'s parameters); got %s. Groups: %s',
+            $name,
+            _pp_schema_value_for_message($preset['grain'] ?? null),
+            implode(', ', array_keys($groups))
+        ));
+    }
+    if (!isset($preset['udc']) || !is_array($preset['udc']) || $preset['udc'] === []) {
+        return new WP_Error('invalid_prop_value', sprintf(
+            'Preset "%s" declares nothing. A preset that contributes no value is a reference that '
+            . 'paints nothing, which the engine refuses wherever it can see it.',
+            $name
+        ));
+    }
+    if (isset($preset['udc'][PP_UDC_PRESET_KEY])) {
+        return _pp_udc_nested_preset_error(sprintf('Preset "%s"', $name), null);
+    }
+
+    $subject   = sprintf('Preset "%s"', $name);
+    $permitted = array_keys($groups);
+
+    if ($grain === 'role') {
+        foreach ($preset['udc'] as $group_name => $group_map) {
+            $error = _pp_udc_validate_group_map(
+                '', '', (string) $group_name, $group_map, $permitted, [], '', false, $subject
+            );
+            if ($error !== null) {
+                return $error;
+            }
+        }
+    } else {
+        $error = _pp_udc_validate_group_map(
+            '', '', $grain, $preset['udc'], $permitted, [], '', false, $subject
+        );
+        if ($error !== null) {
+            return $error;
+        }
+    }
+
+    // THE PER-PRESET CEILING, and it is not the same fact as the store's ceiling.
+    //
+    // The container's 64 KB is shared with chrome, so one enormous preset can make
+    // a chrome write fail for a reason the chrome author cannot see. Two bounds,
+    // two messages: this one says "this preset is too big", the store's says
+    // "there are too many". Reporting a byte exhaustion as a count would send an
+    // author deleting rows when the fix is to shrink one.
+    $encoded = wp_json_encode($preset);
+    if (!is_string($encoded)) {
+        return new WP_Error('invalid_prop_value', sprintf(
+            'Preset "%s" could not be encoded for storage; nothing was written.',
+            $name
+        ));
+    }
+    if (strlen($encoded) > PP_SITE_PRESET_MAX_BYTES) {
+        return new WP_Error('invalid_prop_value', sprintf(
+            'Preset "%s" is %d bytes and the limit for one preset is %d. The preset store shares a '
+            . 'row with your chrome styling, so a single outsized preset would start refusing chrome '
+            . 'writes. Split it into two presets, or drop the values a band can set for itself.',
+            $name,
+            strlen($encoded),
+            PP_SITE_PRESET_MAX_BYTES
+        ));
+    }
+
+    return null;
+}
+
+/**
+ * Every place a preset NAME is referenced from, across the whole site (#1016).
+ *
+ * THE REVERSE OF THE DANGLING-REFERENCE REFUSAL. The write gate already refuses a
+ * band that references a preset which does not exist; without this, DELETING a
+ * preset would create exactly that state in bulk and in silence — every band
+ * holding the name keeps it, the emitter drops the declarations, and nothing
+ * anywhere says why the page changed.
+ *
+ * FAILS CLOSED, and the caller must treat it that way. A page whose composition
+ * cannot be read contributes an `unreadable` entry rather than being skipped:
+ * "no references found" and "I could not look" are different answers, and only
+ * one of them makes a delete safe. That is invariant I9 at the scan level.
+ *
+ * Bounded to the delete verb. It reads one option and one meta row per
+ * composition page, which is a site-sized walk on a verb an author runs rarely —
+ * never on a render path, never in preflight.
+ *
+ * @return array{references: array<int, string>, unreadable: array<int, string>}
+ */
+function pp_udc_preset_references(string $name): array {
+    $out = ['references' => [], 'unreadable' => []];
+
+    $site = pp_udc_site_map();
+    foreach (($site['chrome'] ?? []) as $chrome_name => $map) {
+        foreach (_pp_udc_map_references_preset(is_array($map) ? $map : [], $name) as $where) {
+            $out['references'][] = sprintf('site chrome "%s" %s', $chrome_name, $where);
+        }
+    }
+
+    if (!function_exists('pp_composition_pages')) {
+        return $out;
+    }
+    // FRESH, NOT CACHED. pp_composition_pages() memoizes for the request, which is
+    // right for the listings that call it and wrong here: a page missing from a
+    // list cached earlier in this request is a reference this scan would not see
+    // and would report as absent, certifying a delete that breaks it.
+    foreach (pp_composition_pages(true) as $page) {
+        $id = (int) ($page['id'] ?? 0);
+        // THE AUTHORITATIVE READ, because this is a GATE and not a report.
+        // pp_composition_db_handle()'s docblock draws the line: readers may
+        // degrade to the cached value, gates may not be OPENED by one. A delete
+        // that cleared on a stale cached composition would miss a reference a
+        // concurrent write had just added and certify the removal anyway.
+        $result = function_exists('pp_get_composition_result_authoritative')
+            ? pp_get_composition_result_authoritative($id)
+            : (function_exists('pp_get_composition_result') ? pp_get_composition_result($id) : null);
+        if (!is_array($result) || empty($result['ok'])) {
+            // UNREADABLE IS NOT EMPTY. A page whose bytes nobody could decode may
+            // hold the reference, and "I could not look" must never be reported as
+            // "there is nothing there" (invariant I9) — the caller refuses on it.
+            $out['unreadable'][] = sprintf('page %d ("%s")', $id, (string) ($page['title'] ?? ''));
+            continue;
+        }
+        foreach ((array) ($result['composition'] ?? []) as $i => $item) {
+            if (!is_array($item) || !isset($item['udc']) || !is_array($item['udc'])) {
+                continue;
+            }
+            $band = isset($item['id']) && is_scalar($item['id']) ? (string) $item['id'] : ('index ' . $i);
+            foreach (_pp_udc_map_references_preset($item['udc'], $name) as $where) {
+                $out['references'][] = sprintf(
+                    'page %d ("%s") band %s %s',
+                    $id,
+                    (string) ($page['title'] ?? ''),
+                    $band,
+                    $where
+                );
+            }
+        }
+    }
+    return $out;
+}
+
+/**
+ * The places inside ONE `udc` map that name a preset, at either grain.
+ *
+ * Both grains, because both are references and a delete that only looked at one
+ * would leave the other dangling — which is the failure this scan exists to
+ * prevent, rebuilt out of a half-done walk.
+ *
+ * @return array<int, string>
+ */
+function _pp_udc_map_references_preset(array $udc, string $name): array {
+    $found = [];
+    foreach ($udc as $role_name => $role_map) {
+        if (in_array((string) $role_name, pp_udc_reserved_keys(), true) || !is_array($role_map)) {
+            continue;
+        }
+        if (($role_map[PP_UDC_PRESET_KEY] ?? null) === $name) {
+            $found[] = sprintf('role "%s"', (string) $role_name);
+        }
+        foreach ($role_map as $group_name => $group_map) {
+            if (is_array($group_map) && ($group_map[PP_UDC_PRESET_KEY] ?? null) === $name) {
+                $found[] = sprintf('role "%s" group "%s"', (string) $role_name, (string) $group_name);
+            }
+        }
+    }
+    return $found;
+}
+
+/**
  * Resolves a preset name to its fragment, or null when nothing carries that name.
  *
  * THE ONE LOOKUP POINT, and the reason it exists as its own function rather than
@@ -1847,14 +2092,26 @@ function _pp_udc_validate_group_map(
     array $permitted,
     array $band_tokens,
     string $origin = '',
-    bool $allow_preset = false
+    bool $allow_preset = false,
+    ?string $subject = null
 ): ?WP_Error {
+    // WHO THIS MAP BELONGS TO, said once (#1016).
+    //
+    // Every message below used to open `Component "x" role "y"`, which is the
+    // truth for a band and for a chrome entry and a LIE for a preset definition:
+    // a preset is authored against no component and no role, and telling an
+    // author their preset is wrong on a role they never named would send them
+    // looking at the wrong thing. A preset validates through this same function —
+    // "one engine, no fork" is the ruled contract — so the engine takes the
+    // subject as a parameter rather than growing a second copy with a different
+    // preamble. Null keeps the band/chrome wording byte-identical.
+    $who = $subject ?? sprintf('Component "%s" role "%s"', $component, $role);
+
     $groups = pp_udc_groups();
     if (!isset($groups[$group_name])) {
         return new WP_Error('unknown_udc_group', sprintf(
-            'Component "%s" role "%s"%s names the UDC group %s, which does not exist. Available groups: %s',
-            $component,
-            $role,
+            '%s%s names the UDC group %s, which does not exist. Available groups: %s',
+            $who,
             $origin,
             _pp_render_undeclared_prop_keys([$group_name]),
             implode(', ', array_keys($groups))
@@ -1862,9 +2119,8 @@ function _pp_udc_validate_group_map(
     }
     if (!in_array($group_name, $permitted, true)) {
         return new WP_Error('unknown_udc_group', sprintf(
-            'Component "%s" role "%s"%s does not permit the UDC group "%s". Permitted groups: %s',
-            $component,
-            $role,
+            '%s%s does not permit the UDC group "%s". Permitted groups: %s',
+            $who,
             $origin,
             $group_name,
             implode(', ', $permitted) ?: '(none)'
@@ -1872,9 +2128,8 @@ function _pp_udc_validate_group_map(
     }
     if (!is_array($group_map)) {
         return new WP_Error('invalid_prop_value', sprintf(
-            'Component "%s" role "%s" group "%s"%s must be an object of parameters; got %s.',
-            $component,
-            $role,
+            '%s group "%s"%s must be an object of parameters; got %s.',
+            $who,
             $group_name,
             $origin,
             _pp_schema_value_for_message($group_map)
@@ -1891,7 +2146,7 @@ function _pp_udc_validate_group_map(
         if ($param_name === PP_UDC_PRESET_KEY) {
             if (!$allow_preset) {
                 return _pp_udc_nested_preset_error(
-                    sprintf('Component "%s" role "%s" group "%s"%s', $component, $role, $group_name, $origin),
+                    sprintf('%s group "%s"%s', $who, $group_name, $origin),
                     null
                 );
             }
@@ -1907,8 +2162,8 @@ function _pp_udc_validate_group_map(
         if (isset($states[$param_name])) {
             if (!is_array($param_value)) {
                 return new WP_Error('invalid_prop_value', sprintf(
-                    'Component "%s" role "%s" group "%s"%s "%s" must be an object of parameters; got %s.',
-                    $component, $role, $group_name, $origin, $param_name,
+                    '%s group "%s"%s "%s" must be an object of parameters; got %s.',
+                    $who, $group_name, $origin, $param_name,
                     _pp_schema_value_for_message($param_value)
                 ));
             }
@@ -1919,14 +2174,14 @@ function _pp_udc_validate_group_map(
                 // ":hover".
                 if (isset($states[(string) $state_param])) {
                     return new WP_Error('invalid_prop_value', sprintf(
-                        'Component "%s" role "%s" group "%s"%s "%s" may not contain the state "%s". '
+                        '%s group "%s"%s "%s" may not contain the state "%s". '
                         . 'States do not nest; declare each state directly on the group.',
-                        $component, $role, $group_name, $origin, $param_name, (string) $state_param
+                        $who, $group_name, $origin, $param_name, (string) $state_param
                     ));
                 }
                 $error = _pp_udc_validate_param(
                     $component, $role, $group_name, (string) $state_param,
-                    $state_value, $params, $band_tokens, $param_name, $origin
+                    $state_value, $params, $band_tokens, $param_name, $origin, $who
                 );
                 if ($error !== null) {
                     return $error;
@@ -1944,9 +2199,9 @@ function _pp_udc_validate_group_map(
         // and says plainly that the rest are not supported yet.
         if ($param_name !== '' && $param_name[0] === ':') {
             return new WP_Error('invalid_prop_value', sprintf(
-                'Component "%s" role "%s" group "%s"%s names the state %s, which does not exist. '
+                '%s group "%s"%s names the state %s, which does not exist. '
                 . 'Available states: %s. Pseudo-elements (::before), disabled and ancestor states are not supported.',
-                $component, $role, $group_name, $origin,
+                $who, $group_name, $origin,
                 _pp_render_undeclared_prop_keys([$param_name]),
                 implode(', ', array_keys($states))
             ));
@@ -1954,7 +2209,7 @@ function _pp_udc_validate_group_map(
 
         $error = _pp_udc_validate_param(
             $component, $role, $group_name, $param_name,
-            $param_value, $params, $band_tokens, '', $origin
+            $param_value, $params, $band_tokens, '', $origin, $who
         );
         if ($error !== null) {
             return $error;
@@ -1979,7 +2234,8 @@ function _pp_udc_validate_param(
     array $params,
     array $band_tokens,
     string $state,
-    string $origin = ''
+    string $origin = '',
+    ?string $subject = null
 ): ?WP_Error {
     // THE ORIGIN HAS TO REACH THE VALUE-LEVEL MESSAGE, and for a while it did not.
     //
@@ -1992,10 +2248,10 @@ function _pp_udc_validate_param(
     // band that hold no such value: they would go hunting for something they
     // never wrote. Invariant I24 asks for a stated reason AND a route back, and
     // the route back here is the preset's name.
+    $who   = $subject ?? sprintf('Component "%s" role "%s"', $component, $role);
     $where = sprintf(
-        'Component "%s" role "%s" group "%s"%s%s parameter "%s"',
-        $component,
-        $role,
+        '%s group "%s"%s%s parameter "%s"',
+        $who,
         $group,
         $origin,
         $state !== '' ? ' ' . $state : '',
@@ -2004,9 +2260,8 @@ function _pp_udc_validate_param(
 
     if (!isset($params[$param_name])) {
         return new WP_Error('invalid_prop_value', sprintf(
-            'Component "%s" role "%s" group "%s"%s%s has no parameter %s. Available parameters: %s',
-            $component,
-            $role,
+            '%s group "%s"%s%s has no parameter %s. Available parameters: %s',
+            $who,
             $group,
             $origin,
             $state !== '' ? ' ' . $state : '',
@@ -2448,20 +2703,34 @@ function pp_udc_compile_band(array $item, string $layer, ?array &$drops = null):
             // A band's own preset ranks ABOVE one named by a role default — same
             // tier, more specific statement — and still below role defaults.
             //
-            // NOT REACHABLE TODAY, and the honest place to say so is here rather
-            // than in a docblock that reads as a shipped guarantee. A role default
-            // naming a preset is part of ruling A3 ("referenced by name ... and
-            // from role defaults"), but no schema can currently express it:
+            // STILL NOT REACHABLE, AND DELIBERATELY SO AFTER #1016 LOOKED AT IT.
+            //
+            // A role default naming a preset is part of ruling A3 ("referenced by
+            // name ... and from role defaults"), and no schema can express it:
             // UdcEngineTest::testEveryV2SchemaDefaultIsAValueTheEngineWouldAccept
             // walks a role's `defaults` as group names and fails on `_preset`,
             // which is not a group. The branch above stays because the capability
-            // is ruled and the ordering it implements is the one Sprint 2 needs —
-            // but until the schema surface opens, it is inert, and the two T2
-            // honesty halves are missing for it: pp_udc_composition_findings()
-            // reads only `$item['udc']`, so a skipped group in a DEFAULT-named
-            // preset would not be disclosed, and pp_udc_validate_map() never walks
-            // `defaults`, so an empty intersection there would refuse nothing.
-            // Wiring all three together is its own change; see the filed follow-up.
+            // is ruled and the ordering it implements is the one custom presets
+            // need — but it is inert, and the Sprint-2 task that could have opened
+            // it decided not to. The reason is worth recording, because "we ran out
+            // of time" and "it would contradict something" are different debts.
+            //
+            // Opening it needs three wirings, and the middle one contradicts a rule
+            // this file states and implements twice. The two T2 honesty halves are
+            // missing here: pp_udc_composition_findings() reads only `$item['udc']`,
+            // so a skipped group in a DEFAULT-named preset is not disclosed, and
+            // pp_udc_validate_map() never walks `defaults`, so an empty intersection
+            // there refuses nothing. Supplying the disclosure means routing a
+            // SCHEMA-owned skip onto the author-facing findings channel — and the
+            // rule against that is not incidental: a role selector's charset
+            // failure is deliberately not ledgered (see pp_udc_compile_band's
+            // selector gate) and a role default's emit-drop is filtered out by
+            // `$source !== 'defaults'` in _pp_udc_place(), both because an operator
+            // cannot act on a theme bug reported as site misconfiguration.
+            //
+            // So a defaults-named preset's skipped groups need a CHANNEL that does
+            // not exist yet, and choosing one is a ruling rather than an
+            // implementation detail. Left inert, said out loud, still debt.
             foreach (_pp_udc_preset_sources($declared, $permitted) as $preset_source) {
                 $sources[]   = $preset_source;
                 $has_presets = true;
@@ -3824,6 +4093,30 @@ function pp_udc_validate_site_map($decoded): ?WP_Error {
             }
             continue;
         }
+        // THE PRESET SUBTREE IS ENGINE-OWNED AND GETS A ROUTE, NOT A REJECTION
+        // (#1016, invariant I24). It shares this row, so a caller who read the
+        // stored bytes back — the action reports them as `to` — has both keys in
+        // hand and will send them again on the next chrome write.
+        //
+        // REFUSED RATHER THAN ACCEPTED-AND-IGNORED, which is the treatment
+        // `_version` gets four lines up, and the asymmetry is deliberate. An
+        // ignored `_version` costs nothing: the engine rewrites it with the same
+        // number the caller would have wanted. An ignored `_presets` is a map of
+        // real design the caller believes they just wrote, and accepting it
+        // silently would be the reported-success-without-effect class I35 forbids.
+        // So it refuses, and says both halves of what to do: drop the key, and
+        // where the verbs are.
+        if ($key === PP_SITE_PRESETS_KEY || $key === PP_SITE_PRESETS_VERSION_KEY) {
+            return new WP_Error('invalid_option_value', sprintf(
+                'Option "%s" key "%s" is the preset store, which this action does not write. '
+                . 'Presets are created and removed with `save_preset` and `delete_preset`, one preset '
+                . 'per call. Drop "%s" from this chrome write — the store is preserved automatically, '
+                . 'so leaving it out never loses a preset.',
+                PP_SITE_UDC_OPTION,
+                $key,
+                $key
+            ));
+        }
         if (!in_array($key, $names, true)) {
             return new WP_Error('invalid_option_value', sprintf(
                 'Option "%s" has no chrome component "%s". Available: %s. '
@@ -3861,22 +4154,78 @@ function pp_udc_validate_site_map($decoded): ?WP_Error {
 }
 
 /**
- * Normalizes a submitted container for storage: mints responsive values and sets
- * the next CAS baseline.
+ * Normalizes a submitted container for storage: mints responsive values, sets the
+ * next chrome baseline, and CARRIES THE PRESET SUBTREE FORWARD.
  *
  * Minting goes through pp_udc_normalize_band() — the band normalizer, unchanged —
  * by wrapping each chrome entry in the item shape it expects. Chrome therefore
  * mints identical names to a band and the `udc_token_minted` disclosure means the
  * same thing on both surfaces.
+ *
+ * THE LAST TWO ARGUMENTS ARE THE PRESERVE-FOREIGN-SUBTREE RULE, and they are
+ * required rather than optional because of how this function failed. It builds
+ * `$out` from scratch and copies in the keys it knows about. That was complete
+ * while chrome was the only tenant. The moment custom presets moved into this row
+ * (#1016) it became a function that silently DELETES the preset store on every
+ * chrome write — an author restyling their nav would lose every shared bundle on
+ * the site, with an `ok: true` over it.
+ *
+ * Defaulting them would have left the same hole one careless call site away, so
+ * there is no default: a caller must state what the row already holds. The caller
+ * that knows is the one inside the advisory lock, which has just read the row
+ * (_pp_update_site_udc). A chrome write never touches `_presets_version`, so a
+ * preset baseline a caller is holding survives a chrome write — which is the
+ * whole reason the two counters are separate.
+ *
+ * @param array $presets         The stored preset subtree, carried through untouched.
+ * @param int   $presets_version The stored preset baseline, carried through untouched.
  */
-function pp_udc_normalize_site_map(array $decoded, int $next_version): array {
-    $out = [PP_SITE_UDC_VERSION_KEY => $next_version];
+function pp_udc_normalize_site_map(
+    array $decoded,
+    int $next_version,
+    array $presets,
+    int $presets_version
+): array {
+    $chrome = [];
     foreach (pp_udc_chrome_names() as $name) {
         if (!isset($decoded[$name]) || !is_array($decoded[$name])) {
             continue;
         }
         $item = pp_udc_normalize_band(['component' => $name, 'udc' => $decoded[$name]]);
-        $out[$name] = isset($item['udc']) && is_array($item['udc']) ? $item['udc'] : $decoded[$name];
+        $chrome[$name] = isset($item['udc']) && is_array($item['udc']) ? $item['udc'] : $decoded[$name];
+    }
+    return pp_udc_site_container($chrome, $next_version, $presets, $presets_version);
+}
+
+/**
+ * THE ONE PLACE THAT DECIDES WHAT A STORED SITE CONTAINER LOOKS LIKE (#1016).
+ *
+ * Separated from the normalizer because the two writers need the same SHAPE and
+ * opposite treatment of the data. A chrome write normalizes the chrome it was
+ * sent — minting responsive literals into band tokens — and carries the presets.
+ * A preset write does the reverse, and MUST NOT re-normalize the chrome it is
+ * carrying: that chrome was normalized when it was written, re-running the band
+ * normalizer over it is work nobody asked for on a verb that is not about chrome,
+ * and "carried forward untouched" stops being true the moment something touches
+ * it. One builder keeps the key set and its ordering identical either way.
+ *
+ * The preset keys are OMITTED when the store is empty, so a site with no custom
+ * presets keeps storing the byte-identical container it stored before this key
+ * existed — which is what lets every pre-#1016 row stay valid with no migration.
+ */
+function pp_udc_site_container(
+    array $chrome,
+    int $version,
+    array $presets,
+    int $presets_version
+): array {
+    $out = [PP_SITE_UDC_VERSION_KEY => $version];
+    if ($presets !== []) {
+        $out[PP_SITE_PRESETS_VERSION_KEY] = $presets_version;
+        $out[PP_SITE_PRESETS_KEY]         = $presets;
+    }
+    foreach ($chrome as $name => $map) {
+        $out[(string) $name] = $map;
     }
     return $out;
 }
