@@ -108,22 +108,6 @@ $id           = $props['id']           ?? '';
 // (#233), and a raw _pp_composition meta write is not gated at all. Nothing here
 // rewrites the store — the value is read, not migrated, and _pp_composition_findings()
 // still reports it to the operator.
-//
-// SCOPE is this prop pair into this one helper. The same defect class through other
-// surfaces: #708 (count() on a scalar items, pp_render_style_vars on a non-array style)
-// has since LANDED — see the guard further down this file and its canonical block in
-// components/grid/grid.php — which matters for the page-level claim made here, because
-// pp_render_style_vars() runs BEFORE the heading in these templates. Until #708 landed,
-// a band carrying both a non-array `__pp_style` and a bad title still fataled upstream
-// of this guard; that door is now shut, so a corrupt style and a corrupt title together
-// degrade instead of 500ing (pinned in tests/StoredStyleAndItemsRenderGuardTest.php).
-// The corridor is still not fully closed. Open on it: #730 (core's esc_url/wp_kses_post,
-// which DO fatal in production), #733 (lib/ai-context.php's mb_strlen/basename on the
-// same raw title), #736 (esc_html rendering a stored array as the word `Array`), #739
-// (faq's items into pp_render_faq_schema), #740 (an object-valued style slot) and #707
-// (what the write path accepts). #738 (grid's `(string) ($index + 1)` on a string items
-// key) has LANDED — closed from both ends, the write path refusing a JSON-object `items`
-// and grid's card loop counting positions instead of reading the key.
 $raw_title        = $props['title']        ?? 'Default Title';
 $title            = is_scalar($raw_title) ? (string) $raw_title : '';
 $raw_title_accent = $props['title_accent'] ?? '';
@@ -145,8 +129,6 @@ $button_url      = is_scalar($raw_button_url) ? (string) $raw_button_url : '';
 $button2_text = $props['button2_text'] ?? '';
 $raw_button2_url = $props['button2_url'] ?? '#';
 $button2_url     = is_scalar($raw_button2_url) ? (string) $raw_button2_url : '';
-$button_variant  = $props['button_variant']  ?? 'primary';
-$button2_variant = $props['button2_variant'] ?? 'outline';
 $layout    = $props['layout']    ?? 'centered';
 // #641: guard BOTH raw-value arguments of pp_render_responsive_image() (`string $url`,
 // `string $alt`) before they reach it. A non-empty array is truthy, so every image gate
@@ -157,14 +139,15 @@ $layout    = $props['layout']    ?? 'centered';
 // components/logos/logos.php. Same STORED-data reachability as the image_id guard below
 // (#233 restore, pre-rule compositions, raw meta).
 //
-// Hero is the one that reaches TWO typed helpers on this single prop: the split layout's
-// pp_render_responsive_image() and the cover layout's pp_esc_image_src() background-image.
-// Guarding at the READ covers both, because everything below reads $image_url and never
-// the raw prop again. A guarded-away image_url means a cover hero paints its overlay with
-// no background image, and a split hero falls to the "left" layout by the SHIPPED #440
-// rule below — but ONLY when it also has no resolvable image_id and no proof, because
-// $has_split_media counts an attachment as media in its own right. Render-time only: the
-// stored `layout` prop is not rewritten.
+// v2 NARROWED WHAT THIS PROP REACHES, and the guard got simpler with it. On v1 it fed
+// TWO typed helpers: the split layout's pp_render_responsive_image() and the cover
+// layout's pp_esc_image_src() background-image. A band background is now the `_band`
+// role's `background.image` — an attachment id the ENGINE resolves (ruling A2) — so
+// this prop reaches exactly one helper, in one layout. A guarded-away image_url means a
+// split hero falls to the "left" layout by the SHIPPED #440 rule below, but ONLY when it
+// also has no resolvable image_id and no proof, because $has_split_media counts an
+// attachment as media in its own right. Render-time only: the stored `layout` prop is
+// not rewritten.
 $raw_image_url = $props['image_url'] ?? '';
 $image_url = is_scalar($raw_image_url) ? (string) $raw_image_url : '';
 $raw_image_alt = $props['image_alt'] ?? '';
@@ -180,8 +163,6 @@ $image_alt = is_scalar($raw_image_alt) ? (string) $raw_image_alt : '';
 // `$image_id > 0`, so the coercion would also flip the band's LAYOUT to split.
 $raw_image_id = $props['image_id'] ?? 0;
 $image_id     = is_numeric($raw_image_id) ? (int) $raw_image_id : 0;
-$spacing         = $props['spacing']         ?? 'default';
-$width           = $props['width']           ?? 'default';
 $split_ratio     = $props['split_ratio']     ?? '50-50';
 $vertical_align  = $props['vertical_align']  ?? 'center';
 $proof           = $props['proof']           ?? '';
@@ -192,29 +173,16 @@ if (!in_array($layout, $allowed_layouts, true)) {
     $layout = 'centered';
 }
 
-// Validate CTA button variants (same shared .btn--* primitive as components/cta/cta.php).
-$allowed_button_variants = ['primary', 'secondary', 'outline', 'ghost'];
-if (!in_array($button_variant, $allowed_button_variants, true)) {
-    $button_variant = 'primary';
-}
-if (!in_array($button2_variant, $allowed_button_variants, true)) {
-    $button2_variant = 'outline';
-}
-// primary is the bare .btn; other variants add a .btn--{variant} modifier.
-$cta_variant_class  = $button_variant !== 'primary' ? ' btn--' . $button_variant : '';
-$cta2_variant_class = $button2_variant !== 'primary' ? ' btn--' . $button2_variant : '';
-
-// Validate spacing/width props.
-$allowed_spacings = ['default', 'compact', 'spacious'];
-if (!in_array($spacing, $allowed_spacings, true)) {
-    $spacing = 'default';
-}
-$allowed_widths = ['default', 'narrow', 'full'];
-if (!in_array($width, $allowed_widths, true)) {
-    $width = 'default';
-}
-
-// Validate new composition props.
+// Validate the structural composition props.
+//
+// `spacing` and `width` are GONE in v2, and so are `button_variant` /
+// `button2_variant`. Each was a bundle of designable values — vertical padding, a
+// content measure, a set of button colours — which is exactly what the UDC expresses
+// directly: `_band` spacing, the `content` role's `sizing.max-width`, and a `_preset`
+// on the CTA roles. What REMAINS a prop is what the UDC has no group for: `layout`,
+// `split_ratio` and `vertical_align` select grid geometry and cross-axis alignment,
+// and the taxonomy carries no layout group, so removing them would delete the
+// capability rather than move it.
 $allowed_split_ratios = ['50-50', '60-40', '40-60'];
 if (!in_array($split_ratio, $allowed_split_ratios, true)) {
     $split_ratio = '50-50';
@@ -245,38 +213,36 @@ $effective_layout = ($layout === 'split' && !$has_split_media && $proof_markup =
     ? 'left'
     : $layout;
 
-$spacing_attr        = $spacing !== 'default' ? ' data-pp-spacing="' . esc_attr($spacing) . '"' : '';
-$width_attr          = $width !== 'default' ? ' data-pp-width="' . esc_attr($width) . '"' : '';
 $split_ratio_attr    = ($effective_layout === 'split' && $split_ratio !== '50-50') ? ' data-pp-split-ratio="' . esc_attr($split_ratio) . '"' : '';
 $vertical_align_attr = (in_array($effective_layout, ['cover', 'split'], true) && $vertical_align !== 'center') ? ' data-pp-vertical-align="' . esc_attr($vertical_align) . '"' : '';
 
-// Style slot overrides (per-instance visual customization).
-// #708: guard the raw `__pp_style` map before it reaches the typed
-// pp_render_style_vars(array $style, ...). A stored non-array raises a TypeError that
-// no caller catches, so the whole PUBLIC PAGE 500s. It arrives as `__pp_style` stored
-// INSIDE props: all four top-level `style` promotions are already is_array guarded, so
-// this read is the only reachable boundary and the only place a guard can help.
-// is_array, NOT is_scalar — an array IS the contract at this parameter. Degrades to no
-// inline custom properties and no `style` attribute at all, byte-identical to a band
-// that stored no style. Full reasoning in components/grid/grid.php.
-$raw_style = $props['__pp_style'] ?? null;
-$style     = is_array($raw_style) ? $raw_style : [];
-$slot_style = pp_render_style_vars($style, 'hero');
+// ── v2: the band's styling identity ─────────────────────────────────────────
+//
+// Where v1 read a `__pp_style` map of 49 slots and painted it into an inline
+// `style` attribute — plus, on the cover layout, an inline `background-image`
+// built from `image_url` — this emits one attribute and nothing else:
+// `data-pp-band`. Every designable value for this band is in a scoped block in
+// the document head, keyed on that attribute (lib/udc.php). No inline style means
+// no specificity cliff: a band's rules and the stylesheet's structural rules sit
+// at comparable weight and resolve in source order, which is what makes the
+// cascade a cascade. A band background image is now the `_band` role's
+// `background.image` (ruling A2), so it is authorable on EVERY layout rather than
+// only on `cover`, and the engine — not this file — builds the url().
+//
+// An absent or malformed id emits NO attribute. That is the whole guard: the
+// engine mints ids on WRITE only, so a band that reached storage without one
+// (raw meta, data written before the rule, or restore_composition, which reports
+// without blocking per #233) must render structurally rather than be handed a
+// fabricated id here. An EMPTY attribute would be worse than none — it would
+// make `[data-pp-band=""]` match every other id-less band on the page and paint
+// one band's design onto another. Full reasoning in
+// components/testimonials/testimonials.php.
+$raw_band  = $props['__pp_udc_band'] ?? '';
+$band_id   = (is_scalar($raw_band) && pp_udc_valid_band_id((string) $raw_band)) ? (string) $raw_band : '';
+$band_attr = $band_id !== '' ? ' data-pp-band="' . esc_attr($band_id) . '"' : '';
 
-// Build inline style attribute: merge slot vars + cover background-image.
-$inline_styles = [];
-if ($slot_style) {
-    $inline_styles[] = $slot_style;
-}
-if ($layout === 'cover' && $image_url) {
-    $inline_styles[] = 'background-image:url(' . pp_esc_image_src($image_url) . ')';
-}
-$style_attr = $inline_styles ? ' style="' . implode('; ', $inline_styles) . ';"' : '';
 ?>
-<section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="hero hero--<?php echo esc_attr($effective_layout); ?>" data-pp-component="hero"<?php echo $spacing_attr; ?><?php echo $width_attr; ?><?php echo $split_ratio_attr; ?><?php echo $vertical_align_attr; ?><?php echo $style_attr; ?>>
-    <?php if ($layout === 'cover') : ?>
-        <div class="hero__overlay" aria-hidden="true"></div>
-    <?php endif; ?>
+<section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="hero hero--<?php echo esc_attr($effective_layout); ?>" data-pp-component="hero"<?php echo $split_ratio_attr; ?><?php echo $vertical_align_attr; ?><?php echo $band_attr; ?>>
     <div class="container">
         <div class="hero__inner">
             <div class="hero__content">
@@ -291,11 +257,15 @@ $style_attr = $inline_styles ? ' style="' . implode('; ', $inline_styles) . ';"'
 
                 <?php if ($button_text) : ?>
                     <div class="hero__cta-group">
-                        <a href="<?php echo esc_url($button_url); ?>" class="hero__cta btn<?php echo esc_attr($cta_variant_class); ?>">
+                        <?php // The primary CTA carries its own modifier so the `cta` role has a
+                              // flat class selector. A role selector's charset admits no `:`, so
+                              // `.hero__cta:not(.hero__cta--secondary)` is not expressible — and a
+                              // modifier is the clearer contract anyway. ?>
+                        <a href="<?php echo esc_url($button_url); ?>" class="hero__cta hero__cta--primary btn">
                             <?php echo esc_html($button_text); ?>
                         </a>
                         <?php if ($button2_text) : ?>
-                            <a href="<?php echo esc_url($button2_url); ?>" class="hero__cta hero__cta--secondary btn<?php echo esc_attr($cta2_variant_class); ?>">
+                            <a href="<?php echo esc_url($button2_url); ?>" class="hero__cta hero__cta--secondary btn">
                                 <?php echo esc_html($button2_text); ?>
                             </a>
                         <?php endif; ?>

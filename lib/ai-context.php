@@ -837,11 +837,13 @@ function _pp_resolve_component_bg(array $item): ?array {
 
     // 1. Image-backed bands are not flat-color bands.
     $bg_image = $props['background_image'] ?? '';
-    $is_hero_cover = $name === 'hero'
-        && ($props['layout'] ?? '') === 'cover'
-        && is_string($props['image_url'] ?? null)
-        && trim($props['image_url']) !== '';
-    if ((is_string($bg_image) && trim($bg_image) !== '') || $is_hero_cover) {
+    // THE HERO-COVER CARVE-OUT IS GONE (#986). It existed because a `cover` hero
+    // painted `image_url` as its band background through an inline style, so the band
+    // had a photographic background this flat-colour annotation must not describe.
+    // On v2 a band background image is the `_band` role's `background.image` — hero
+    // has no special case left, and an image-backed band of ANY component is already
+    // covered by the `$bg_image` test below.
+    if (is_string($bg_image) && trim($bg_image) !== '') {
         return null;
     }
 

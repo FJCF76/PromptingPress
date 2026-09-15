@@ -133,29 +133,29 @@ class RenderStyleBoundaryTest extends TestCase
         // A stored (never write-validated) url() lands on one slot; a valid
         // shadow lands on another. Only the url() is filtered.
         $result = pp_render_style_vars(
-            ['--hero-bg' => 'url(https://example.test/ping)', '--hero-shadow' => 'var(--shadow-md)'],
-            'hero'
+            ['--cta-bg' => 'url(https://example.test/ping)', '--cta-shadow' => 'var(--shadow-md)'],
+            'cta'
         );
         $this->assertStringNotContainsString('url(', $result);
-        $this->assertStringNotContainsString('--hero-bg', $result);
-        $this->assertStringContainsString('--hero-shadow: var(--shadow-md)', $result);
+        $this->assertStringNotContainsString('--cta-bg', $result);
+        $this->assertStringContainsString('--cta-shadow: var(--shadow-md)', $result);
     }
 
     public function testPassSetRendersUnchangedThroughSink(): void
     {
         $result = pp_render_style_vars(
             [
-                '--hero-heading-color'        => 'currentColor',
-                '--hero-bg'          => 'radial-gradient(circle at 20% 30%, #ffffff, #000000)',
-                '--hero-padding-top' => '8rem',
-                '--hero-shadow'      => '0 4px 12px rgba(0,0,0,0.3)',
+                '--cta-heading-color'        => 'currentColor',
+                '--cta-bg'          => 'radial-gradient(circle at 20% 30%, #ffffff, #000000)',
+                '--cta-padding-top' => '8rem',
+                '--cta-shadow'      => '0 4px 12px rgba(0,0,0,0.3)',
             ],
-            'hero'
+            'cta'
         );
-        $this->assertStringContainsString('--hero-heading-color: currentColor', $result);
-        $this->assertStringContainsString('--hero-bg: radial-gradient(circle at 20% 30%, #ffffff, #000000)', $result);
-        $this->assertStringContainsString('--hero-padding-top: 8rem', $result);
-        $this->assertStringContainsString('--hero-shadow: 0 4px 12px rgba(0,0,0,0.3)', $result);
+        $this->assertStringContainsString('--cta-heading-color: currentColor', $result);
+        $this->assertStringContainsString('--cta-bg: radial-gradient(circle at 20% 30%, #ffffff, #000000)', $result);
+        $this->assertStringContainsString('--cta-padding-top: 8rem', $result);
+        $this->assertStringContainsString('--cta-shadow: 0 4px 12px rgba(0,0,0,0.3)', $result);
     }
 
     /**

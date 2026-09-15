@@ -148,7 +148,7 @@ class CompositionEncodeRefusalTest extends TestCase
     /** A perfectly ordinary, encodable composition with an explicit (non-generated) id. */
     private function healthyBands(string $title = 'Real content'): array
     {
-        return [['component' => 'hero', 'props' => ['id' => 'band-1', 'title' => $title]]];
+        return [['component' => 'section', 'props' => ['id' => 'band-1', 'title' => $title, 'body' => 'Body text']]];
     }
 
     /** A composition whose single band carries a prop value nested $depth levels deep. */
@@ -158,7 +158,7 @@ class CompositionEncodeRefusalTest extends TestCase
         for ($i = 0; $i < $depth; $i++) {
             $value = [$value];
         }
-        return [['component' => 'hero', 'props' => ['id' => 'deep-1', 'title' => 'Deep', 'deep' => $value]]];
+        return [['component' => 'section', 'props' => ['id' => 'deep-1', 'title' => 'Deep', 'deep' => $value]]];
     }
 
     /**
@@ -187,7 +187,7 @@ class CompositionEncodeRefusalTest extends TestCase
     /** A composition holding a non-finite float — the second route to a false encode. */
     private function nonFiniteBands(): array
     {
-        return [['component' => 'hero', 'props' => ['id' => 'band-1', 'title' => 'T', 'ratio' => INF]]];
+        return [['component' => 'section', 'props' => ['id' => 'band-1', 'title' => 'T', 'ratio' => INF]]];
     }
 
     /** A composition holding a value JSON has no representation for. */
@@ -195,7 +195,7 @@ class CompositionEncodeRefusalTest extends TestCase
     {
         $handle          = fopen('php://memory', 'r');
         $this->handles[] = $handle;
-        return [['component' => 'hero', 'props' => ['id' => 'band-1', 'title' => 'T', 'handle' => $handle]]];
+        return [['component' => 'section', 'props' => ['id' => 'band-1', 'title' => 'T', 'handle' => $handle]]];
     }
 
     /** Every trigger, as [label => composition], each independently proven to encode false. */
@@ -235,7 +235,7 @@ class CompositionEncodeRefusalTest extends TestCase
         // DOES return false here — which is exactly why no test in this file uses it as a
         // fixture. This assertion documents the divergence instead of hiding it.
         $this->assertFalse(
-            json_encode([['component' => 'hero', 'props' => ['id' => 'b1', 'title' => "\xB1\x31"]]]),
+            json_encode([['component' => 'section', 'props' => ['id' => 'b1', 'title' => "\xB1\x31"]]]),
             'premise: bare json_encode rejects malformed UTF-8 (the class real wp_json_encode coerces)'
         );
     }
@@ -605,7 +605,7 @@ class CompositionEncodeRefusalTest extends TestCase
 
             $envelope = pp_execute_action('update_composition', [
                 'post_id'     => $post_id,
-                'composition' => [['component' => 'hero', 'props' => ['id' => 'b1', 'title' => $value]]],
+                'composition' => [['component' => 'section', 'props' => ['id' => 'b1', 'title' => $value]]],
             ]);
 
             $this->assertFalse($envelope['ok'] ?? null, "'$label': the action must be refused");

@@ -676,7 +676,7 @@ class CliSchemaCommandTest extends TestCase
             }
         }
 
-        $this->assertGreaterThan(200, $seen, 'discovery is not vacuous');
+        $this->assertGreaterThan(150, $seen, 'discovery is not vacuous');
     }
 
     public function testEveryRecipeEntryIsTheDeclaredDefinitionVerbatim(): void

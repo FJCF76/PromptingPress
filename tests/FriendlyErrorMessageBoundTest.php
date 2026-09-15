@@ -174,7 +174,7 @@ class FriendlyErrorMessageBoundTest extends TestCase
     {
         // hero declares more style slots than any other shipped component (49), so it
         // is the worst case the shipped registry can produce.
-        $friendly = $this->reject('hero', ['title' => 'Hi'], ['--hero-bgs' => '#111111']);
+        $friendly = $this->reject('section', ['title' => 'Hi', 'body' => 'Body text'], ['--section-bgs' => '#111111']);
 
         $this->assertLessThan(
             self::READABLE_CEILING,
@@ -184,7 +184,7 @@ class FriendlyErrorMessageBoundTest extends TestCase
 
         // The specific thing that made it enormous: full slot descriptions. The longest
         // one the registry declares is over a thousand characters by itself.
-        $descriptions = array_column(pp_get_style_slots('hero'), 'description');
+        $descriptions = array_column(pp_get_style_slots('section'), 'description');
         // Stated before the loop below: assertStringNotContainsString('', $x) always
         // fails, so an empty description would read as a bound regression rather than
         // as the fixture premise having changed.
@@ -272,9 +272,9 @@ class FriendlyErrorMessageBoundTest extends TestCase
 
     public function testTheCompleteSlotListStillShipsInTheSamePayload(): void
     {
-        $friendly = $this->reject('hero', ['title' => 'Hi'], ['--hero-bgs' => '#111111']);
+        $friendly = $this->reject('section', ['title' => 'Hi', 'body' => 'Body text'], ['--section-bgs' => '#111111']);
 
-        $declared = array_keys(pp_get_style_slots('hero'));
+        $declared = array_keys(pp_get_style_slots('section'));
         $this->assertSame(
             $declared,
             $friendly['alternatives'],
@@ -308,9 +308,9 @@ class FriendlyErrorMessageBoundTest extends TestCase
         // without this the clean on the rejected name could be deleted and the whole
         // suite would stay green while the always-open message went back to being
         // unbounded, which is the entire defect #661 exists to close.
-        $huge = '--hero-' . str_repeat('z', 9000);
+        $huge = '--section-' . str_repeat('z', 9000);
 
-        $friendly = $this->reject('hero', ['title' => 'Hi'], [$huge => '#111111']);
+        $friendly = $this->reject('section', ['title' => 'Hi', 'body' => 'Body text'], [$huge => '#111111']);
 
         // Asserted against the arithmetic ceiling, not READABLE_CEILING: the cap that
         // does the work here is PP_REFLECTED_NAME_MAX, and this case lands close enough
@@ -319,7 +319,7 @@ class FriendlyErrorMessageBoundTest extends TestCase
         $this->assertLessThan($ceiling, mb_strlen($friendly['user_message']));
         $this->assertStringNotContainsString($huge, $friendly['user_message'], 'The raw caller key must never be echoed whole.');
         // Truncated, not dropped: the author still sees which of their names failed.
-        $this->assertStringContainsString('--hero-zzz', $friendly['user_message']);
+        $this->assertStringContainsString('--section-zzz', $friendly['user_message']);
     }
 
     public function testNoRejectedNameAtAllKeepsTheUnattributedOpening(): void
@@ -328,15 +328,15 @@ class FriendlyErrorMessageBoundTest extends TestCase
         // fallback when every key in the style map is in fact declared: array_diff
         // yields nothing, and the message must not quote a name it does not have.
         $post_id = $this->authorPage('No invalid keys', [
-            ['component' => 'hero', 'props' => ['title' => 'Hi']],
+            ['component' => 'section', 'props' => ['title' => 'Hi', 'body' => 'Body text']],
         ]);
 
         $friendly = _pp_build_friendly_error(
             new WP_Error('invalid_style_slot', 'Hand-built, no context.'),
-            ['post_id' => $post_id, 'component_index' => 0, 'style' => ['--hero-bg' => '#111']]
+            ['post_id' => $post_id, 'component_index' => 0, 'style' => ['--section-bg' => '#111']]
         );
 
-        $this->assertStringContainsString('a style setting that the hero component doesn\'t support', $friendly['user_message']);
+        $this->assertStringContainsString('a style setting that the section component doesn\'t support', $friendly['user_message']);
         $this->assertStringNotContainsString('I tried to set "', $friendly['user_message']);
     }
 
@@ -345,26 +345,26 @@ class FriendlyErrorMessageBoundTest extends TestCase
         // The near miss #625 is about. The old message never said which name was
         // rejected, so the author read a wall of settings without being told which of
         // their own words had failed.
-        $friendly = $this->reject('hero', ['title' => 'Hi'], ['--hero-bgs' => '#111111']);
+        $friendly = $this->reject('section', ['title' => 'Hi', 'body' => 'Body text'], ['--section-bgs' => '#111111']);
 
-        $this->assertStringContainsString('"--hero-bgs"', $friendly['user_message']);
+        $this->assertStringContainsString('"--section-bgs"', $friendly['user_message']);
         // And the slot they meant is among the names they can see without opening
         // anything — the whole point of naming settings above the fold.
-        $this->assertStringContainsString('--hero-bg,', $friendly['user_message']);
+        $this->assertStringContainsString('--section-bg,', $friendly['user_message']);
     }
 
     public function testSeveralRejectedNamesKeepTheUnattributedOpening(): void
     {
         // Naming one of several would read as a claim about the whole set. raw_error
         // carries the specifics; the visible sentence stays honest about scope.
-        $friendly = $this->reject('hero', ['title' => 'Hi'], [
-            '--hero-bgs' => '#111111',
-            '--hero-qqq' => '#222222',
-            '--hero-www' => '#333333',
+        $friendly = $this->reject('section', ['title' => 'Hi', 'body' => 'Body text'], [
+            '--section-bgs' => '#111111',
+            '--section-qqq' => '#222222',
+            '--section-www' => '#333333',
         ]);
 
-        $this->assertStringContainsString('a style setting that the hero component doesn\'t support', $friendly['user_message']);
-        $this->assertStringNotContainsString('"--hero-bgs"', $friendly['user_message']);
+        $this->assertStringContainsString('a style setting that the section component doesn\'t support', $friendly['user_message']);
+        $this->assertStringNotContainsString('"--section-bgs"', $friendly['user_message']);
         $this->assertLessThan(self::READABLE_CEILING, mb_strlen($friendly['user_message']));
     }
 
@@ -471,18 +471,18 @@ class FriendlyErrorMessageBoundTest extends TestCase
         // the validator refused. Quoting it would be a confident attribution built on
         // second-hand evidence, so the hedged opening is used instead.
         $post_id = $this->authorPage('Second hand', [
-            ['component' => 'hero', 'props' => ['title' => 'Hi']],
+            ['component' => 'section', 'props' => ['title' => 'Hi', 'body' => 'Body text']],
         ]);
 
         $friendly = _pp_build_friendly_error(
             new WP_Error('invalid_style_slot', 'Hand-built, no context.'),
-            ['post_id' => $post_id, 'component_index' => 0, 'style' => ['--hero-zzz' => '#111']]
+            ['post_id' => $post_id, 'component_index' => 0, 'style' => ['--section-zzz' => '#111']]
         );
 
         $this->assertStringNotContainsString('I tried to set "', $friendly['user_message']);
-        $this->assertStringContainsString('a style setting that the hero component doesn\'t support', $friendly['user_message']);
+        $this->assertStringContainsString('a style setting that the section component doesn\'t support', $friendly['user_message']);
         // The orientation half is unaffected — it never depended on the attribution.
-        $this->assertStringContainsString('It has ' . count(pp_get_style_slots('hero')) . ' style settings', $friendly['user_message']);
+        $this->assertStringContainsString('It has ' . count(pp_get_style_slots('section')) . ' style settings', $friendly['user_message']);
     }
 
     public function testNamesThatCleanAwayNeverBecomeAnEmptyItemInAnExhaustiveList(): void
@@ -539,12 +539,16 @@ class FriendlyErrorMessageBoundTest extends TestCase
         // two short sentences naming one other component, so it must come through byte
         // for byte — pinned as a whole string, which is the only way a reworded
         // near-copy fails the test.
-        $friendly = $this->reject('hero', ['title' => 'Hi'], ['--section-bg' => '#111111']);
+        // The slot must exist on ANOTHER component and not on the target, or there is
+        // no cross-component hint to pin. It used to be `--section-bg` aimed at hero;
+        // hero is a v2 component now and rejects the whole style surface for a different
+        // reason, so the pair is cta (target) and section (owner).
+        $friendly = $this->reject('cta', ['title' => 'Hi', 'body' => 'Body text', 'button_text' => 'Go', 'button_url' => '/'], ['--section-bg' => '#111111']);
 
         $this->assertNotSame([], (array) $friendly['cross_component_hints'], 'Fixture premise: this key hints.');
         $this->assertSame(
-            'I tried to change a setting on the hero component, but it isn\'t available there. '
-                . 'It does exist on the cta component. You could ask me to change it there instead.',
+            'I tried to change a setting on the cta component, but it isn\'t available there. '
+                . 'It does exist on the faq component. You could ask me to change it there instead.',
             $friendly['user_message']
         );
     }
@@ -554,14 +558,14 @@ class FriendlyErrorMessageBoundTest extends TestCase
         // raw_error was never the problem — it was already bounded at
         // PP_REFLECTED_ERROR_MAX and already collapsed. The risk in a message change is
         // that the two get conflated and this one is trimmed to match.
-        $friendly = $this->reject('hero', ['title' => 'Hi'], ['--hero-bgs' => '#111111']);
+        $friendly = $this->reject('section', ['title' => 'Hi', 'body' => 'Body text'], ['--section-bgs' => '#111111']);
 
-        $this->assertStringContainsString('--hero-bgs', $friendly['raw_error']);
+        $this->assertStringContainsString('--section-bgs', $friendly['raw_error']);
         $this->assertLessThanOrEqual(PP_REFLECTED_ERROR_MAX, mb_strlen($friendly['raw_error']));
 
         // Every declared slot is still named there, uncut: this is the complete list
         // the author is meant to be able to reach.
-        foreach (array_keys(pp_get_style_slots('hero')) as $name) {
+        foreach (array_keys(pp_get_style_slots('section')) as $name) {
             $this->assertStringContainsString($name, $friendly['raw_error']);
         }
 

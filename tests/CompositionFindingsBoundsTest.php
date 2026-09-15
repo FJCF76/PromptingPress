@@ -666,8 +666,8 @@ final class CompositionFindingsBoundsTest extends TestCase
         // whose value is stored but never read (advisory).
         $id = pp_create_page('Both kinds', 'draft');
         pp_update_composition($id, [
-            ['component' => 'hero', 'props' => ['id' => 'h1', 'title' => 'T', 'zzUndeclared' => 1],
-             'style' => ['--hero-overlay-bg' => 'rgba(0,0,0,.5)']],
+            ['component' => 'section', 'props' => ['id' => 'h1', 'title' => 'T', 'zzUndeclared' => 1],
+             'style' => ['--section-overlay-bg' => 'rgba(0,0,0,.5)']],
         ]);
 
         $findings = _pp_composition_findings(pp_get_composition($id));

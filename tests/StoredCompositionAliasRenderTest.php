@@ -119,17 +119,17 @@ class StoredCompositionAliasRenderTest extends TestCase
         // Thin writer, no validation — persists the legacy shape exactly as a
         // pre-1.13.0 install holds it (and as restore_composition can replay it).
         pp_update_composition($id, [[
-            'component' => 'hero',
-            'props'     => ['title' => 'Unstyled'],
-            'style'     => ['--hero-text' => '#f0f0f0'],
+            'component' => 'cta',
+            'props'     => ['title' => 'Unstyled', 'body' => 'B', 'button_text' => 'Go', 'button_url' => '/'],
+            'style'     => ['--cta-text' => '#f0f0f0'],
         ]]);
 
         $html = $this->renderStored($id);
 
         $this->assertStringNotContainsString('#f0f0f0', $html, 'the legacy declaration does not paint');
-        $this->assertStringNotContainsString('--hero-text', $html, 'and its own name is never emitted');
+        $this->assertStringNotContainsString('--cta-text', $html, 'and its own name is never emitted');
         $this->assertStringNotContainsString(
-            '--hero-heading-color',
+            '--cta-heading-color',
             $html,
             'nothing canonicalizes it on the way through — the read path has no slot map any more'
         );
@@ -151,17 +151,17 @@ class StoredCompositionAliasRenderTest extends TestCase
     {
         $id = pp_create_page('Legacy slot write', 'draft');
         pp_update_composition($id, [
-            ['component' => 'hero', 'props' => ['title' => 'Canonical']],
+            ['component' => 'cta', 'props' => ['title' => 'Canonical', 'body' => 'B', 'button_text' => 'Go', 'button_url' => '/']],
         ]);
 
         $result = pp_execute_action('style_component', [
             'post_id'         => $id,
             'component_index' => 0,
-            'style'           => ['--hero-text' => '#f0f0f0'],
+            'style'           => ['--cta-text' => '#f0f0f0'],
         ]);
 
         $this->assertFalse($result['ok'], 'a legacy slot name is not authorable');
-        $this->assertStringContainsString('--hero-text', (string) ($result['error'] ?? ''));
+        $this->assertStringContainsString('--cta-text', (string) ($result['error'] ?? ''));
         $this->assertSame('invalid_style_slot', $result['error_code'] ?? null);
     }
 
@@ -189,7 +189,7 @@ class StoredCompositionAliasRenderTest extends TestCase
     {
         $id = pp_create_page('Legacy slot blocks edits', 'draft');
         pp_update_composition($id, [
-            ['component' => 'hero', 'props' => ['title' => 'Legacy'], 'style' => ['--hero-text' => '#f0f0f0']],
+            ['component' => 'cta', 'props' => ['title' => 'Legacy', 'body' => 'B', 'button_text' => 'Go', 'button_url' => '/'], 'style' => ['--cta-text' => '#f0f0f0']],
             ['component' => 'section', 'props' => ['title' => 'Band', 'body' => 'Copy.']],
         ]);
 
@@ -203,7 +203,7 @@ class StoredCompositionAliasRenderTest extends TestCase
         $this->assertFalse($result['ok'], 'the stale declaration is now visible to validation');
         $this->assertSame('invalid_style_slot', $result['error_code'] ?? null);
         $this->assertStringContainsString(
-            '--hero-text',
+            '--cta-text',
             (string) ($result['error'] ?? ''),
             'the error names the dead slot on the band the operator never touched'
         );
@@ -217,11 +217,11 @@ class StoredCompositionAliasRenderTest extends TestCase
         $merge = pp_execute_action('style_component', [
             'post_id'         => $id,
             'component_index' => 0,
-            'style'           => ['--hero-heading-color' => '#f0f0f0'],
+            'style'           => ['--cta-heading-color' => '#f0f0f0'],
         ]);
         $this->assertTrue($merge['ok'], (string) ($merge['error'] ?? ''));
         $this->assertArrayHasKey(
-            '--hero-text',
+            '--cta-text',
             pp_get_composition($id)[0]['style'],
             'the merge did not evict the dead key'
         );
@@ -235,7 +235,7 @@ class StoredCompositionAliasRenderTest extends TestCase
         $repaired = pp_execute_action('update_composition', [
             'post_id'     => $id,
             'composition' => [
-                ['component' => 'hero', 'props' => ['title' => 'Legacy'], 'style' => ['--hero-heading-color' => '#f0f0f0']],
+                ['component' => 'cta', 'props' => ['title' => 'Legacy', 'body' => 'B', 'button_text' => 'Go', 'button_url' => '/'], 'style' => ['--cta-heading-color' => '#f0f0f0']],
                 ['component' => 'section', 'props' => ['title' => 'Band', 'body' => 'Copy.']],
             ],
         ]);
@@ -249,7 +249,7 @@ class StoredCompositionAliasRenderTest extends TestCase
             'props'           => ['title' => 'Renamed band'],
         ]);
         $this->assertTrue($after['ok'], (string) ($after['error'] ?? ''));
-        $this->assertStringContainsString('--hero-heading-color: #f0f0f0', $this->renderStored($id));
+        $this->assertStringContainsString('--cta-heading-color: #f0f0f0', $this->renderStored($id));
     }
 
     /**
@@ -262,14 +262,14 @@ class StoredCompositionAliasRenderTest extends TestCase
     {
         $id = pp_create_page('Both slot names', 'draft');
         pp_update_composition($id, [[
-            'component' => 'hero',
-            'props'     => ['title' => 'Both'],
-            'style'     => ['--hero-text' => '#111111', '--hero-heading-color' => '#222222'],
+            'component' => 'cta',
+            'props'     => ['title' => 'Both', 'body' => 'B', 'button_text' => 'Go', 'button_url' => '/'],
+            'style'     => ['--cta-text' => '#111111', '--cta-heading-color' => '#222222'],
         ]]);
 
         $html = $this->renderStored($id);
 
-        $this->assertStringContainsString('--hero-heading-color: #222222', $html, 'the canonical value paints');
+        $this->assertStringContainsString('--cta-heading-color: #222222', $html, 'the canonical value paints');
         $this->assertStringNotContainsString('#111111', $html, 'the stale legacy value is simply gone');
     }
 
@@ -310,9 +310,9 @@ class StoredCompositionAliasRenderTest extends TestCase
     public function testAFreshCanonicalCompositionWritesValidatesReadsBackAndRenders(): void
     {
         $authored = [
-            ['component' => 'hero', 'props' => ['title' => 'Fresh'], 'style' => [
-                '--hero-heading-color' => '#f0f0f0',
-                '--hero-heading-size'  => '4rem',
+            ['component' => 'cta', 'props' => ['title' => 'Fresh', 'body' => 'B', 'button_text' => 'Go', 'button_url' => '/'], 'style' => [
+                '--cta-heading-color' => '#f0f0f0',
+                '--cta-heading-size'  => '4rem',
             ]],
             ['component' => 'grid', 'props' => ['title' => 'Cards', 'items' => [
                 ['title' => 'One', 'text' => 'a', 'style' => ['--grid-item-bg' => '#101014']],
@@ -342,8 +342,8 @@ class StoredCompositionAliasRenderTest extends TestCase
 
         // Render: every authored declaration reaches the page.
         $html = $this->renderStored($id);
-        $this->assertStringContainsString('--hero-heading-color: #f0f0f0', $html);
-        $this->assertStringContainsString('--hero-heading-size: 4rem', $html);
+        $this->assertStringContainsString('--cta-heading-color: #f0f0f0', $html);
+        $this->assertStringContainsString('--cta-heading-size: 4rem', $html);
         $this->assertStringContainsString('--grid-heading-measure: 40rem', $html);
         $this->assertStringContainsString('--grid-item-bg: #101014', $html);
         $this->assertStringContainsString('--section-body-color: #334455', $html);
@@ -662,9 +662,9 @@ class StoredCompositionAliasRenderTest extends TestCase
         $id = pp_create_page('Restore legacy slots', 'draft');
         // v1: a snapshot as a pre-1.13.0 install holds it.
         pp_update_composition($id, [
-            ['component' => 'hero', 'props' => ['title' => 'Legacy'], 'style' => [
-                '--hero-title-size' => '4rem',
-                '--hero-text'       => '#f0f0f0',
+            ['component' => 'cta', 'props' => ['title' => 'Legacy', 'body' => 'B', 'button_text' => 'Go', 'button_url' => '/'], 'style' => [
+                '--cta-title-size' => '4rem',
+                '--cta-text'       => '#f0f0f0',
             ]],
             ['component' => 'grid', 'props' => ['title' => 'Cards', 'items' => [
                 ['title' => 'One', 'text' => 'a', 'style' => ['--grid-card-bg' => '#101014']],
@@ -690,13 +690,13 @@ class StoredCompositionAliasRenderTest extends TestCase
                 $encoded,
                 "{$label}: the dead declarations must be reported, not silently swallowed"
             );
-            $this->assertStringContainsString('--hero-title-size', $encoded, $label);
+            $this->assertStringContainsString('--cta-title-size', $encoded, $label);
         }
 
         // The restored document is stored VERBATIM — restore is not a rewrite — and the
         // dead declarations simply do not paint.
         $stored = pp_get_composition($id);
-        $this->assertSame('4rem', $stored[0]['style']['--hero-title-size'], 'the snapshot is replayed verbatim');
+        $this->assertSame('4rem', $stored[0]['style']['--cta-title-size'], 'the snapshot is replayed verbatim');
 
         $html = $this->renderStored($id);
         $this->assertStringContainsString('Legacy', $html, 'the page still renders');

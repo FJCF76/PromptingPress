@@ -868,7 +868,7 @@ class WriteRejectionLocatorTest extends TestCase
      */
     public function testTheRejectedSlotContextStillComposes(): void
     {
-        $this->seedPage(200, [['component' => 'hero', 'props' => ['title' => 'T']]]);
+        $this->seedPage(200, [['component' => 'section', 'props' => ['title' => 'T', 'body' => 'Body text']]]);
 
         $error = pp_validate_action('style_component', [
             'post_id'         => 200,

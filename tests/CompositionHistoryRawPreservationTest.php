@@ -1510,23 +1510,23 @@ class CompositionHistoryRawPreservationTest extends TestCase
         $probe = pp_create_page('props sentinel probe', 'draft');
         set_error_handler(static fn (): bool => true, E_DEPRECATED);
         try {
-            $accepted = pp_update_composition($probe, [['component' => 'hero', 'props' => false]]);
+            $accepted = pp_update_composition($probe, [['component' => 'section', 'props' => false]]);
         } finally {
             restore_error_handler();
         }
         $this->assertTrue($accepted, 'premise: the writer does not raise on props:false');
         $this->assertSame(
-            [['component' => 'hero', 'props' => ['id' => pp_get_composition($probe)[0]['props']['id']]]],
+            [['component' => 'section', 'props' => ['id' => pp_get_composition($probe)[0]['props']['id']]]],
             pp_get_composition($probe),
             'premise: it rewrites false into a generated-id band'
         );
 
         // null is the unset sentinel: replayable.
-        $this->assertTrue(_pp_history_payload_is_snapshot([['component' => 'hero', 'props' => null]]));
+        $this->assertTrue(_pp_history_payload_is_snapshot([['component' => 'section', 'props' => null]]));
         // false is a scalar where a container belongs: refused, with its family.
-        $this->assertFalse(_pp_history_payload_is_snapshot([['component' => 'hero', 'props' => false]]));
-        $this->assertFalse(_pp_history_payload_is_snapshot([['component' => 'hero', 'props' => 0]]));
-        $this->assertFalse(_pp_history_payload_is_snapshot([['component' => 'hero', 'props' => '']]));
+        $this->assertFalse(_pp_history_payload_is_snapshot([['component' => 'section', 'props' => false]]));
+        $this->assertFalse(_pp_history_payload_is_snapshot([['component' => 'section', 'props' => 0]]));
+        $this->assertFalse(_pp_history_payload_is_snapshot([['component' => 'section', 'props' => '']]));
     }
 
     /**

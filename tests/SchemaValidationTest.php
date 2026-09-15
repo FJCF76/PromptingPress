@@ -248,7 +248,7 @@ class SchemaValidationTest extends TestCase
     public function testStyleSlotsExistForV1Components(): void
     {
         $expected = [
-            'hero'    => 49,
+            // hero left the v1 slot system in #986 (13 roles, zero slots).
             'section' => 47,
             // Issue 581 (A-18) added one state twin to each: --grid-item-link-hover-color
             // and --cta-button2-shadow.
@@ -368,20 +368,26 @@ class SchemaValidationTest extends TestCase
     /**
      * Tests that pp_get_style_slots() returns correct data for hero.
      */
-    public function testGetStyleSlotsReturnsHeroSlots(): void
+    /**
+     * RE-POINTED AT `section` (#986). It read hero because hero was the canonical
+     * slot-bearing component; hero is on the UDC now and returns NO slots, so asking it
+     * this question tests the opposite of what the name promises (I40). `section` is the
+     * largest component still on the v1 slot system and carries the same slot families.
+     */
+    public function testGetStyleSlotsReturnsSectionSlots(): void
     {
-        // pp_get_style_slots depends on pp_get_registered_components which uses get_template_directory().
-        // We test the function indirectly by reading schema directly.
-        $schemaFile = $this->themeRoot . '/components/hero/schema.json';
-        $schema     = json_decode(file_get_contents($schemaFile), true);
-        $slots      = $schema['styling']['style_slots'] ?? [];
+        $slots = pp_get_style_slots('section');
 
-        $this->assertArrayHasKey('--hero-padding-top', $slots);
-        $this->assertArrayHasKey('--hero-bg', $slots);
-        $this->assertArrayHasKey('--hero-heading-color', $slots);
-        $this->assertArrayHasKey('--hero-heading-size', $slots);
-        $this->assertEquals('length', $slots['--hero-padding-top']['type']);
-        $this->assertEquals('gradient', $slots['--hero-bg']['type']);
+        $this->assertIsArray($slots);
+        $this->assertArrayHasKey('--section-padding-top', $slots);
+        $this->assertArrayHasKey('--section-bg', $slots);
+    }
+
+    /** A v2 component reports NO style slots — the other half of the same contract. */
+    public function testGetStyleSlotsReturnsNothingForAV2Component(): void
+    {
+        $this->assertSame([], pp_get_style_slots('hero'));
+        $this->assertSame([], pp_get_style_slots('testimonials'));
     }
 
     /**
@@ -420,7 +426,8 @@ class SchemaValidationTest extends TestCase
     public function testCommonVisualSlotConformance(): void
     {
         $expected = [
-            'hero'    => ['--hero-border-color', '--hero-border-width', '--hero-radius', '--hero-shadow'],
+            // hero's row is gone (#986): the four common visual slots are the `_band`
+            // role's `border.color` / `border.width` / `border.radius` / `shadow.box`.
             'section' => ['--section-border-color', '--section-border-width', '--section-radius', '--section-shadow'],
             'grid'    => ['--grid-item-border-color', '--grid-item-border-width', '--grid-item-radius', '--grid-item-shadow'],
             'cta'     => ['--cta-border-color', '--cta-border-width', '--cta-radius', '--cta-shadow'],
@@ -453,9 +460,9 @@ class SchemaValidationTest extends TestCase
     {
         $composition = [
             [
-                'component' => 'hero',
-                'props'     => ['title' => 'Test'],
-                'style'     => ['--hero-bg' => '#1a1a2e', '--hero-padding-top' => '8rem'],
+                'component' => 'section',
+                'props'     => ['title' => 'Test', 'body' => 'Body text'],
+                'style'     => ['--section-bg' => '#1a1a2e', '--section-padding-top' => '8rem'],
             ],
         ];
         $result = pp_validate_composition($composition);
@@ -3620,25 +3627,25 @@ class SchemaValidationTest extends TestCase
     {
         $composition = [
             [
-                'component' => 'hero',
-                'props'     => ['title' => 'Test'],
-                'style'     => ['--hero-display' => 'none'],
+                'component' => 'section',
+                'props'     => ['title' => 'Test', 'body' => 'Body text'],
+                'style'     => ['--section-display' => 'none'],
             ],
         ];
         $result = pp_validate_composition($composition);
         $this->assertInstanceOf(\WP_Error::class, $result);
         $this->assertEquals('invalid_style_slot', $result->get_error_code());
-        $this->assertStringContainsString('--hero-display', $result->get_error_message());
-        $this->assertStringContainsString('--hero-bg', $result->get_error_message());
+        $this->assertStringContainsString('--section-display', $result->get_error_message());
+        $this->assertStringContainsString('--section-bg', $result->get_error_message());
     }
 
     public function testCompositionRejectsInvalidStyleValue(): void
     {
         $composition = [
             [
-                'component' => 'hero',
-                'props'     => ['title' => 'Test'],
-                'style'     => ['--hero-bg' => 'not-a-color'],
+                'component' => 'section',
+                'props'     => ['title' => 'Test', 'body' => 'Body text'],
+                'style'     => ['--section-bg' => 'not-a-color'],
             ],
         ];
         $result = pp_validate_composition($composition);
@@ -3663,9 +3670,9 @@ class SchemaValidationTest extends TestCase
     {
         $composition = [
             [
-                'component' => 'hero',
-                'props'     => ['title' => 'Test'],
-                'style'     => ['__recipe' => 'dark-spacious', '--hero-bg' => '#1a1a2e'],
+                'component' => 'section',
+                'props'     => ['title' => 'Test', 'body' => 'Body text'],
+                'style'     => ['__recipe' => 'dark', '--section-bg' => '#1a1a2e'],
             ],
         ];
         $result = pp_validate_composition($composition);
@@ -3902,6 +3909,31 @@ class SchemaValidationTest extends TestCase
      * happens to documents that already store the old name.
      */
     private const SCHEMA_RENAME_MIGRATION_NOTES = [
+        // ── v2 Sprint 1 (#986): hero's four styling props retired ──
+        //
+        // The rule that decided which props die: a prop dies IFF the UDC can express
+        // what it did. These four were bundles of designable values — vertical padding,
+        // a content measure, two sets of button colours — and the engine expresses all
+        // of them directly. `layout`, `split_ratio` and `vertical_align` STAY, because
+        // the taxonomy has no layout group: removing them would delete the capability
+        // rather than move it.
+        'hero' => [
+            'spacing' => 'REMOVED in v2 (#986). It was a three-step bundle of vertical '
+                . 'padding (compact/default/spacious). Set the `_band` role\'s '
+                . '`spacing.padding-top` and `spacing.padding-bottom` directly — per '
+                . 'breakpoint if you want, which the prop could never do.',
+            'width' => 'REMOVED in v2 (#986). It was a three-step bundle of content '
+                . 'measure (narrow/default/full), and one of the six interacting width '
+                . 'mechanisms #908 reported. Set the `content` role\'s '
+                . '`sizing.max-width`.',
+            'button_variant' => 'REMOVED in v2 (#986). A variant was a bundle of button '
+                . 'colours, which is exactly what a preset is: put `"_preset": "button"` '
+                . '(or `"button-secondary"`) on the `cta` role and override anything you '
+                . 'like beside it. The same reasoning retired testimonials\' `theme` in '
+                . '#958.',
+            'button2_variant' => 'REMOVED in v2 (#986). As `button_variant`, on the '
+                . '`cta-secondary` role.',
+        ],
         // ── v2 Sprint 0 (#958): testimonials rebuilt on the Universal Design Contract ──
         //
         // Both props are GONE, not renamed, and both for the same reason: their entire
@@ -4503,6 +4535,70 @@ class SchemaValidationTest extends TestCase
      * make the problem quietly go away, which #603/#604 removed the machinery for.
      */
     private const SLOT_RENAME_MIGRATION_NOTES = [
+        // ── v2 Sprint 1 (#986): hero's 49 style slots retired ──
+        //
+        // The largest slot map in the theme, and the same story testimonials told in
+        // Sprint 0: the slot SYSTEM is gone from this component, not renamed and not
+        // deprecated. Every designable value it carried is a role parameter resolved by
+        // the shared UDC engine, so each note names the role and parameter that owns the
+        // value today. Recorded rather than deleted because the baseline is append-only
+        // and a removal is a documented breaking change (invariant I36).
+        //
+        // TWO NOTES ARE NOT PLAIN MOVES, and say so: `--hero-image-aspect-ratio` is the
+        // slot that forced the engine to grow `sizing.aspect-ratio` (ruling D1 — the
+        // property had no home in EITHER v2 system), and `--hero-image-position` is the
+        // one value that is no longer authorable at all, recorded as a narrowing.
+        'hero' => [
+            '--hero-accent' => 'REPLACED in v2 (#986) by the the `cta` and `title-accent` roles. Note: a band-wide accent is no longer one slot leaking into several elements: set the colour on each role that should carry it.',
+            '--hero-accent-hover' => 'REPLACED in v2 (#986) by the the `cta` role\'s `:hover` state.',
+            '--hero-bg' => 'REPLACED in v2 (#986) by the `_band` role\'s `background.fill`.',
+            '--hero-bg-position' => 'REPLACED in v2 (#986) by the `_band` role\'s `background.position`.',
+            '--hero-border-color' => 'REPLACED in v2 (#986) by the `_band` role\'s `border.color`.',
+            '--hero-border-width' => 'REPLACED in v2 (#986) by the `_band` role\'s `border.width`.',
+            '--hero-button-bg' => 'REPLACED in v2 (#986) by the `cta` role\'s `background.fill`. Note: usually via `"_preset": "button"`, which supplies the whole button treatment.',
+            '--hero-button-border' => 'REPLACED in v2 (#986) by the `cta` role\'s `border.color`.',
+            '--hero-button-color' => 'REPLACED in v2 (#986) by the `cta` role\'s `typography.color`.',
+            '--hero-button-hover-bg' => 'REPLACED in v2 (#986) by the `cta` role\'s `background` `:hover` `fill`.',
+            '--hero-button-hover-border' => 'REPLACED in v2 (#986) by the `cta` role\'s `border` `:hover` `color`.',
+            '--hero-button-shadow' => 'REPLACED in v2 (#986) by the `cta` role\'s `shadow.box`.',
+            '--hero-button2-bg' => 'REPLACED in v2 (#986) by the `cta-secondary` role\'s `background.fill`. Note: usually via `"_preset": "button-secondary"`.',
+            '--hero-button2-border' => 'REPLACED in v2 (#986) by the `cta-secondary` role\'s `border.color`.',
+            '--hero-button2-color' => 'REPLACED in v2 (#986) by the `cta-secondary` role\'s `typography.color`.',
+            '--hero-button2-hover-bg' => 'REPLACED in v2 (#986) by the `cta-secondary` role\'s `background` `:hover` `fill`.',
+            '--hero-button2-hover-border' => 'REPLACED in v2 (#986) by the `cta-secondary` role\'s `border` `:hover` `color`.',
+            '--hero-button2-hover-color' => 'REPLACED in v2 (#986) by the `cta-secondary` role\'s `typography` `:hover` `color`.',
+            '--hero-content-gap' => 'REPLACED in v2 (#986) by the `content` role\'s `spacing.gap`.',
+            '--hero-content-width' => 'REPLACED in v2 (#986) by the `content` role\'s `sizing.max-width`. Note: this one role replaces the six interacting width mechanisms #908 reported.',
+            '--hero-eyebrow-bg' => 'REPLACED in v2 (#986) by the `eyebrow` role\'s `background.fill`.',
+            '--hero-eyebrow-border-color' => 'REPLACED in v2 (#986) by the `eyebrow` role\'s `border.color`.',
+            '--hero-eyebrow-border-width' => 'REPLACED in v2 (#986) by the `eyebrow` role\'s `border.width`.',
+            '--hero-eyebrow-color' => 'REPLACED in v2 (#986) by the `eyebrow` role\'s `typography.color`.',
+            '--hero-eyebrow-radius' => 'REPLACED in v2 (#986) by the `eyebrow` role\'s `border.radius`.',
+            '--hero-eyebrow-text-transform' => 'REPLACED in v2 (#986) by the `eyebrow` role\'s `typography.transform`.',
+            '--hero-heading-accent-color' => 'REPLACED in v2 (#986) by the `title-accent` role\'s `typography.color`. Note: the `.hero--cover` variant no longer re-colours it: a band with a dark background or a background image owns its own contrast.',
+            '--hero-heading-color' => 'REPLACED in v2 (#986) by the `title` role\'s `typography.color`. Note: the role declares no colour default, so an unset title inherits as it always did.',
+            '--hero-heading-margin-bottom' => 'REPLACED in v2 (#986) by the `title` role\'s `spacing.margin-bottom`.',
+            '--hero-heading-measure' => 'REPLACED in v2 (#986) by the `title` role\'s `sizing.max-width`.',
+            '--hero-heading-size' => 'REPLACED in v2 (#986) by the `title` role\'s `typography.size`.',
+            '--hero-heading-weight' => 'REPLACED in v2 (#986) by the `title` role\'s `typography.weight`.',
+            '--hero-image-aspect-ratio' => 'REPLACED in v2 (#986) by the `media` role\'s `sizing.aspect-ratio`. Note: that parameter did not exist until ruling D1 of #986 added it; the property had no home in either v2 system, so the slot is the reason the engine gained one.',
+            '--hero-image-position' => 'REPLACED in v2 (#986) by the structural CSS. Note: `object-position` is a fixed `center` in the stylesheet now, which the v2 boundary classifies as structural. This is the ONE hero slot whose value is no longer authorable, and it is recorded as a narrowing rather than a move.',
+            '--hero-image-radius' => 'REPLACED in v2 (#986) by the `media` role\'s `border.radius`.',
+            '--hero-overlay-bg' => 'REPLACED in v2 (#986) by the `_band` role\'s `background.overlay`. Note: the scrim now rides the band\'s own background layer list, so the `.hero__overlay` element is gone with it.',
+            '--hero-padding-bottom' => 'REPLACED in v2 (#986) by the `_band` role\'s `spacing.padding-bottom`.',
+            '--hero-padding-top' => 'REPLACED in v2 (#986) by the `_band` role\'s `spacing.padding-top`.',
+            '--hero-proof-color' => 'REPLACED in v2 (#986) by the `proof` role\'s `typography.color`.',
+            '--hero-radius' => 'REPLACED in v2 (#986) by the `_band` role\'s `border.radius`.',
+            '--hero-shadow' => 'REPLACED in v2 (#986) by the `_band` role\'s `shadow.box`.',
+            '--hero-subheading-color' => 'REPLACED in v2 (#986) by the `subtitle` role\'s `typography.color`.',
+            '--hero-subheading-size' => 'REPLACED in v2 (#986) by the `subtitle` role\'s `typography.size`.',
+            '--hero-surface-bg' => 'REPLACED in v2 (#986) by the `surface` role\'s `background.fill`. Note: the default is a flat `@color-surface` rather than the old white-to-surface gradient: a gradient cannot carry `var()` colour stops through the value grammar, and a frozen literal would stop following a retheme.',
+            '--hero-surface-border-color' => 'REPLACED in v2 (#986) by the `surface` role\'s `border.color`.',
+            '--hero-surface-border-width' => 'REPLACED in v2 (#986) by the `surface` role\'s `border.width`.',
+            '--hero-surface-padding' => 'REPLACED in v2 (#986) by the `surface` role\'s `spacing.padding`.',
+            '--hero-surface-radius' => 'REPLACED in v2 (#986) by the `surface` role\'s `border.radius`.',
+            '--hero-surface-shadow' => 'REPLACED in v2 (#986) by the `surface` role\'s `shadow.box`.',
+        ],
         // ── v2 Sprint 0 (#958): testimonials' 27 style slots retired ──
         //
         // Not renamed and not deprecated: the slot SYSTEM is gone from this component.
@@ -5703,7 +5799,7 @@ class SchemaValidationTest extends TestCase
         }
         // 29, not 31: testimonials' `theme` and `title_align` enums went with the v2
         // rebuild (both recorded in SCHEMA_RENAME_MIGRATION_NOTES).
-        $this->assertSame(29, $checked, 'the shipped `values` inventory changed — re-confirm the sweep reaches it');
+        $this->assertSame(25, $checked, 'the shipped `values` inventory changed — re-confirm the sweep reaches it');
     }
 
     /**
@@ -5762,7 +5858,10 @@ class SchemaValidationTest extends TestCase
     {
         $expected = [
             'cta'     => ['--cta-button-bg', '--cta-button-hover-bg', '--cta-button2-bg', '--cta-button2-hover-bg'],
-            'hero'    => ['--hero-button-bg', '--hero-button-hover-bg', '--hero-button2-bg', '--hero-button2-hover-bg'],
+            // hero's fill family is gone (#986): its CTAs are the `cta` /
+            // `cta-secondary` roles, whose fills are `background.fill` at rest and in
+            // the `:hover` state — no marker needed, because a role parameter is not
+            // a slot the advisory has to recognise by name.
             'section' => ['--section-panel-cta-bg'],
         ];
 
@@ -5968,31 +6067,6 @@ class SchemaValidationTest extends TestCase
         'grid slot --grid-item-icon-size' => 'layout=cards AND image_treatment=icon +note(046f6c6d)',
         'grid slot --grid-step-bg' => 'layout=steps',
         'grid slot --grid-step-text-color' => 'layout=steps',
-        'hero slot --hero-eyebrow-color' => 'eyebrow present',
-        'hero slot --hero-eyebrow-bg' => 'eyebrow present',
-        'hero slot --hero-eyebrow-radius' => 'eyebrow present',
-        'hero slot --hero-eyebrow-border-width' => 'eyebrow present',
-        'hero slot --hero-eyebrow-border-color' => 'eyebrow present',
-        'hero slot --hero-eyebrow-text-transform' => 'eyebrow present',
-        'hero slot --hero-button2-bg' => 'button_text present AND button2_text present',
-        'hero slot --hero-button2-border' => 'button_text present AND button2_text present',
-        'hero slot --hero-button2-color' => 'button_text present AND button2_text present',
-        'hero slot --hero-button2-hover-bg' => 'button_text present AND button2_text present',
-        'hero slot --hero-button2-hover-border' => 'button_text present AND button2_text present',
-        'hero slot --hero-button2-hover-color' => 'button_text present AND button2_text present',
-        'hero slot --hero-subheading-size' => 'subheading present',
-        'hero slot --hero-subheading-color' => 'subheading present',
-        'hero slot --hero-overlay-bg' => 'layout=cover',
-        'hero slot --hero-image-radius' => 'layout=split +note(6325181d)',
-        'hero slot --hero-image-position' => 'layout=split +note(6325181d)',
-        'hero slot --hero-image-aspect-ratio' => 'layout=split AND vertical_align in [top|center|bottom] +note(6325181d)',
-        'hero slot --hero-bg-position' => 'layout=cover AND image_url present',
-        'hero slot --hero-surface-bg' => 'layout=split AND proof present',
-        'hero slot --hero-surface-padding' => 'layout=split AND proof present',
-        'hero slot --hero-surface-border-color' => 'layout=split AND proof present',
-        'hero slot --hero-surface-border-width' => 'layout=split AND proof present',
-        'hero slot --hero-surface-radius' => 'layout=split AND proof present',
-        'hero slot --hero-surface-shadow' => 'layout=split AND proof present',
         'logos slot --logos-heading-size' => 'title present',
         'logos slot --logos-heading-color' => 'title present',
         'logos slot --logos-heading-measure' => 'title present',

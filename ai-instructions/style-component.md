@@ -4,7 +4,7 @@ Use the `style_component` action to change the visual appearance of a specific c
 
 > ## First: is this component on the v2 contract?
 >
-> `testimonials` is. Run `wp pp schema testimonials` (or read the component catalog) — if it lists **UDC roles** instead of style slots, `style_component` will refuse it with `no_style_slots`, and everything below about slots does not apply to it.
+> `hero` and `testimonials` are. Run `wp pp schema hero` (or read the component catalog) — if it lists **UDC roles** instead of style slots, `style_component` will refuse it with `no_style_slots`, and everything below about slots does not apply to it.
 >
 > Style a v2 component by putting a `udc` map on the BAND, beside `props`, through `update_composition` / `update_component` / `add_component` / `create_page`:
 >
@@ -521,9 +521,7 @@ between two navy bands this exact way). Zeroing that margin closes the seam.
 
 | Component | Recipe | Description |
 |-----------|--------|-------------|
-| hero | `dark-spacious` | Dark background with generous padding |
-| hero | `compact` | Reduced padding for tighter layouts |
-| hero | `bold-headline` | Oversized title with dark bg |
+| hero | — | No named recipe. `hero` is a v2 component: it has no style slots for a recipe to expand into. Style it through the `udc` map on the band — see the Universal Design Contract section. |
 | section | `accent-panel` | Accent-tinted background with border |
 | section | `spacious-editorial` | Wide body with generous padding |
 | grid | `dark-showcase` | Dark background with light cards |

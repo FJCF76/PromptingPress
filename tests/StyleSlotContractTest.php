@@ -83,11 +83,16 @@ class StyleSlotContractTest extends TestCase
     public function testDiscoveryFindsTheKnownStyledComponents(): void
     {
         $found = $this->styledComponents();
-        // Six, not seven: testimonials left the style-slot system when it was rebuilt
-        // on the Universal Design Contract. Its authoring surface is now roles, and
-        // the contract that replaced this one is UdcContractTest.
-        foreach (['cta', 'faq', 'grid', 'hero', 'section', 'stats'] as $known) {
+        // FIVE, not seven: testimonials left the style-slot system in #958 and hero in
+        // #986, both rebuilt on the Universal Design Contract. Their authoring surface
+        // is roles, and the contract that replaced this one is the UDC engine's own.
+        foreach (['cta', 'faq', 'grid', 'section', 'stats'] as $known) {
             $this->assertContains($known, $found, "Schema discovery lost the {$known} component.");
+        }
+        // …and the two v2 components must NOT be discovered here, or this suite would
+        // start asserting a slot contract against a component that has none.
+        foreach (['hero', 'testimonials'] as $v2) {
+            $this->assertNotContains($v2, $found, "{$v2} is a v2 component: it declares no style slots.");
         }
     }
 
@@ -362,8 +367,6 @@ class StyleSlotContractTest extends TestCase
         // made the defect visible. Fixing it means deciding whether the per-instance slot
         // or the coarse `spacing` prop wins — a render change either way, so it is #609's
         // call, not a mechanical routing this gate could make.
-        '--hero-padding-top|.hero|padding-top'                           => 6,
-        '--hero-padding-bottom|.hero|padding-bottom'                     => 6,
     ];
 
     public function testDeclaredSlotsNotBypassedByLiteralReDeclarations(): void
@@ -423,9 +426,9 @@ class StyleSlotContractTest extends TestCase
      */
     public function testWaiverLedgerOnlyShrinks(): void
     {
-        $this->assertSame(2, count(self::KNOWN_DEAD_SLOT_WAIVERS),
-            'The waiver ledger changed size. Fixes shrink it (update this pin in the same change); new dead slots are fixed or get their own issue — never silently waived. The 2 remaining entries are the issue 609 hero spacing/padding pairs, waived pending that issue. The testimonials --stack reset group (5 entries, 6 declarations) retired with the v2 rebuild: the UDC has no card slots for a variant reset to defeat.');
-        $this->assertSame(12, array_sum(self::KNOWN_DEAD_SLOT_WAIVERS),
+        $this->assertSame(0, count(self::KNOWN_DEAD_SLOT_WAIVERS),
+            'The waiver ledger changed size. Fixes shrink it (update this pin in the same change); new dead slots are fixed or get their own issue — never silently waived. The ledger is EMPTY: the last two entries were the issue 609 hero spacing/padding pairs, and they retired with hero\'s slot map in #986 — there is no slot left for a literal to bypass. The testimonials --stack reset group (5 entries, 6 declarations) retired with the v2 rebuild: the UDC has no card slots for a variant reset to defeat.');
+        $this->assertSame(0, array_sum(self::KNOWN_DEAD_SLOT_WAIVERS),
             'Total waived bypass declarations changed. Update this pin in the same change as the ledger edit it reflects.');
     }
 
@@ -549,28 +552,7 @@ class StyleSlotContractTest extends TestCase
         );
     }
 
-    /**
-     * Hero proof-line color slot (issue 296): byte-identical-unset fallback pin.
-     *
-     * The base .hero__proof rule hardcoded `color: var(--color-muted)` with no
-     * per-instance slot, so every dark hero shipped a dark-on-dark proof line
-     * (same literal-token-defeats-theming family as #222/#248/#292). Routing it
-     * through --hero-proof-color lets a dark hero lift the proof color. The generic
-     * checks above already prove the slot is consumed and unbypassed; this pins the
-     * exact fallback literal so unset output stays byte-identical to the old value.
-     * The proof line has a single color declaration (no premium/inverted re-declare),
-     * so this one rule is the whole surface.
-     */
-    public function testIssue296HeroProofColorSlotFallback(): void
-    {
-        $block = $this->stripComments($this->componentBlock('hero'));
-        $this->assertStringContainsString(
-            'color: var(--hero-proof-color, var(--color-muted))',
-            $block,
-            'The .hero__proof base rule must route color through --hero-proof-color '
-            . 'with --color-muted as the fallback (issue 296, byte-identical unset).'
-        );
-    }
+    // RETIRED (#986): `--hero-proof-color` is the `proof` role's `typography.color`.
 
     /**
      * Stats display-number typography slots (issue 472): byte-identical-unset pins.
@@ -605,74 +587,8 @@ class StyleSlotContractTest extends TestCase
         );
     }
 
-    /**
-     * Hero primary-button fill slots (issue 514): byte-identical-unset fallback pins.
-     *
-     * The generic keystone checks above prove --hero-button-bg / --hero-button-color /
-     * --hero-button-shadow are consumed on type-compatible properties inside the hero
-     * block. They do NOT pin the fallback literals, and the VISIBLE winner for the fill
-     * lives in the SHARED premium `main .btn:not(...)` cascade (outside the hero block).
-     * These pins lock both surfaces so an unset hero button stays byte-identical:
-     *   - the premium winner routes each new slot as the OUTERMOST var() with the prior
-     *     chain (--cta-button-* / --btn-* / literal) as the fallback, so unset resolves
-     *     to today's gradient/ink/bevel; and
-     *   - the hero-block keystone wires the ink/elevation at [0,4,0] with a `none` default
-     *     (the premium winner supplies the bevel), and the fill/border follow --hero-button-bg.
-     */
-    public function testIssue514HeroButtonFillSlotFallbacks(): void
-    {
-        $css = $this->stripComments($this->css);
-
-        // Premium cascade — the VISIBLE winners (shared block, outside COMPONENT: hero).
-        // Rest fill: --hero-button-bg outermost, then the pre-#514 --cta-button-bg/--btn-bg
-        // chain to the gradient literal (byte-identical unset).
-        // NOTE (issue 536): the section panel CTA joined the same masked-fill class and its
-        // slots now lead these chains, with the #514 hero links preserved immediately after.
-        $this->assertMatchesRegularExpression(
-            '/background:\s*var\(--section-panel-cta-bg,\s*var\(--hero-button-bg,\s*var\(--cta-button-bg,\s*var\(--btn-bg,\s*'
-            . 'linear-gradient\(180deg,\s*var\(--color-accent-strong\)\s*0%,\s*var\(--color-accent-hover\)\s*100%\)\)\)\)\)/',
-            $css,
-            'The premium rest fill must route --section-panel-cta-bg -> --hero-button-bg -> --cta-button-bg -> --btn-bg -> gradient (issues 514/536).'
-        );
-        // Rest ink: --hero-button-color in the chain, prior chain to --color-bg.
-        $this->assertStringContainsString(
-            'color: var(--section-panel-cta-color, var(--hero-button-color, var(--cta-button-color, var(--btn-text, var(--color-bg)))))',
-            $css,
-            'The premium rest ink must route --section-panel-cta-color -> --hero-button-color -> --cta-button-color -> --btn-text -> --color-bg (issues 514/536).'
-        );
-        // Rest elevation: --hero-button-shadow in the chain, prior chain to the bevel literal.
-        $this->assertMatchesRegularExpression(
-            '/box-shadow:\s*var\(--section-panel-cta-shadow,\s*var\(--hero-button-shadow,\s*var\(--cta-button-shadow,\s*var\(--btn-shadow,\s*'
-            . 'inset 0 1px 0 rgba\(255, 255, 255, 0\.16\),\s*'
-            . '0 10px 22px color-mix\(in srgb, var\(--color-accent-strong\) 14%, transparent\)\)\)\)\)/',
-            $css,
-            'The premium rest elevation must route --section-panel-cta-shadow -> --hero-button-shadow -> --cta-button-shadow -> --btn-shadow -> bevel (issues 514/536).'
-        );
-
-        // Hero block — the slot-contract keystone at [0,4,0] (below the premium winner).
-        $block = $this->stripComments($this->componentBlock('hero'));
-        $this->assertMatchesRegularExpression(
-            '/\.hero__cta:not\(\.btn--outline\):not\(\.btn--ghost\):not\(\.btn--secondary\)\s*\{\s*'
-            . 'color:\s*var\(--hero-button-color,\s*var\(--btn-text,\s*var\(--color-bg\)\)\);\s*'
-            . 'box-shadow:\s*var\(--hero-button-shadow,\s*none\);\s*\}/',
-            $block,
-            'The .hero__cta keystone must wire --hero-button-color (ink) and --hero-button-shadow: none (issue 514).'
-        );
-        // Fill/border keystone on the higher-specificity hero rule: --hero-button-bg leads
-        // the fill; the border honors its own knob then FOLLOWS --hero-button-bg.
-        $this->assertStringContainsString(
-            'background-color: var(--hero-button-bg, var(--hero-accent, var(--btn-bg, var(--color-accent))))',
-            $block,
-            'The hero primary background-color must route --hero-button-bg -> --hero-accent -> --btn-bg -> --color-accent (issue 514).'
-        );
-        $this->assertStringContainsString(
-            'border-color: var(--hero-button-border, var(--hero-accent, var(--btn-border-color, var(--hero-button-bg, var(--btn-bg, var(--color-accent))))))',
-            $block,
-            'The hero primary border must lead with its own ring slot --hero-button-border (issue 584, '
-            . 'the position --cta-button-border holds on the cta primary) and then follow the fill '
-            . '(--hero-button-bg) when every knob above it is unset (issue 514).'
-        );
-    }
+    // RETIRED (#986): hero's button fill slots are the `cta` / `cta-secondary` roles'
+    // `background.fill` (and its `:hover`), covered by ActionsTest's UDC contract test.
 
     /**
      * Section panel-CTA fill slots (issue 536): the last member of the #514 masked-fill class.
@@ -765,9 +681,13 @@ class StyleSlotContractTest extends TestCase
 
         // Elevation contract: `none` must flatten hover as well as rest (the #514 contract).
         $this->assertMatchesRegularExpression(
-            '/box-shadow:\s*var\(--section-panel-cta-shadow,\s*var\(--hero-button-shadow,\s*var\(--cta-button-shadow,\s*'
+            // `--hero-button-shadow` left the chain in #986 (hero owns no button slots),
+            // so the chain is one level shorter and closes one paren earlier. The
+            // contract this pins is unchanged: `--section-panel-cta-shadow` still LEADS,
+            // so `none` on it still flattens hover as well as rest.
+            '/box-shadow:\s*var\(--section-panel-cta-shadow,\s*var\(--cta-button-shadow,\s*'
             . 'inset 0 1px 0 rgba\(255, 255, 255, 0\.18\),\s*'
-            . '0 14px 30px color-mix\(in srgb, var\(--color-accent-strong\) 20%, transparent\)\)\)\)/',
+            . '0 14px 30px color-mix\(in srgb, var\(--color-accent-strong\) 20%, transparent\)\)\)/',
             $css,
             'The premium HOVER elevation must route --section-panel-cta-shadow too, so `none` '
             . 'flattens rest AND hover instead of re-growing a bevel mid-interaction (issue 536).'
@@ -820,7 +740,6 @@ class StyleSlotContractTest extends TestCase
     {
         // component => [selector, expected fallback literal]
         $expected = [
-            'hero'   => ['.hero__title',            '0'],
             'cta'    => ['.cta__title',             'var(--space-xs)'],
             'stats'  => ['.stats__heading',         'var(--space-lg)'],
             'table'  => ['.table-section__heading', 'var(--space-lg)'],
@@ -1183,8 +1102,6 @@ class StyleSlotContractTest extends TestCase
     {
         return [
             // The plain bands.
-            'hero primary'          => ['hero', '.hero .btn', '--hero-accent-hover', '--hero-button-hover-bg', false],
-            'hero cta2'             => ['hero', '.hero .hero__cta-group .hero__cta--secondary', '--hero-accent-hover', '--hero-button2-hover-bg', false],
             'cta primary'           => ['cta', '.cta .btn', '--cta-accent-hover', '--cta-button-hover-bg', false],
             'cta button2'           => ['cta', '.cta .cta__buttons .cta__button--secondary', '--cta-accent-hover', '--cta-button2-hover-bg', false],
             // And the overlay/cover TWINS. Each is a physically separate declaration that
@@ -1192,8 +1109,6 @@ class StyleSlotContractTest extends TestCase
             // role, #535/#543, and the global tier dropped — ring knobs #564, fill knobs #565),
             // so each can drift from its base independently. "Every filled button this theme
             // ships" is only true with these four included.
-            'hero primary (cover)'  => ['hero', '.hero--cover .hero__cta', '--hero-accent-hover', '--hero-button-hover-bg', true],
-            'hero cta2 (cover)'     => ['hero', '.hero--cover .hero__cta-group .hero__cta--secondary', '--hero-accent-hover', '--hero-button2-hover-bg', true],
             'cta primary (overlay)' => ['cta', '.cta--has-bg-image .cta__button', '--cta-accent-hover', '--cta-button-hover-bg', true],
             'cta button2 (overlay)' => ['cta', '.cta--has-bg-image .cta__buttons .cta__button--secondary', '--cta-accent-hover', '--cta-button2-hover-bg', true],
         ];
@@ -1384,10 +1299,6 @@ class StyleSlotContractTest extends TestCase
             'cta primary (overlay, hover)'  => ['cta', $ctaPrimary, ':hover', '--cta-button-hover-bg'],
             'cta button2 (overlay, rest)'   => ['cta', $ctaSecond, '', '--cta-button2-bg'],
             'cta button2 (overlay, hover)'  => ['cta', $ctaSecond, ':hover', '--cta-button2-hover-bg'],
-            'hero primary (cover, rest)'    => ['hero', $heroFirst, '', '--hero-button-bg'],
-            'hero primary (cover, hover)'   => ['hero', $heroFirst, ':hover', '--hero-button-hover-bg'],
-            'hero cta2 (cover, rest)'       => ['hero', $heroSecond, '', '--hero-button2-bg'],
-            'hero cta2 (cover, hover)'      => ['hero', $heroSecond, ':hover', '--hero-button2-hover-bg'],
         ];
     }
 
@@ -1446,8 +1357,6 @@ class StyleSlotContractTest extends TestCase
     public static function filledBaseBorderChains(): array
     {
         $restFill = [
-            '--hero-button-hover-bg' => '--hero-button-bg',
-            '--hero-button2-hover-bg'   => '--hero-button2-bg',
             '--cta-button-hover-bg'  => '--cta-button-bg',
             '--cta-button2-hover-bg' => '--cta-button2-bg',
         ];
@@ -1660,228 +1569,15 @@ class StyleSlotContractTest extends TestCase
         $cta  = '.cta .cta__buttons .cta__button--secondary';
 
         return [
-            'hero cta2 outline'   => ['hero', $hero . '.btn--outline',   '--hero-button2-hover-border', '--hero-button2-hover-bg'],
-            'hero cta2 secondary' => ['hero', $hero . '.btn--secondary', '--hero-button2-hover-border', '--hero-button2-hover-bg'],
-            'hero cta2 ghost'     => ['hero', $hero . '.btn--ghost',     '--hero-button2-hover-border', '--hero-button2-hover-bg'],
             'cta button2 outline'   => ['cta', $cta . '.btn--outline',   '--cta-button2-hover-border', '--cta-button2-hover-bg'],
             'cta button2 secondary' => ['cta', $cta . '.btn--secondary', '--cta-button2-hover-border', '--cta-button2-hover-bg'],
             'cta button2 ghost'     => ['cta', $cta . '.btn--ghost',     '--cta-button2-hover-border', '--cta-button2-hover-bg'],
         ];
     }
 
-    /**
-     * Pin the ORDER of a filled second button's hover border chain (issue 538).
-     *
-     * Order is the entire contract here. Option 3 (accepted) puts the hover FILL behind the
-     * accent knob so an authored ring survives; Option 2 (rejected) puts it in front and
-     * repaints that ring. Those two differ only by the position of one token, so the pin has
-     * to be positional — and it has to prove the declaration it matched is the one that
-     * actually WINS, not merely that the desired string appears somewhere in the block.
-     *
-     * Four properties, each closing a way an earlier draft of this pin could pass while the
-     * rendered ring was wrong:
-     *   1. It isolates the filled variant's :hover rule by selector, and requires that
-     *      selector to appear EXACTLY ONCE. Matching only the first occurrence would let a
-     *      second, identical-specificity rule added later in the block win on source order
-     *      while this pin happily inspected the earlier, still-correct one.
-     *   2. It requires EXACTLY ONE border-color declaration in that rule. A later duplicate
-     *      declaration in the same block silently wins in the cascade; without this count a
-     *      correct-but-overridden chain would still pass.
-     *   3. It matches the token sequence with \s* between parts rather than a fixed-whitespace
-     *      substring, so reformatting these 110-character declarations is not a false failure
-     *      while a reordering still is.
-     *   4. It anchors the TERMINAL — the chain must close on the theme literal and end there.
-     *      A prefix-only match would accept extra fallbacks appended after --color-accent-hover,
-     *      and that terminal is exactly what "byte-identical when the slots are unset" rests on.
-     *
-     * What it deliberately does NOT prove: that no HIGHER-specificity rule elsewhere overrides
-     * this one. That is a cascade fact, not a text fact, and it is pinned at render level by
-     * the `#538` block in tests/e2e/style-render.spec.ts, which reads borderTopColor under a
-     * real :hover in a real browser.
-     *
-     * @param string   $block    Comment-stripped CSS for the component.
-     * @param string   $selector The filled second button's base selector (without :not()/:hover).
-     * @param string[] $chain    Custom property names in their required order, outermost first.
-     * @param string   $label    Human name for the button, used in failure messages.
-     */
-    private function assertHoverBorderChain(
-        string $block,
-        string $selector,
-        array $chain,
-        string $label
-    ): void {
-        // The filled variant's hover rule: the base selector, the three :not() exclusions in
-        // any order, then :hover. Non-greedy body match stops at the first closing brace.
-        $rulePattern = '/' . preg_quote($selector, '/')
-            . '(?::not\(\.btn--(?:outline|ghost|secondary)\)){3}:hover\s*\{(.*?)\}/s';
-        $ruleCount = preg_match_all($rulePattern, $block, $matches);
-        $this->assertSame(
-            1,
-            $ruleCount,
-            "Expected exactly ONE filled {$label} :hover rule, found {$ruleCount}. Issue 538's "
-            . 'border contract is pinned against that rule; a duplicate rule later in the block '
-            . 'carries equal specificity and wins on source order, so the chain checked here '
-            . 'would no longer be the one that paints.'
-        );
-        $body = $matches[1][0] ?? '';
-
-        $this->assertSame(
-            1,
-            preg_match_all('/border-color\s*:/', $body),
-            "The filled {$label} :hover rule must declare border-color exactly once. A second "
-            . 'declaration later in the same block wins the cascade, which would leave the '
-            . 'chain below correct in the source and wrong on screen (issue 538).'
-        );
-
-        // Order + terminal pattern: `border-color: var(--a, var(--b, var(--c, var(--d))));`
-        // Every entry but the last opens a var() with a fallback; the last opens a var() that
-        // CLOSES the chain, and the declaration must end right after the matching parens.
-        $last  = array_key_last($chain);
-        $parts = '';
-        foreach ($chain as $i => $prop) {
-            $parts .= $i === $last
-                ? 'var\(\s*' . preg_quote($prop, '/') . '\s*\)'
-                : 'var\(\s*' . preg_quote($prop, '/') . '\s*,\s*';
-        }
-        $orderPattern = '/border-color\s*:\s*' . $parts . '\s*' . str_repeat('\)\s*', $last) . ';/';
-
-        $this->assertMatchesRegularExpression(
-            $orderPattern,
-            $body,
-            "The filled {$label} hover border must resolve in exactly this order and stop there: "
-            . implode(' -> ', $chain) . '. The hover FILL sits BEHIND the accent knob on '
-            . 'purpose (issue 538, Option 3; extended to the cta primary by issue 548), and '
-            . 'since issue 564 the global --btn-hover-border-color knob sits behind it too, so '
-            . 'a site-wide ring retheme cannot defeat an authored band accent or the measured '
-            . 'on-overlay separation role. Both orderings repaint rings on compositions that '
-            . 'already ship, so both are maintainer decisions rather than cleanups — see '
-            . 'issue 564 (issuecomment-5106604500). '
-            . 'The terminal is pinned too: anything appended after the theme literal would '
-            . 'break the byte-identical-when-unset guarantee.'
-        );
-    }
-
-    public function testIssue526HeroCta2SlotIsolationAndFillRouting(): void
-    {
-        $block = $this->stripComments($this->componentBlock('hero'));
-
-        // Isolate the rule whose selector-subject is a BARE .hero__cta--secondary (no
-        // :not()/variant qualifier) — that unscoped selector is itself part of the
-        // contract: the slots must be unreachable on EVERY cta2 variant, not just the
-        // filled one. Grabbing the block first also makes the three declaration
-        // assertions order-independent, so reordering them is not a false failure.
-        $this->assertMatchesRegularExpression(
-            '/(?:^|\})\s*\.hero\s+\.hero__cta-group\s+\.hero__cta--secondary\s*\{([^}]*)\}/',
-            $block,
-            'The issue 526 cta2 isolation rule is missing, or its selector gained a variant '
-            . 'qualifier — it must stay an unqualified .hero__cta--secondary rule so the '
-            . 'primary button slots are unreachable on every cta2 variant.'
-        );
-        preg_match(
-            '/(?:^|\})\s*\.hero\s+\.hero__cta-group\s+\.hero__cta--secondary\s*\{([^}]*)\}/',
-            $block,
-            $m
-        );
-        $isolation = $m[1] ?? '';
-
-        $this->assertMatchesRegularExpression(
-            '/--hero-button-bg:\s*var\(--hero-button2-bg\)\s*;/',
-            $isolation,
-            'The isolation rule must re-point --hero-button-bg at --hero-button2-bg (issue 526): '
-            . 'that single declaration both kills the #514 leak (unset -> guaranteed-invalid -> '
-            . 'premium fallback) AND routes the cta2 fill into the gradient-clearing chain. '
-            . 'Plain `initial` here would fix the leak but leave --hero-button2-bg masked again.'
-        );
-        $this->assertMatchesRegularExpression(
-            '/--hero-button-color:\s*initial\s*;/',
-            $isolation,
-            'The isolation rule must reset --hero-button-color on cta2 (issue 526).'
-        );
-        $this->assertMatchesRegularExpression(
-            '/--hero-button-shadow:\s*initial\s*;/',
-            $isolation,
-            'The isolation rule must reset --hero-button-shadow on cta2 (issue 526).'
-        );
-        // Issue 530: the SAME re-pointing on the hover surface, which makes cta2's isolation
-        // symmetric across rest and hover. Without it the premium hover shorthand masks
-        // --hero-button2-hover-bg on a filled cta2, and the primary's --hero-button-hover-bg
-        // inherits onto cta2 exactly the way --hero-button-bg used to before #526.
-        $this->assertMatchesRegularExpression(
-            '/--hero-button-hover-bg:\s*var\(--hero-button2-hover-bg\)\s*;/',
-            $isolation,
-            'The isolation rule must re-point --hero-button-hover-bg at --hero-button2-hover-bg '
-            . '(issue 530), so hover is isolated the same way rest is and the cta2 hover fill '
-            . 'reaches the gradient-clearing premium chain.'
-        );
-
-        // The cta2 rest rule still consumes --hero-button2-bg directly (background-color), so
-        // the slot keeps its in-block, type-compatible consumption for the keystone checks.
-        $this->assertStringContainsString(
-            'background-color: var(--hero-button2-bg, var(--hero-accent, var(--btn-bg, var(--color-accent))))',
-            $block,
-            'The filled cta2 rest rule must keep routing --hero-button2-bg (issue 111/526), then '
-            . 'the global --btn-bg (issue 554) at the position the hero PRIMARY holds it.'
-        );
-        // Border FOLLOWS the fill when its own knobs are unset — the #514 idiom the primary
-        // uses, extended to cta2 by the issue 526 decision. Without --hero-button2-bg in this
-        // chain a fill-only recolor renders a --color-accent ring around a brand-colored
-        // button; --hero-button2-border / --hero-accent still win first, and the chain still
-        // bottoms out at --color-accent so an unset cta2 is byte-identical.
-        // Issue 554 inserted the global tier at the hero PRIMARY's positions: the ring knob
-        // after --hero-accent, --btn-bg at the tail of the border-follows-fill link. The
-        // ordering is load-bearing — putting --btn-border-color ahead of --hero-accent would
-        // split the hero PAIR on any site setting both, the exact defect #554 closed. That was
-        // the cta component's order until issue 564 moved the cta onto this one, for the same
-        // reason at component scope: the broader global knob was defeating the narrower
-        // authored band accent. Both families now rank the accent first.
-        $this->assertStringContainsString(
-            'border-color: var(--hero-button2-border, var(--hero-accent, var(--btn-border-color, var(--hero-button2-bg, var(--btn-bg, var(--color-accent))))))',
-            $block,
-            'The filled cta2 border must FOLLOW --hero-button2-bg when --hero-button2-border and '
-            . '--hero-accent are unset (issue 526, mirroring the primary at #514), and must '
-            . 'route the global tier at the primary\'s positions (issue 554).'
-        );
-        // The hover half of both chains (issue 530), mirroring the rest chains above with
-        // each knob swapped for its hover equivalent.
-        $this->assertStringContainsString(
-            'background-color: var(--hero-button2-hover-bg, var(--hero-accent-hover, var(--btn-hover-bg, var(--color-accent-hover))))',
-            $block,
-            'The filled cta2 hover rule must keep routing --hero-button2-hover-bg (issue 530), '
-            . 'then the global --btn-hover-bg (issue 554). Rest and hover gained the tier '
-            . 'together on purpose: either half alone renders the accent at rest and flashes '
-            . 'to the operator colour on hover, which is why #539 wired neither.'
-        );
-        // Same contract as the cta's button2: the hover border FOLLOWS the hover fill, but only
-        // from the last fallback position (issue 538, Option 3 — the flipped #530 negative pin).
-        // --hero-button2-hover-border and --hero-accent-hover both still win ahead of it, so the
-        // only case that changes is fill-set/both-knobs-unset; unset it still reaches
-        // --color-accent-hover, byte-identical.
-        $this->assertHoverBorderChain(
-            $block,
-            '.hero .hero__cta-group .hero__cta--secondary',
-            ['--hero-button2-hover-border', '--hero-accent-hover', '--btn-hover-border-color', '--hero-button2-hover-bg', '--btn-hover-bg', '--color-accent-hover'],
-            'cta2'
-        );
-        // The hero PRIMARY's new hover fill slot keeps an in-block, type-compatible
-        // consumption (the slot-contract keystone). Its VISIBLE win is the premium hover
-        // rule; this declaration is what makes the slot discoverable in the hero block.
-        $this->assertStringContainsString(
-            'background-color: var(--hero-button-hover-bg, var(--hero-accent-hover, var(--btn-hover-bg, var(--color-accent-hover))))',
-            $block,
-            'The hero primary hover rule must consume --hero-button-hover-bg (issue 530), then the global --btn-hover-bg (issue 539).'
-        );
-        // The hero primary's hover border DOES follow the new fill slot, mirroring its rest
-        // sibling. Safe because --hero-button-hover-bg is new in #530: no shipped composition
-        // can already set it, so no existing render changes.
-        $this->assertStringContainsString(
-            'border-color: var(--hero-button-hover-border, var(--hero-accent-hover, var(--btn-hover-border-color, var(--hero-button-hover-bg, var(--btn-hover-bg, var(--color-accent-hover))))))',
-            $block,
-            'The hero primary hover border must lead with --hero-button-hover-border (issue 584, '
-            . 'the positional twin of --hero-button-border on the rest rule), honour the global '
-            . '--btn-hover-border-color (issue 539) and then FOLLOW --hero-button-hover-bg when '
-            . '--hero-accent-hover is unset (issue 530) — the same shape its REST sibling carries.'
-        );
-    }
+    // RETIRED (#986): the two CTAs are separate roles with separate selectors, so the
+    // isolation this pinned holds by construction; ActionsTest proves it on the
+    // emitted CSS rather than on a fallback chain.
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -2520,15 +2216,11 @@ class StyleSlotContractTest extends TestCase
      * exact — adding or dropping an entry fails until it is updated deliberately.
      */
     private const SLOT_DECLARATION_EXEMPTIONS = [
-        '.hero .hero__cta-group .hero__cta--secondary declares --hero-button-bg',
-        '.hero .hero__cta-group .hero__cta--secondary declares --hero-button-color',
-        '.hero .hero__cta-group .hero__cta--secondary declares --hero-button-shadow',
         // issue 530 — the hover half of the same mechanism. --hero-button-hover-bg is
         // re-pointed at --hero-button2-hover-bg for exactly the reasons above, applied to the
         // hover surface: it routes cta2's hover fill into the premium gradient-clearing
         // chain AND stops the primary's hover fill inheriting down. Nothing author-facing
         // is deadened — cta2's own hover slot is --hero-button2-hover-bg, which is not declared.
-        '.hero .hero__cta-group .hero__cta--secondary declares --hero-button-hover-bg',
         // issue 474 — the SAME isolation mechanism for the cta component's own second
         // button, and exempt for the same reason. .cta__button--secondary is a
         // descendant of the .cta root, so it inherits the PRIMARY button's
@@ -2577,18 +2269,6 @@ class StyleSlotContractTest extends TestCase
         'main .btn:not(.hero__cta):not(.cta__button):not(.section__panel-cta)';
 
     private const NESTED_BTN_ISOLATION_SLOTS = [
-        '--hero-button-bg',
-        '--hero-button-border',
-        '--hero-button-color',
-        '--hero-button-hover-bg',
-        '--hero-button-hover-border',
-        '--hero-button-shadow',
-        '--hero-button2-bg',
-        '--hero-button2-border',
-        '--hero-button2-color',
-        '--hero-button2-hover-bg',
-        '--hero-button2-hover-border',
-        '--hero-button2-hover-color',
         '--cta-button-bg',
         '--cta-button-border',
         '--cta-button-color',
@@ -3500,4 +3180,99 @@ class StyleSlotContractTest extends TestCase
         }
         return array_map('strtolower', $m[1]);
     }
+
+
+
+    /**
+     * Pin the ORDER of a filled second button's hover border chain (issue 538).
+     *
+     * Order is the entire contract here. Option 3 (accepted) puts the hover FILL behind the
+     * accent knob so an authored ring survives; Option 2 (rejected) puts it in front and
+     * repaints that ring. Those two differ only by the position of one token, so the pin has
+     * to be positional — and it has to prove the declaration it matched is the one that
+     * actually WINS, not merely that the desired string appears somewhere in the block.
+     *
+     * Four properties, each closing a way an earlier draft of this pin could pass while the
+     * rendered ring was wrong:
+     *   1. It isolates the filled variant's :hover rule by selector, and requires that
+     *      selector to appear EXACTLY ONCE. Matching only the first occurrence would let a
+     *      second, identical-specificity rule added later in the block win on source order
+     *      while this pin happily inspected the earlier, still-correct one.
+     *   2. It requires EXACTLY ONE border-color declaration in that rule. A later duplicate
+     *      declaration in the same block silently wins in the cascade; without this count a
+     *      correct-but-overridden chain would still pass.
+     *   3. It matches the token sequence with \s* between parts rather than a fixed-whitespace
+     *      substring, so reformatting these 110-character declarations is not a false failure
+     *      while a reordering still is.
+     *   4. It anchors the TERMINAL — the chain must close on the theme literal and end there.
+     *      A prefix-only match would accept extra fallbacks appended after --color-accent-hover,
+     *      and that terminal is exactly what "byte-identical when the slots are unset" rests on.
+     *
+     * What it deliberately does NOT prove: that no HIGHER-specificity rule elsewhere overrides
+     * this one. That is a cascade fact, not a text fact, and it is pinned at render level by
+     * the `#538` block in tests/e2e/style-render.spec.ts, which reads borderTopColor under a
+     * real :hover in a real browser.
+     *
+     * @param string   $block    Comment-stripped CSS for the component.
+     * @param string   $selector The filled second button's base selector (without :not()/:hover).
+     * @param string[] $chain    Custom property names in their required order, outermost first.
+     * @param string   $label    Human name for the button, used in failure messages.
+     */
+    private function assertHoverBorderChain(
+        string $block,
+        string $selector,
+        array $chain,
+        string $label
+    ): void {
+        // The filled variant's hover rule: the base selector, the three :not() exclusions in
+        // any order, then :hover. Non-greedy body match stops at the first closing brace.
+        $rulePattern = '/' . preg_quote($selector, '/')
+            . '(?::not\(\.btn--(?:outline|ghost|secondary)\)){3}:hover\s*\{(.*?)\}/s';
+        $ruleCount = preg_match_all($rulePattern, $block, $matches);
+        $this->assertSame(
+            1,
+            $ruleCount,
+            "Expected exactly ONE filled {$label} :hover rule, found {$ruleCount}. Issue 538's "
+            . 'border contract is pinned against that rule; a duplicate rule later in the block '
+            . 'carries equal specificity and wins on source order, so the chain checked here '
+            . 'would no longer be the one that paints.'
+        );
+        $body = $matches[1][0] ?? '';
+
+        $this->assertSame(
+            1,
+            preg_match_all('/border-color\s*:/', $body),
+            "The filled {$label} :hover rule must declare border-color exactly once. A second "
+            . 'declaration later in the same block wins the cascade, which would leave the '
+            . 'chain below correct in the source and wrong on screen (issue 538).'
+        );
+
+        // Order + terminal pattern: `border-color: var(--a, var(--b, var(--c, var(--d))));`
+        // Every entry but the last opens a var() with a fallback; the last opens a var() that
+        // CLOSES the chain, and the declaration must end right after the matching parens.
+        $last  = array_key_last($chain);
+        $parts = '';
+        foreach ($chain as $i => $prop) {
+            $parts .= $i === $last
+                ? 'var\(\s*' . preg_quote($prop, '/') . '\s*\)'
+                : 'var\(\s*' . preg_quote($prop, '/') . '\s*,\s*';
+        }
+        $orderPattern = '/border-color\s*:\s*' . $parts . '\s*' . str_repeat('\)\s*', $last) . ';/';
+
+        $this->assertMatchesRegularExpression(
+            $orderPattern,
+            $body,
+            "The filled {$label} hover border must resolve in exactly this order and stop there: "
+            . implode(' -> ', $chain) . '. The hover FILL sits BEHIND the accent knob on '
+            . 'purpose (issue 538, Option 3; extended to the cta primary by issue 548), and '
+            . 'since issue 564 the global --btn-hover-border-color knob sits behind it too, so '
+            . 'a site-wide ring retheme cannot defeat an authored band accent or the measured '
+            . 'on-overlay separation role. Both orderings repaint rings on compositions that '
+            . 'already ship, so both are maintainer decisions rather than cleanups — see '
+            . 'issue 564 (issuecomment-5106604500). '
+            . 'The terminal is pinned too: anything appended after the theme literal would '
+            . 'break the byte-identical-when-unset guarantee.'
+        );
+    }
+
 }

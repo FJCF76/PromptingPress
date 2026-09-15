@@ -8048,45 +8048,75 @@ function pp_default_homepage_composition(): array {
             'eyebrow'       => 'Open-source AI-first WordPress theme',
             'title'         => 'Turn AI-assisted site drafts into maintainable WordPress composition.',
             'title_accent'  => 'maintainable',
-            'subheading'      => 'PromptingPress gives small WordPress teams a bounded page-composition layer. AI drafts sections, humans inspect props and style slots, and every change can be validated and screenshotted before review.',
+            'subheading'      => 'PromptingPress gives small WordPress teams a bounded page-composition layer. AI drafts the page, the theme keeps it reviewable.',
             'button_text'      => 'View theme on GitHub',
             'button_url'       => 'https://github.com/FJCF76/PromptingPress',
-            // Both hero CTAs are outline: on the dark hero the filled premium
-            // `.btn` bevel is a fixed blue gradient driven by the GLOBAL
-            // --color-accent/--btn-bg tokens (a fresh install has no token
-            // override), so --hero-accent alone cannot repaint it, and the ghost
-            // variant's text is not reachable by --hero-button2-color. Outline
-            // clears that gradient and tracks --hero-heading-color (cream), hover-filling
-            // with --hero-accent (orange) — on-brand, restrained hero CTAs. The
-            // one filled orange button stays the closing CTA (--cta-button-bg).
-            'button_variant'   => 'outline',
             'button2_text'     => 'See how it works',
             'button2_url'      => '#home-mechanism',
-            'button2_variant'  => 'outline',
             'layout'        => 'split',
             'split_ratio'   => '60-40',
             'vertical_align' => 'stretch',
-            'proof'         => '<p class="hero__surface-label">Composition workflow</p><div class="hero__surface-list"><div class="hero__surface-item"><span class="hero__surface-key">Read</span><span class="hero__surface-value">Structured site context</span></div><div class="hero__surface-item"><span class="hero__surface-key">Edit</span><span class="hero__surface-value">Bounded props, not builder clutter</span></div><div class="hero__surface-item"><span class="hero__surface-key">Validate</span><span class="hero__surface-value">Screenshot-backed before review</span></div></div>',
-        ], 'style' => [
-            '--hero-bg'                  => 'radial-gradient(circle at 78% 24%, #3A1D1D 0%, #14141F 44%, #0A0A12 100%)',
-            '--hero-heading-color'               => '#F2EEE5',
-            '--hero-subheading-color'     => '#E8E2D4',
-            '--hero-padding-top'        => '7rem',
-            '--hero-padding-bottom'     => '6rem',
-            '--hero-content-width'      => '64rem',
-            '--hero-heading-size'         => 'clamp(2.75rem, 5vw, 4.75rem)',
-            '--hero-accent'             => '#FF5C2E',
-            '--hero-accent-hover'       => '#C73310',
-            '--hero-heading-accent-color' => '#FF5C2E',
-            '--hero-eyebrow-color'      => '#FF5C2E',
-            '--hero-eyebrow-bg'         => '#14141F',
-            '--hero-eyebrow-border-color' => 'rgba(255, 92, 46, 0.4)',
-            '--hero-eyebrow-border-width' => '1px',
-            '--hero-radius'             => '0',
-            '--hero-surface-bg'         => '#F2EEE5',
-            '--hero-surface-border-color' => '#E8E2D4',
-            '--hero-surface-radius'     => '4px',
-            '--hero-surface-shadow'     => '0 24px 60px rgba(0, 0, 0, 0.28)',
+            // THE PANEL'S INNER MARKUP IS PLAIN NOW (#986). It used to lean on five
+            // `.hero__surface-*` helper classes that components.css styled for the
+            // author. Every one of those rules was value-styling — size, weight,
+            // tracking, casing, colour, a rule line — so the v2 structural-CSS boundary
+            // has no place to keep them, and they are not roles either: hero does not
+            // render these elements, an AUTHOR does. Simple semantic markup instead,
+            // which inherits the `surface` role's typography.
+            'proof'         => '<p><strong>Composition workflow</strong></p><ul><li><strong>Read</strong> — structured site context</li><li><strong>Edit</strong> — bounded props, not builder clutter</li><li><strong>Validate</strong> — screenshot-backed before review</li></ul>',
+        ], 'udc' => [
+            // The v2 shape of the branded dark hero. Where the v1 seed set 21 style
+            // slots and two `*_variant` props, this sets values on named roles — and
+            // reaches things v1 could not, notably the CTA hover states.
+            '_band' => [
+                'background' => ['fill' => 'radial-gradient(circle at 78% 24%, #3A1D1D 0%, #14141F 44%, #0A0A12 100%)'],
+                'spacing'    => ['padding-top' => '7rem', 'padding-bottom' => '6rem'],
+                'border'     => ['radius' => '0'],
+            ],
+            'content'      => ['sizing' => ['max-width' => '64rem']],
+            'title'        => ['typography' => ['color' => '#F2EEE5', 'size' => 'clamp(2.75rem, 5vw, 4.75rem)']],
+            'title-accent' => ['typography' => ['color' => '#FF5C2E']],
+            'subtitle'     => ['typography' => ['color' => '#E8E2D4']],
+            'eyebrow'      => [
+                'typography' => ['color' => '#FF5C2E'],
+                'background' => ['fill' => '#14141F'],
+                'border'     => ['color' => 'rgba(255, 92, 46, 0.4)', 'width' => '1px'],
+            ],
+            // BOTH CTAs ARE OUTLINE-ON-DARK, as the v1 seed intended — but for a
+            // different reason, worth recording. On v1 they had to be: the filled
+            // premium `.btn` bevel was a fixed gradient driven by GLOBAL tokens, so
+            // `--hero-accent` could not repaint it and the ghost variant's ink was
+            // unreachable. On v2 the band block prints after the stylesheet, so a
+            // filled CTA is perfectly expressible here; outline is now a DESIGN choice
+            // for this starter rather than a workaround, and the hover state it could
+            // never reach before is set explicitly on both buttons.
+            'cta' => [
+                'typography' => ['color' => '#F2EEE5', 'weight' => '600', 'decoration' => 'none',
+                                 ':hover' => ['color' => '#14141F']],
+                'background' => ['fill' => 'transparent', ':hover' => ['fill' => '#FF5C2E']],
+                'border'     => ['width' => '2px', 'style' => 'solid', 'color' => '#F2EEE5',
+                                 ':hover' => ['color' => '#FF5C2E']],
+                'spacing'    => ['padding-top' => '@btn-padding-y', 'padding-bottom' => '@btn-padding-y',
+                                 'padding-left' => '@btn-padding-x', 'padding-right' => '@btn-padding-x'],
+                'sizing'     => ['min-height' => '44px'],
+                'motion'     => ['transition-duration' => '150ms', 'timing-function' => 'ease'],
+            ],
+            'cta-secondary' => [
+                'typography' => ['color' => '#F2EEE5', 'weight' => '600', 'decoration' => 'none',
+                                 ':hover' => ['color' => '#14141F']],
+                'background' => ['fill' => 'transparent', ':hover' => ['fill' => '#FF5C2E']],
+                'border'     => ['width' => '2px', 'style' => 'solid', 'color' => 'rgba(242, 238, 229, 0.45)',
+                                 ':hover' => ['color' => '#FF5C2E']],
+                'spacing'    => ['padding-top' => '@btn-padding-y', 'padding-bottom' => '@btn-padding-y',
+                                 'padding-left' => '@btn-padding-x', 'padding-right' => '@btn-padding-x'],
+                'sizing'     => ['min-height' => '44px'],
+                'motion'     => ['transition-duration' => '150ms', 'timing-function' => 'ease'],
+            ],
+            'surface' => [
+                'background' => ['fill' => '#F2EEE5'],
+                'border'     => ['color' => '#E8E2D4', 'radius' => '4px'],
+                'shadow'     => ['box' => '0 24px 60px rgba(0, 0, 0, 0.28)'],
+            ],
         ]],
 
         // 2 — Audience / problem band (warm cream), prose + meta strip.

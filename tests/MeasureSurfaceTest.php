@@ -50,7 +50,10 @@ class MeasureSurfaceTest extends TestCase
     private const ROUTED = ['cta', 'grid', 'faq', 'stats', 'table', 'embed', 'logos'];
 
     /** The two exempt from it, both uncapped by default and for different reasons. */
-    private const EXEMPT = ['hero', 'section'];
+    // hero left this surface in #986: its heading measure is the `title` role's
+    // `sizing.max-width` and its content measure the `content` role's, both in
+    // components/hero/schema.json rather than as slots.
+    private const EXEMPT = ['section'];
 
     private string $themeRoot;
 
@@ -100,7 +103,6 @@ class MeasureSurfaceTest extends TestCase
     private function propsFor(string $component): array
     {
         $byComponent = [
-            'hero'         => ['title' => 'T'],
             'section'      => ['title' => 'T', 'body' => '<p>B</p>'],
             'grid'         => ['items' => [['title' => 'A', 'text' => 'a']]],
             'cta'          => ['title' => 'T', 'body' => 'B', 'button_text' => 'Go', 'button_url' => '/go'],
@@ -183,7 +185,7 @@ class MeasureSurfaceTest extends TestCase
 
     // ── A-6: the declaration surface ─────────────────────────────────────────
 
-    /** All ten band components declare a heading measure. */
+    /** Every band component STILL ON SLOTS declares a heading measure (hero and testimonials are on roles). */
     public function testEveryBandComponentDeclaresAHeadingMeasure(): void
     {
         foreach (array_merge(self::ROUTED, self::EXEMPT) as $component) {
@@ -300,7 +302,7 @@ class MeasureSurfaceTest extends TestCase
             );
         }
         $this->assertSame(
-            ['--cta-body-measure', '--faq-body-measure', '--hero-heading-measure', '--section-heading-measure'],
+            ['--cta-body-measure', '--faq-body-measure', '--section-heading-measure'],
             $this->sortedKeys($noneDefaulted),
             'The set of uncapped-by-default measure slots changed. That is a render decision, '
             . 'not a refactor — update this pin deliberately.'
@@ -324,9 +326,11 @@ class MeasureSurfaceTest extends TestCase
         foreach (['section', 'cta', 'faq', 'embed'] as $component) {
             $expected[] = "--{$component}-body-measure";
         }
-        // hero's measure is spelled --hero-content-width, which is exactly why the engine
-        // reads a declared role rather than a `-measure` name suffix.
-        $expected[] = '--hero-content-width';
+        // hero's measure used to be spelled --hero-content-width — the reason the engine
+        // reads a declared role rather than a `-measure` name suffix. It left this surface
+        // in #986: hero is a v2 component and its measure is the `content` role's
+        // `sizing.max-width`. The naming lesson still holds for whoever adds the next
+        // oddly-spelled measure slot, which is why the note stays.
         // DELIBERATELY ABSENT: --stats-max-width. It caps the stats BAND's own box (a
         // contained, centered card — issue 383), not a run of text, so it is band geometry
         // rather than a text measure and carries no --measure-* default to fall out of step
@@ -392,7 +396,7 @@ class MeasureSurfaceTest extends TestCase
     public function testNoForeignComponentStillReadsACtaSlot(): void
     {
         $leaked = [];
-        foreach (['table', 'faq', 'logos', 'embed', 'stats', 'grid', 'section', 'testimonials', 'hero'] as $component) {
+        foreach (['table', 'faq', 'logos', 'embed', 'stats', 'grid', 'section', 'testimonials'] as $component) {
             $block = $this->stripComments($this->componentBlock($component));
             foreach (['--cta-heading-measure', '--cta-body-size', '--cta-content-width'] as $ctaSlot) {
                 if (strpos($block, $ctaSlot) !== false) {
@@ -494,148 +498,6 @@ class MeasureSurfaceTest extends TestCase
         );
     }
 
-    /** --hero-content-width keeps its three fallbacks for the same reason. */
-    public function testHeroContentWidthKeepsItsThreeBranchFallbacks(): void
-    {
-        $css = $this->stripComments($this->css());
-        preg_match_all('/max-width:\s*var\(\s*--hero-content-width\s*,\s*([^;}]+)\)/', $css, $m);
-        $fallbacks = array_map('trim', $m[1]);
-        sort($fallbacks);
-
-        $this->assertSame(
-            ['40rem', 'none', 'var(--measure-centered)'],
-            $fallbacks,
-            'hero-content-width has the identical layout x viewport shape as the section '
-            . 'body measure and takes the same answer: declare, document, do not collapse.'
-        );
-    }
-
-    // ── A-6 hero: the one deliberate render change ───────────────────────────
-
-    /**
-     * The 12ch cap is GONE. .hero__content is a flex item that shrink-wraps to its widest
-     * child, so that cap narrowed the whole column — title, subtitle AND buttons — to 468px
-     * of a 1088px inner at 1280. The rendered proof is in style-render.spec.ts; this pin
-     * owns the text, so the rule cannot come back through a merge.
-     */
-    public function testHeroTitleNoLongerCarriesTheCharacterCap(): void
-    {
-        // Comments stripped first: the rule's own tombstone comment explains what 12ch was
-        // and why it went, and a prose mention is not a declaration.
-        $this->assertStringNotContainsString(
-            '12ch',
-            $this->stripComments($this->css()),
-            'The hero 12ch title cap is deleted by ruling — it is the gate\'s one deliberate '
-            . 'render change and must not return.'
-        );
-    }
-
-    /**
-     * The slot reaches all four hero layouts, not just the two that carried 12ch. Declaring
-     * it on `.hero--left, .hero--split` would leave centered and cover with a declared slot
-     * that silently does nothing — the defeated-slot class this milestone exists to close.
-     */
-    public function testHeroHeadingMeasureIsDeclaredOnTheUnscopedTitleRule(): void
-    {
-        $css = $this->stripComments($this->css());
-        $this->assertMatchesRegularExpression(
-            '/(?:^|})\s*\.hero__title\s*\{[^}]*max-width:\s*var\(\s*--hero-heading-measure\s*,\s*none\s*\)/s',
-            $css,
-            'The hero heading measure must sit on the unscoped .hero__title rule so it reaches '
-            . 'centered and cover too; unset it resolves to `none` on every layout, which is '
-            . 'max-width\'s initial value and therefore byte-identical.'
-        );
-    }
-
-    /**
-     * The hero subtitle's 40ch cap is a RATIFIED KEEP: a hero subtitle is a lede, and `ch`
-     * is the correct unit there because the cap tracks the subtitle's own type size. It is
-     * pinned because the 12ch deletion makes it the new column binder on a short-title left
-     * hero, which is exactly the kind of adjacency a later cleanup would "tidy".
-     */
-    public function testHeroSubtitleKeepsItsRatifiedCharacterCap(): void
-    {
-        $css = $this->stripComments($this->css());
-        $this->assertMatchesRegularExpression(
-            '/\.hero__subtitle\s*\{[^}]*max-width:\s*40ch/s',
-            $css,
-            'The hero subtitle 40ch cap is a ratified keep — do not change it.'
-        );
-    }
-
-    // ── A-15: hero-only spacing/width ────────────────────────────────────────
-
-    /**
-     * The premise A-15 rests on, enforced rather than asserted in a comment: hero is the
-     * only emitter of these attributes. If a second component ever starts emitting them,
-     * the now-.hero-scoped CSS silently stops applying to it — so this fails first.
-     */
-    public function testOnlyHeroEmitsTheSpacingAndWidthAttributes(): void
-    {
-        // Scans the whole theme, not just components/: an emitter added in lib/, in a
-        // template, or in a nested partial is exactly the silent widening this guard exists
-        // to catch, and a components/*/*.php glob would not see any of them.
-        $emitters = [];
-        $iterator = new RecursiveIteratorIterator(
-            new RecursiveDirectoryIterator($this->themeRoot, RecursiveDirectoryIterator::SKIP_DOTS)
-        );
-        foreach ($iterator as $file) {
-            $path = $file->getPathname();
-            if (substr($path, -4) !== '.php') {
-                continue;
-            }
-            foreach (['/tests/', '/vendor/', '/node_modules/'] as $skip) {
-                if (strpos($path, $skip) !== false) {
-                    continue 2;
-                }
-            }
-            if (preg_match('/data-pp-(spacing|width)/', (string) file_get_contents($path))) {
-                $emitters[] = str_replace($this->themeRoot . '/', '', $path);
-            }
-        }
-        sort($emitters);
-
-        $this->assertSame(
-            ['components/hero/hero.php'],
-            $emitters,
-            'The [data-pp-spacing] / [data-pp-width] CSS is scoped to .hero because only '
-            . 'hero.php emits those attributes, and by ruling no blanket non-hero width or '
-            . 'spacing controls exist. A new emitter needs its own decision, not a silent '
-            . 'widening of the selector.'
-        );
-    }
-
-    /** The generic selectors are gone; nothing can match a non-hero band any more. */
-    public function testSpacingAndWidthSelectorsAreScopedToHero(): void
-    {
-        $css = $this->stripComments($this->css());
-        $this->assertStringNotContainsString(
-            '[data-pp-component][data-pp-spacing=',
-            $css,
-            'The spacing overrides must be scoped to .hero, so the restriction is enforced '
-            . 'by the selector rather than by a comment beside a generic one.'
-        );
-        $this->assertDoesNotMatchRegularExpression(
-            '/(?:^|[},])\s*\[data-pp-width="/m',
-            $css,
-            'The width overrides must be scoped to .hero for the same reason.'
-        );
-    }
-
-    /**
-     * `width: narrow` duplicated --measure-centered's exact shipped value, so a site that
-     * retuned its centered measure moved every centered body EXCEPT a narrow hero.
-     */
-    public function testNarrowWidthRoutesTheCenteredMeasureTokenInsteadOfDuplicatingIt(): void
-    {
-        $css = $this->stripComments($this->css());
-        $this->assertMatchesRegularExpression(
-            '/\.hero\[data-pp-width="narrow"\]\s+\.container\s*\{[^}]*max-width:\s*var\(\s*--measure-centered\s*\)/s',
-            $css,
-            'width: narrow must reference --measure-centered rather than restating its 56rem.'
-        );
-    }
-
     // ── Authoring path (Section 14.1): the REAL write surface ────────────────
 
     /**
@@ -705,7 +567,6 @@ class MeasureSurfaceTest extends TestCase
     public static function noneDefaultedMeasureSlots(): array
     {
         return [
-            'hero heading'    => ['hero', '--hero-heading-measure'],
             'section heading' => ['section', '--section-heading-measure'],
             'cta body'        => ['cta', '--cta-body-measure'],
             'faq body'        => ['faq', '--faq-body-measure'],

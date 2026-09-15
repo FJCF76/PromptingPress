@@ -97,7 +97,7 @@ class BatchRollbackCorruptSnapshotTest extends TestCase
     private function healthyPage(string $title = 'Healthy'): int
     {
         $id = pp_create_page($title, 'draft');
-        pp_update_composition($id, [['component' => 'hero', 'props' => ['title' => 'Original']]]);
+        pp_update_composition($id, [['component' => 'section', 'props' => ['title' => 'Original', 'body' => 'Body text']]]);
         return $id;
     }
 
@@ -121,8 +121,8 @@ class BatchRollbackCorruptSnapshotTest extends TestCase
     private function corruptPage(string $title, $storedValue): int
     {
         $id = pp_create_page($title, 'draft');
-        pp_update_composition($id, [['component' => 'hero', 'props' => ['title' => 'First draft']]]);
-        pp_update_composition($id, [['component' => 'hero', 'props' => ['title' => 'Second draft']]]);
+        pp_update_composition($id, [['component' => 'section', 'props' => ['title' => 'First draft', 'body' => 'Body text']]]);
+        pp_update_composition($id, [['component' => 'section', 'props' => ['title' => 'Second draft', 'body' => 'Body text']]]);
         update_post_meta($id, '_pp_composition', $storedValue);
         return $id;
     }
@@ -212,7 +212,7 @@ class BatchRollbackCorruptSnapshotTest extends TestCase
      */
     public function testBatchNamingAnAlreadyDecodedNonListPageIsRefused(): void
     {
-        $id     = $this->corruptPage('Decoded object', ['component' => 'hero', 'props' => []]);
+        $id     = $this->corruptPage('Decoded object', ['component' => 'section', 'props' => []]);
         $before = $this->metaSnapshot();
 
         $batch = pp_ai_execute_batch($this->publishBatchFor($id));
@@ -220,7 +220,7 @@ class BatchRollbackCorruptSnapshotTest extends TestCase
         $this->assertFalse($batch['ok']);
         $this->assertSame('unexpected_shape', $batch['error_code']);
         $this->assertSame($before, $this->metaSnapshot(), 'the decoded-array channel must not be written over either');
-        $this->assertSame(['component' => 'hero', 'props' => []], get_post_meta($id, '_pp_composition', true));
+        $this->assertSame(['component' => 'section', 'props' => []], get_post_meta($id, '_pp_composition', true));
     }
 
     public function testBatchNamingABareScalarPageIsRefused(): void
@@ -252,7 +252,7 @@ class BatchRollbackCorruptSnapshotTest extends TestCase
 
         $batch = pp_ai_execute_batch([
             ['type' => 'action', 'name' => 'update_component', 'params' => [
-                'post_id' => $id, 'component_index' => 0, 'props' => ['title' => 'New'],
+                'post_id' => $id, 'component_index' => 0, 'props' => ['title' => 'New', 'body' => 'Body text'],
             ]],
         ]);
 
@@ -268,7 +268,7 @@ class BatchRollbackCorruptSnapshotTest extends TestCase
 
         $batch = pp_ai_execute_batch([
             ['type' => 'action', 'name' => 'add_component', 'params' => [
-                'post_id' => $id, 'component' => 'hero', 'props' => ['title' => 'Tacked on'],
+                'post_id' => $id, 'component' => 'section', 'props' => ['title' => 'Tacked on', 'body' => 'Body text'],
             ]],
         ]);
 
@@ -347,7 +347,7 @@ class BatchRollbackCorruptSnapshotTest extends TestCase
 
         $batch = pp_ai_execute_batch([
             ['type' => 'action', 'name' => 'update_component', 'params' => [
-                'post_id' => $id, 'component_index' => 0, 'props' => ['title' => 'Changed'],
+                'post_id' => $id, 'component_index' => 0, 'props' => ['title' => 'Changed', 'body' => 'Body text'],
             ]],
             ['type' => 'action', 'name' => 'unknown_action', 'params' => []],
         ]);
@@ -469,7 +469,7 @@ class BatchRollbackCorruptSnapshotTest extends TestCase
 
         $batch = pp_ai_execute_batch([
             ['type' => 'action', 'name' => 'create_page', 'params' => [
-                'title' => 'Never created', 'composition' => [['component' => 'hero', 'props' => ['title' => 'x']]],
+                'title' => 'Never created', 'composition' => [['component' => 'section', 'props' => ['title' => 'x', 'body' => 'Body text']]],
             ]],
             ['type' => 'action', 'name' => 'publish_page', 'params' => ['post_id' => $corrupt]],
         ]);
@@ -551,7 +551,7 @@ class BatchRollbackCorruptSnapshotTest extends TestCase
                 'title'       => 'Corrupted mid-flight',
                 'slug'        => get_post($id)->post_name,
                 'status'      => 'draft',
-                'composition' => [['component' => 'hero', 'props' => ['title' => 'Original']]],
+                'composition' => [['component' => 'section', 'props' => ['title' => 'Original', 'body' => 'Body text']]],
                 'seo_meta'    => pp_get_seo_meta($id),
             ]],
             'created_posts'   => [],
@@ -581,14 +581,14 @@ class BatchRollbackCorruptSnapshotTest extends TestCase
     public function testRollbackRestoresTheCompositionNormallyWhenTheRowIsStillReadable(): void
     {
         $id = $this->healthyPage('Untouched by outsiders');
-        pp_update_composition($id, [['component' => 'hero', 'props' => ['title' => 'Mid-batch']]]);
+        pp_update_composition($id, [['component' => 'section', 'props' => ['title' => 'Mid-batch', 'body' => 'Body text']]]);
 
         $errors = _pp_restore_batch_snapshot([
             'posts' => [$id => [
                 'title'       => 'Untouched by outsiders',
                 'slug'        => get_post($id)->post_name,
                 'status'      => 'draft',
-                'composition' => [['component' => 'hero', 'props' => ['title' => 'Original']]],
+                'composition' => [['component' => 'section', 'props' => ['title' => 'Original', 'body' => 'Body text']]],
                 'seo_meta'    => pp_get_seo_meta($id),
             ]],
             'created_posts'   => [],
@@ -620,7 +620,7 @@ class BatchRollbackCorruptSnapshotTest extends TestCase
                 'title'       => 'Menus present',
                 'slug'        => get_post($id)->post_name,
                 'status'      => 'draft',
-                'composition' => [['component' => 'hero', 'props' => ['title' => 'Original']]],
+                'composition' => [['component' => 'section', 'props' => ['title' => 'Original', 'body' => 'Body text']]],
                 'seo_meta'    => pp_get_seo_meta($id),
             ]],
             'created_posts'   => [],
@@ -644,7 +644,7 @@ class BatchRollbackCorruptSnapshotTest extends TestCase
 
     public function testTheSnapshotBundleRecordsUnreadableTargetsAndStaysReadOnly(): void
     {
-        $corrupt = $this->corruptPage('Recorded', '{"component":"hero"}');
+        $corrupt = $this->corruptPage('Recorded', '{"component":"section"}');
         $healthy = $this->healthyPage('Also named');
         $before  = $this->metaSnapshot();
 
@@ -676,7 +676,7 @@ class BatchRollbackCorruptSnapshotTest extends TestCase
         $this->assertSame('Recorded', $snapshot['posts'][$corrupt]['title'], 'the non-composition fields are honest');
 
         $this->assertSame(
-            [['component' => 'hero', 'props' => ['title' => 'Original', 'id' => pp_get_composition($healthy)[0]['props']['id']]]],
+            [['component' => 'section', 'props' => ['title' => 'Original', 'body' => 'Body text', 'id' => pp_get_composition($healthy)[0]['props']['id']]]],
             $snapshot['posts'][$healthy]['composition'],
             'a readable target is still captured exactly as before'
         );

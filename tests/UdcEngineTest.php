@@ -899,14 +899,17 @@ final class UdcEngineTest extends TestCase
 
     public function testALegacyComponentAcceptsNoUdcMapAtAll(): void
     {
-        $error = pp_udc_validate_map(['quote' => ['typography' => ['size' => '1rem']]], 'hero');
+        // `section`, not hero: hero joined the UDC in #986, so asking it this question
+        // now tests the opposite of what the name promises (I40). section is the largest
+        // component still on the v1 slot system.
+        $error = pp_udc_validate_map(['quote' => ['typography' => ['size' => '1rem']]], 'section');
         $this->assertInstanceOf(WP_Error::class, $error);
         $this->assertSame('unknown_udc_role', $error->get_error_code());
         $this->assertStringContainsString('not on the UDC styling system', $error->get_error_message());
 
         // …and a legacy component emits no band block, whatever it stores.
         $this->assertSame('', pp_udc_band_css([
-            'component' => 'hero',
+            'component' => 'section',
             'id'        => 'pp-aabbccdd',
             'udc'       => ['quote' => ['typography' => ['size' => '1rem']]],
         ]));
@@ -1096,8 +1099,8 @@ final class UdcEngineTest extends TestCase
 
         // A legacy component says NOTHING, so an absent key is never mistaken for
         // "declared empty".
-        $this->assertArrayNotHasKey('roles', pp_component_schema_report('hero'));
-        $this->assertArrayNotHasKey('udc_groups', pp_component_schema_report('hero'));
+        $this->assertArrayNotHasKey('roles', pp_component_schema_report('section'));
+        $this->assertArrayNotHasKey('udc_groups', pp_component_schema_report('section'));
     }
 
     // ── The schema side of the contract ─────────────────────────────────────
@@ -1280,6 +1283,45 @@ final class UdcEngineTest extends TestCase
             // is optional and renders only when its content prop is set, so a
             // sparse fixture would silently skip most of the role sweep and this
             // lint would pass while declaring selectors nobody had checked.
+            // HERO'S FIXTURE MUST TURN EVERYTHING ON, like the chrome ones below: its
+            // `media` and `surface` roles only render on a split layout, and `surface`
+            // wins that column over the image when `proof` is set — so two fixtures
+            // would be needed to reach both. `proof` is omitted here and the image is
+            // provided, which reaches `media`; `surface` is covered by the split+proof
+            // case in HeroCompositionTest.
+            // HERO NEEDS TWO FIXTURES, and it is the first component that does.
+            // Three of its roles are mutually exclusive in one render: `proof` only
+            // renders on a NON-split layout, while `surface` is what the same `proof`
+            // markup becomes on split, and `media` is the split column `surface` takes
+            // over when proof is present. One prop set can therefore never reach all
+            // thirteen. The list form below renders each fixture and checks every role
+            // against their union — which keeps the lint's promise (no role goes
+            // unchecked) instead of quietly dropping the three it cannot reach.
+            'hero' => [
+                [
+                    'title'        => 'Ship it',
+                    'title_accent' => 'it',
+                    'eyebrow'      => 'NEW',
+                    'subheading'   => 'A supporting line.',
+                    'button_text'  => 'Start',
+                    'button_url'   => '#a',
+                    'button2_text' => 'Docs',
+                    'button2_url'  => '#b',
+                    'layout'       => 'centered',
+                    'proof'        => '<p>Trusted by teams</p>',
+                ],
+                [
+                    'title'     => 'Ship it',
+                    'layout'    => 'split',
+                    'image_url' => '/wp-content/uploads/hero.png',
+                    'image_alt' => 'Hero',
+                ],
+                [
+                    'title'  => 'Ship it',
+                    'layout' => 'split',
+                    'proof'  => '<p>Workflow</p>',
+                ],
+            ],
             'nav' => [
                 'location' => 'primary',
             ],
@@ -1331,11 +1373,20 @@ final class UdcEngineTest extends TestCase
                 "{$component} is a v2 component with no fixture here — add one so its selectors are checked"
             );
 
-            ob_start();
-            try {
-                pp_get_component($component, $fixtures[$component]);
-            } finally {
-                $html = ob_get_clean();
+            // One fixture or several: a list means "render each and check the roles
+            // against their union", for a component whose roles cannot all coexist.
+            $sets = $fixtures[$component];
+            if (!array_is_list($sets)) {
+                $sets = [$sets];
+            }
+            $html = '';
+            foreach ($sets as $set) {
+                ob_start();
+                try {
+                    pp_get_component($component, $set);
+                } finally {
+                    $html .= ob_get_clean();
+                }
             }
 
             foreach ($roles as $role => $definition) {
@@ -1407,7 +1458,7 @@ final class UdcEngineTest extends TestCase
         $this->assertNotSame('pp-33333333', $out[1]['id'], 'a claimed id must not be carried onto a second band');
 
         // 5. A legacy component is never minted one at all.
-        $out = pp_udc_assign_band_ids([$band('hero')]);
+        $out = pp_udc_assign_band_ids([$band('section')]);
         $this->assertArrayNotHasKey('id', $out[0]);
 
         // 6. THE POST-CONDITION, which is what all of the above is for.
@@ -1530,7 +1581,7 @@ final class UdcEngineTest extends TestCase
         // footer joined the engine as the CHROME container in Sprint 1 (ruling A1).
         // The number is asserted rather than loosened so that a component quietly
         // falling OFF the engine still trips this.
-        $this->assertCount(9, $legacy, 'nine components stay on the legacy system');
+        $this->assertCount(8, $legacy, 'eight components stay on the legacy system');
         $this->assertNotContains('testimonials', $legacy);
         $this->assertNotContains('nav', $legacy);
         $this->assertNotContains('footer', $legacy);

@@ -104,11 +104,11 @@ class CompositionShapeTrustTest extends TestCase
     private function fiveBands(): array
     {
         return [
-            ['component' => 'hero', 'props' => ['id' => 'band-1', 'title' => 'One']],
-            ['component' => 'hero', 'props' => ['id' => 'band-2', 'title' => 'Two']],
-            ['component' => 'hero', 'props' => ['id' => 'band-3', 'title' => 'Three']],
-            ['component' => 'hero', 'props' => ['id' => 'band-4', 'title' => 'Four']],
-            ['component' => 'hero', 'props' => ['id' => 'band-5', 'title' => 'Five']],
+            ['component' => 'section', 'props' => ['id' => 'band-1', 'title' => 'One', 'body' => 'Body text']],
+            ['component' => 'section', 'props' => ['id' => 'band-2', 'title' => 'Two', 'body' => 'Body text']],
+            ['component' => 'section', 'props' => ['id' => 'band-3', 'title' => 'Three', 'body' => 'Body text']],
+            ['component' => 'section', 'props' => ['id' => 'band-4', 'title' => 'Four', 'body' => 'Body text']],
+            ['component' => 'section', 'props' => ['id' => 'band-5', 'title' => 'Five', 'body' => 'Body text']],
         ];
     }
 
@@ -120,8 +120,8 @@ class CompositionShapeTrustTest extends TestCase
     private function objectShapedPayload(): array
     {
         return [
-            1 => ['component' => 'hero', 'props' => ['id' => 'kept-1', 'title' => 'Kept one']],
-            3 => ['component' => 'hero', 'props' => ['id' => 'kept-3', 'title' => 'Kept three']],
+            1 => ['component' => 'section', 'props' => ['id' => 'kept-1', 'title' => 'Kept one', 'body' => 'Body text']],
+            3 => ['component' => 'section', 'props' => ['id' => 'kept-3', 'title' => 'Kept three', 'body' => 'Body text']],
         ];
     }
 
@@ -166,7 +166,7 @@ class CompositionShapeTrustTest extends TestCase
         // Not every non-list has numeric keys. The rule is "not a list", and the message
         // must not narrow that to a claim about key ordering.
         $errors = pp_validate_composition_errors([
-            'hero' => ['component' => 'hero', 'props' => ['title' => 'Hi']],
+            'section' => ['component' => 'section', 'props' => ['title' => 'Hi', 'body' => 'Body text']],
         ]);
 
         $this->assertCount(1, $errors);
@@ -201,8 +201,8 @@ class CompositionShapeTrustTest extends TestCase
         // The guard must gate ONLY the container. A list whose bands are broken still gets
         // the full per-item treatment, with its band locators intact.
         $errors = pp_validate_composition_errors([
-            ['component' => 'hero', 'props' => ['title' => 'Fine']],
-            ['props' => ['title' => 'No component key']],
+            ['component' => 'section', 'props' => ['title' => 'Fine', 'body' => 'Body text']],
+            ['props' => ['title' => 'No component key', 'body' => 'Body text']],
         ]);
 
         $this->assertCount(1, $errors);
@@ -302,15 +302,15 @@ class CompositionShapeTrustTest extends TestCase
 
         $added = pp_execute_action('add_component', [
             'post_id'   => $post_id,
-            'component' => 'hero',
-            'props'     => ['id' => 'band-6', 'title' => 'Six'],
+            'component' => 'section',
+            'props'     => ['id' => 'band-6', 'title' => 'Six', 'body' => 'Body text'],
         ]);
         $this->assertTrue($added['ok'], 'add_component is not a whole-composition container write');
 
         $updated = pp_execute_action('update_component', [
             'post_id'         => $post_id,
             'component_index' => 0,
-            'props'           => ['title' => 'One, edited'],
+            'props'           => ['title' => 'One, edited', 'body' => 'Body text'],
         ]);
         $this->assertTrue($updated['ok']);
         $this->assertSame('One, edited', pp_get_composition($post_id)[0]['props']['title']);
@@ -324,7 +324,7 @@ class CompositionShapeTrustTest extends TestCase
         // and the object/list distinction is destroyed before any PHP here can see it. It
         // is also the harmless case: key and position agree, so nothing is dropped. Same
         // limit #652 recorded for item locators, stated here so it is not read as a hole.
-        $decoded = json_decode('{"0":{"component":"hero","props":{"title":"A"}},"1":{"component":"hero","props":{"title":"B"}}}', true);
+        $decoded = json_decode('{"0":{"component":"section","props":{"title":"A","body":"Body text"}},"1":{"component":"section","props":{"title":"B","body":"Body text"}}}', true);
 
         $this->assertTrue(pp_is_list($decoded), 'the premise: PHP hands this back as a list');
         $this->assertSame([], pp_validate_composition_errors($decoded));
@@ -367,7 +367,7 @@ class CompositionShapeTrustTest extends TestCase
      * the object's VALUES happened to be:
      *
      *   {1: band, 3: band}                      values are bands  → replayed, page corrupt again
-     *   {"component":"hero","props":{…}}         values are strings → uncaught TypeError
+     *   {"component":"section","props":{…}}         values are strings → uncaught TypeError
      *                                                                (lib/wp.php:3997)
      *
      * The second row is the one an operator actually meets: it is the shape a single band
@@ -430,7 +430,7 @@ class CompositionShapeTrustTest extends TestCase
     public function testRestoreStillReplaysAListSnapshotTodaysRulesWouldRejectAndReportsIt(): void
     {
         $post_id = pp_create_page('Aged list page', 'draft');
-        pp_update_composition($post_id, [['component' => 'hero', 'props' => ['id' => 'aged', 'title' => 'Aged']]]);
+        pp_update_composition($post_id, [['component' => 'section', 'props' => ['id' => 'aged', 'title' => 'Aged', 'body' => 'Body text']]]);
         // A band whose `items` is an OBJECT: a list container, an illegal interior.
         update_post_meta($post_id, '_pp_composition', (string) wp_json_encode(
             [['component' => 'faq', 'props' => ['id' => 'legacy', 'items' => ['aa' => ['q' => 'Q']]]]]
@@ -510,8 +510,8 @@ class CompositionShapeTrustTest extends TestCase
         // BOTH of its paths, because step 2a sits ahead of the preview/mutate fork and the
         // mutating one is the half that could write: --preview is the read-only call, and
         // the second entry is the real one.
-        $surfaces['operate patch (preview)'] = fn(int $post_id) => pp_patch_composition($post_id, 'hero.title', 'x', /* preview */ true);
-        $surfaces['operate patch (mutating)'] = fn(int $post_id) => pp_patch_composition($post_id, 'hero.title', 'x', /* preview */ false);
+        $surfaces['operate patch (preview)'] = fn(int $post_id) => pp_patch_composition($post_id, 'section.title', 'x', /* preview */ true);
+        $surfaces['operate patch (mutating)'] = fn(int $post_id) => pp_patch_composition($post_id, 'section.title', 'x', /* preview */ false);
         return $surfaces;
     }
 
@@ -729,7 +729,7 @@ class CompositionShapeTrustTest extends TestCase
         $corrupt = pp_execute_action('update_component', [
             'post_id'         => $post_id,
             'component_index' => 0,
-            'props'           => ['title' => 'Edited'],
+            'props'           => ['title' => 'Edited', 'body' => 'Body text'],
         ]);
 
         $this->assertFalse($corrupt['ok']);
@@ -766,8 +766,8 @@ class CompositionShapeTrustTest extends TestCase
         $blank_id = pp_create_page('Blank page', 'draft');
         $blank = pp_execute_action('add_component', [
             'post_id'   => $blank_id,
-            'component' => 'hero',
-            'props'     => ['title' => 'Should be rejected'],
+            'component' => 'section',
+            'props'     => ['title' => 'Should be rejected', 'body' => 'Body text'],
         ]);
 
         $this->assertFalse($blank['ok']);
@@ -787,7 +787,7 @@ class CompositionShapeTrustTest extends TestCase
         // ONE band, not fiveBands(): the patch selector below must resolve to a single
         // component or it fails with multiple_components AFTER the gate — which would pass
         // this test for the wrong reason.
-        pp_update_composition($post_id, [['component' => 'hero', 'props' => ['id' => 'band-1', 'title' => 'One']]]);
+        pp_update_composition($post_id, [['component' => 'section', 'props' => ['id' => 'band-1', 'title' => 'One', 'body' => 'Body text']]]);
 
         foreach (['add_component', 'remove_component', 'reorder_components', 'update_component', 'style_component'] as $name) {
             $this->assertTrue(
@@ -796,7 +796,7 @@ class CompositionShapeTrustTest extends TestCase
             );
         }
         // The patch surface reaches its preview instead of the gate's refusal.
-        $patched = pp_patch_composition($post_id, 'hero.title', 'Edited', /* preview */ true);
+        $patched = pp_patch_composition($post_id, 'section.title', 'Edited', /* preview */ true);
         $this->assertIsArray($patched, is_wp_error($patched) ? $patched->get_error_message() : '');
     }
 
@@ -863,7 +863,7 @@ class CompositionShapeTrustTest extends TestCase
 
         $this->assertIsArray($result);
         $this->assertCount(5, $result);
-        $this->assertSame('hero', $result[0]['component_type']);
+        $this->assertSame('section', $result[0]['component_type']);
         $this->assertSame('band-1', $result[0]['component_id']);
     }
 

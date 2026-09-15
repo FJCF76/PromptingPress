@@ -90,7 +90,7 @@ class ChatBatchCorruptRepairCarveOutTest extends TestCase
     /** The valid one-band composition a repair sends. */
     private function repairComposition(): array
     {
-        return [['component' => 'hero', 'props' => ['id' => 'repaired', 'title' => 'Recovered']]];
+        return [['component' => 'section', 'props' => ['id' => 'repaired', 'title' => 'Recovered', 'body' => 'Body text']]];
     }
 
     /**
@@ -103,8 +103,8 @@ class ChatBatchCorruptRepairCarveOutTest extends TestCase
     private function corruptPage(string $title, $storedValue): int
     {
         $post_id = pp_create_page($title, 'draft');
-        pp_update_composition($post_id, [['component' => 'hero', 'props' => ['id' => 'v1', 'title' => 'First draft']]]);
-        pp_update_composition($post_id, [['component' => 'hero', 'props' => ['id' => 'v2', 'title' => 'Second draft']]]);
+        pp_update_composition($post_id, [['component' => 'section', 'props' => ['id' => 'v1', 'title' => 'First draft', 'body' => 'Body text']]]);
+        pp_update_composition($post_id, [['component' => 'section', 'props' => ['id' => 'v2', 'title' => 'Second draft', 'body' => 'Body text']]]);
         update_post_meta($post_id, '_pp_composition', $storedValue);
         // BOTH READERS, because the gate under test does not use the one a single
         // assertion would check. The detector classifies through the cache and the
@@ -122,7 +122,7 @@ class ChatBatchCorruptRepairCarveOutTest extends TestCase
     private function healthyPage(string $title = 'Healthy'): int
     {
         $post_id = pp_create_page($title, 'draft');
-        pp_update_composition($post_id, [['component' => 'hero', 'props' => ['id' => 'h', 'title' => 'Fine']]]);
+        pp_update_composition($post_id, [['component' => 'section', 'props' => ['id' => 'h', 'title' => 'Fine', 'body' => 'Body text']]]);
         $this->assertTrue(pp_get_composition_result($post_id)['ok'], 'premise');
         return $post_id;
     }
@@ -168,7 +168,7 @@ class ChatBatchCorruptRepairCarveOutTest extends TestCase
      */
     public function testAOneStepUpdateCompositionRepairsAnUndecodablePageThroughTheChatHandler(): void
     {
-        $post_id = $this->corruptPage('Truncated', '[{"component":"hero","props":{"title":"Half');
+        $post_id = $this->corruptPage('Truncated', '[{"component":"section","props":{"title":"Half');
 
         $resp = $this->throughChat([$this->repairStep($post_id)], [$post_id => $this->version($post_id)]);
 
@@ -184,7 +184,7 @@ class ChatBatchCorruptRepairCarveOutTest extends TestCase
             'the unreadable bytes were preserved on the ring by the repair write (#818)'
         );
         $this->assertSame(
-            '[{"component":"hero","props":{"title":"Half',
+            '[{"component":"section","props":{"title":"Half',
             $history[count($history) - 1]['raw'],
             'and they are the exact bytes, not a re-encoding'
         );
@@ -202,10 +202,10 @@ class ChatBatchCorruptRepairCarveOutTest extends TestCase
     public function testEveryUnexpectedShapeVariantIsAdmittedAndRepaired(): void
     {
         $variants = [
-            'json object'            => '{"1":{"component":"hero"}}',
+            'json object'            => '{"1":{"component":"section"}}',
             'valid-JSON scalar'      => '42',
             'valid-JSON null'        => 'null',
-            'already-decoded array'  => ['component' => 'hero', 'props' => []],
+            'already-decoded array'  => ['component' => 'section', 'props' => []],
         ];
 
         foreach ($variants as $label => $stored) {
@@ -351,7 +351,7 @@ class ChatBatchCorruptRepairCarveOutTest extends TestCase
 
         $others = [
             ['update_component', ['post_id' => $post_id, 'component_index' => 0, 'props' => ['title' => 'New']]],
-            ['add_component',    ['post_id' => $post_id, 'component' => 'hero', 'props' => ['title' => 'Tacked on']]],
+            ['add_component',    ['post_id' => $post_id, 'component' => 'section', 'props' => ['title' => 'Tacked on']]],
             ['remove_component', ['post_id' => $post_id, 'component_index' => 0]],
             ['publish_page',     ['post_id' => $post_id]],
             ['update_page_title', ['post_id' => $post_id, 'title' => 'Renamed']],
@@ -655,7 +655,7 @@ class ChatBatchCorruptRepairCarveOutTest extends TestCase
         // copy still holds the corrupt bytes. Staged, then only READ: no write follows, so
         // the frozen-staged-row hazard the bootstrap documents cannot bite here.
         $GLOBALS['_pp_test_store']['wpdb_postmeta'][$post_id]['_pp_composition'] =
-            json_encode([['component' => 'hero', 'props' => ['id' => 'fixed', 'title' => 'Already repaired']]]);
+            json_encode([['component' => 'section', 'props' => ['id' => 'fixed', 'title' => 'Already repaired', 'body' => 'Body text']]]);
 
         $this->assertFalse(pp_get_composition_result($post_id)['ok'], 'premise: the cache still says corrupt');
         $this->assertTrue(pp_get_composition_result_authoritative($post_id)['ok'], 'premise: the row says healthy');
@@ -828,7 +828,7 @@ class ChatBatchCorruptRepairCarveOutTest extends TestCase
         );
 
         // ONLY NOW does somebody else repair the page — the window the docblock concedes.
-        pp_update_composition($post_id, [['component' => 'hero', 'props' => ['id' => 'other', 'title' => 'Their repair']]]);
+        pp_update_composition($post_id, [['component' => 'section', 'props' => ['id' => 'other', 'title' => 'Their repair', 'body' => 'Body text']]]);
 
         $resp = $this->throughChat($steps, [$post_id => $stale]);
 
@@ -965,7 +965,7 @@ class ChatBatchCorruptRepairCarveOutTest extends TestCase
         $this->assertSame([$post_id => 'decode_error'], $snapshot['unreadable'], 'premise: captured as unreadable');
 
         // The other writer wins the page between capture and write.
-        pp_update_composition($post_id, [['component' => 'hero', 'props' => ['id' => 'other', 'title' => 'Their repair']]]);
+        pp_update_composition($post_id, [['component' => 'section', 'props' => ['id' => 'other', 'title' => 'Their repair', 'body' => 'Body text']]]);
 
         $errors = _pp_restore_batch_snapshot($snapshot);
 

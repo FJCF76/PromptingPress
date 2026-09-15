@@ -462,24 +462,24 @@ final class UdcTruthSpineTest extends TestCase
         $result = pp_execute_action('create_page', [
             'title'       => 'Legacy still works',
             'composition' => [[
-                'component' => 'hero',
-                'props'     => ['title' => 'Still here'],
-                'style'     => ['--hero-bg' => '#1a1a2e'],
+                'component' => 'section',
+                'props'     => ['title' => 'Still here', 'body' => 'Body text'],
+                'style'     => ['--section-bg' => '#1a1a2e'],
             ]],
         ]);
         $this->assertTrue($result['ok']);
 
         $stored = pp_get_composition((int) $result['target']['post_id']);
-        $this->assertSame('#1a1a2e', $stored[0]['style']['--hero-bg'], 'stored as authored');
+        $this->assertSame('#1a1a2e', $stored[0]['style']['--section-bg'], 'stored as authored');
         $this->assertArrayNotHasKey('id', $stored[0], 'and no band id was minted onto a legacy component');
 
         ob_start();
         try {
-            pp_get_component('hero', array_merge($stored[0]['props'], ['__pp_style' => $stored[0]['style']]));
+            pp_get_component('section', array_merge($stored[0]['props'], ['__pp_style' => $stored[0]['style']]));
         } finally {
             $html = ob_get_clean();
         }
-        $this->assertStringContainsString('--hero-bg: #1a1a2e', $html, 'the inline style path is untouched');
+        $this->assertStringContainsString('--section-bg: #1a1a2e', $html, 'the inline style path is untouched');
         $this->assertStringNotContainsString('data-pp-band', $html, 'and a legacy band carries no v2 scope attribute');
     }
 

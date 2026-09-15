@@ -153,7 +153,7 @@ class BatchGateAuthoritativeClassifyTest extends TestCase
     private function healthyPage(string $title = 'Healthy'): int
     {
         $post_id = pp_create_page($title, 'draft');
-        pp_update_composition($post_id, [['component' => 'hero', 'props' => ['id' => 'h', 'title' => 'Fine']]]);
+        pp_update_composition($post_id, [['component' => 'section', 'props' => ['id' => 'h', 'title' => 'Fine', 'body' => 'Body text']]]);
         $this->assertTrue(pp_get_composition_result($post_id)['ok'], 'premise: readable');
         return $post_id;
     }
@@ -185,7 +185,7 @@ class BatchGateAuthoritativeClassifyTest extends TestCase
     {
         return ['type' => 'action', 'name' => 'update_composition', 'params' => [
             'post_id'     => $post_id,
-            'composition' => [['component' => 'hero', 'props' => ['id' => 'edited', 'title' => $title]]],
+            'composition' => [['component' => 'section', 'props' => ['id' => 'edited', 'title' => $title, 'body' => 'Body text']]],
         ]];
     }
 
@@ -269,7 +269,7 @@ class BatchGateAuthoritativeClassifyTest extends TestCase
 
         $this->assertSame([$post_id => 'decode_error'], $snapshot['unreadable']);
         $this->assertSame(
-            [['component' => 'hero', 'props' => ['id' => 'h', 'title' => 'Fine']]],
+            [['component' => 'section', 'props' => ['id' => 'h', 'title' => 'Fine', 'body' => 'Body text']]],
             $snapshot['posts'][$post_id]['composition'],
             'the captured baseline is still the cached read: the state this batch would execute against'
         );
@@ -325,7 +325,7 @@ class BatchGateAuthoritativeClassifyTest extends TestCase
         // nothing has shown to be damaged.
         $this->assertArrayNotHasKey('model_note', $resp['data']);
         $this->assertSame(
-            [['component' => 'hero', 'props' => ['id' => 'h', 'title' => 'Fine']]],
+            [['component' => 'section', 'props' => ['id' => 'h', 'title' => 'Fine', 'body' => 'Body text']]],
             pp_get_composition($post_id),
             'and the page is untouched'
         );
@@ -446,7 +446,7 @@ class BatchGateAuthoritativeClassifyTest extends TestCase
         $post_id = $this->healthyPage('Row already repaired');
         update_post_meta($post_id, '_pp_composition', self::CORRUPT_BYTES);
         $GLOBALS['_pp_test_store']['wpdb_postmeta'][$post_id]['_pp_composition'] =
-            json_encode([['component' => 'hero', 'props' => ['id' => 'fixed', 'title' => 'Repaired']]]);
+            json_encode([['component' => 'section', 'props' => ['id' => 'fixed', 'title' => 'Repaired', 'body' => 'Body text']]]);
 
         $this->assertFalse(pp_get_composition_result($post_id)['ok'], 'premise: the cache says corrupt');
         $this->assertTrue(pp_get_composition_result_authoritative($post_id)['ok'], 'premise: the row says healthy');
@@ -476,7 +476,7 @@ class BatchGateAuthoritativeClassifyTest extends TestCase
         $this->assertCount(2, $batch['steps']);
         $this->assertSame('publish', get_post($post_id)->post_status);
         $this->assertSame(
-            [['component' => 'hero', 'props' => ['id' => 'edited', 'title' => 'Rewritten']]],
+            [['component' => 'section', 'props' => ['id' => 'edited', 'title' => 'Rewritten', 'body' => 'Body text']]],
             pp_get_composition($post_id)
         );
     }

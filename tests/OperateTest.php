@@ -2856,13 +2856,13 @@ class OperateTest extends TestCase
     {
         $post_id = pp_create_page('Style inspect test');
         pp_update_composition($post_id, [
-            ['component' => 'hero', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello']],
+            ['component' => 'section', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello', 'body' => 'Body text']],
         ]);
 
         $result = pp_inspect_composition($post_id);
         $this->assertCount(1, $result);
         $this->assertArrayHasKey('style_slots', $result[0]);
-        $this->assertCount(49, $result[0]['style_slots']); // hero has 49 slots (41 + 3 primary-button fill slots, issue 514; + the hover fill slot, issue 530; + --hero-heading-measure, issue 578; + --hero-heading-margin-bottom and the two primary ring slots --hero-button-border / --hero-button-hover-border, issue 584)
+        $this->assertCount(47, $result[0]['style_slots']); // hero has 49 slots (41 + 3 primary-button fill slots, issue 514; + the hover fill slot, issue 530; + --section-heading-measure, issue 578; + --section-heading-margin-bottom and the two primary ring slots --cta-button-border / --cta-button-hover-border, issue 584)
 
         // Verify slot structure.
         $first_slot = $result[0]['style_slots'][0];
@@ -2877,24 +2877,24 @@ class OperateTest extends TestCase
     {
         $post_id = pp_create_page('Style inspect test');
         pp_update_composition($post_id, [
-            ['component' => 'hero', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello'],
-             'style' => ['--hero-bg' => '#1a1a2e']],
+            ['component' => 'section', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello', 'body' => 'Body text'],
+             'style' => ['--section-bg' => '#1a1a2e']],
         ]);
 
         $result = pp_inspect_composition($post_id);
         $slots = $result[0]['style_slots'];
 
-        // Find the --hero-bg slot.
+        // Find the --section-bg slot.
         $bg_slot = null;
         foreach ($slots as $s) {
-            if ($s['slot'] === '--hero-bg') {
+            if ($s['slot'] === '--section-bg') {
                 $bg_slot = $s;
                 break;
             }
         }
         $this->assertNotNull($bg_slot);
         $this->assertSame('#1a1a2e', $bg_slot['current']);
-        $this->assertSame('var(--color-bg)', $bg_slot['default']);
+        $this->assertSame("transparent", $bg_slot['default']);
     }
 
     public function testInspectCompositionShowsActiveRecipe(): void
