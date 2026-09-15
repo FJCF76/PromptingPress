@@ -184,9 +184,21 @@ a role default or structural geometry, so a band that disagrees can already say 
   literal would stop following a retheme, so the flat token-following fill is the
   default and a gradient is one authored value away.
 
-### One capability that narrowed
+### Three capabilities that narrowed
 
-`object-position` on the media box is a fixed `center` in the stylesheet now. It was the
+**1. The left/split opener rhythm.** v1 gave `left` and `split` heroes a compact opener
+(`--space-xl` on both edges) while `centered` and `cover` took `--space-2xl` at desktop —
+two stylesheet rules keyed on the variant class. v2 has no variant dimension: a role
+default is per COMPONENT, and padding is a designable value the §2 boundary keeps out of
+the stylesheet, so there is no legal place left to say "left heroes are tighter". Every
+layout now shares one opener rhythm, and a band that wants the compact one sets its own
+`_band` `spacing`. The visible effect: an adjacent left/split hero grows from 64px to
+112px at desktop.
+
+**2. Text alignment per variant** — see Layout above.
+
+**3. The media focal point.** `object-position` on the media box is a fixed `center` in
+the stylesheet now. It was the
 v1 `--hero-image-position` slot; the v2 boundary classifies `object-position` as
 structural, so it has a home — but it is no longer author-reachable. Recorded as a
 narrowing rather than a move. Its sibling, the crop RATIO, **is** authorable: it is the
