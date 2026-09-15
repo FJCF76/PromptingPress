@@ -935,9 +935,22 @@ function pp_execute_action(string $name, array $params): array {
     // the composition arm has. It can only append a key, and pp_udc_site_findings() reads
     // through the fail-closed site reader, so a corrupt row yields no findings rather than
     // a throw over a write that already landed.
+    //
+    // A PRESET WRITE CARRIES IT TOO (#1016), and keying this on one action name was
+    // the same shape of gap #993 filed. A preset is referenced from chrome, so
+    // saving one changes what chrome paints WITHOUT any chrome write happening: edit
+    // a preset to declare a group nav's `link` does not permit and that role starts
+    // partially applying it, silently, because the only channel that reports the
+    // skip fires on the other verb. #993's own reasoning said this becomes
+    // constructible the moment custom presets ship — so it ships closed rather than
+    // as the next latent finding. The disclosure is derived from the STORED
+    // container either way, so what a preset write reports is the state that write
+    // produced, not a stale reading of it.
+    $writes_site_udc = ($name === 'update_site_option' && ($params['key'] ?? '') === PP_SITE_UDC_OPTION)
+        || $name === 'save_preset'
+        || $name === 'delete_preset';
     if (($result['ok'] ?? false)
-        && $name === 'update_site_option'
-        && ($params['key'] ?? '') === PP_SITE_UDC_OPTION
+        && $writes_site_udc
         && !array_key_exists('findings', $result)
         && function_exists('pp_udc_site_findings')) {
         $result['findings'] = _pp_bounded_findings(

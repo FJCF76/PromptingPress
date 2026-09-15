@@ -1107,6 +1107,51 @@ graphy";
         $this->assertStringContainsString('link', $chrome['error']);
     }
 
+    /**
+     * A PRESET WRITE REPORTS WHAT IT DID TO CHROME.
+     *
+     * A preset is referenced from chrome, so editing one changes what chrome paints
+     * with no chrome write happening — and the skipped-groups disclosure fires on
+     * the chrome verb. Without this the author edits a preset, a chrome role starts
+     * partially applying it, and nothing says so until somebody happens to write
+     * chrome again. That is the asymmetry #993 filed, arriving through the other
+     * door.
+     */
+    public function testSavingAPresetReportsTheChromeItChanged(): void
+    {
+        $this->assertTrue($this->save('brand-wide', ['typography' => ['color' => '#f7f8fa']])['ok']);
+        $this->assertTrue($this->writeChrome([
+            'nav' => ['link' => [PP_UDC_PRESET_KEY => 'brand-wide']],
+        ])['ok']);
+
+        // Widen the preset so nav's `link` now skips a group. No chrome write.
+        $result = $this->save('brand-wide', [
+            'typography' => ['color' => '#f7f8fa'],
+            'shadow'     => ['box' => '0 1px 2px #00000033'],
+        ]);
+
+        $this->assertTrue($result['ok'], $result['error'] ?? '');
+        $skipped = array_values(array_filter(
+            $result['findings'] ?? [],
+            static fn(array $f): bool => $f['type'] === 'udc_preset_groups_skipped'
+        ));
+        $this->assertCount(1, $skipped, 'the write that caused the partial apply must report it');
+        $this->assertStringContainsString('shadow', $skipped[0]['message']);
+        $this->assertStringContainsString('nav', $skipped[0]['message']);
+    }
+
+    /** And a delete reports on the same channel. */
+    public function testDeletingAPresetAlsoCarriesTheChromeDisclosureChannel(): void
+    {
+        $this->assertTrue($this->save('unused', $this->brandType())['ok']);
+
+        $result = pp_execute_action('delete_preset', ['name' => 'unused']);
+
+        $this->assertTrue($result['ok'], $result['error'] ?? '');
+        $this->assertArrayHasKey('findings', $result, 'the channel exists even when it reports nothing');
+        $this->assertSame([], $result['findings']);
+    }
+
     // ── 7. Round trip: created, applied, painted ────────────────────────────
 
     /**
