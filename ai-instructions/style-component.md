@@ -6,6 +6,8 @@ Use the `style_component` action to change the visual appearance of a specific c
 >
 > `hero` and `testimonials` are. Run `wp pp schema hero` (or read the component catalog) — if it lists **UDC roles** instead of style slots, `style_component` will refuse it with `no_style_slots`, and everything below about slots does not apply to it.
 >
+> **Every `--hero-*` slot name later in this file is HISTORY.** The v1 cascade sections are kept because they still govern cta, section, grid, faq, stats, logos, embed and table, and hero appears in them as the example it used to be. Writing any of those names is refused. The v2 equivalent for each is a role in the band's `udc` map — see "Brand-accent hero CTA buttons" below for the worked translation.
+>
 > Style a v2 component by putting a `udc` map on the BAND, beside `props`, through `update_composition` / `update_component` / `add_component` / `create_page`:
 >
 > ```json
@@ -87,9 +89,9 @@ wp pp action execute style_component --run-id=<uuid> --params='{
   "post_id": 19,
   "component_id": "pp-a1b2c3d4",
   "style": {
-    "--hero-bg": "#1a1a2e",
-    "--hero-heading-color": "#f0f0f0",
-    "--hero-padding-top": "8rem"
+    "--section-bg": "#1a1a2e",
+    "--section-heading-color": "#f0f0f0",
+    "--section-padding-top": "8rem"
   }
 }'
 ```
@@ -108,9 +110,9 @@ wp pp action execute style_component --run-id=<uuid> --params='{
 wp pp action execute style_component --run-id=<uuid> --params='{
   "post_id": 19,
   "component_id": "pp-a1b2c3d4",
-  "recipe": "dark-spacious",
+  "recipe": "accent-panel",
   "style": {
-    "--hero-heading-size": "clamp(3rem, 6vw, 5rem)"
+    "--section-heading-size": "clamp(3rem, 6vw, 5rem)"
   }
 }'
 ```
@@ -133,7 +135,7 @@ Check that `current` values reflect your changes and the `active_recipe` shows c
 - **Remove a slot:** Set its value to `null` to remove the override and revert to the global token default.
 - **Clear all style:** Pass `"style": {}` to remove all overrides.
 - **Validation:** Only schema-declared slots are accepted. Invalid slot names or values are rejected with descriptive errors.
-- **Conditional slots (issue #580):** many slots only do something in a particular configuration, and the schema now says so. The runtime component catalog appends `applies when ...` to those slots (e.g. `--hero-surface-bg (gradient, default: ...; applies when layout = "split" AND proof is set)`); `wp pp operate inspect-composition` still lists slot/type/default/current only, so read the condition from the catalog, from `wp pp schema <component>` (#688 — every slot with its raw `applies_when` and `conditionality_note` plus an `applies_when_rendered` phrase carrying both, ANDed, in the catalog's own words; read-only, no run token, no filesystem access needed), or from the component's `schema.json`. **Check the condition against the component's props before you set the slot.** Setting one whose condition is unmet is accepted and stored — the write succeeds — but it renders nothing. **Your own write tells you so (#687):** the accepted envelope carries a `findings` entry of type `inert_slot`, `severity: warning`, naming the slot, the band `index` and the unmet clauses — *"the value is stored and reported as applied, but nothing on the page reads it"*. Read `findings` on every accepted write; that is the whole point of it. `wp pp check page` reports the same advisory, and you no longer have to run it to find out. If you meant the effect, change the prop that gates it (`layout`, `card_emphasis`, `eyebrow`, `button2_text`, ...) in the same edit; if you did not, drop the slot rather than leaving a stored value that reports as applied and does nothing. Two limits worth knowing: the advisory reads the **component-level** `style` map only, so a per-item override (`items[].style`, `panel_items[].style`) is never checked; and conditions carried as prose in `conditionality_note` (dark-band disjunctions, the `main >` composed-page scope, a FAQ's open state) cannot be machine-checked at all — read those yourself before writing.
+- **Conditional slots (issue #580):** many slots only do something in a particular configuration, and the schema now says so. The runtime component catalog appends `applies when ...` to those slots (e.g. `--section-panel-cta-bg (gradient, default: ...; applies when layout = "text-panel" AND panel_cta_text is set)`); `wp pp operate inspect-composition` still lists slot/type/default/current only, so read the condition from the catalog, from `wp pp schema <component>` (#688 — every slot with its raw `applies_when` and `conditionality_note` plus an `applies_when_rendered` phrase carrying both, ANDed, in the catalog's own words; read-only, no run token, no filesystem access needed), or from the component's `schema.json`. **Check the condition against the component's props before you set the slot.** Setting one whose condition is unmet is accepted and stored — the write succeeds — but it renders nothing. **Your own write tells you so (#687):** the accepted envelope carries a `findings` entry of type `inert_slot`, `severity: warning`, naming the slot, the band `index` and the unmet clauses — *"the value is stored and reported as applied, but nothing on the page reads it"*. Read `findings` on every accepted write; that is the whole point of it. `wp pp check page` reports the same advisory, and you no longer have to run it to find out. If you meant the effect, change the prop that gates it (`layout`, `card_emphasis`, `eyebrow`, `button2_text`, ...) in the same edit; if you did not, drop the slot rather than leaving a stored value that reports as applied and does nothing. Two limits worth knowing: the advisory reads the **component-level** `style` map only, so a per-item override (`items[].style`, `panel_items[].style`) is never checked; and conditions carried as prose in `conditionality_note` (dark-band disjunctions, the `main >` composed-page scope, a FAQ's open state) cannot be machine-checked at all — read those yourself before writing.
 
 ---
 
@@ -158,7 +160,7 @@ not.
 |------|----------|-----------|
 | `color` | `#1a1a2e`, `rgb(26, 26, 46)`, `transparent`, `currentColor`, `var(--color-accent)` | `_pp_validate_color()` |
 | `length` | `8rem`, `50%`, `clamp(3rem, 6vw, 5rem)`, `calc(100% - 2rem)`, `0` | `_pp_validate_length()` |
-| `length-or-none` | `none`, `60rem`, `100%` — the `length` grammar plus the keyword `none` ("no cap"). Carried by the width-cap slots whose **declared default IS `none`**, so the built-in uncapped state stays authorable: `--stats-max-width` (band geometry) plus the four measures that ship uncapped — `--hero-heading-measure`, `--section-heading-measure`, `--cta-body-measure`, `--faq-body-measure`. Every other measure slot has a real length default and stays plain `length`. A plain `length` slot still rejects `none`. | `_pp_validate_length()` (with the `none` keyword) |
+| `length-or-none` | `none`, `60rem`, `100%` — the `length` grammar plus the keyword `none` ("no cap"). Carried by the width-cap slots whose **declared default IS `none`**, so the built-in uncapped state stays authorable: `--stats-max-width` (band geometry) plus the three measures that ship uncapped — `--section-heading-measure`, `--cta-body-measure`, `--faq-body-measure`. Every other measure slot has a real length default and stays plain `length`. A plain `length` slot still rejects `none`. | `_pp_validate_length()` (with the `none` keyword) |
 | `number` | `700`, `1.5` | `_pp_validate_number()` |
 | `duration` | `250ms`, `0.3s` | `_pp_validate_duration()` |
 | `font-family` | `"Inter", sans-serif`, `system-ui, sans-serif`, `-apple-system, BlinkMacSystemFont`, `var(--font-heading)` — a comma-separated list where every name is one of three shapes: an **unquoted** name of letters, digits, spaces, `-` or `_`; a **fully quoted** name (`"Helvetica Neue"`, `'Cascadia Code'`) whose quote character does not recur inside it; or a **single token reference** (`var(--font-mono)`, no fallback, no nesting — unlike `color`, this is not checked against the token registry, so a typo validates and paints nothing). Quote any name carrying other characters, a non-ASCII face name included — quoting is not a licence for anything, since the shared reject set still applies to the whole value on every surface (`{ } ; < >`, backslash, `/*`, `url(`, `@import` are rejected inside quotes too). Empty names (`Inter,, serif`) and trailing commas are rejected. **Two extra limits apply wherever the value reaches raw CSS source text** — every v2 `udc` parameter, and the `:root` block the theme emits for design-token overrides (a v1 style slot is unaffected; its sink is an escaped `style` attribute). First, brackets must be closed, matching pairs: `(` with `)` and `[` with `]`, properly nested (`"Foo (Display)"` ok, `"Foo (Display"` rejected, `[full-start] 1fr [full-end]` ok, `([)]` rejected). Second, each of `'` and `"` must appear an even number of times across the whole value (`"Foo's Font"` rejected however written; `'Foo "Display Font'` rejected; `'Foo "Display" Font'` ok). **Where it bites differs by surface:** a `udc` value breaking either limit is REFUSED at write; a design-token override breaking one is accepted at write but DROPPED at render, and `wp pp readiness status` then reports it. | `_pp_validate_font_family()` (+ the shared delimiter gate on `udc` values and design-token overrides) |
@@ -681,77 +683,50 @@ wins, and gives it a ring matching that fill rather than the near-white role tok
 covers bands the theme can identify — a band you darken yourself with `--cta-bg` or
 `--hero-bg` gets no automatic treatment, so set the slots there.
 
-**Brand-accent hero primary button (fill slots).** The hero's primary (filled) CTA
-ships the same premium gradient treatment as the cta button. `--hero-accent` recolors
-the button's BORDER (and the outline CTA's hover fill) but NOT the filled primary's
-visible gradient fill — to give a hero a solid brand-colored primary button on a fresh
-install (no global `--btn-bg` override), set the per-instance fill slots on the hero,
-analogous to the cta's `--cta-button-*`:
+**Brand-accent hero CTA buttons — HERO IS v2, so this is a `udc` map, not slots (#986).**
+The block that used to sit here taught `--hero-button-*`, `--hero-button2-*` and
+`--hero-accent`. Those slots are gone: `style_component` refuses hero with
+`no_style_slots`. The replacement is shorter and does more, because a role takes the whole
+design vocabulary and three states rather than a fixed list someone had to think of in
+advance.
+
+To give a hero a solid brand-coloured primary and a matching secondary:
+
 ```bash
-wp pp action execute style_component --run-id=<uuid> --params='{
+wp pp action execute update_component --run-id=<uuid> --params='{
   "post_id": 19,
   "component_id": "pp-a1b2c3d4",
-  "style": {
-    "--hero-button-bg": "#7c3aed",
-    "--hero-accent": "#7c3aed",
-    "--hero-button-color": "#ffffff",
-    "--hero-button-shadow": "none"
+  "udc": {
+    "cta": {
+      "_preset": "button",
+      "background": { "fill": "#7c3aed", ":hover": { "fill": "#6d28d9" } },
+      "typography": { "color": "#ffffff" },
+      "border": { "color": "#7c3aed" },
+      "shadow": { "box": "none" }
+    },
+    "cta-secondary": {
+      "border": { "color": "#7c3aed" },
+      "typography": { "color": "#7c3aed" }
+    }
   }
 }'
 ```
-`--hero-button-bg` is the primary button's flat fill (replaces the gradient), `--hero-accent`
-the matching border, `--hero-button-color` the ink, and `--hero-button-shadow: none` removes
-the gradient bevel/drop shadow on BOTH rest and hover. Unset, all of these fall back to the
-premium look byte-identically — they add the branded/flat-button capability, not a new
-default. `--hero-button-bg` governs the RESTING fill only: add `--hero-button-hover-bg` when
-the button should stay on-brand through the hover, otherwise hover returns to the premium
-gradient. These slots target the PRIMARY button only: the second button (`button2_*`) never picks up
-`--hero-button-*` in rest OR hover, whatever variant it renders as. Style it with its own
-`--hero-button2-*` slots — on a filled (`primary`) second button, `--hero-button2-bg` and
-`--hero-button2-hover-bg` replace the premium gradient with a flat fill exactly the way
-`--hero-button-bg` / `--hero-button-hover-bg` do for the primary, with `--hero-button2-border`
-and `--hero-button2-color` for its border and ink. On a FILLED second button an unset border FOLLOWS the
-fill in BOTH states, so `--hero-button2-bg` and `--hero-button2-hover-bg` alone already give matching
-rings — provided the site-wide `--btn-border-color` / `--btn-hover-border-color` are unset,
-since #554 those sit between the accent and the fill here exactly as they already do on
-every other non-overlay button (on `cover` heroes and `background_image` cta bands no global
-token is in the ring chain at all — ring knobs removed in #564, fill knobs `--btn-bg` /
-`--btn-hover-bg` in #565 — so on those bands the matching-ring idiom is driven by the
-PER-INSTANCE fill slots only; see the photo-band note below).
-Set `--hero-button2-hover-border` (or `--hero-accent-hover`) only when the hover ring should
-DIFFER from the hover fill — either slot still wins over it. Since #554 the hero's second button also
-routes the site-wide tier through its OWN chains in both states — `--hero-button2-border`, then
-`--hero-accent`, then `--btn-border-color`, then its fill (`--hero-button2-bg`, then `--btn-bg`),
-and the same shape on hover — which is the hero PRIMARY's order, so a site-wide button
-retheme moves the hero pair together instead of leaving the second button on the theme accent.
-That order is the NON-cover one; on a `cover` hero both global links are gone from the ring
-chain (`--hero-button2-border`, `--hero-accent`, `--hero-button2-bg`, then the on-overlay role).
-Since #564 the cta family uses that same order, so the band accent sits above the global ring
-knob on BOTH components. BOTH of the cta component's buttons behave the same way in BOTH
-states — its own border slot (`--cta-button-hover-border` / `--cta-button2-hover-border`),
-then `--cta-accent-hover`, then the site-wide `--btn-hover-border-color`, then its own hover
-fill (`--cta-button-hover-bg` / `--cta-button2-hover-bg`) — so both buttons resolve in the
-same ORDER. That is not the same as the same color: the shared knobs (`--cta-accent-hover`,
-`--btn-hover-border-color`) ring the pair together, while the per-button fill slots ring each
-button on its own. The rest chains are the positional twins of these hover chains, so a
-button's ring cannot change colour when the pointer lands. (Before #564 the cta resolved its
-fill slot before `--cta-accent` at rest but the accent before the fill on hover, so a cta
-whose accent and fill knobs were both set showed a fill-coloured ring at rest that flipped to
-the accent on hover. That flip is gone.)
 
-On `background_image` cta bands and `cover` heroes NO global button token is in the ring chain
-at all: the ring knobs left in #564 and the fill knobs `--btn-bg` / `--btn-hover-bg` in #565.
-Those bands bottom out at `--color-accent-on-overlay`, a role measured at
-4.59:1 against the worst-case scrim, and a site-wide default sitting above it cancelled the
-guarantee — the ring knobs directly, the fill knobs through the border-follows-fill link.
-Per-instance slots, the band accent, and that band's OWN fill slot still win there, so the
-matching-ring idiom holds for a fill you aimed at THAT band. A site-wide `--btn-bg` still
-paints these buttons' fill; it just no longer drags the ring along with it.
+Three differences worth knowing before translating an old slot recipe:
 
-This fill-follow is specific to the FILLED (`primary`) variant; an `outline`, `ghost`, or
-`secondary` second button keeps its own variant default on hover, so give those an explicit
-`--hero-button2-hover-border` / `--cta-button2-hover-border` if their ring must track a recolored
-hover fill.
+- **No fill slot is needed to defeat the gradient.** `background.fill` on the role wins
+  outright — authored band blocks are unlayered and the v1 stylesheet lives in
+  `@layer pp-v1`, so nothing in that sheet can outrank it however many classes it carries.
+  The "the premium gradient masks my flat fill" problem does not exist here.
+- **Hover is a map, not a parallel slot family.** `":hover": { "fill": "…" }` inside the
+  group, instead of a `--*-hover-bg` twin. `:focus-visible` and `:active` work the same
+  way, which the slot surface never offered at all.
+- **The second button already looks different.** `cta-secondary` ships the v1 outline
+  treatment as its role default, so you author only what you want to CHANGE — unlike the
+  slot era, where an unstyled second button inherited the primary's look.
+
+Presets carry the LOOK, not the behaviour, and anything you set beside a preset wins over
+it.
 
 The section's `text-panel` CTA carries the SAME premium gradient and the same masking
 problem, so it has the same family of slots (`--section-panel-cta-bg` /

@@ -62,20 +62,35 @@
  * `!important` is never needed or used. No v2 component emits an inline style
  * attribute.
  *
- * THAT FLATNESS IS NOT YET GLOBAL, and the honest version matters (#986, ruling D5).
+ * AND THAT FLATNESS IS NOW GLOBAL, not merely internal (#986, ruling D5 revised).
+ * It is worth saying how, because the mechanism is not specificity at all.
+ *
  * A band block is [0,2,0] — one attribute plus one class. The v1 stylesheet that still
  * ships carries rules well above that on elements a role can select: the premium button
- * family reached [0,5,1], and a hero CTA authored through the `button` preset painted
+ * family reaches [0,5,1], and a hero CTA authored through the `button` preset painted
  * the stylesheet's gradient instead of the author's fill. Printing the authored layer
  * after the stylesheet only settles ties, so the write was accepted, reported applied,
  * and overruled — the I35 class.
  *
- * The rules hero collides with are wrapped in `:where()` (zero specificity: still the
- * default treatment, no longer a competitor). The remaining v1 rules that can outrank a
- * band block are enumerated and tracked in #989; each component's rebuild
- * wraps or retires the ones IT collides with, by this same precedent. When that audit
- * closes, the sentence above is true globally rather than within the engine — and until
- * it does, this docblock says so rather than promising it.
+ * The fix is a CASCADE LAYER, not per-rule surgery. The v1 stylesheet lives in
+ * `@layer pp-v1` (base.css in `pp-reset` below it), and this engine's authored blocks
+ * and in-band element defaults are UNLAYERED. Unlayered beats layered at any
+ * specificity, so no v1 rule can outrank an authored value however many classes it
+ * carries — and no enumeration has to stay complete for that to hold.
+ *
+ * The first attempt DID try per-rule surgery, and the reason it was abandoned is worth
+ * keeping: wrapping four premium rules in `:where()` zeroed them against a band block
+ * as intended and against `.btn` [0,1,0] as well, silently regressing every composed
+ * primary button on the components not yet rebuilt. A layer moves the whole sheet at
+ * once and cannot single out a rule by accident.
+ *
+ * TWO BOUNDED EXCEPTIONS, named rather than implied. The band-ROOT defaults tier sits
+ * in `pp-zero`, BELOW the v1 sheet on purpose, so an unauthored band still obeys the
+ * shared rhythm (#430/#431) — that tier is the one thing here designed to lose. And an
+ * unlayered third party still outranks the v1 sheet: WP core's injected
+ * `border-style: solid` now beats the issue-332 immunity baseline's `border-style:
+ * none`, which is why that baseline declares `border-width: 0` as well. #989 tracks the
+ * remaining v1 rules as a verification list rather than a surgery list.
  *
  *   site tokens ─▶ presets ─▶ role defaults (schema data) ─▶ band udc ─▶ breakpoint ─▶ state
  *        │            │               │                        │            │           │

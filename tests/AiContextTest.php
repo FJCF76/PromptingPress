@@ -145,7 +145,7 @@ class AiContextTest extends TestCase
         // must name the four uncapped measures, or an agent reading it will believe
         // `none` is never valid on a measure and cannot restore their declared default.
         $this->assertStringContainsString(
-            'the four text measures that ship uncapped (`--hero-heading-measure`, `--section-heading-measure`, `--cta-body-measure`, `--faq-body-measure`)',
+            'the three text measures that ship uncapped (`--section-heading-measure`, `--cta-body-measure`, `--faq-body-measure`)',
             $prompt,
             'the length-or-none carrier set must be stated, not just --stats-max-width'
         );

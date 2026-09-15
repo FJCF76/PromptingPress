@@ -42,7 +42,10 @@ authoring shape.
 - **`button_variant`** / **`button2_variant`** (`primary` / `secondary` / `outline` /
   `ghost`) — REMOVED. A variant is a bundle of button colours, which is exactly what a
   preset is: put `"_preset": "button"` (or `"button-secondary"`) on the `cta` /
-  `cta-secondary` role and override anything you like beside it.
+  `cta-secondary` role and override anything you like beside it. THE DEFAULT PAIR STILL
+  LOOKS LIKE A PAIR: `cta-secondary` carries the v1 outline treatment as its role
+  default, so an unauthored hero renders a filled primary beside a muted, bordered
+  secondary exactly as it did on v1 — the prop went, the default did not.
 
 `layout`, `split_ratio` and `vertical_align` STAY, because the UDC taxonomy has no
 layout group: removing them would delete the capability rather than move it.
@@ -60,17 +63,16 @@ layout group: removing them would delete the capability rather than move it.
 | `subtitle` | `.hero__subtitle` | the supporting line: size, ink, measure |
 | `cta-group` | `.hero__cta-group` | the button row's gap |
 | `cta` | `.hero__cta--primary` | the primary button |
-| `cta-secondary` | `.hero__cta--secondary` | the second button |
+| `cta-secondary` | `.hero__cta--secondary` | the second button — the only role with a colour-bearing default (see below) |
 | `proof` | `.hero__proof` | the trust-signal row |
 | `surface` | `.hero__surface` | the split layout's proof panel |
 | `media` | `.hero__image` | the split layout's image: radius, and its crop ratio |
 
-### The CTA roles declare almost nothing, on purpose
+### The two CTA roles are deliberately asymmetric
 
 Role defaults outrank presets. A default on `cta` would suppress exactly the part of a
 `button` preset that makes it a button — you would get the type, padding and motion and
-not the fill. So both CTA roles ship with **no design defaults at all**, and a preset
-lands whole:
+not the fill. So **`cta` declares no design defaults at all**, and a preset lands whole:
 
 ```json
 "udc": {
@@ -79,7 +81,20 @@ lands whole:
 }
 ```
 
-Anything you set beside the preset wins over it.
+Anything you set beside a preset wins over it.
+
+**`cta-secondary` DOES declare defaults, and that is the deliberate part.** Both buttons
+render as a bare `.btn` now that `button2_variant` is gone, so with nothing declared an
+unauthored hero showed two identical filled buttons side by side. v1 defaulted the second
+to `outline`. Losing that is a default-experience regression, not a narrowing worth
+documenting, so the role carries the v1 outline treatment — muted surface, body ink,
+border-coloured 2px edge — with every value an `@token` reference, so a retheme moves it
+and no colour is baked into schema data.
+
+The cost, stated rather than discovered: those are the `button-secondary` preset's own
+values, duplicated. Because role defaults outrank presets, applying a DIFFERENT preset to
+`cta-secondary` is partly suppressed by them. That duplication is temporary — #974 lets a
+role name its own preset as its default, and retires this block when it lands.
 
 ### Worked example — a dark hero with a background image
 
@@ -117,14 +132,38 @@ background for WCAG AA.
   degrades to `left` at RENDER time; the stored prop is not rewritten.
 - **`cover`** — a tall (`min-height: 70vh`), centre-aligned band.
 
-**A layout aligns BOXES; you align TEXT.** `centered` and `cover` centre the content
-box, and the roles' `typography.align` sets the text. Text alignment is a designable
-value, so it belongs to a role rather than to a variant — the same call testimonials'
-retired `title_align` made.
+**A layout that says "centered" centres the TEXT too.** `centered` and `cover` centre
+the content box AND the text inside it, from the stylesheet, keyed to the layout class.
+
+That is a correction of an earlier v2 cut, and the reasoning is worth keeping. The first
+pass moved text alignment out to the roles on the principle that a layout aligns boxes
+and an author aligns text. It read well and rendered wrong: `centered` is the DEFAULT
+layout, no role ships a `typography.align` default, and every box here carries a measure
+cap — so a wrapping headline sat ragged-left inside a centred box while this file and the
+schema both said "centered centers all content". Single-line text hid it.
+
+Alignment driven by a layout MODIFIER is the modifier's geometry, the same category as
+the `align-items` beside it. An authored `typography.align` on a role still overrides it,
+and now does so structurally rather than by specificity luck: authored band blocks are
+unlayered and the stylesheet lives in `@layer pp-v1`.
 
 **`cover` no longer paints `image_url` as a background.** A band background image is
 `_band` `background.image`, which means any layout can carry one — not just this one.
 `image_url` / `image_id` now mean the split layout's `<img>` and nothing else.
+
+**And the engine supplies what a background image needs.** Set `background.image` and you
+get `background-size: cover`, `background-repeat: no-repeat` and `background-position:
+center` unless you set them yourself — v1's `.hero--cover` values, which are also what
+anyone means by putting a photograph behind a band. Without them an authored image
+painted at its intrinsic size, tiled, anchored top-left. Set `background.size` (or
+`.repeat`, or `.position`) and yours wins.
+
+**A scrim gets the accessible focus ring automatically.** When a band carries both an
+image and an `overlay`, the engine marks it and the focus ring switches to
+`--color-accent-on-overlay`. v1 keyed that to `.hero--cover`, which stopped following the
+thing it described once any layout could carry an image: a bare accent ring is 1.17:1
+over a dark scrim, a WCAG 1.4.11 failure. Structural, emitted, not something you can
+forget to switch on — the same posture as the reduced-motion guard.
 
 ## Structural CSS
 
@@ -184,7 +223,7 @@ a role default or structural geometry, so a band that disagrees can already say 
   literal would stop following a retheme, so the flat token-following fill is the
   default and a gradient is one authored value away.
 
-### Three capabilities that narrowed
+### Two capabilities that narrowed
 
 **1. The left/split opener rhythm.** v1 gave `left` and `split` heroes a compact opener
 (`--space-xl` on both edges) while `centered` and `cover` took `--space-2xl` at desktop —
@@ -195,9 +234,12 @@ layout now shares one opener rhythm, and a band that wants the compact one sets 
 `_band` `spacing`. The visible effect: an adjacent left/split hero grows from 64px to
 112px at desktop.
 
-**2. Text alignment per variant** — see Layout above.
+(Text alignment per variant was on this list in an earlier draft and is NOT a narrowing:
+`centered` and `cover` centre their text structurally — see Layout above. It was listed
+here while the first v2 cut had moved alignment entirely to the roles, which turned the
+default layout into one that did not do what its name said.)
 
-**3. The media focal point.** `object-position` on the media box is a fixed `center` in
+**2. The media focal point.** `object-position` on the media box is a fixed `center` in
 the stylesheet now. It was the
 v1 `--hero-image-position` slot; the v2 boundary classifies `object-position` as
 structural, so it has a home — but it is no longer author-reachable. Recorded as a
