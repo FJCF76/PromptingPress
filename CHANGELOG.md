@@ -4,7 +4,7 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
-## [Unreleased — v2.0.0-alpha.1] — v2 Sprint 1: the contract-boundary gate fixes, presets/states/motion, chrome and background images, then the batched hardening (#962, #965, #970, #976, #981)
+## [Unreleased — v2.0.0-alpha.1] — v2 Sprint 1: the contract-boundary gate fixes, presets/states/motion, chrome and background images, the batched hardening, then hero rebuilt on the contract (#962, #965, #970, #976, #981, #986, #968, #972)
 
 **The three things the Sprint-0 contract-boundary review said had to be true before anything else is built on the UDC contract.** One value could take a page's styling down to the last rule; the editor preview ranked the cascade differently from the page it was previewing; and a test promised coverage of the consent gate that its assertions never delivered. None of the three changes what the contract IS — they make the contract hold.
 
@@ -299,6 +299,86 @@ against the caller's own literal, and three source pins evaded by a local
 variable, reversed keys, or `compact()`. Each was replaced by one that goes red,
 and the harness gained the affordance that made an unreachable branch testable.
 Local Playwright style-render @smoke: 199 passed, 1 skipped.
+
+## hero rebuilt on the contract, and the cascade fixed underneath it (#986, #968, #972)
+
+**hero is the second component on the UDC, and the first one that made the engine
+prove it could carry a real component.** 20 props became 16, 49 style slots became
+13 roles, and ~850 lines of stylesheet became structural scaffolding. What an author
+writes is a `udc` map on the band: every role takes typography, spacing, border,
+shadow, background, sizing and motion, per breakpoint, in `:hover` / `:focus-visible`
+/ `:active`, with `button` and `button-secondary` presets for the CTA pair.
+
+Four props are gone, each because it was a bundle the contract expresses directly.
+`spacing` and `width` were padding and a content measure. `button_variant` and
+`button2_variant` were bundles of button colours, which is what a preset is.
+
+**The four defaults that came back.** A first cut of this rebuild moved several
+behaviours out to "the author decides", and for four of them that was the wrong
+call — an unauthored hero has to look like v1's unauthored hero, not like a set of
+choices nobody made yet:
+
+| What | v1 did it with | v2 does it with |
+|---|---|---|
+| `centered` centres its TEXT, not just its boxes | a stylesheet rule per variant | a stylesheet rule per variant, and an authored `typography.align` still wins |
+| a band image covers instead of tiling | `.hero--cover` in the stylesheet | the engine emits `cover` / `no-repeat` / `center` when you set an image and not those |
+| the second CTA looks different from the first | `button2_variant: outline` | `cta-secondary`'s role defaults, every value a token reference |
+| the focus ring stays legible over a scrim | `.hero--cover .btn:focus` | the engine marks any band that paints a scrim, on any layout |
+
+The last one was an accessibility regression, not a preference: a bare accent ring
+measures 1.17:1 over a dark scrim. v1's markup could only put a background image on
+the `cover` layout, so keying the ring to that class was sound; the contract lets any
+layout carry one, so the ring follows the overlay now instead of the class.
+
+### The v1 stylesheet stopped outranking the values you write
+
+A v2 band block is `[0,2,0]`. The v1 stylesheet still ships, and its premium button
+family reaches `[0,5,1]` — so a hero CTA styled through the `button` preset was
+accepted, reported applied, and then painted the stylesheet's gradient anyway.
+Printing the authored layer later only settles ties.
+
+**The v1 stylesheet is now in a cascade layer and the engine's authored output is
+not**, which beats it at any specificity, for every component, without anyone having
+to enumerate the rules. base.css, components.css and utilities.css keep their
+existing order inside the layer, so nothing in v1 reshuffles against anything else in
+v1 — only their relationship to authored values changes.
+
+Two things are deliberately NOT above the v1 sheet. An unauthored band's root
+defaults sit BELOW it, so a v2 band still obeys the shared adjacent-band rhythm
+exactly as it always did. And an unlayered third party still wins: WordPress core's
+injected `border-style: solid` now outranks the theme's border-reset, which survives
+because the reset declares `border-width: 0` as well and core never injects a width.
+
+The first attempt at this wrapped four rules in `:where()` instead, and measurement
+killed it: zeroing those rules dropped them below the base `.btn` rule too, so every
+composed primary button on the components not yet rebuilt lost its ring width, its
+resting bevel and its motion narrowing. That is now a rendered test that fails if it
+returns.
+
+### Two fixes that rode along
+
+**A font URL requesting several families now uses the first one** (#968) — the
+behaviour the code has documented since it was written. `?family=Inter&family=Playfair`
+took Playfair; the pipe-joined form of the same request took Inter. One question, two
+answers, decided by which syntax the URL happened to use. Both forms take the first
+now. A bracket-array key (`?family[]=…`) is no longer honoured at all, which also
+closes a URL-reachable fatal.
+
+**A design token that points at another token can be referenced again** (#972).
+`--btn-padding-y` holds `var(--space-sm)`, and a length parameter rejects `var()` by
+design, so referencing it failed — while the three colour tokens of the same shape
+succeeded, because the colour grammar happens to accept a bare reference. Same kind
+of token, opposite answers, decided by a grammar quirk. A reference is now judged by
+the type the registry DECLARES, so the five chain-holding tokens are referenceable
+and the button presets reference the real `--btn-padding-*` tokens instead of
+substituting a lookalike. `--transition` is refused with a reason rather than by
+accident: it is one string holding a duration and an easing, so it declares no single
+grammar to check against.
+
+**`aspect-ratio` became authorable** (#986). It was in neither the engine's grammar
+nor the stylesheet's allowed set, so the moment hero declared roles it could be
+neither authored nor kept — a capability deletion hiding inside a rebuild. It is a
+`sizing` parameter now, validated by the same ratio grammar the v1 slots always used.
 
 ---
 
