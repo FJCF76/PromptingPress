@@ -271,9 +271,11 @@ trace. The report now counts what it omitted, by kind.
 - The editor preview emits design-token overrides, enqueued webfonts and both
   chrome tiers at the front end's positions, through the same emitters.
 - `pp_update_site_option()` reports a refused write instead of succeeding over it,
-  and skips a write whose value the row already holds. This covers the WRITE arm only:
-  the clear arm still returns success over a delete the store refused — the same defect
-  one branch away, tracked as #1003 rather than fixed.
+  and skips a write whose value the row already holds. The chrome container's CLEAR
+  arm now does the same: a removal the store refuses is reported rather than returned
+  as success over intact chrome, and clearing a row that was already absent still
+  succeeds. That arm was missed when this landed and was caught by this release's own
+  sprint-close review.
 - The batch rollback writes `pp_site_udc` inside the advisory lock its forward
   writes take, reading the row rather than the autoload cache.
 - `pp-utilities` depends on `pp-components`, so the authored tier's rank survives
@@ -526,11 +528,11 @@ That is a real gap, not a design choice, and it is tracked as #992 with the fix 
 
 ### Tests — the sprint total
 
-PHP **4977 tests / 29449 assertions**, warnings **11**, deprecations **2**. JS
+PHP **4979 tests / 29461 assertions**, warnings **11**, deprecations **2**. JS
 **1782 passed** across 36 files. Full local Playwright suite (every spec, not the
 `@smoke` subset): **316 passed, 1 skipped, 0 failed**.
 
-Against 2.0.0-alpha.0's 4813 PHP and 1879 JS, the sprint added 164 PHP tests and
+Against 2.0.0-alpha.0's 4813 PHP and 1879 JS, the sprint added 166 PHP tests and
 removed 97 JS ones. The JS figure is not a regression and the PHP figure is not the
 whole story: both move because two components' worth of value-styled CSS and one
 component's 49-slot style contract were deleted, and the cases that existed only to
