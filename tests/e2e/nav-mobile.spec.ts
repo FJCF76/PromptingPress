@@ -47,6 +47,18 @@ test.describe('Mobile nav disclosure (issue 426)', () => {
     pageId = createPage('E2E Nav 426 Host');
   });
 
+  // UNCONDITIONAL NET for the site-global chrome option.
+  //
+  // The styled-panel test below clears it in a `finally`, which is the fast path — but
+  // a Playwright TIMEOUT tears the test down without guaranteeing that block runs, and
+  // `pp_site_udc` is SITE-wide. With `workers: 1` and `fullyParallel: false`, a leak
+  // from here would still be styling the header when style-render.spec.ts starts
+  // reading computed header colours, and those failures would point anywhere but at
+  // this file. afterEach always runs, so it is the net under the fast path.
+  test.afterEach(() => {
+    try { cli('option delete pp_site_udc'); } catch { /* not set — nothing to clean */ }
+  });
+
   test.afterAll(() => {
     try { if (pageId) cli(`post delete ${pageId} --force`); } catch { /* noop */ }
     // Unassign the `primary` location first (explicit, so the theme mod is left in
@@ -205,5 +217,85 @@ test.describe('Mobile nav disclosure (issue 426)', () => {
     // Only a viewport resize splits the work across CSS and a matchMedia listener.
     await expect(page.locator('.nav__toggle')).toBeHidden();
     await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  /**
+   * THE DISCLOSURE STILL WORKS WHEN THE PANEL IS STYLED (#991).
+   *
+   * The mobile menu's open/close BEHAVIOUR is structural: `position: absolute` at
+   * max-width 767px, the `hidden` attribute owned by main.js. Its APPEARANCE is now
+   * authorable — `menu` is a UDC role, and an authored chrome block is unlayered, so
+   * it outranks the very `@media (max-width: 767px)` rule that makes the panel a panel.
+   *
+   * That is the risk worth a rendered test: an authored `background` is harmless, but
+   * it proves the two systems coexist on the same element. What must survive is the
+   * mechanism — opens, panels BELOW the header row at full width, and closes again.
+   * Close is asserted explicitly because an open-only test would pass against a panel
+   * that can never be dismissed, which on a phone is the whole navigation gone.
+   */
+  test('an authored menu panel still opens and closes at 375', async ({ page }) => {
+    // Perturb the panel with values that could actually break it, not just a fill:
+    // padding and a border change its box, and a radius its shape — all authored on
+    // the very element whose out-of-flow positioning makes the disclosure work.
+    const map = JSON.stringify({
+      nav: {
+        _band: { background: { fill: '#101828' } },
+        menu: {
+          background: { fill: '#101828' },
+          spacing: { padding: '12px' },
+          border: { width: '2px', color: '#ffd166', radius: '8px' },
+        },
+        link: { typography: { color: '#f7f8fa', ':hover': { color: '#ffd166' } } },
+        toggle: { typography: { color: '#ffffff', ':hover': { color: '#ffd166' } } },
+      },
+    });
+    // Single-quote escape, matching style-render.spec.ts: the value is hardcoded today,
+    // but an apostrophe in a future fixture would otherwise break out of the quoting
+    // and silently mangle the command.
+    cli(`option update pp_site_udc '${map.replace(/'/g, `'\\''`)}'`);
+
+    try {
+      await page.setViewportSize({ width: 375, height: 812 });
+      await page.goto(`/?page_id=${pageId}`);
+
+      const toggle = page.locator('.nav__toggle');
+      const menu = page.locator('#pp-nav-menu');
+      await expect(toggle).toBeVisible();
+      await expect(menu).toBeHidden();
+
+      const headerClosed = (await box(page, '.site-header'))!;
+
+      // OPEN.
+      await toggle.click();
+      await expect(menu).toBeVisible();
+      expect(await toggle.getAttribute('aria-expanded')).toBe('true');
+
+      // The authored fill landed...
+      expect(await menu.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe(
+        'rgb(16, 24, 40)',
+      );
+      // ...and the structural mechanism it now outranks is intact: still out of flow,
+      // still anchored under the header row, still full width.
+      expect(await menu.evaluate((el) => getComputedStyle(el).position)).toBe('absolute');
+      const panel = (await box(page, '#pp-nav-menu'))!;
+      expect(near(panel.x, 0)).toBe(true);
+      expect(near(panel.width, 375)).toBe(true);
+      expect(panel.y >= headerClosed.y + headerClosed.height - 1).toBe(true);
+
+      // The sticky header did not grow to swallow the panel.
+      const headerOpen = (await box(page, '.site-header'))!;
+      expect(near(headerOpen.height, headerClosed.height)).toBe(true);
+
+      // CLOSE — the affordance still dismisses a styled panel.
+      await toggle.click();
+      await expect(menu).toBeHidden();
+      expect(await toggle.getAttribute('aria-expanded')).toBe('false');
+    } finally {
+      try {
+        cli('option delete pp_site_udc');
+      } catch {
+        /* nothing stored */
+      }
+    }
   });
 });
