@@ -4659,7 +4659,7 @@ pp_register_action('delete_preset', [
                 'The preset "%s" is shipped by the theme and cannot be deleted. Theme presets are: %s. '
                 . 'A band that should not use it can simply stop referencing it.',
                 $name,
-                implode(', ', array_keys(pp_udc_system_presets()))
+                pp_udc_preset_names_for_message(pp_udc_system_presets())
             ));
         }
 
@@ -4685,7 +4685,17 @@ pp_register_action('delete_preset', [
                 . 'unreadable. Repair %s first (wp pp operate composition-history --post_id=<id>), then '
                 . 'delete again.',
                 $name,
-                implode(', ', $scan['unreadable']),
+                // BOUNDED LIKE ITS SIBLING ELEVEN LINES DOWN. Each fragment is
+                // cleaned by _pp_udc_reflect(), but the LIST was not, and its
+                // length is linear in the number of unreadable composition pages —
+                // so a site with many of them turned every refusal into a
+                // tens-of-KB message on the terminal, the chat envelope and the
+                // model's context. The count is stated separately, so nothing
+                // diagnostic is lost by showing ten names instead of all of them.
+                implode(', ', array_slice($scan['unreadable'], 0, 10))
+                    . (count($scan['unreadable']) > 10
+                        ? sprintf(', and %d more', count($scan['unreadable']) - 10)
+                        : ''),
                 count($scan['unreadable']) === 1 ? 'it' : 'those pages'
             ));
         }

@@ -326,9 +326,52 @@ function pp_udc_reserved_keys(): array {
  */
 const PP_UDC_PRESET_KEY = '_preset';
 
-/** A preset name is stable, not CSS: the charset matches a band token's name. */
+/**
+ * A preset name is stable, not CSS: the charset matches a band token's name.
+ *
+ * ANCHORED WITH `\z`, NOT `$`, AND THE DIFFERENCE IS THE POINT. PCRE's `$` matches
+ * before a trailing newline, so `$` admits one byte the charset does not name — a
+ * gate that does not mean exactly what it says.
+ *
+ * It matters more here than it did in Sprint 1. Then this was a lookup-key check
+ * and a name outside the charset simply failed to resolve. It is now the write gate
+ * for a site-writable namespace AND the reader that admits stored keys into the
+ * registry, and the names it admits are listed back in operator-facing refusals and
+ * in the runtime authoring context. A gate in that position has to be exact.
+ *
+ * Every sibling charset gate in this file is anchored the same way rather than left
+ * as the next instance — including the band id, which is interpolated into a CSS
+ * selector, and the reference name, which becomes a custom property.
+ *
+ * STATED NARROWING: a stored name whose only defect is a trailing newline stops
+ * resolving. Nothing the engine mints can have one, and no supported write path
+ * produced one on purpose.
+ */
 function pp_udc_valid_preset_name(string $name): bool {
-    return (bool) preg_match('/^[A-Za-z0-9_-]{1,64}$/', $name);
+    return (bool) preg_match('/^[A-Za-z0-9_-]{1,64}\z/', $name);
+}
+
+/**
+ * Preset names rendered for a MESSAGE or for the model's prompt, cleaned.
+ *
+ * The charset gate above should make this unnecessary, and that is exactly why it
+ * exists. These names are listed into operator-facing refusals and into the runtime
+ * authoring context, and the gate that admits them was one character away from
+ * accepting a byte it does not name. A sink that depends on an upstream gate being
+ * perfect fails the moment it is not — so this one cleans regardless, the same
+ * posture pp_udc_preset_references() already takes with chrome names, page titles
+ * and role keys.
+ *
+ * Reads the KEYS, so it is safe on a registry assembled from a stored row.
+ */
+function pp_udc_preset_names_for_message(array $presets): string {
+    $names = array_map(
+        static function ($name): string {
+            return _pp_udc_reflect((string) $name);
+        },
+        array_keys($presets)
+    );
+    return implode(', ', $names);
 }
 
 /**
@@ -913,7 +956,7 @@ function pp_udc_validate_preset_definition(string $name, $preset): ?WP_Error {
             . 'Pick another name — anything you set on a band beside a preset already overrides it, '
             . 'so a variant does not need to shadow the original.',
             $name,
-            implode(', ', array_keys(pp_udc_system_presets()))
+            pp_udc_preset_names_for_message(pp_udc_system_presets())
         ));
     }
     if (!is_array($preset)) {
@@ -1799,7 +1842,7 @@ function pp_udc_validate_map($udc, string $component): ?WP_Error {
             ));
         }
         foreach ($udc['_tokens'] as $name => $value) {
-            if (!is_string($name) || !preg_match('/^[A-Za-z0-9_-]{1,64}$/', (string) $name)) {
+            if (!is_string($name) || !preg_match('/^[A-Za-z0-9_-]{1,64}\z/', (string) $name)) {
                 return new WP_Error('invalid_prop_value', sprintf(
                     'Component "%s" udc "_tokens" name %s must be 1-64 characters of letters, digits, hyphen or underscore.',
                     $component,
@@ -2031,7 +2074,7 @@ function _pp_udc_validate_preset_reference(
             '%s references the preset "%s", which does not exist. Available presets: %s',
             $where,
             $value,
-            implode(', ', array_keys(pp_udc_presets())) ?: '(none)'
+            pp_udc_preset_names_for_message(pp_udc_presets()) ?: '(none)'
         ));
     }
 
@@ -2074,9 +2117,19 @@ function _pp_udc_validate_preset_reference(
 
         // Only the groups that fit are validated — the rest are skipped, and the
         // skip is DISCLOSED on the write envelope by pp_udc_composition_findings().
+        // THE BAND GATE ASKS THE SAME QUESTION THE EMITTER AND THE DEFINITION GATE
+        // ASK: a preset sees SITE tokens only.
+        //
+        // Passing the band's `_tokens` here made this gate a superset of the
+        // emitter. Safe in direction — nothing refused reaches CSS — but it
+        // ACCEPTED a band whose preset resolves only against that band's tokens,
+        // reported ok:true, and then dropped every such declaration at render. A
+        // preset belongs to the site and not to any band; all three gates now say
+        // so, so the same reference is refused at the band write with a stated
+        // reason instead of accepted and silently dropped.
         foreach ($split['applied'] as $fragment_group => $fragment_map) {
             $error = _pp_udc_validate_group_map(
-                $component, $role, (string) $fragment_group, $fragment_map, $permitted, $band_tokens,
+                $component, $role, (string) $fragment_group, $fragment_map, $permitted, [],
                 sprintf(' (via preset "%s")', $value)
             );
             if ($error !== null) {
@@ -2086,8 +2139,9 @@ function _pp_udc_validate_preset_reference(
         return null;
     }
 
+    // Group grain, same scope rule as role grain above.
     return _pp_udc_validate_group_map(
-        $component, $role, $grain, $fragment, $permitted, $band_tokens,
+        $component, $role, $grain, $fragment, $permitted, [],
         sprintf(' (via preset "%s")', $value)
     );
 }
@@ -2936,7 +2990,7 @@ function pp_udc_compile_band(array $item, string $layer, ?array &$drops = null):
             // #330 render boundary: two layers, one set, and the layers apply to
             // everything that becomes CSS, not just to the values that look like
             // values.
-            if (!preg_match('/^[A-Za-z0-9_-]{1,64}$/', (string) $name)) {
+            if (!preg_match('/^[A-Za-z0-9_-]{1,64}\z/', (string) $name)) {
                 continue;
             }
             if (_pp_forbidden_css_construct((string) $literal) !== null) {
@@ -3197,6 +3251,15 @@ function _pp_udc_place(
         // schema constants, integrity-checked in CI by the schema suite; surfacing
         // one in an operator advisory would report a repo bug as site
         // misconfiguration and hand the operator a finding they cannot act on.
+        // THE LOCATOR SAYS WHEN A VALUE CAME FROM A PRESET (#1016). Without it the
+        // ledger points at a role and group in the author's own band that hold no
+        // such value — they would go looking for something they never wrote, which
+        // is the wrong-subject problem the preset origin suffix solves at the write
+        // gate. Computed once per call rather than inside the closure: `$source` is
+        // fixed for the whole call, and the closure runs per breakpoint.
+        $where = strncmp($source, 'preset:', 7) === 0
+            ? $where . sprintf(' (via preset "%s")', _pp_udc_reflect(substr($source, 7)))
+            : $where;
         $note = static function (string $reason) use (&$drops, $where, $param_name, $state): void {
             // THE LEDGER IS BOUNDED AT THE SOURCE, not by its reader.
             //
@@ -3270,7 +3333,7 @@ function _pp_udc_place(
             // CSS source text too and gets the same charset gate the write path
             // applies to a token name. Stored data is the reason: the write path
             // cannot have been the only thing that ever looked at this.
-            if (!preg_match('/^[A-Za-z0-9_-]{1,64}$/', $ref)) {
+            if (!preg_match('/^[A-Za-z0-9_-]{1,64}\z/', $ref)) {
                 // UNBOUNDED BY CONSTRUCTION on this branch: it is reached precisely
                 // BECAUSE the 64-character charset check just failed.
                 $note && $note(sprintf('the reference "@%s" is not a usable token name', _pp_udc_reflect($ref)));
@@ -3338,7 +3401,20 @@ function _pp_udc_place(
             // The type test lives INSIDE the ledger branch for the same reason the
             // closure and the locator do: it is per-breakpoint work that only a
             // collector ever reads.
-            if ($note && ($params[$param_name]['type'] ?? '') !== 'attachment_id') {
+            // THE 8c CARVE-OUT APPLIES ONLY WHERE 8c IS LOOKING (#1016).
+            //
+            // pp_check_udc_background_images() walks a stored map's OWN roles, so an
+            // attachment id living inside a PRESET that a band merely references is
+            // invisible to it. This carve-out exists purely on the premise that 8c
+            // owns the parameter; custom presets made that premise false for
+            // preset-sourced values, and a carve-out whose reason has lapsed is not
+            // a carve-out — it is a drop on no channel at all. The save verb
+            // verifies the attachment is live, so this is the deleted-afterwards
+            // case. Extending 8c to resolve preset references is the fuller fix and
+            // is filed rather than done here.
+            $owned_by_8c = ($params[$param_name]['type'] ?? '') === 'attachment_id'
+                && strncmp($source, 'preset:', 7) !== 0;
+            if ($note && !$owned_by_8c) {
                 // THE STORED VALUE IS REFLECTED, SO IT IS BOUNDED AND CLEANED.
                 // This message rides the preflight envelope of every later
                 // mutation, and a stored value has no length limit of its own.
@@ -3406,7 +3482,7 @@ function _pp_udc_place(
 
 /** A band id is a CSS attribute-selector value; the charset is what bounds it. */
 function pp_udc_valid_band_id(string $id): bool {
-    return (bool) preg_match('/^[A-Za-z0-9_-]{1,64}$/', $id);
+    return (bool) preg_match('/^[A-Za-z0-9_-]{1,64}\z/', $id);
 }
 
 /**

@@ -1022,6 +1022,189 @@ graphy";
         $this->assertNull(pp_udc_validate_preset_definition('x', $valid), 'and the valid shape passes');
     }
 
+    // ── 5d. What the security specialist found ──────────────────────────────
+
+    /**
+     * A TRAILING NEWLINE IS NOT A LEGAL PRESET NAME, and the reason is the sink.
+     *
+     * PCRE's `$` matches before a trailing newline, so `$` admitted one byte the
+     * charset does not name. Sprint 1 could afford that — a name outside the
+     * charset simply failed to resolve. This change made the same function the
+     * write gate for a site-writable namespace AND the reader that admits stored
+     * keys into the registry, and the names it admits are listed back in
+     * operator-facing refusals and in the runtime authoring context. A gate in that
+     * position has to mean exactly what it says, at both ends.
+     */
+    public function testAPresetNameCarryingANewlineIsRefusedAtEveryGate(): void
+    {
+        $this->assertFalse(pp_udc_valid_preset_name("brand-cta\n"), 'the charset gate itself');
+
+        $save = $this->save("brand-cta\n", $this->brandType());
+        $this->assertFalse($save['ok'], 'the write verb');
+        $this->assertSame([], pp_udc_custom_presets());
+
+        // And the READER refuses it too, so a row written raw cannot smuggle it in.
+        $GLOBALS['_pp_test_store']['options'][PP_SITE_UDC_OPTION] = (string) wp_json_encode([
+            PP_SITE_UDC_VERSION_KEY     => 1,
+            PP_SITE_PRESETS_VERSION_KEY => 1,
+            PP_SITE_PRESETS_KEY         => [
+                "stored-name\n" => ['grain' => 'role', 'udc' => $this->brandType()],
+            ],
+        ]);
+        $this->assertSame([], pp_udc_custom_presets(), 'the reader drops it');
+        $this->assertSame(
+            array_keys(pp_udc_system_presets()),
+            array_keys(pp_udc_presets()),
+            'so it never reaches the registry'
+        );
+    }
+
+    /**
+     * And the model's prompt never carries a raw stored name, gate or no gate.
+     *
+     * Defence in depth: the charset gate above should make this impossible, which
+     * is exactly why the sink does not rely on it. One character's difference in
+     * that regex already reached the prompt once.
+     */
+    public function testAStoredPresetNameReachesThePromptCleaned(): void
+    {
+        $GLOBALS['_pp_test_store']['options'][PP_SITE_UDC_OPTION] = (string) wp_json_encode([
+            PP_SITE_UDC_VERSION_KEY     => 1,
+            PP_SITE_PRESETS_VERSION_KEY => 1,
+            PP_SITE_PRESETS_KEY         => [
+                'brand-cta' => ['grain' => 'role', 'udc' => $this->brandType()],
+            ],
+        ]);
+
+        $listed = pp_udc_preset_names_for_message(pp_udc_presets());
+        $this->assertStringContainsString('brand-cta', $listed);
+
+        // CALLED DIRECTLY WITH A HOSTILE KEY, because the charset gate now stops
+        // one arriving through any supported path — which is the whole point of a
+        // defence-in-depth layer and the whole difficulty of testing one. If this
+        // layer is only exercised through inputs the gate already rejects, it is
+        // not being tested at all.
+        $hostile = pp_udc_preset_names_for_message([
+            "evil\x1b[31m\nname" => ['grain' => 'role', 'udc' => []],
+        ]);
+        $this->assertStringNotContainsString("\x1b", $hostile);
+        $this->assertStringNotContainsString("\n", $hostile);
+        $this->assertStringContainsString('evil', $hostile, 'and it still names the thing');
+    }
+
+    /**
+     * The band gate asks the same token question the emitter and definition gate
+     * ask, so a preset it cannot resolve is REFUSED rather than accepted and
+     * dropped at render.
+     */
+    public function testABandReferencingAPresetWithABandLocalTokenIsRefusedNotSilentlyDropped(): void
+    {
+        $GLOBALS['_pp_test_store']['options'][PP_SITE_UDC_OPTION] = (string) wp_json_encode([
+            PP_SITE_UDC_VERSION_KEY     => 1,
+            PP_SITE_PRESETS_VERSION_KEY => 1,
+            PP_SITE_PRESETS_KEY         => [
+                'sneaky' => ['grain' => 'role', 'udc' => ['typography' => ['size' => '@band-only']]],
+            ],
+        ]);
+
+        $error = pp_udc_validate_map([
+            '_tokens' => ['band-only' => '19px'],
+            'list'    => [PP_UDC_PRESET_KEY => 'sneaky'],
+        ], 'testimonials');
+
+        $this->assertInstanceOf(
+            WP_Error::class,
+            $error,
+            'accepting this and then dropping it at render is success reported over nothing'
+        );
+    }
+
+    /**
+     * A PRESET-DECLARED BACKGROUND IMAGE THAT ROTS IS LEDGERED, because the check
+     * that was supposed to own it cannot see it.
+     *
+     * `_pp_udc_place()` deliberately records no drop note for `background.image`,
+     * on the stated premise that check 8c owns that parameter. 8c walks a stored
+     * map's OWN roles — so an attachment id living inside a preset that a band
+     * merely REFERENCES is invisible to it, and custom presets made that premise
+     * false. A carve-out whose reason has lapsed is not a carve-out.
+     *
+     * Stored raw because the save verb verifies the attachment is live: this is
+     * strictly the deleted-afterwards case, which is the only way to reach it.
+     */
+    public function testAPresetBackgroundImageThatNoLongerResolvesIsLedgered(): void
+    {
+        $GLOBALS['_pp_test_store']['options'][PP_SITE_UDC_OPTION] = (string) wp_json_encode([
+            PP_SITE_UDC_VERSION_KEY     => 1,
+            PP_SITE_PRESETS_VERSION_KEY => 1,
+            PP_SITE_PRESETS_KEY         => [
+                'brand-bg' => ['grain' => 'role', 'udc' => [
+                    'background' => ['image' => 999999],
+                ]],
+            ],
+        ]);
+
+        $drops = [];
+        pp_udc_compile_band([
+            'component' => 'testimonials',
+            'id'        => 'pp-a1b2c3d4',
+            'props'     => ['items' => [['quote' => 'Great.', 'author' => 'Ada']]],
+            'udc'       => ['list' => [PP_UDC_PRESET_KEY => 'brand-bg']],
+        ], 'authored', $drops);
+
+        $this->assertNotSame([], $drops, 'a drop nobody records is a drop nobody can report');
+        $this->assertStringContainsString(
+            'brand-bg',
+            implode(' | ', array_column($drops, 'where')),
+            'and the locator says the value came from a preset, not from the band'
+        );
+        $this->assertStringContainsString('background', implode(' | ', array_column($drops, 'where')));
+    }
+
+    /** The unreadable-pages list in the delete refusal is bounded. */
+    public function testTheUnreadablePageListIsBounded(): void
+    {
+        $this->assertTrue($this->save('brand-type', $this->brandType())['ok']);
+        for ($i = 0; $i < 12; $i++) {
+            $id = pp_create_page('Corrupt ' . $i, 'draft');
+            update_post_meta($id, '_pp_composition', '{not json');
+        }
+
+        $result = pp_execute_action('delete_preset', ['name' => 'brand-type']);
+
+        $this->assertFalse($result['ok']);
+        $this->assertStringContainsString('and 2 more', $result['error'], 'the list says it capped');
+        // THE LOAD-BEARING HALF. Asserting only the tail does not pin the cap: the
+        // tail survives even when every name is listed, so the test must say that
+        // the eleventh and twelfth are ABSENT.
+        $this->assertStringNotContainsString('Corrupt 10', $result['error']);
+        $this->assertStringNotContainsString('Corrupt 11', $result['error']);
+        $this->assertStringContainsString('Corrupt 0', $result['error'], 'and the first ten are there');
+    }
+
+    /** As is the unreadable-presets list in the write refusal. */
+    public function testTheUnreadablePresetListIsBounded(): void
+    {
+        $presets = [];
+        for ($i = 0; $i < 12; $i++) {
+            $presets['broken' . $i] = ['grain' => 'role']; // no `udc` — unreadable
+        }
+        $GLOBALS['_pp_test_store']['options'][PP_SITE_UDC_OPTION] = (string) wp_json_encode([
+            PP_SITE_UDC_VERSION_KEY     => 1,
+            PP_SITE_PRESETS_VERSION_KEY => 1,
+            PP_SITE_PRESETS_KEY         => $presets,
+        ]);
+
+        $result = $this->save('unrelated', $this->brandType());
+
+        $this->assertFalse($result['ok']);
+        $this->assertSame('site_option_corrupt', $result['error_code']);
+        $this->assertStringContainsString('and 2 more', $result['error']);
+        $this->assertStringNotContainsString('broken10', $result['error'], 'the cap actually cuts');
+        $this->assertStringNotContainsString('broken11', $result['error']);
+        $this->assertStringContainsString('broken0', $result['error']);
+    }
+
     // ── 6. The T2 intersect, on a CUSTOM preset, band AND chrome ────────────
 
     /**

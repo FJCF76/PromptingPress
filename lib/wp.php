@@ -8018,7 +8018,15 @@ function pp_update_site_preset(string $name, ?array $preset, ?int $expected_vers
                 . 'then write again.',
                 count($current['presets_unreadable']),
                 count($current['presets_unreadable']) === 1 ? 'y' : 'ies',
-                implode(', ', array_map('_pp_udc_reflect', $current['presets_unreadable'])),
+                // Bounded for the same reason as the delete refusal's page list: the
+                // names are cleaned individually but the LIST is only capped by the
+                // 64 KB row, which admits thousands of short junk keys — and this is
+                // precisely the refusal that fires on rows an attacker chose. The
+                // count is already in the message, so the slice loses nothing.
+                implode(', ', array_slice(array_map('_pp_udc_reflect', $current['presets_unreadable']), 0, 10))
+                    . (count($current['presets_unreadable']) > 10
+                        ? sprintf(', and %d more', count($current['presets_unreadable']) - 10)
+                        : ''),
                 count($current['presets_unreadable']) === 1 ? 'it' : 'them',
                 count($current['presets_unreadable']) === 1 ? 'it' : 'them',
                 PP_SITE_UDC_OPTION
@@ -8042,7 +8050,7 @@ function pp_update_site_preset(string $name, ?array $preset, ?int $expected_vers
                 return new WP_Error('invalid_param_value', sprintf(
                     'There is no site preset called "%s", so nothing was deleted. Stored presets: %s',
                     $name,
-                    implode(', ', array_keys($presets)) ?: '(none)'
+                    pp_udc_preset_names_for_message($presets) ?: '(none)'
                 ));
             }
             unset($presets[$name]);
@@ -8055,7 +8063,7 @@ function pp_update_site_preset(string $name, ?array $preset, ?int $expected_vers
                     'This site already has %d presets, which is the limit. Delete one before adding '
                     . 'another; updating an existing preset is always allowed. Stored presets: %s',
                     PP_SITE_PRESETS_MAX,
-                    implode(', ', array_keys($presets))
+                    pp_udc_preset_names_for_message($presets)
                 ));
             }
             $presets[$name] = $preset;
