@@ -1,37 +1,58 @@
-@layer pp-zero, pp-v1;
+@layer pp-reset, pp-zero, pp-v1;
 /* ==========================================================================
    CASCADE LAYER ORDER (#986, ruling D5 revised). Declared here, at the top of
    the first stylesheet the theme enqueues, because a later @layer statement
    cannot reorder layers that already exist.
 
-   Reading left to right is weakest to strongest:
+   Weakest to strongest. The order is not a new design: it is the source order
+   the theme already relied on, restated structurally so a reordered enqueue,
+   a plugin, or a late-loading sheet cannot invert it.
 
-     pp-zero  the v2 engine's BAND-ROOT defaults tier. Zero-specificity rules
-              that are DESIGNED to lose to the shared design-system rules below
-              (the #430/#431 adjacent-band rhythm aims at the same element).
-              They used to be ranked under those rules by printing first; that
-              argument dies the moment this sheet is layered, so they get a
-              layer of their own, underneath.
+     pp-reset  THIS file. Tokens, reset, element defaults. It has always been the
+               floor: it loads first and everything after it overrides it. It
+               must stay BELOW the engine's band-root defaults, because those
+               used to beat it simply by printing later (they ride an inline
+               block attached to this very handle). Verified, not assumed —
+               with base.css in the same layer as components.css, an unauthored
+               v2 hero computed padding-top 0px instead of its declared
+               --space-2xl, because this file's reset started winning.
 
-     pp-v1    this stylesheet, components.css and utilities.css — the whole v1
-              design system, in their existing source order. Layering them
-              TOGETHER is the point: relative order inside the layer is
-              unchanged, so nothing in v1 reshuffles against anything else in
-              v1. What changes is only their relationship to what is OUTSIDE.
+     pp-zero   the engine's BAND-ROOT defaults tier: zero-specificity rules that
+               are DESIGNED to lose to the shared design-system rules below
+               (the #430/#431 adjacent-band rhythm aims at the same element).
+               They used to be ranked under those rules by printing first; that
+               argument dies the moment those rules are layered, because
+               unlayered beats layered at any specificity. A layer of their own,
+               above the reset and below the design system, is what keeps an
+               unauthored v2 band obeying #430/#431 while still beating the
+               reset.
 
-     (unlayered)  the v2 engine's in-band element defaults, then its authored
-              band and chrome blocks, then anything a site adds after us.
-              Unlayered always beats layered, at any specificity — which is the
-              entire point: a value an author actually wrote can no longer lose
-              to a v1 rule that happens to carry five classes.
+     pp-v1     components.css then utilities.css, wrapped in place, in their
+               existing source order. Layering them TOGETHER is the point:
+               relative order inside the layer is unchanged, so nothing in v1
+               reshuffles against anything else in v1. Only their relationship
+               to what is OUTSIDE changes.
+
+     (unlayered)  the engine's in-band element defaults, then its authored band
+               and chrome blocks. Unlayered always beats layered, at any
+               specificity — which is the entire point: a value an author
+               actually wrote can no longer lose to a v1 rule that happens to
+               carry five classes.
 
    This replaces the per-rule `:where()` surgery that #986 first attempted. That
    approach fixed the band block but dropped the wrapped rules below `.btn`
    [0,1,0] as well, silently regressing every composed primary button on the
    components that have not been rebuilt yet. A layer moves the whole sheet at
    once and cannot single out a rule by accident.
+
+   ONE THING LAYERING CANNOT REACH, stated so it is not mistaken for covered:
+   WP core's injected `html :where([style*="border-width"]){border-style:solid}`
+   is UNLAYERED, so it now outranks this file's issue-332 immunity baseline on
+   `border-style`. The immunity still holds on the other longhand — core injects
+   a style and never a width, `border-width: 0` still wins, and `solid` at zero
+   width paints nothing. See the baseline's own note in components.css.
    ========================================================================== */
-@layer pp-v1 {
+@layer pp-reset {
 /* ==========================================================================
    base.css — PromptingPress Design Foundation
    Design tokens, reset, typography, and base element styles.

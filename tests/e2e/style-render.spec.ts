@@ -6089,6 +6089,158 @@ test.describe('Shared section-band rhythm (#431)', () => {
     }
   });
 
+  // THE SAME CLASS PIN, ON THE SURFACE THAT ACTUALLY BROKE (#986).
+  //
+  // The walker above drives a `testimonials` band whose udc map has no `cta` role
+  // and no button in it at all — so it could not have caught the defect ruling D5
+  // was written for, and could not catch its return. The defect was a hero whose
+  // `cta` role carried `"_preset": "button"` painting the v1 stylesheet's premium
+  // gradient instead of the author's fill: accepted at write, reported applied,
+  // and wrong on the page. That is the I35 class on the one family of v1 rules
+  // that reaches [0,5,1].
+  //
+  // A button is also where the emitted CSS and the rendered result diverge most
+  // easily, which is why this asserts COMPUTED values and not CSS text: the text
+  // was already correct while the bug was live.
+  test('#986/I35 an authored hero CTA outranks the v1 premium button rules, rest and hover @smoke', async ({
+    page,
+  }) => {
+    const composition = [
+      { component: 'section', props: { id: 'pp-sec01', body: '<p>Body.</p>' } },
+      {
+        component: 'hero',
+        props: {
+          id: 'pp-hero01',
+          title: 'Authored',
+          button_text: 'Primary',
+          button_url: '/a',
+          button2_text: 'Secondary',
+          button2_url: '/b',
+        },
+        udc: {
+          // The preset is the point: it is the path that failed, so it must be
+          // exercised, not avoided. Values beside it must still win over it.
+          cta: {
+            _preset: 'button',
+            background: { fill: '#ff00ff', ':hover': { fill: '#123456' } },
+            typography: { color: '#00ff00', ':hover': { color: '#ffff00' } },
+            border: { width: '4px', style: 'solid', color: '#0000ff' },
+          },
+          'cta-secondary': {
+            _preset: 'button-secondary',
+            background: { fill: '#00ffff' },
+            typography: { color: '#ff0000' },
+          },
+        },
+      },
+    ];
+
+    pageId = createPage('E2E v2 Hero CTA Outranked Guard');
+    setComposition(pageId, [{ component: 'section', props: { id: 'pp-sec01', body: '<p>Body.</p>' } }]);
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+    const res = await updateComposition(page, pageId, composition);
+    expect(res.success, `udc write: ${JSON.stringify(res)}`).toBe(true);
+
+    await page.goto(`/?page_id=${pageId}`);
+    const primary = page.locator('.hero__cta--primary').first();
+    await expect(primary).toBeVisible({ timeout: 10000 });
+
+    const read = (loc: typeof primary) =>
+      loc.evaluate((el: Element) => {
+        const s = getComputedStyle(el);
+        return {
+          bg: s.backgroundColor,
+          bgImage: s.backgroundImage,
+          color: s.color,
+          borderWidth: s.borderTopWidth,
+          borderColor: s.borderTopColor,
+        };
+      });
+
+    const rest = await read(primary);
+    expect(rest.bg, 'authored fill at rest').toBe('rgb(255, 0, 255)');
+    expect(rest.color, 'authored ink at rest').toBe('rgb(0, 255, 0)');
+    expect(rest.borderWidth, 'authored ring width at rest').toBe('4px');
+    expect(rest.borderColor, 'authored ring colour at rest').toBe('rgb(0, 0, 255)');
+    // The v1 premium rules paint their gradient through background-IMAGE, which is
+    // the half a background-COLOR assertion cannot see — and the half that made the
+    // original screenshots look plausible while the button was wrong.
+    expect(rest.bgImage, 'the v1 premium gradient must not paint').toBe('none');
+
+    const secondary = page.locator('.hero__cta--secondary').first();
+    const sec = await read(secondary);
+    expect(sec.bg, 'authored secondary fill').toBe('rgb(0, 255, 255)');
+    expect(sec.color, 'authored secondary ink').toBe('rgb(255, 0, 0)');
+    expect(sec.bgImage, 'no premium gradient on the secondary either').toBe('none');
+
+    await primary.hover();
+    await page.waitForTimeout(400);
+    const hover = await read(primary);
+    expect(hover.bg, 'authored fill on hover').toBe('rgb(18, 52, 86)');
+    expect(hover.color, 'authored ink on hover').toBe('rgb(255, 255, 0)');
+    expect(hover.bgImage, 'no premium hover gradient').toBe('none');
+  });
+
+  // THE REGRESSION NET FOR THE COMPONENTS THAT HAVE NOT BEEN REBUILT (#986).
+  //
+  // Ruling D5's first attempt wrapped four premium button rules in `:where()`.
+  // That zeroed them against a band block as intended AND against `.btn` [0,1,0],
+  // which nothing intended: every composed primary button outside a v2 band
+  // silently lost its 1px accent-strong ring for `.btn`'s 2px accent ring, lost
+  // its resting bevel, and had #540's transition narrowing defeated by
+  // `main .btn`'s five-property shorthand.
+  //
+  // None of that was visible to CI. tests/js/css-lint.test.js matches on selector
+  // SHAPE, so it stayed green against a `:where()`-wrapped compound, and the one
+  // rendered test that read transitionProperty on a filled premium button had been
+  // retired in the same branch. So this pins the four properties that moved, on a
+  // legacy component, at rest and on hover, as a rendered computed read.
+  test('#986 the v1 premium button treatment survives on a legacy cta, rest and hover @smoke', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E Legacy CTA Premium Treatment');
+    setComposition(pageId, [
+      {
+        component: 'cta',
+        props: { id: 'pp-cta01', title: 'Ready?', button_text: 'Start', button_url: '/x' },
+      },
+    ]);
+    await page.goto(`/?page_id=${pageId}`);
+    const btn = page.locator('.cta__button').first();
+    await expect(btn).toBeVisible({ timeout: 10000 });
+
+    const read = () =>
+      btn.evaluate((el: Element) => {
+        const s = getComputedStyle(el);
+        return {
+          borderWidth: s.borderTopWidth,
+          boxShadow: s.boxShadow,
+          transitionProperty: s.transitionProperty,
+        };
+      });
+
+    const rest = await read();
+    // 1px, not `.btn`'s 2px: the premium rule must still outrank the bare primitive.
+    expect(rest.borderWidth, 'premium ring width at rest').toBe('1px');
+    // The resting bevel exists. `none` is the signature of `.btn` winning.
+    expect(rest.boxShadow, 'premium bevel at rest').not.toBe('none');
+    // #540: the fill and the ring SNAP; only these three ease. A five-property list
+    // here is the off-brand mid-tween flash that issue removed.
+    expect(rest.transitionProperty, '#540 transition narrowing at rest').toBe(
+      'box-shadow, color, transform',
+    );
+
+    await btn.hover();
+    await page.waitForTimeout(400);
+    const hover = await read();
+    expect(hover.borderWidth, 'premium ring width on hover').toBe('1px');
+    expect(hover.boxShadow, 'premium bevel on hover').not.toBe('none');
+    expect(hover.transitionProperty, '#540 transition narrowing on hover').toBe(
+      'box-shadow, color, transform',
+    );
+  });
+
   // One knob retunes the whole site's rhythm: overriding the shared definition at
   // :root moves every band's every edge together. Proves the fallback chains really
   // terminate in the two shared props, not per-component copies — and covers all
