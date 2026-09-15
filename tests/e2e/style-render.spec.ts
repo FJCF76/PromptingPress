@@ -2726,12 +2726,20 @@ test.describe('Safe-surface rendered proof', () => {
         '--section-eyebrow-border-color': 'transparent',
       },
     },
-    {
-      component: 'hero',
-      props: { id: 'pp-hero01', title: 'Hero' },
-      slots: {
-      },
-    },
+    // HERO'S ROW IS RETIRED, AND THE CASE IS INAPPLICABLE RATHER THAN UNPINNED (#986).
+    //
+    // It was left here with an EMPTY slot map during the repricing, which made it vacuous:
+    // `styleComponent()` refuses a v2 component with `no_style_slots`, so the row failed on
+    // its own setup rather than on anything about borders. A half-finished reprice, caught
+    // by CI because this row sits outside the @smoke subset.
+    //
+    // Why hero cannot come back to this list: issue 332 is WP core injecting
+    // `border-style: solid` through `:where([style*="border-width"])`, which matches on the
+    // INLINE STYLE ATTRIBUTE. A v2 component emits none, so core's selector has nothing to
+    // match and the trigger class is unreachable for it. Hero is covered by the v2
+    // border-sink pin below, which asserts exactly that — a stronger statement than this
+    // row made, because it holds for every trigger core might add rather than the slots
+    // that happened to exist.
   ];
 
   // Guard the guard. Derived from schema.json, NOT compared to a hardcoded count: a
@@ -2833,7 +2841,7 @@ test.describe('Safe-surface rendered proof', () => {
     });
   }
 
-  // REPLACES the testimonials row of BORDER_TRIGGER_CASES.
+  // REPLACES the testimonials AND hero rows of BORDER_TRIGGER_CASES (#986).
   //
   // The v1 strand asked "does the slot name in the inline style attribute trip WP
   // core's :where([style*=border-width]) into painting a 3px border?" For a v2
@@ -2843,31 +2851,48 @@ test.describe('Safe-surface rendered proof', () => {
   // what actually makes the component immune — and it is authored the v2 way, with
   // real border values in flight, so a regression that reintroduced inline style
   // emission would fail here rather than silently restoring the old exposure.
-  test('#332 a v2 band carries border values with no inline style attribute to trigger core', async ({
+  // Parameterised over every v2 component (#986), so a component's rebuild adds it here
+  // instead of leaving a vacuous row in the v1 list.
+  for (const v2 of [
+    {
+      component: 'testimonials',
+      rootSel: 'main > .testimonials',
+      innerSel: '.testimonials__item',
+      props: { id: 'pp-tst01', items: [{ quote: 'It works.', author: 'A' }] },
+      udc: {
+        card: { border: { width: '2px', color: '#345678' } },
+        eyebrow: { border: { width: '3px', color: '#876543' } },
+      },
+    },
+    {
+      component: 'hero',
+      rootSel: 'main > .hero',
+      innerSel: '.hero__image',
+      props: { id: 'pp-hero01', layout: 'split', title: 'Hero', image_url: '/x.png', image_alt: 'x' },
+      udc: {
+        media: { border: { width: '2px', style: 'solid', color: '#345678' } },
+        eyebrow: { border: { width: '3px', style: 'solid', color: '#876543' } },
+      },
+    },
+  ] as const) {
+  test(`#332 a v2 band (${v2.component}) carries border values with no inline style attribute to trigger core`, async ({
     page,
   }) => {
-    pageId = createPage('E2E Testimonials v2 Border Sink');
+    pageId = createPage(`E2E ${v2.component} v2 Border Sink`);
     setComposition(pageId, [
-      { component: 'testimonials', props: { id: 'pp-tst01', items: [{ quote: 'It works.', author: 'A' }] } },
+      { component: 'section', props: { id: 'pp-seed', body: '<p>Seed.</p>' } },
     ]);
 
     await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
     await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
 
     const res = await updateComposition(page, pageId, [
-      {
-        component: 'testimonials',
-        props: { id: 'pp-tst01', items: [{ quote: 'It works.', author: 'A' }] },
-        udc: {
-          card: { border: { width: '2px', color: '#345678' } },
-          eyebrow: { border: { width: '3px', color: '#876543' } },
-        },
-      },
+      { component: v2.component, props: v2.props, udc: v2.udc },
     ]);
     expect(res.success, `udc border write: ${JSON.stringify(res)}`).toBe(true);
 
     await page.goto(`/?page_id=${pageId}`);
-    const root = page.locator('main > .testimonials');
+    const root = page.locator(v2.rootSel);
     await expect(root).toBeVisible({ timeout: 10000 });
 
     // The sink is absent: no inline style attribute anywhere in the band.
@@ -2878,11 +2903,11 @@ test.describe('Safe-surface rendered proof', () => {
     ).toBe(0);
 
     // Non-vacuity: the values really did travel, via the scoped band block.
-    const cardBorder = await root
-      .locator('.testimonials__item')
+    const innerBorder = await root
+      .locator(v2.innerSel)
       .first()
       .evaluate((el) => getComputedStyle(el).borderTopWidth);
-    expect(cardBorder, 'the authored card border reached the card').toBe('2px');
+    expect(innerBorder, 'the authored border reached the element').toBe('2px');
 
     // And the root itself still takes no border from core's substring rule.
     const rootBorder = await root.evaluate((el) => {
@@ -2891,6 +2916,7 @@ test.describe('Safe-surface rendered proof', () => {
     });
     expect(rootBorder).toEqual({ top: '0px', right: '0px', bottom: '0px', left: '0px' });
   });
+  }
 
   // The OTHER inline-slot surface: issue 306's per-card style renders the custom property
   // on the .grid__item itself (components/grid/grid.php), so core's [style*=border-width]
@@ -3281,7 +3307,25 @@ test.describe('Safe-surface rendered proof', () => {
       page,
     }) => {
       pageId = createPage(`E2E Hero CTA Wrap ${layout}`);
+      // THROUGH THE AUTHORING PATH, NOT A RAW META WRITE (#986, and 14.1).
+      //
+      // The measure that forces the wrap used to be the `--hero-content-width` STYLE SLOT,
+      // which renders as an inline custom property and therefore lands on a raw
+      // `setComposition()` write. It is the `content` role's `sizing.max-width` now, and a
+      // role value is emitted in a block keyed on `data-pp-band` — an id the engine mints
+      // on WRITE only. A raw meta write mints none, so the band renders with no attribute,
+      // the block selects nothing, and the authored measure silently does not apply.
+      //
+      // That is exactly what happened: the column stayed full-width, and the assertion
+      // below read a misalignment that the hero does not actually have. The guard after the
+      // write is the durable half of the fix — an inert fixture now fails saying so,
+      // instead of failing as if the component were broken.
       setComposition(pageId, [
+        { component: 'section', props: { id: 'pp-seed', body: '<p>Seed.</p>' } },
+      ]);
+      await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+      await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+      const written = await updateComposition(page, pageId, [
         {
           component: 'hero',
           props: {
@@ -3301,12 +3345,22 @@ test.describe('Safe-surface rendered proof', () => {
           udc: { content: { sizing: { 'max-width': '26rem' } } },
         },
       ]);
+      expect(written.success, `udc write: ${JSON.stringify(written)}`).toBe(true);
 
       await page.setViewportSize({ width: 1280, height: 900 });
       await page.goto(`/?page_id=${pageId}`);
 
       const group = page.locator('.hero__cta-group');
       await expect(group).toBeVisible({ timeout: 10000 });
+
+      // NON-VACUITY: the authored measure must actually have landed. 26rem is 416px, and
+      // without it the content column runs the full band width, which un-wraps the buttons
+      // and makes every alignment assertion below meaningless.
+      const authoredWidth = await group.evaluate((el: Element) => el.getBoundingClientRect().width);
+      expect(
+        Math.abs(authoredWidth - 416),
+        `the authored content measure did not apply (group is ${authoredWidth}px, expected ~416px) — the band block selected nothing`,
+      ).toBeLessThan(4);
 
       const boxes = await group.evaluate((el) => {
         const g = el.getBoundingClientRect();
