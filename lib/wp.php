@@ -7475,7 +7475,24 @@ function _pp_update_site_udc(string $value, ?int $expected_version) {
                     PP_SITE_UDC_OPTION
                 ));
             }
-            delete_option(PP_SITE_UDC_OPTION);
+            if (!delete_option(PP_SITE_UDC_OPTION)) {
+                // delete_option() returns false for two different facts: the store
+                // REFUSED the delete, and there was nothing there to delete. Only
+                // the first is a failure, so the stored state decides — the same
+                // shape pp_update_site_option() uses when update_option() returns
+                // false for a value the row already holds. Reporting ok:true over a
+                // delete the store refused is what invariant I1 forbids, and the
+                // write arm below has said so since #981; this arm was the branch
+                // that still did it.
+                $sentinel = new \stdClass();
+                if (get_option(PP_SITE_UDC_OPTION, $sentinel) !== $sentinel) {
+                    return new WP_Error('site_option_write_failed', sprintf(
+                        'The database did not accept the removal of %s; the stored chrome styling is '
+                        . 'unchanged. Retry, and if it persists check the database is writable.',
+                        PP_SITE_UDC_OPTION
+                    ));
+                }
+            }
             return true;
         };
         return function_exists('_pp_with_advisory_lock')
