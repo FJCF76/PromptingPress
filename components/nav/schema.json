@@ -1,6 +1,6 @@
 {
   "component": "nav",
-  "description": "Site header with logo, primary navigation menu, and hamburger toggle on mobile. Reads a registered WP nav menu by theme location. Template-owned chrome (issue 223): it is rendered once by the theme, never composed. Its colors are set through whitelisted site options (update_site_option), NOT by composing a nav or passing props directly. The style props below document the template contract; base.php maps the pp_header_* site options onto them.",
+  "description": "Site header with logo, primary navigation menu, and hamburger toggle on mobile. Reads a registered WP nav menu by theme location. Template-owned chrome (issue 223): it is rendered once by the theme, never composed. It is styled through the `nav` entry of the pp_site_udc site option (update_site_option) using the roles below — the same engine, grammar, groups, @token references, breakpoints, :hover/:focus-visible/:active state maps and presets a band's `udc` takes. It declares ZERO style props and zero style slots; the props below are content and configuration only. STATE PAIRING (#992): setting a role's colour at REST also cancels that role's built-in hover treatment, because the authored block outranks the stylesheet in every state. Whenever you set `typography.color` on `link`, `logo` or `toggle`, set its `:hover` colour in the same write — and when you set `link`, set `link-current` too, or the visitor loses both the hover feedback and the you-are-here marker.",
   "props": {
     "location": {
       "type": "string",
@@ -44,9 +44,22 @@
       ],
       "defaults": {}
     },
+    "container": {
+      "selector": ".nav__container",
+      "description": "The header ROW: the flex line holding the logo, the hamburger and the menu. Set the row's height with sizing.min-height and the space between its items with spacing.gap — those two are why this role exists. This is the row, not the bar: the bar's own background and border are the _band role, so a background here paints an inset band inside the header rather than the header itself. Typography set here only reaches text that does not set its own colour, and every text element in the row (logo, links, the toggle) has its own role — so set colour on those roles, not on this one.",
+      "groups": [
+        "typography",
+        "spacing",
+        "border",
+        "background",
+        "sizing",
+        "motion"
+      ],
+      "defaults": {}
+    },
     "logo": {
       "selector": ".nav__logo",
-      "description": "The logo link: the wordmark when no logo image resolves, and the link wrapping the image when one does.",
+      "description": "The logo link: the wordmark when no logo image resolves, and the link wrapping the image when one does. Setting typography.color here cancels the built-in accent hover (#992) — set a :hover colour in the same write, or hovering the logo does nothing at all.",
       "groups": [
         "typography",
         "spacing",
@@ -100,7 +113,7 @@
     },
     "link": {
       "selector": ".nav__menu ul li a",
-      "description": "Every nav link at rest. Use the :hover, :focus-visible and :active states here for the interaction treatment.",
+      "description": "Every nav link at rest. Use the :hover, :focus-visible and :active states here for the interaction treatment. Setting typography.color here cancels BOTH the built-in accent hover and the current-page accent (#992), because an authored value outranks the stylesheet in every state: set a :hover colour AND the link-current role in the same write.",
       "groups": [
         "typography",
         "spacing",
@@ -113,7 +126,7 @@
     },
     "link-current": {
       "selector": ".nav__menu ul li.current-menu-item a",
-      "description": "The link for the page the visitor is on. WordPress marks it current-menu-item; structural CSS gives it bold weight.",
+      "description": "The link for the page the visitor is on. WordPress marks it current-menu-item on every item it considers current — that class is a superset of current_page_item and of aria-current=\"page\", which core only ever sets alongside it — so this one selector reaches them all. Structural CSS gives it bold weight. Set this whenever you set `link`, or the you-are-here marker collapses into the plain link colour (#992).",
       "groups": [
         "typography",
         "spacing",
@@ -126,7 +139,7 @@
     },
     "toggle": {
       "selector": ".nav__toggle",
-      "description": "The hamburger button, shown on phones only. Its two icons are swapped by structural CSS, not by anything set here.",
+      "description": "The hamburger button, shown on phones only. Its two icons are swapped by structural CSS, not by anything set here, and they inherit this role's colour. Setting typography.color here cancels the built-in accent hover (#992) — pair it with a :hover colour.",
       "groups": [
         "typography",
         "spacing",
@@ -148,6 +161,7 @@
     ],
     "udc_roles": [
       "_band",
+      "container",
       "logo",
       "logo-image",
       "menu",

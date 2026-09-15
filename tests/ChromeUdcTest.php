@@ -109,11 +109,25 @@ class ChromeUdcTest extends TestCase
     /**
      * Chrome role defaults are EMPTY, deliberately (see the schemas).
      *
-     * Chrome's resting appearance is owned by components.css. A role default would
-     * emit in the defaults tier, before that stylesheet, and lose to it on
-     * specificity — a value that validates green and paints nothing, which is the
-     * I19 class. If a future change gives chrome real defaults it must also move
-     * the structural rule, and this test is the tripwire that forces that pairing.
+     * Chrome's resting appearance is owned by components.css, and this pin is what
+     * keeps the two systems from fighting over the same elements.
+     *
+     * CORRECTED (#991). This docblock used to say a role default would "lose to it on
+     * specificity", which is true of only HALF the defaults tier and pointed at the
+     * wrong risk. Measured in Chromium against a temporary schema patch:
+     *
+     *   - the ROOT `_band` default emits into `@layer pp-zero` and does lose — a
+     *     planted `#3d0066` header background never painted;
+     *   - an ELEMENT role default (`link`, `link-current`, …) emits UNLAYERED and
+     *     WINS — planted defaults rendered rgb(0,160,160) and rgb(255,102,0), beating
+     *     components.css outright.
+     *
+     * So the danger is the opposite of "paints nothing": a non-empty element default
+     * would silently ERASE the stylesheet rules it sits above — the hover accents, the
+     * current-page accent, the mobile panel. That is why this pin is all-or-nothing.
+     * If a future change gives chrome real defaults it must retire the corresponding
+     * CSS in the SAME change (nav and footer together — see #994), and this test is
+     * the tripwire that forces that pairing. Do not relax it as a staging step.
      */
     public function testChromeRolesShipNoDefaults(): void
     {
@@ -126,6 +140,43 @@ class ChromeUdcTest extends TestCase
                 );
             }
         }
+    }
+
+    /**
+     * The header ROW is reachable (#991).
+     *
+     * `.nav__container` carries the two designable declarations that decide the header
+     * bar's proportions — `min-height` (the row's height) and `gap` (the space between
+     * logo, hamburger and menu) — and before this role neither was reachable from any
+     * authoring surface at all: nav declares zero style slots, and the row is not the
+     * `_band` (that is the `<header>` itself, whose background and border are a
+     * different question from how tall the row inside it stands).
+     *
+     * Pinned by NAME and SELECTOR rather than by counting roles, so a rename or a
+     * removal fails here rather than silently taking the capability away again. The
+     * groups assertion is the part that matters most: a role whose permitted groups
+     * omitted `sizing` or `spacing` would exist and still not reach the two values it
+     * was added for.
+     */
+    public function testTheHeaderRowIsReachableThroughTheContainerRole(): void
+    {
+        $roles = pp_udc_component_roles('nav');
+
+        $this->assertArrayHasKey('container', $roles, 'nav must declare the header-row role');
+        $this->assertSame('.nav__container', $roles['container']['selector']);
+
+        foreach (['sizing', 'spacing'] as $group) {
+            $this->assertContains(
+                $group,
+                $roles['container']['groups'],
+                "the container role must permit {$group} — it is why the role exists"
+            );
+        }
+
+        // It is chrome, so it ships no defaults like every other chrome role. Asserted
+        // here too, not only in the sweep above, because this role is the newest and
+        // the likeliest place for a well-meaning default to be added.
+        $this->assertSame([], $roles['container']['defaults'] ?? []);
     }
 
     public function testAValidChromeMapIsAcceptedThroughTheRealWriteSurface(): void

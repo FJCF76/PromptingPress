@@ -83,6 +83,41 @@ the reset had started winning. That is why `pp-reset` is a layer of its own.
 If a band-root default must beat a shared rule, the answer is not to re-rank the layer. It
 is a `:not()` exclusion on the shared rule, which is what hero's `#577` opener rhythm uses.
 
+**1b. Chrome pays for this, and it is the one place the regime bites a user.** Nav and
+footer are on the engine but keep their resting appearance in `components.css`, because
+retiring that block is a change with its own visual risk on every page of every site
+(#994). So chrome ships EMPTY role defaults, and the only thing the engine adds is the
+authored tier — which is unlayered.
+
+Unlayered beats a layer in EVERY state, not only at rest. So a colour an author sets at
+REST also outranks this stylesheet's `:hover` and current-page rules, which are in
+`pp-v1`.
+
+Each role loses its OWN hover: authoring `nav.logo`'s colour erases the logo's accent
+hover, authoring `nav.toggle`'s erases the toggle's, and so on. `nav.link` loses two,
+because the current-page accent lives on a DIFFERENT role (`link-current`) that the
+author did not set. Measured in Chromium with `link`, `logo` and `toggle` authored at
+rest and no state maps: link hover `rgb(49,87,244)` → `rgb(10,125,50)`, logo hover the
+same, current-page link the same. The logo case is the worst, because its hover rule sets
+colour and nothing else — there is no surviving underline, so hovering it does nothing
+visible at all.
+
+```
+author sets link colour at REST        (unlayered, [0,2,3])   ← wins
+components.css  .nav__menu ul li a:hover   (pp-v1, [0,0,4])   ← loses, despite :hover
+components.css  li.current-menu-item > a   (pp-v1, [0,1,3])   ← loses
+```
+
+That is not the cascade misbehaving; it is the cost of holding chrome half-in. The fix is
+#994 (move the resting values into role defaults so the states move with them), and until
+then the AI-facing docs tell authors to pair every resting colour with its `:hover` and to
+pair `link` with `link-current`. `#992` tracks the defect; a characterization test in
+`tests/e2e/style-render.spec.ts` pins today's behaviour so the fix has a red-to-green.
+
+The general lesson for anything else half-migrated: moving ONE tier of a component into
+the unlayered engine silently promotes it above every remaining state rule for the same
+property. Move a component's states and its resting values together, or not at all.
+
 **2. An unlayered third party still wins.** Anything that is not in a layer outranks
 everything that is, whatever its specificity. WordPress core injects:
 
@@ -176,6 +211,10 @@ above a primitive.
   `pp_udc_component_defaults_css()` and `_pp_udc_render_blocks()`'s `$root_layer`.
 - `tests/e2e/style-render.spec.ts` — `#986/I35 an authored hero CTA outranks the v1 premium
   button rules` and `#986 the v1 premium button treatment survives on a legacy cta` are the
-  rendered guards in both directions.
+  rendered guards in both directions. `#992 CHARACTERIZATION: an authored base colour erases
+  the hover and current-page accents` is the chrome half, and is DEBT: it pins a defect on
+  purpose and is deleted or inverted when #994 lands.
+- Issues #992 (the chrome state-erasure defect) and #994 (retiring the chrome CSS block for
+  nav and footer together, which fixes it).
 - `docs/v2/BUILD-SPEC-sprint0.md` §3.4 — the cascade contract.
 - Issue #989 — the remaining v1 rules, now a verification list rather than a surgery list.

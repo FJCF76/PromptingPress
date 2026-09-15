@@ -326,6 +326,62 @@ class ChromeAuthoringSurfaceTest extends TestCase
         }
     }
 
+    /**
+     * The AI-FACING docs enumerate every chrome role too (#991).
+     *
+     * WRITTEN BECAUSE THE DRIFT IT GUARDS ACTUALLY HAPPENED, in the change that added
+     * this test. The `container` role landed in the schema, in both READMEs and in
+     * AI_CONTEXT.md's component table — and was missed by the SECOND role enumeration
+     * in AI_CONTEXT.md and by the one in ai-instructions/set-logo.md. Both files then
+     * contradicted themselves, and the full suite stayed green: the README reach-table
+     * above is derived from `pp_udc_component_roles()`, but nothing was derived from it
+     * for the two surfaces the authoring MODEL actually reads.
+     *
+     * That is the I43 class exactly — "AI-facing documentation states the real contract,
+     * derived from or checked against the registry/source, never hand-maintained prose
+     * that drifts". A capability the model is never told about is a capability the
+     * system does not have in practice, however correct the schema is.
+     *
+     * Presence-only, deliberately. It asserts the role NAME appears, never how it is
+     * described, so rewording stays free and only a missing role fails.
+     */
+    public function testAiFacingDocsEnumerateEveryChromeRole(): void
+    {
+        $surfaces = [
+            'AI_CONTEXT.md'                => $this->repoFile('AI_CONTEXT.md'),
+            'ai-instructions/set-logo.md'  => $this->repoFile('ai-instructions/set-logo.md'),
+        ];
+
+        foreach ($surfaces as $label => $contents) {
+            // Fail closed: an unreadable or emptied surface must not pass vacuously.
+            $this->assertNotSame('', trim($contents), "{$label} is empty or unreadable");
+
+            foreach (['nav', 'footer'] as $component) {
+                foreach (array_keys(pp_udc_component_roles($component)) as $role) {
+                    if ($role === '_band') {
+                        // `_band` is the engine's implicit root role, spelled the same on
+                        // every component; it is covered by the chrome paragraphs' prose
+                        // rather than by a per-component enumeration.
+                        continue;
+                    }
+                    $this->assertStringContainsString(
+                        $role,
+                        $contents,
+                        "{$label} must name the `{$role}` role that {$component}'s schema declares — "
+                        . 'a role the authoring model is never told about cannot be authored'
+                    );
+                }
+            }
+        }
+    }
+
+    /** Read a repo-root-relative file, for the doc surfaces this class pins. */
+    private function repoFile(string $relative): string
+    {
+        $path = dirname(__DIR__) . '/' . $relative;
+        return is_readable($path) ? (string) file_get_contents($path) : '';
+    }
+
     // ══════════════════════════════════════════════════════════════════════
     //  A-21 rows 41 + 42 — the two literals that can only get a stated reason
     // ══════════════════════════════════════════════════════════════════════

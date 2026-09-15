@@ -40,6 +40,7 @@ no breakpoint, no state, no spacing, no typography.
 | Role | Selector | What it is |
 |------|----------|------------|
 | _band | the `<header>` itself | the sticky header bar |
+| container | `.nav__container` | the header ROW — its height (`sizing.min-height`) and the space between logo, toggle and menu (`spacing.gap`) |
 | logo | `.nav__logo` | the logo link / wordmark |
 | logo-image | `.nav__logo-image` | the logo `<img>`, when one resolves |
 | menu | `.nav__menu` | the menu container — on phones, the disclosure panel |
@@ -56,6 +57,40 @@ with two different fallbacks, which was impossible to reason about from the name
 Hover, focus and the active state are ordinary value dimensions now: put a `:hover`
 map inside the `link` role's `typography` group. The global `--color-accent` token is
 still the default for all three, so an unstyled header is unchanged.
+
+### Set a colour at rest, set its hover too (#992)
+
+An **unstyled** header keeps the accent on hover and on the current page. A **partly
+styled** one does not, and that is a live gap rather than a design choice.
+
+Chrome roles ship no defaults, so the header's resting appearance still comes from
+`assets/css/components.css` — which sits in `@layer pp-v1`, while your authored block
+is unlayered. Unlayered wins at any specificity, in every state. So a colour you set
+at REST also outranks the stylesheet's `:hover` and current-page rules:
+
+| you set | you also lose |
+|---|---|
+| `link.typography.color` | the accent hover on links **and** the current-page accent |
+| `logo.typography.color` | the logo's accent hover — the logo then has no hover feedback at all |
+| `toggle.typography.color` | the hamburger's accent hover |
+
+The fix while the gap is open is to author what you cancelled, in the same write:
+
+```json
+{"nav": {"link":         {"typography": {"color": "#f7f8fa", ":hover": {"color": "@color-accent"}}},
+         "link-current": {"typography": {"color": "@color-accent"}},
+         "logo":         {"typography": {"color": "#f7f8fa", ":hover": {"color": "@color-accent"}}},
+         "toggle":       {"typography": {"color": "#f7f8fa", ":hover": {"color": "@color-accent"}}}}}
+```
+
+`link-current` reaches every current item on its own: WordPress adds `current-menu-item`
+to everything it marks current, and only ever adds `current_page_item` or
+`aria-current="page"` alongside it — so the one selector is a superset of all three.
+That relationship is pinned by a test, so a future WordPress change breaks loudly
+rather than silently dropping the current-page treatment.
+
+Issue #994 closes the gap properly by moving the header's resting appearance into role
+defaults; #992 tracks the defect.
 
 ### Stated defaults
 

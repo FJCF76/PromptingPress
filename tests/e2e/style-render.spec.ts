@@ -3986,8 +3986,130 @@ function deleteSiteOption(key: string): void {
   }
 }
 
+/**
+ * THE REAL WRITE PATH, not the option row (#991).
+ *
+ * `setSiteOption()` above seeds the row directly, which is the right tool for a
+ * styling fixture and the wrong one for proving anything about writes. These four run
+ * the pipeline an operator and the chat model actually traverse: mint a run token with
+ * `operate inspect`, cover it with `apply preflight`, then `action execute`. The
+ * action layer refuses a token without a completed inspect step, so the order matters.
+ */
+/**
+ * POSIX single-quote escape: close, escape, reopen. Every value interpolated into a
+ * shell string below goes through this — including the run id and action name, which
+ * are locally generated today and would be a shell-injection sink the moment someone
+ * copies this shape for an operator- or fixture-supplied value.
+ */
+function shq(value: string): string {
+  return `'${String(value).replace(/'/g, `'\\''`)}'`;
+}
+
+/**
+ * Pull the first balanced JSON object out of CLI output and parse it.
+ *
+ * The commands wrap their envelope in human-readable lines, so the object has to be
+ * sliced out rather than JSON.parse'd whole. Brace-balanced (string-aware) rather than
+ * regex-scraped, so a brace inside a value cannot truncate it — and so a malformed
+ * envelope throws here instead of silently matching half of itself.
+ */
+function parseEnvelope(raw: string): Record<string, unknown> {
+  const start = raw.indexOf('{');
+  if (start === -1) throw new Error(`no JSON object in CLI output: ${raw.slice(0, 400)}`);
+  let depth = 0;
+  let inStr = false;
+  let esc = false;
+  for (let i = start; i < raw.length; i += 1) {
+    const c = raw[i];
+    if (inStr) {
+      if (esc) esc = false;
+      else if (c === '\\') esc = true;
+      else if (c === '"') inStr = false;
+      continue;
+    }
+    if (c === '"') inStr = true;
+    else if (c === '{') depth += 1;
+    else if (c === '}') {
+      depth -= 1;
+      if (depth === 0) return JSON.parse(raw.slice(start, i + 1));
+    }
+  }
+  throw new Error(`unbalanced JSON in CLI output: ${raw.slice(0, 400)}`);
+}
+
+function ppOperateInspect(): string {
+  const raw = execSync('npx wp-env run cli wp pp operate inspect', {
+    cwd: process.cwd(),
+    encoding: 'utf-8',
+  });
+  const runId = parseEnvelope(raw).run_id;
+  if (typeof runId !== 'string' || runId === '') {
+    throw new Error(`operate inspect returned no run_id: ${raw.slice(0, 400)}`);
+  }
+  return runId;
+}
+
+function ppPreflight(runId: string): void {
+  execSync(`npx wp-env run cli wp pp apply preflight --run-id=${shq(runId)}`, {
+    cwd: process.cwd(),
+  });
+}
+
+function runAction(name: string, params: Record<string, unknown>, runId: string): string {
+  return execSync(
+    `npx wp-env run cli wp pp action execute ${shq(name)} --run-id=${shq(runId)} ` +
+      `--params=${shq(JSON.stringify(params))}`,
+    { cwd: process.cwd(), encoding: 'utf-8' },
+  );
+}
+
+/**
+ * Run an action that is EXPECTED to be refused, returning ONLY what the command
+ * actually wrote, so the caller can assert on the refusal code.
+ *
+ * DELIBERATELY EXCLUDES `err.message`. Node puts the whole command line into it —
+ * including the `--params='{...}'` JSON the caller just sent — so a haystack built
+ * from `message` always contains the test's own INPUT, and any `toContain` on a value
+ * that appears in the params matches the echo rather than the refusal. That is not
+ * hypothetical: the legacy-key test below asserted `/pp_header_bg/` and passed on the
+ * echoed command, which would have stayed green with the write gate never running.
+ *
+ * A spawn that produced neither stdout nor stderr is an ENVIRONMENT failure (docker
+ * down, container gone), not a refusal, so it rethrows instead of returning an empty
+ * string that every assertion would then fail against for the wrong reason.
+ */
+function runActionExpectingFailure(
+  name: string,
+  params: Record<string, unknown>,
+  runId?: string,
+): string {
+  const id = runId ?? (() => {
+    const fresh = ppOperateInspect();
+    ppPreflight(fresh);
+    return fresh;
+  })();
+  let succeeded: string | null = null;
+  try {
+    succeeded = execSync(
+      `npx wp-env run cli wp pp action execute ${shq(name)} --run-id=${shq(id)} ` +
+        `--params=${shq(JSON.stringify(params))}`,
+      { cwd: process.cwd(), encoding: 'utf-8', stdio: 'pipe' },
+    );
+  } catch (err: unknown) {
+    const e = err as { stdout?: string; stderr?: string };
+    const output = `${e.stdout ?? ''}${e.stderr ?? ''}`;
+    if (output.trim() === '') throw err;
+    return output;
+  }
+  throw new Error(
+    `Expected "${name}" to be refused, but it succeeded: ${(succeeded ?? '').slice(0, 400)}`,
+  );
+}
+
 test.describe('chrome UDC renders (ruling A1)', () => {
   let pageId: number;
+  // Only the dark-chrome test needs a real menu; 0 means "nothing to tear down".
+  let darkMenuId = 0;
   // ONE option now carries all chrome styling, so one key is the whole cleanup list.
   const CHROME_OPTIONS = ['pp_site_udc'];
 
@@ -3995,6 +4117,12 @@ test.describe('chrome UDC renders (ruling A1)', () => {
     // No residue: these are SITE options, so a leak would style every later test's page.
     for (const key of CHROME_OPTIONS) {
       deleteSiteOption(key);
+    }
+    if (darkMenuId) {
+      // The menu is assigned to the `primary` theme location, which is site-global —
+      // leaving it would give every later spec a header menu it did not seed.
+      deleteMenu(darkMenuId);
+      darkMenuId = 0;
     }
     if (pageId) {
       try {
@@ -4106,6 +4234,198 @@ test.describe('chrome UDC renders (ruling A1)', () => {
     // A site with no chrome styling emits no chrome block at all.
     const html = await page.content();
     expect(html).not.toContain('[data-pp-chrome=');
+  });
+
+  /**
+   * A DARK HEADER ABOVE A DARK BAND (#991).
+   *
+   * The realistic shape of the capability and the one where a mistake is invisible in
+   * a unit test: the header is `position: sticky`, so it sits OVER the page's opening
+   * band as the visitor scrolls. Styling it dark means owning the ink on every text
+   * role — the "YOU OWN THE CONTRAST" rule the AI-facing docs state — and the failure
+   * mode is a dark bar with dark-on-dark links that no assertion about the background
+   * alone would catch.
+   *
+   * Every colour here is authored WITH its hover, which is the pairing #992 requires.
+   */
+  test('#991 a dark header over a dark band carries its own ink on every role', async ({ page }) => {
+    pageId = createPage('E2E Dark Chrome');
+    setComposition(pageId, [
+      {
+        component: 'hero',
+        props: { id: 'pp-hero01', title: 'Dark opener', subtitle: 'Below a dark header.' },
+      },
+    ]);
+    // SEED A MENU, or the link assertions below have nothing to assert ON.
+    // pp_nav_menu() passes `fallback_cb => false`, so an unassigned `primary` location
+    // renders no list at all — and the first cut of this test guarded its link read
+    // with `if (count > 0)`, which meant the body never ran and the title's "every
+    // role" claim was carried entirely by the logo. A conditional that silently
+    // no-ops is worse than no test.
+    darkMenuId = createMenu(`E2E Dark Chrome ${Date.now()}`);
+    addPageToMenu(darkMenuId, pageId);
+    assignMenuToPrimary(darkMenuId);
+    setChromeUdc({
+      nav: {
+        _band: { background: { fill: '#101828' } },
+        logo: { typography: { color: '#ffffff', ':hover': { color: '#ffd166' } } },
+        link: { typography: { color: '#f7f8fa', ':hover': { color: '#ffd166' } } },
+        'link-current': { typography: { color: '#ffd166' } },
+        toggle: { typography: { color: '#ffffff', ':hover': { color: '#ffd166' } } },
+      },
+    });
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+
+    const header = page.locator('.site-header');
+    await expect(header).toBeVisible({ timeout: 10000 });
+
+    // The bar itself, and the sticky positioning that makes the contrast question real.
+    expect(await header.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe(
+      'rgb(16, 24, 40)',
+    );
+    expect(await header.evaluate((el) => getComputedStyle(el).position)).toBe('sticky');
+
+    // Every text role over that fill carries light ink rather than inheriting the
+    // stylesheet's dark default. Asserted UNCONDITIONALLY — the menu is seeded above.
+    await expect(page.locator('.nav__logo')).toHaveCSS('color', 'rgb(255, 255, 255)');
+
+    const link = page.locator('.nav__menu ul li a').first();
+    await expect(link).toBeVisible({ timeout: 10000 });
+    // The seeded item IS the current page, so link-current owns it; assert that role's
+    // colour on it and the plain `link` colour on the toggle's sibling ink instead of
+    // pretending one selector covers both.
+    await expect(page.locator('.nav__menu li.current-menu-item > a')).toHaveCSS(
+      'color',
+      'rgb(255, 209, 102)',
+    );
+    await expect(page.locator('.nav__toggle')).toHaveCSS('color', 'rgb(255, 255, 255)');
+  });
+
+  /**
+   * BOTH DIRECTIONS THROUGH THE REAL CLI (#991).
+   *
+   * Direction 1: the retired v1 chrome colour options are REFUSED, so a site cannot
+   * quietly keep styling the header the old way.
+   * Direction 2: a chrome `udc` map written through the genuine action pipeline
+   * (`operate inspect` -> `apply preflight` -> `action execute`) reaches the rendered
+   * page. The other chrome tests seed the option row directly, which is fine for
+   * styling fixtures but proves nothing about the write path an operator or the model
+   * actually uses.
+   */
+  test('#991 legacy chrome colour keys refuse, and a real CLI write reaches the page', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E Chrome Write Path');
+    setComposition(pageId, [{ component: 'hero', props: { id: 'pp-hero01', title: 'Hero' } }]);
+
+    // One run token covers both directions — it is reusable across executes.
+    const runId = ppOperateInspect();
+    ppPreflight(runId);
+
+    // DIRECTION 1 — the retired option is refused by the write gate, not silently kept.
+    //
+    // ASSERT THE CODE, NOT THE PROSE, and not anything that appears in the REQUEST.
+    // The first cut of this matched /pp_header_bg|retired|not.*allow|invalid/i, which
+    // could never fail: the helper used to fold Node's `err.message` into its result,
+    // and that message echoes the whole command line including
+    // `--params='{"key":"pp_header_bg",...}'`. The assertion matched its own input, so
+    // the test went green on docker being down as readily as on a real refusal. The
+    // helper no longer returns `message`; these two needles appear only in the refusal.
+    //
+    // `retired_option` specifically, not the generic `invalid_option` four lines below
+    // it in lib/actions.php: losing the arm that names the route back would still be a
+    // refusal, and would still be a regression.
+    const legacy = runActionExpectingFailure(
+      'update_site_option',
+      { key: 'pp_header_bg', value: '#101828' },
+      runId,
+    );
+    expect(legacy).toContain('retired_option');
+    expect(legacy).toContain('pp_site_udc');
+
+    // DIRECTION 2 — the supported surface, end to end.
+    const out = runAction(
+      'update_site_option',
+      {
+        key: 'pp_site_udc',
+        value: JSON.stringify({ nav: { _band: { background: { fill: '#2d1b4e' } } } }),
+      },
+      runId,
+    );
+    expect(parseEnvelope(out).ok).toBe(true);
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+    const header = page.locator('.site-header');
+    await expect(header).toBeVisible({ timeout: 10000 });
+    expect(await header.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe(
+      'rgb(45, 27, 78)',
+    );
+  });
+
+  /**
+   * CAS RED-PROOF ON THE CHROME WRITE PATH (#991, invariant I8).
+   *
+   * WHAT THIS PROVES, PRECISELY: that a baseline behind the stored `_version` is
+   * refused by a SEPARATE CLI process — its own PHP bootstrap, its own autoloaded
+   * options snapshot — and that the refusal leaves the row untouched.
+   *
+   * WHAT IT DOES NOT PROVE, stated so the name does not promise more than the
+   * assertions pin (invariant I40): it does not reproduce a concurrent race. It hands
+   * the write an explicitly stale `expected_version` rather than racing two writers,
+   * so it cannot catch a torn interleaving.
+   *
+   * It still earns its place beside the unit pin in ChromeUdcTest. `pp_site_udc` is
+   * autoloaded, so its baseline must be read from the ROW rather than through
+   * `get_option()`'s request-local snapshot; a unit suite runs in ONE process and
+   * cannot tell those two reads apart, so that whole class is invisible to it by
+   * construction. A second real process is the cheapest thing that can see it.
+   */
+  test('#991 a stale baseline is refused on the chrome write path, and nothing is overwritten', async () => {
+    // One run token for the whole test — tokens are reusable across executes.
+    const runId = ppOperateInspect();
+    ppPreflight(runId);
+
+    // Establish a known state, then move it forward so any earlier baseline is stale.
+    for (const fill of ['#111111', '#222222']) {
+      const out = runAction(
+        'update_site_option',
+        { key: 'pp_site_udc', value: JSON.stringify({ nav: { _band: { background: { fill } } } }) },
+        runId,
+      );
+      expect(parseEnvelope(out).ok).toBe(true);
+    }
+
+    const stored = execSync('npx wp-env run cli wp option get pp_site_udc', {
+      cwd: process.cwd(),
+      encoding: 'utf-8',
+    });
+    const current = Number(parseEnvelope(stored)._version ?? 0);
+    expect(current).toBeGreaterThan(1);
+
+    // THE red-proof: write against a baseline we know is behind.
+    const refused = runActionExpectingFailure(
+      'update_site_option',
+      {
+        key: 'pp_site_udc',
+        value: JSON.stringify({ nav: { _band: { background: { fill: '#333333' } } } }),
+        expected_version: current - 1,
+      },
+      runId,
+    );
+    expect(refused).toContain('site_option_conflict');
+
+    // AND the refusal left the stored map alone — a refusal that still wrote would be
+    // the acceptance-masquerading-as-refusal case invariant I8 exists to prevent.
+    const after = execSync('npx wp-env run cli wp option get pp_site_udc', {
+      cwd: process.cwd(),
+      encoding: 'utf-8',
+    });
+    expect(after).toContain('#222222');
+    expect(after).not.toContain('#333333');
+    expect(Number(parseEnvelope(after)._version ?? 0)).toBe(current);
   });
 
   /**
@@ -4976,6 +5296,14 @@ function addPageToMenu(menuId: number, pageId: number): void {
   });
 }
 
+/** Append a custom (non-post) item, so a menu can carry a link that is never current. */
+function addCustomToMenu(menuId: number, title: string, url: string): void {
+  execSync(
+    `npx wp-env run cli wp menu item add-custom ${menuId} ${shq(title)} ${shq(url)}`,
+    { cwd: process.cwd(), encoding: 'utf-8' },
+  );
+}
+
 function assignMenuToPrimary(menuId: number): void {
   execSync(`npx wp-env run cli wp menu location assign ${menuId} primary`, {
     cwd: process.cwd(),
@@ -5020,6 +5348,13 @@ test.describe('#355 the active header link is reachable through the link-current
     setComposition(pageId, [{ component: 'hero', props: { id: 'pp-hero01', title: 'Hero' } }]);
     menuId = createMenu(`E2E 355 ${Date.now()}`);
     addPageToMenu(menuId, pageId);
+    // A SECOND, NON-CURRENT ITEM. The `link` and `link-current` roles emit at the same
+    // specificity — `[data-pp-chrome="nav"] .nav__menu ul li a:hover` and
+    // `... li.current-menu-item a` are both (0,3,3) — so on the current item a tie is
+    // broken by emission order and `link`'s hover cannot be read there. A plain
+    // sibling is the only place `link`'s own states are observable. An in-page anchor,
+    // so clicking it could never navigate a test away.
+    addCustomToMenu(menuId, 'Elsewhere', '#elsewhere');
     assignMenuToPrimary(menuId);
   }
 
@@ -5065,6 +5400,238 @@ test.describe('#355 the active header link is reachable through the link-current
 
     const weight = await activeLink.evaluate((el) => getComputedStyle(el).fontWeight);
     expect(weight).toBe('700');
+  });
+
+  /**
+   * THE PREMISE UNDER `link-current`'s SELECTOR (#991).
+   *
+   * The role's selector is `.nav__menu ul li.current-menu-item a` — one class, not a
+   * list. That is only correct because WordPress adds `current-menu-item` to EVERY
+   * item it considers current: core sets `current_page_item` exclusively inside a
+   * branch that has already pushed `current-menu-item` (wp-includes/nav-menu-template.php),
+   * and `aria-current="page"` is rendered from the same `$menu_item->current` flag
+   * (wp-includes/class-walker-nav-menu.php). So the one class is a SUPERSET of the
+   * other two and the narrow selector reaches everything the stylesheet reaches.
+   *
+   * This was very nearly "fixed" by widening the selector to a comma list. That would
+   * have been silently self-defeating: role selectors pass a charset gate in
+   * lib/udc.php that rejects `,`, `[`, `]`, `=` and `"`, and a rejected selector is
+   * SKIPPED rather than reported — the role would have emitted nothing at all.
+   *
+   * Pinned rather than assumed so a future WordPress change to the walker breaks
+   * loudly here instead of silently dropping the current-page treatment on live sites.
+   */
+  test('#991 current-menu-item is a superset of current_page_item and aria-current', async ({
+    page,
+  }) => {
+    seedCurrentItemPage('E2E Current Superset');
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+
+    const item = page.locator('.nav__menu ul li').first();
+    await expect(item).toBeVisible({ timeout: 10000 });
+
+    // The fixture must actually BE the current page, or every assertion below is vacuous.
+    const classes = (await item.getAttribute('class')) ?? '';
+    expect(classes, 'fixture must render a current menu item').toContain('current_page_item');
+    expect(await item.locator('a').first().getAttribute('aria-current')).toBe('page');
+
+    // THE assertion: every marker core sets rides an element that also carries
+    // `current-menu-item`, so the single-class role selector loses nothing.
+    expect(classes).toContain('current-menu-item');
+    expect(await page.locator('.nav__menu ul li.current_page_item').count()).toBe(
+      await page.locator('.nav__menu ul li.current_page_item.current-menu-item').count(),
+    );
+    expect(await page.locator('.nav__menu ul li a[aria-current="page"]').count()).toBe(
+      await page.locator('.nav__menu ul li.current-menu-item a[aria-current="page"]').count(),
+    );
+  });
+
+  /**
+   * CHARACTERIZATION TEST — THIS PINS A DEFECT, NOT A DESIRED BEHAVIOUR (#992).
+   *
+   * DELETE OR INVERT THIS TEST WHEN #994 LANDS. It exists so the fix has a
+   * red-to-green to flip; it is debt, deliberately incurred, and its assertions are
+   * the WRONG answer.
+   *
+   * What it records: chrome ships no role defaults, the v1 stylesheet sits in
+   * `@layer pp-v1`, and authored chrome blocks are unlayered. Unlayered beats layered
+   * at any specificity — in EVERY state, not just at rest. So a colour authored at
+   * REST also outranks the stylesheet's `:hover` and current-page rules, and a header
+   * styled only at rest silently loses its hover feedback and its you-are-here marker.
+   *
+   * Scoped to the CLASS rather than the single current-page instance it was first
+   * reported as: link hover, logo hover and the current-page accent all collapse
+   * together, and the logo case leaves no hover affordance at all.
+   */
+  test('#992 CHARACTERIZATION: an authored base colour erases the hover and current-page accents', async ({
+    page,
+  }) => {
+    seedCurrentItemPage('E2E 992 Base Erases States');
+    // Author ONLY resting colours — no `:hover` maps, no `link-current`.
+    const AUTHORED = '#0a7d32'; // rgb(10, 125, 50)
+    setChromeUdc({
+      nav: {
+        link: { typography: { color: AUTHORED } },
+        logo: { typography: { color: AUTHORED } },
+      },
+    });
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+
+    const activeLink = page.locator('.nav__menu li.current-menu-item > a');
+    await expect(activeLink).toBeVisible({ timeout: 10000 });
+    const logo = page.locator('.nav__logo');
+
+    // EVERY ASSERTION BELOW NEEDS A POSITIVE CONTROL, and that is not pedantry here.
+    // The defect is "the colour does NOT change on hover", so asserting the hovered
+    // colour equals the resting colour passes just as happily when the hover never
+    // landed at all — pointer synthesis lost, element under the sticky header, page
+    // navigated. This pin is the red half of the red-to-green that #994 flips; if it
+    // had been passing because nothing was ever hovered, the flip would prove nothing.
+    // So each case first proves the hover ENGAGED, then asserts the colour held.
+    const hoverEngaged = (target: typeof logo) =>
+      target.evaluate((el) => el.matches(':hover'));
+
+    // DEFECT 1 — the current-page accent is gone; only the bold weight still marks it.
+    await expect(activeLink).toHaveCSS('color', 'rgb(10, 125, 50)');
+    await expect(activeLink).toHaveCSS('font-weight', '700');
+
+    // DEFECT 2 — the link's accent hover is gone. Control: the stylesheet's hover rule
+    // sets BOTH colour and `text-decoration: underline`, and the author set only
+    // colour — so the underline appearing is proof the :hover rule really applied
+    // while its colour half lost to the unlayered authored value.
+    await activeLink.hover();
+    expect(await hoverEngaged(activeLink)).toBe(true);
+    await expect(activeLink).toHaveCSS('text-decoration-line', 'underline');
+    await expect(activeLink).toHaveCSS('color', 'rgb(10, 125, 50)');
+
+    // DEFECT 3 — the worst one: hovering the logo produces NO change at all. The logo's
+    // hover rule sets colour and nothing else, so there is no surviving side effect to
+    // lean on; `:hover` matching is the whole control.
+    await logo.hover();
+    expect(await hoverEngaged(logo)).toBe(true);
+    await expect(logo).toHaveCSS('color', 'rgb(10, 125, 50)');
+  });
+
+  /**
+   * THE AUTHORED WAY OUT, until #994 removes the need for it (#992).
+   *
+   * The mitigation the schema, the action description and the READMEs all now state:
+   * pair every resting colour with its `:hover`, and pair `link` with `link-current`.
+   * This proves the advice actually works rather than merely sounding right.
+   */
+  test('#992 pairing the states back restores hover feedback and the current-page marker', async ({
+    page,
+  }) => {
+    seedCurrentItemPage('E2E 992 Paired States');
+    setChromeUdc({
+      nav: {
+        link: { typography: { color: '#0a7d32', ':hover': { color: '#b30000' } } },
+        'link-current': { typography: { color: '#c8c8e0' } },
+        logo: { typography: { color: '#0a7d32', ':hover': { color: '#b30000' } } },
+      },
+    });
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+
+    const activeLink = page.locator('.nav__menu li.current-menu-item > a');
+    await expect(activeLink).toBeVisible({ timeout: 10000 });
+    const logo = page.locator('.nav__logo');
+
+    // The current page is distinguishable again, by colour and not only by weight.
+    await expect(activeLink).toHaveCSS('color', 'rgb(200, 200, 224)');
+
+    // AND BOTH HOVERS ANSWER AGAIN — both, because the characterization test pins two
+    // separate erasures and a mitigation that fixed only one would otherwise show up
+    // as two green tests. Every DEFECT above gets its matching green here.
+    //
+    // The link hover is read on the NON-current sibling: `link`'s hover and
+    // `link-current`'s base both land at (0,3,3), so on the current item the tie goes
+    // to emission order and `link`'s hover is not what paints. That is correct
+    // behaviour (the you-are-here colour should not flicker away under the pointer),
+    // and it is why the plain sibling is where this assertion belongs.
+    const plainLink = page.locator('.nav__menu ul li:not(.current-menu-item) > a').first();
+    await expect(plainLink).toBeVisible({ timeout: 10000 });
+    await expect(plainLink).toHaveCSS('color', 'rgb(10, 125, 50)');
+    await plainLink.hover();
+    await expect(plainLink).toHaveCSS('color', 'rgb(179, 0, 0)');
+
+    await logo.hover();
+    await expect(logo).toHaveCSS('color', 'rgb(179, 0, 0)');
+  });
+
+  /**
+   * FOCUS-VISIBLE THROUGH CHROME UDC (#991).
+   *
+   * `:focus-visible` is one of ruling A3's three state dimensions. base.css gives every
+   * focusable element an accent outline from `@layer pp-reset`, so this proves the
+   * authored state reaches a nav link and beats that floor — keyboard-only, which is
+   * why the link is reached with real Tab presses rather than `.focus()` (a scripted
+   * focus does not always satisfy `:focus-visible`).
+   */
+  test('#991 an authored focus-visible state reaches a nav link', async ({ page }) => {
+    seedCurrentItemPage('E2E Focus Visible');
+    setChromeUdc({
+      nav: { link: { typography: { color: '#111111', ':focus-visible': { color: '#0000cc' } } } },
+    });
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+
+    const link = page.locator('.nav__menu ul li a').first();
+    await expect(link).toBeVisible({ timeout: 10000 });
+    await expect(link).toHaveCSS('color', 'rgb(17, 17, 17)');
+
+    // Walk the keyboard to the link so the browser's own focus-visible heuristic fires.
+    // A scripted .focus() does NOT reliably satisfy :focus-visible, which is the whole
+    // state under test, so the Tab walk is load-bearing rather than incidental.
+    for (let i = 0; i < 12; i += 1) {
+      await page.keyboard.press('Tab');
+      if (await link.evaluate((el) => el === document.activeElement)) break;
+    }
+    expect(
+      await link.evaluate((el) => el === document.activeElement),
+      'the Tab walk never reached the nav link, so the focus state below is unproven',
+    ).toBe(true);
+    await expect(link).toHaveCSS('color', 'rgb(0, 0, 204)');
+  });
+
+  /**
+   * THE `container` ROLE IS NOT INERT (#991).
+   *
+   * `.nav__container`'s two designable declarations are `min-height` and `gap`, and
+   * before this role neither was reachable from any authoring surface. The role ships
+   * EMPTY defaults like every other chrome role (the carve-out in css-lint depends on
+   * that), so this proves it works when AUTHORED without giving it a default.
+   */
+  test('#991 the container role reaches the header row', async ({ page }) => {
+    // No menu needed: the header row exists on every page, and this asserts geometry
+    // rather than ink. seedCurrentItemPage() would build and tear down a WP menu for
+    // nothing.
+    pageId = createPage('E2E Container Role');
+    setComposition(pageId, [{ component: 'hero', props: { id: 'pp-hero01', title: 'Hero' } }]);
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+    const row = page.locator('.nav__container');
+    await expect(row).toBeVisible({ timeout: 10000 });
+    // Unauthored, the stylesheet's own row height stands — the role adds no default.
+    // That half matters as much as the authored half: a chrome role that shipped a
+    // default would be unlayered and would start outranking components.css, which is
+    // what the css-lint carve-out and ChromeUdcTest's empty-defaults pin both forbid.
+    await expect(row).toHaveCSS('min-height', '64px');
+
+    setChromeUdc({
+      nav: { container: { sizing: { 'min-height': '96px' }, spacing: { gap: '40px' } } },
+    });
+    await page.reload();
+    await expect(row).toBeVisible({ timeout: 10000 });
+    await expect(row).toHaveCSS('min-height', '96px');
+    await expect(row).toHaveCSS('column-gap', '40px');
   });
 });
 
