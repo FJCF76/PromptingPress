@@ -528,11 +528,11 @@ That is a real gap, not a design choice, and it is tracked as #992 with the fix 
 
 ### Tests — the sprint total
 
-PHP **4979 tests / 29461 assertions**, warnings **11**, deprecations **2**. JS
+PHP **4980 tests / 29464 assertions**, warnings **11**, deprecations **2**. JS
 **1782 passed** across 36 files. Full local Playwright suite (every spec, not the
 `@smoke` subset): **316 passed, 1 skipped, 0 failed**.
 
-Against 2.0.0-alpha.0's 4813 PHP and 1879 JS, the sprint added 166 PHP tests and
+Against 2.0.0-alpha.0's 4813 PHP and 1879 JS, the sprint added 167 PHP tests and
 removed 97 JS ones. The JS figure is not a regression and the PHP figure is not the
 whole story: both move because two components' worth of value-styled CSS and one
 component's 49-slot style contract were deleted, and the cases that existed only to

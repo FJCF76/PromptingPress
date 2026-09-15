@@ -755,6 +755,41 @@ class ChromeUdcTest extends TestCase
     }
 
     /**
+     * THE INSTRUMENT, NOT THE OUTCOME. The unit harness has no `notoptions` cache,
+     * so a get_option() read-back and a row read behave identically here and no
+     * behavioural test can tell them apart. In production they do not: core's
+     * delete_option() poisons `notoptions` UNCONDITIONALLY, before the `if ($result)`
+     * that returns false, and get_option() short-circuits on `notoptions` before it
+     * reaches the DB — so a get_option() read-back answers "gone" for exactly the
+     * refused delete the branch above exists to catch.
+     *
+     * That is not a hypothetical: the first cut of this fix used get_option() and was
+     * green on the whole suite while being inert in production. A behavioural pin
+     * cannot fail on it, so this one reads the source.
+     */
+    public function testTheClearArmConfirmsTheRemovalAgainstTheRowNotTheOptionCache(): void
+    {
+        $source = file_get_contents(dirname(__DIR__) . '/lib/wp.php');
+        $start  = strpos($source, 'function _pp_update_site_udc(');
+        $this->assertNotFalse($start, '_pp_update_site_udc() must exist');
+        $clear = substr($source, $start, strpos($source, '// THE WRITE PATH', $start) !== false
+            ? strpos($source, '// THE WRITE PATH', $start) - $start
+            : 4000);
+
+        $this->assertStringContainsString(
+            '_pp_read_site_udc_locked($wpdb)',
+            $clear,
+            'the clear arm must confirm the removal through the row-authoritative reader'
+        );
+        $this->assertStringNotContainsString(
+            'get_option(PP_SITE_UDC_OPTION',
+            $clear,
+            'a get_option() read-back here is defeated by the notoptions cache core '
+            . 'poisons before delete_option() returns false'
+        );
+    }
+
+    /**
      * I1's second clause on the same arm: clearing a row that is ALREADY absent is
      * a success, not a failure. delete_option() returns false for both "refused"
      * and "there was nothing there", and only the first is a failure.
