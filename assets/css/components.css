@@ -185,9 +185,17 @@
    This used to read `var(--header-bg, var(--color-bg))`, consuming an inline custom
    property that base.php emitted from the pp_header_* site options. Those options
    are gone (ruling A1) and chrome is styled through the pp_site_udc container, whose
-   block emits `background` on [data-pp-chrome="nav"] from the `pp-utilities` handle —
-   after this file — so an authored value outranks this one on source order at equal
-   specificity. The var() indirection was removed rather than left pointing at a
+   block emits `background` on [data-pp-chrome="nav"] from the `pp-utilities` handle.
+   Since #986 that block outranks this rule STRUCTURALLY rather than by print order:
+   this file is inside `@layer pp-v1` and authored chrome blocks are unlayered, so an
+   authored value wins at ANY specificity, not only at equal specificity as the earlier
+   source-order argument had it. The consequence is bigger than a stronger override,
+   and it is why #992 exists: an authored value at REST also outranks every rule in
+   this block that paints a STATE — the hover accents below, and the current-page
+   accent — so a header styled at rest but not in hover loses its hover feedback
+   entirely. Retiring this block into role defaults (#994) is what fixes that; until
+   then these rules only survive because chrome ships no role defaults.
+   The var() indirection was removed rather than left pointing at a
    property nothing can set: a custom property no surface writes is a knob the
    stylesheet advertises and the system does not have. */
 .site-header {
