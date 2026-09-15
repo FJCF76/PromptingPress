@@ -142,8 +142,13 @@ add_action('wp_enqueue_scripts', function () {
     //
     // It closes the ACCIDENT, not the adversary: anything printed after this
     // handle (Customizer Additional CSS, a child theme, a plugin's late enqueue)
-    // still outranks the authored tier at equal specificity. Only @layer closes
-    // that, and §3.4 forbids `!important`; that stays its own ruling.
+    // still outranks the authored tier at equal specificity — and since #986 it
+    // outranks the v1 STYLESHEET at any specificity, because that sheet is in
+    // `@layer pp-v1` and a site's own CSS is not. The authored tier is unlayered
+    // too, so this dependency is now belt-and-braces rather than the whole
+    // ranking mechanism: it still fixes the order of the two UNLAYERED tiers
+    // against each other, which nothing else expresses. §3.4 still forbids
+    // `!important`. See docs/explanation-cascade-layers.md.
     wp_enqueue_style(
         'pp-utilities',
         $dir . '/assets/css/utilities.css',
@@ -154,6 +159,14 @@ add_action('wp_enqueue_scripts', function () {
     // v2 UDC CSS (BUILD-SPEC §3.5), emitted as TWO layers attached to two
     // different handles, because the cascade tier each belongs to IS its source
     // position and nothing else expresses that:
+    //
+    // NOTE (#986): the sentence below describes what was true before cascade
+    // layers, and half of it no longer is. Only the BAND-ROOT half of the defaults
+    // tier is `:where()`-wrapped and ranked by print position, and it is now ranked
+    // by `@layer pp-zero` instead. The ELEMENT half emits at
+    // `[data-pp-component="x"] .role` (0,2,0) and is UNLAYERED, so it beats
+    // components.css by construction wherever it prints. Kept because the handle
+    // split it describes is still real and still load-bearing for the authored tier.
     //
     //   defaults -> `pp-base`, so they print BEFORE components.css. Role defaults
     //     carry only their own selector's weight (the scope is :where()), and the

@@ -346,6 +346,29 @@ function pp_udc_valid_preset_name(string $name): bool {
  * The leading `-pp-` cannot collide with a registry property: every real entry in
  * pp_udc_groups() is a plain CSS property name.
  */
+/**
+ * The cascade-layer order statement, as one string (#986).
+ *
+ * THE ORDER IS ESTABLISHED BY WHICHEVER COPY THE BROWSER SEES FIRST, and a second copy
+ * declaring the same order is a no-op — that is what makes it safe to emit more than
+ * once, and it is why the editor preview emits it ahead of its stylesheet links rather
+ * than trusting the copy at the top of base.css to arrive.
+ *
+ * The preview links its stylesheets without a cache-busting query, so a browser holding a
+ * pre-#986 base.css would get a document where the statement never arrives: base.css
+ * would be unlayered and therefore the STRONGEST sheet there, `pp-zero` would be created
+ * implicitly at first use by the inline defaults block and sort after it, and an
+ * unauthored band's root defaults would drop below the reset — the exact inversion that
+ * made an unauthored hero compute `padding-top: 0px`. Silently, and in the preview only,
+ * which is the surface whose whole promise is that it shows what the page will do.
+ *
+ * base.css keeps the literal because it is a static file; PreviewCascadeParityTest pins
+ * that the two agree, so the order cannot drift between them.
+ */
+function pp_css_layer_order(): string {
+    return '@layer pp-reset, pp-zero, pp-v1;';
+}
+
 const PP_UDC_BACKGROUND_OVERLAY_CARRIER = '-pp-background-overlay';
 
 /**
@@ -3072,6 +3095,17 @@ function pp_udc_component_defaults_css(string $component): string {
  * When `$root_layer` is null NOTHING changes: root and element rules ride the
  * same buffer in the same order they always did, so the authored tier and the
  * chrome tier emit byte-identical CSS to before.
+ *
+ * THE TIER STRADDLES THE v1 STYLESHEET WHEN IT SPLITS, deliberately, and the token
+ * block is on the far side from the rules that read it. A component's `_tokens`
+ * defaults are root-scoped, so they go into `pp-zero` BELOW components.css, while the
+ * element rules consuming them via `var(--pp-…)` emit unlayered ABOVE it. That is safe
+ * because custom properties only contend on the SAME element: nothing in components.css
+ * declares a `--pp-*` on a `[data-pp-component=…]` selector (the four that declare
+ * `--pp-*` at all are legacy `--inverted` roots), so there is no rule positioned to beat
+ * a token default. It is latent rather than broken, and it is written down here because
+ * the split's tests assert the root/element RULE division and say nothing about which
+ * side of v1 a token default lands on.
  */
 function _pp_udc_render_blocks(
     array $compiled,
@@ -3259,14 +3293,21 @@ function _pp_udc_reduced_motion_guard(
  * NOTHING THAT EMITS CSS MAY CALL THIS, and the rule is enforced rather than
  * requested: PreviewCascadeParityTest fails if any file outside tests/ names it.
  *
- * The reason is the whole of §3.4. The two layers do not rank by specificity —
- * both are zero-or-low by construction — they rank by the POSITION each prints
- * at, defaults before the theme stylesheets and authored after them. A single
- * string holds one position, so pasting this into one <style> block does not
- * emit the cascade, it flattens it: the defaults layer lands after the shared
- * design-system rules and starts beating them. That is not hypothetical. It is
- * what the editor preview did until the two-block fix, and it is why this
- * function is now a test convenience with a tripwire rather than an API.
+ * The reason is the whole of §3.4, RESTATED for cascade layers (#986) because the
+ * original argument is now only half true and a tripwire whose stated reason has
+ * expired is one a future maintainer deletes as obsolete.
+ *
+ * What changed: the band-ROOT half of the defaults tier is protected by `@layer
+ * pp-zero` wherever it prints, and the ELEMENT half is unlayered and already beats
+ * the design-system rules from either position. So flattening no longer inverts
+ * defaults-vs-stylesheet the way it did.
+ *
+ * What did NOT change, and is why this stays forbidden: the defaults tier and the
+ * AUTHORED tier are both unlayered, so their order relative to each other is still
+ * decided by nothing but source position — defaults first, authored after. A single
+ * string holds one position. Paste both into one <style> and an authored value stops
+ * reliably outranking a role default, which is the one ranking layers do not express
+ * here. The editor preview did exactly that until the two-block fix.
  *
  * Tests use it to assert the two halves compose, which is a real property worth
  * pinning — it just is not an emission strategy.
@@ -3278,11 +3319,14 @@ function pp_udc_page_css(array $items): string {
 /**
  * Layer 1: every v2 component's role defaults, once each.
  *
- * Printed BEFORE the theme stylesheets (see functions.php). Source order is
- * load-bearing, not incidental: `_band` defaults and the shared adjacent-band
- * rhythm rule both sit at zero specificity, so whichever prints later wins, and
- * the shared rhythm must. Printing this layer first is what keeps an unauthored
- * v2 band inside the #430/#431 rulings.
+ * Printed BEFORE the theme stylesheets (see functions.php), which still fixes this
+ * tier's order against the AUTHORED tier — both are otherwise unlayered.
+ *
+ * WHAT KEEPS AN UNAUTHORED BAND INSIDE #430/#431 IS NO LONGER PRINT ORDER (#986).
+ * It is `@layer pp-zero`: the band-root rules this emits sit in a layer strictly
+ * below the v1 stylesheet, so the shared adjacent-band rhythm wins structurally
+ * rather than by loading later. A component that needs its own rhythm opts out via a
+ * `:not()` on the shared rule — hero's #577 opener rhythm is the worked example.
  */
 function pp_udc_page_defaults_css(array $items): string {
     $css        = '';

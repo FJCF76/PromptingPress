@@ -2047,8 +2047,67 @@ class StyleSlotContractTest extends TestCase
      * over wholesale here, so a baseline nested in one is simply NOT FOUND, and the caller
      * fails closed.
      */
+    /**
+     * Blanks a sheet-wide `@layer name { … }` wrapper and any `@layer a, b;` statement,
+     * PRESERVING EVERY BYTE OFFSET (#986).
+     *
+     * The wrapper is transparent to this guard by design: it changes how the sheet ranks
+     * against everything OUTSIDE it and nothing at all inside it — no conditionality, no
+     * reordering, every rule still in the same sequence. A CONDITIONAL at-rule is the
+     * opposite (a baseline inside `@media` really does leave other breakpoints exposed),
+     * so @media and @supports are still skipped by the scanner without descending.
+     *
+     * Blanking rather than descending, and same-length blanking rather than deletion, for
+     * three reasons the descent version got wrong:
+     *
+     *   1. The scanner only reacts to `{`, so a descent never consumed the wrapper's
+     *      matching `}` — it was swept into the next selector. Harmless only while the
+     *      wrapper closes at EOF with nothing after it.
+     *   2. An `@layer a, b, c;` STATEMENT has no block at all. base.css carries one on
+     *      line 1 today, so that shape is one copy-paste from components.css.
+     *   3. `offset` is used to compare rule ORDER (the immunity baseline must sit above
+     *      the first component rule), so the offsets have to survive intact. Replacing
+     *      with spaces of equal length is what guarantees that.
+     */
+    private function unwrapCascadeLayers(string $css): string
+    {
+        // Statements first: `@layer a, b;` with no block.
+        $css = preg_replace_callback(
+            '/@layer[^{};]*;/',
+            static fn(array $m): string => str_repeat(' ', strlen($m[0])),
+            $css
+        );
+
+        // Then each `@layer <name> {` and its matching close.
+        while (preg_match('/@layer[^{;]*\{/', $css, $m, PREG_OFFSET_CAPTURE)) {
+            $open  = $m[0][1];
+            $len   = strlen($m[0][0]);
+            $depth = 1;
+            $j     = $open + $len;
+            $n     = strlen($css);
+            while ($j < $n && $depth > 0) {
+                if ($css[$j] === '{') {
+                    $depth++;
+                } elseif ($css[$j] === '}') {
+                    $depth--;
+                    if ($depth === 0) {
+                        break;
+                    }
+                }
+                $j++;
+            }
+            $css = substr($css, 0, $open) . str_repeat(' ', $len) . substr($css, $open + $len);
+            if ($j < $n && $css[$j] === '}') {
+                $css = substr($css, 0, $j) . ' ' . substr($css, $j + 1);
+            }
+        }
+
+        return $css;
+    }
+
     private function topLevelRules(string $css): array
     {
+        $css    = $this->unwrapCascadeLayers($css);
         $rules  = [];
         $len    = strlen($css);
         $i      = 0;
@@ -2073,22 +2132,10 @@ class StyleSlotContractTest extends TestCase
                     $j++;
                 }
 
-                // A SHEET-WIDE `@layer <name> { … }` WRAPPER IS TRANSPARENT HERE (#986).
-                // The whole stylesheet is wrapped in one named layer, which changes how it
-                // ranks against everything OUTSIDE it and changes nothing at all inside it:
-                // no conditionality, no reordering, every rule still in the same sequence.
-                // Descending is therefore the faithful reading of "top-level" for this
-                // guard. A CONDITIONAL at-rule is the opposite — a baseline inside
-                // `@media` really does leave other breakpoints exposed — so @media and
-                // @supports are still skipped without descending.
-                if ($selector !== '' && preg_match('/^@layer\s+[A-Za-z0-9_-]+$/', $selector)) {
-                    $i        = $bodyStart;
-                    $selStart = $bodyStart;
-                    continue;
-                }
-
                 // An at-rule (@media/@supports) is NOT a style rule, and its inner
                 // rules are not top-level. Skip the block entirely — do not descend.
+                // (`@layer` never reaches here: the wrapper is blanked before the scan,
+                // see unwrapCascadeLayers().)
                 if ($selector !== '' && $selector[0] !== '@') {
                     $rules[] = [
                         'selector' => $selector,
@@ -3311,4 +3358,50 @@ class StyleSlotContractTest extends TestCase
         );
     }
 
+    // ── unwrapCascadeLayers(): the three shapes the descent version got wrong (#986) ──
+
+    /** A rule AFTER the wrapper closes must still be seen, and seen as top level. */
+    public function testARuleAfterTheLayerWrapperIsStillTopLevel(): void
+    {
+        $gaps = $this->immunityGaps(
+            '@layer pp-v1 { .x { color: red; } }' .
+            '[data-pp-component],.grid__item,.section__panel-row{border-style:none;border-width:0;}'
+        );
+        $this->assertSame([], $gaps, 'the baseline after a closed wrapper must be found');
+    }
+
+    /** An `@layer a, b;` STATEMENT must not swallow the rule that follows it. */
+    public function testALayerStatementDoesNotSwallowTheNextRule(): void
+    {
+        $gaps = $this->immunityGaps(
+            '@layer pp-reset, pp-zero, pp-v1;' .
+            '[data-pp-component],.grid__item,.section__panel-row{border-style:none;border-width:0;}'
+        );
+        $this->assertSame([], $gaps, 'a layer statement is not a block and must be stepped over');
+    }
+
+    /** A baseline inside a CONDITIONAL at-rule must still NOT count — the opposite case. */
+    public function testABaselineInsideAMediaBlockStillDoesNotCount(): void
+    {
+        $gaps = $this->immunityGaps(
+            '@layer pp-v1 { @media (min-width: 768px) {' .
+            '[data-pp-component],.grid__item,.section__panel-row{border-style:none;border-width:0;}' .
+            '} }'
+        );
+        $this->assertNotSame([], $gaps, 'a breakpoint-scoped baseline leaves other widths exposed');
+    }
+
+    /** Offsets survive the unwrap, so the above/below ordering check still works. */
+    public function testTheOrderCheckStillSeesABaselineBelowTheComponentRules(): void
+    {
+        $gaps = $this->immunityGaps(
+            '@layer pp-v1 { .hero { color: red; }' .
+            '[data-pp-component],.grid__item,.section__panel-row{border-style:none;border-width:0;} }'
+        );
+        $this->assertNotSame(
+            [],
+            $gaps,
+            'a baseline below the first component rule must still be reported after unwrapping'
+        );
+    }
 }

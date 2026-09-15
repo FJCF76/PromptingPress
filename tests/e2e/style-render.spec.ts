@@ -5222,22 +5222,30 @@ test.describe('#441 global button tokens are byte-identical unset (real WP)', ()
     }
   });
 
-  test('an unset --btn-text renders the hero secondary CTA ink at its historical --color-bg @smoke', async ({
+  // RE-BASED FROM HERO'S SECONDARY ONTO THE cta PRIMARY (#986).
+  //
+  // The original drove hero's second CTA with `button2_variant: 'primary'`, forcing it into
+  // the filled treatment so it matched the `[0,6,0]` ink rule that routed through
+  // `--btn-text`. Both halves of that setup are gone: the prop was removed with the rebuild,
+  // and hero declares no band-scoped button rules at all now.
+  //
+  // The INVARIANT is untouched and still worth pinning: `--btn-text` registers as
+  // `var(--color-bg)`, and an unset registration must leave a filled composed button's ink
+  // at the historical `--color-bg` (#fcfdff). A wrong registration value would move this
+  // pixel, so it is not a tautology. The cta primary is a filled composed button that still
+  // routes through `--btn-text`, so the assertion moves there rather than being retired.
+  test('an unset --btn-text renders a composed primary\'s ink at its historical --color-bg @smoke', async ({
     page,
   }) => {
     pageId = createPage('E2E btn-text unset is byte-identical');
     setComposition(pageId, [
       {
-        component: 'hero',
+        component: 'cta',
         props: {
-          id: 'btn441-hero',
+          id: 'btn441-cta',
           title: 'Ship faster',
           button_text: 'Primary action',
           button_url: '/start',
-          button2_text: 'Secondary action',
-          button2_url: '/learn',
-          // PRIMARY variant so the secondary cta matches the [0,6,0] ink rule that
-          // routes through --btn-text (the outline default would take a different rule).,
         },
       },
     ]);
@@ -5245,11 +5253,10 @@ test.describe('#441 global button tokens are byte-identical unset (real WP)', ()
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto(`/?page_id=${pageId}`);
 
-    const cta2 = page.locator('.hero__cta--secondary');
-    await expect(cta2).toBeVisible({ timeout: 10000 });
+    const btn = page.locator('.cta__button').first();
+    await expect(btn).toBeVisible({ timeout: 10000 });
 
-    const ink = await cta2.evaluate((el) => getComputedStyle(el).color);
-    // --color-bg #fcfdff — the historical fallback --btn-text now resolves to. Unchanged.
+    const ink = await btn.evaluate((el) => getComputedStyle(el).color);
     expect(ink).toBe('rgb(252, 253, 255)');
   });
 });
@@ -5325,10 +5332,21 @@ test.describe('#458 the global button surface is a real one-knob (real WP)', () 
 
   // The four composed-primary selectors. The hero primary is `.hero__cta` WITHOUT the
   // --secondary modifier (both share `.hero__cta`).
+  // HERO'S SECONDARY LEFT THIS SET (#986), and it left it by design rather than by
+  // accident. This sweep is "every composed PRIMARY button", and hero's second CTA now
+  // carries the v1 outline treatment as its `cta-secondary` ROLE DEFAULT — a muted
+  // surface, body ink, border-coloured edge. A role default is emitted unlayered and the
+  // v1 stylesheet is in `@layer pp-v1`, so `--btn-*` no longer reaches it. That is the
+  // contract working: the global button tier is the v1 slot cascade, and a v2 role
+  // default is the component's own stated design.
+  //
+  // Hero's PRIMARY stays in: the `cta` role declares no defaults on purpose, so it is
+  // still a bare `.btn` and still follows every `--btn-*` knob.
+  //
+  // The reach hero's secondary DOES have is pinned below rather than dropped.
   const SEL = {
     cta: '.cta__button',
     heroPrimary: '.hero__cta:not(.hero__cta--secondary)',
-    heroSecondary: '.hero__cta--secondary',
     section: '.section__panel-cta',
   };
 
@@ -5366,7 +5384,6 @@ test.describe('#458 the global button surface is a real one-knob (real WP)', () 
         return {
           cta: read(sel.cta),
           heroPrimary: read(sel.heroPrimary),
-          heroSecondary: read(sel.heroSecondary),
           section: read(sel.section),
           accentFill: resolve('background-color', 'var(--color-accent)'),
           accentBorder: resolve('border-top-color', 'var(--color-accent)'),
@@ -5383,28 +5400,30 @@ test.describe('#458 the global button surface is a real one-knob (real WP)', () 
         };
       }, SEL);
 
-      // INK — every composed primary bottoms out at --color-bg (the premium first-block color
-      // winner routed through --btn-text; the hero secondary via its own [0,6,0] rule).
+      // INK — every composed primary bottoms out at --color-bg (the premium first-block
+      // color winner routed through --btn-text).
       expect(got.cta.ink).toBe(got.bgInk);
       expect(got.heroPrimary.ink).toBe(got.bgInk);
-      expect(got.heroSecondary.ink).toBe(got.bgInk);
       expect(got.section.ink).toBe(got.bgInk);
 
       // FILL + BORDER for the .cta [0,5,0] winner bottoms out at --color-accent.
       expect(got.cta.bgColor).toBe(got.accentFill);
       expect(got.cta.border).toBe(got.accentBorder);
 
-      // HERO'S TWO CTAs MOVED GROUPS (#986), and this is the honest place to say so.
-      // They used to be `.hero .btn:not3` [0,5,0] winners that RESTORED a background-COLOR
-      // the premium shorthand had reset. Hero owns no band-scoped button rules now, so both
-      // are governed only by the premium block — exactly like the section-panel primary
+      // HERO'S PRIMARY MOVED GROUPS (#986), and this is the honest place to say so.
+      // It used to be a `.hero .btn:not3` [0,5,0] winner that RESTORED a background-COLOR
+      // the premium shorthand had reset. Hero owns no band-scoped button rules now, so it
+      // is governed only by the premium block — exactly like the section-panel primary
       // below: the fill is the accent GRADIENT (a background-image) and the colour behind
       // it stays transparent. The rendered pixel is unchanged, because the gradient is
-      // opaque; what changed is which declaration paints it. An authored `cta` /
-      // `cta-secondary` role (or the `button` preset) overrides both, because the band
-      // block emits `background:` and prints after this stylesheet.
+      // opaque; what changed is which declaration paints it. An authored `cta` role (or
+      // the `button` preset) overrides it: the band block is unlayered and this
+      // stylesheet is in `@layer pp-v1`.
+      //
+      // Hero's SECONDARY is deliberately absent from every assertion in this block — it
+      // carries its own role default now and answers to the tokens that default
+      // references, not to `--btn-*`. Its reach is pinned in its own test below.
       expect(got.heroPrimary.bgImage).toBe(got.premiumFill);
-      expect(got.heroSecondary.bgImage).toBe(got.premiumFill);
 
       // SECTION-PANEL primary is governed ONLY by the premium block: fill = the accent
       // gradient (background-IMAGE), border = --color-accent-strong, shadow = premium bevel.
@@ -5447,7 +5466,6 @@ test.describe('#458 the global button surface is a real one-knob (real WP)', () 
       return {
         cta: read(sel.cta),
         heroPrimary: read(sel.heroPrimary),
-        heroSecondary: read(sel.heroSecondary),
         section: read(sel.section),
       };
     }, SEL);
@@ -5469,25 +5487,37 @@ test.describe('#458 the global button surface is a real one-knob (real WP)', () 
     expect(got.section.shadow).toContain('rgb(10, 11, 12)');
 
     /*
-     * The hero's SECOND cta at REST (#554) — the surface this tier used to miss.
+     * THE HERO PAIR NO LONGER MOVES TOGETHER, AND THAT IS THE RESTORED v1 DEFAULT (#986).
      *
-     * Rendered, not static, because the defect was invisible to a chain pin: --btn-bg ALREADY
-     * reached this button's background-IMAGE through the shared premium rule (clearing the
-     * gradient) while its own [0,7,0] background-COLOR kept painting --color-accent. The
-     * computed result was a FLAT ACCENT pill, which no static chain assertion describes. The
-     * gradient-cleared check is what makes the pair assertion meaningful rather than
-     * accidentally-passing.
+     * #554 pinned that a global `--btn-*` retheme reached hero's SECOND cta as well as its
+     * first, so the pair stayed consistent. That pin assumed both buttons were bare `.btn`.
+     * They were, briefly: `button2_variant` was removed in the v2 rebuild and the first cut
+     * left `cta-secondary` with no defaults, which rendered two IDENTICAL filled buttons
+     * side by side — v1 defaulted the second to `outline`, so that was a regression, not a
+     * simplification.
+     *
+     * `cta-secondary` carries the outline treatment as its role default now. A role default
+     * is emitted unlayered and this stylesheet is in `@layer pp-v1`, so `--btn-*` does not
+     * reach it. The pair is deliberately ASYMMETRIC: the primary follows the global button
+     * tier, the secondary follows its role.
+     *
+     * Asserted as the new contract rather than deleted, so a future edit that silently
+     * re-attaches the secondary to `--btn-*` — or drops its default and makes the pair
+     * identical again — fails here with the reason.
      */
-    expect(got.heroSecondary.bgColor, 'hero cta2 rest fill follows --btn-bg').toBe('rgb(1, 2, 3)');
-    expect(got.heroSecondary.border, 'hero cta2 rest ring follows --btn-border-color').toBe(
-      'rgb(7, 8, 9)',
-    );
-    expect(got.heroSecondary.bgImage, 'hero cta2 gradient cleared, not merely overpainted').toBe(
-      'none',
-    );
-    // Stated as the pair property, so a future split fails with the right message.
-    expect(got.heroSecondary.bgColor, 'hero pair rest fill must match').toBe(got.heroPrimary.bgColor);
-    expect(got.heroSecondary.border, 'hero pair rest ring must match').toBe(got.heroPrimary.border);
+    const cta2 = await page
+      .locator('.hero__cta--secondary')
+      .first()
+      .evaluate((el: Element) => {
+        const cs = getComputedStyle(el);
+        return { bgColor: cs.backgroundColor, border: cs.borderTopColor, ink: cs.color };
+      });
+    expect(cta2.bgColor, 'hero cta2 must NOT follow --btn-bg').not.toBe('rgb(1, 2, 3)');
+    expect(cta2.border, 'hero cta2 must NOT follow --btn-border-color').not.toBe('rgb(7, 8, 9)');
+    expect(cta2.ink, 'hero cta2 must NOT follow --btn-text').not.toBe('rgb(4, 5, 6)');
+    // And it must be visibly DIFFERENT from the primary, which is the whole point of the
+    // restored default — not merely unreachable by the global tier.
+    expect(cta2.bgColor, 'the hero pair must not render identically').not.toBe(got.heroPrimary.bgColor);
   });
 
   test('a per-component --cta-button-bg still beats the global --btn-bg @smoke', async ({
@@ -5596,9 +5626,11 @@ test.describe('#539 the global button surface survives a hover (real WP)', () =>
     return id;
   }
 
+  // heroCta2 is gone from this set for the same reason as the rest-state sweep above
+  // (#986): hero's second CTA follows its `cta-secondary` role default now, not the
+  // global hover knobs. Hero's PRIMARY is still here — it declares no role defaults.
   const SEL = {
     heroPrimary: '.hero__cta:not(.hero__cta--secondary)',
-    heroCta2: '.hero__cta--secondary',
     ctaPrimary: '.cta__button:not(.cta__button--secondary)',
     ctaButton2: '.cta__button--secondary',
     panelCta: '.section__panel-cta',
@@ -5648,12 +5680,12 @@ test.describe('#539 the global button surface survives a hover (real WP)', () =>
       // would pass through a reordered chain, a wrong literal, or an accidental repaint —
       // which is the whole failure class this test exists to catch.
       const expectedBorder: Record<string, string> = {
-        // Hero's two CTAs moved to the premium tier in #986: with no band-scoped rules
-        // of their own they bottom out where the generic panel CTA does, at
-        // --color-accent rather than --color-accent-hover. The cta family still pins the
-        // band-scoped tier this block exists to protect.
+        // Hero's PRIMARY moved to the premium tier in #986: with no band-scoped rule of
+        // its own it bottoms out where the generic panel CTA does, at --color-accent
+        // rather than --color-accent-hover. Hero's SECONDARY is not in this set at all —
+        // it follows its `cta-secondary` role default, not the global hover knobs. The
+        // cta family still pins the band-scoped tier this block exists to protect.
         heroPrimary: probe.accent,
-        heroCta2: probe.accent,
         ctaPrimary: probe.accentHover,
         ctaButton2: probe.accentHover,
         // The generic panel CTA is governed by the premium rule, which bottoms out at
@@ -5701,7 +5733,10 @@ test.describe('#539 the global button surface survives a hover (real WP)', () =>
     // rule cleared its gradient while its own background-color kept painting the theme accent —
     // a FLAT ACCENT pill beside a brand-coloured primary. Its chains now route the tier in both
     // states, so it behaves like every other filled surface and is asserted like one.
-    const covered = ['heroPrimary', 'heroCta2', 'ctaPrimary', 'ctaButton2', 'panelCta'] as const;
+    // heroCta2 dropped (#986): hero's second CTA answers to its `cta-secondary` role
+    // default, not to the global hover knobs. Its non-reach is asserted explicitly in the
+    // #458 block rather than left as an absence here.
+    const covered = ['heroPrimary', 'ctaPrimary', 'ctaButton2', 'panelCta'] as const;
 
     for (const name of covered) {
       await page.locator(SEL[name]).first().hover();
@@ -5746,16 +5781,22 @@ test.describe('#539 the global button surface survives a hover (real WP)', () =>
     };
     const pair = {
       primary: await readHovered(SEL.heroPrimary),
-      cta2: await readHovered(SEL.heroCta2),
+      cta2: await readHovered('.hero__cta--secondary'),
     };
     // Guard the guard: prove these are hover reads, not rest reads. The sentinel only appears
     // in the hover chains, so a rest sample cannot produce it.
     expect(pair.primary.bgColor, 'sanity: primary sampled while hovered').toBe('rgb(1, 2, 3)');
-    expect(pair.cta2.bgColor, 'hero pair hover fill must match under a site-wide retheme').toBe(
+    // THE PAIR IS DELIBERATELY ASYMMETRIC NOW (#986), and the assertion is inverted rather
+    // than deleted. #554 pinned that a site-wide hover retheme moved BOTH hero buttons
+    // together, which assumed both were bare `.btn`. `cta-secondary` carries the v1 outline
+    // treatment as its role default now — emitted unlayered, so `--btn-hover-*` cannot
+    // reach it. The primary still follows the global tier; the secondary follows its role.
+    // A future edit that re-attaches the secondary to the global knobs fails here.
+    expect(pair.cta2.bgColor, 'hero cta2 hover fill must NOT follow --btn-hover-bg').not.toBe(
       pair.primary.bgColor,
     );
-    expect(pair.cta2.border, 'hero pair hover ring must match under a site-wide retheme').toBe(
-      pair.primary.border,
+    expect(pair.cta2.border, 'hero cta2 hover ring must NOT follow --btn-hover-border-color').not.toBe(
+      'rgb(7, 8, 9)',
     );
   });
 
@@ -6239,6 +6280,41 @@ test.describe('Shared section-band rhythm (#431)', () => {
     expect(hover.transitionProperty, '#540 transition narrowing on hover').toBe(
       'box-shadow, color, transform',
     );
+  });
+
+  // THE THEME RESET STILL BEATS AN UNLAYERED CORE RULE (#986).
+  //
+  // WordPress core ships `:where(figure){margin:0 0 1em}` UNLAYERED on the front end.
+  // The theme's `* { margin: 0 }` used to win that tie on source order; once the
+  // stylesheet went into `@layer pp-reset` it lost at any specificity, and a `<figure>`
+  // in authored body HTML silently gained a 1em bottom margin (measured: 17.04px).
+  //
+  // The fix is one unlayered `figure { margin: 0 }` in base.css. Pinned as a RENDERED
+  // read against real core CSS, because that is the only place the interaction exists —
+  // a static lint of our own stylesheet cannot see a rule core contributes at runtime.
+  test('#986 an unlayered core rule does not re-margin a figure in authored body HTML @smoke', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E figure margin under layers');
+    setComposition(pageId, [
+      {
+        component: 'section',
+        props: {
+          id: 'pp-sec01',
+          title: 'Prose',
+          body: '<p>Before.</p><figure><img src="/x.png" alt="x"><figcaption>cap</figcaption></figure><p>After.</p>',
+        },
+      },
+    ]);
+    await page.goto(`/?page_id=${pageId}`);
+    const fig = page.locator('figure').first();
+    await expect(fig).toBeVisible({ timeout: 10000 });
+    const box = await fig.evaluate((el: Element) => {
+      const cs = getComputedStyle(el);
+      return { bottom: cs.marginBottom, top: cs.marginTop };
+    });
+    expect(box.bottom, 'core must not add a bottom margin the theme reset removed').toBe('0px');
+    expect(box.top, 'and the top stays zero too').toBe('0px');
   });
 
   // RESTORED DEFAULT: the centered layout centres its TEXT (#986).

@@ -3052,14 +3052,23 @@ describe('CSS lint: v2 components keep NO designable value in their stylesheet',
             // by explicit ruling (#976, ruling A1 as issued: "default chrome styling
             // from base.css/components.css stays — that's component CSS, not the
             // options"). The §2 boundary says a v2 component's designable values come
-            // from the engine; for a BAND that works because the defaults tier prints
-            // before components.css and the file declares nothing competing. Chrome's
-            // header and footer are painted by this file today, and moving ~40
-            // declarations into role defaults is a separate change with its own visual
-            // risk on every page of every site — not something to smuggle in behind a
-            // lint. So chrome ships EMPTY role defaults (pinned in ChromeUdcTest) and
-            // this file keeps its resting values; an authored chrome value still wins,
-            // because the authored layer prints after this stylesheet.
+            // from the engine; for a BAND that works because the ELEMENT half of the
+            // defaults tier is unlayered while this stylesheet sits in `@layer pp-v1`
+            // (#986), so a role default wins regardless of print order. Chrome's header
+            // and footer are painted by this file today, and moving ~40 declarations
+            // into role defaults is a separate change with its own visual risk on every
+            // page of every site — not something to smuggle in behind a lint. So chrome
+            // ships EMPTY role defaults (pinned in ChromeUdcTest) and this file keeps
+            // its resting values; an authored chrome value still wins, because the
+            // authored tier is unlayered too.
+            //
+            // THAT EMPTY-DEFAULTS PIN NOW CARRIES MORE WEIGHT THAN IT WAS WRITTEN FOR.
+            // It was a bound on VISUAL risk. Since the layering it is also the only
+            // thing keeping chrome's hover, current-page and mobile rules in this file
+            // from being erased at any specificity: a non-empty chrome role default
+            // would be unlayered and would outrank every one of them. Do not relax it
+            // as "just a staging decision" — retire chrome's CSS block in the same
+            // change, or not at all.
             //
             // CARVE-OUT, NOT AN EXEMPTION: it is named, it cites the ruling, and it
             // lapses the moment chrome's CSS block is retired. Remove this filter then.

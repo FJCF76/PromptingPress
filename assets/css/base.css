@@ -34,10 +34,31 @@
                to what is OUTSIDE changes.
 
      (unlayered)  the engine's in-band element defaults, then its authored band
-               and chrome blocks. Unlayered always beats layered, at any
-               specificity — which is the entire point: a value an author
-               actually wrote can no longer lose to a v1 rule that happens to
-               carry five classes.
+               and chrome blocks, then anything a site adds after us. Unlayered
+               always beats layered, at any specificity — which is the entire
+               point: a value an author actually wrote can no longer lose to a v1
+               rule that happens to carry five classes.
+
+   THREE CONSEQUENCES A READER OF THE TABLE ABOVE WILL OTHERWISE GET WRONG.
+
+   1. THIRD-PARTY CSS GOT STRONGER, for normal declarations. Customizer Additional
+      CSS, a child theme and every plugin stylesheet are unlayered, so they now beat
+      this design system at ANY specificity rather than only at equal-or-higher. A
+      plugin's `a { color: red }` (0,0,1) now defeats `.cta--inverted
+      .cta__title-accent` (0,2,0) — including the ratified on-inverted/on-overlay AA
+      routing. That is the same lever the engine uses, pointed inward.
+
+   2. `!important` REVERSES ALL OF THIS. For important declarations the cascade
+      inverts layer order and treats UNLAYERED as weakest. So the important
+      declarations in the reduced-motion block below went from "beatable by any
+      later !important" to the STRONGEST author declarations in the document: a site
+      owner's `transition-duration: … !important` can no longer override them, and
+      an `!important` added to components.css (pp-v1) would LOSE to one here. Do not
+      reason about importants by source order any more.
+
+   3. A RULE THAT MUST BEAT UNLAYERED THIRD-PARTY CSS CANNOT LIVE IN A LAYER. See
+      the `figure` reset below, which is the one rule outside these layers and says
+      why. Check by reading the computed value, not by counting selectors.
 
    This replaces the per-rule `:where()` surgery that #986 first attempted. That
    approach fixed the band block but dropped the wrapped rules below `.btn`
@@ -51,7 +72,44 @@
    `border-style`. The immunity still holds on the other longhand — core injects
    a style and never a width, `border-width: 0` still wins, and `solid` at zero
    width paints nothing. See the baseline's own note in components.css.
+
+   BROWSER FLOOR. An unknown at-rule is dropped WITH ITS BLOCK, so a browser
+   without `@layer` loses this stylesheet entirely rather than merely re-ranking
+   it. `@layer` shipped in Chrome 99 / Firefox 97 / Safari 15.4 (all March 2022).
+   That floor is LOWER than the one this theme's CSS already requires:
+   components.css uses `color-mix()` unconditionally, which needs Chrome 111 /
+   Safari 16.2 (2023). So layering does not move the real support floor — but if
+   `color-mix()` ever leaves, this becomes the binding constraint and must be
+   restated here.
    ========================================================================== */
+/* ==========================================================================
+   THE ONE RULE OUTSIDE THE LAYERS, and the reason it has to be (#986).
+
+   WordPress core's block library ships UNLAYERED on the front end:
+
+     :where(figure) { margin: 0 0 1em; }
+
+   The reset below zeroes margins with `* { margin: 0 }`. Before the layers those
+   two tied at (0,0,0) and the theme won on source order, because core's sheet is
+   enqueued ahead of this one. Layered, the theme loses at ANY specificity, and a
+   `<figure>` in authored body HTML (a section's `body`, a faq answer, an embed
+   caption) silently gained a 1em bottom margin it never had. Measured: 17.04px.
+
+   So this sits outside `@layer pp-reset`, where it can meet core's rule as a peer
+   again. It is deliberately the narrowest possible statement — no component rule
+   in this theme targets `figure`, so nothing of ours loses to it.
+
+   THE GENERAL RULE, for the next one of these: a theme rule whose job is to beat
+   UNLAYERED third-party CSS cannot live in a layer. Check by reading the computed
+   value, not by counting selectors. The issue-332 border baseline is the opposite
+   case and stays INSIDE the layer — unlayered it would outrank every component
+   border the theme draws. See docs/explanation-cascade-layers.md.
+   ========================================================================== */
+
+figure {
+  margin: 0;
+}
+
 @layer pp-reset {
 /* ==========================================================================
    base.css — PromptingPress Design Foundation

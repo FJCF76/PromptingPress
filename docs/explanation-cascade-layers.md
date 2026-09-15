@@ -2,7 +2,7 @@
 
 The theme ships a large v1 stylesheet and a v2 styling engine that emits CSS at render
 time. Those two things compete for the same elements. This document explains how that
-competition is settled, why it is settled that way, and the two places where the rule
+competition is settled, why it is settled that way, and the places where the rule
 deliberately does not apply.
 
 Read this before adding a rule to `assets/css/`, and before changing what `lib/udc.php`
@@ -65,7 +65,7 @@ Layering `base.css`, `components.css` and `utilities.css` TOGETHER matters: rela
 inside a layer is unchanged, so nothing in v1 reshuffles against anything else in v1. Only
 their relationship to what is outside changes.
 
-## The two exceptions, stated rather than implied
+## The exceptions, stated rather than implied
 
 **1. `pp-zero` is meant to lose.** The engine emits a band's ROOT-level defaults (the
 `_band` role) into `pp-zero`, strictly below the design system. That is deliberate: an
@@ -106,13 +106,37 @@ computed value, do not assume the specificity argument still holds.
 **What was given up.** Customizer "Additional CSS", a plugin stylesheet, and any late
 enqueue are all unlayered, so they now beat the whole theme stylesheet at any specificity
 rather than only at equal specificity. For site owners that is mostly a gain — their CSS
-wins more reliably. For the theme it means a plugin can override more than it used to.
+wins more reliably. For the theme it means a plugin can override more than it used to,
+INCLUDING the ratified on-inverted and on-overlay accent routing: a plugin's
+`a { color: red }` at (0,0,1) now defeats `.cta--inverted .cta__title-accent` at (0,2,0),
+and those rules exist to hold a contrast ratio. If that becomes a real problem, those
+specific rules are the candidates for hoisting out of the layer — not the sheet.
+
+**`!important` reverses the whole thing.** For important declarations the cascade inverts
+layer order and treats unlayered as WEAKEST. So `base.css`'s reduced-motion block, which
+carries `!important`, went from "beatable by any later important" to the strongest author
+declarations in the document. A site owner can no longer override it, and an `!important`
+added to `components.css` would lose to one in `base.css`. Two practical rules: do not
+reason about importants by source order, and prefer not to add new ones at all.
+
+**One rule had to stay outside.** WordPress core ships `:where(figure){margin:0 0 1em}`
+unlayered. The theme's `* { margin: 0 }` used to win that tie on source order; layered, it
+lost at any specificity and every `<figure>` in authored body HTML gained 17.04px of
+bottom margin. `base.css` now carries one unlayered `figure { margin: 0 }` above the layer
+block. That is the general shape: a rule whose job is to beat unlayered third-party CSS
+cannot live in a layer, and the way you find out is by reading the computed value.
 
 **The failure mode if `@layer` is unsupported.** An unknown at-rule is dropped WITH ITS
 BLOCK, so a browser without `@layer` loses the entire stylesheet, not merely the ranking.
-`@layer` has been in every evergreen browser since 2022, which is the same support floor
-the theme already assumes for `color-mix()` and `:where()` — both of which the stylesheet
-uses unconditionally and neither of which degrades gracefully either.
+Worse than unstyled: the engine's authored blocks are unlayered and still apply, so such a
+browser would paint authored band fills and role typography over raw unstyled HTML.
+
+The exposure is bounded by something the theme already required. `@layer` shipped in
+Chrome 99, Firefox 97 and Safari 15.4, all in March 2022. `components.css` uses
+`color-mix()` unconditionally, which needs Chrome 111 and Safari 16.2 — a YEAR later. So
+every browser that would drop the layer already fails to render the theme's colours
+correctly, and layering does not move the real floor. If `color-mix()` ever leaves the
+stylesheet, `@layer` becomes the binding constraint and this paragraph has to be redone.
 
 **What `!important` would have cost.** BUILD-SPEC §3.4 forbids it, and the reason holds:
 `!important` wins against the site owner too, so every authored value would become
