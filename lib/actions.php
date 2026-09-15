@@ -684,10 +684,12 @@ function _pp_action_validation_error_envelope(string $name, WP_Error $validation
         // string-match the message for template_owned_component / duplicate_component_id
         // / invalid_composition (missing-required) / unknown_prop (#312).
         'error_code' => $validation->get_error_code(),
-        // Which BAND blocked the write (#642). Every composition-mutating action
-        // validates the WHOLE composition, so the blocking band is routinely one the
-        // caller never named — without this an agent re-submits a payload it already
-        // "fixed" and gets the identical string back. Integer composition offset, or
+        // Which BAND blocked the write (#642). `create_page` and `update_composition`
+        // validate the WHOLE composition, so the blocking band can be one the caller
+        // never named — without this an agent re-submits a payload it already "fixed"
+        // and gets the identical string back. Since #1007 `update_component` judges only
+        // the band it targets, so its rejections name the band the caller asked about;
+        // the field is unchanged and still carries the offset either way. Integer composition offset, or
         // null when no single band owns the rejection: a cross-item rule, a param-shape
         // error, a precondition, or a rejection on a band the CALLER named itself
         // (style_component's own validator, index_out_of_bounds — the offset is the
@@ -6113,7 +6115,7 @@ pp_register_action('update_component', [
     'scope'       => 'section',
     'mutates_composition' => true,
     'description' => 'Updates a single component\'s props via shallow merge (patch, not replace). Optionally accepts style to also update per-instance style slots in the same call. Accepts component_id (an authored id prop, or the auto-generated pp-<hex8> — note auto-generated ids do not survive a full update_composition re-apply) or component_index (0-based). component_id takes precedence when both are provided.',
-    'semantics'   => 'Patch. Props are shallow-merged into existing props. Unspecified props unchanged. null removes a prop. Optional style param shallow-merges style slots (same as style_component). Validates the merged composition via pp_validate_composition(). Target component by component_id or component_index.',
+    'semantics'   => 'Patch. Props are shallow-merged into existing props. Unspecified props unchanged. null removes a prop. Optional style param shallow-merges style slots (same as style_component). Validates the band it targets via pp_validate_composition_band() (#1007) — a stale prop on another band does not block this write and is reported on the accepted envelope\'s findings instead; the cross-item rules (duplicate band/component ids) still run over the whole page and still refuse from any band. Target component by component_id or component_index.',
     'params'      => [
         'post_id'          => ['type' => 'int',    'required' => true],
         'component_index'  => ['type' => 'int',    'required' => false],

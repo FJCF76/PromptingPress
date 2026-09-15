@@ -117,6 +117,34 @@ class WriteRejectionLocatorTest extends TestCase
         return ['post_id' => 200, 'composition' => $composition];
     }
 
+    /**
+     * The BAND-SCOPED payload, for the cases whose subject is a locator resolved at
+     * EXECUTION time rather than at payload-build time.
+     *
+     * The batch cases below need this one and the whole-page helper above would break
+     * them, which is the distinction worth stating because it is not visible at the call
+     * site. repairPayload() snapshots the composition when the payload is BUILT — fine
+     * for a direct call, wrong inside a batch, where an earlier step has already removed
+     * a band by the time the step runs. update_component resolves `component_index`
+     * against the LIVE mid-batch composition, so it is the only driver that still
+     * reproduces a locator an earlier step invalidated, which is what #712 is about.
+     *
+     * It PATCHES A HARMLESS PROP rather than repairing the band, and that is the point:
+     * after the earlier removal the index it targets IS the offending band, whose stored
+     * defect is still there, so the step fails on the band it named. A band-scoped gate
+     * refuses its own band exactly as the whole-page gate did (#1007) — what changed is
+     * that it no longer refuses on behalf of a band nobody touched, which is why these
+     * cases had to move from "the OTHER band blocks" to "this band blocks".
+     */
+    private function bandTouchPayload(int $index): array
+    {
+        return [
+            'post_id'         => 200,
+            'component_index' => $index,
+            'props'           => ['title' => 'Touched'],
+        ];
+    }
+
     // ── 1. The #642 repro: two bad bands are now distinguishable ──────────────
 
     public function testTheTwoBadBandsProduceDistinguishableRejections(): void
@@ -943,7 +971,7 @@ class WriteRejectionLocatorTest extends TestCase
             ['type' => 'action', 'name' => 'remove_component', 'params' => [
                 'post_id' => 200, 'component_index' => 0,
             ]],
-            ['type' => 'action', 'name' => 'update_composition', 'params' => $this->repairPayload(0)],
+            ['type' => 'action', 'name' => 'update_component', 'params' => $this->bandTouchPayload(1)],
         ]);
 
         $this->assertFalse($batch['ok']);
@@ -984,7 +1012,7 @@ class WriteRejectionLocatorTest extends TestCase
             ]],
             // Repairs what is band 1 mid-batch; the whole-composition rule then blocks on
             // mid-batch band 0 — which is band 1 of the restored page.
-            ['type' => 'action', 'name' => 'update_composition', 'params' => $this->repairPayload(1)],
+            ['type' => 'action', 'name' => 'update_component', 'params' => $this->bandTouchPayload(0)],
         ]);
 
         $this->assertFalse($batch['ok']);
@@ -1008,7 +1036,7 @@ class WriteRejectionLocatorTest extends TestCase
             ['type' => 'action', 'name' => 'update_page_title', 'params' => [
                 'post_id' => 200, 'title' => 'Renamed',
             ]],
-            ['type' => 'action', 'name' => 'update_composition', 'params' => $this->repairPayload(0)],
+            ['type' => 'action', 'name' => 'update_component', 'params' => $this->bandTouchPayload(1)],
         ]);
 
         $this->assertFalse($batch['ok']);
@@ -1030,7 +1058,7 @@ class WriteRejectionLocatorTest extends TestCase
             ['type' => 'action', 'name' => 'remove_component', 'params' => [
                 'post_id' => 201, 'component_index' => 0,
             ]],
-            ['type' => 'action', 'name' => 'update_composition', 'params' => $this->repairPayload(0)],
+            ['type' => 'action', 'name' => 'update_component', 'params' => $this->bandTouchPayload(1)],
         ]);
 
         $this->assertFalse($batch['ok']);
@@ -1061,7 +1089,7 @@ class WriteRejectionLocatorTest extends TestCase
         $batch = pp_ai_execute_batch([
             // No 'type' key at all — the dispatcher runs this as an action.
             ['name' => 'remove_component', 'params' => ['post_id' => 200, 'component_index' => 0]],
-            ['type' => 'action', 'name' => 'update_composition', 'params' => $this->repairPayload(0)],
+            ['type' => 'action', 'name' => 'update_component', 'params' => $this->bandTouchPayload(1)],
         ]);
 
         $this->assertFalse($batch['ok']);
@@ -1091,7 +1119,7 @@ class WriteRejectionLocatorTest extends TestCase
             ['type' => 'apply', 'name' => 'update_design_token', 'params' => [
                 'token' => '--color-accent', 'value' => '#ff0000',
             ]],
-            ['type' => 'action', 'name' => 'update_composition', 'params' => $this->repairPayload(0)],
+            ['type' => 'action', 'name' => 'update_component', 'params' => $this->bandTouchPayload(1)],
         ]);
 
         $this->assertFalse($batch['ok']);
@@ -1146,7 +1174,7 @@ class WriteRejectionLocatorTest extends TestCase
             ['type' => 'action', 'name' => 'remove_component', 'params' => [
                 'post_id' => '200', 'component_index' => 0,
             ]],
-            ['type' => 'action', 'name' => 'update_composition', 'params' => $this->repairPayload(0)],
+            ['type' => 'action', 'name' => 'update_component', 'params' => $this->bandTouchPayload(1)],
         ]);
 
         $this->assertSame(0, $batch['failed_at'], 'the FIRST step is what fails');
@@ -1169,11 +1197,11 @@ class WriteRejectionLocatorTest extends TestCase
             ['type' => 'action', 'name' => 'remove_component', 'params' => [
                 'post_id' => 200, 'component_index' => 0,
             ]],
-            ['type' => 'action', 'name' => 'update_composition', 'params' => $this->repairPayload(0)],
+            ['type' => 'action', 'name' => 'update_component', 'params' => $this->bandTouchPayload(1)],
         ]);
 
         $failed = $batch['steps'][1];
-        $this->assertSame('update_composition', $failed['action']);
+        $this->assertSame('update_component', $failed['action']);
         $this->assertStringContainsString('image_id', $failed['error'],
             'the message is the producing validator\'s, untouched — including its mid-batch band prose');
         $this->assertSame('invalid_prop_value', $failed['error_code']);

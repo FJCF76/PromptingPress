@@ -857,13 +857,24 @@ function _pp_build_friendly_error(WP_Error $error, array $params): array {
             return [
                 'error_code'            => $code,
                 // THIS USED TO SAY THE OPPOSITE OF THE TRUTH (#1007). "This component
-                // doesn't support style customization" is false for all four components
-                // that produce this code — hero, testimonials, nav and footer are the
-                // most styleable components in the theme, and they produce it precisely
-                // BECAUSE their styling moved to the `udc` map. It also contradicted the
-                // runtime prompt, which has routed the model correctly since the rebuild
-                // (I25: a surface never contradicts its own system).
-                'user_message'          => 'This component is on the new styling system, so it has no style slots — its colours, spacing and type are set on the band itself instead. Ask for the change again and it will be applied that way.',
+                // doesn't support style customization" is false for every component that
+                // produces this code — they produce it precisely BECAUSE their styling
+                // moved to the `udc` map, and hero and testimonials are the most styleable
+                // components in the theme. It also contradicted the runtime prompt, which
+                // has routed the model correctly since the rebuild (I25: a surface never
+                // contradicts its own system).
+                //
+                // REACHABLE FOR hero AND testimonials ONLY on this surface. nav and footer
+                // also declare zero slots, but a composition naming them is refused earlier
+                // as `template_owned_component`, so style_component never gets that far —
+                // which is why this wording can safely speak about a band.
+                //
+                // IT DOES NOT PROMISE THE CHANGE WILL HAPPEN. The earlier wording said "ask
+                // again and it will be applied that way", which the surface cannot keep: the
+                // chat's own step renderer still classes this code as a step it could not
+                // perform, and a card that says impossible and possible at once is the
+                // three-halves-disagreeing defect #667 closed.
+                'user_message'          => 'This component is on the new styling system, so it has no style slots — its colours, spacing and type are set on the band\'s `udc` map instead, through update_composition or create_page.',
                 'alternatives'          => [],
                 'cross_component_hints' => (object) [],
                 'raw_error'             => $raw_msg,
@@ -1504,10 +1515,14 @@ function _pp_ai_rejection_note(string $lead, string $code, string $message, ?int
         $note .= ' error_code: ' . $clean_code . '.';
     }
 
-    // The AUTHORITATIVE locator (#642), and the field this note exists to deliver: every
-    // composition-mutating action validates the WHOLE composition, so the blocking band is
-    // routinely one the proposal never named. Without it a model "fixes" the band it wrote
-    // and gets the identical string back — the exact loop #704 is about.
+    // The AUTHORITATIVE locator (#642), and the field this note exists to deliver:
+    // `create_page` and `update_composition` validate the WHOLE composition, so the
+    // blocking band can be one the proposal never named. Without it a model "fixes" the
+    // band it wrote and gets the identical string back — the exact loop #704 is about.
+    // Since #1007 `update_component` narrowed to the band it targets, so that loop is no
+    // longer reachable through the highest-traffic verb; the field stays load-bearing for
+    // the two whole-composition verbs and for the cross-item rules, which belong to the
+    // page and carry a null offset.
     if ($index !== null) {
         $note .= ' Blocking composition band: index ' . $index . '.';
     }

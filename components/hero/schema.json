@@ -68,14 +68,14 @@
       ],
       "required": false,
       "default": "centered",
-      "description": "Structural layout. centered centers all content. left aligns content left. split places text left and media right at lg+; if a split hero has neither an image (image_url/image_id) nor proof, there is nothing for the second column, so it degrades to the single-column left layout (text at full content width) — add an image or proof to get the two-column split. The degradation is RENDER-TIME ONLY: the stored prop is NOT rewritten, so reading the composition back still reports split while the page renders left. What follows the degraded layout is the root class and the split-scoped data attributes (split_ratio, vertical_align). cover is a TALL, CENTRED band (min-height 70vh): on v2 it no longer paints image_url as a background — set `_band` `background.image` (an attachment id) plus `background.overlay` for that, on any layout you like."
+      "description": "Structural layout. centered centers all content. left aligns content left. split places text left and media right at lg+; if a split hero has neither an image (image_url/image_id) nor proof, there is nothing for the second column, so it degrades to the single-column left layout (text at full content width) — add an image or proof to get the two-column split. The degradation is RENDER-TIME ONLY: the stored prop is NOT rewritten, so reading the composition back still reports split while the page renders left. What follows the degraded layout is the root class and the split-scoped data attributes (split_ratio, vertical_align). cover is a TALL, CENTRED band (min-height 70vh): on v2 it no longer paints image_url as a background, and a cover hero carrying image_url or image_id is REFUSED at write with `inert_prop` — set `_band` `background.image` (an attachment id) plus `background.overlay` for that, on any layout you like."
     },
     "image_url": {
       "type": "string",
       "required": false,
       "default": "",
       "format": "image_url",
-      "description": "Image URL for the SPLIT layout's media column, rendered as an inline <img>. On v2 this no longer paints a cover background: a band background image is `_band` `background.image`, an attachment id the engine resolves. Pair with image_id for a responsive srcset."
+      "description": "Image URL for the SPLIT layout's media column, rendered as an inline <img>. On v2 this no longer paints a cover background, and on `layout: \"cover\"` it is REFUSED at write with `inert_prop` rather than stored dead: a band background image is `_band` `background.image`, an attachment id the engine resolves. Pair with image_id for a responsive srcset."
     },
     "image_alt": {
       "type": "string",
@@ -87,7 +87,7 @@
       "type": "number",
       "required": false,
       "default": 0,
-      "description": "Media Library attachment ID for the SPLIT layout's image (NOT a URL). When it resolves to a real attachment, the image renders responsively with srcset/sizes via wp_get_attachment_image() instead of a single fixed-size <img>. Falls back to image_url when unset or unresolvable. Get an attachment id via the import_media apply. For a BAND BACKGROUND image, use the `_band` role's `background.image` instead."
+      "description": "Media Library attachment ID for the SPLIT layout's image (NOT a URL). When it resolves to a real attachment, the image renders responsively with srcset/sizes via wp_get_attachment_image() instead of a single fixed-size <img>. Falls back to image_url when unset or unresolvable. Get an attachment id via the import_media apply. For a BAND BACKGROUND image, use the `_band` role's `background.image` instead. Like image_url, it is REFUSED at write on `layout: \"cover\"` with `inert_prop` — it is the split layout's inline <img>, never a band background, which is `_band` `background.image`."
     },
     "split_ratio": {
       "type": "enum",

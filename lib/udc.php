@@ -3724,6 +3724,49 @@ function pp_udc_normalize_site_map(array $decoded, int $next_version): array {
  * @return array<int, array{type: string, message: string, index: null}>
  */
 function pp_udc_site_findings(): array {
+    try {
+        return _pp_udc_site_findings_unguarded();
+    } catch (\Throwable $e) {
+        // REPORT-ONLY MUST NOT BE ABLE TO TAKE DOWN THE WRITE IT REPORTS ON.
+        //
+        // This runs AFTER the option row has been written, so a Throwable here would
+        // turn a change that HAPPENED into a failed action envelope — and a client that
+        // retries on failure would re-send a whole-container chrome write, against a
+        // version that has already moved. Losing the disclosure is a bad outcome; losing
+        // the disclosure AND provoking a clobbering retry is a much worse one.
+        //
+        // The same posture, and the same idiom, the emit-drop probe uses one file over
+        // (pp_check_udc_emit_drops, lib/wp.php): a diagnostic must survive the corruption
+        // it exists to report (I17), and must not fail silently while doing it (I29) —
+        // hence the log, which is for the DEVELOPER, not the operator.
+        //
+        // Unreachable through the shipped readers as far as the tests can reach: the
+        // container read is fail-closed and the engine is typed. That is the point of a
+        // guard on a path where being wrong costs a landed write.
+        error_log(
+            'PromptingPress: chrome findings probe failed: '
+            . get_class($e) . ': ' . $e->getMessage()
+        );
+
+        // A SKIP IS NOT A CLEAN BILL OF HEALTH (I29), and an empty array would read as
+        // one. The composition path already treats this as a trap and has a species for
+        // it — `findings_skipped`, "nothing was counted here" — so chrome uses the same
+        // word rather than coining a second one for the same state. Without this the
+        // envelope says `findings: []` whether the probe found nothing or could not run,
+        // and the runtime prompt tells the model to read that array rather than assume.
+        return [[
+            'type'     => 'findings_skipped',
+            'severity' => 'warning',
+            'message'  => 'The chrome disclosure report could not be built for this write, so this '
+                          . 'envelope says nothing about what the engine normalized. The write itself '
+                          . 'landed. Read the stored map with `wp pp operate inspect`.',
+            'index'    => null,
+        ]];
+    }
+}
+
+/** The body of pp_udc_site_findings(), separated so the guard above reads as one line. */
+function _pp_udc_site_findings_unguarded(): array {
     $site = pp_udc_site_map();
     if (!is_array($site) || !isset($site['chrome']) || !is_array($site['chrome'])) {
         return [];

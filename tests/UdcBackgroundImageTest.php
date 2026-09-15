@@ -512,24 +512,39 @@ class UdcBackgroundImageTest extends TestCase
         $this->assertLessThan(1000, strlen($rows[0]['message']));
     }
 
-    /** And for the stored CHROME NAME, the third raw fragment #1004 named. */
-    public function testAHugeStoredChromeNameIsBoundedInTheAdvisoryMessage(): void
+    /**
+     * And for the stored CHROME NAME, the third raw fragment #1004 named — pinned at the
+     * ROW HELPER, because the stored path cannot deliver one.
+     *
+     * The review train proposed routing this through pp_check_udc_background_images() like
+     * its two siblings. Tried, and it does not reach: the chrome arm iterates
+     * pp_udc_site_map()['chrome'], and that reader keeps only the names
+     * pp_udc_chrome_names() declares, so an arbitrary 5,000-character key is dropped
+     * before the advisory ever sees it. The unreachability is the fail-closed reader
+     * working, not a gap.
+     *
+     * So the bound is pinned where the fragment actually enters: the row builder, which is
+     * also the only place a hand-written or future filtered producer could hand one in.
+     * Named rather than silently made a unit test, because a reader comparing this to its
+     * two siblings will otherwise assume it was an oversight.
+     */
+    public function testAHugeStoredChromeNameIsBoundedInTheAdvisoryRow(): void
     {
-        // A chrome name this long can only reach the reader through a filtered or
-        // hand-written row, which is exactly the class a bound exists for: the check
-        // must not assume its input came through the write gate.
-        $GLOBALS['_pp_test_store']['options'][PP_SITE_UDC_OPTION] = (string) wp_json_encode([
-            '_version' => 1,
-            'nav'      => ['_band' => ['background' => ['image' => 42]]],
-        ]);
-        $GLOBALS['_pp_test_store']['attachment_is_image'][42] = false;
-
         $long = str_repeat('n', 5000);
         $row  = _pp_udc_background_image_row('chrome "%s"', $long, 'logo', 42);
 
         $this->assertLessThan(1000, strlen($row['scope_display']));
         $this->assertStringContainsString($long, $row['scope'],
             'the RAW half is the hash input and must keep every byte');
+
+        // The premise above, asserted rather than described: the reader drops it.
+        $GLOBALS['_pp_test_store']['options'][PP_SITE_UDC_OPTION] = (string) wp_json_encode([
+            '_version' => 1,
+            $long      => ['logo' => ['background' => ['image' => 42]]],
+        ]);
+        $GLOBALS['_pp_test_store']['attachment_is_image'][42] = false;
+        $this->assertSame([], pp_check_udc_background_images(),
+            'an undeclared chrome name never reaches the advisory at all');
     }
 
     /**

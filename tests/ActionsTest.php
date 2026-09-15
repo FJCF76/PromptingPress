@@ -1068,6 +1068,36 @@ class ActionsTest extends TestCase
     }
 
     /**
+     * THE SAME GUARD FOR THE v2 ID NAMESPACE, which is the one that scopes emitted CSS.
+     *
+     * Added because the review train proved the sibling above was the only pin: gating
+     * `_pp_find_duplicate_band_ids()` on `$only_index === null` left the entire suite green
+     * while production still refused. A cross-item rule nothing pins is a cross-item rule
+     * that silently stops being one, and this is the namespace where a collision makes two
+     * bands paint each other's design rather than merely confusing a targeting command.
+     */
+    public function testADuplicateBandIdStillRefusesABandScopedWrite(): void
+    {
+        $id = pp_create_page('Colliding band ids', 'draft');
+        // The non-validating writer: a raw write or a restore is how a page reaches this.
+        pp_update_composition($id, [
+            ['component' => 'section', 'id' => 'pp-aaaaaaaa', 'props' => ['title' => 'One', 'body' => 'A']],
+            ['component' => 'section', 'id' => 'pp-aaaaaaaa', 'props' => ['title' => 'Two', 'body' => 'B']],
+            ['component' => 'section', 'id' => 'pp-bbbbbbbb', 'props' => ['title' => 'Three', 'body' => 'C']],
+        ]);
+
+        $third_band = pp_execute_action('update_component', [
+            'post_id' => $id, 'component_index' => 2, 'props' => ['title' => 'Edited'],
+        ]);
+
+        $this->assertFalse($third_band['ok'], 'a band id collision is a property of the page');
+        $this->assertSame('duplicate_band_id', $third_band['error_code']);
+        $this->assertStringContainsString('refuses an edit to ANY band', $third_band['error']);
+        $this->assertStringContainsString('update_composition', $third_band['error'], 'and names the route out');
+        $this->assertSame('Three', pp_get_composition($id)[2]['props']['title'], 'nothing was written');
+    }
+
+    /**
      * The residual, stated in the message rather than left to be discovered.
      *
      * A reader who has just learned that an unrelated band's problem no longer blocks them
@@ -5563,8 +5593,12 @@ class ActionsTest extends TestCase
         // BECAUSE their styling moved to the band's `udc` map. The card now routes instead
         // of dead-ending, and must never claim the component is unstylable again.
         $this->assertStringContainsString('new styling system', $result['user_message']);
-        $this->assertStringContainsString('set on the band itself', $result['user_message']);
+        $this->assertStringContainsString('`udc` map', $result['user_message']);
         $this->assertStringNotContainsString('doesn\'t support style', $result['user_message']);
+        // AND IT MUST NOT PROMISE A RETRY. The chat's own step renderer still classes this
+        // code as a step it could not perform, so a message saying "ask again and it will
+        // be applied" would make one card claim impossible and possible at once (#667).
+        $this->assertStringNotContainsString('it will be applied', $result['user_message']);
     }
 
     public function testFriendlyErrorForInvalidRecipe(): void

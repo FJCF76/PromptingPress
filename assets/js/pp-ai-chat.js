@@ -1567,15 +1567,24 @@ function ppChatSlotAlternatives(data) {
  * produces one, and the author never typed that slot — but such a rejection carries
  * `alternatives` too, so it lands on the same fixable class by the same reasoning.
  *
- * Reachability of the impossible arm, so it isn't misread as live: with the SHIPPED
- * components neither route can fire. `no_style_slots` needs a placeable component that
- * declares no style slots, and the only two that declare none (nav, footer) are site
- * chrome the composition validator refuses to place — which is why the server-side pin
- * for it has to synthesize a fixture theme. And `invalid_style_slot` naming nothing
- * cannot occur, because the validator returns `no_style_slots` before comparing any slot
- * name, so `alternatives` is non-empty on every rejection it produces. The arm survives
- * for a component this theme doesn't ship — a child or third-party one that is placeable
- * and declares no slots — and for producers that build the error by hand.
+ * Reachability of the impossible arm. This USED TO SAY the arm could not fire on the
+ * shipped components, because the only two declaring no slots were nav and footer, which
+ * are site chrome the composition validator refuses to place. That stopped being true
+ * with the v2 rebuilds: `hero` and `testimonials` are placeable AND declare zero style
+ * slots, so `no_style_slots` is LIVE on this surface for every v2 band, and will be for
+ * each component the remaining rebuilds convert.
+ *
+ * `impossible` is still the honest class for it, and the wording below says why rather
+ * than only that: the change genuinely cannot be made through `style_component`, and the
+ * server's message names the route that does work (the band's `udc` map, through
+ * `update_composition` or `create_page`). A class of `fixable` would be worse — it invites
+ * a retry of the same verb, which will fail the same way.
+ *
+ * `invalid_style_slot` naming nothing still cannot occur, because the validator returns
+ * `no_style_slots` before comparing any slot name, so `alternatives` is non-empty on every
+ * rejection it produces. That half of the arm survives for a component this theme doesn't
+ * ship — a child or third-party one that is placeable and declares no slots — and for
+ * producers that build the error by hand.
  */
 function ppChatGetErrorStepClass(data) {
     if (!data || typeof data !== 'object') return 'pp-ai-step-failed';
@@ -1631,7 +1640,11 @@ function ppChatGetStatusMessage(data) {
     if (code === 'invalid_style_slot' && ppChatHasSlotAlternatives(data)) {
         return 'I used a setting name this component doesn\'t have. See the settings it does have above.';
     }
-    if (code === 'no_style_slots' || code === 'invalid_style_slot') return 'This change isn\'t possible with the current component settings.';
+    // SPLIT SINCE THE v2 REBUILDS. `no_style_slots` no longer means "this component has no
+    // styling"; it means "not through this verb" — the component is on the udc map and the
+    // server's message names that route. Saying only "isn't possible" contradicted it.
+    if (code === 'no_style_slots') return 'This component is styled through its band\'s `udc` map, not style settings. See details above.';
+    if (code === 'invalid_style_slot') return 'This change isn\'t possible with the current component settings.';
     if (code === 'invalid_style_value') return 'The value format needs adjustment. See suggestions above.';
     return 'Some changes couldn\'t be previewed. See details above.';
 }

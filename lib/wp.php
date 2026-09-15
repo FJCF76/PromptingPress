@@ -2624,6 +2624,14 @@ function pp_check_udc_emit_drops(?int $post_id = null, ?array $composition = nul
  * The attachment id is an int and is NOT reflected — it is not text, and passing it
  * through a string cleaner would be a coercion bug wearing a fix's clothes.
  *
+ * THE COST OF KEEPING THE HASH RAW, stated because it is a real trade and not a free
+ * win: two stored roles that differ only past the bound render as the SAME visible row
+ * while keeping different acknowledgement keys, so an operator can meet what looks like
+ * a duplicate finding twice. That is the better half of the trade — hashing the cleaned
+ * text would instead MERGE two genuinely different dangling images into one
+ * acknowledgement, and silently losing a finding is the failure this check exists to
+ * end. The row count is bounded at ten plus an overflow line either way.
+ *
  * @param string $scope_format A sprintf template with ONE `%s` for the cleaned name.
  * @param string $name         Stored chrome name or component name, raw.
  * @param string $role         Stored role key, raw.

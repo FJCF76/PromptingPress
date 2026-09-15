@@ -64,7 +64,9 @@ surfaced by the same `stale_warnings` / `masked_derived_override` machinery as e
 other derived token (see below), so you are told when a base change may not reach it.
 
 **Surface-paired accent (the bg-image band).** A section/cta/stats band WITH a
-`background_image` — and a hero with `cover` layout + `image_url` — lays a dark
+`background_image` — and a v2 hero whose `_band` `udc` map sets `background.image` plus
+`background.overlay` (on v2 a `cover` hero carrying `image_url` or `image_id` is REFUSED
+at write with `inert_prop`; do not author that pair) — lays a dark
 `rgba(0,0,0,.55)` overlay over an ARBITRARY image, so EVERY accent surface on that band
 (section/cta links, stats numbers, the `title_accent` substring on all four, section
 body list markers, the `outline`/`ghost` buttons on a cta or cover hero — including

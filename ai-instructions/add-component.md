@@ -304,7 +304,7 @@ declare, nothing to populate, nothing to resolve.
 
 | Surface | Resolves at | Consequence |
 |---|---|---|
-| prop **key** names | nowhere | there is no prop-key alias surface (#604). A retired prop name is rejected at write with `unknown_prop` and unread at render — one answer on both paths, at both depths: top-level props (#147) and nested `items[]` fields (#643). |
+| prop **key** names | nowhere | there is no prop-key alias surface (#604). A retired prop name is rejected at write and unread at render — one answer on both paths, at both depths: top-level props (#147) and nested `items[]` fields (#643). The CODE depends on whether the component declares the name in its `retired_props` block: the six v2-rebuild keys (hero's `button_variant`, `button2_variant`, `spacing`, `width`; testimonials' `theme`, `title_align`) return `retired_prop` with a message naming the `udc` surface that replaced them and the `null` clear; every other undeclared key returns `unknown_prop`. |
 | style **slot** names | nowhere | there is no slot alias surface (#603). An undeclared slot name is rejected at write with `invalid_style_slot` and dropped at render. |
 | prop **values** | nowhere | there is no value-alias surface (#605 took the last entry, #606 took the field). An unadvertised value is rejected at write with `invalid_prop_value`, at both depths — top-level props (#579) and nested `items[]` enum fields (#600). |
 | the `variant` prop | nowhere | retired in #69. Rejected on every write path (#388) and, since #604, not decoded on any read path either. |
@@ -351,10 +351,14 @@ The CHANGELOG entry and the maintainer's ratification at review still apply on b
 surfaces — CI now makes the trail mandatory rather than remembered.
 
 **Renaming a slot or a prop is a breaking change, and that is the accepted cost.** A composition
-stored under the old name loses that declaration at render, and the three actions that validate
-the WHOLE composition — `create_page`, `update_composition`, `update_component` — reject it by
-name. `add_component` validates only the item it adds; `remove_component`, `reorder_components`
-and `style_component` validate no props, so those four still succeed on a stale page. `restore_composition` still succeeds and
+stored under the old name loses that declaration at render, and the two actions that validate
+the WHOLE composition — `create_page` and `update_composition` — reject it by name. Since #1007
+`update_component` validates only the BAND IT TARGETS, so a stale name on one band no longer
+refuses an edit to another: it is reported on the accepted envelope's `findings` at severity
+`error` instead. `add_component` validates only the item it adds; `remove_component`,
+`reorder_components` and `style_component` validate no props, so those all still succeed on a
+stale page too. A retired PROP name gets its own code (`retired_prop`) and a message naming the
+v2 surface that replaced it, and clears with `{"<prop>": null}` through `update_component`. `restore_composition` still succeeds and
 **reports** the dead slots (#233) rather than blocking. Neither an attempted edit nor a
 restore is the only way to find out: `wp pp check page --post_id=N` and
 `wp pp validate site` report the same error-severity findings on the STORED page, and

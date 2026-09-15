@@ -423,8 +423,21 @@ class ChromeUdcTest extends TestCase
         $source = file_get_contents(dirname(__DIR__) . '/lib/udc.php');
         $this->assertIsString($source);
 
-        $start = strpos($source, 'function pp_udc_site_findings(');
-        $this->assertNotFalse($start, 'the producer must exist to be pinned');
+        // The public entry is a Throwable guard around the body, so the walk lives in
+        // _pp_udc_site_findings_unguarded(). Both halves are pinned: the entry must
+        // delegate to the body, and the body must delegate to the one engine.
+        $entry_start = strpos($source, 'function pp_udc_site_findings(');
+        $this->assertNotFalse($entry_start, 'the producer must exist to be pinned');
+        $entry_end = strpos($source, "\n}\n", $entry_start);
+        $this->assertNotFalse($entry_end);
+        $this->assertStringContainsString(
+            '_pp_udc_site_findings_unguarded()',
+            substr($source, $entry_start, $entry_end - $entry_start),
+            'the guarded entry must delegate rather than hold a copy of the walk'
+        );
+
+        $start = strpos($source, 'function _pp_udc_site_findings_unguarded(');
+        $this->assertNotFalse($start, 'the producer body must exist to be pinned');
         $end = strpos($source, "\n}\n", $start);
         $this->assertNotFalse($end);
         $body = substr($source, $start, $end - $start);

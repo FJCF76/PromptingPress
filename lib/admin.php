@@ -880,6 +880,83 @@ function _pp_entry_is_object_shape($entry): bool {
 }
 
 /**
+ * What to say when a component declares NO style slots at all (#1007).
+ *
+ * "Available slots: (none)" was a dead end that read as "this component can no longer be
+ * styled", which is false for the four components it actually fires on — they are the
+ * MOST styleable components in the theme, and the only reason they declare no slots is
+ * that every designable value moved to the `udc` map.
+ *
+ * DERIVED, NOT LISTED. `pp_udc_is_v2_component()` already answers "is this component on
+ * the new system", and the roles come from the same schema the refusal is about, so this
+ * route cannot drift the way a hand-maintained list of 76 retired slot names would. That
+ * is why the props needed a registry and the slots did not: every retired slot is
+ * replaced by the same thing, and each retired prop by a different one.
+ *
+ * A component that genuinely has no styling surface at all keeps the old spelling.
+ */
+/**
+ * Can this `refuse_props_when` clause be decided on the data in front of it (#1006)?
+ *
+ * The shared clause evaluator resolves every ambiguity to "met" because its original
+ * consumer is a non-blocking advisory. A REFUSAL cannot inherit that: refusing on a shape
+ * nobody can reason about produces a confident message about the wrong prop. This asks the
+ * narrower question the refusal needs — is the subject a value this grammar compares? — so
+ * an undecidable clause declines to fire and the rule that actually owns the malformed
+ * value reports it instead.
+ *
+ * `present` needs no check: "is there a non-empty value here" is answerable for any shape.
+ */
+function _pp_refuse_clause_is_decidable($clause, array $props, array $prop_defs): bool {
+    if (!is_array($clause) || pp_applies_when_clause_errors($clause, 'eval') !== []) {
+        return false;
+    }
+    if (array_key_exists('present', $clause) || !array_key_exists('prop', $clause)) {
+        return true;
+    }
+    $name  = $clause['prop'];
+    $value = array_key_exists($name, $props)
+        ? $props[$name]
+        : ($prop_defs[$name]['default'] ?? null);
+
+    return $value === null || is_scalar($value);
+}
+
+function _pp_no_style_slots_clause(string $component_name): string {
+    if (!function_exists('pp_udc_is_v2_component') || !pp_udc_is_v2_component($component_name)) {
+        return 'Available slots: (none)';
+    }
+    $roles = array_keys(pp_udc_component_roles($component_name));
+
+    // CHROME IS NOT A BAND, and routing it to one would be the fabricated route this
+    // function exists to replace. nav and footer declare roles, so pp_udc_is_v2_component()
+    // is true for them and this clause fires — but they are rendered by the template on
+    // every page and cannot be composed, so there is no band to put a `udc` map on and no
+    // update_component that could reach them. Their map lives in the `pp_site_udc` site
+    // option, exactly as `retired_option` already tells an author who reaches for the
+    // retired chrome colour options.
+    if (function_exists('pp_udc_is_chrome') && pp_udc_is_chrome($component_name)) {
+        return sprintf(
+            '"%s" is site chrome on the v2 styling system and declares no style slots: it is not a band, '
+            . 'so it has no per-page styling at all. Its `udc` map lives in the "%s" site option, one '
+            . 'entry per chrome component, written with update_site_option — the roles are %s.',
+            $component_name,
+            defined('PP_SITE_UDC_OPTION') ? PP_SITE_UDC_OPTION : 'pp_site_udc',
+            implode(', ', $roles) ?: '(none declared)'
+        );
+    }
+
+    return sprintf(
+        '"%s" is on the v2 styling system and declares no style slots: every designable value moved to '
+        . 'the band\'s `udc` map. Style it there instead, on one of its roles (%s), through '
+        . 'update_composition or create_page — those are the two actions that carry a whole band. To '
+        . 'clear a stored slot, send it as null through update_component\'s `style` param.',
+        $component_name,
+        implode(', ', $roles) ?: '(none declared)'
+    );
+}
+
+/**
  * Validates a style-slot override map against a component's declared style slots.
  *
  * The single shared gate for BOTH grid-level component style (`item['style']`) and
@@ -921,37 +998,6 @@ function _pp_entry_is_object_shape($entry): bool {
  *                                            per-item call here that leaves it off.
  * @return WP_Error|null                     A WP_Error on the first bad slot/value, else null.
  */
-/**
- * What to say when a component declares NO style slots at all (#1007).
- *
- * "Available slots: (none)" was a dead end that read as "this component can no longer be
- * styled", which is false for the four components it actually fires on — they are the
- * MOST styleable components in the theme, and the only reason they declare no slots is
- * that every designable value moved to the `udc` map.
- *
- * DERIVED, NOT LISTED. `pp_udc_is_v2_component()` already answers "is this component on
- * the new system", and the roles come from the same schema the refusal is about, so this
- * route cannot drift the way a hand-maintained list of 76 retired slot names would. That
- * is why the props needed a registry and the slots did not: every retired slot is
- * replaced by the same thing, and each retired prop by a different one.
- *
- * A component that genuinely has no styling surface at all keeps the old spelling.
- */
-function _pp_no_style_slots_clause(string $component_name): string {
-    if (!function_exists('pp_udc_is_v2_component') || !pp_udc_is_v2_component($component_name)) {
-        return 'Available slots: (none)';
-    }
-    $roles = array_keys(pp_udc_component_roles($component_name));
-
-    return sprintf(
-        '"%s" is on the v2 styling system and declares no style slots: every designable value moved to '
-        . 'the band\'s `udc` map. Style it there instead, on one of its roles (%s). To clear a stored '
-        . 'slot, send it as null through update_component\'s `style` param.',
-        $component_name,
-        implode(', ', $roles) ?: '(none declared)'
-    );
-}
-
 function _pp_validate_style_slot_map(array $style, array $available_slots, string $component_name, int|string|null $item_index = null, ?array $item_container = null): ?WP_Error {
     // The key is rendered, never cast (#634), and read against its container so a list
     // position and an object key are distinguishable (#652): a string-keyed entry names
@@ -1218,8 +1264,10 @@ function _pp_schema_scalar_value_is_valid($declared_type, $value): bool {
  * rule.
  *
  * The unset sentinels are the same two the top-level array rule already used, kept
- * BECAUSE they are the same: every action validates the WHOLE composition, so a rule
- * that rejected a blank would block edits to unrelated bands on the same page, and a
+ * BECAUSE they are the same: `create_page` and `update_composition` validate the WHOLE
+ * composition, so a rule that rejected a blank would block edits to unrelated bands on
+ * the same page (since #1007 `update_component` no longer would, but the other two still
+ * do and that is enough for this rule to matter), and a
  * nested sentinel that disagreed with the top-level one would re-open the drift this
  * predicate closes. They are also an accepted limitation, stated plainly: `bullets:
  * ""` is still accepted and still renders nothing. It is the shape that keeps an
@@ -1571,8 +1619,10 @@ function _pp_schema_object_shape_message(array $value): string {
  * from being a place a new enum can hide, at BOTH depths since #600.
  *
  * The unset sentinel matches the top-level rule it was extracted from, and matters
- * for the same reason it does there: every action validates the WHOLE composition,
- * so a rule that rejected a blank would block edits to unrelated bands on the page.
+ * for the same reason it does there: `create_page` and `update_composition` validate the
+ * WHOLE composition, so a rule that rejected a blank would block edits to unrelated bands
+ * on the page. (`update_component` narrowed to its targeted band at #1007; the other two
+ * did not, so the reason holds.)
  *
  * The membership test is `values` and nothing else (#606) — there is no accepted-
  * but-unadvertised tier at either depth, so the error names exactly what the gate
@@ -2180,20 +2230,28 @@ function pp_validate_composition_errors(array $items, ?int $limit = null, ?int $
     $sink = ['claimed' => [], 'budget' => $limit];
 
     foreach ($items as $i => $item) {
-        // THE PER-ITEM SCOPE GATE (#1007). Strict comparison, and deliberately not
-        // `array_key_exists` on a pre-filtered array: filtering would renumber the
-        // offsets and every locator below would then name a band that does not exist.
-        // An $only_index matching no key narrows to nothing, which is the safe
-        // direction — the cross-item passes below still run either way.
-        if ($only_index !== null && $i !== $only_index) {
-            continue;
-        }
-
         // Authored locations inside THIS item that already carry a finding (#621).
         // Reset per item: two bands may each report their own `prop / title`. The budget
         // is NOT reset — it spans the composition (see _pp_claim_item_finding()).
         $sink['claimed'] = [];
 
+        // THE TWO STRUCTURAL CHECKS RUN FOR EVERY BAND, SCOPE OR NO SCOPE (#1007), and
+        // they sit ABOVE the scope gate on purpose. They are per-item in FORM and
+        // page-level in CONSEQUENCE, because they are the shapes the composition WRITER
+        // indexes into: pp_update_composition()'s props.id loop is deliberately
+        // non-defensive (#946) and fatals on a band that is a scalar, or whose `props` is
+        // not an array. Skipping them for untargeted bands would hand the writer a shape
+        // it cannot survive — a 500 or a WP-CLI fatal on a page the classifier calls
+        // HEALTHY, which is exactly what I16 and I17 forbid — where the old whole-page
+        // gate cleanly refused and named the band.
+        //
+        // Found by the review train's security specialist, proven against the committed
+        // blobs rather than reasoned: `["a-scalar-band", {hero}]` is a list, so the page
+        // reads healthy, and a band-scoped edit to the hero threw
+        // `Cannot access offset of type string on string` instead of refusing.
+        //
+        // So the rule the scope gate follows is not "per-item rules narrow". It is:
+        // rules the WRITER depends on stay unconditional, everything else narrows.
         if (!isset($item['component'])) {
             $errors[] = _pp_composition_item_error($i,
                 'invalid_composition',
@@ -2211,6 +2269,16 @@ function pp_validate_composition_errors(array $items, ?int $limit = null, ?int $
                 'invalid_composition',
                 sprintf('%s has a non-scalar "component" key.', _pp_band_index_label($i, $items))
             );
+            continue;
+        }
+
+        // THE PER-ITEM SCOPE GATE (#1007). Strict comparison, and deliberately not
+        // `array_key_exists` on a pre-filtered array: filtering would renumber the
+        // offsets and every locator below would then name a band that does not exist.
+        // An $only_index matching no key narrows to nothing, which is the safe
+        // direction — the structural checks above and the cross-item passes below run
+        // either way.
+        if ($only_index !== null && $i !== $only_index) {
             continue;
         }
 
@@ -2430,15 +2498,38 @@ function pp_validate_composition_errors(array $items, ?int $limit = null, ?int $
                 if (!is_array($rule) || empty($rule['props']) || !is_array($rule['props'])) {
                     continue;
                 }
+                // TWO OPPOSITE SAFETY DIRECTIONS IN ONE BLOCK, both deliberate, because
+                // "fail open" means different things to the two consumers of this grammar.
+                //
+                // pp_applies_when_clause_met() was written for the `inert_slot` ADVISORY,
+                // where "met" means WARN and every ambiguity therefore resolves to true
+                // (staying silent is the safe direction for a warning). Here "met" means
+                // REFUSE A WRITE, so the same true is the UNSAFE direction: a `layout`
+                // stored as an array is a shape the evaluator cannot reason about, and
+                // taking its "met" at face value would refuse `image_url` with a message
+                // about backgrounds while the real defect — the array `layout` — goes
+                // unmentioned by the rule that owns it two screens down.
+                //
+                // So this consumer decides the ambiguity for itself and DECLINES to refuse:
+                //   - an unevaluable subject (non-scalar authored value) skips the rule;
+                //   - a missing or non-array `when` skips the rule (an empty condition
+                //     would otherwise match every band and refuse unconditionally).
+                // Both directions are fail-open for the REFUSAL, which is the posture a new
+                // blocking rule should take, and both are pinned registry-wide by
+                // SchemaValidationTest::testEveryShippedRefusePropsWhenRuleIsWellFormed.
                 $when = (isset($rule['when']) && is_array($rule['when'])) ? $rule['when'] : [];
-                $met  = true;
+                $met  = $when !== [];
                 foreach ($when as $clause) {
+                    if (!_pp_refuse_clause_is_decidable($clause, $authored, $prop_defs)) {
+                        $met = false;
+                        break;
+                    }
                     if (!pp_applies_when_clause_met($clause, $authored, $prop_defs, $style_map)) {
                         $met = false;
                         break;
                     }
                 }
-                if (!$met || $when === []) {
+                if (!$met) {
                     continue;
                 }
                 foreach ($rule['props'] as $dead_prop) {
@@ -2650,12 +2741,19 @@ function pp_validate_composition_errors(array $items, ?int $limit = null, ?int $
         // advertises all of it. Nothing rendered or written changed when the arm went:
         // the union was already over an empty list on every shipped prop.
         //
-        // What that costs, stated rather than inferred: the block runs inside
-        // pp_validate_composition_errors()'s per-item loop, while update_component
-        // validates the WHOLE composition (lib/actions.php), so one untouched band
-        // still carrying a retired value blocks an edit to a DIFFERENT band on the
-        // same page. That is the accepted stale-data breakage, not a reason to
-        // re-add an alias: backward compatibility is an explicit non-goal.
+        // What that costs, stated rather than inferred, and NARROWED AT #1007: the
+        // block runs inside pp_validate_composition_errors()'s per-item loop. That
+        // loop used to run for every band on every action, so one untouched band
+        // carrying a retired value blocked an edit to a DIFFERENT band on the same
+        // page — recorded here for a long time as the accepted stale-data breakage.
+        // It was not acceptable: the documented cure runs through update_component,
+        // so a page with retired values on two bands could never be repaired at all.
+        // update_component now validates only the band it targets, and the stale
+        // band is reported on the accepted envelope instead of refusing the write.
+        // `create_page` and `update_composition` still judge the whole page.
+        //
+        // None of that is a reason to re-add an alias: backward compatibility is an
+        // explicit non-goal, and nothing here is migrated, coerced or healed.
         //
         // BOTH OF #579's EVIDENCE LEGS ARE RETIRED (#604, then #605). `dark` used to
         // be MANUFACTURED at read time by pp_migrate_legacy_variant_keys() from a
@@ -3409,12 +3507,14 @@ function pp_validate_composition_errors(array $items, ?int $limit = null, ?int $
                         // type but these two, so they fall through this rule untouched
                         // and are judged by the rules that own them.
                         //
-                        // Same accepted cost the required rule above carries: every
-                        // action validates the WHOLE composition, so a stored value
-                        // this rejects blocks edits to unrelated bands on that page.
-                        // That is the v1.13.0 no-compat posture working as intended,
-                        // not a regression — restore_composition still reports and
-                        // restores rather than blocking (#233).
+                        // Same cost the required rule above carries, narrowed at
+                        // #1007: `create_page` and `update_composition` validate the
+                        // WHOLE composition, so a stored value this rejects blocks
+                        // those two from any band. `update_component` now judges only
+                        // the band it targets and reports the rest on the accepted
+                        // envelope. That is the v1.13.0 no-compat posture working as
+                        // intended, not a regression — restore_composition still
+                        // reports and restores rather than blocking (#233).
                         $field_type = $field_def['type'] ?? null;
                         if (($field_type === 'string' || $field_type === 'number')
                             && array_key_exists($field_name, $entry)
@@ -4135,11 +4235,14 @@ function pp_validate_composition_errors(array $items, ?int $limit = null, ?int $
  * Names the offending BAND in a write-path rejection message (#642).
  *
  * Every rule inside pp_validate_composition_errors() names the component TYPE
- * ("Component \"logos\" prop ..."), never WHICH band on the page it is. Because every
- * composition-mutating action validates the WHOLE composition, a page with two `logos`
- * bands that both store a bad value produced two BYTE-IDENTICAL rejections: an agent
- * that "fixed" its own payload got the same string back, forever, because the blocking
- * value sat in a band it never touched. The offset was computed all along — #622 stamps
+ * ("Component \"logos\" prop ..."), never WHICH band on the page it is. Because the
+ * composition-mutating actions all validated the WHOLE composition, a page with two
+ * `logos` bands that both store a bad value produced two BYTE-IDENTICAL rejections: an
+ * agent that "fixed" its own payload got the same string back, forever, because the
+ * blocking value sat in a band it never touched. Since #1007 `update_component` judges
+ * only the band it targets — so it reaches this renderer with a band the caller DID name,
+ * and pp_validate_composition_band() is its entry point — while `create_page` and
+ * `update_composition` still judge the whole page and still need the locator most. The offset was computed all along — #622 stamps
  * it as WP_Error data — and then discarded one layer up.
  *
  * WHY THIS RENDERS AT THE WRITE BOUNDARY RATHER THAN AT MESSAGE-BUILD TIME. The same
@@ -4321,6 +4424,18 @@ function pp_validate_composition(array $items) {
  * @return true|WP_Error
  */
 function pp_validate_composition_band(array $items, int $index) {
+    // THE BUDGET AND THE CROSS-ITEM PASSES INTERACT, and the interaction is benign in
+    // exactly one direction, so it is written down rather than rediscovered. The
+    // cross-item passes are skipped when the budget is set AND a finding already exists
+    // (#621's ratified ordering, unchanged by this function). Under a band scope that
+    // means: targeted band dirty -> cross-item skipped, but the write is already being
+    // refused by the targeted band's own error, so nothing is persisted; targeted band
+    // clean -> no findings yet -> cross-item passes RUN, which is the case that matters
+    // and is pinned by testADuplicateComponentIdStillRefusesABandScopedWrite.
+    //
+    // What it costs: when both are wrong, the message names the targeted band and stays
+    // silent about the collision. The operator repairs one, retries, and meets the other.
+    // Two round trips, never a silent accept.
     $errors = pp_validate_composition_errors($items, 1, $index);
 
     return $errors === []
