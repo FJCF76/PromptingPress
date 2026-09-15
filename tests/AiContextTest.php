@@ -930,6 +930,35 @@ class AiContextTest extends TestCase
         return $messages[0]['content'];
     }
 
+    /**
+     * REWRITTEN from testAdjacencyNotAnnotatedForHeroCoverImage (#986).
+     *
+     * The old test pinned the `$is_hero_cover` carve-out in _pp_resolve_component_bg():
+     * a `cover` hero painting `image_url` through an inline style was image-backed, so
+     * the flat-colour "these bands share a background" hint had to stay silent even
+     * when a `--hero-bg` slot matched the neighbour. The carve-out is gone with the
+     * inline style, but the OUTCOME it guaranteed is still required, so it is pinned
+     * here in v2 terms rather than deleted with the mechanism.
+     *
+     * On v2 the guarantee comes from a different direction and the test says so: a v2
+     * component carries no `theme` prop and no `--{name}-bg` style slot, so every v2
+     * band resolves to null and is never described as a flat-colour band. That is the
+     * SAFE direction (silent, never wrong), and it is the property worth pinning —
+     * _pp_resolve_component_bg() does not read the band's `udc` map, so a v2 band
+     * background is under-described by design until that is widened.
+     */
+    public function testAdjacencyNotAnnotatedForAV2BandBackground(): void
+    {
+        $system = $this->pageContextFor(712, [
+            ['component' => 'hero', 'props' => ['title' => 'A', 'layout' => 'cover'],
+             'udc' => ['_band' => ['background' => ['fill' => '#092082']]]],
+            ['component' => 'section', 'props' => ['title' => 'B', 'body' => 'Body'],
+             'style' => ['--section-bg' => '#092082']],
+        ]);
+
+        $this->assertStringNotContainsString('share background', $system);
+    }
+
     public function testAdjacencyAnnotatedForMatchingStyleOverride(): void
     {
         $system = $this->pageContextFor(700, [

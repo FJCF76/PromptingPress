@@ -1612,6 +1612,79 @@ class ComponentPropsTest extends TestCase
         return array_merge(['body' => '<p>Body</p>'], $extra);
     }
 
+    /**
+     * REWRITTEN from testAllSixComponentsDeclareTitleAccentSlot (#986).
+     *
+     * The old test asserted all SIX components declared a `title_accent` prop AND a
+     * colour-typed `--*-heading-accent-color` STYLE SLOT. Hero left the slot system,
+     * so the slot half is dead for hero only — but the invariant it protected is not:
+     * every component that offers a `title_accent` prop must offer a way to colour it.
+     * Deleting the test would have dropped the five surviving components' coverage
+     * along with hero's, so it is narrowed and hero's half is re-expressed in v2 terms.
+     */
+    public function testEveryComponentWithTitleAccentCanStyleIt(): void
+    {
+        $v1 = [
+            'grid'    => '--grid-heading-accent-color',
+            'section' => '--section-heading-accent-color',
+            'cta'     => '--cta-heading-accent-color',
+            'faq'     => '--faq-heading-accent-color',
+            'stats'   => '--stats-heading-accent-color',
+        ];
+        foreach ($v1 as $component => $slot) {
+            $schema = json_decode(file_get_contents(dirname(__DIR__) . "/components/{$component}/schema.json"), true);
+            $this->assertArrayHasKey('title_accent', $schema['props'], "{$component} must declare title_accent prop.");
+            $this->assertArrayHasKey($slot, $schema['styling']['style_slots'], "{$component} must declare {$slot}.");
+            $this->assertSame('color', $schema['styling']['style_slots'][$slot]['type']);
+        }
+
+        // Hero keeps the PROP and answers the same question through a ROLE.
+        $hero = json_decode(file_get_contents(dirname(__DIR__) . '/components/hero/schema.json'), true);
+        $this->assertArrayHasKey('title_accent', $hero['props'], 'hero must still declare title_accent prop.');
+        $this->assertSame([], $hero['styling']['style_slots'] ?? [], 'hero declares no style slots on v2.');
+        $this->assertArrayHasKey('title-accent', $hero['roles'], 'hero must expose title-accent as a role.');
+        $this->assertContains(
+            'typography',
+            $hero['roles']['title-accent']['groups'],
+            'the title-accent role must permit typography so its colour is authorable.'
+        );
+    }
+
+    /**
+     * RE-BASED from testHeroImagePositionRejectsInjectionInStyleSlot (#986).
+     *
+     * Hero's `--hero-image-position` slot is gone, but the invariant is a REFUSAL, not
+     * a hero fact: a `position`-typed slot must not let a semicolon smuggle a second
+     * declaration into the rendered style attribute. Section carries the surviving
+     * position-typed slot, so the red proof moves there rather than being deleted.
+     */
+    public function testPositionSlotRejectsInjectionInStyleSlot(): void
+    {
+        $html = $this->render('section', $this->sectionProps([
+            'title'        => 'T',
+            'layout'       => 'text-image',
+            'image_url'    => 'https://example.com/photo.jpg',
+            '__pp_style'   => ['--section-bg-position' => 'top; background:url(evil)'],
+        ]));
+        $this->assertStringNotContainsString('url(evil)', $html);
+    }
+
+    /**
+     * RE-BASED from testRenderStyleVarsGradientSurvivesUnmangledForHero (#986).
+     *
+     * pp_render_style_vars() still serves every v1 component; hero was only the
+     * fixture. The #99/#330 invariant — a validated gradient round-trips unmangled
+     * through the render boundary — is re-proved on section.
+     */
+    public function testRenderStyleVarsGradientSurvivesUnmangled(): void
+    {
+        $result = pp_render_style_vars(
+            ['--section-bg' => 'linear-gradient(135deg, #1a1a2e, #16121f)'],
+            'section'
+        );
+        $this->assertStringContainsString('--section-bg: linear-gradient(135deg, #1a1a2e, #16121f)', $result);
+    }
+
     public function testHeroEyebrowRenders(): void
     {
         // Regression pin for #85: hero's eyebrow prop now actually renders.

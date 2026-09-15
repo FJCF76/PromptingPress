@@ -471,15 +471,15 @@ class ActionsTest extends TestCase
         // specific rule path — and never blocks on it.
         $post_id = pp_create_page('Dangling var snapshot');
         pp_update_composition($post_id, [
-            ['component' => 'cta', 'props' => ['title' => 'A', 'body' => 'Body text'], 'style' => ['--cta-button2-bg' => 'var(--nonexistent-token)']],
+            ['component' => 'section', 'props' => ['title' => 'A'], 'style' => ['--section-panel-cta-bg' => 'var(--nonexistent-token)']],
         ]);
-        pp_update_composition($post_id, [['component' => 'cta', 'props' => ['title' => 'B', 'body' => 'Body text']]]);
+        pp_update_composition($post_id, [['component' => 'section', 'props' => ['title' => 'B']]]);
 
         $result = pp_execute_action('restore_composition', ['post_id' => $post_id, 'steps_back' => 1]);
 
         // The write succeeds and the snapshot is preserved verbatim.
         $this->assertTrue($result['ok'], $result['error'] ?? 'restore failed');
-        $this->assertSame('var(--nonexistent-token)', pp_get_composition($post_id)[0]['style']['--cta-button2-bg']);
+        $this->assertSame('var(--nonexistent-token)', pp_get_composition($post_id)[0]['style']['--section-panel-cta-bg']);
 
         // ...and the dangling reference is reported as a blocking-class finding.
         $errors = array_values(array_filter(
@@ -492,20 +492,21 @@ class ActionsTest extends TestCase
     public function testRestoreOfValidVarStyleValueReportsNoFindings(): void
     {
         // The mirror case: a snapshot using the newly ACCEPTED forms is clean.
-        // `--cta-button2-color` (the button's INK), not `--cta-button2-bg`: the bg
+        // `--section-panel-cta-color` (the button's INK), not `--section-panel-cta-bg`: the bg
         // slot declares `role: "fill"`, and since #579 a transparent fill raises a
         // non-blocking `transparent_fill` advisory, which would make this findings
         // assertion about the warn channel instead of about var() acceptance.
         //
-        // The two button labels are load-bearing for the SAME reason since #580:
-        // `--cta-button2-*` declares applies_when button_text + button2_text, so a
-        // cta with neither renders no second button and the slot raises an
-        // `inert_slot` advisory — again the warn channel, not var() acceptance.
+        // The panel setup is load-bearing for the SAME reason since #580:
+        // `--section-panel-cta-*` declares applies_when layout = "text-panel" AND
+        // panel_cta_text AND panel_cta_url, so a section without them renders no panel
+        // CTA and the slot raises an `inert_slot` advisory — again the warn channel,
+        // not var() acceptance.
         $post_id = pp_create_page('Valid var snapshot');
         pp_update_composition($post_id, [
-            ['component' => 'cta', 'props' => ['title' => 'A', 'button_text' => 'One', 'button_url' => '#a', 'button2_text' => 'Two', 'button2_url' => '#b', 'body' => 'Body text'], 'style' => ['--cta-button2-color' => 'transparent', '--cta-accent' => 'var(--color-accent)']],
+            ['component' => 'section', 'props' => ['title' => 'A', 'body' => 'Body text', 'layout' => 'text-panel', 'panel_cta_text' => 'Go', 'panel_cta_url' => '/x'], 'style' => ['--section-panel-cta-color' => 'transparent', '--section-heading-accent-color' => 'var(--color-accent)']],
         ]);
-        pp_update_composition($post_id, [['component' => 'cta', 'props' => ['title' => 'B', 'body' => 'Body text']]]);
+        pp_update_composition($post_id, [['component' => 'section', 'props' => ['title' => 'B', 'body' => 'Body text']]]);
 
         $result = pp_execute_action('restore_composition', ['post_id' => $post_id, 'steps_back' => 1]);
         $this->assertTrue($result['ok']);
@@ -3065,7 +3066,7 @@ class ActionsTest extends TestCase
         $result = pp_execute_action('add_component', [
             'post_id'   => $id,
             'component' => 'section',
-            'props'     => ['title' => 'Styled', 'body' => 'Body text'],
+            'props' => ['title' => 'Styled', 'body' => 'Body text'],
             'style'     => ['--section-bg' => '#1a1a2e', '--section-padding-top' => '8rem'],
         ]);
         $this->assertTrue($result['ok']);
@@ -3085,7 +3086,7 @@ class ActionsTest extends TestCase
         $result = pp_validate_action('add_component', [
             'post_id'   => $id,
             'component' => 'section',
-            'props'     => ['title' => 'Styled', 'body' => 'Body text'],
+            'props' => ['title' => 'Styled', 'body' => 'Body text'],
             'style'     => ['--section-bg' => 'not-a-color'],
         ]);
         $this->assertInstanceOf(WP_Error::class, $result);
@@ -3155,7 +3156,7 @@ class ActionsTest extends TestCase
         $result = pp_execute_action('add_component', [
             'post_id'   => $id,
             'component' => 'section',
-            'props'     => ['title' => 'Inserted', 'body' => 'Body text'],
+            'props' => ['title' => 'Inserted', 'body' => 'Body text'],
             'style'     => ['--section-bg' => '#123456'],
             'position'  => 1,
         ]);
@@ -3181,19 +3182,19 @@ class ActionsTest extends TestCase
         $ok = pp_execute_action('add_component', [
             'post_id'   => $id,
             'component' => 'section',
-            'props'     => ['title' => 'Styled', 'body' => 'Body text'],
-            'style'     => ['--section-bg' => '#f0f4ff'],
+            'props' => ['title' => 'Styled', 'body' => 'Body text'],
+            'style'     => ['--section-bg' => '#0d1117'],
         ]);
         $this->assertTrue($ok['ok']);
         $comp = pp_get_composition($id);
         $this->assertArrayHasKey('style', $comp[1], 'Valid style must be persisted, not silently dropped.');
-        $this->assertSame('#f0f4ff', $comp[1]['style']['--section-bg']);
+        $this->assertSame('#0d1117', $comp[1]['style']['--section-bg']);
 
         // Invalid style is rejected, not silently accepted behind ok:true.
         $bad = pp_execute_action('add_component', [
             'post_id'   => $id,
             'component' => 'section',
-            'props'     => ['title' => 'Bad', 'body' => 'Body text'],
+            'props' => ['title' => 'Bad', 'body' => 'Body text'],
             'style'     => ['--section-bg' => 'not-a-color'],
         ]);
         $this->assertFalse($bad['ok'], 'Invalid style must be rejected, never silently accepted.');
@@ -3503,68 +3504,947 @@ class ActionsTest extends TestCase
     }
 
     /**
-     * THE SEVEN HERO BUTTON-SLOT TESTS ARE REPLACED BY THIS ONE (#986).
-     *
-     * They pinned `style_component` writing `--hero-button-*` / `--hero-button2-*`:
-     * accepted, rejected on a bad colour, persisted, and kept independent between the
-     * two CTAs. Hero is a v2 component now, so `style_component` refuses it outright and
-     * the same four properties are contract facts of the UDC path instead — proven here
-     * through the REAL authoring surface (14.1), not a raw meta write.
-     *
-     * The independence half is what earns its keep: on v1 it took a dedicated isolation
-     * rule to stop the primary's slots reaching the second CTA, and the test existed
-     * because that rule could regress. On v2 they are two different roles with two
-     * different selectors, so the property holds by construction — and this pins that it
-     * really does, rather than assuming it.
+     * Parity (#154): every image-URL prop across every component — flat and
+     * nested — is still extracted after the switch from the hardcoded list.
      */
-    public function testHeroCtaDesignIsAuthoredThroughRolesAndStyleComponentRefusesIt(): void
+    public function testExtractUrlsCoversAllExistingImagePropsAcrossComponents(): void
     {
-        $post_id = pp_create_page('Hero CTA roles');
-
-        // style_component is the v1 surface and must REFUSE a v2 component by name.
-        $refused = pp_validate_action('style_component', [
-            'post_id'         => $post_id,
-            'component_index' => 0,
-            'style'           => ['--hero-button-bg' => '#ff0000'],
-        ]);
-        $this->assertInstanceOf(WP_Error::class, $refused);
-
-        // The accepted path: roles, through update_composition.
-        $udc = [
-            'cta' => [
-                'background' => ['fill' => '#ff5c2e', ':hover' => ['fill' => '#c73310']],
-                'border'     => ['color' => '#ff5c2e'],
-            ],
-            'cta-secondary' => [
-                'background' => ['fill' => '#101828', ':hover' => ['fill' => '#1f2a44']],
+        $params = [
+            'composition' => [
+                ['component' => 'hero',         'props' => ['image_url' => 'https://x/hero.jpg']],
+                ['component' => 'cta',          'props' => ['background_image' => 'https://x/cta.jpg']],
+                ['component' => 'stats',        'props' => ['background_image' => 'https://x/stats.jpg']],
+                ['component' => 'section',      'props' => ['image_url' => 'https://x/sec.jpg', 'background_image' => 'https://x/sec-bg.jpg']],
+                ['component' => 'logos',        'props' => ['items' => [['image_url' => 'https://x/logo.jpg']]]],
+                ['component' => 'grid',         'props' => ['items' => [['image_url' => 'https://x/grid.jpg']]]],
+                ['component' => 'testimonials', 'props' => ['items' => [['image_url' => 'https://x/avatar.jpg']]]],
             ],
         ];
-        $ok = pp_update_composition($post_id, [
-            ['component' => 'hero', 'id' => 'pp-11aa22bb',
-             'props' => ['title' => 'Hello'], 'udc' => $udc],
-        ]);
-        $this->assertTrue($ok === true || (is_array($ok) && ($ok['ok'] ?? false)), 'the udc write must be accepted');
-
-        // Persisted as authored.
-        $stored = pp_get_composition($post_id);
-        $this->assertSame('#ff5c2e', $stored[0]['udc']['cta']['background']['fill']);
-        $this->assertSame('#101828', $stored[0]['udc']['cta-secondary']['background']['fill']);
-
-        // A bad colour is refused on the same parameter.
-        $bad = pp_udc_validate_map(['cta' => ['background' => ['fill' => 'not-a-colour']]], 'hero');
-        $this->assertInstanceOf(WP_Error::class, $bad);
-
-        // INDEPENDENCE: the primary's fill reaches its own selector and not the second's.
-        $css = pp_udc_band_css(pp_udc_normalize_band($stored[0]));
-        // Slice exactly ONE rule — to its own closing brace — or the window spills into
-        // the next selector and the isolation assertion reads the sibling's colour.
-        $start   = strpos($css, '.hero__cta--primary{');
-        $this->assertNotFalse($start, 'the primary CTA role must emit a rule');
-        $primary = substr($css, $start, strpos($css, '}', $start) - $start);
-        $this->assertStringContainsString('#ff5c2e', $primary);
-        $this->assertStringNotContainsString('#101828', $primary, 'the second CTA\'s fill must not reach the primary');
+        $urls = _pp_extract_urls_from_params($params);
+        sort($urls);
+        $expected = [
+            'https://x/avatar.jpg', 'https://x/cta.jpg', 'https://x/grid.jpg',
+            'https://x/hero.jpg', 'https://x/logo.jpg', 'https://x/sec-bg.jpg',
+            'https://x/sec.jpg', 'https://x/stats.jpg',
+        ];
+        $this->assertSame($expected, $urls);
     }
 
+    public function testPreviewRejectsInvalidMediaUrlIdenticallyToExecute(): void
+    {
+        // Regression for issue 130: a proposal preview must not show a clean
+        // diff for a step guaranteed to fail at execute — both must reject a
+        // hallucinated/typo'd uploads URL with the same error, because both
+        // pp_preview_action() and pp_execute_action() route through the same
+        // pp_validate_action() gate. No page is created — the media-URL
+        // check runs before the action's own semantic validate (which is
+        // where a real post_id would otherwise be required), so this proves
+        // preview fails at the same point execute does, not just eventually.
+        $params = [
+            'post_id'         => 999999,
+            'component_index' => 0,
+            'props'           => ['image_url' => 'https://example.com/wp-content/uploads/2026/06/hero-imge.png'],
+        ];
+
+        $preview = pp_preview_action('update_component', $params);
+        $execute = pp_execute_action('update_component', $params);
+
+        $this->assertInstanceOf(WP_Error::class, $preview);
+        $this->assertSame('invalid_media_url', $preview->get_error_code());
+        $this->assertFalse($execute['ok']);
+        $this->assertSame($preview->get_error_message(), $execute['error']);
+    }
+
+    // ── Preview tests ──────────────────────────────────────────────────────
+
+    public function testPreviewNeverWrites(): void
+    {
+        $id = pp_create_page('Preview Test', 'draft');
+        pp_update_composition($id, [
+            ['component' => 'hero', 'props' => ['title' => 'Before']],
+        ]);
+
+        $preview = pp_preview_action('update_component', [
+            'post_id'         => $id,
+            'component_index' => 0,
+            'props'           => ['title' => 'After'],
+        ]);
+        $this->assertIsArray($preview);
+        $this->assertTrue($preview['ok']);
+        $this->assertEquals('Before', $preview['before']['title']);
+        $this->assertEquals('After', $preview['after']['title']);
+
+        // Verify no write occurred
+        $comp = pp_get_composition($id);
+        $this->assertEquals('Before', $comp[0]['props']['title']);
+    }
+
+    public function testPreviewReturnsErrorOnInvalidParams(): void
+    {
+        $result = pp_preview_action('create_page', []);
+        $this->assertInstanceOf(WP_Error::class, $result);
+    }
+
+    // ── Canonical result shape tests ───────────────────────────────────────
+
+    public function testExecuteResultShapeOnSuccess(): void
+    {
+        $result = pp_execute_action('create_page', ['title' => 'Shape Test']);
+        $this->assertArrayHasKey('ok', $result);
+        $this->assertArrayHasKey('action', $result);
+        $this->assertArrayHasKey('scope', $result);
+        $this->assertArrayHasKey('target', $result);
+        $this->assertArrayHasKey('changes', $result);
+        $this->assertArrayHasKey('error', $result);
+        $this->assertTrue($result['ok']);
+        $this->assertNull($result['error']);
+    }
+
+    public function testExecuteResultShapeOnFailure(): void
+    {
+        $result = pp_execute_action('create_page', ['title' => '']);
+        $this->assertArrayHasKey('ok', $result);
+        $this->assertFalse($result['ok']);
+        $this->assertIsString($result['error']);
+    }
+
+    // ── Action: trash_page ────────────────────────────────────────────────
+
+    public function testTrashPageExecute(): void
+    {
+        $id = pp_create_page('Trash Me', 'publish');
+        $result = pp_execute_action('trash_page', ['post_id' => $id]);
+        $this->assertTrue($result['ok']);
+        $this->assertEquals('trash_page', $result['action']);
+        $this->assertEquals('page', $result['scope']);
+        $this->assertEquals('trash', $GLOBALS['_pp_test_store']['posts'][$id]['post_status']);
+        $change = $result['changes'][0];
+        $this->assertEquals('publish', $change['from']);
+        $this->assertEquals('trash', $change['to']);
+    }
+
+    public function testTrashPageRejectsAlreadyTrashed(): void
+    {
+        $id = pp_create_page('Already Trashed', 'draft');
+        $GLOBALS['_pp_test_store']['posts'][$id]['post_status'] = 'trash';
+        $result = pp_execute_action('trash_page', ['post_id' => $id]);
+        $this->assertFalse($result['ok']);
+        $this->assertStringContainsString('already in the trash', $result['error']);
+    }
+
+    public function testTrashPageRejectsNonexistent(): void
+    {
+        $result = pp_execute_action('trash_page', ['post_id' => 99999]);
+        $this->assertFalse($result['ok']);
+        $this->assertStringContainsString('not found', $result['error']);
+    }
+
+    public function testTrashPageRejectsNonPagePostType(): void
+    {
+        // Regression (#131 adversarial review): trash_page/restore_page/
+        // unpublish_page only checked get_post()/post_status, not
+        // post_type, so a caller with delete_post rights on a regular
+        // blog post (not a page) could trash it through this "page" action.
+        $GLOBALS['_pp_test_store']['posts'][51] = [
+            'post_type'   => 'post',
+            'post_status' => 'publish',
+        ];
+        $result = pp_execute_action('trash_page', ['post_id' => 51]);
+        $this->assertFalse($result['ok']);
+        $this->assertStringContainsString('not a page', $result['error']);
+    }
+
+    public function testTrashPagePreview(): void
+    {
+        $id = pp_create_page('Preview Trash', 'publish');
+        $result = pp_preview_action('trash_page', ['post_id' => $id]);
+        $this->assertTrue($result['ok']);
+        $this->assertEquals('publish', $result['before']);
+        $this->assertEquals('trash', $result['after']);
+        // Page should still be published after preview
+        $this->assertEquals('publish', $GLOBALS['_pp_test_store']['posts'][$id]['post_status']);
+    }
+
+    // ── Action: restore_page ──────────────────────────────────────────────
+
+    public function testRestorePageExecute(): void
+    {
+        $id = pp_create_page('Restore Me', 'draft');
+        pp_execute_action('trash_page', ['post_id' => $id]);
+        $this->assertEquals('trash', $GLOBALS['_pp_test_store']['posts'][$id]['post_status']);
+
+        $result = pp_execute_action('restore_page', ['post_id' => $id]);
+        $this->assertTrue($result['ok']);
+        $this->assertEquals('restore_page', $result['action']);
+        $this->assertNotEquals('trash', $GLOBALS['_pp_test_store']['posts'][$id]['post_status']);
+        $change = $result['changes'][0];
+        $this->assertEquals('trash', $change['from']);
+    }
+
+    public function testRestorePageRejectsNotTrashed(): void
+    {
+        $id = pp_create_page('Not Trashed', 'draft');
+        $result = pp_execute_action('restore_page', ['post_id' => $id]);
+        $this->assertFalse($result['ok']);
+        $this->assertStringContainsString('not in the trash', $result['error']);
+    }
+
+    public function testRestorePageRejectsNonPagePostType(): void
+    {
+        $GLOBALS['_pp_test_store']['posts'][52] = [
+            'post_type'   => 'post',
+            'post_status' => 'trash',
+        ];
+        $result = pp_execute_action('restore_page', ['post_id' => 52]);
+        $this->assertFalse($result['ok']);
+        $this->assertStringContainsString('not a page', $result['error']);
+    }
+
+    public function testRestorePageRejectsNonexistent(): void
+    {
+        $result = pp_execute_action('restore_page', ['post_id' => 99999]);
+        $this->assertFalse($result['ok']);
+        $this->assertStringContainsString('not found', $result['error']);
+    }
+
+    public function testRestorePagePreview(): void
+    {
+        // Mirrors testTrashPagePreview/testUnpublishPagePreview — restore_page
+        // was the one action of the three missing preview coverage (issue 16).
+        $id = pp_create_page('Preview Restore', 'draft');
+        pp_execute_action('trash_page', ['post_id' => $id]);
+        $this->assertEquals('trash', $GLOBALS['_pp_test_store']['posts'][$id]['post_status']);
+
+        $result = pp_preview_action('restore_page', ['post_id' => $id]);
+        $this->assertTrue($result['ok']);
+        $this->assertEquals('trash', $result['before']);
+        $this->assertEquals('draft', $result['after']);
+        // Page should still be in the trash after preview.
+        $this->assertEquals('trash', $GLOBALS['_pp_test_store']['posts'][$id]['post_status']);
+    }
+
+    // ── Action: unpublish_page ────────────────────────────────────────────
+
+    public function testUnpublishPageExecute(): void
+    {
+        $id = pp_create_page('Unpublish Me', 'publish');
+        $result = pp_execute_action('unpublish_page', ['post_id' => $id]);
+        $this->assertTrue($result['ok']);
+        $this->assertEquals('unpublish_page', $result['action']);
+        $this->assertEquals('draft', $GLOBALS['_pp_test_store']['posts'][$id]['post_status']);
+        $change = $result['changes'][0];
+        $this->assertEquals('publish', $change['from']);
+        $this->assertEquals('draft', $change['to']);
+    }
+
+    public function testUnpublishPageRejectsNonPublished(): void
+    {
+        $id = pp_create_page('Draft Page', 'draft');
+        $result = pp_execute_action('unpublish_page', ['post_id' => $id]);
+        $this->assertFalse($result['ok']);
+        $this->assertStringContainsString('not published', $result['error']);
+    }
+
+    public function testUnpublishPageRejectsNonexistent(): void
+    {
+        $result = pp_execute_action('unpublish_page', ['post_id' => 99999]);
+        $this->assertFalse($result['ok']);
+        $this->assertStringContainsString('not found', $result['error']);
+    }
+
+    public function testUnpublishPageRejectsNonPagePostType(): void
+    {
+        $GLOBALS['_pp_test_store']['posts'][53] = [
+            'post_type'   => 'post',
+            'post_status' => 'publish',
+        ];
+        $result = pp_execute_action('unpublish_page', ['post_id' => 53]);
+        $this->assertFalse($result['ok']);
+        $this->assertStringContainsString('not a page', $result['error']);
+    }
+
+    public function testUnpublishPagePreview(): void
+    {
+        $id = pp_create_page('Preview Unpublish', 'publish');
+        $result = pp_preview_action('unpublish_page', ['post_id' => $id]);
+        $this->assertTrue($result['ok']);
+        $this->assertEquals('publish', $result['before']);
+        $this->assertEquals('draft', $result['after']);
+        // Page should still be published after preview
+        $this->assertEquals('publish', $GLOBALS['_pp_test_store']['posts'][$id]['post_status']);
+    }
+
+    // ── Page existence validation ─────────────────────────────────────────
+
+    public function testPageExistenceHelperRejectsNonexistentPost(): void
+    {
+        $result = _pp_validate_page_exists(9999);
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertEquals('not_found', $result->get_error_code());
+    }
+
+    public function testPageExistenceHelperRejectsNonPagePostType(): void
+    {
+        $GLOBALS['_pp_test_store']['posts'][50] = [
+            'post_type'   => 'attachment',
+            'post_status' => 'inherit',
+        ];
+        $result = _pp_validate_page_exists(50);
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertEquals('not_a_page', $result->get_error_code());
+    }
+
+    public function testPageExistenceHelperAcceptsValidPage(): void
+    {
+        $id = pp_create_page('Valid Page');
+        $this->assertTrue(_pp_validate_page_exists($id));
+    }
+
+    public function testUpdatePageTitleRejectsNonexistentPage(): void
+    {
+        $result = pp_execute_action('update_page_title', ['post_id' => 9999, 'title' => 'New']);
+        $this->assertFalse($result['ok']);
+        $this->assertStringContainsString('not found', $result['error']);
+    }
+
+    public function testUpdateCompositionRejectsNonexistentPage(): void
+    {
+        $result = pp_execute_action('update_composition', ['post_id' => 9999, 'composition' => []]);
+        $this->assertFalse($result['ok']);
+        $this->assertStringContainsString('not found', $result['error']);
+    }
+
+    public function testAddComponentRejectsNonexistentPage(): void
+    {
+        $result = pp_execute_action('add_component', [
+            'post_id'   => 9999,
+            'component' => 'hero',
+            'props'     => ['title' => 'Test'],
+        ]);
+        $this->assertFalse($result['ok']);
+        $this->assertStringContainsString('not found', $result['error']);
+    }
+
+    public function testUpdateComponentRejectsNonexistentPage(): void
+    {
+        $result = pp_execute_action('update_component', [
+            'post_id'         => 9999,
+            'component_index' => 0,
+            'props'           => ['title' => 'Test'],
+        ]);
+        $this->assertFalse($result['ok']);
+        $this->assertStringContainsString('not found', $result['error']);
+    }
+
+    public function testRemoveComponentRejectsNonexistentPage(): void
+    {
+        $result = pp_execute_action('remove_component', [
+            'post_id'         => 9999,
+            'component_index' => 0,
+        ]);
+        $this->assertFalse($result['ok']);
+        $this->assertStringContainsString('not found', $result['error']);
+    }
+
+    public function testReorderComponentsRejectsNonexistentPage(): void
+    {
+        $result = pp_execute_action('reorder_components', [
+            'post_id' => 9999,
+            'order'   => [0],
+        ]);
+        $this->assertFalse($result['ok']);
+        $this->assertStringContainsString('not found', $result['error']);
+    }
+
+    public function testPublishPageRejectsNonexistentPage(): void
+    {
+        $result = pp_execute_action('publish_page', ['post_id' => 9999]);
+        $this->assertFalse($result['ok']);
+        $this->assertStringContainsString('not found', $result['error']);
+    }
+
+    // ── Composition normalization: SHAPE ONLY, no name aliases (#604) ────────
+    //
+    // pp_normalize_composition() no longer renames anything. The `type` -> `component`
+    // item-key alias is gone, and the retired `variant` prop and the 13-entry prop-key
+    // alias map were never rewritten on this path anyway (#388 / #604). What is left is
+    // one shape rule: an empty `style` array is stripped.
+
+    public function testNormalizeCompositionDoesNotRenameTypeToComponent(): void
+    {
+        // SUPERSEDES testNormalizeCompositionRenamesTypeToComponent (#604). `component`
+        // is the only key that names a component. A `type`-keyed item is left exactly as
+        // it arrived so the validator can reject it by name, instead of the normalizer
+        // absorbing a hallucinated key and denying the author the correction.
+        $raw = [
+            ['type' => 'hero', 'props' => ['title' => 'Hello']],
+            ['type' => 'section', 'props' => ['title' => 'About']],
+        ];
+        $normalized = pp_normalize_composition($raw);
+
+        $this->assertSame($raw, $normalized, 'a type-keyed item passes through untouched');
+        $this->assertArrayNotHasKey('component', $normalized[0], 'no component key is manufactured');
+    }
+
+    public function testTypeKeyedItemIsRejectedByName(): void
+    {
+        // The validator's own rule, pinned as the counterpart the normalizer no longer
+        // masks. pp_validate_composition() never ran pp_normalize_composition(), so this
+        // rejection predates #604 — what changed is that nothing rewrites the item
+        // before it gets here any more, so the rule is now what callers actually meet.
+        // The tests that discriminate on the REMOVAL are
+        // testNormalizeCompositionDoesNotRenameTypeToComponent and the two
+        // create_page/update_composition authoring-path pins below.
+        $result = pp_validate_composition([['type' => 'hero', 'props' => ['title' => 'Hello']]]);
+
+        $this->assertInstanceOf(\WP_Error::class, $result);
+        $this->assertSame('invalid_composition', $result->get_error_code());
+        $this->assertStringContainsString('component', $result->get_error_message());
+    }
+
+    public function testNormalizeCompositionPreservesCanonicalComponent(): void
+    {
+        $raw = [
+            ['component' => 'hero', 'props' => ['title' => 'Hello']],
+        ];
+        $normalized = pp_normalize_composition($raw);
+        $this->assertEquals('hero', $normalized[0]['component']);
+    }
+
+    public function testNormalizeCompositionPreservesProps(): void
+    {
+        $raw = [
+            ['component' => 'hero', 'props' => ['title' => 'Welcome', 'layout' => 'split', 'image_url' => 'https://example.com/photo.jpg']],
+        ];
+        $normalized = pp_normalize_composition($raw);
+        $this->assertEquals('Welcome', $normalized[0]['props']['title']);
+        $this->assertEquals('split', $normalized[0]['props']['layout']);
+        $this->assertEquals('https://example.com/photo.jpg', $normalized[0]['props']['image_url']);
+    }
+
+    public function testNormalizeCompositionDoesNotMigrateVariant(): void
+    {
+        // #388, and now unconditionally true (#604): NOTHING migrates `variant`, on any
+        // path. The retired key is left in place so pp_validate_composition() rejects it
+        // as unknown_prop. Before #604 the read/restore paths still decoded it; that
+        // asymmetry — rejected at write, accepted at read — is what the removal ended.
+        $raw = [
+            ['component' => 'hero', 'props' => ['title' => 'Hi', 'variant' => 'split']],
+        ];
+        $normalized = pp_normalize_composition($raw);
+        $this->assertArrayHasKey('variant', $normalized[0]['props'], 'the retired variant key is left untouched');
+        $this->assertSame('split', $normalized[0]['props']['variant']);
+        $this->assertArrayNotHasKey('layout', $normalized[0]['props'], 'no layout is synthesized from variant');
+    }
+
+    public function testNormalizeCompositionHandlesEmptyArray(): void
+    {
+        $this->assertEquals([], pp_normalize_composition([]));
+    }
+
+    public function testCreatePageRejectsATypeKeyedComposition(): void
+    {
+        // SUPERSEDES testCreatePageExecutesWithTypeKeyInComposition (#604). The T4
+        // failure mode this originally absorbed — an AI sending `type` instead of
+        // `component` — is now surfaced to the author rather than silently repaired.
+        $result = pp_execute_action('create_page', [
+            'title' => 'Portfolio',
+            'composition' => [
+                ['type' => 'hero', 'props' => ['title' => 'Our Work', 'layout' => 'split']],
+            ],
+        ]);
+
+        $this->assertFalse($result['ok'], 'a type-keyed item must be rejected, not absorbed');
+        $this->assertSame('invalid_composition', $result['error_code']);
+        $this->assertStringContainsString('component', $result['error']);
+    }
+
+    public function testUpdateCompositionRejectsATypeKeyedComposition(): void
+    {
+        $GLOBALS['_pp_test_store']['posts'][70] = [
+            'post_type'   => 'page',
+            'post_title'  => 'Test Page',
+            'post_status' => 'publish',
+        ];
+        $GLOBALS['_pp_test_store']['post_meta'][70]['_pp_composition'] = '[]';
+
+        $result = pp_execute_action('update_composition', [
+            'post_id' => 70,
+            'composition' => [
+                ['type' => 'section', 'props' => ['title' => 'About', 'body' => '<p>Our story.</p>']],
+            ],
+        ]);
+
+        $this->assertFalse($result['ok']);
+        $this->assertSame('invalid_composition', $result['error_code']);
+        // The rejected write stored nothing.
+        $this->assertSame('[]', $GLOBALS['_pp_test_store']['post_meta'][70]['_pp_composition']);
+    }
+
+    public function testCreatePageDescriptionMentionsCompositionSchema(): void
+    {
+        $actions = pp_get_registered_actions();
+        $desc = $actions['create_page']['description'];
+        $this->assertStringContainsString('"component"', $desc);
+        $this->assertStringContainsString('"props"', $desc);
+    }
+
+    // ── Stable ID Generation ────────────────────────────────────────────────
+
+    public function testUpdateCompositionAssignsIdsToEntriesWithout(): void
+    {
+        $post_id = wp_insert_post(['post_type' => 'page', 'post_title' => 'ID Test', 'post_status' => 'draft']);
+        $composition = [
+            ['component' => 'hero', 'props' => ['title' => 'Hello']],
+            ['component' => 'section', 'props' => ['body' => 'World']],
+        ];
+
+        pp_update_composition($post_id, $composition);
+        $stored = pp_get_composition($post_id);
+
+        $this->assertNotEmpty($stored[0]['props']['id'], 'Hero should have auto-assigned ID.');
+        $this->assertNotEmpty($stored[1]['props']['id'], 'Section should have auto-assigned ID.');
+        $this->assertStringStartsWith('pp-', $stored[0]['props']['id']);
+        $this->assertStringStartsWith('pp-', $stored[1]['props']['id']);
+    }
+
+    public function testUpdateCompositionPreservesExplicitIds(): void
+    {
+        $post_id = wp_insert_post(['post_type' => 'page', 'post_title' => 'Preserve Test', 'post_status' => 'draft']);
+        $composition = [
+            ['component' => 'hero', 'props' => ['title' => 'Hello', 'id' => 'my-hero']],
+            ['component' => 'section', 'props' => ['body' => 'World']],
+        ];
+
+        pp_update_composition($post_id, $composition);
+        $stored = pp_get_composition($post_id);
+
+        $this->assertEquals('my-hero', $stored[0]['props']['id'], 'Explicit ID must be preserved.');
+        $this->assertNotEquals('my-hero', $stored[1]['props']['id'], 'Section should get a different auto ID.');
+    }
+
+    public function testUpdateCompositionGeneratesUniqueIds(): void
+    {
+        $post_id = wp_insert_post(['post_type' => 'page', 'post_title' => 'Unique Test', 'post_status' => 'draft']);
+        $composition = [
+            ['component' => 'section', 'props' => ['body' => 'A']],
+            ['component' => 'section', 'props' => ['body' => 'B']],
+            ['component' => 'section', 'props' => ['body' => 'C']],
+        ];
+
+        pp_update_composition($post_id, $composition);
+        $stored = pp_get_composition($post_id);
+
+        $ids = array_map(fn($item) => $item['props']['id'], $stored);
+        $this->assertCount(3, array_unique($ids), 'All auto-generated IDs must be unique.');
+    }
+
+    public function testAddComponentFlowAssignsId(): void
+    {
+        // Create a page with one component
+        $result = pp_execute_action('create_page', [
+            'title' => 'Add Test',
+            'composition' => [
+                ['component' => 'hero', 'props' => ['title' => 'Hello']],
+            ],
+        ]);
+        $this->assertTrue($result['ok']);
+        $post_id = $result['target']['post_id'];
+
+        // Add another component
+        $result2 = pp_execute_action('add_component', [
+            'post_id'  => $post_id,
+            'component' => 'section',
+            'props'    => ['body' => 'New section'],
+        ]);
+        $this->assertTrue($result2['ok']);
+
+        $stored = pp_get_composition($post_id);
+        $this->assertCount(2, $stored);
+        $this->assertNotEmpty($stored[0]['props']['id'], 'Hero should have ID after add_component flow.');
+        $this->assertNotEmpty($stored[1]['props']['id'], 'New section should have ID after add_component flow.');
+    }
+
+    // ── _pp_resolve_id_param tests ────────────────────────────────────────
+
+    private function createPageWithIdComponents(): int
+    {
+        $result = pp_execute_action('create_page', [
+            'title' => 'ID Test Page',
+            'composition' => [
+                ['component' => 'hero', 'props' => ['title' => 'Hello']],
+                ['component' => 'section', 'props' => ['body' => 'World']],
+            ],
+        ]);
+        return $result['target']['post_id'];
+    }
+
+    public function testResolveIdParamWithComponentId(): void
+    {
+        $post_id = $this->createPageWithIdComponents();
+        $composition = pp_get_composition($post_id);
+        $hero_id = $composition[0]['props']['id'];
+
+        $params = ['post_id' => $post_id, 'component_id' => $hero_id, 'props' => ['title' => 'Changed']];
+        $result = _pp_resolve_id_param($params, $post_id);
+        $this->assertTrue($result);
+        $this->assertSame(0, $params['component_index']);
+    }
+
+    public function testResolveIdParamWithComponentIdNotFound(): void
+    {
+        $post_id = $this->createPageWithIdComponents();
+        $params = ['post_id' => $post_id, 'component_id' => 'pp-notexist', 'props' => ['title' => 'Changed']];
+        $result = _pp_resolve_id_param($params, $post_id);
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertSame('component_not_found', $result->get_error_code());
+    }
+
+    public function testResolveIdParamWithComponentIndex(): void
+    {
+        $post_id = $this->createPageWithIdComponents();
+        $params = ['post_id' => $post_id, 'component_index' => 1, 'props' => ['body' => 'Changed']];
+        $result = _pp_resolve_id_param($params, $post_id);
+        $this->assertTrue($result);
+        $this->assertSame(1, $params['component_index']);
+    }
+
+    public function testResolveIdParamWithBothIdWins(): void
+    {
+        $post_id = $this->createPageWithIdComponents();
+        $composition = pp_get_composition($post_id);
+        $section_id = $composition[1]['props']['id'];
+
+        $params = ['post_id' => $post_id, 'component_id' => $section_id, 'component_index' => 0, 'props' => ['body' => 'Changed']];
+        $result = _pp_resolve_id_param($params, $post_id);
+        $this->assertTrue($result);
+        $this->assertSame(1, $params['component_index'], 'component_id should win over component_index');
+    }
+
+    public function testResolveIdParamWithNeitherFails(): void
+    {
+        $params = ['post_id' => 1, 'props' => ['title' => 'Changed']];
+        $result = _pp_resolve_id_param($params, 1);
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertSame('missing_component_target', $result->get_error_code());
+    }
+
+    // ── component_id integration tests ────────────────────────────────────
+
+    public function testUpdateComponentWithComponentId(): void
+    {
+        $post_id = $this->createPageWithIdComponents();
+        $composition = pp_get_composition($post_id);
+        $hero_id = $composition[0]['props']['id'];
+
+        $result = pp_execute_action('update_component', [
+            'post_id'      => $post_id,
+            'component_id' => $hero_id,
+            'props'        => ['title' => 'Updated via ID'],
+        ]);
+        $this->assertTrue($result['ok']);
+        $updated = pp_get_composition($post_id);
+        $this->assertSame('Updated via ID', $updated[0]['props']['title']);
+    }
+
+    public function testUpdateComponentWithInvalidComponentId(): void
+    {
+        $post_id = $this->createPageWithIdComponents();
+        $result = pp_execute_action('update_component', [
+            'post_id'      => $post_id,
+            'component_id' => 'pp-badid000',
+            'props'        => ['title' => 'Should fail'],
+        ]);
+        $this->assertFalse($result['ok']);
+        $this->assertStringContainsString('pp-badid000', $result['error']);
+    }
+
+    public function testUpdateComponentBackwardCompatIndex(): void
+    {
+        $post_id = $this->createPageWithIdComponents();
+        $result = pp_execute_action('update_component', [
+            'post_id'         => $post_id,
+            'component_index' => 0,
+            'props'           => ['title' => 'Via index'],
+        ]);
+        $this->assertTrue($result['ok']);
+        $updated = pp_get_composition($post_id);
+        $this->assertSame('Via index', $updated[0]['props']['title']);
+    }
+
+    public function testRemoveComponentWithComponentId(): void
+    {
+        $post_id = $this->createPageWithIdComponents();
+        $composition = pp_get_composition($post_id);
+        $section_id = $composition[1]['props']['id'];
+
+        $result = pp_execute_action('remove_component', [
+            'post_id'      => $post_id,
+            'component_id' => $section_id,
+        ]);
+        $this->assertTrue($result['ok']);
+        $updated = pp_get_composition($post_id);
+        $this->assertCount(1, $updated);
+        $this->assertSame('hero', $updated[0]['component']);
+    }
+
+    public function testRemoveComponentWithInvalidComponentId(): void
+    {
+        $post_id = $this->createPageWithIdComponents();
+        $result = pp_execute_action('remove_component', [
+            'post_id'      => $post_id,
+            'component_id' => 'pp-badid000',
+        ]);
+        $this->assertFalse($result['ok']);
+    }
+
+    public function testRemoveComponentBackwardCompatIndex(): void
+    {
+        $post_id = $this->createPageWithIdComponents();
+        $result = pp_execute_action('remove_component', [
+            'post_id'         => $post_id,
+            'component_index' => 0,
+        ]);
+        $this->assertTrue($result['ok']);
+        $updated = pp_get_composition($post_id);
+        $this->assertCount(1, $updated);
+        $this->assertSame('section', $updated[0]['component']);
+    }
+
+    // ── Coverage gap tests (generated by /ship Step 7) ─────────────────────
+
+    public function testResolveIdParamWithEmptyStringComponentId(): void
+    {
+        $post_id = $this->createPageWithIdComponents();
+        // Empty string component_id should be treated as "not provided"
+        $params = ['post_id' => $post_id, 'component_id' => '', 'component_index' => 0, 'props' => ['title' => 'Changed']];
+        $result = _pp_resolve_id_param($params, $post_id);
+        // Should fall through to component_index since component_id is empty
+        $this->assertTrue($result);
+        $this->assertSame(0, $params['component_index']);
+    }
+
+    public function testUpdateComponentPreviewWithComponentId(): void
+    {
+        $post_id = $this->createPageWithIdComponents();
+        $composition = pp_get_composition($post_id);
+        $hero_id = $composition[0]['props']['id'];
+
+        $result = pp_preview_action('update_component', [
+            'post_id'      => $post_id,
+            'component_id' => $hero_id,
+            'props'        => ['title' => 'Preview Title'],
+        ]);
+        $this->assertIsArray($result);
+        $this->assertSame('update_component', $result['action']);
+        $this->assertArrayHasKey('before', $result);
+        $this->assertArrayHasKey('after', $result);
+        // Verify no actual write
+        $unchanged = pp_get_composition($post_id);
+        $this->assertNotSame('Preview Title', $unchanged[0]['props']['title']);
+    }
+
+    public function testRemoveComponentPreviewWithComponentId(): void
+    {
+        $post_id = $this->createPageWithIdComponents();
+        $composition = pp_get_composition($post_id);
+        $section_id = $composition[1]['props']['id'];
+
+        $result = pp_preview_action('remove_component', [
+            'post_id'      => $post_id,
+            'component_id' => $section_id,
+        ]);
+        $this->assertIsArray($result);
+        $this->assertSame('remove_component', $result['action']);
+        // Verify no actual write
+        $unchanged = pp_get_composition($post_id);
+        $this->assertCount(2, $unchanged);
+    }
+
+    public function testUpdateComponentFullItemsArrayReplacement(): void
+    {
+        $post_id = pp_create_page('Items Replace Test', 'draft');
+        pp_update_composition($post_id, [
+            ['component' => 'grid', 'props' => [
+                'title' => 'Cards',
+                'items' => [
+                    ['title' => 'A', 'text' => 'Original A'],
+                    ['title' => 'B', 'text' => 'Original B'],
+                ],
+            ]],
+        ]);
+
+        // Patch with a full items array (one item changed, one unchanged)
+        $new_items = [
+            ['title' => 'A', 'text' => 'Updated A'],
+            ['title' => 'B', 'text' => 'Original B'],
+        ];
+        $result = pp_execute_action('update_component', [
+            'post_id'         => $post_id,
+            'component_index' => 0,
+            'props'           => ['items' => $new_items],
+        ]);
+        $this->assertTrue($result['ok']);
+
+        $comp = pp_get_composition($post_id);
+        $items = $comp[0]['props']['items'];
+        // items array should be fully replaced (shallow merge overwrites arrays)
+        $this->assertCount(2, $items);
+        $this->assertSame('Updated A', $items[0]['text']);
+        $this->assertSame('Original B', $items[1]['text']);
+        // title prop should be preserved (not in the patch)
+        $this->assertSame('Cards', $comp[0]['props']['title']);
+    }
+
+    // ── style_component action ───────────────────────────────────────────
+
+    public function testStyleComponentValidateAcceptsValidSlots(): void
+    {
+        $post_id = pp_create_page('Style test');
+        pp_update_composition($post_id, [
+            ['component' => 'section', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello']],
+        ]);
+
+        $result = pp_validate_action('style_component', [
+            'post_id'         => $post_id,
+            'component_index' => 0,
+            'style'           => ['--section-bg' => '#1a1a2e', '--section-padding-top' => '8rem'],
+        ]);
+        $this->assertTrue($result);
+    }
+
+    public function testStyleComponentRejectsUnknownSlot(): void
+    {
+        $post_id = pp_create_page('Style test');
+        pp_update_composition($post_id, [
+            ['component' => 'section', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello']],
+        ]);
+
+        $result = pp_validate_action('style_component', [
+            'post_id'         => $post_id,
+            'component_index' => 0,
+            'style'           => ['--section-display' => 'none'],
+        ]);
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertEquals('invalid_style_slot', $result->get_error_code());
+    }
+
+    public function testStyleComponentRejectsInvalidValue(): void
+    {
+        $post_id = pp_create_page('Style test');
+        pp_update_composition($post_id, [
+            ['component' => 'section', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello']],
+        ]);
+
+        $result = pp_validate_action('style_component', [
+            'post_id'         => $post_id,
+            'component_index' => 0,
+            'style'           => ['--section-bg' => 'not-a-color'],
+        ]);
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertEquals('invalid_style_value', $result->get_error_code());
+    }
+
+    public function testStyleComponentAcceptsTransparentAndVarReference(): void
+    {
+        // #230: the issue's style-slot examples — a transparent outline-button
+        // background, and a slot that follows the brand accent via var().
+        $post_id = pp_create_page('Style test');
+        pp_update_composition($post_id, [
+            ['component' => 'section', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello']],
+        ]);
+
+        $result = pp_validate_action('style_component', [
+            'post_id'         => $post_id,
+            'component_index' => 0,
+            'style'           => ['--section-panel-cta-bg' => 'transparent', '--section-heading-accent-color' => 'var(--color-accent)'],
+        ]);
+        $this->assertTrue($result);
+    }
+
+    public function testStyleComponentRejectsVarReferenceToUnknownToken(): void
+    {
+        $post_id = pp_create_page('Style test');
+        pp_update_composition($post_id, [
+            ['component' => 'section', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello']],
+        ]);
+
+        $result = pp_validate_action('style_component', [
+            'post_id'         => $post_id,
+            'component_index' => 0,
+            'style'           => ['--section-panel-cta-bg' => 'var(--nonexistent-token)'],
+        ]);
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertEquals('invalid_style_value', $result->get_error_code());
+    }
+
+    // ── #584 authoring path: the twelve new slots and the two new item props ──
+    //
+    // Section 14.1 (authoring-path mandate): a slot or prop that only ever gets exercised by
+    // raw _pp_composition meta writes has never met the validator that decides whether an
+    // agent can actually set it. Every family this issue completes goes through the REAL
+    // surface here — style_component for the slots, update_component for the item props —
+    // plus one reject branch each, because "accepted" is only meaningful against a
+    // demonstrated rejection.
+
+    public function testStyleComponentPersistsTheHeadingRhythmSlots(): void
+    {
+        // The six components that could not execute band fusing. Zero is the value the
+        // procedure actually asks for, so zero is the value authored here.
+        $cases = [
+            'section'   => ['--section-heading-margin-bottom'   => '0'],
+            'cta'    => ['--cta-heading-margin-bottom'    => '0'],
+            'stats'  => ['--stats-heading-margin-bottom'  => '0'],
+            'table'  => ['--table-heading-margin-bottom'  => '1.5rem'],
+            'embed'  => ['--embed-heading-margin-bottom'  => '0'],
+            'logos'  => ['--logos-heading-margin-bottom'  => '0'],
+        ];
+        $props = [
+            'section'  => ['title' => 'Hello'],
+            'cta'   => ['title' => 'Go', 'button_text' => 'Start', 'button_url' => '/start'],
+            'stats' => ['title' => 'Numbers', 'items' => [['number' => '10', 'label' => 'x']]],
+            'table' => ['title' => 'Plans', 'headers' => ['A'], 'rows' => [['1']]],
+            'embed' => ['title' => 'Embed', 'content' => '[shortcode]'],
+            'logos' => ['title' => 'Clients', 'items' => [['image_url' => 'a.png', 'image_alt' => 'A']]],
+        ];
+
+        foreach ($cases as $component => $style) {
+            $post_id = pp_create_page("Heading rhythm {$component}");
+            pp_update_composition($post_id, [
+                ['component' => $component, 'props' => $props[$component]],
+            ]);
+
+            $result = pp_execute_action('style_component', [
+                'post_id'         => $post_id,
+                'component_index' => 0,
+                'style'           => $style,
+            ]);
+            $this->assertTrue($result['ok'], "style_component must accept {$component}'s heading-rhythm slot.");
+
+            $comp = pp_get_composition($post_id);
+            foreach ($style as $slot => $value) {
+                $this->assertSame($value, $comp[0]['style'][$slot], "{$slot} must persist.");
+            }
+        }
+    }
+
+    public function testStyleComponentRejectsANonLengthHeadingRhythmValue(): void
+    {
+        $post_id = pp_create_page('Heading rhythm reject');
+        pp_update_composition($post_id, [
+            ['component' => 'logos', 'props' => [
+                'title' => 'Clients',
+                'items' => [['image_url' => 'a.png', 'image_alt' => 'A']],
+            ]],
+        ]);
+        $result = pp_validate_action('style_component', [
+            'post_id'         => $post_id,
+            'component_index' => 0,
+            'style'           => ['--logos-heading-margin-bottom' => 'medium-ish'],
+        ]);
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertSame('invalid_style_value', $result->get_error_code());
+    }
 
     public function testStyleComponentPersistsThePanelCtaRingSlots(): void
     {
@@ -3737,12 +4617,6 @@ class ActionsTest extends TestCase
         $this->assertTrue($result['ok']);
     }
 
-    // ── #526 hero cta2 fill slot (authoring-path mandate) ────────────────────
-
-
-    // ── #530 hover fill slots (authoring-path mandate) ───────────────────────
-
-
     /** The cta component's two hover fill slots author independently too (issue 530). */
     public function testStyleComponentPersistsCtaHoverFillSlotsIndependently(): void
     {
@@ -3789,7 +4663,6 @@ class ActionsTest extends TestCase
         ]);
         $this->assertInstanceOf(WP_Error::class, $result);
     }
-
 
     // ── #536 section panel-CTA fill slots (authoring-path mandate) ────────────
 
@@ -3944,7 +4817,7 @@ class ActionsTest extends TestCase
     {
         $post_id = pp_create_page('Style test');
         pp_update_composition($post_id, [
-            ['component' => 'section', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello', 'body' => 'Body text']],
+            ['component' => 'section', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello']],
         ]);
 
         // Set initial style.
@@ -3963,12 +4836,12 @@ class ActionsTest extends TestCase
         $result = pp_execute_action('style_component', [
             'post_id'         => $post_id,
             'component_index' => 0,
-            'style'           => ['--section-bg' => '#f0f4ff', '--section-heading-color' => '#f0f0f0'],
+            'style'           => ['--section-bg' => '#0d1117', '--section-heading-color' => '#f0f0f0'],
         ]);
         $this->assertTrue($result['ok']);
 
         $comp = pp_get_composition($post_id);
-        $this->assertSame('#f0f4ff', $comp[0]['style']['--section-bg']);
+        $this->assertSame('#0d1117', $comp[0]['style']['--section-bg']);
         $this->assertSame('#f0f0f0', $comp[0]['style']['--section-heading-color']);
         $this->assertSame('8rem', $comp[0]['style']['--section-padding-top']); // preserved
     }
@@ -3977,7 +4850,7 @@ class ActionsTest extends TestCase
     {
         $post_id = pp_create_page('Style test');
         pp_update_composition($post_id, [
-            ['component' => 'section', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello', 'body' => 'Body text'],
+            ['component' => 'section', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello'],
              'style' => ['--section-bg' => '#1a1a2e', '--section-padding-top' => '8rem']],
         ]);
 
@@ -3997,7 +4870,7 @@ class ActionsTest extends TestCase
     {
         $post_id = pp_create_page('Null validation test');
         pp_update_composition($post_id, [
-            ['component' => 'section', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello', 'body' => 'Body text'],
+            ['component' => 'section', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello'],
              'style' => ['--section-bg' => '#1a1a2e']],
         ]);
 
@@ -4050,7 +4923,7 @@ class ActionsTest extends TestCase
     {
         $post_id = pp_create_page('Style test');
         pp_update_composition($post_id, [
-            ['component' => 'section', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello', 'body' => 'Body text']],
+            ['component' => 'section', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello']],
         ]);
 
         $result = pp_execute_action('style_component', [
@@ -4114,7 +4987,7 @@ class ActionsTest extends TestCase
     {
         $post_id = pp_create_page('Recipe test');
         pp_update_composition($post_id, [
-            ['component' => 'section', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello', 'body' => 'Body text']],
+            ['component' => 'section', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello']],
         ]);
 
         $result = pp_validate_action('style_component', [
@@ -4135,7 +5008,7 @@ class ActionsTest extends TestCase
 
         $result = pp_inspect_composition($post_id);
         $this->assertArrayHasKey('available_recipes', $result[0]);
-        $this->assertCount(2, $result[0]['available_recipes']); // section ships 2 recipes
+        $this->assertCount(2, $result[0]['available_recipes']); // section has 2 recipes
         $this->assertSame('accent-panel', $result[0]['available_recipes'][0]['name']);
     }
 
@@ -4159,7 +5032,7 @@ class ActionsTest extends TestCase
     {
         $post_id = pp_create_page('Reject test');
         pp_update_composition($post_id, [
-            ['component' => 'section', 'props' => ['title' => 'Hi', 'body' => 'Body text']],
+            ['component' => 'section', 'props' => ['title' => 'Hi']],
         ]);
 
         // --section-bgs is one edit from --section-bg: exactly the case the removed
@@ -4187,7 +5060,7 @@ class ActionsTest extends TestCase
         // unchanged by the removal.
         $post_id = pp_create_page('Reject test');
         pp_update_composition($post_id, [
-            ['component' => 'section', 'props' => ['title' => 'Hi', 'body' => 'Body text']],
+            ['component' => 'section', 'props' => ['title' => 'Hi']],
         ]);
 
         $params = [
@@ -4224,7 +5097,7 @@ class ActionsTest extends TestCase
         // testPreviewStyleComponentBranchOnlyReportsTheValidatorVerdict.
         $post_id = pp_create_page('Happy path test');
         pp_update_composition($post_id, [
-            ['component' => 'section', 'props' => ['title' => 'Hi', 'body' => 'Body text']],
+            ['component' => 'section', 'props' => ['title' => 'Hi']],
         ]);
 
         $preview = pp_preview_action('style_component', [
@@ -4311,7 +5184,7 @@ class ActionsTest extends TestCase
     {
         $post_id = pp_create_page('Error test');
         pp_update_composition($post_id, [
-            ['component' => 'section', 'props' => ['title' => 'Hi', 'body' => 'Body text']],
+            ['component' => 'section', 'props' => ['title' => 'Hi']],
         ]);
 
         $error  = new WP_Error('invalid_style_slot', 'Component "section" has no style slot "--section-display". Available: --section-bg, ...');
@@ -4331,7 +5204,7 @@ class ActionsTest extends TestCase
     {
         $post_id = pp_create_page('Error test');
         pp_update_composition($post_id, [
-            ['component' => 'section', 'props' => ['title' => 'Hi', 'body' => 'Body text']],
+            ['component' => 'section', 'props' => ['title' => 'Hi']],
         ]);
 
         $error  = new WP_Error('invalid_style_value', 'Style slot "--section-bg": Value must be a valid CSS color...');
@@ -4362,7 +5235,7 @@ class ActionsTest extends TestCase
     {
         $post_id = pp_create_page('Error test');
         pp_update_composition($post_id, [
-            ['component' => 'section', 'props' => ['title' => 'Hi', 'body' => 'Body text']],
+            ['component' => 'section', 'props' => ['title' => 'Hi']],
         ]);
 
         $error  = new WP_Error('invalid_recipe', 'Component "section" has no recipe "dark-blue". Available: dark-spacious, compact, bold-headline');
@@ -4384,7 +5257,7 @@ class ActionsTest extends TestCase
         $post_id = pp_create_page('Id Error test');
         pp_update_composition($post_id, [
             ['component' => 'nav', 'props' => []],
-            ['component' => 'section', 'props' => ['id' => 'pp-a1b2c3d4', 'title' => 'Hi', 'body' => 'Body text']],
+            ['component' => 'section', 'props' => ['id' => 'pp-a1b2c3d4', 'title' => 'Hi']],
         ]);
 
         $error  = new WP_Error('invalid_style_slot', 'Component "section" has no style slot "--section-bgg". Available: --section-bg, ...');
@@ -4410,7 +5283,7 @@ class ActionsTest extends TestCase
         $post_id = pp_create_page('Precedence test');
         pp_update_composition($post_id, [
             ['component' => 'nav', 'props' => []],
-            ['component' => 'section', 'props' => ['id' => 'pp-a1b2c3d4', 'title' => 'Hi', 'body' => 'Body text']],
+            ['component' => 'section', 'props' => ['id' => 'pp-a1b2c3d4', 'title' => 'Hi']],
         ]);
 
         $error  = new WP_Error('invalid_style_slot', 'Component "section" has no style slot "--section-bgs". Available: --section-bg, ...');
@@ -4476,7 +5349,7 @@ class ActionsTest extends TestCase
         $post_id = pp_create_page('Id Recipe Error test');
         pp_update_composition($post_id, [
             ['component' => 'nav', 'props' => []],
-            ['component' => 'section', 'props' => ['id' => 'pp-a1b2c3d4', 'title' => 'Hi', 'body' => 'Body text']],
+            ['component' => 'section', 'props' => ['id' => 'pp-a1b2c3d4', 'title' => 'Hi']],
         ]);
 
         $error  = new WP_Error('invalid_recipe', 'Component "section" has no recipe "dark-blue". Available: dark-spacious, compact, bold-headline');
@@ -4486,7 +5359,7 @@ class ActionsTest extends TestCase
         ]);
 
         $this->assertSame('invalid_recipe', $result['error_code']);
-        $this->assertNotEmpty($result['alternatives'], 'Should list hero recipes, not fail as if nav (index 0) had none.');
+        $this->assertNotEmpty($result['alternatives'], 'Should list section recipes, not fail as if nav (index 0) had none.');
     }
 
     public function testFriendlyErrorResolvesComponentIdForInvalidStyleValue(): void
@@ -4494,7 +5367,7 @@ class ActionsTest extends TestCase
         $post_id = pp_create_page('Id Value Error test');
         pp_update_composition($post_id, [
             ['component' => 'nav', 'props' => []],
-            ['component' => 'section', 'props' => ['id' => 'pp-a1b2c3d4', 'title' => 'Hi', 'body' => 'Body text']],
+            ['component' => 'section', 'props' => ['id' => 'pp-a1b2c3d4', 'title' => 'Hi']],
         ]);
 
         $error  = new WP_Error('invalid_style_value', 'Style slot "--section-bg": Value must be a valid CSS color...');
@@ -4724,7 +5597,7 @@ class ActionsTest extends TestCase
     {
         $post_id = pp_create_page('Bounds baseline');
         pp_update_composition($post_id, [
-            ['component' => 'section', 'props' => ['title' => 'Hi', 'body' => 'Body text']],
+            ['component' => 'section', 'props' => ['title' => 'Hi']],
         ]);
 
         $params = [
@@ -4788,7 +5661,10 @@ class ActionsTest extends TestCase
                 $widest_name  = $component;
             }
         }
-        $this->assertNotSame('grid', $widest_name, 'The target below must differ from the source.');
+        // The fixture must not BE the widest component, or the "aimed at a different
+        // component" premise collapses. `section` became the widest once hero moved to
+        // the UDC and declared no slots (#986), so the fixture is `cta`.
+        $this->assertNotSame('cta', $widest_name, 'The target below must differ from the source.');
 
         $style = [];
         foreach (array_keys($widest_slots) as $slot) {
@@ -4797,11 +5673,11 @@ class ActionsTest extends TestCase
 
         $post_id = pp_create_page('Widest component map');
         pp_update_composition($post_id, [
-            ['component' => 'grid', 'props' => ['title' => 'Hi', 'items' => [['title' => 'A']]]],
+            ['component' => 'cta', 'props' => ['title' => 'Hi', 'button_text' => 'Go', 'button_url' => '/x']],
         ]);
 
         $result = _pp_build_friendly_error(
-            new WP_Error('invalid_style_slot', 'Component "section" has no style slot.'),
+            new WP_Error('invalid_style_slot', 'Component "cta" has no style slot.'),
             ['post_id' => $post_id, 'component_index' => 0, 'style' => $style]
         );
 
@@ -4847,15 +5723,18 @@ class ActionsTest extends TestCase
         // work the cap exists to avoid.
         $post_id = pp_create_page('Beyond the bound');
         pp_update_composition($post_id, [
-            ['component' => 'grid', 'props' => ['title' => 'Hi', 'items' => [['title' => 'A']]]],
+            ['component' => 'section', 'props' => ['title' => 'Hi']],
         ]);
 
         $style = [];
         for ($i = 0; $i < PP_CROSS_COMPONENT_HINT_MAX; $i++) {
             $style['--zz-unknown-' . $i] = '1rem';
         }
-        // Real slots on another component, positioned past the bound.
-        $tail = array_slice(array_keys(pp_get_style_slots('section')), 0, 5);
+        // Real slots on another component, positioned past the bound. `cta`, not the
+        // fixture's own `section`: a slot the fixture component itself declares is
+        // valid, so it would never be a hint candidate in the first place and the
+        // bound would not be what excluded it.
+        $tail = array_slice(array_keys(pp_get_style_slots('cta')), 0, 5);
         foreach ($tail as $slot) {
             $style[$slot] = '1rem';
         }
@@ -5050,7 +5929,7 @@ class ActionsTest extends TestCase
     {
         $post_id = pp_create_page('CSS keyword test');
         pp_update_composition($post_id, [
-            ['component' => 'section', 'props' => ['title' => 'Hi', 'body' => 'Body text']],
+            ['component' => 'section', 'props' => ['title' => 'Hi']],
         ]);
 
         $error  = new WP_Error('invalid_style_value', 'Style slot "--section-bg": Value must be a valid CSS color...');
@@ -5068,7 +5947,7 @@ class ActionsTest extends TestCase
     {
         $post_id = pp_create_page('Non-keyword test');
         pp_update_composition($post_id, [
-            ['component' => 'section', 'props' => ['title' => 'Hi', 'body' => 'Body text']],
+            ['component' => 'section', 'props' => ['title' => 'Hi']],
         ]);
 
         // "red" is not a CSS keyword like none/unset — it's just an invalid color format.
@@ -7131,5 +8010,69 @@ class ActionsTest extends TestCase
         $this->assertTrue($batch['ok']);
         $this->assertSame(1, pp_get_composition_marker($id)['version']);
         $this->assertSame(1, $batch['versions'][$id]);
+    }
+
+
+    /**
+     * THE SEVEN HERO BUTTON-SLOT TESTS ARE REPLACED BY THIS ONE (#986).
+     *
+     * They pinned `style_component` writing `--hero-button-*` / `--hero-button2-*`:
+     * accepted, rejected on a bad colour, persisted, and kept independent between the
+     * two CTAs. Hero is a v2 component now, so `style_component` refuses it outright and
+     * the same four properties are contract facts of the UDC path instead — proven here
+     * through the REAL authoring surface (14.1), not a raw meta write.
+     *
+     * The independence half is what earns its keep: on v1 it took a dedicated isolation
+     * rule to stop the primary's slots reaching the second CTA, and the test existed
+     * because that rule could regress. On v2 they are two different roles with two
+     * different selectors, so the property holds by construction — and this pins that it
+     * really does, rather than assuming it.
+     */
+    public function testHeroCtaDesignIsAuthoredThroughRolesAndStyleComponentRefusesIt(): void
+    {
+        $post_id = pp_create_page('Hero CTA roles');
+
+        // style_component is the v1 surface and must REFUSE a v2 component by name.
+        $refused = pp_validate_action('style_component', [
+            'post_id'         => $post_id,
+            'component_index' => 0,
+            'style'           => ['--hero-button-bg' => '#ff0000'],
+        ]);
+        $this->assertInstanceOf(WP_Error::class, $refused);
+
+        // The accepted path: roles, through update_composition.
+        $udc = [
+            'cta' => [
+                'background' => ['fill' => '#ff5c2e', ':hover' => ['fill' => '#c73310']],
+                'border'     => ['color' => '#ff5c2e'],
+            ],
+            'cta-secondary' => [
+                'background' => ['fill' => '#101828', ':hover' => ['fill' => '#1f2a44']],
+            ],
+        ];
+        $ok = pp_update_composition($post_id, [
+            ['component' => 'hero', 'id' => 'pp-11aa22bb',
+             'props' => ['title' => 'Hello'], 'udc' => $udc],
+        ]);
+        $this->assertTrue($ok === true || (is_array($ok) && ($ok['ok'] ?? false)), 'the udc write must be accepted');
+
+        // Persisted as authored.
+        $stored = pp_get_composition($post_id);
+        $this->assertSame('#ff5c2e', $stored[0]['udc']['cta']['background']['fill']);
+        $this->assertSame('#101828', $stored[0]['udc']['cta-secondary']['background']['fill']);
+
+        // A bad colour is refused on the same parameter.
+        $bad = pp_udc_validate_map(['cta' => ['background' => ['fill' => 'not-a-colour']]], 'hero');
+        $this->assertInstanceOf(WP_Error::class, $bad);
+
+        // INDEPENDENCE: the primary's fill reaches its own selector and not the second's.
+        $css = pp_udc_band_css(pp_udc_normalize_band($stored[0]));
+        // Slice exactly ONE rule — to its own closing brace — or the window spills into
+        // the next selector and the isolation assertion reads the sibling's colour.
+        $start   = strpos($css, '.hero__cta--primary{');
+        $this->assertNotFalse($start, 'the primary CTA role must emit a rule');
+        $primary = substr($css, $start, strpos($css, '}', $start) - $start);
+        $this->assertStringContainsString('#ff5c2e', $primary);
+        $this->assertStringNotContainsString('#101828', $primary, 'the second CTA\'s fill must not reach the primary');
     }
 }
