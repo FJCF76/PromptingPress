@@ -116,7 +116,7 @@ wp pp action execute update_site_option --run-id=<uuid> --params='{"key":"pp_foo
 wp pp action execute update_site_option --run-id=<uuid> --params='{"key":"pp_footer_copyright","value":"© 2026 Example Inc. Beta."}'
 ```
 
-**You own the contrast.** A dark `_band` fill does not re-light anything: set a colour on every text and link role you put over it — `blurb`, `heading`, `copyright`, `note`, `address`, `link`, `address-link`, `social-link` — and check each against the fill for WCAG AA. One role left un-recoloured renders dark ink on dark, which is the most common way this goes wrong. Read the footer's declared roles from the component catalog.
+**You own the contrast.** A dark `_band` fill does not re-light anything: set a colour on every text and link role you put over it — `blurb`, `heading`, `copyright`, `note`, `address`, `link`, `address-link`, `social-link` — and check each against the fill for WCAG AA. One role left un-recoloured renders dark ink on dark, which is the most common way this goes wrong. The footer's remaining roles are layout surfaces rather than ink: `inner` (the footer's content wrapper), `columns` (the column grid), `brand` (the logo/blurb block) and `bottom` (the delimited bottom bar when `pp_footer_note` is set). Read the footer's declared roles from `wp pp schema footer`.
 
 `pp_footer_copyright` replaces the default `© <year> <site title>. All rights reserved.` line verbatim, so include the year yourself; leave it empty to keep the default.
 
@@ -149,16 +149,29 @@ The header is template-owned (#223) exactly like the footer, so it is never comp
 
 ```bash
 # Dark header with a subtle gradient and light links
-wp pp action execute update_site_option --run-id=<uuid> --params='{"key":"pp_site_udc","value":"{\"nav\":{\"_band\":{\"background\":{\"fill\":\"linear-gradient(135deg, #1a1a2e, #16121f)\"}},\"logo\":{\"typography\":{\"color\":\"#e8e8f0\"}},\"toggle\":{\"typography\":{\"color\":\"#e8e8f0\"}},\"link\":{\"typography\":{\"color\":\"#c8c8e0\",\":hover\":{\"color\":\"@color-accent\"}}},\"link-current\":{\"typography\":{\"color\":\"#ffffff\"}}}}"}'
+wp pp action execute update_site_option --run-id=<uuid> --params='{"key":"pp_site_udc","value":"{\"nav\":{\"_band\":{\"background\":{\"fill\":\"linear-gradient(135deg, #1a1a2e, #16121f)\"}},\"logo\":{\"typography\":{\"color\":\"#e8e8f0\",\":hover\":{\"color\":\"@color-accent\"}}},\"toggle\":{\"typography\":{\"color\":\"#e8e8f0\",\":hover\":{\"color\":\"@color-accent\"}}},\"link\":{\"typography\":{\"color\":\"#c8c8e0\",\":hover\":{\"color\":\"@color-accent\"}}},\"link-current\":{\"typography\":{\"color\":\"#ffffff\"}}}}"}'
 ```
 
-The header's roles are `_band`, `logo`, `logo-image`, `menu`, `submenu`, `link`, `link-current` and `toggle`. `menu` is the mobile disclosure panel and `submenu` is the desktop dropdown — separate roles, because they are separate surfaces. `link-current` is the active/current link; it keeps its bold weight, which is structural. Hover, focus and active are ordinary states inside a role's group.
+The header's roles are `_band`, `container`, `logo`, `logo-image`, `menu`, `submenu`, `link`, `link-current` and `toggle`. `container` is the header ROW inside the bar: `sizing.min-height` sets the row's height and `spacing.gap` the space between logo, toggle and menu (`_band` is the bar itself — its background and border). `menu` is the mobile disclosure panel and `submenu` is the desktop dropdown — separate roles, because they are separate surfaces. `link-current` is the active/current link; it keeps its bold weight, which is structural. Hover, focus and active are ordinary states inside a role's group.
 
 Style the header to match the SITE's real header, not the hero: a dark hero is not a reason to make the header dark. Layout, sticky behavior and menu structure are not configurable here — the UDC is a design surface, not a header builder.
 
 ## Writing the container safely
 
 `pp_site_udc` holds BOTH chrome components, and a write REPLACES the whole option. So send `nav` and `footer` together when both are styled, or you will drop the one you left out. The option carries a `_version`; pass it back as `expected_version` and a write that would overwrite someone else's newer edit is refused (`site_option_conflict`) instead of clobbering it — re-read, re-apply, retry.
+
+**Pair every colour you set at rest with its hover (#992).** Chrome roles carry no
+defaults, so a value you set at REST outranks the theme stylesheet in EVERY state —
+including the hover and current-page treatments that stylesheet provides. Setting
+`nav.link.typography.color` on its own flattens the accent hover AND the current-page
+accent onto your one colour; setting `nav.logo` or `nav.toggle` colour on its own leaves
+those controls with no hover feedback at all. The header example above does this
+correctly: every INTERACTIVE role it colours — `logo`, `toggle`, `link` — carries a
+`":hover"`, and `link` is accompanied by `link-current`. Copy that shape. (The footer's
+`blurb`, `heading` and `copyright` need no `":hover"`: they are static text with no
+built-in hover treatment to cancel. The rule is about roles the visitor can point at.) (`link-current` reaches every current item by itself —
+WordPress adds `current-menu-item` to everything it marks current, and only ever adds
+`current_page_item` or `aria-current="page"` alongside it.)
 
 Backgrounds accept a plain colour **or** a bounded `linear-gradient()` / `radial-gradient()` with 2+ stops. `conic-gradient()`, the `repeating-*` gradients, and any `var()` / `url()` / `env()` inside a gradient function are rejected. For a background IMAGE, set `background.image` to a Media Library attachment ID and pair it with `background.overlay` — never a URL.
 
