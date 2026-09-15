@@ -923,9 +923,12 @@ function pp_preflight(array $context = [], ?array $drift = null): array {
     // advisory). The GENERAL case of 8c — a deleted attachment was never the only
     // way a stored value stops painting, it was only the one anybody could see. The
     // emitter drops a declaration for sixteen reasons and every one but 8c's was
-    // silent on every channel. Same splice, same scoping rule: chrome always
-    // (it renders on every page, and a chrome write carries no findings array at
-    // all, so this is its ONLY channel), a page's bands only in context.
+    // silent on every channel. Same splice, same scoping rule: chrome always (it
+    // renders on every page, so there is no context in which skipping it is right),
+    // a page's bands only in context. The old wording gave a second reason — "a
+    // chrome write carries no findings array at all, so this is its ONLY channel" —
+    // which stopped being true at #993; the scoping did not change, because that
+    // clause was never what decided it.
     foreach (pp_check_udc_emit_drops($pp_bg_post, $pp_udc_composition) as $drop_check) {
         $checks[] = $drop_check;
     }

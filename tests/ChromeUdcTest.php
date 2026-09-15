@@ -285,6 +285,209 @@ class ChromeUdcTest extends TestCase
         $this->assertSame('16px', $stored['chrome']['nav']['_tokens']['link-typography-size-d']);
     }
 
+    // ── #993: the chrome findings channel ───────────────────────────────────
+
+    /**
+     * THE DISCLOSURE RIDES THE REAL ENVELOPE, not a helper.
+     *
+     * The test above proves minting HAPPENS on chrome. This proves the author is TOLD.
+     * Before #993 that same write returned `ok: true` with the two literals silently
+     * rewritten into token references and no `findings` key at all — §3.1's no-coercion
+     * promise, unkept on the one surface that had no channel to keep it on.
+     *
+     * Driven through pp_execute_action() rather than pp_udc_site_findings(), per 14.1:
+     * the producer being right is not the same fact as the envelope carrying it.
+     */
+    public function testAChromeWriteDisclosesItsMintingOnTheWriteEnvelope(): void
+    {
+        $result = $this->write([
+            'nav' => ['link' => ['typography' => ['size' => ['d' => '19px', 'p' => '15px']]]],
+        ]);
+
+        $this->assertTrue($result['ok'], $result['error'] ?? '');
+        $this->assertArrayHasKey('findings', $result, 'a chrome write carries findings since #993');
+
+        $minted = array_values(array_filter(
+            $result['findings'],
+            static fn (array $f): bool => $f['type'] === 'udc_token_minted'
+        ));
+        $this->assertCount(2, $minted, 'one per minted token, exactly as a band write reports');
+
+        foreach ($minted as $finding) {
+            $this->assertSame('warning', $finding['severity'],
+                'every generic consumer branches on severity; a chrome row without it renders as neither');
+            $this->assertNull($finding['index'],
+                'a chrome entry has no band offset — claiming index 0 would be a fabricated locator (I26)');
+            $this->assertStringContainsString('Component "nav"', $finding['message']);
+        }
+        // The author's literal is what the disclosure names, not the minted reference.
+        $this->assertStringContainsString('19px', $minted[0]['message']);
+    }
+
+    /** The unused-token disclosure reaches chrome by the same route. */
+    public function testAnUnreferencedChromeBandTokenIsDisclosedToo(): void
+    {
+        $result = $this->write([
+            'nav' => [
+                '_tokens' => ['nobody-references-me' => '4px'],
+                'link'    => ['typography' => ['color' => '#ffffff']],
+            ],
+        ]);
+
+        $this->assertTrue($result['ok'], $result['error'] ?? '');
+        $types = array_column($result['findings'], 'type');
+        $this->assertContains('udc_unused_band_token', $types);
+    }
+
+    /** A clean chrome write reports an empty array, which is a real answer. */
+    public function testACleanChromeWriteReportsNoFindingsRatherThanNoKey(): void
+    {
+        $result = $this->write(['nav' => ['link' => ['typography' => ['color' => '#ffffff']]]]);
+
+        $this->assertTrue($result['ok'], $result['error'] ?? '');
+        $this->assertArrayHasKey('findings', $result);
+        $this->assertSame([], $result['findings']);
+    }
+
+    /**
+     * The key is attached for `pp_site_udc` and for nothing else.
+     *
+     * The other whitelisted site options are not `udc` documents, so a findings array on
+     * their envelope would be a report about a thing the write did not touch.
+     */
+    public function testANonUdcSiteOptionWriteGainsNoFindingsKey(): void
+    {
+        $result = pp_execute_action('update_site_option', ['key' => 'pp_logo_alt', 'value' => 'Acme']);
+
+        $this->assertTrue($result['ok'], $result['error'] ?? '');
+        $this->assertArrayNotHasKey('findings', $result);
+    }
+
+    /**
+     * REPORT-ONLY MUST NOT BE ABLE TO TAKE DOWN THE WRITE IT REPORTS ON (I17).
+     *
+     * This runs after the row has been written, so anything that throws here turns a
+     * change that HAPPENED into a failed response, and a client that retries on failure
+     * would write it twice. The producer reads through the fail-closed site reader, so a
+     * container that will not decode yields no findings rather than a TypeError.
+     */
+    public function testTheFindingsProducerDegradesOnACorruptContainerRatherThanThrowing(): void
+    {
+        $GLOBALS['_pp_test_store']['options'][PP_SITE_UDC_OPTION] = '{not json at all';
+        $this->assertSame([], pp_udc_site_findings());
+
+        $GLOBALS['_pp_test_store']['options'][PP_SITE_UDC_OPTION] = (string) wp_json_encode(['_version' => 1]);
+        $this->assertSame([], pp_udc_site_findings(), 'a container with no chrome entries reports nothing');
+
+        unset($GLOBALS['_pp_test_store']['options'][PP_SITE_UDC_OPTION]);
+        $this->assertSame([], pp_udc_site_findings(), 'an absent row is not a finding');
+    }
+
+    /**
+     * THE REFUSAL HALF ALREADY WORKED, AND THIS PINS IT so #993's fix cannot be read as
+     * having introduced it.
+     *
+     * pp_udc_validate_site_map() hands every entry to pp_udc_validate_map(), so the whole
+     * preset refusal set — the T2 empty-intersection refusal included — has always been
+     * shared with bands. What chrome lacked was the DISCLOSURE, not the refusal.
+     */
+    public function testAPresetRefusalOnChromeIsTheSameRefusalABandGets(): void
+    {
+        $dangling = $this->validate(['nav' => ['link' => ['_preset' => 'no-such-preset']]]);
+        $this->assertInstanceOf(WP_Error::class, $dangling);
+        $this->assertStringContainsString('no-such-preset', $dangling->get_error_message());
+
+        $unpermitted = $this->validate(['nav' => ['logo' => ['shadow' => ['_preset' => 'button']]]]);
+        $this->assertInstanceOf(WP_Error::class, $unpermitted);
+        $this->assertSame('unknown_udc_group', $unpermitted->get_error_code());
+    }
+
+    /**
+     * ONE ENGINE, NOT TWO — the property that makes the preset-skip disclosure reach
+     * chrome even though no shipped preset can demonstrate it there yet.
+     *
+     * Measured across every nav and footer role, all three system presets apply IN FULL
+     * (`button` declares typography/spacing/background/border/sizing/motion; every chrome
+     * role permits all six), so no intersection is currently non-empty-but-partial on
+     * chrome and `udc_preset_groups_skipped` cannot be provoked end-to-end. Introducing a
+     * skipping preset would need a registry seam, which is #974 and is not this change.
+     *
+     * So the claim being pinned is structural: pp_udc_site_findings() has no walk of its
+     * own — it delegates to pp_udc_composition_findings(). Whatever that engine emits for
+     * a role reaches chrome by construction, including a disclosure that does not exist
+     * yet. A second copy of the walk is exactly what T2 clause 4 forbids, and a source
+     * pin is the only thing that catches someone adding one.
+     */
+    public function testTheChromeFindingsProducerHoldsNoSecondCopyOfTheEngine(): void
+    {
+        $source = file_get_contents(dirname(__DIR__) . '/lib/udc.php');
+        $this->assertIsString($source);
+
+        $start = strpos($source, 'function pp_udc_site_findings(');
+        $this->assertNotFalse($start, 'the producer must exist to be pinned');
+        $end = strpos($source, "\n}\n", $start);
+        $this->assertNotFalse($end);
+        $body = substr($source, $start, $end - $start);
+
+        $this->assertStringContainsString('pp_udc_composition_findings(', $body,
+            'the producer must delegate to the one engine');
+        foreach (['udc_preset_groups_skipped', 'udc_token_minted', '_pp_udc_split_preset_by_permitted'] as $forbidden) {
+            $this->assertStringNotContainsString($forbidden, $body,
+                'a chrome-local copy of any part of the walk is the fork clause 4 forbids');
+        }
+
+        // And the delegation is real, not just present: every disclosure the engine
+        // produces for a chrome-shaped item survives the wrap.
+        $item = pp_udc_normalize_band([
+            'component' => 'nav',
+            'udc'       => ['link' => ['typography' => ['size' => ['d' => '19px', 'p' => '15px']]]],
+        ]);
+        $GLOBALS['_pp_test_store']['options'][PP_SITE_UDC_OPTION] =
+            (string) wp_json_encode(['_version' => 1, 'nav' => $item['udc']]);
+
+        $this->assertSame(
+            array_column(pp_udc_composition_findings([$item]), 'message'),
+            array_column(pp_udc_site_findings(), 'message'),
+            'chrome and band must produce the identical message set for the identical map'
+        );
+    }
+
+    /**
+     * A truncated chrome report names a command chrome actually has.
+     *
+     * The shared tail hardcoded `wp pp check page --post_id=<id>`, written when every
+     * caller described a page. Chrome has no page, so printing that would be a route to
+     * nowhere. The budget is reachable here: the container may hold 64 KB, which is far
+     * more than 100 minted tokens' worth of map.
+     */
+    public function testATruncatedChromeReportPointsAtACommandChromeHas(): void
+    {
+        $bounded = _pp_bounded_findings(
+            array_fill(0, PP_WRITE_FINDINGS_BUDGET + 5, [
+                'type' => 'udc_token_minted', 'severity' => 'warning', 'message' => 'x', 'index' => null,
+            ]),
+            null,
+            PP_WRITE_FINDINGS_BUDGET,
+            'wp pp operate inspect'
+        );
+
+        $tail = end($bounded);
+        $this->assertSame('findings_truncated', $tail['type']);
+        $this->assertStringContainsString('wp pp operate inspect', $tail['message']);
+        $this->assertStringNotContainsString('post_id', $tail['message'],
+            'a chrome tail must not send an operator to a page-scoped command');
+
+        // The page wording is untouched for every caller that did not ask for an override.
+        $page_bounded = _pp_bounded_findings(
+            array_fill(0, PP_WRITE_FINDINGS_BUDGET + 5, [
+                'type' => 'x', 'severity' => 'warning', 'message' => 'x', 'index' => null,
+            ]),
+            77
+        );
+        $page_tail = end($page_bounded);
+        $this->assertStringContainsString('wp pp check page --post_id=77', $page_tail['message']);
+    }
+
     public function testABackgroundImageResolvesOnChromeToo(): void
     {
         $GLOBALS['_pp_test_store']['posts'][42]               = ['post_type' => 'attachment'];

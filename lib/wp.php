@@ -2370,10 +2370,16 @@ function pp_check_udc_background_images(?int $post_id = null, ?array $compositio
  * posture the token-override check takes when the registry is unreadable.
  *
  * SCOPE. Chrome is checked unconditionally: it renders on every page and has no
- * page to be "in context" for, and it is the one surface where this is the ONLY
- * channel — a chrome write returns no `findings` array at all. A page's bands are
- * checked only when preflight has a post_id, the same posture as the other
- * page-scoped checks.
+ * page to be "in context" for, so there is no context in which it would be right to
+ * skip it. A page's bands are checked only when preflight has a post_id, the same
+ * posture as the other page-scoped checks.
+ *
+ * That reason used to be stated as "it is the one surface where this is the ONLY
+ * channel — a chrome write returns no `findings` array at all". Since #993 a chrome
+ * write DOES carry findings, so the second clause is gone; the scoping is unchanged
+ * because the first clause was always the load-bearing one. The two channels answer
+ * different questions anyway: the envelope reports what one WRITE did, this reports
+ * what the STORED state still does, before every mutation.
  *
  * @param  int|null $post_id A page whose bands to check, or null for chrome only.
  * @return array[]  Empty when every stored value still reaches the page.

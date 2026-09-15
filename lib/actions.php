@@ -905,6 +905,52 @@ function pp_execute_action(string $name, array $params): array {
         }
     }
 
+    // A CHROME WRITE REPORTS WHAT IT WROTE, ON THE SAME CHANNEL A BAND WRITE DOES (#993).
+    //
+    // Ruling A1 made chrome "exactly the shape a band's `udc` takes — same engine, same
+    // grammar", and the refusal half has always honoured that: pp_udc_validate_site_map()
+    // hands every entry to pp_udc_validate_map(), so a dangling preset or an unpermitted
+    // group refuses identically on both surfaces. The DISCLOSURE half did not exist here
+    // at all, because pp_udc_composition_findings() needs a list-shaped composition and
+    // nothing built one for chrome. Two consequences, one live and one staged:
+    //
+    //   LIVE at 2.0.0-alpha.1 — a responsive chrome value is minted into band tokens and
+    //   the author's literal is rewritten, with no `udc_token_minted` to say so. That is
+    //   §3.1's no-coercion promise, unkept on the one surface that could not report it.
+    //
+    //   STAGED — the T2 sub-ruling's clause 2 ("a silent partial apply is the
+    //   reported-success-without-effect class I35 forbids") could never fire here, so the
+    //   moment Sprint-2 custom presets ship, the same preset would disclose its skipped
+    //   groups on a band and say nothing on chrome. The asymmetry was the bug.
+    //
+    // SITED HERE, BESIDE THE COMPOSITION ARM, NOT INSIDE THE ACTION. _pp_action_result()
+    // is shared with the token/menu/page-lifecycle actions and its own comment records why
+    // `findings` is not in it; this is the same reasoning applied to the same place. The
+    // key test mirrors the composition arm's: an action that set its own `findings` keeps
+    // them, and an empty array is a real answer that must not be re-derived.
+    //
+    // REPORT-ONLY, AFTER THE WRITE, OVER THE STORED CONTAINER — the same three properties
+    // the composition arm has. It can only append a key, and pp_udc_site_findings() reads
+    // through the fail-closed site reader, so a corrupt row yields no findings rather than
+    // a throw over a write that already landed.
+    if (($result['ok'] ?? false)
+        && $name === 'update_site_option'
+        && ($params['key'] ?? '') === PP_SITE_UDC_OPTION
+        && !array_key_exists('findings', $result)
+        && function_exists('pp_udc_site_findings')) {
+        $result['findings'] = _pp_bounded_findings(
+            pp_udc_site_findings(),
+            null,
+            PP_WRITE_FINDINGS_BUDGET,
+            // NOT a findings report, and the wording does not pretend otherwise: it is the
+            // command that returns the stored chrome map, which is what every disclosure
+            // here is derived from, and it is the route the runtime prompt already names.
+            // A chrome-scoped diagnostic does not exist yet; pointing at the page-scoped
+            // one would be worse than pointing at the data.
+            'wp pp operate inspect'
+        );
+    }
+
     return $result;
 }
 
@@ -5347,7 +5393,12 @@ function _pp_count_omitted_finding_types(array $findings, int $budget): array {
     return $omitted;
 }
 
-function _pp_bounded_findings(array $findings, ?int $post_id = null, int $budget = PP_WRITE_FINDINGS_BUDGET): array {
+function _pp_bounded_findings(
+    array $findings,
+    ?int $post_id = null,
+    int $budget = PP_WRITE_FINDINGS_BUDGET,
+    ?string $complete_report_command = null
+): array {
     $budget = max(0, $budget);
     $total  = count($findings);
     if ($total <= $budget) {
@@ -5363,9 +5414,16 @@ function _pp_bounded_findings(array $findings, ?int $post_id = null, int $budget
             $budget,
             $total,
             $total - $budget,
-            $post_id === null
+            // THE ROUTE HAS TO EXIST FOR THE SURFACE THAT PRINTS IT (#993). This tail
+            // was written when every caller described a PAGE, so it hardcoded the
+            // page-scoped command. Chrome has no page, and printing
+            // `--post_id=<id>` on a chrome envelope would be a route to nowhere — the
+            // fabricated-locator class I26 forbids, one level up from a locator.
+            // Callers that are not page-scoped pass their own command; the page
+            // wording is untouched and still byte-identical to #687's ratified text.
+            $complete_report_command ?? ($post_id === null
                 ? 'wp pp check page --post_id=<id>'
-                : 'wp pp check page --post_id=' . $post_id
+                : 'wp pp check page --post_id=' . $post_id)
         ),
         'index'    => null,
         // WHAT WAS OMITTED, BY SPECIES (#981, boundary-review item E2).
