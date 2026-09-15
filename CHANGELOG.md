@@ -4,9 +4,35 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
-## [Unreleased — v2.0.0-alpha.1] — v2 Sprint 1: the contract-boundary gate fixes, presets/states/motion, chrome and background images, the batched hardening, then hero rebuilt on the contract (#962, #965, #970, #976, #981, #986, #968, #972)
+## [Unreleased — v2.0.0-alpha.1] — v2 Sprint 1: the contract-boundary gate fixes, presets/states/motion, chrome and background images, the batched hardening, then hero rebuilt on the contract, and the nav chrome surface verified (#962, #965, #970, #976, #981, #986, #968, #972, #991)
 
 **The three things the Sprint-0 contract-boundary review said had to be true before anything else is built on the UDC contract.** One value could take a page's styling down to the last rule; the editor preview ranked the cascade differently from the page it was previewing; and a test promised coverage of the consent gate that its assertions never delivered. None of the three changes what the contract IS — they make the contract hold.
+
+### The header row is stylable, and the one place chrome styling still bites you is now stated
+
+The site header has been on the v2 styling engine since #976: its roles live in the `nav` entry of the `pp_site_udc` site option, in the same shape a band's `udc` map takes. This pass verified that surface end to end against a real browser and closed the gaps the verification found.
+
+**A new `container` role reaches the header ROW.** `sizing.min-height` sets the row's height and `spacing.gap` the space between logo, hamburger and menu — the two designable values in the header bar that no authoring surface could reach before. `_band` stays the bar itself (its background and border); `container` is the row inside it, so a background set there paints an inset band rather than the whole header.
+
+**Set a colour at rest, set its hover too.** Chrome roles carry no defaults of their own, so the header's resting appearance still comes from the theme stylesheet — and an authored value outranks that stylesheet in *every* state, not just at rest. Styling `nav.link` alone therefore flattens the hover accent AND the current-page accent onto your one colour; styling `nav.logo` or `nav.toggle` alone leaves those controls with no hover feedback at all.
+
+That is a real gap, not a design choice, and it is tracked as #992 with the fix scoped in #994. Until then the system tells you rather than letting you find out: the schema role descriptions, the `update_site_option` action description, the runtime AI instructions, both chrome READMEs and the header how-to all now say to pair every resting colour with its `":hover"`, and to pair `link` with `link-current`. The shipped examples were corrected to demonstrate the shape they describe.
+
+**What the verification actually proved,** on a real page with computed style reads rather than screenshots alone: a chrome write through the genuine CLI reaches the rendered page; a stale concurrency baseline is refused by a second process and leaves the stored map untouched; the retired `pp_header_*` colour options are still refused by name; `:focus-visible` authored on a nav link lands under real keyboard focus; a dark header over a dark band carries its own ink on every role; and the mobile menu still opens and closes at 375px with the panel authored — border, padding and all.
+
+`link-current` reaches every current item on its own, and that is now pinned rather than assumed: WordPress only ever adds `current_page_item` and `aria-current="page"` alongside `current-menu-item`, so the one selector is a superset of all three. If a future WordPress release breaks that, the test fails loudly instead of the current-page treatment quietly disappearing.
+
+### Docs
+
+- `docs/explanation-cascade-layers.md` gains the chrome half of the cascade story: why a half-migrated component's authored values silently outrank its own remaining state rules, with the measured values and the general lesson (move a component's states and its resting values together, or not at all).
+- The AI-facing role enumerations in `AI_CONTEXT.md` and `ai-instructions/set-logo.md` are now derived-checked by a test, after both drifted out of step with the schema in this very change.
+- Two sentences that told the model to read chrome roles "from the catalog" were corrected — the component catalog lists only composable components, so chrome is deliberately absent from it. They now point at `wp pp schema <component>`.
+
+### Tests
+
+- Rendered pins for the chrome write path, the CAS refusal, focus-visible, dark chrome, the container role, the `current-menu-item` superset, and the mobile panel under authored styling.
+- A characterization test pinning today's state-erasure behaviour (#992) so the fix in #994 has a red-to-green to flip. It asserts the wrong answer on purpose and says so; it is deleted or inverted when #994 lands.
+- `ChromeAuthoringSurfaceTest::testAiFacingDocsEnumerateEveryChromeRole` derives the AI-facing role lists from the registry, which immediately caught a footer role missing from the header how-to.
 
 ### One authored value could erase the rest of a page's styling
 
