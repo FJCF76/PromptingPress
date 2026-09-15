@@ -864,8 +864,19 @@ describe('getStatusMessage', function () {
         expect(msg).toContain('different component');
     });
 
-    test('impossible message for no_style_slots', function () {
+    // #1007: `no_style_slots` stopped meaning "this component has no styling" when the v2
+    // rebuilds landed — hero and testimonials are placeable AND declare zero slots, so the
+    // code is live on every v2 band and means "not through this verb". The bar now names
+    // the route that works instead of only refusing, and must NOT claim impossibility,
+    // because the server's own message in the card above names the udc map.
+    test('no_style_slots points at the udc map rather than claiming impossibility', function () {
         var msg = getStatusMessage({ error_code: 'no_style_slots', cross_component_hints: {} });
+        expect(msg).toContain('`udc` map');
+        expect(msg).not.toContain('isn\'t possible');
+    });
+
+    test('invalid_style_slot with no alternatives is still impossible', function () {
+        var msg = getStatusMessage({ error_code: 'invalid_style_slot', cross_component_hints: {} });
         expect(msg).toContain('isn\'t possible');
     });
 

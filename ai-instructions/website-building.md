@@ -83,8 +83,8 @@ will not help, because nothing about the page is wrong, and sending the same com
 again will fail identically forever. **Change the data.** The refusal names the encoder's
 own reason, and the reachable causes are values nested past the encoder's depth limit, a
 self-referential structure, a non-finite number (`INF` / `NAN`), and values of a type JSON
-cannot represent. Under normal authoring you will not meet this code: whole-composition
-validation refuses those shapes earlier, and more usefully, with a message naming the band.
+cannot represent. Under normal authoring you will not meet this code: validation refuses those
+shapes earlier, and more usefully, with a message naming the band.
 If you do meet it, the composition you assembled is malformed in a way validation did not
 catch — rebuild it from the page's current composition rather than patching what you sent.
 

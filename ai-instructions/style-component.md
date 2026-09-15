@@ -331,10 +331,16 @@ card, so they are rejected here — set those on the grid-level style. Set it th
 The `position` and `ratio` types (#108) control image focal point and aspect ratio,
 per-instance. `position` accepts 1-2 keyword/length tokens (no functions, no `var()`);
 `ratio` accepts `auto` (natural proportions) or a number/fraction. `--{hero,section}-image-position`
-and `--{hero,section}-image-aspect-ratio` control the content `<img>` (hero's split
-layout, section's image-left/image-right); `--{hero,section,cta,stats}-bg-position`
-controls the `background_image`/cover-layout CSS background. Not exposed on logos
-(fixed `object-fit: contain` layout, not a crop model).
+and `--section-image-aspect-ratio` control the content `<img>` (section's
+image-left/image-right); `--{section,cta,stats}-bg-position` controls the
+`background_image` CSS background. Not exposed on logos (fixed `object-fit: contain`
+layout, not a crop model).
+
+**HERO IS NOT ON THIS LIST ANY MORE (#986, #1006).** Its `--hero-image-*` and
+`--hero-bg-position` slots were retired with the v2 rebuild. The split layout's image box
+is the `media` role's `sizing.aspect-ratio` in the band's `udc` map, and a hero band
+background is `_band` `background.image` plus `background.position` — never `image_url`,
+which on `layout: "cover"` is now REFUSED at write with `inert_prop`.
 
 **The scrim over a `background_image` has its own per-instance slot on all four of those
 bands: `--{hero,section,cta,stats}-overlay-bg`** (stats was the last to get one, #577).
@@ -672,8 +678,10 @@ hover-only forms; `outline`, `ghost` and `secondary` keep the shared button cros
 already routes to the AA-safe on-dark accent role, so each is readable without any slot;
 set `--cta-button-color` / `--cta-button2-color` only to override that. The same holds for
 a `cover` hero's two CTAs (`--hero-heading-color` for the first, `--hero-button2-color` for the
-second). On a `background_image` cta or a `cover` hero EVERY filled button additionally
-DEFAULTS its border to that role — the primary and the second button alike, so an
+second). NOTE the hero half of that sentence is v1 history: hero's slots were retired
+with the v2 rebuild, so `--hero-heading-color` and `--hero-button2-color` no longer exist
+and the block below this one is the current guidance. On a `background_image` cta EVERY
+filled button additionally DEFAULTS its border to that role — the primary and the second button alike, so an
 unstyled `primary` + `primary` pair carries one matched edge rather than one ringed
 button beside one that dissolves into the band. The role is the LAST link in the chain,
 so anything you author still wins ahead of it: set `--cta-button-border` /

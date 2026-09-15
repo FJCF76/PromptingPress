@@ -760,7 +760,7 @@ class ContainerPropWriteEnforcementTest extends TestCase
      * asserted. Both recovery routes are asserted too, because "recoverable" is a claim
      * the release notes make and a claim has to be a test.
      */
-    public function testAStaleBandBlocksEditsToCleanBandsAndBothRepairRoutesWork(): void
+    public function testAStaleBandIsReportedNotBlocking_AndBothRepairRoutesWork(): void
     {
         $post_id = pp_create_page('Aged page', 'draft');
         pp_update_composition($post_id, [
@@ -768,13 +768,25 @@ class ContainerPropWriteEnforcementTest extends TestCase
             ['component' => 'cta',  'props' => ['title' => 'Clean band', 'button_text' => 'Go', 'button_url' => '/']],
         ]);
 
-        $blocked = pp_execute_action('update_component', [
+        // INVERTED BY #1007: update_component validates the band it targets, so a stale
+        // SIBLING no longer refuses this edit. Nothing is migrated or healed — the stale
+        // bytes stay stale and are still reported, now on the accepted envelope instead
+        // of in a refusal. The repair route below is unchanged and still the way out.
+        $unblocked = pp_execute_action('update_component', [
             'post_id' => $post_id, 'component_index' => 1, 'props' => ['title' => 'Edited'],
         ]);
-        $this->assertFalse($blocked['ok'], 'a stale band blocks an edit to an unrelated band');
-        $this->assertStringContainsString('bullets', $blocked['error']);
-        $this->assertStringContainsString('Component 0', $blocked['error'],
-            'the message must name the OFFENDING band (#642), not the one the caller edited');
+        $this->assertTrue($unblocked['ok'], $unblocked['error'] ?? 'the clean band is editable');
+        $reported = array_values(array_filter(
+            $unblocked['findings'],
+            static fn (array $f): bool => ($f['severity'] ?? '') === 'error'
+        ));
+        $this->assertNotEmpty($reported);
+        $this->assertStringContainsString('bullets', $reported[0]['message']);
+        // The band travels as the `index` FIELD here, not as a "Component N" prefix: that
+        // prefix is added only on the write-REJECTION path (_pp_band_named_composition_error),
+        // because a refusal has no second field to print a locator into. A finding does.
+        $this->assertSame(0, $reported[0]['index'],
+            'the disclosure still names the OFFENDING band (#642), not the one the caller edited');
 
         // ROUTE 1 — repair in place, which is what the error message asks for.
         $repaired = pp_execute_action('update_component', [

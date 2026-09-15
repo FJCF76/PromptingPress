@@ -497,6 +497,12 @@ final class UdcTruthSpineTest extends TestCase
 
         $this->assertInstanceOf(WP_Error::class, $error);
         $this->assertSame('invalid_style_slot', $error->get_error_code());
-        $this->assertStringContainsString('(none)', $error->get_error_message(), 'it declares no slots at all');
+        // #1007: "Available slots: (none)" was a dead end that read as "this component
+        // cannot be styled", which is the opposite of the truth for a UDC component. The
+        // refusal now names the route, derived from the same predicate the engine uses.
+        $this->assertStringNotContainsString('(none)', $error->get_error_message());
+        $this->assertStringContainsString('v2 styling system', $error->get_error_message());
+        $this->assertStringContainsString('`udc` map', $error->get_error_message());
+        $this->assertStringContainsString('quote', $error->get_error_message(), 'and lists the roles to use instead');
     }
 }

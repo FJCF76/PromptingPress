@@ -185,7 +185,7 @@ class StoredCompositionAliasRenderTest extends TestCase
      * This is the intended outcome of the removal. The recovery path is authoring the
      * canonical name, not a shim.
      */
-    public function testAStoredLegacySlotNameNowFailsWholeCompositionValidation(): void
+    public function testAStoredLegacySlotNameIsReportedOnEveryAcceptedWrite(): void
     {
         $id = pp_create_page('Legacy slot blocks edits', 'draft');
         pp_update_composition($id, [
@@ -193,19 +193,27 @@ class StoredCompositionAliasRenderTest extends TestCase
             ['component' => 'section', 'props' => ['title' => 'Band', 'body' => 'Copy.']],
         ]);
 
-        // An edit to the OTHER band, touching nothing about the hero.
+        // INVERTED BY #1007: update_component validates the band it targets, so a stale
+        // SIBLING no longer refuses this edit. Nothing is migrated or healed — the stale
+        // bytes stay stale and are still reported, now on the accepted envelope instead
+        // of in a refusal. The repair route below is unchanged and still the way out.
+        // An edit to the OTHER band, touching nothing about the cta.
         $result = pp_execute_action('update_component', [
             'post_id'         => $id,
             'component_index' => 1,
             'props'           => ['title' => 'Renamed band'],
         ]);
 
-        $this->assertFalse($result['ok'], 'the stale declaration is now visible to validation');
-        $this->assertSame('invalid_style_slot', $result['error_code'] ?? null);
+        $this->assertTrue($result['ok'], $result['error'] ?? 'the untouched band is editable');
+        $reported = array_values(array_filter(
+            $result['findings'],
+            static fn (array $f): bool => ($f['type'] ?? '') === 'invalid_style_slot'
+        ));
+        $this->assertNotEmpty($reported, 'the stale declaration is still visible to validation');
         $this->assertStringContainsString(
             '--cta-text',
-            (string) ($result['error'] ?? ''),
-            'the error names the dead slot on the band the operator never touched'
+            $reported[0]['message'],
+            'the disclosure names the dead slot on the band the operator never touched'
         );
 
         // THE ESCAPE HATCH, pinned so the intended breakage has a proven way out.
@@ -225,12 +233,21 @@ class StoredCompositionAliasRenderTest extends TestCase
             pp_get_composition($id)[0]['style'],
             'the merge did not evict the dead key'
         );
-        $stillBlocked = pp_execute_action('update_component', [
+        // The dead key survives the merge, so it is STILL REPORTED on the next accepted
+        // write. Since #1007 it no longer refuses that write, but "just re-style the band"
+        // is still the wrong fix: it leaves a declaration that paints nothing, and the
+        // findings say so every time.
+        $stillReported = pp_execute_action('update_component', [
             'post_id'         => $id,
             'component_index' => 1,
             'props'           => ['title' => 'Renamed band'],
         ]);
-        $this->assertFalse($stillBlocked['ok'], 'so the sibling band is still unwritable');
+        $this->assertTrue($stillReported['ok'], (string) ($stillReported['error'] ?? ''));
+        $this->assertStringContainsString(
+            '--cta-text',
+            implode(' ', array_column($stillReported['findings'], 'message')),
+            'the dead key is still diagnosed after the merge that failed to evict it'
+        );
 
         $repaired = pp_execute_action('update_composition', [
             'post_id'     => $id,
@@ -241,14 +258,15 @@ class StoredCompositionAliasRenderTest extends TestCase
         ]);
         $this->assertTrue($repaired['ok'], (string) ($repaired['error'] ?? ''));
 
-        // Recovered: the sibling edit that failed above now succeeds, and the value
-        // the author meant paints under the canonical name.
+        // Recovered: the page reports nothing, and the value the author meant paints
+        // under the canonical name.
         $after = pp_execute_action('update_component', [
             'post_id'         => $id,
             'component_index' => 1,
             'props'           => ['title' => 'Renamed band'],
         ]);
         $this->assertTrue($after['ok'], (string) ($after['error'] ?? ''));
+        $this->assertSame([], $after['findings'], 'the page is clean once the dead key is gone');
         $this->assertStringContainsString('--cta-heading-color: #f0f0f0', $this->renderStored($id));
     }
 

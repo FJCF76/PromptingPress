@@ -461,6 +461,159 @@ class UdcBackgroundImageTest extends TestCase
         $this->assertMatchesRegularExpression('/url\("[^"]*"\)/', $css);
     }
 
+    // ── #1004: the advisory's own reflected-text discipline ──────────────────
+
+    /**
+     * A stored ROLE KEY has no length of its own, so the message must impose one.
+     *
+     * Measured before the fix: a 5,000-character stored role key produced a
+     * 5,177-character readiness message. This check rides the preflight envelope of
+     * EVERY mutation, and the readiness `checks[]` channel is explicitly outside the
+     * carve-out that lets `findings[].message` copy validator text verbatim — the rule
+     * is stated at the sibling ledger in lib/udc.php. Its sibling producer,
+     * pp_check_udc_emit_drops(), has bounded the same two fragments since #981; this
+     * check landed in #976 and never got the treatment.
+     *
+     * The 1000-byte assertion is deliberately the same number the sibling's tests use
+     * (UdcEmitDropAdvisoryTest), because the two advisories are one family and a reader
+     * comparing them should not have to work out whether two bounds mean two rules.
+     */
+    public function testAHugeStoredRoleKeyIsBoundedInTheAdvisoryMessage(): void
+    {
+        $GLOBALS['_pp_test_store']['options'][PP_SITE_UDC_OPTION] = (string) wp_json_encode([
+            '_version' => 1,
+            'nav'      => [str_repeat('k', 5000) => ['background' => ['image' => 42]]],
+        ]);
+        $GLOBALS['_pp_test_store']['attachment_is_image'][42] = false;
+
+        $rows = pp_check_udc_background_images();
+
+        $this->assertCount(1, $rows);
+        $this->assertLessThan(
+            1000,
+            strlen($rows[0]['message']),
+            'a stored role key is unbounded, so the sink must bound it'
+        );
+        $this->assertStringContainsString('attachment 42', $rows[0]['message'],
+            'bounding the locator must not cost the fact the row exists to report');
+    }
+
+    /** The same, for the stored COMPONENT NAME on the band-scoped arm. */
+    public function testAHugeStoredComponentNameIsBoundedInTheAdvisoryMessage(): void
+    {
+        $GLOBALS['_pp_test_store']['post_meta'][5]['_pp_composition'] = wp_json_encode([
+            ['component' => str_repeat('c', 5000), 'id' => 'pp-aaaaaaaa',
+             'udc' => ['_band' => ['background' => ['image' => 99]]]],
+        ]);
+
+        $rows = pp_check_udc_background_images(5);
+
+        $this->assertCount(1, $rows);
+        $this->assertLessThan(1000, strlen($rows[0]['message']));
+    }
+
+    /**
+     * And for the stored CHROME NAME, the third raw fragment #1004 named — pinned at the
+     * ROW HELPER, because the stored path cannot deliver one.
+     *
+     * The review train proposed routing this through pp_check_udc_background_images() like
+     * its two siblings. Tried, and it does not reach: the chrome arm iterates
+     * pp_udc_site_map()['chrome'], and that reader keeps only the names
+     * pp_udc_chrome_names() declares, so an arbitrary 5,000-character key is dropped
+     * before the advisory ever sees it. The unreachability is the fail-closed reader
+     * working, not a gap.
+     *
+     * So the bound is pinned where the fragment actually enters: the row builder, which is
+     * also the only place a hand-written or future filtered producer could hand one in.
+     * Named rather than silently made a unit test, because a reader comparing this to its
+     * two siblings will otherwise assume it was an oversight.
+     */
+    public function testAHugeStoredChromeNameIsBoundedInTheAdvisoryRow(): void
+    {
+        $long = str_repeat('n', 5000);
+        $row  = _pp_udc_background_image_row('chrome "%s"', $long, 'logo', 42);
+
+        $this->assertLessThan(1000, strlen($row['scope_display']));
+        $this->assertStringContainsString($long, $row['scope'],
+            'the RAW half is the hash input and must keep every byte');
+
+        // The premise above, asserted rather than described: the reader drops it.
+        $GLOBALS['_pp_test_store']['options'][PP_SITE_UDC_OPTION] = (string) wp_json_encode([
+            '_version' => 1,
+            $long      => ['logo' => ['background' => ['image' => 42]]],
+        ]);
+        $GLOBALS['_pp_test_store']['attachment_is_image'][42] = false;
+        $this->assertSame([], pp_check_udc_background_images(),
+            'an undeclared chrome name never reaches the advisory at all');
+    }
+
+    /**
+     * THE ACKNOWLEDGEMENT KEY IS UNCHANGED BY THE BOUND, and that is the whole reason
+     * the cleaning happens at the message sink instead of at row construction.
+     *
+     * `finding_key` is what an operator's acknowledgement is stored against. Hashing the
+     * CLEANED locator would have re-keyed every acknowledgement already on disk, and
+     * would have made the key many-to-one — two roles differing only past the bound
+     * would share one key, so acknowledging one dangling image would silently
+     * acknowledge another. pp_check_token_override_validity() sets the precedent one
+     * screen up: key on the raw token, print the safe one.
+     *
+     * The expected value is computed the way the pre-#1004 code computed it, from raw
+     * bytes, so this test fails if a future change starts hashing the display strings.
+     */
+    public function testTheAcknowledgementKeyStillHashesTheRawLocator(): void
+    {
+        $GLOBALS['_pp_test_store']['options'][PP_SITE_UDC_OPTION] = (string) wp_json_encode([
+            '_version' => 1,
+            'nav'      => ['logo' => ['background' => ['image' => 42]]],
+        ]);
+        $GLOBALS['_pp_test_store']['attachment_is_image'][42] = false;
+
+        $rows = pp_check_udc_background_images();
+
+        $this->assertCount(1, $rows);
+        $this->assertSame(
+            'udc_background_image:' . substr(sha1('chrome "nav"' . '|' . 'role "logo"'), 0, 12),
+            $rows[0]['finding_key'],
+            'the key is derived from the RAW locator, exactly as it was before the bound landed'
+        );
+    }
+
+    /**
+     * TWO NEAR-IDENTICAL ROLE KEYS PRODUCE TWO ROWS, not one.
+     *
+     * The pre-#1004 helper returned a map keyed by the formatted locator. That shape is
+     * fail-open the moment anything cleans the key: two stored roles differing only past
+     * the reflection bound collapse into one entry and the second dangling image
+     * disappears from the report — a silent drop, inside the check that exists to end
+     * silent drops (I29). The helper returns a list now, so the collision cannot exist
+     * whatever the bound is later set to.
+     */
+    public function testTwoRolesDifferingOnlyPastTheBoundStillReportSeparately(): void
+    {
+        $prefix = str_repeat('r', 200);
+        $GLOBALS['_pp_test_store']['options'][PP_SITE_UDC_OPTION] = (string) wp_json_encode([
+            '_version' => 1,
+            'nav'      => [
+                $prefix . 'aaa' => ['background' => ['image' => 42]],
+                $prefix . 'bbb' => ['background' => ['image' => 43]],
+            ],
+        ]);
+        $GLOBALS['_pp_test_store']['attachment_is_image'][42] = false;
+        $GLOBALS['_pp_test_store']['attachment_is_image'][43] = false;
+
+        $rows = pp_check_udc_background_images();
+
+        $this->assertCount(2, $rows, 'neither dangling image may be swallowed by the other');
+        $keys = array_column($rows, 'finding_key');
+        $this->assertSame($keys, array_unique($keys),
+            'two different drops must not share one acknowledgement');
+        // Both messages are still bounded despite the shared 200-character prefix.
+        foreach ($rows as $row) {
+            $this->assertLessThan(1000, strlen($row['message']));
+        }
+    }
+
     public function testTheOverlayCarrierNeverReachesAnyEmittedCss(): void
     {
         foreach ([

@@ -68,14 +68,14 @@
       ],
       "required": false,
       "default": "centered",
-      "description": "Structural layout. centered centers all content. left aligns content left. split places text left and media right at lg+; if a split hero has neither an image (image_url/image_id) nor proof, there is nothing for the second column, so it degrades to the single-column left layout (text at full content width) — add an image or proof to get the two-column split. The degradation is RENDER-TIME ONLY: the stored prop is NOT rewritten, so reading the composition back still reports split while the page renders left. What follows the degraded layout is the root class and the split-scoped data attributes (split_ratio, vertical_align). cover is a TALL, CENTRED band (min-height 70vh): on v2 it no longer paints image_url as a background — set `_band` `background.image` (an attachment id) plus `background.overlay` for that, on any layout you like."
+      "description": "Structural layout. centered centers all content. left aligns content left. split places text left and media right at lg+; if a split hero has neither an image (image_url/image_id) nor proof, there is nothing for the second column, so it degrades to the single-column left layout (text at full content width) — add an image or proof to get the two-column split. The degradation is RENDER-TIME ONLY: the stored prop is NOT rewritten, so reading the composition back still reports split while the page renders left. What follows the degraded layout is the root class and the split-scoped data attributes (split_ratio, vertical_align). cover is a TALL, CENTRED band (min-height 70vh): on v2 it no longer paints image_url as a background, and a cover hero carrying image_url or image_id is REFUSED at write with `inert_prop` — set `_band` `background.image` (an attachment id) plus `background.overlay` for that, on any layout you like."
     },
     "image_url": {
       "type": "string",
       "required": false,
       "default": "",
       "format": "image_url",
-      "description": "Image URL for the SPLIT layout's media column, rendered as an inline <img>. On v2 this no longer paints a cover background: a band background image is `_band` `background.image`, an attachment id the engine resolves. Pair with image_id for a responsive srcset."
+      "description": "Image URL for the SPLIT layout's media column, rendered as an inline <img>. On v2 this no longer paints a cover background, and on `layout: \"cover\"` it is REFUSED at write with `inert_prop` rather than stored dead: a band background image is `_band` `background.image`, an attachment id the engine resolves. Pair with image_id for a responsive srcset."
     },
     "image_alt": {
       "type": "string",
@@ -87,7 +87,7 @@
       "type": "number",
       "required": false,
       "default": 0,
-      "description": "Media Library attachment ID for the SPLIT layout's image (NOT a URL). When it resolves to a real attachment, the image renders responsively with srcset/sizes via wp_get_attachment_image() instead of a single fixed-size <img>. Falls back to image_url when unset or unresolvable. Get an attachment id via the import_media apply. For a BAND BACKGROUND image, use the `_band` role's `background.image` instead."
+      "description": "Media Library attachment ID for the SPLIT layout's image (NOT a URL). When it resolves to a real attachment, the image renders responsively with srcset/sizes via wp_get_attachment_image() instead of a single fixed-size <img>. Falls back to image_url when unset or unresolvable. Get an attachment id via the import_media apply. For a BAND BACKGROUND image, use the `_band` role's `background.image` instead. Like image_url, it is REFUSED at write on `layout: \"cover\"` with `inert_prop` — it is the split layout's inline <img>, never a band background, which is `_band` `background.image`."
     },
     "split_ratio": {
       "type": "enum",
@@ -121,6 +121,29 @@
       "description": "HTML string for trust signals (client logos, star ratings, user counts). Rich HTML (sanitized via wp_kses_post). Rendered after the CTA group inside hero__content, except on a split layout, where it renders instead as the second column inside the `.hero__surface` panel. That panel IS the `surface` role: style it through the `udc` map (background, border, radius, shadow, padding), not through style slots — hero has none. Write PLAIN SEMANTIC MARKUP here: the v1 `.hero__surface-label / -list / -item / -key / -value` helper classes are gone, so markup using those names paints nothing. Text inside the panel inherits the `surface` role's typography. When empty, no DOM element is rendered."
     }
   },
+  "retired_props": {
+    "_note": "Props this component declared on 1.x that the v2 rebuild retired (#1007). Each value names the v2 surface that replaced it, so a refusal can offer a route instead of a list of sixteen live prop names. Guarded by SchemaValidationTest, which fails in BOTH directions: a key here that still exists in props, or a stale entry, is a test failure rather than a message that lies.",
+    "button_variant": "the `cta` role's `udc` map — set `border`, `background` and `typography` there, or apply the `button` or `button-secondary` preset with `\"_preset\"`",
+    "button2_variant": "the `cta-secondary` role's `udc` map — same groups and the same presets as `cta`",
+    "spacing": "the `_band` role's `spacing` group in the `udc` map (`padding-top` / `padding-bottom`)",
+    "width": "the `inner` role's `sizing` group in the `udc` map (`max-width`)"
+  },
+  "refuse_props_when": [
+    {
+      "_note": "Props that are declared and well-typed but paint nothing in a particular configuration, refused rather than stored dead (#1006, invariant I35). The `when` clauses use the shared applies_when grammar.",
+      "when": [
+        {
+          "prop": "layout",
+          "equals": "cover"
+        }
+      ],
+      "props": [
+        "image_url",
+        "image_id"
+      ],
+      "message": "paints nothing on the \"cover\" layout: a band background image is not a prop on v2. Set the band's `udc` map instead — `_band` -> `background` -> `image`, whose value is a Media Library attachment id (`import_media` returns one) — and pair it with `background.overlay` for the scrim. NOTE THE TWO ARE DIFFERENT THINGS DESPITE THE SIMILAR NAMES: the udc `background.image` PARAMETER paints the band background, while this component's `image_id` PROP is the inline <img> in the split layout's media column and paints no background anywhere. `image_url` and `image_id` are still live on `layout: \"split\"`, which is the only layout that renders them."
+    }
+  ],
   "roles": {
     "_band": {
       "selector": "",

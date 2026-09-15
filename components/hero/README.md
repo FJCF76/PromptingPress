@@ -147,7 +147,9 @@ the `align-items` beside it. An authored `typography.align` on a role still over
 and now does so structurally rather than by specificity luck: authored band blocks are
 unlayered and the stylesheet lives in `@layer pp-v1`.
 
-**`cover` no longer paints `image_url` as a background.** A band background image is
+**`cover` no longer paints `image_url` as a background, and the pair is now REFUSED at write.** A `cover` hero carrying `image_url` or `image_id` is rejected with `inert_prop`, and the refusal names the route: `_band` -> `background` -> `image`, an attachment id, paired with `background.overlay` for the scrim. Before #1006 it validated, stored and painted nothing.
+
+**Original note.** A band background image is
 `_band` `background.image`, which means any layout can carry one — not just this one.
 `image_url` / `image_id` now mean the split layout's `<img>` and nothing else.
 

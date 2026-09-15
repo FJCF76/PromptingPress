@@ -90,6 +90,11 @@
       }
     }
   },
+  "retired_props": {
+    "_note": "Props this component declared on 1.x that the v2 rebuild retired (#1007). Each value names the v2 surface that replaced it, so a refusal can offer a route instead of a list of live prop names. Guarded by SchemaValidationTest in both directions.",
+    "theme": "the `_band` role's `background` group for the surface, plus `typography.color` on the text roles (`heading`, `quote`, `attribution`) — v2 has no single dark/light switch, because every value is authorable",
+    "title_align": "the `heading` role's `typography.align` in the `udc` map (and `heading-accent` if you accent it)"
+  },
   "roles": {
     "_band": {
       "selector": "",

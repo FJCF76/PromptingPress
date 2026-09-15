@@ -684,10 +684,12 @@ function _pp_action_validation_error_envelope(string $name, WP_Error $validation
         // string-match the message for template_owned_component / duplicate_component_id
         // / invalid_composition (missing-required) / unknown_prop (#312).
         'error_code' => $validation->get_error_code(),
-        // Which BAND blocked the write (#642). Every composition-mutating action
-        // validates the WHOLE composition, so the blocking band is routinely one the
-        // caller never named — without this an agent re-submits a payload it already
-        // "fixed" and gets the identical string back. Integer composition offset, or
+        // Which BAND blocked the write (#642). `create_page` and `update_composition`
+        // validate the WHOLE composition, so the blocking band can be one the caller
+        // never named — without this an agent re-submits a payload it already "fixed"
+        // and gets the identical string back. Since #1007 `update_component` judges only
+        // the band it targets, so its rejections name the band the caller asked about;
+        // the field is unchanged and still carries the offset either way. Integer composition offset, or
         // null when no single band owns the rejection: a cross-item rule, a param-shape
         // error, a precondition, or a rejection on a band the CALLER named itself
         // (style_component's own validator, index_out_of_bounds — the offset is the
@@ -903,6 +905,52 @@ function pp_execute_action(string $name, array $params): array {
                 _pp_history_push_skipped_findings($written_post_id);
             }
         }
+    }
+
+    // A CHROME WRITE REPORTS WHAT IT WROTE, ON THE SAME CHANNEL A BAND WRITE DOES (#993).
+    //
+    // Ruling A1 made chrome "exactly the shape a band's `udc` takes — same engine, same
+    // grammar", and the refusal half has always honoured that: pp_udc_validate_site_map()
+    // hands every entry to pp_udc_validate_map(), so a dangling preset or an unpermitted
+    // group refuses identically on both surfaces. The DISCLOSURE half did not exist here
+    // at all, because pp_udc_composition_findings() needs a list-shaped composition and
+    // nothing built one for chrome. Two consequences, one live and one staged:
+    //
+    //   LIVE at 2.0.0-alpha.1 — a responsive chrome value is minted into band tokens and
+    //   the author's literal is rewritten, with no `udc_token_minted` to say so. That is
+    //   §3.1's no-coercion promise, unkept on the one surface that could not report it.
+    //
+    //   STAGED — the T2 sub-ruling's clause 2 ("a silent partial apply is the
+    //   reported-success-without-effect class I35 forbids") could never fire here, so the
+    //   moment Sprint-2 custom presets ship, the same preset would disclose its skipped
+    //   groups on a band and say nothing on chrome. The asymmetry was the bug.
+    //
+    // SITED HERE, BESIDE THE COMPOSITION ARM, NOT INSIDE THE ACTION. _pp_action_result()
+    // is shared with the token/menu/page-lifecycle actions and its own comment records why
+    // `findings` is not in it; this is the same reasoning applied to the same place. The
+    // key test mirrors the composition arm's: an action that set its own `findings` keeps
+    // them, and an empty array is a real answer that must not be re-derived.
+    //
+    // REPORT-ONLY, AFTER THE WRITE, OVER THE STORED CONTAINER — the same three properties
+    // the composition arm has. It can only append a key, and pp_udc_site_findings() reads
+    // through the fail-closed site reader, so a corrupt row yields no findings rather than
+    // a throw over a write that already landed.
+    if (($result['ok'] ?? false)
+        && $name === 'update_site_option'
+        && ($params['key'] ?? '') === PP_SITE_UDC_OPTION
+        && !array_key_exists('findings', $result)
+        && function_exists('pp_udc_site_findings')) {
+        $result['findings'] = _pp_bounded_findings(
+            pp_udc_site_findings(),
+            null,
+            PP_WRITE_FINDINGS_BUDGET,
+            // NOT a findings report, and the wording does not pretend otherwise: it is the
+            // command that returns the stored chrome map, which is what every disclosure
+            // here is derived from, and it is the route the runtime prompt already names.
+            // A chrome-scoped diagnostic does not exist yet; pointing at the page-scoped
+            // one would be worse than pointing at the data.
+            'wp pp operate inspect'
+        );
     }
 
     return $result;
@@ -5347,7 +5395,12 @@ function _pp_count_omitted_finding_types(array $findings, int $budget): array {
     return $omitted;
 }
 
-function _pp_bounded_findings(array $findings, ?int $post_id = null, int $budget = PP_WRITE_FINDINGS_BUDGET): array {
+function _pp_bounded_findings(
+    array $findings,
+    ?int $post_id = null,
+    int $budget = PP_WRITE_FINDINGS_BUDGET,
+    ?string $complete_report_command = null
+): array {
     $budget = max(0, $budget);
     $total  = count($findings);
     if ($total <= $budget) {
@@ -5363,9 +5416,16 @@ function _pp_bounded_findings(array $findings, ?int $post_id = null, int $budget
             $budget,
             $total,
             $total - $budget,
-            $post_id === null
+            // THE ROUTE HAS TO EXIST FOR THE SURFACE THAT PRINTS IT (#993). This tail
+            // was written when every caller described a PAGE, so it hardcoded the
+            // page-scoped command. Chrome has no page, and printing
+            // `--post_id=<id>` on a chrome envelope would be a route to nowhere — the
+            // fabricated-locator class I26 forbids, one level up from a locator.
+            // Callers that are not page-scoped pass their own command; the page
+            // wording is untouched and still byte-identical to #687's ratified text.
+            $complete_report_command ?? ($post_id === null
                 ? 'wp pp check page --post_id=<id>'
-                : 'wp pp check page --post_id=' . $post_id
+                : 'wp pp check page --post_id=' . $post_id)
         ),
         'index'    => null,
         // WHAT WAS OMITTED, BY SPECIES (#981, boundary-review item E2).
@@ -6055,7 +6115,7 @@ pp_register_action('update_component', [
     'scope'       => 'section',
     'mutates_composition' => true,
     'description' => 'Updates a single component\'s props via shallow merge (patch, not replace). Optionally accepts style to also update per-instance style slots in the same call. Accepts component_id (an authored id prop, or the auto-generated pp-<hex8> — note auto-generated ids do not survive a full update_composition re-apply) or component_index (0-based). component_id takes precedence when both are provided.',
-    'semantics'   => 'Patch. Props are shallow-merged into existing props. Unspecified props unchanged. null removes a prop. Optional style param shallow-merges style slots (same as style_component). Validates the merged composition via pp_validate_composition(). Target component by component_id or component_index.',
+    'semantics'   => 'Patch. Props are shallow-merged into existing props. Unspecified props unchanged. null removes a prop. Optional style param shallow-merges style slots (same as style_component). Validates the band it targets via pp_validate_composition_band() (#1007) — a stale prop on another band does not block this write and is reported on the accepted envelope\'s findings instead; the cross-item rules (duplicate band/component ids) still run over the whole page and still refuse from any band. Target component by component_id or component_index.',
     'params'      => [
         'post_id'          => ['type' => 'int',    'required' => true],
         'component_index'  => ['type' => 'int',    'required' => false],
@@ -6100,7 +6160,27 @@ pp_register_action('update_component', [
             $test_composition[$params['component_index']]['style'] = $merged_style;
         }
 
-        return pp_validate_composition($test_composition);
+        // SCOPED TO THE BAND THIS WRITE TOUCHES (#1007).
+        //
+        // This used to be pp_validate_composition($test_composition) — the WHOLE page —
+        // so a single retired prop on band 0 refused every edit to every other band, and
+        // the refusal named a band the caller had not mentioned. Worse, the documented
+        // recovery (set the key to null) goes through this same action, so a page with
+        // retired props on TWO bands could never be unlocked at all: clearing either one
+        // still tripped the other. Measured on hero(button_variant) + testimonials(theme),
+        // which is the ordinary shape of a 1.x page and the input the 2.0 brand-site
+        // reconstruction starts from.
+        //
+        // add_component and style_component have always validated only what they touch,
+        // and pp_execute_action() attaches the page's remaining errors to the accepted
+        // envelope precisely because they do. This action was the outlier, not the
+        // guardian.
+        //
+        // CROSS-ITEM RULES STILL RUN — see pp_validate_composition_band(). `props.id` is
+        // a declared prop merged verbatim two lines up, so a naive item-only validation
+        // would let one call collide two bands' ids and persist the wrong-targetable
+        // state #238 closed.
+        return pp_validate_composition_band($test_composition, $params['component_index']);
     },
     'preview' => function (array $params): array {
         _pp_resolve_id_param($params, $params['post_id']);
@@ -6337,7 +6417,15 @@ pp_register_action('style_component', [
         $available_slots = pp_get_style_slots($component_name);
 
         if (empty($available_slots)) {
-            return new WP_Error('no_style_slots', sprintf('Component "%s" has no declared style slots.', $component_name));
+            // NAMES THE ROUTE, NOT JUST THE ABSENCE (#1007). The bare sentence was true
+            // and useless: the four components this fires on are the ones that moved to
+            // the `udc` map, so "no style slots" is the START of the answer, not the end.
+            // Derived from the same predicate the engine uses, so it cannot drift.
+            return new WP_Error('no_style_slots', sprintf(
+                'Component "%s" has no declared style slots. %s',
+                $component_name,
+                _pp_no_style_slots_clause($component_name)
+            ));
         }
 
         // Expand recipe if provided.

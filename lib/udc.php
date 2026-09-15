@@ -3676,6 +3676,133 @@ function pp_udc_normalize_site_map(array $decoded, int $next_version): array {
 }
 
 /**
+ * The findings a chrome write's envelope carries (#993).
+ *
+ * THE POINT OF THIS FUNCTION IS THAT IT IS NOT A SECOND ENGINE. It reads the stored
+ * container, wraps each chrome entry in the item shape the composition findings engine
+ * already accepts — the SAME wrap pp_udc_normalize_site_map() performs to reuse the band
+ * normalizer — and hands the list to pp_udc_composition_findings(). The T2 sub-ruling's
+ * clause 4 ("the write gate and the emitter intersect through one predicate, so what the
+ * envelope reports as skipped is what the page omits") is satisfied here by IDENTITY
+ * rather than by discipline: there is no chrome copy of the walk that could drift.
+ *
+ * WHAT WAS BROKEN. Chrome writes produced no `findings` at all, because the engine
+ * requires a list-shaped composition and nothing ever built one for chrome. Two of the
+ * engine's four disclosures were therefore unreachable on a supported authoring path:
+ *
+ *     wp pp action execute update_site_option --params='{"key":"pp_site_udc",
+ *       "value":"{\\"nav\\":{\\"link\\":{\\"typography\\":{\\"size\\":{\\"d\\":\\"19px\\",\\"p\\":\\"15px\\"}}}}}"}'
+ *
+ * returned ok:true with the two literals silently rewritten to minted band-token
+ * references and no `udc_token_minted` anywhere — the §3.1 no-coercion promise the
+ * runtime prompt makes to the model by name, unkept on this surface only. #993 filed the
+ * PRESET-SKIP half, which stays latent until Sprint-2 custom presets; the minting half
+ * was live at 2.0.0-alpha.1.
+ *
+ *     band item  ─┐
+ *                 ├─► pp_udc_composition_findings() ─► udc_token_minted
+ *     chrome entry┘        (one engine)                 udc_unused_band_token
+ *       (wrapped here)                                  udc_preset_groups_skipped
+ *                                                       udc_band_value_shadowed_...
+ *
+ * THE `index` IS DROPPED, and that is not cosmetic. The engine stamps the list offset,
+ * which is a COMPOSITION offset; on chrome it names no band and would be exactly the
+ * fabricated locator I26 forbids. `null` is the value the assembler already uses for a
+ * finding no single band owns, and every message here already names its component.
+ *
+ * NO AVAILABILITY GATE, unlike _pp_write_findings_for(). That gate exists because a
+ * composition is unbounded and the engines materialise every finding before anything
+ * bounds them. This container cannot exceed PP_SITE_UDC_MAX_BYTES, enforced on both
+ * write arms in lib/wp.php, so the walk is bounded by construction. Stated because the
+ * absence would otherwise read as an oversight.
+ *
+ * Of the four disclosures, `udc_band_value_shadowed_by_role_default` correctly yields
+ * nothing today: chrome ships EMPTY role defaults (see #992/#994), so there is no default
+ * for a `_band` value to be shadowed by. That silence is a fact about chrome, not a gap
+ * here — and it starts speaking on its own the day #994 gives chrome real defaults.
+ *
+ * @return array<int, array{type: string, message: string, index: null}>
+ */
+function pp_udc_site_findings(): array {
+    try {
+        return _pp_udc_site_findings_unguarded();
+    } catch (\Throwable $e) {
+        // REPORT-ONLY MUST NOT BE ABLE TO TAKE DOWN THE WRITE IT REPORTS ON.
+        //
+        // This runs AFTER the option row has been written, so a Throwable here would
+        // turn a change that HAPPENED into a failed action envelope — and a client that
+        // retries on failure would re-send a whole-container chrome write, against a
+        // version that has already moved. Losing the disclosure is a bad outcome; losing
+        // the disclosure AND provoking a clobbering retry is a much worse one.
+        //
+        // The same posture, and the same idiom, the emit-drop probe uses one file over
+        // (pp_check_udc_emit_drops, lib/wp.php): a diagnostic must survive the corruption
+        // it exists to report (I17), and must not fail silently while doing it (I29) —
+        // hence the log, which is for the DEVELOPER, not the operator.
+        //
+        // Unreachable through the shipped readers as far as the tests can reach: the
+        // container read is fail-closed and the engine is typed. That is the point of a
+        // guard on a path where being wrong costs a landed write.
+        error_log(
+            'PromptingPress: chrome findings probe failed: '
+            . get_class($e) . ': ' . $e->getMessage()
+        );
+
+        // A SKIP IS NOT A CLEAN BILL OF HEALTH (I29), and an empty array would read as
+        // one. The composition path already treats this as a trap and has a species for
+        // it — `findings_skipped`, "nothing was counted here" — so chrome uses the same
+        // word rather than coining a second one for the same state. Without this the
+        // envelope says `findings: []` whether the probe found nothing or could not run,
+        // and the runtime prompt tells the model to read that array rather than assume.
+        return [[
+            'type'     => 'findings_skipped',
+            'severity' => 'warning',
+            'message'  => 'The chrome disclosure report could not be built for this write, so this '
+                          . 'envelope says nothing about what the engine normalized. The write itself '
+                          . 'landed. Read the stored map with `wp pp operate inspect`.',
+            'index'    => null,
+        ]];
+    }
+}
+
+/** The body of pp_udc_site_findings(), separated so the guard above reads as one line. */
+function _pp_udc_site_findings_unguarded(): array {
+    $site = pp_udc_site_map();
+    if (!is_array($site) || !isset($site['chrome']) || !is_array($site['chrome'])) {
+        return [];
+    }
+
+    // Built in the registry's order rather than the stored map's, so two installs
+    // holding the same chrome report it in the same order.
+    $items = [];
+    foreach (pp_udc_chrome_names() as $name) {
+        if (isset($site['chrome'][$name]) && is_array($site['chrome'][$name])) {
+            $items[] = ['component' => $name, 'udc' => $site['chrome'][$name]];
+        }
+    }
+    if ($items === []) {
+        return [];
+    }
+
+    $findings = [];
+    foreach (pp_udc_composition_findings($items) as $finding) {
+        $findings[] = [
+            'type'     => $finding['type'],
+            // SEVERITY IS STAMPED HERE because this function is chrome's ASSEMBLER, the
+            // counterpart of _pp_composition_findings() — which is where the composition
+            // path stamps it for the very same disclosures. Every generic consumer
+            // branches on this value (the CLI splits on `=== 'error'`, the chat picks a
+            // row class from it), so a chrome row without it renders as neither.
+            // `warning` matches what the composition path gives these four types.
+            'severity' => 'warning',
+            'message'  => $finding['message'],
+            'index'    => null,
+        ];
+    }
+    return $findings;
+}
+
+/**
  * One chrome component's CSS for one layer.
  *
  * Compiles through pp_udc_compile_band() — the same compiler, same cascade rung,

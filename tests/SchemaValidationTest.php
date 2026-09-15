@@ -6475,4 +6475,294 @@ class SchemaValidationTest extends TestCase
         }
         rmdir($dir);
     }
+    // ── #1007: the retired-props registry agrees with the live schema ────────
+
+    /**
+     * THE REGISTRY CANNOT LIE, IN EITHER DIRECTION.
+     *
+     * `retired_props` exists so a refusal can name where a value went instead of listing
+     * sixteen live prop names. That only helps if it is true, and a hand-written map is
+     * exactly the thing that drifts — the six retired chrome OPTIONS are already kept in
+     * three hand-maintained copies with no test asserting they agree, which is the I43
+     * failure this block is shaped to avoid rather than repeat.
+     *
+     * Two directions, because a registry can be wrong two ways:
+     *
+     *   1. A key declared retired that STILL EXISTS in `props`. The refusal would fire on
+     *      a live prop and tell the author it was removed — worse than saying nothing,
+     *      because they would go and rewrite working content.
+     *   2. A route that names a role the component does not declare. "Set the `cta` role's
+     *      udc map" is useless if there is no `cta` role, and a rename during a rebuild is
+     *      exactly when that happens.
+     *
+     * THE REBUILD PATTERN. Every Sprint-2 component rebuild declares its own
+     * `retired_props` in this shape as part of the rebuild, and this test covers it
+     * automatically — it iterates the registry rather than naming hero and testimonials,
+     * so a new component's block is guarded the moment it is added.
+     */
+    public function testEveryRetiredPropEntryAgreesWithTheComponentItDescribes(): void
+    {
+        $checked = 0;
+
+        foreach (pp_get_registered_components() as $name => $schema) {
+            $retired = pp_component_retired_props($name);
+            if ($retired === []) {
+                continue;
+            }
+
+            $live  = array_keys($schema['props'] ?? []);
+            $roles = array_keys(pp_udc_component_roles($name));
+
+            $this->assertNotEmpty(
+                $roles,
+                sprintf('"%s" declares retired_props but is not on the UDC — nothing retired them', $name)
+            );
+
+            foreach ($retired as $prop => $route) {
+                $checked++;
+
+                // DIRECTION 1 — it must really be gone.
+                $this->assertNotContains(
+                    $prop,
+                    $live,
+                    sprintf('"%s" declares "%s" retired, but it is still a live prop', $name, $prop)
+                );
+
+                // DIRECTION 2 — the route must point somewhere that exists.
+                $this->assertNotSame('', trim($route), sprintf('"%s.%s" has an empty route', $name, $prop));
+                $named = array_values(array_filter(
+                    $roles,
+                    static fn (string $role): bool => str_contains($route, '`' . $role . '`')
+                ));
+                $this->assertNotEmpty(
+                    $named,
+                    sprintf(
+                        '"%s.%s" names no role %s declares; its route reads: %s',
+                        $name,
+                        $prop,
+                        $name,
+                        $route
+                    )
+                );
+            }
+        }
+
+        // A registry that silently emptied would pass every assertion above.
+        $this->assertGreaterThanOrEqual(6, $checked, 'the shipped registry must still be covered');
+    }
+
+    /**
+     * `_note` documents the block for a human reading the schema and is not a prop, so it
+     * must never reach the refusal as one. Pinned because it is the kind of key a reader
+     * adds to the next component's block without thinking about the consumer.
+     */
+    public function testTheRetiredPropsNoteIsNotTreatedAsARetiredProp(): void
+    {
+        foreach (['hero', 'testimonials'] as $component) {
+            $this->assertArrayNotHasKey('_note', pp_component_retired_props($component));
+        }
+        // And it IS present in the raw schema, or the docblock it carries is gone.
+        $raw = pp_get_registered_components()['hero']['retired_props'] ?? [];
+        $this->assertArrayHasKey('_note', $raw, 'the block must stay self-documenting in the schema');
+    }
+
+    /**
+     * THE ENGINE'S OWN SKIP PATHS, on a throwaway schema, because the shipped rule cannot
+     * reach them and a branch nothing pins is a branch that quietly changes direction.
+     *
+     * The registry-wide test below stops a SHIPPED schema from tripping any of these. This
+     * one pins what the ENGINE does when it meets them anyway — a third-party component, a
+     * future rule, or stored data the gating prop cannot be compared against.
+     *
+     * All three directions are fail-open FOR THE REFUSAL, which is the posture a blocking
+     * rule should take on an ambiguity: refusing on a shape nobody can reason about
+     * produces a confident message about the wrong prop.
+     */
+    public function testTheRefusePropsWhenEngineDeclinesToRefuseOnAnythingUndecidable(): void
+    {
+        $root = sys_get_temp_dir() . '/pp-refuse-fixture-' . uniqid('', true);
+        mkdir($root . '/components/refuseband', 0777, true);
+        file_put_contents($root . '/components/refuseband/refuseband.php', '<?php // fixture');
+        file_put_contents($root . '/components/refuseband/schema.json', json_encode([
+            'component' => 'refuseband',
+            'props'     => [
+                'mode'  => ['type' => 'string', 'required' => false, 'default' => 'plain',
+                            'description' => 'The gating prop.'],
+                'dead'  => ['type' => 'string', 'required' => false, 'default' => '',
+                            'description' => 'Inert when mode is "plain".'],
+                'dead2' => ['type' => 'string', 'required' => false, 'default' => '',
+                            'description' => 'Refused by a rule that declares no message.'],
+            ],
+            'refuse_props_when' => [
+                // (a) an EMPTY `when` would match every band — it must refuse nothing.
+                ['when' => [], 'props' => ['dead'], 'message' => 'should never fire.'],
+                // (b) a real rule with NO message — must still refuse, with the generic tail.
+                ['when' => [['prop' => 'mode', 'equals' => 'plain']], 'props' => ['dead2']],
+            ],
+        ]));
+
+        $previousRoot = $GLOBALS['_pp_test_template_dir'] ?? null;
+        $GLOBALS['_pp_test_template_dir'] = $root;
+        $GLOBALS['_pp_registered_components_invalidate'] = true;
+
+        try {
+            // (a) EMPTY `when` refuses nothing.
+            $this->assertTrue(
+                \pp_validate_composition([['component' => 'refuseband', 'props' => ['dead' => 'x']]]),
+                'a rule with an empty condition must be a no-op, not an unconditional refusal'
+            );
+
+            // (b) NO `message` still refuses, with the generic sentence.
+            $no_message = \pp_validate_composition([
+                ['component' => 'refuseband', 'props' => ['dead2' => 'x']],
+            ]);
+            $this->assertInstanceOf(\WP_Error::class, $no_message);
+            $this->assertSame('inert_prop', $no_message->get_error_code());
+            $this->assertStringContainsString('has no effect as configured', $no_message->get_error_message());
+
+            // (c) AN UNDECIDABLE SUBJECT declines to refuse, so the rule that owns the
+            // malformed value reports it instead of this one reporting the wrong prop.
+            $undecidable = \pp_validate_composition([
+                ['component' => 'refuseband', 'props' => ['mode' => ['an', 'array'], 'dead2' => 'x']],
+            ]);
+            $this->assertInstanceOf(\WP_Error::class, $undecidable);
+            $this->assertNotSame('inert_prop', $undecidable->get_error_code(),
+                'the array `mode` is the real defect and must be what is reported');
+        } finally {
+            if ($previousRoot === null) {
+                unset($GLOBALS['_pp_test_template_dir']);
+            } else {
+                $GLOBALS['_pp_test_template_dir'] = $previousRoot;
+            }
+            $GLOBALS['_pp_registered_components_invalidate'] = true;
+        }
+    }
+
+    /**
+     * EVERY SHIPPED `refuse_props_when` RULE IS WELL-FORMED, because the loop that reads
+     * it is deliberately fail-open and that is only safe if a schema regression is loud.
+     *
+     * The engine DECLINES TO REFUSE on anything it cannot decide — a malformed clause, an
+     * undecidable subject, a missing or empty `when`. That is the right runtime call for a
+     * blocking rule (a broken schema must not make every page unwritable, and a confident
+     * refusal about the wrong prop is worse than none), but it means a typo in `when`, a
+     * missing `props`, or a clause the applies_when grammar rejects would SILENTLY reopen
+     * the reported-success-without-effect class #1006 closed, with nothing anywhere saying
+     * so. This test is the thing that says so. Raised by the adversarial review, verified,
+     * and closed here rather than by making the runtime fail-closed.
+     *
+     * Four things are checked, all of them ways a rule can be true-looking and dead:
+     *   1. the clause parses under the SHARED grammar (pp_applies_when_clause_errors),
+     *      so this cannot drift from what pp_applies_when_clause_met() will accept;
+     *   2. `when` is non-empty — an empty condition would match every band, and the
+     *      engine skips it, so a rule that looks universal would refuse nothing;
+     *   3. every named prop EXISTS on the component, or the rule guards a prop the
+     *      schema no longer declares and the refusal can never fire;
+     *   4. a `message` is present, since the fallback wording names no route and the
+     *      whole point of the refusal is to name one.
+     */
+    public function testEveryShippedRefusePropsWhenRuleIsWellFormed(): void
+    {
+        $checked = 0;
+
+        foreach (pp_get_registered_components() as $name => $schema) {
+            $rules = $schema['refuse_props_when'] ?? [];
+            if (!is_array($rules) || $rules === []) {
+                continue;
+            }
+            $this->assertTrue(
+                array_is_list($rules),
+                sprintf('"%s" refuse_props_when must be a LIST of rules', $name)
+            );
+
+            foreach ($rules as $n => $rule) {
+                $checked++;
+                $where = sprintf('%s refuse_props_when[%d]', $name, $n);
+
+                $this->assertIsArray($rule, $where);
+                $this->assertNotEmpty($rule['when'] ?? [], $where . ': an empty `when` matches nothing');
+                $this->assertNotEmpty($rule['props'] ?? [], $where . ': a rule must name the props it refuses');
+                $this->assertNotEmpty($rule['message'] ?? '', $where . ': a refusal without a route is half a refusal');
+
+                foreach ($rule['when'] as $clause) {
+                    $this->assertSame(
+                        [],
+                        pp_applies_when_clause_errors($clause, $where),
+                        $where . ': the clause must parse under the shared applies_when grammar'
+                    );
+                    // A clause keyed on a prop that does not exist would read the default
+                    // of nothing and never match.
+                    if (isset($clause['prop'])) {
+                        $this->assertArrayHasKey(
+                            $clause['prop'],
+                            $schema['props'] ?? [],
+                            $where . ': the condition names a prop the component does not declare'
+                        );
+                        // AND IT MUST DECLARE A DEFAULT, for `equals`/`in`. The evaluator
+                        // reads the default when the prop is absent, so a gating prop with
+                        // no default makes an absent value compare against null — which on
+                        // some shapes resolves to "met" and refuses those props on a band
+                        // that set nothing at all. hero's `layout` defaults to `centered`,
+                        // so nothing is broken today; the next component is the risk.
+                        if (!array_key_exists('present', $clause)) {
+                            $this->assertArrayHasKey(
+                                'default',
+                                $schema['props'][$clause['prop']],
+                                $where . ': an equals/in condition needs the gating prop to declare a default'
+                            );
+                        }
+                    }
+                }
+
+                foreach ($rule['props'] as $prop) {
+                    $this->assertArrayHasKey(
+                        $prop,
+                        $schema['props'] ?? [],
+                        $where . sprintf(': refuses "%s", which %s does not declare', $prop, $name)
+                    );
+                }
+            }
+        }
+
+        $this->assertGreaterThanOrEqual(1, $checked, 'the shipped rule must still be covered');
+    }
+
+    /**
+     * A v2 component's slot refusal routes instead of dead-ending (#1007).
+     *
+     * "Available slots: (none)" read as "this component can no longer be styled", which is
+     * false for every component it fires on. Derived from pp_udc_is_v2_component(), so it
+     * covers each rebuild automatically and cannot drift the way a list of 76 retired slot
+     * names would.
+     */
+    public function testAV2ComponentsSlotRefusalNamesItsRolesInsteadOfSayingNone(): void
+    {
+        foreach (['hero', 'testimonials'] as $component) {
+            $error = pp_validate_composition_item([
+                'component' => $component,
+                'props'     => $component === 'hero'
+                    ? ['title' => 'T']
+                    : ['items' => [['quote' => 'q', 'author' => 'a']]],
+                'style'     => ['--' . $component . '-bg' => '#fff'],
+            ]);
+
+            $this->assertInstanceOf(\WP_Error::class, $error, $component);
+            $this->assertSame('invalid_style_slot', $error->get_error_code());
+            $message = $error->get_error_message();
+            $this->assertStringNotContainsString('(none)', $message, 'the dead end is gone');
+            $this->assertStringContainsString('v2 styling system', $message);
+            $this->assertStringContainsString('`udc` map', $message);
+            $this->assertStringContainsString('_band', $message, 'and it lists the roles to use');
+        }
+
+        // A v1 component keeps the old spelling, because its slots are real.
+        $v1 = pp_validate_composition_item([
+            'component' => 'cta',
+            'props'     => ['title' => 'T', 'button_text' => 'Go', 'button_url' => '/'],
+            'style'     => ['--nope' => 'red'],
+        ]);
+        $this->assertInstanceOf(\WP_Error::class, $v1);
+        $this->assertStringContainsString('Available slots: --cta-', $v1->get_error_message());
+    }
+
 }

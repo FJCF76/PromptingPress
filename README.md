@@ -352,6 +352,7 @@ the HANDOFF report.
 → Every `wp pp apply` command, flag, and error (reference): [docs/reference-apply-cli.md](docs/reference-apply-cli.md)
 → Apply a token change and roll it back, step by step (how-to): [docs/howto-apply-and-rollback.md](docs/howto-apply-and-rollback.md)
 → Why a value you wrote beats the theme's own stylesheet (the design): [docs/explanation-cascade-layers.md](docs/explanation-cascade-layers.md)
+→ What a write is allowed to refuse on behalf of, and why an edit to one band no longer blocks on another (the design): [docs/explanation-validation-scope.md](docs/explanation-validation-scope.md)
 
 ---
 

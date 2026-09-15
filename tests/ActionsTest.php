@@ -796,8 +796,25 @@ class ActionsTest extends TestCase
         // ComponentPropsTest::testCtaButton2VariantInvalidFallsBackToOutline.
     }
 
-    public function testUpdateComponentIsBlockedByAnUntouchedBandHoldingTheRemovedThemeValue(): void
+    public function testAnUntouchedBandHoldingTheRemovedThemeValueNoLongerBlocksAnEditBesideIt(): void
     {
+        // INVERTED BY #1007. This test used to pin the opposite outcome, deliberately:
+        // the read-modify-write actions validated the WHOLE composition, so an untouched
+        // band storing a retired value blocked an edit to a different band, and that was
+        // recorded here as "the accepted stale-data breakage stated plainly".
+        //
+        // It was not acceptable, and the measurement that settled it is in #1007: a page
+        // with retired keys on TWO bands could never be repaired at all, because the
+        // documented cure runs through this same action and every single-band clear was
+        // refused by the other band. A "way out" that does not exist is not a way out.
+        //
+        // update_component now validates the band it targets (pp_validate_composition_band).
+        // The page's other problems are not hidden by that — they move from the refusal to
+        // the ACCEPTED envelope's findings, which is asserted below, and which is the
+        // "refuse narrowly, advise page-wide" contract #233/#687 already established.
+        //
+        // What did NOT change: cross-item rules still refuse from any band, because they
+        // are properties of the page (see testADuplicateComponentIdStillRefusesABandScopedWrite).
         // #605 INVERTS the #579/#575 alias pin this replaces. `theme` is strict and
         // advertises only default|muted|inverted; `dark` is no longer an accepted
         // input value, so it is no longer part of the strict membership test.
@@ -825,13 +842,330 @@ class ActionsTest extends TestCase
             'props'           => ['title' => 'Edited'],
         ]);
 
-        $this->assertFalse($result['ok'], 'a stored `dark` band must now block the whole-composition validation');
-        $this->assertStringContainsString('default, muted, inverted', $result['error']);
+        $this->assertTrue($result['ok'], $result['error'] ?? 'band 0\'s stale value is not band 1\'s business');
 
-        // Nothing was written: the stale band is untouched and the edit did not land.
+        // THE EDIT LANDED AND THE STALE BAND WAS NOT TOUCHED. Narrowing the refusal must
+        // not turn into silently repairing, or rewriting, the band nobody asked about.
         $composition = pp_get_composition($id);
-        $this->assertSame('Other band', $composition[1]['props']['title']);
+        $this->assertSame('Edited', $composition[1]['props']['title']);
         $this->assertSame('dark', $composition[0]['props']['theme'], 'storage is never rewritten behind the author');
+
+        // AND THE PAGE'S REMAINING PROBLEM IS STILL REPORTED, on the same envelope, at
+        // error severity, naming the band that owns it. This half is what makes the
+        // narrowing honest rather than a silencing: the author is told, they are just no
+        // longer prevented from working.
+        $stale = array_values(array_filter(
+            $result['findings'],
+            static fn (array $f): bool => ($f['severity'] ?? '') === 'error'
+        ));
+        $this->assertNotEmpty($stale, 'the sibling band\'s error moves to the envelope, it does not vanish');
+        $this->assertSame(0, $stale[0]['index'], 'and it names the band that actually holds the value');
+        $this->assertStringContainsString('default, muted, inverted', $stale[0]['message']);
+    }
+
+    // ── #1006: a prop that paints nothing is refused, not stored dead ───────
+
+    /**
+     * THE PAIR IS REFUSED THROUGH THE REAL AUTHORING SURFACE, on both media props.
+     *
+     * `{"layout": "cover", "image_url": "..."}` validated, stored, reported ok:true and
+     * painted nothing, on no channel — the render branch that made the pair mean something
+     * was deleted in the v2 rebuild but neither prop was, so nothing refused it and nothing
+     * reported it. A fresh author working from the live schema meets this on day one.
+     *
+     * BOTH props, not just the one #1006 filed: `image_id` is equally inert on `cover`, so
+     * refusing only `image_url` would leave the identical silent no-op reachable one prop
+     * over — the same I35 test, failed the same way.
+     */
+    public function testACoverHeroCarryingAMediaPropIsRefusedNamingTheUdcRoute(): void
+    {
+        foreach (['image_url' => '/hero.png', 'image_id' => 42] as $prop => $value) {
+            $result = pp_execute_action('create_page', [
+                'title'       => 'Cover hero ' . $prop,
+                'composition' => [[
+                    'component' => 'hero',
+                    'props'     => ['title' => 'Big claim', 'layout' => 'cover', $prop => $value],
+                ]],
+            ]);
+
+            $this->assertFalse($result['ok'], "a cover hero carrying {$prop} must be refused");
+            $this->assertSame('inert_prop', $result['error_code'], 'its own code, not a generic one');
+            $this->assertStringContainsString($prop, $result['error']);
+            // THE ROUTE.
+            $this->assertStringContainsString('`_band` -> `background` -> `image`', $result['error']);
+            $this->assertStringContainsString('import_media', $result['error']);
+            // AND THE DISAMBIGUATION, which is the part a model will otherwise get wrong:
+            // the udc `background.image` PARAMETER and hero's `image_id` PROP are different
+            // things with confusable names, and only one of them paints a background.
+            $this->assertStringContainsString('DIFFERENT THINGS DESPITE THE SIMILAR NAMES', $result['error']);
+        }
+    }
+
+    /**
+     * THE LAYOUT ITSELF IS STILL LIVE — the regression guard that keeps the refusal from
+     * being a layout removal.
+     *
+     * `cover` is a tall centred band (`.hero--cover` is real geometry) and pages using it
+     * correctly must keep working. Only the PAIR is dead, which is why the rule keys on a
+     * condition plus a prop set rather than on either alone.
+     */
+    public function testACoverHeroWithNoMediaPropIsStillPerfectlyValid(): void
+    {
+        $result = pp_execute_action('create_page', [
+            'title'       => 'Plain cover hero',
+            'composition' => [[
+                'component' => 'hero',
+                'props'     => ['title' => 'Big claim', 'layout' => 'cover'],
+            ]],
+        ]);
+
+        $this->assertTrue($result['ok'], $result['error'] ?? 'cover is a live layout, not a retired one');
+    }
+
+    /**
+     * And the media props are untouched on the layout that renders them.
+     *
+     * A refusal that reached `split` would break the one thing `image_url` still does.
+     */
+    public function testTheMediaPropsAreUntouchedOnTheSplitLayout(): void
+    {
+        $result = pp_execute_action('create_page', [
+            'title'       => 'Split hero',
+            'composition' => [[
+                'component' => 'hero',
+                'props'     => [
+                    'title' => 'Big claim', 'layout' => 'split',
+                    'image_url' => '/hero.png', 'image_alt' => 'Product', 'image_id' => 42,
+                ],
+            ]],
+        ]);
+
+        $this->assertTrue($result['ok'], $result['error'] ?? 'split is where these props live');
+    }
+
+    /**
+     * An EMPTY media prop on a cover band is not the author asking for a background, so it
+     * is not refused. Without this the rule would make a band merely CARRYING the key
+     * unwritable, which is a lockout wearing a fix's clothes — exactly what #1007 spent
+     * this same change removing.
+     */
+    public function testAnEmptyMediaPropOnACoverHeroIsNotRefused(): void
+    {
+        $result = pp_execute_action('create_page', [
+            'title'       => 'Cover hero with a cleared image',
+            'composition' => [[
+                'component' => 'hero',
+                'props'     => ['title' => 'Big claim', 'layout' => 'cover', 'image_url' => ''],
+            ]],
+        ]);
+
+        $this->assertTrue($result['ok'], $result['error'] ?? 'an empty value is not a request for a background');
+    }
+
+    /**
+     * A page that ALREADY holds the pair still restores, and the restore reports it (#233).
+     *
+     * A new write-time refusal must never make an existing page unrecoverable: restore is
+     * the route back from a bad state, so a rule that blocked it would take the undo away
+     * from exactly the pages that need it.
+     */
+    public function testAStoredCoverPairStillRestoresAndIsReportedNotBlocked(): void
+    {
+        $id = pp_create_page('Legacy cover hero', 'draft');
+        pp_update_composition($id, [
+            ['component' => 'hero', 'props' => ['title' => 'Old', 'layout' => 'cover', 'image_url' => '/old.png']],
+        ]);
+        pp_update_composition($id, [
+            ['component' => 'hero', 'props' => ['title' => 'Newer', 'layout' => 'centered']],
+        ]);
+
+        $restored = pp_execute_action('restore_composition', ['post_id' => $id, 'steps_back' => 1]);
+
+        $this->assertTrue($restored['ok'], $restored['error'] ?? 'restore is never blocked by current rules (#233)');
+        $this->assertContains(
+            'inert_prop',
+            array_column($restored['findings'], 'type'),
+            'and it reports what it brought back'
+        );
+        $this->assertSame('/old.png', pp_get_composition($id)[0]['props']['image_url'], 'restored verbatim');
+    }
+
+    // ── #1007: the band-scoped write gate ───────────────────────────────────
+
+    /**
+     * THE MEASURED WORST CASE, which is what settled the design.
+     *
+     * A page carrying retired props on TWO bands could not be repaired at all before
+     * #1007: the documented cure (send the key as null) runs through update_component,
+     * which validated the whole composition, so clearing band 0 was refused by band 2 and
+     * clearing band 2 was refused by band 0. Measured on hero + testimonials, which is the
+     * ordinary shape of a 1.x page and the input the 2.0 brand-site reconstruction starts
+     * from — both components were migrated in the same sprint, so a real site has both.
+     *
+     * A way out that cannot be taken is not a way out. Each band is now clearable on its
+     * own, in any order.
+     */
+    public function testAPageWithRetiredPropsOnTwoBandsIsRepairableBandByBand(): void
+    {
+        $id = pp_create_page('Two stale bands', 'draft');
+        pp_update_composition($id, [
+            ['component' => 'hero',         'props' => ['title' => 'Hi', 'button_variant' => 'outline']],
+            ['component' => 'section',      'props' => ['title' => 'Mid', 'body' => 'Copy.']],
+            ['component' => 'testimonials', 'props' => ['theme' => 'dark',
+                'items' => [['quote' => 'Great', 'author' => 'A']]]],
+        ]);
+
+        // The unrelated band in the middle is editable straight away.
+        $middle = pp_execute_action('update_component', [
+            'post_id' => $id, 'component_index' => 1, 'props' => ['title' => 'Edited'],
+        ]);
+        $this->assertTrue($middle['ok'], $middle['error'] ?? 'an untouched band is not blocked by its siblings');
+
+        // And each stale band clears on its own, in either order. Before #1007 BOTH of
+        // these were refused — by the other band.
+        foreach ([[0, 'button_variant'], [2, 'theme']] as [$index, $key]) {
+            $cleared = pp_execute_action('update_component', [
+                'post_id' => $id, 'component_index' => $index, 'props' => [$key => null],
+            ]);
+            $this->assertTrue($cleared['ok'], $cleared['error'] ?? "band {$index} must be clearable on its own");
+        }
+
+        $composition = pp_get_composition($id);
+        $this->assertArrayNotHasKey('button_variant', $composition[0]['props']);
+        $this->assertArrayNotHasKey('theme', $composition[2]['props']);
+        // And the page is clean, so the next write reports nothing.
+        $this->assertSame([], _pp_composition_findings($composition));
+    }
+
+    /**
+     * CROSS-ITEM RULES STILL REFUSE FROM ANY BAND — the guard that makes the narrowing
+     * safe rather than merely smaller.
+     *
+     * This is the regression a naive "validate only the targeted band" would have shipped.
+     * `props.id` is a DECLARED prop and update_component merges props verbatim, so one
+     * call can set band 1's id to band 0's. Under item-only validation that write would be
+     * accepted and would persist exactly the wrong-targetable state #238 closed — after
+     * which update/remove/style silently resolve to the first match.
+     *
+     * pp_validate_composition_band() narrows the per-item loop and leaves the cross-item
+     * passes running over the whole composition, so this still refuses.
+     */
+    public function testADuplicateComponentIdStillRefusesABandScopedWrite(): void
+    {
+        $id = pp_create_page('Colliding ids', 'draft');
+        pp_update_composition($id, [
+            ['component' => 'section', 'props' => ['id' => 'alpha', 'title' => 'One', 'body' => 'A']],
+            ['component' => 'section', 'props' => ['id' => 'beta',  'title' => 'Two', 'body' => 'B']],
+        ]);
+
+        $collide = pp_execute_action('update_component', [
+            'post_id' => $id, 'component_index' => 1, 'props' => ['id' => 'alpha'],
+        ]);
+
+        $this->assertFalse($collide['ok'], 'a band-scoped write may not manufacture a duplicate id (#238)');
+        $this->assertSame('duplicate_component_id', $collide['error_code']);
+        $this->assertSame('beta', pp_get_composition($id)[1]['props']['id'], 'and nothing was written');
+    }
+
+    /**
+     * THE SAME GUARD FOR THE v2 ID NAMESPACE, which is the one that scopes emitted CSS.
+     *
+     * Added because the review train proved the sibling above was the only pin: gating
+     * `_pp_find_duplicate_band_ids()` on `$only_index === null` left the entire suite green
+     * while production still refused. A cross-item rule nothing pins is a cross-item rule
+     * that silently stops being one, and this is the namespace where a collision makes two
+     * bands paint each other's design rather than merely confusing a targeting command.
+     */
+    public function testADuplicateBandIdStillRefusesABandScopedWrite(): void
+    {
+        $id = pp_create_page('Colliding band ids', 'draft');
+        // The non-validating writer: a raw write or a restore is how a page reaches this.
+        pp_update_composition($id, [
+            ['component' => 'section', 'id' => 'pp-aaaaaaaa', 'props' => ['title' => 'One', 'body' => 'A']],
+            ['component' => 'section', 'id' => 'pp-aaaaaaaa', 'props' => ['title' => 'Two', 'body' => 'B']],
+            ['component' => 'section', 'id' => 'pp-bbbbbbbb', 'props' => ['title' => 'Three', 'body' => 'C']],
+        ]);
+
+        $third_band = pp_execute_action('update_component', [
+            'post_id' => $id, 'component_index' => 2, 'props' => ['title' => 'Edited'],
+        ]);
+
+        $this->assertFalse($third_band['ok'], 'a band id collision is a property of the page');
+        $this->assertSame('duplicate_band_id', $third_band['error_code']);
+        $this->assertStringContainsString('refuses an edit to ANY band', $third_band['error']);
+        $this->assertStringContainsString('update_composition', $third_band['error'], 'and names the route out');
+        $this->assertSame('Three', pp_get_composition($id)[2]['props']['title'], 'nothing was written');
+    }
+
+    /**
+     * The residual, stated in the message rather than left to be discovered.
+     *
+     * A reader who has just learned that an unrelated band's problem no longer blocks them
+     * will reasonably ask why THIS one does. The answer is that a cross-item defect is a
+     * property of the page and the writer re-serializes the whole composition, so accepting
+     * the write would store the collision again.
+     */
+    public function testTheCrossItemRefusalSaysWhyItStillBlocksEveryBand(): void
+    {
+        $id = pp_create_page('Pre-existing collision', 'draft');
+        // The non-validating writer, exactly as a raw write or a restore leaves it.
+        pp_update_composition($id, [
+            ['component' => 'section', 'props' => ['id' => 'dupe', 'title' => 'One', 'body' => 'A']],
+            ['component' => 'section', 'props' => ['id' => 'dupe', 'title' => 'Two', 'body' => 'B']],
+            ['component' => 'section', 'props' => ['id' => 'clean', 'title' => 'Three', 'body' => 'C']],
+        ]);
+
+        $third_band = pp_execute_action('update_component', [
+            'post_id' => $id, 'component_index' => 2, 'props' => ['title' => 'Edited'],
+        ]);
+
+        $this->assertFalse($third_band['ok'], 'a pre-existing collision blocks every band, and that is honest');
+        $this->assertStringContainsString('refuses an edit to ANY band', $third_band['error']);
+        $this->assertStringContainsString('re-serializes the whole composition', $third_band['error']);
+        $this->assertStringContainsString('update_composition', $third_band['error'], 'and names the route out');
+    }
+
+    /**
+     * A RETIRED KEY GETS A ROUTE, NOT JUST A REJECTION — the `retired_option` rule
+     * applied to the props the v2 rebuilds retired.
+     */
+    public function testARetiredPropRefusalNamesTheCauseTheRouteAndTheCure(): void
+    {
+        $id = pp_create_page('Retired hero prop', 'draft');
+        pp_update_composition($id, [
+            ['component' => 'hero', 'props' => ['title' => 'Hi', 'button_variant' => 'outline']],
+        ]);
+
+        $result = pp_execute_action('update_component', [
+            'post_id' => $id, 'component_index' => 0, 'props' => ['title' => 'Edited'],
+        ]);
+
+        $this->assertFalse($result['ok']);
+        // ITS OWN CODE, so a caller can tell "this moved" from "you typo'd" without
+        // string-matching prose — the half of the retired_option precedent that is
+        // machine-readable.
+        $this->assertSame('retired_prop', $result['error_code']);
+        $this->assertStringContainsString('was retired when hero moved to the v2 styling system', $result['error']);
+        $this->assertStringContainsString('`cta` role', $result['error'], 'the ROUTE');
+        $this->assertStringContainsString('{"button_variant": null}', $result['error'], 'the CURE');
+        $this->assertStringContainsString('this band can be repaired on its own', $result['error']);
+    }
+
+    /** And a genuine misspelling still reads as one, on the same component. */
+    public function testAMisspelledPropIsStillAnOrdinaryUnknownProp(): void
+    {
+        $id = pp_create_page('Typo hero prop', 'draft');
+        pp_update_composition($id, [
+            ['component' => 'hero', 'props' => ['title' => 'Hi', 'titel' => 'oops']],
+        ]);
+
+        $result = pp_execute_action('update_component', [
+            'post_id' => $id, 'component_index' => 0, 'props' => ['title' => 'Edited'],
+        ]);
+
+        $this->assertFalse($result['ok']);
+        $this->assertSame('unknown_prop', $result['error_code'], 'a typo is not a retirement');
+        $this->assertStringNotContainsString('retired', $result['error']);
     }
 
     public function testTheStaleThemeValueDoesNotBlockTheItem_ScopedActions(): void
@@ -861,37 +1195,41 @@ class ActionsTest extends TestCase
         $this->assertSame('dark', pp_get_composition($id)[0]['props']['theme']);
     }
 
-    public function testRepairingTheStaleThemeValueUnblocksTheWholeComposition(): void
+    public function testTheStaleThemeValueStillRefusesAnEditToItsOwnBandAndIsRepairableThere(): void
     {
-        // THE WAY OUT. The intended breakage must be escapable through the ordinary
-        // authoring surface, or a stale page would be permanently unwritable — which
-        // would be a bug, not a ruling. Repair the offending band, and the edit that
-        // was blocked lands.
+        // THE OTHER SIDE OF #1007'S NARROWING, and the reason it is a narrowing rather
+        // than a removal. A retired value stops speaking for bands beside it; it does not
+        // stop speaking for the band that holds it. An edit to THAT band still carries the
+        // whole band through validation, so the stale value is still refused — which is
+        // what keeps the author from writing more into a band they have not fixed.
         $id = pp_create_page('Repairable stale theme value', 'draft');
         pp_update_composition($id, [
             ['component' => 'section', 'props' => ['title' => 'Legacy band', 'body' => 'B', 'theme' => 'dark']],
             ['component' => 'section', 'props' => ['title' => 'Other band', 'body' => 'C']],
         ]);
 
-        $blocked = pp_execute_action('update_component', [
-            'post_id' => $id, 'component_index' => 1, 'props' => ['title' => 'Edited'],
+        $own_band = pp_execute_action('update_component', [
+            'post_id' => $id, 'component_index' => 0, 'props' => ['title' => 'Renamed'],
         ]);
-        $this->assertFalse($blocked['ok'], 'precondition: the stale band blocks the sibling edit');
+        $this->assertFalse($own_band['ok'], 'the band that holds the stale value still validates it');
+        $this->assertSame(0, $own_band['index'], 'and the refusal names the band the caller actually targeted');
 
-        // Repair the band that actually holds the retired value.
+        // THE WAY OUT, which is now a way out that exists: repair the band in place. On a
+        // page with retired keys on several bands each one is now clearable on its own,
+        // where before every single-band clear was refused by the others (#1007).
         $repair = pp_execute_action('update_component', [
             'post_id' => $id, 'component_index' => 0, 'props' => ['theme' => 'muted'],
         ]);
         $this->assertTrue($repair['ok'], $repair['error'] ?? 'the offending band must be repairable in place');
 
-        // And now the previously blocked edit lands.
+        // And the edit it refused a moment ago now lands on that same band.
         $retry = pp_execute_action('update_component', [
-            'post_id' => $id, 'component_index' => 1, 'props' => ['title' => 'Edited'],
+            'post_id' => $id, 'component_index' => 0, 'props' => ['title' => 'Renamed'],
         ]);
-        $this->assertTrue($retry['ok'], $retry['error'] ?? 'repairing the band unblocks the page');
+        $this->assertTrue($retry['ok'], $retry['error'] ?? 'repairing the band unblocks the band');
         $composition = pp_get_composition($id);
         $this->assertSame('muted', $composition[0]['props']['theme']);
-        $this->assertSame('Edited', $composition[1]['props']['title']);
+        $this->assertSame('Renamed', $composition[0]['props']['title']);
     }
 
     // ── Nested items[] enums, through the REAL write surface (issue #600) ──
@@ -956,11 +1294,13 @@ class ActionsTest extends TestCase
 
     public function testAStoredOutOfSetNestedTextRoleBlocksAnEditToADifferentBand(): void
     {
-        // THE ACCEPTED STALE-DATA COST, stated as a test rather than as a footnote.
-        // Every read-modify-write action validates the WHOLE composition, so a page
-        // that already stores an out-of-set role in band 0 cannot be edited at band 1
-        // until band 0 is repaired. That is the v1.13.0 no-compat posture working as
-        // intended — the alternative is an alias or a coercion, and both are barred.
+        // INVERTED BY #1007. This pinned the page-wide lockout as "the accepted
+        // stale-data cost". The cost turned out to be unpayable: the documented cure
+        // runs through this same action, so a page with stale shapes on two bands could
+        // never be repaired at all. update_component now validates the band it targets,
+        // and the page's other problems ride the ACCEPTED envelope instead of refusing
+        // the write. The no-compat posture is unchanged — nothing is aliased, coerced or
+        // migrated, and the stale bytes are still stale. Only the blast radius moved.
         $id = pp_create_page('Legacy card role', 'draft');
         pp_update_composition($id, [
             ['component' => 'grid',    'props' => ['items' => [['title' => 'Legacy', 'text_role' => 'terminal']]]],
@@ -973,13 +1313,15 @@ class ActionsTest extends TestCase
             'props'           => ['title' => 'Edited'],
         ]);
 
-        $this->assertFalse($result['ok'], 'the stale nested role must block the whole-composition validation');
-        $this->assertStringContainsString('text_role', $result['error']);
+        $this->assertTrue($result['ok'], $result['error'] ?? 'band 0\'s stale role is not band 1\'s business');
 
-        // Nothing was written: the stale band is untouched and the edit did not land.
+        // The edit landed; the stale band was neither repaired nor rewritten.
         $composition = pp_get_composition($id);
-        $this->assertSame('Other band', $composition[1]['props']['title']);
+        $this->assertSame('Edited', $composition[1]['props']['title']);
         $this->assertSame('terminal', $composition[0]['props']['items'][0]['text_role'], 'storage is never rewritten behind the author');
+
+        // And the author is still told, on the envelope, naming the band that holds it.
+        $this->assertStringContainsString('text_role', implode(' ', array_column($result['findings'], 'message')));
     }
 
     // ── Undeclared nested items[] fields, through the REAL write surface (#643) ──
@@ -1153,12 +1495,13 @@ class ActionsTest extends TestCase
 
     public function testAStoredUndeclaredNestedFieldBlocksAnEditToADifferentBand(): void
     {
-        // THE ACCEPTED STALE-DATA COST, stated as a test rather than as a footnote. Every
-        // read-modify-write action validates the WHOLE composition, so a page that already
-        // stores an undeclared item key in band 0 cannot be edited at band 1 until band 0
-        // is repaired. That is the v1.13.0 no-compat posture working as intended — the
-        // alternatives are an alias or a silent strip, and both are barred. This is the
-        // shape aged sites will meet after #643.
+        // INVERTED BY #1007. This pinned the page-wide lockout as "the accepted
+        // stale-data cost". The cost turned out to be unpayable: the documented cure
+        // runs through this same action, so a page with stale shapes on two bands could
+        // never be repaired at all. update_component now validates the band it targets,
+        // and the page's other problems ride the ACCEPTED envelope instead of refusing
+        // the write. The no-compat posture is unchanged — nothing is aliased, coerced or
+        // migrated, and the stale bytes are still stale. Only the blast radius moved.
         $id = pp_create_page('Aged logo strip', 'draft');
         pp_update_composition($id, [
             ['component' => 'logos',   'props' => ['items' => [
@@ -1173,13 +1516,15 @@ class ActionsTest extends TestCase
             'props'           => ['title' => 'Edited'],
         ]);
 
-        $this->assertFalse($result['ok'], 'the stale nested key must block the whole-composition validation');
-        $this->assertStringContainsString('imageId', $result['error']);
+        $this->assertTrue($result['ok'], $result['error'] ?? 'band 0\'s stale key is not band 1\'s business');
 
-        // Nothing was written: the stale band is untouched and the edit did not land.
+        // The edit landed; the stale band was neither repaired nor stripped.
         $composition = pp_get_composition($id);
-        $this->assertSame('Other band', $composition[1]['props']['title']);
+        $this->assertSame('Edited', $composition[1]['props']['title']);
         $this->assertSame(42, $composition[0]['props']['items'][0]['imageId'], 'storage is never rewritten behind the author');
+
+        // And the author is still told, on the envelope, naming the band that holds it.
+        $this->assertStringContainsString('imageId', implode(' ', array_column($result['findings'], 'message')));
     }
 
     public function testRepairingTheStoredUndeclaredNestedFieldUnblocksTheWholeComposition(): void
@@ -1195,10 +1540,13 @@ class ActionsTest extends TestCase
             ['component' => 'section', 'props' => ['title' => 'Other band', 'body' => 'C']],
         ]);
 
+        // Since #1007 the sibling edit is no longer blocked, so the precondition this
+        // test needs is on the STALE band itself: it still refuses its own edit until the
+        // undeclared key is gone, which is what makes the repair below necessary.
         $blocked = pp_execute_action('update_component', [
-            'post_id' => $id, 'component_index' => 1, 'props' => ['title' => 'Edited'],
+            'post_id' => $id, 'component_index' => 0, 'props' => ['title' => 'Partners'],
         ]);
-        $this->assertFalse($blocked['ok'], 'precondition: the stale band blocks the sibling edit');
+        $this->assertFalse($blocked['ok'], 'precondition: the stale band still validates itself');
 
         // Repair the band that actually holds the undeclared key. A prop shallow-merge
         // replaces the items array wholesale, exactly as the docs tell an agent.
@@ -1212,10 +1560,10 @@ class ActionsTest extends TestCase
         $this->assertTrue($repair['ok'], $repair['error'] ?? 'repairing the band must be possible');
 
         $retry = pp_execute_action('update_component', [
-            'post_id' => $id, 'component_index' => 1, 'props' => ['title' => 'Edited'],
+            'post_id' => $id, 'component_index' => 0, 'props' => ['title' => 'Partners'],
         ]);
-        $this->assertTrue($retry['ok'], $retry['error'] ?? 'repairing the band unblocks the page');
-        $this->assertSame('Edited', pp_get_composition($id)[1]['props']['title']);
+        $this->assertTrue($retry['ok'], $retry['error'] ?? 'repairing the band unblocks the band');
+        $this->assertSame('Partners', pp_get_composition($id)[0]['props']['title']);
     }
 
     public function testRestoreReportsAnUndeclaredNestedFieldWithoutBlocking(): void
@@ -1279,10 +1627,12 @@ class ActionsTest extends TestCase
             ['component' => 'section', 'props' => ['title' => 'Other band', 'body' => 'C']],
         ]);
 
+        // Since #1007 the sibling edit is no longer blocked, so the precondition is on
+        // the STALE band itself: it still refuses its own edit until the role is in set.
         $blocked = pp_execute_action('update_component', [
-            'post_id' => $id, 'component_index' => 1, 'props' => ['title' => 'Edited'],
+            'post_id' => $id, 'component_index' => 0, 'props' => ['title' => 'Cards'],
         ]);
-        $this->assertFalse($blocked['ok'], 'precondition: the stale band blocks the sibling edit');
+        $this->assertFalse($blocked['ok'], 'precondition: the stale band still validates itself');
 
         // Repair the band that actually holds the out-of-set role. A prop shallow-merge
         // replaces the items array wholesale, exactly as the docs tell an agent.
@@ -1294,12 +1644,12 @@ class ActionsTest extends TestCase
         $this->assertTrue($repair['ok'], $repair['error'] ?? 'the offending band must be repairable in place');
 
         $retry = pp_execute_action('update_component', [
-            'post_id' => $id, 'component_index' => 1, 'props' => ['title' => 'Edited'],
+            'post_id' => $id, 'component_index' => 0, 'props' => ['title' => 'Cards'],
         ]);
-        $this->assertTrue($retry['ok'], $retry['error'] ?? 'repairing the band unblocks the page');
+        $this->assertTrue($retry['ok'], $retry['error'] ?? 'repairing the band unblocks the band');
         $composition = pp_get_composition($id);
         $this->assertSame('mono', $composition[0]['props']['items'][0]['text_role']);
-        $this->assertSame('Edited', $composition[1]['props']['title']);
+        $this->assertSame('Cards', $composition[0]['props']['title']);
     }
 
     public function testTheStoredNestedTextRoleDoesNotBlockTheItemScopedActions(): void
@@ -1653,7 +2003,7 @@ class ActionsTest extends TestCase
      * Pinned rather than narrated because it is the single most user-visible effect of
      * this gate, and a future iteration that "fixes" it has re-added the alias surface.
      */
-    public function testUntouchedBandWithARetiredPropNameBlocksAnEditToAnotherBand(): void
+    public function testARetiredPropNameOnAnUntouchedBandIsReportedRatherThanBlocking(): void
     {
         // TWO stale shapes, because they fail with DIFFERENT codes and both matter:
         //   `section.heading_align` — section declares no required props, so the retired
@@ -1681,16 +2031,26 @@ class ActionsTest extends TestCase
                 'props'           => ['title' => 'Updated intro'],
             ]);
 
-            $this->assertFalse($result['ok'], "a stale untouched {$component} must block the whole-composition write");
-            $this->assertSame($code, $result['error_code'], "{$component} rejects with {$code}");
-            $this->assertStringContainsString($needle, $result['error'], 'the error points at the offending band');
+            // INVERTED BY #1007: a stale UNTOUCHED band no longer refuses an edit beside it.
+            // Both codes still exist and both still fire — on the band that owns them, and
+            // on this envelope's findings, which is asserted below.
+            $this->assertTrue($result['ok'], $result['error'] ?? "band 1's stale shape is not band 0's business");
+            $reported = array_values(array_filter(
+                $result['findings'],
+                static fn (array $f): bool => ($f['severity'] ?? '') === 'error'
+            ));
+            $this->assertNotEmpty($reported, "the stale {$component} must still be reported");
+            $this->assertSame($code, $reported[0]['type'], "{$component} still reports {$code}");
+            $this->assertStringContainsString($needle, $reported[0]['message'], 'and still points at the offending band');
+            $this->assertSame(1, $reported[0]['index']);
 
-            // Nothing landed: the rejected write left both bands exactly as stored.
+            // The edit landed on the band it targeted, and the stale band is untouched:
+            // narrowing the refusal must never become healing the data behind the author.
             $comp = pp_get_composition($id);
-            $this->assertSame('Intro', $comp[0]['props']['title'], 'the rejected edit did not land');
+            $this->assertSame('Updated intro', $comp[0]['props']['title'], 'the targeted edit landed');
             // Subset compare: pp_update_composition() injects its own props.id.
             foreach ($staleProps as $k => $v) {
-                $this->assertSame($v, $comp[1]['props'][$k], "the stale band kept {$k} — no heal behind the rejection");
+                $this->assertSame($v, $comp[1]['props'][$k], "the stale band kept {$k} — no heal behind the disclosure");
             }
         }
     }
@@ -5228,7 +5588,17 @@ class ActionsTest extends TestCase
         ]);
 
         $this->assertSame('no_style_slots', $result['error_code']);
-        $this->assertStringContainsString('doesn\'t support style', $result['user_message']);
+        // #1007: this used to assert "this component doesn't support style customization",
+        // which is false for all four components that produce this code — they produce it
+        // BECAUSE their styling moved to the band's `udc` map. The card now routes instead
+        // of dead-ending, and must never claim the component is unstylable again.
+        $this->assertStringContainsString('new styling system', $result['user_message']);
+        $this->assertStringContainsString('`udc` map', $result['user_message']);
+        $this->assertStringNotContainsString('doesn\'t support style', $result['user_message']);
+        // AND IT MUST NOT PROMISE A RETRY. The chat's own step renderer still classes this
+        // code as a step it could not perform, so a message saying "ask again and it will
+        // be applied" would make one card claim impossible and possible at once (#667).
+        $this->assertStringNotContainsString('it will be applied', $result['user_message']);
     }
 
     public function testFriendlyErrorForInvalidRecipe(): void
