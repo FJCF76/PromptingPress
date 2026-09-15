@@ -586,7 +586,38 @@
   justify-content: flex-start;
 }
 
-/* Centered variant. Boxes centre; text alignment is the roles' (see the note above). */
+/* Centered variant.
+   THE LAYOUT CENTRES ITS TEXT, NOT JUST ITS BOXES (#986). The first v2 cut moved
+   text-align out to the roles entirely, on the principle that a layout aligns boxes
+   and an author aligns text. That read well and rendered wrong: `centered` is the
+   DEFAULT layout, no role ships a `typography.align` default, and every box here
+   carries a measure cap — so a wrapping headline rendered ragged-left inside a
+   centred box while the schema told the authoring AI "centered centers all content".
+   A layout that does not do what its own name says is a default-experience
+   regression, not a narrowing worth documenting.
+
+   So the alignment is structural and keyed to the modifier, exactly as v1 had it and
+   exactly as .section--centered still does. It is the modifier's geometry: the same
+   category as the align-items/justify-content below it, which nobody was tempted to
+   call value styling. css-lint classifies it that way too — see the layout-modifier
+   carve-out in designOffencesIn(), which is narrow enough that a ROLE declaring
+   text-align is still an offence.
+
+   AN AUTHORED `typography.align` STILL WINS, and now does so structurally rather
+   than by specificity luck: authored band blocks are unlayered and this stylesheet
+   sits in `pp-v1`, so an author who wants a centred hero with left-aligned prose
+   sets `typography.align` on the role and it lands. */
+.hero--centered .hero__title,
+.hero--centered .hero__subtitle,
+.hero--centered .hero__eyebrow,
+.hero--centered .hero__proof,
+.hero--cover .hero__title,
+.hero--cover .hero__subtitle,
+.hero--cover .hero__eyebrow,
+.hero--cover .hero__proof {
+  text-align: center;
+}
+
 .hero--centered .hero__inner {
   align-items: center;
 }
@@ -4734,6 +4765,20 @@ main .btn:focus-visible {
   outline-color: var(--color-accent-on-inverted);
 }
 
+/* THE RING FOLLOWS THE OVERLAY, NOT A LAYOUT CLASS (#986).
+   `.hero--cover` was a sound key while `cover` was the only hero layout that could
+   carry a background image. Ruling A2 made the band image `_band.background.image`,
+   authorable on EVERY layout, so a `left`, `centered` or `split` hero with an image
+   and a scrim kept the bare `--color-accent` ring — 1.17:1 over the worst-case
+   scrim, a WCAG 1.4.11 failure that did not exist in v1 because the markup could not
+   express the case.
+   `[data-pp-band-overlay]` is emitted by the ENGINE, which is the only thing that
+   knows a scrim is being painted, and only when an image and an overlay are both
+   present. Same posture as the reduced-motion guard under ruling A3: an
+   accessibility affordance is structural, emitted rather than authored, and not
+   something an author can forget to switch on. The legacy classes stay for the v1
+   components, which still express the case that way. */
+[data-pp-band-overlay] .btn:focus,
 .hero--cover .btn:focus,
 .cta--has-bg-image .btn:focus {
   outline-color: var(--color-accent-on-overlay);

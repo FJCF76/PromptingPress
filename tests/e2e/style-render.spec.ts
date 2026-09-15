@@ -6241,6 +6241,151 @@ test.describe('Shared section-band rhythm (#431)', () => {
     );
   });
 
+  // RESTORED DEFAULT: the centered layout centres its TEXT (#986).
+  //
+  // `centered` is hero's DEFAULT layout. The first v2 cut moved text-align out to the
+  // roles, and no role ships a `typography.align` default — so a wrapping headline
+  // rendered ragged-left inside a centred box while the schema told the authoring AI
+  // "centered centers all content". Single-line text hid it, which is why a
+  // screenshot did not catch it; the title here is deliberately long enough to wrap.
+  test('#986 the centered hero layout centres its text, and an authored align still wins @smoke', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E Hero Centered Text');
+    setComposition(pageId, [
+      {
+        component: 'hero',
+        props: {
+          id: 'pp-hero01',
+          layout: 'centered',
+          title: 'A deliberately long hero headline that has to wrap onto several lines to show its alignment',
+          subheading: 'A subheading long enough that it also wraps and can be read for alignment.',
+        },
+      },
+    ]);
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+    const title = page.locator('.hero__title').first();
+    await expect(title).toBeVisible({ timeout: 10000 });
+    expect(
+      await title.evaluate((el: Element) => getComputedStyle(el).textAlign),
+      'centered layout must centre the title text',
+    ).toBe('center');
+    expect(
+      await page.locator('.hero__subtitle').first().evaluate((el: Element) => getComputedStyle(el).textAlign),
+      'centered layout must centre the subtitle text',
+    ).toBe('center');
+
+    // The structural default must stay overridable: the authored tier is unlayered
+    // and the stylesheet is in `pp-v1`, so an authored align outranks it.
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+    const res = await updateComposition(page, pageId, [
+      {
+        component: 'hero',
+        props: {
+          id: 'pp-hero01',
+          layout: 'centered',
+          title: 'A deliberately long hero headline that has to wrap onto several lines to show its alignment',
+          subheading: 'A subheading long enough that it also wraps and can be read for alignment.',
+        },
+        udc: { title: { typography: { align: 'left' } } },
+      },
+    ]);
+    expect(res.success, `udc write: ${JSON.stringify(res)}`).toBe(true);
+    await page.goto(`/?page_id=${pageId}`);
+    expect(
+      await page.locator('.hero__title').first().evaluate((el: Element) => getComputedStyle(el).textAlign),
+      'an authored typography.align must beat the layout default',
+    ).toBe('left');
+  });
+
+  // RESTORED AFFORDANCE: the on-overlay focus ring follows the overlay (#986).
+  //
+  // v1 keyed it to `.hero--cover`, which was sound while `cover` was the only layout
+  // that could carry a background image. Ruling A2 made the band image
+  // `_band.background.image`, authorable on EVERY layout — so a `left` hero with an
+  // image and a scrim kept the bare `--color-accent` ring, 1.17:1 over the worst-case
+  // scrim. WCAG 1.4.11. The layout here is deliberately NOT cover.
+  test('#986 a non-cover hero with an overlay gets the on-overlay focus ring @smoke', async ({
+    page,
+  }) => {
+    const attachmentId = importTestImage('pp-overlay-ring');
+    try {
+      pageId = createPage('E2E Hero Overlay Focus Ring');
+      setComposition(pageId, [{ component: 'section', props: { id: 'pp-sec01', body: '<p>b</p>' } }]);
+      await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+      await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+      const res = await updateComposition(page, pageId, [
+        {
+          component: 'hero',
+          props: {
+            id: 'pp-hero01',
+            layout: 'left',
+            title: 'Overlaid',
+            button_text: 'Focus me',
+            button_url: '/x',
+          },
+          udc: {
+            _band: { background: { image: attachmentId, overlay: '#000000cc' } },
+          },
+        },
+      ]);
+      expect(res.success, `udc write: ${JSON.stringify(res)}`).toBe(true);
+
+      await page.goto(`/?page_id=${pageId}`);
+      const hero = page.locator('.hero').first();
+      await expect(hero).toBeVisible({ timeout: 10000 });
+
+      // The engine emitted the hook, on a layout that is not `cover`.
+      expect(
+        await hero.evaluate((el: Element) => el.hasAttribute('data-pp-band-overlay')),
+        'the engine must mark a band that paints a scrim',
+      ).toBe(true);
+      expect(
+        await hero.evaluate((el: Element) => el.className),
+        'this case must NOT be the cover layout, or it proves nothing new',
+      ).not.toContain('hero--cover');
+
+      const btn = page.locator('.hero__cta--primary').first();
+      const ring = await btn.evaluate((el: Element) => {
+        (el as HTMLElement).focus();
+        return getComputedStyle(el).outlineColor;
+      });
+      const onOverlay = await page.evaluate(() =>
+        getComputedStyle(document.documentElement).getPropertyValue('--color-accent-on-overlay').trim(),
+      );
+      expect(onOverlay, '--color-accent-on-overlay must be defined').not.toBe('');
+      // Compare through the browser so both sides canonicalise the colour.
+      const expected = await page.evaluate((c: string) => {
+        const probe = document.createElement('span');
+        probe.style.color = c;
+        document.body.appendChild(probe);
+        const out = getComputedStyle(probe).color;
+        probe.remove();
+        return out;
+      }, onOverlay);
+      expect(ring, 'the focus ring must use the on-overlay accent, not the bare accent').toBe(expected);
+
+      // The companion defaults ruling 2 restored: the image must cover, not tile.
+      const bg = await hero.evaluate((el: Element) => {
+        const s = getComputedStyle(el);
+        return { size: s.backgroundSize, repeat: s.backgroundRepeat, position: s.backgroundPosition };
+      });
+      // A scrim over a photograph is TWO background layers, so each longhand
+      // computes once per layer ("cover, cover"). Every layer must carry it — a
+      // per-layer check, not a string match, so the assertion survives an overlay
+      // being added or removed.
+      const everyLayer = (value: string, expected: string) =>
+        value.split(',').map((v) => v.trim()).every((v) => v === expected);
+      expect(everyLayer(bg.size, 'cover'), `background-size per layer: ${bg.size}`).toBe(true);
+      expect(everyLayer(bg.repeat, 'no-repeat'), `background-repeat per layer: ${bg.repeat}`).toBe(true);
+      expect(everyLayer(bg.position, '50% 50%'), `background-position per layer: ${bg.position}`).toBe(true);
+    } finally {
+      deleteAttachment(attachmentId);
+    }
+  });
+
   // One knob retunes the whole site's rhythm: overriding the shared definition at
   // :root moves every band's every edge together. Proves the fallback chains really
   // terminate in the two shared props, not per-component copies — and covers all

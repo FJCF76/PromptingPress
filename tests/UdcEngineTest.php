@@ -1235,7 +1235,25 @@ final class UdcEngineTest extends TestCase
                                     $resolved,
                                     "{$component}.{$role}.{$group}.{$param} references @{$ref}, which resolves to neither a registered design token nor a shared :root property — the declaration would silently vanish"
                                 );
-                                $literal = $resolved['value'];
+                                // THE SAME PREDICATE THE ENGINE USES, not a second
+                                // opinion (#986). A reference is judged by the token's
+                                // DECLARED registry type (#972, ruling D3) — which is
+                                // what lets `@btn-padding-y` stand in a length
+                                // parameter even though its VALUE is `var(--space-sm)`
+                                // and the length grammar is literal-only on purpose.
+                                // Re-parsing the resolved text here asked the question
+                                // the ruling retired, and would have forbidden schema
+                                // defaults that the write gate and the emitter both
+                                // accept — including the ones the button presets
+                                // already ship.
+                                $check = _pp_udc_reference_check($resolved, $spec);
+                                $this->assertTrue(
+                                    $check === true,
+                                    "{$component}.{$role}.{$group}.{$param} references @{$ref}, which the engine refuses here: "
+                                    . ($check === true ? '' : $check->get_error_message())
+                                );
+                                $checked++;
+                                continue;
                             }
 
                             $this->assertTrue(
@@ -1890,5 +1908,90 @@ final class UdcEngineTest extends TestCase
                 sprintf('the udc param and the shared ratio grammar must agree on %s', json_encode($value))
             );
         }
+    }
+
+    // ── Background-image companions (#986) ───────────────────────────────────
+
+    private function stubImage(int $id): void
+    {
+        $GLOBALS['_pp_test_store']['posts'][$id]               = ['post_type' => 'attachment'];
+        $GLOBALS['_pp_test_store']['attachment_is_image'][$id] = true;
+        $GLOBALS['_pp_test_store']['attachment_urls'][$id]     = 'https://example.com/bg.jpg';
+    }
+
+    /**
+     * An authored band image gets cover/no-repeat/center unless the author said
+     * otherwise. v1's `.hero--cover` supplied these in structural CSS; on v2 any
+     * layout can carry a band image, so the engine supplies them instead.
+     */
+    public function testAnAuthoredBackgroundImageGetsItsCompanionDefaults(): void
+    {
+        $this->stubImage(42);
+        $css = pp_udc_band_css([
+            'component' => 'hero',
+            'id'        => 'pp-aabb1122',
+            'udc'       => ['_band' => ['background' => ['image' => '42']]],
+        ]);
+
+        $this->assertStringContainsString('background-image:url("', $css);
+        $this->assertStringContainsString('background-size:cover', $css);
+        $this->assertStringContainsString('background-repeat:no-repeat', $css);
+        $this->assertStringContainsString('background-position:center', $css);
+    }
+
+    /** A companion is a DEFAULT: an authored value for the same param wins. */
+    public function testAnAuthoredSizeBeatsTheCompanionDefault(): void
+    {
+        $this->stubImage(42);
+        $css = pp_udc_band_css([
+            'component' => 'hero',
+            'id'        => 'pp-aabb1122',
+            'udc'       => ['_band' => ['background' => ['image' => '42', 'size' => 'contain']]],
+        ]);
+
+        $this->assertStringContainsString('background-size:contain', $css);
+        $this->assertStringNotContainsString('background-size:cover', $css);
+        // The two the author did NOT set are still supplied.
+        $this->assertStringContainsString('background-repeat:no-repeat', $css);
+        $this->assertStringContainsString('background-position:center', $css);
+    }
+
+    /**
+     * THE ORDERING TRAP, pinned. A `background` shorthand from `background.fill`
+     * resets these longhands to their initial values, so a companion emitted
+     * BEFORE it would be silently erased and the image would tile again.
+     */
+    public function testCompanionsSurviveABackgroundShorthandOnTheSameBand(): void
+    {
+        $this->stubImage(42);
+        $css = pp_udc_band_css([
+            'component' => 'hero',
+            'id'        => 'pp-aabb1122',
+            'udc'       => ['_band' => ['background' => ['fill' => '#ffffff', 'image' => '42']]],
+        ]);
+
+        $shorthand = strpos($css, 'background:');
+        $size      = strpos($css, 'background-size:cover');
+        $this->assertNotFalse($shorthand, 'the fill must still emit its shorthand');
+        $this->assertNotFalse($size, 'the companion must still emit');
+        $this->assertGreaterThan(
+            $shorthand,
+            $size,
+            'background-size must print AFTER the background shorthand, or the shorthand resets it'
+        );
+    }
+
+    /** No image, no companions — they must not appear on an ordinary band. */
+    public function testABandWithNoImageGetsNoCompanions(): void
+    {
+        $css = pp_udc_band_css([
+            'component' => 'hero',
+            'id'        => 'pp-aabb1122',
+            'udc'       => ['_band' => ['background' => ['fill' => '#ffffff']]],
+        ]);
+
+        $this->assertStringNotContainsString('background-size', $css);
+        $this->assertStringNotContainsString('background-repeat', $css);
+        $this->assertStringNotContainsString('background-position', $css);
     }
 }

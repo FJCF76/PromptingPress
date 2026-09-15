@@ -311,7 +311,7 @@
     },
     "cta-secondary": {
       "selector": ".hero__cta--secondary",
-      "description": "The second CTA button, rendered only when button2_text is set. Declares no design defaults, for the same reason as `cta`: apply `\"_preset\": \"button-secondary\"` and override what you want. The v1 `button2_variant` prop is gone.",
+      "description": "The second CTA button, rendered only when button2_text is set. CARRIES THE v1 OUTLINE DEFAULT, restored in v2 form (#986): a muted surface, body ink and a border-coloured 2px edge, every value a reference to a site token so a retheme moves it. Without it an unauthored hero rendered two identical filled buttons side by side, because both CTAs are bare `.btn` now that `button2_variant` is gone — a default-experience regression, not a narrowing worth documenting. These values are the `button-secondary` preset's, duplicated deliberately and temporarily: role defaults outrank presets, so applying a DIFFERENT preset to this role is partly suppressed by them until #974 lets a role name its own preset as its default and this block is retired.",
       "groups": [
         "typography",
         "spacing",
@@ -321,7 +321,33 @@
         "shadow",
         "motion"
       ],
-      "defaults": {}
+      "defaults": {
+        "typography": {
+          "size": "1rem",
+          "weight": "600",
+          "line-height": "1.4",
+          "decoration": "none",
+          "color": "@color-text"
+        },
+        "spacing": {
+          "padding-top": "@btn-padding-y",
+          "padding-bottom": "@btn-padding-y",
+          "padding-left": "@btn-padding-x",
+          "padding-right": "@btn-padding-x"
+        },
+        "background": {
+          "fill": "@color-surface"
+        },
+        "border": {
+          "width": "2px",
+          "style": "solid",
+          "color": "@color-border",
+          "radius": "@btn-radius"
+        },
+        "sizing": {
+          "min-height": "44px"
+        }
+      }
     },
     "proof": {
       "selector": ".hero__proof",

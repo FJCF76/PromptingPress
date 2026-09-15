@@ -333,6 +333,18 @@ function pp_udc_valid_preset_name(string $name): bool {
  */
 const PP_UDC_BACKGROUND_OVERLAY_CARRIER = '-pp-background-overlay';
 
+/**
+ * What an authored band background image gets when the author says nothing else
+ * (#986). These are v1's `.hero--cover` values, which are also what anyone means
+ * by "put this photograph behind the band". See
+ * _pp_udc_background_image_companions().
+ */
+const PP_UDC_BACKGROUND_IMAGE_COMPANIONS = [
+    'background-size'     => 'cover',
+    'background-repeat'   => 'no-repeat',
+    'background-position' => 'center',
+];
+
 // ── Registry: groups and parameters ─────────────────────────────────────────
 
 /**
@@ -1185,6 +1197,48 @@ function _pp_udc_compose_background_layers(array $declarations): array {
 
     $declarations['background-image']['css'] =
         $layer . ',' . $declarations['background-image']['css'];
+    return $declarations;
+}
+
+/**
+ * The three companions an authored background image needs to behave like one.
+ *
+ * WHY THE ENGINE SUPPLIES THEM (#986). v1's `.hero--cover` carried
+ * `background-size: cover; background-repeat: no-repeat; background-position: center`
+ * in structural CSS. On v2 a band background image is `_band.background.image`, which
+ * ANY layout may carry — so the rule keyed to `.hero--cover` could not follow it, and
+ * without it an authored image painted at its intrinsic size, tiled, anchored
+ * top-left. That is not a narrowing an author would choose; it is a trap. CSS's
+ * initial values are the wrong default for a band background, and v1's behaviour is
+ * the recorded baseline.
+ *
+ * DEFAULTS, NOT OVERRIDES. Each companion is added ONLY when the author did not set
+ * it, so `{"image": 42, "size": "contain"}` still means contain. The params already
+ * exist and stay fully authorable (`background.size`, `.repeat`, `.position`).
+ *
+ * APPENDED LAST, and that is load-bearing rather than tidy: a `background` shorthand
+ * from `background.fill` RESETS these longhands to their initial values, so a
+ * companion emitted before it would be silently erased — the documented ordering trap
+ * that `_pp_udc_sort_declarations()` exists to manage. Printing after the shorthand is
+ * what makes them stick.
+ *
+ * They carry their own `source`, so the write path can disclose that the engine
+ * supplied them rather than leaving an author to infer it from the rendered page.
+ */
+function _pp_udc_background_image_companions(array $declarations): array {
+    if (!isset($declarations['background-image'])) {
+        return $declarations;
+    }
+    foreach (PP_UDC_BACKGROUND_IMAGE_COMPANIONS as $property => $value) {
+        if (isset($declarations[$property])) {
+            continue;
+        }
+        $declarations[$property] = [
+            'css'     => $value,
+            'literal' => $value,
+            'source'  => 'engine-companion',
+        ];
+    }
     return $declarations;
 }
 
@@ -2391,6 +2445,9 @@ function pp_udc_compile_band(array $item, string $layer, ?array &$drops = null):
                 // list is deterministic too.
                 $declarations = _pp_udc_sort_declarations($declarations);
                 $declarations = _pp_udc_compose_background_layers($declarations);
+                // AFTER the compose, so the overlay has already been folded into
+                // background-image and the companions see the final layer list.
+                $declarations = _pp_udc_background_image_companions($declarations);
                 if ($declarations === []) {
                     continue;
                 }
@@ -4484,5 +4541,51 @@ function pp_udc_promote_band_identity(array $item, array $props): array {
     if (isset($item['id']) && is_scalar($item['id']) && pp_udc_valid_band_id((string) $item['id'])) {
         $props['__pp_udc_band'] = (string) $item['id'];
     }
+    // THE OVERLAY IS AN ACCESSIBILITY FACT, SO IT GETS A STRUCTURAL HOOK (#986).
+    //
+    // A focus ring over a scrim needs the on-overlay colour: `--color-accent` is
+    // 1.17:1 against the worst-case scrim, a WCAG 1.4.11 failure. v1 routed that
+    // through `.hero--cover .btn:focus`, which was sound while `cover` was the only
+    // layout that could carry a background image. On v2 `_band.background.image` and
+    // `.overlay` are authorable on EVERY layout, so a class keyed to one variant
+    // stopped following the thing it describes.
+    //
+    // The engine is what knows an overlay is being emitted, so the engine says so.
+    // Same posture as the reduced-motion guard under ruling A3: an accessibility
+    // affordance is STRUCTURAL — emitted, not authored, and not something an author
+    // can forget to switch on. The ring itself stays in the stylesheet, keyed to this
+    // attribute instead of to a layout class.
+    if (pp_udc_band_has_overlay($item)) {
+        $props['__pp_udc_overlay'] = '1';
+    }
     return $props;
+}
+
+/**
+ * Does this band paint a scrim over a background image?
+ *
+ * Reads the STORED map rather than the emitted CSS because the renderer runs
+ * before emission and needs the answer for an attribute. Deliberately narrow: an
+ * overlay only paints when there is an image under it (an overlay over nothing is
+ * dropped by _pp_udc_compose_background_layers()), so both must be present for the
+ * hook to appear — otherwise a band with a stray `overlay` key would claim a
+ * contrast problem it does not have.
+ *
+ * Breakpoint maps count: an overlay declared only at one width still darkens the
+ * band there, and a focus ring that is legible at some widths is not legible.
+ */
+function pp_udc_band_has_overlay(array $item): bool {
+    $band = $item['udc']['_band']['background'] ?? null;
+    if (!is_array($band)) {
+        return false;
+    }
+    $has = static function ($value): bool {
+        // A scalar is the plain form; an array is a breakpoint map or a state map,
+        // and any non-empty leaf in it still paints somewhere.
+        if (is_scalar($value)) {
+            return (string) $value !== '';
+        }
+        return is_array($value) && $value !== [];
+    };
+    return $has($band['image'] ?? null) && $has($band['overlay'] ?? null);
 }

@@ -3286,6 +3286,27 @@ describe('CSS lint: v2 components keep NO designable value in their stylesheet',
                         offences.push(`${rule.selectors.join(', ')} { ${prop}: ${value} }  (a v2 component declares no custom properties in CSS)`);
                         return;
                     }
+                    // TEXT ALIGNMENT DRIVEN BY A LAYOUT MODIFIER IS GEOMETRY (#986).
+                    //
+                    // `text-align` is value styling when a role declares it — that is
+                    // why it is in ALWAYS_DESIGN and why `typography.align` exists. It
+                    // is NOT value styling when a LAYOUT VARIANT declares it: "centered"
+                    // means the content is centred, and a layout that centres the boxes
+                    // (align-items, justify-content — both already STRUCTURAL here) while
+                    // leaving the text ragged-left is not the layout it advertises. The
+                    // modifier owns the arrangement; this is part of the arrangement.
+                    //
+                    // Deliberately narrow, so it cannot become a bypass: EVERY selector
+                    // in the rule must target a `--variant` modifier class. A role
+                    // selector, a bare block selector, or a mixed rule is still an
+                    // offence. An authored `typography.align` still overrides it — the
+                    // authored tier is unlayered and the stylesheet is in `pp-v1`.
+                    const everySelectorIsLayoutModifier = rule.selectors.every(
+                        sel => /\.[A-Za-z][\w-]*--[\w-]+/.test(sel),
+                    );
+                    if (prop === 'text-align' && everySelectorIsLayoutModifier) {
+                        return;
+                    }
                     if (ALWAYS_DESIGN.has(prop)) {
                         offences.push(`${rule.selectors.join(', ')} { ${prop}: ${value} }`);
                         return;
@@ -4587,6 +4608,15 @@ describe('CSS lint: dark-band focus ring routes through the AA accent roles (#54
         '.cta--inverted .btn:focus',
     ];
     const OVERLAY_SELECTORS = [
+        // The ENGINE's hook (#986), and the one that matters most now: ruling A2 made
+        // a band background image authorable on every layout, so the overlay stopped
+        // being something a layout class could describe. Emitted only when an image
+        // and an overlay are both present — see pp_udc_promote_band_identity().
+        '[data-pp-band-overlay] .btn:focus',
+        // The v1 classes, still correct for the components that express the case that
+        // way. `.hero--cover` is now redundant with the attribute on a v2 hero and is
+        // kept deliberately: it costs nothing and it keeps the rule true for a hero
+        // rendered from stored data that predates band ids.
         '.hero--cover .btn:focus',
         '.cta--has-bg-image .btn:focus',
     ];
@@ -4673,10 +4703,18 @@ describe('CSS lint: dark-band focus ring routes through the AA accent roles (#54
      * own constants — otherwise the assertion can only fail when the test is edited.
      */
     test('every routed selector outranks the `main .btn:focus` winner, as parsed from the CSS', () => {
-        // [classes+pseudo-classes, type selectors] — enough to compare these shapes.
+        // [classes+pseudo-classes+ATTRIBUTES, type selectors] — enough to compare these
+        // shapes. Attribute selectors carry class-level weight in CSS and are counted
+        // here since #986 put the engine's `[data-pp-band-overlay]` hook in this list;
+        // without them `[data-pp-band-overlay] .btn:focus` (really [0,3,0]) read as
+        // having no type selector and lost to `main .btn:focus` ([0,2,1]) on this
+        // approximation alone, while winning in every browser.
         const specificity = (sel) => [
-            (sel.match(/[.:][a-zA-Z][\w-]*/g) || []).length,
-            (sel.match(/(?:^|\s)[a-zA-Z][\w-]*/g) || []).length,
+            (sel.match(/[.:][a-zA-Z][\w-]*/g) || []).length
+                + (sel.match(/\[[^\]]+\]/g) || []).length,
+            // An attribute selector's contents must not be mistaken for a type
+            // selector, so strip them before counting bare element names.
+            (sel.replace(/\[[^\]]+\]/g, ' ').match(/(?:^|\s)[a-zA-Z][\w-]*/g) || []).length,
         ];
         const base = blockFor('main .btn:focus');
         expect(base).toBeDefined();

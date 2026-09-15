@@ -241,8 +241,17 @@ $raw_band  = $props['__pp_udc_band'] ?? '';
 $band_id   = (is_scalar($raw_band) && pp_udc_valid_band_id((string) $raw_band)) ? (string) $raw_band : '';
 $band_attr = $band_id !== '' ? ' data-pp-band="' . esc_attr($band_id) . '"' : '';
 
+// The engine's overlay hook (#986). Present only when this band paints a scrim over
+// a background image, which is the condition under which a focus ring needs the
+// on-overlay colour rather than the accent (1.17:1 over a dark scrim is a WCAG
+// 1.4.11 failure). It replaces v1's `.hero--cover` keying, which could not follow a
+// background image onto the other layouts once ruling A2 made it authorable on all
+// of them. Emitted by the engine, never by an author — see
+// pp_udc_promote_band_identity().
+$overlay_attr = !empty($props['__pp_udc_overlay']) ? ' data-pp-band-overlay' : '';
+
 ?>
-<section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="hero hero--<?php echo esc_attr($effective_layout); ?>" data-pp-component="hero"<?php echo $split_ratio_attr; ?><?php echo $vertical_align_attr; ?><?php echo $band_attr; ?>>
+<section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="hero hero--<?php echo esc_attr($effective_layout); ?>" data-pp-component="hero"<?php echo $split_ratio_attr; ?><?php echo $vertical_align_attr; ?><?php echo $band_attr; ?><?php echo $overlay_attr; ?>>
     <div class="container">
         <div class="hero__inner">
             <div class="hero__content">
