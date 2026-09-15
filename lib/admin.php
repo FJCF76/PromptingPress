@@ -921,6 +921,37 @@ function _pp_entry_is_object_shape($entry): bool {
  *                                            per-item call here that leaves it off.
  * @return WP_Error|null                     A WP_Error on the first bad slot/value, else null.
  */
+/**
+ * What to say when a component declares NO style slots at all (#1007).
+ *
+ * "Available slots: (none)" was a dead end that read as "this component can no longer be
+ * styled", which is false for the four components it actually fires on — they are the
+ * MOST styleable components in the theme, and the only reason they declare no slots is
+ * that every designable value moved to the `udc` map.
+ *
+ * DERIVED, NOT LISTED. `pp_udc_is_v2_component()` already answers "is this component on
+ * the new system", and the roles come from the same schema the refusal is about, so this
+ * route cannot drift the way a hand-maintained list of 76 retired slot names would. That
+ * is why the props needed a registry and the slots did not: every retired slot is
+ * replaced by the same thing, and each retired prop by a different one.
+ *
+ * A component that genuinely has no styling surface at all keeps the old spelling.
+ */
+function _pp_no_style_slots_clause(string $component_name): string {
+    if (!function_exists('pp_udc_is_v2_component') || !pp_udc_is_v2_component($component_name)) {
+        return 'Available slots: (none)';
+    }
+    $roles = array_keys(pp_udc_component_roles($component_name));
+
+    return sprintf(
+        '"%s" is on the v2 styling system and declares no style slots: every designable value moved to '
+        . 'the band\'s `udc` map. Style it there instead, on one of its roles (%s). To clear a stored '
+        . 'slot, send it as null through update_component\'s `style` param.',
+        $component_name,
+        implode(', ', $roles) ?: '(none declared)'
+    );
+}
+
 function _pp_validate_style_slot_map(array $style, array $available_slots, string $component_name, int|string|null $item_index = null, ?array $item_container = null): ?WP_Error {
     // The key is rendered, never cast (#634), and read against its container so a list
     // position and an object key are distinguishable (#652): a string-keyed entry names
@@ -958,10 +989,12 @@ function _pp_validate_style_slot_map(array $style, array $available_slots, strin
             return new WP_Error(
                 'invalid_style_slot',
                 sprintf(
-                    '%s has no style slot "%s". Available slots: %s',
+                    '%s has no style slot "%s". %s',
                     $where,
                     $slot_name,
-                    $available ?: '(none)'
+                    $available !== ''
+                        ? 'Available slots: ' . $available
+                        : _pp_no_style_slots_clause($component_name)
                 )
             );
         }
@@ -2043,12 +2076,40 @@ function _pp_render_undeclared_prop_keys(array $keys): string {
  * with pp_composition_error_index(). Cross-item errors (duplicate_component_id) carry
  * none — they belong to no single band and name every colliding index in the message.
  *
+ * SCOPING THE PER-ITEM RULES WITHOUT SCOPING THE ENGINE (#1007). `$only_index` narrows
+ * the PER-ITEM loop to one band and leaves the CROSS-ITEM passes running over the whole
+ * composition. It exists because `update_component` writes one band and was validating
+ * every band, so a retired prop anywhere refused every edit to the page — including the
+ * null-clear that is the documented way out, which on a page with retired props on two
+ * bands could therefore never succeed at all.
+ *
+ * THE SPLIT IS THE WHOLE POINT, and the naive version of this change is a real bug. A
+ * "validate only the targeted band" shortcut would also skip
+ * pp_find_duplicate_component_ids(), and `props.id` is a declared prop that
+ * update_component merges verbatim — so one call could set band 1's id to band 0's and
+ * persist exactly the wrong-targetable state #238 closed. Cross-item rules are genuinely
+ * page-level and stay unconditional; per-item rules are genuinely per-item and stop
+ * speaking for bands the caller did not touch.
+ *
+ *     $only_index = null          $only_index = 2
+ *     ┌──────────────────┐        ┌──────────────────┐
+ *     │ per-item: 0,1,2  │        │ per-item: 2      │  ← narrowed
+ *     │ cross-item: all  │        │ cross-item: all  │  ← unchanged
+ *     └──────────────────┘        └──────────────────┘
+ *
+ * ONE GATE, NOT TWO (invariant I4). This is a parameter on the single validating engine
+ * every ingress traverses, not a surface-specific second validator: the rules, their
+ * order, their codes and their locators are identical either way, and an index that is
+ * not a key of $items narrows to nothing rather than silently widening back.
+ *
  * @param  array    $items  Decoded composition array.
  * @param  int|null $limit  Stop building findings after this many (null = every one).
  *                          Only pp_validate_composition() passes a value; see below.
+ * @param  int|null $only_index  Run the per-item rules for this offset only (null = all).
+ *                          Cross-item rules always run over the whole composition.
  * @return WP_Error[]       Empty when the composition is valid.
  */
-function pp_validate_composition_errors(array $items, ?int $limit = null): array {
+function pp_validate_composition_errors(array $items, ?int $limit = null, ?int $only_index = null): array {
     // THE CONTAINER, JUDGED BEFORE ANY BAND (#724).
     //
     // A composition is a LIST. A JSON object decodes to an associative PHP array that
@@ -2119,6 +2180,15 @@ function pp_validate_composition_errors(array $items, ?int $limit = null): array
     $sink = ['claimed' => [], 'budget' => $limit];
 
     foreach ($items as $i => $item) {
+        // THE PER-ITEM SCOPE GATE (#1007). Strict comparison, and deliberately not
+        // `array_key_exists` on a pre-filtered array: filtering would renumber the
+        // offsets and every locator below would then name a band that does not exist.
+        // An $only_index matching no key narrows to nothing, which is the safe
+        // direction — the cross-item passes below still run either way.
+        if ($only_index !== null && $i !== $only_index) {
+            continue;
+        }
+
         // Authored locations inside THIS item that already carry a finding (#621).
         // Reset per item: two bands may each report their own `prop / title`. The budget
         // is NOT reset — it spans the composition (see _pp_claim_item_finding()).
@@ -2356,8 +2426,39 @@ function pp_validate_composition_errors(array $items, ?int $limit = null): array
             // this inside the loop would rebuild one identical 200-character list per
             // unknown key on an item that carries many.
             $available = implode(', ', array_keys($declared)) ?: '(none)';
+            $retired = function_exists('pp_component_retired_props')
+                ? pp_component_retired_props($name)
+                : [];
             foreach ($item['props'] as $prop_name => $prop_value) {
                 if (!array_key_exists($prop_name, $declared)) {
+                    // A RETIRED KEY GETS ITS OWN CODE AND A ROUTE (#1007), exactly as
+                    // `retired_option` does for the six chrome options. The gate below
+                    // answers "you typo'd"; this answers "this moved, and here is where",
+                    // and a caller that cannot tell the two apart has to string-match
+                    // prose to know whether to re-read the schema or rewrite the value.
+                    //
+                    // The CURE is stated because it is not guessable: `null` through
+                    // update_component is a DELETE (_pp_merge_component_props), and it is
+                    // the only route that clears a key the schema no longer declares.
+                    if (isset($retired[(string) $prop_name])
+                        && _pp_claim_item_finding($sink, 'prop', $prop_name)) {
+                        $errors[] = _pp_composition_item_error($i,
+                            'retired_prop',
+                            sprintf(
+                                'Component "%s" no longer has a prop "%s": it was retired when %s moved to '
+                                . 'the v2 styling system. The replacement is %s. To clear the stored key, '
+                                . 'send it as null — update_component with {"%s": null} removes it, and '
+                                . 'this band can be repaired on its own. Available props: %s',
+                                $name,
+                                _pp_render_undeclared_prop_keys([(string) $prop_name]),
+                                $name,
+                                $retired[(string) $prop_name],
+                                (string) $prop_name,
+                                $available
+                            )
+                        );
+                        continue;
+                    }
                     if (_pp_claim_item_finding($sink, 'prop', $prop_name)) {
                         $errors[] = _pp_composition_item_error($i,
                             'unknown_prop',
@@ -3898,7 +3999,12 @@ function pp_validate_composition_errors(array $items, ?int $limit = null): array
         $errors[] = new WP_Error(
             'duplicate_band_id',
             sprintf(
-                'Duplicate band id "%s" on items %s. Band ids must be unique within a composition because each one scopes that band\'s styling rules.',
+                // WHY THIS ONE STILL BLOCKS A BAND-SCOPED WRITE (#1007). Since the
+                // per-item rules narrowed to the targeted band, a reader who has just
+                // learned that an unrelated band's problem no longer blocks them will
+                // reasonably ask why this one does. The answer is in the message, because
+                // it is the difference between a per-item defect and a page-level one.
+                'Duplicate band id "%s" on items %s. Band ids must be unique within a composition because each one scopes that band\'s styling rules. This refuses an edit to ANY band, including bands that are not colliding, because a write re-serializes the whole composition and would store the collision again — repair the ids through update_composition.',
                 $dupe['id'],
                 implode(', ', array_map(
                     static fn ($key) => _pp_item_index_label($key, $items),
@@ -3928,7 +4034,10 @@ function pp_validate_composition_errors(array $items, ?int $limit = null): array
         $errors[] = new WP_Error(
             'duplicate_component_id',
             sprintf(
-                'Duplicate component id "%s" on items %s. Component ids must be unique within a composition so update/remove/style can target one component.',
+                // Same clause as duplicate_band_id above, and for the same reason: a
+                // cross-item defect is a property of the PAGE, so narrowing the per-item
+                // rules to the targeted band (#1007) did not and could not narrow this.
+                'Duplicate component id "%s" on items %s. Component ids must be unique within a composition so update/remove/style can target one component. This refuses an edit to ANY band, including bands that are not colliding, because a write re-serializes the whole composition and would store the collision again — repair the ids through update_composition.',
                 $dupe['id'],
                 // The colliding COMPOSITION keys, rendered through the one shared renderer
                 // like every other locator (#650/#652, per the #687 addendum). These are
@@ -4104,6 +4213,41 @@ function _pp_unlocated_composition_error(WP_Error $error): WP_Error {
  */
 function pp_validate_composition(array $items) {
     $errors = pp_validate_composition_errors($items, 1);
+
+    return $errors === []
+        ? true
+        : _pp_band_named_composition_error($errors[0], $items);
+}
+
+/**
+ * Validates a composition for a write that only touches ONE band (#1007).
+ *
+ * The third sibling of pp_validate_composition() and pp_validate_composition_item(),
+ * for the case neither covered: the band IS part of the page, so its locator is real and
+ * must be kept, but the write does not touch the other bands and has no business
+ * refusing on their behalf.
+ *
+ * WHAT IT REFUSES, AND WHY THAT SET IS THE HONEST ONE:
+ *
+ *   - the targeted band's own problems, because the caller is writing that band;
+ *   - every CROSS-ITEM problem, because those are properties of the page and the writer
+ *     re-serializes the whole composition on a single-band update — accepting a duplicate
+ *     id here would re-persist it, so it is this write's business after all;
+ *   - nothing else. A retired prop on an untouched band no longer refuses an edit to a
+ *     band beside it, which is the page-wide lockout #1007 filed.
+ *
+ * THE PAGE'S OTHER PROBLEMS ARE STILL REPORTED, on the accepted envelope, at severity
+ * `error`, by the report pp_execute_action() already attaches to every accepted
+ * composition write. Narrowing the refusal does not narrow the disclosure — this is the
+ * "refuse narrowly, advise page-wide" contract #233 established for restore_composition
+ * and #687 widened to every accepted write, applied to the one action still outside it.
+ *
+ * @param  array $items  The full composition, with the caller's change already merged.
+ * @param  int   $index  Offset of the band this write touches.
+ * @return true|WP_Error
+ */
+function pp_validate_composition_band(array $items, int $index) {
+    $errors = pp_validate_composition_errors($items, 1, $index);
 
     return $errors === []
         ? true

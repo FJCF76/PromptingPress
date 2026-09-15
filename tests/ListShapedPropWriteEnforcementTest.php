@@ -657,7 +657,7 @@ class ListShapedPropWriteEnforcementTest extends TestCase
      * and the repair routes are the ones asserted above: replace the whole composition
      * through update_composition, restore an older version, or remove the band.
      */
-    public function testAStoredMapBlocksEditsToAnUnrelatedBandUntilItIsRepaired(): void
+    public function testAStoredMapIsReportedOnAnUnrelatedBandsEditAndStillRepairable(): void
     {
         $post_id = pp_create_page('Half-corrupt page', 'draft');
         pp_update_composition($post_id, [
@@ -665,13 +665,20 @@ class ListShapedPropWriteEnforcementTest extends TestCase
             ['component' => 'hero', 'props' => ['id' => 'pp-hero', 'title' => 'Old title']],
         ]);
 
-        $blocked = pp_execute_action('update_component', [
+        // INVERTED BY #1007: update_component validates the band it targets, so a stale
+        // SIBLING no longer refuses this edit. Nothing is migrated or healed — the stale
+        // bytes stay stale and are still reported, now on the accepted envelope instead
+        // of in a refusal. The repair route below is unchanged and still the way out.
+        $unblocked = pp_execute_action('update_component', [
             'post_id'      => $post_id,
             'component_id' => 'pp-hero',
             'props'        => ['title' => 'New title'],
         ]);
-        $this->assertFalse($blocked['ok'], 'whole-composition validation judges the stored band too');
-        $this->assertStringContainsString('prop "items" must be a list', $blocked['error']);
+        $this->assertTrue($unblocked['ok'], $unblocked['error'] ?? 'the hero band is editable');
+        $this->assertStringContainsString(
+            'prop "items" must be a list',
+            implode(' ', array_column($unblocked['findings'], 'message'))
+        );
 
         // The repair route, and then the same edit succeeding — an accepted cost has to
         // have a documented way out, or it is a lockout.

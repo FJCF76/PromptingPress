@@ -6158,7 +6158,27 @@ pp_register_action('update_component', [
             $test_composition[$params['component_index']]['style'] = $merged_style;
         }
 
-        return pp_validate_composition($test_composition);
+        // SCOPED TO THE BAND THIS WRITE TOUCHES (#1007).
+        //
+        // This used to be pp_validate_composition($test_composition) — the WHOLE page —
+        // so a single retired prop on band 0 refused every edit to every other band, and
+        // the refusal named a band the caller had not mentioned. Worse, the documented
+        // recovery (set the key to null) goes through this same action, so a page with
+        // retired props on TWO bands could never be unlocked at all: clearing either one
+        // still tripped the other. Measured on hero(button_variant) + testimonials(theme),
+        // which is the ordinary shape of a 1.x page and the input the 2.0 brand-site
+        // reconstruction starts from.
+        //
+        // add_component and style_component have always validated only what they touch,
+        // and pp_execute_action() attaches the page's remaining errors to the accepted
+        // envelope precisely because they do. This action was the outlier, not the
+        // guardian.
+        //
+        // CROSS-ITEM RULES STILL RUN — see pp_validate_composition_band(). `props.id` is
+        // a declared prop merged verbatim two lines up, so a naive item-only validation
+        // would let one call collide two bands' ids and persist the wrong-targetable
+        // state #238 closed.
+        return pp_validate_composition_band($test_composition, $params['component_index']);
     },
     'preview' => function (array $params): array {
         _pp_resolve_id_param($params, $params['post_id']);
@@ -6395,7 +6415,15 @@ pp_register_action('style_component', [
         $available_slots = pp_get_style_slots($component_name);
 
         if (empty($available_slots)) {
-            return new WP_Error('no_style_slots', sprintf('Component "%s" has no declared style slots.', $component_name));
+            // NAMES THE ROUTE, NOT JUST THE ABSENCE (#1007). The bare sentence was true
+            // and useless: the four components this fires on are the ones that moved to
+            // the `udc` map, so "no style slots" is the START of the answer, not the end.
+            // Derived from the same predicate the engine uses, so it cannot drift.
+            return new WP_Error('no_style_slots', sprintf(
+                'Component "%s" has no declared style slots. %s',
+                $component_name,
+                _pp_no_style_slots_clause($component_name)
+            ));
         }
 
         // Expand recipe if provided.

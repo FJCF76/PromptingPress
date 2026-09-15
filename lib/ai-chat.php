@@ -856,7 +856,14 @@ function _pp_build_friendly_error(WP_Error $error, array $params): array {
         case 'no_style_slots':
             return [
                 'error_code'            => $code,
-                'user_message'          => 'This change can\'t be made with the current component settings. This component doesn\'t support style customization. Try editing its content properties instead.',
+                // THIS USED TO SAY THE OPPOSITE OF THE TRUTH (#1007). "This component
+                // doesn't support style customization" is false for all four components
+                // that produce this code — hero, testimonials, nav and footer are the
+                // most styleable components in the theme, and they produce it precisely
+                // BECAUSE their styling moved to the `udc` map. It also contradicted the
+                // runtime prompt, which has routed the model correctly since the rebuild
+                // (I25: a surface never contradicts its own system).
+                'user_message'          => 'This component is on the new styling system, so it has no style slots — its colours, spacing and type are set on the band itself instead. Ask for the change again and it will be applied that way.',
                 'alternatives'          => [],
                 'cross_component_hints' => (object) [],
                 'raw_error'             => $raw_msg,

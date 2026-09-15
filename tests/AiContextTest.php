@@ -196,6 +196,31 @@ class AiContextTest extends TestCase
     }
 
     /**
+     * #1007 — the prompt tells the model the retired-prop route, the cure, and the new
+     * blast radius.
+     *
+     * Three things the model could not previously learn from the prompt, each of which it
+     * needs on a page built before the rebuild: that a retired prop has its own code and a
+     * named replacement, that `null` is the only way to clear a key the schema no longer
+     * declares, and that a stale band no longer blocks its siblings — with the one
+     * exception that still does, stated so the model does not read "never blocks" as
+     * universal and then loop on a duplicate id it could have repaired.
+     */
+    public function testThePromptStatesTheRetiredPropRouteTheCureAndTheBlastRadius(): void
+    {
+        $prompt = pp_ai_system_prompt();
+
+        $this->assertStringContainsString('`retired_prop`', $prompt, 'the code, so the model can branch on it');
+        $this->assertStringContainsString('SEND IT AS null', $prompt, 'the cure');
+        $this->assertStringContainsString('validates the band it targets', $prompt, 'the narrowed blast radius');
+        $this->assertStringContainsString('duplicate `props.id`', $prompt, 'and the exception that still blocks');
+
+        // The claim about the envelope has to match what the envelope does, or the model
+        // is told to read a key that is not there.
+        $this->assertStringContainsString('`findings` at severity `error`', $prompt);
+    }
+
+    /**
      * #1005 — the two model-facing surfaces that describe the delimiter limits must
      * not disagree again.
      *

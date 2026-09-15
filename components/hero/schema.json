@@ -121,6 +121,13 @@
       "description": "HTML string for trust signals (client logos, star ratings, user counts). Rich HTML (sanitized via wp_kses_post). Rendered after the CTA group inside hero__content, except on a split layout, where it renders instead as the second column inside the `.hero__surface` panel. That panel IS the `surface` role: style it through the `udc` map (background, border, radius, shadow, padding), not through style slots — hero has none. Write PLAIN SEMANTIC MARKUP here: the v1 `.hero__surface-label / -list / -item / -key / -value` helper classes are gone, so markup using those names paints nothing. Text inside the panel inherits the `surface` role's typography. When empty, no DOM element is rendered."
     }
   },
+  "retired_props": {
+    "_note": "Props this component declared on 1.x that the v2 rebuild retired (#1007). Each value names the v2 surface that replaced it, so a refusal can offer a route instead of a list of sixteen live prop names. Guarded by SchemaValidationTest, which fails in BOTH directions: a key here that still exists in props, or a stale entry, is a test failure rather than a message that lies.",
+    "button_variant": "the `cta` role's `udc` map — set `border`, `background` and `typography` there, or apply the `button` or `button-secondary` preset with `\"_preset\"`",
+    "button2_variant": "the `cta-secondary` role's `udc` map — same groups and the same presets as `cta`",
+    "spacing": "the `_band` role's `spacing` group in the `udc` map (`padding-top` / `padding-bottom`)",
+    "width": "the `inner` role's `sizing` group in the `udc` map (`max-width`)"
+  },
   "roles": {
     "_band": {
       "selector": "",

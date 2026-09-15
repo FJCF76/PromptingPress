@@ -1562,6 +1562,49 @@ function pp_get_style_slots(string $component_name): array {
 }
 
 /**
+ * A component's retired props, mapped to the v2 surface that replaced each one (#1007).
+ *
+ * A RETIRED KEY GETS A ROUTE, NOT JUST A REJECTION — the rule `retired_option` states
+ * for the six chrome colour options, applied to the props the v2 rebuilds retired.
+ * "Component has no prop X, available props: <sixteen names>" is technically true and
+ * practically useless: it makes the author guess which of the sixteen replaced the one
+ * they wanted, and on a page migrated from 1.x the honest answer is usually "none of
+ * them — it moved to the `udc` map, here".
+ *
+ * DECLARED IN THE SCHEMA, BESIDE THE PROPS IT IS ABOUT, rather than as a list in PHP.
+ * The chrome precedent keeps its six keys in three hand-maintained copies with no test
+ * asserting they agree, which is the drift I43 forbids and the reason this one is not
+ * spelled the same way. SchemaValidationTest checks the agreement in BOTH directions:
+ * a key declared retired that still exists in `props` fails, and so does an entry whose
+ * route names a role the component does not declare. A refusal that lies about where a
+ * value went is worse than one that only says no.
+ *
+ * STYLE SLOTS NEED NO SUCH REGISTRY and deliberately do not have one. All 76 retired
+ * slots belong to the two components `pp_udc_is_v2_component()` already identifies, and
+ * every one of them is replaced by the same thing — the band's `udc` map — so the route
+ * is derivable at runtime and cannot drift. Only props need naming, because their
+ * replacements differ per prop.
+ *
+ * THE REBUILD PATTERN. Every Sprint-2 component rebuild declares its own `retired_props`
+ * in this shape as part of the rebuild, so refusal quality holds as the surface grows.
+ * If the hand-written count ever becomes unreasonable, the alternative on record is a
+ * manifest generated at release time from a schema diff against the last 1.x tag — not
+ * built, because six entries do not justify the machinery.
+ *
+ * @return array<string,string>  prop name => the v2 route, `_note` stripped.
+ */
+function pp_component_retired_props(string $component_name): array {
+    $components = pp_get_registered_components();
+    $retired    = $components[$component_name]['retired_props'] ?? [];
+    if (!is_array($retired)) {
+        return [];
+    }
+    // `_note` documents the block for anyone reading the schema; it is not a prop.
+    unset($retired['_note']);
+    return array_filter($retired, 'is_string');
+}
+
+/**
  * The item-scoped subset of a component's declared style slots (issue 323's
  * `item_eligible` flag), extracted in #579 so write and render read ONE predicate.
  *
