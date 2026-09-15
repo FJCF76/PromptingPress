@@ -899,14 +899,17 @@ final class UdcEngineTest extends TestCase
 
     public function testALegacyComponentAcceptsNoUdcMapAtAll(): void
     {
-        $error = pp_udc_validate_map(['quote' => ['typography' => ['size' => '1rem']]], 'hero');
+        // `section`, not hero: hero joined the UDC in #986, so asking it this question
+        // now tests the opposite of what the name promises (I40). section is the largest
+        // component still on the v1 slot system.
+        $error = pp_udc_validate_map(['quote' => ['typography' => ['size' => '1rem']]], 'section');
         $this->assertInstanceOf(WP_Error::class, $error);
         $this->assertSame('unknown_udc_role', $error->get_error_code());
         $this->assertStringContainsString('not on the UDC styling system', $error->get_error_message());
 
         // …and a legacy component emits no band block, whatever it stores.
         $this->assertSame('', pp_udc_band_css([
-            'component' => 'hero',
+            'component' => 'section',
             'id'        => 'pp-aabbccdd',
             'udc'       => ['quote' => ['typography' => ['size' => '1rem']]],
         ]));
@@ -1096,8 +1099,8 @@ final class UdcEngineTest extends TestCase
 
         // A legacy component says NOTHING, so an absent key is never mistaken for
         // "declared empty".
-        $this->assertArrayNotHasKey('roles', pp_component_schema_report('hero'));
-        $this->assertArrayNotHasKey('udc_groups', pp_component_schema_report('hero'));
+        $this->assertArrayNotHasKey('roles', pp_component_schema_report('section'));
+        $this->assertArrayNotHasKey('udc_groups', pp_component_schema_report('section'));
     }
 
     // ── The schema side of the contract ─────────────────────────────────────
@@ -1232,7 +1235,25 @@ final class UdcEngineTest extends TestCase
                                     $resolved,
                                     "{$component}.{$role}.{$group}.{$param} references @{$ref}, which resolves to neither a registered design token nor a shared :root property — the declaration would silently vanish"
                                 );
-                                $literal = $resolved['value'];
+                                // THE SAME PREDICATE THE ENGINE USES, not a second
+                                // opinion (#986). A reference is judged by the token's
+                                // DECLARED registry type (#972, ruling D3) — which is
+                                // what lets `@btn-padding-y` stand in a length
+                                // parameter even though its VALUE is `var(--space-sm)`
+                                // and the length grammar is literal-only on purpose.
+                                // Re-parsing the resolved text here asked the question
+                                // the ruling retired, and would have forbidden schema
+                                // defaults that the write gate and the emitter both
+                                // accept — including the ones the button presets
+                                // already ship.
+                                $check = _pp_udc_reference_check($resolved, $spec);
+                                $this->assertTrue(
+                                    $check === true,
+                                    "{$component}.{$role}.{$group}.{$param} references @{$ref}, which the engine refuses here: "
+                                    . ($check === true ? '' : $check->get_error_message())
+                                );
+                                $checked++;
+                                continue;
                             }
 
                             $this->assertTrue(
@@ -1280,6 +1301,39 @@ final class UdcEngineTest extends TestCase
             // is optional and renders only when its content prop is set, so a
             // sparse fixture would silently skip most of the role sweep and this
             // lint would pass while declaring selectors nobody had checked.
+            // HERO NEEDS THREE FIXTURES, and it is the first component that does.
+            // Three of its roles are mutually exclusive in one render: `proof` only
+            // renders on a NON-split layout, while `surface` is what the same `proof`
+            // markup becomes on split, and `media` is the split column `surface` takes
+            // over when proof is present. One prop set can therefore never reach all
+            // thirteen, and two cannot either. The list form below renders each of the
+            // three and checks every role against their union — which keeps the lint's promise (no role goes
+            // unchecked) instead of quietly dropping the three it cannot reach.
+            'hero' => [
+                [
+                    'title'        => 'Ship it',
+                    'title_accent' => 'it',
+                    'eyebrow'      => 'NEW',
+                    'subheading'   => 'A supporting line.',
+                    'button_text'  => 'Start',
+                    'button_url'   => '#a',
+                    'button2_text' => 'Docs',
+                    'button2_url'  => '#b',
+                    'layout'       => 'centered',
+                    'proof'        => '<p>Trusted by teams</p>',
+                ],
+                [
+                    'title'     => 'Ship it',
+                    'layout'    => 'split',
+                    'image_url' => '/wp-content/uploads/hero.png',
+                    'image_alt' => 'Hero',
+                ],
+                [
+                    'title'  => 'Ship it',
+                    'layout' => 'split',
+                    'proof'  => '<p>Workflow</p>',
+                ],
+            ],
             'nav' => [
                 'location' => 'primary',
             ],
@@ -1331,11 +1385,20 @@ final class UdcEngineTest extends TestCase
                 "{$component} is a v2 component with no fixture here — add one so its selectors are checked"
             );
 
-            ob_start();
-            try {
-                pp_get_component($component, $fixtures[$component]);
-            } finally {
-                $html = ob_get_clean();
+            // One fixture or several: a list means "render each and check the roles
+            // against their union", for a component whose roles cannot all coexist.
+            $sets = $fixtures[$component];
+            if (!array_is_list($sets)) {
+                $sets = [$sets];
+            }
+            $html = '';
+            foreach ($sets as $set) {
+                ob_start();
+                try {
+                    pp_get_component($component, $set);
+                } finally {
+                    $html .= ob_get_clean();
+                }
             }
 
             foreach ($roles as $role => $definition) {
@@ -1407,7 +1470,7 @@ final class UdcEngineTest extends TestCase
         $this->assertNotSame('pp-33333333', $out[1]['id'], 'a claimed id must not be carried onto a second band');
 
         // 5. A legacy component is never minted one at all.
-        $out = pp_udc_assign_band_ids([$band('hero')]);
+        $out = pp_udc_assign_band_ids([$band('section')]);
         $this->assertArrayNotHasKey('id', $out[0]);
 
         // 6. THE POST-CONDITION, which is what all of the above is for.
@@ -1530,7 +1593,7 @@ final class UdcEngineTest extends TestCase
         // footer joined the engine as the CHROME container in Sprint 1 (ruling A1).
         // The number is asserted rather than loosened so that a component quietly
         // falling OFF the engine still trips this.
-        $this->assertCount(9, $legacy, 'nine components stay on the legacy system');
+        $this->assertCount(8, $legacy, 'eight components stay on the legacy system');
         $this->assertNotContains('testimonials', $legacy);
         $this->assertNotContains('nav', $legacy);
         $this->assertNotContains('footer', $legacy);
@@ -1539,5 +1602,390 @@ final class UdcEngineTest extends TestCase
             $this->assertSame([], pp_udc_component_roles($name));
             $this->assertSame('', pp_udc_band_css(['component' => $name, 'id' => 'pp-aabbccdd']));
         }
+    }
+
+    // ── Reference typing (#972, ruling D3) ───────────────────────────────────
+
+    /**
+     * ALL FIVE chain-holding tokens, each named explicitly.
+     *
+     * These are the whole population of shipped tokens whose value is one level of
+     * `var()` indirection rather than a literal. Before the ruling the three
+     * colours were ACCEPTED and the two lengths REFUSED — same shape of token,
+     * opposite answers, decided by whether the referencing param's grammar happened
+     * to tolerate a bare `var()`. They are pinned together, by name, because the
+     * invariant is that they are treated ALIKE; testing them apart would let the
+     * asymmetry come back one token at a time.
+     */
+    public function testEveryTokenHoldingAVarChainIsReferenceableByItsDeclaredType(): void
+    {
+        $cases = [
+            ['btn-padding-y',     'spacing',    'padding-top'],
+            ['btn-padding-x',     'spacing',    'padding-left'],
+            ['btn-text',          'typography', 'color'],
+            ['text-meta-color',   'typography', 'color'],
+            ['text-kicker-color', 'typography', 'color'],
+        ];
+
+        foreach ($cases as [$token, $group, $param]) {
+            // The premise: each really does hold a chain, not a literal. If a future
+            // retune flattens one, this row stops testing what it claims to.
+            $resolved = pp_udc_resolve_reference($token, []);
+            $this->assertNotNull($resolved, "@{$token} must resolve");
+            $this->assertStringContainsString(
+                'var(',
+                $resolved['value'],
+                "@{$token} is only interesting while its value is a var() chain"
+            );
+
+            $this->assertNull(
+                pp_udc_validate_map(['quote' => [$group => [$param => '@' . $token]]], 'testimonials'),
+                "@{$token} must be referenceable from {$group}.{$param} by its declared type"
+            );
+        }
+    }
+
+    /**
+     * The mismatch half, on BOTH paths.
+     *
+     * A literal-valued token keeps its old refusal verbatim, because the ruling
+     * only ever moves chain-holders — `@color-accent` in a length parameter was
+     * dead CSS before and is refused by the same value parse now. A CHAIN-holding
+     * token is the one whose refusal changes shape: there is no literal to quote,
+     * so the message names the two types instead.
+     */
+    public function testAReferenceWhoseTypeCannotSatisfyTheParamIsStillRefused(): void
+    {
+        // Literal-valued: unchanged path, unchanged message.
+        foreach ([['color-accent', 'spacing', 'padding-top'], ['space-sm', 'typography', 'color']] as [$t, $g, $p]) {
+            $error = pp_udc_validate_map(['quote' => [$g => [$p => '@' . $t]]], 'testimonials');
+            $this->assertInstanceOf(WP_Error::class, $error, "@{$t} must not satisfy {$g}.{$p}");
+        }
+
+        // Chain-holding: refused by declared type, and the message says so.
+        $error = pp_udc_validate_map(
+            ['quote' => ['typography' => ['color' => '@btn-padding-y']]],
+            'testimonials'
+        );
+        $this->assertInstanceOf(WP_Error::class, $error);
+        $this->assertStringContainsString('"length"-typed design token', $error->get_error_message());
+        $this->assertStringContainsString('takes a "color" value', $error->get_error_message());
+    }
+
+    /**
+     * THE NON-WIDENING PIN, and the reason the check parses a literal before it
+     * consults the type table at all.
+     *
+     * Five shipped button tokens declare `color`/`shadow` but hold the CSS-wide
+     * keyword `initial` as an "unset" sentinel, which their own grammars refuse.
+     * A type-first gate would have turned those standing refusals into
+     * acceptances — an extension of the accepted surface this ruling did not ask
+     * for, and one that would have emitted `var(--btn-bg)` resolving to `initial`.
+     */
+    public function testASentinelValuedTokenIsStillRefusedDespiteItsDeclaredType(): void
+    {
+        foreach ([['btn-bg', 'color'], ['btn-hover-bg', 'color'], ['btn-border-color', 'color']] as [$token, $type]) {
+            $resolved = pp_udc_resolve_reference($token, []);
+            $this->assertNotNull($resolved, "@{$token} must resolve");
+            $this->assertSame($type, $resolved['type'], "@{$token} declares {$type}");
+            $this->assertSame('initial', trim($resolved['value']), "@{$token} holds the sentinel");
+
+            $this->assertInstanceOf(
+                WP_Error::class,
+                pp_udc_validate_map(['quote' => ['typography' => ['color' => '@' . $token]]], 'testimonials'),
+                "@{$token} must stay refused: a declared type rescues a chain, not a sentinel"
+            );
+        }
+    }
+
+    /**
+     * `--transition` is refused for a STATED REASON, which is the ruling's point:
+     * it is the registry's only `raw` token (`150ms ease` — a duration and an
+     * easing in one string), so it satisfies neither motion param. Before, it was
+     * refused by a grammar accident and the author had to infer why from a parse
+     * error about time units. Splitting it into two typed tokens would make it
+     * referenceable and is its own token-registry ruling (#972 option C).
+     */
+    public function testTheRawTransitionTokenIsRefusedWithAStatedReason(): void
+    {
+        foreach (['transition-duration', 'timing-function'] as $param) {
+            $error = pp_udc_validate_map(['quote' => ['motion' => [$param => '@transition']]], 'testimonials');
+            $this->assertInstanceOf(WP_Error::class, $error);
+            $this->assertStringContainsString('"raw"-typed design token', $error->get_error_message());
+            $this->assertStringContainsString('declares no single CSS grammar', $error->get_error_message());
+        }
+    }
+
+    /**
+     * ONE PREDICATE, BOTH GATES (I29). A reference the write path accepts must
+     * emit, and one it refuses must not — otherwise a value validates green at
+     * write and silently drops at render, which is the write/render disagreement
+     * the diagnostics invariants forbid. This is the regression that would have
+     * shipped if only the write gate had been taught the new rule.
+     */
+    public function testTheWriteGateAndTheEmitterAgreeOnAChainHoldingReference(): void
+    {
+        $band = $this->band(['quote' => ['spacing' => ['padding-top' => '@btn-padding-y']]]);
+        $this->assertNull(pp_udc_validate_map($band['udc'], 'testimonials'), 'accepted at write');
+        $this->assertStringContainsString(
+            'padding-top:var(--btn-padding-y);',
+            pp_udc_band_css(pp_udc_normalize_band($band)),
+            'and therefore emitted, not dropped'
+        );
+
+        // The refusing direction, through the same two gates.
+        $dead = $this->band(['quote' => ['motion' => ['transition-duration' => '@transition']]]);
+        $this->assertInstanceOf(WP_Error::class, pp_udc_validate_map($dead['udc'], 'testimonials'));
+        $this->assertStringNotContainsString(
+            'transition-duration:var(--transition)',
+            pp_udc_band_css(pp_udc_normalize_band($dead))
+        );
+    }
+
+    /**
+     * NO BEHAVIOUR CHANGE FOR THE ORDINARY CASE. For every shipped token whose
+     * value is a plain literal, judging by declared type and parsing the value
+     * give the same answer on every param in the taxonomy. That is what makes this
+     * a narrowing of one seam rather than a new grammar: the ~50 literal-valued
+     * tokens are unaffected, and only the five chain-holders move.
+     */
+    public function testDeclaredTypeAndValueParsingAgreeOnEveryLiteralValuedToken(): void
+    {
+        $params = [];
+        foreach (pp_udc_groups() as $group => $definition) {
+            foreach ($definition['params'] as $name => $spec) {
+                $params[$group . '.' . $name] = $spec;
+            }
+        }
+
+        $checked = 0;
+        foreach (pp_design_tokens() as $name => $definition) {
+            $value = is_array($definition) ? ($definition['value'] ?? '') : (string) $definition;
+            $type  = is_array($definition) ? (string) ($definition['type'] ?? '') : '';
+            if (!is_string($value) || strpos($value, 'var(') !== false) {
+                continue; // the five chain-holders are the deliberate exception
+            }
+            if ($type === 'raw') {
+                // `--transition` is the other deliberate exception, and it is
+                // STRICTER than the value parse rather than looser: its literal
+                // `150ms ease` is accepted by the deliberately-permissive
+                // font-family grammar, and the ruling requires it refused for a
+                // stated reason instead. Covered by its own test above.
+                continue;
+            }
+            $resolved = pp_udc_resolve_reference(ltrim($name, '-'), []);
+            if ($resolved === null) {
+                continue;
+            }
+            foreach ($params as $where => $param) {
+                if (($param['type'] ?? '') === 'attachment_id') {
+                    continue; // not a CSS grammar; never reference-bearing
+                }
+                $this->assertSame(
+                    pp_udc_validate_value($resolved['value'], $param) === true,
+                    _pp_udc_reference_check($resolved, $param) === true,
+                    "declared-type and value-parse must agree for {$name} at {$where}"
+                );
+                $checked++;
+            }
+        }
+        $this->assertGreaterThan(500, $checked, 'the sweep must actually cover the registry');
+    }
+
+    // ── sizing.aspect-ratio (ruling D1, #986) ────────────────────────────────
+
+    /**
+     * THE FORWARD DIRECTION: a valid ratio authors through and paints.
+     *
+     * `aspect-ratio` is the one property the hero rebuild found with NO home in
+     * either v2 system — absent from the taxonomy AND from the structural-CSS
+     * lint's classification, which is fail-closed. Without this param the
+     * capability would have been deleted rather than migrated (the #901 class).
+     *
+     * The four accepted shapes are the v1 `ratio` type's, unchanged: the `auto`
+     * keyword (natural proportions — the type's own documented default, the same
+     * "own preset is settable" pattern `shadow: none` has), a bare positive
+     * number, and two positive numbers around a slash with or without spaces.
+     */
+    public function testAValidAspectRatioAuthorsThroughAndPaints(): void
+    {
+        foreach (['auto', '1', '1.6', '16/9', '4 / 3'] as $value) {
+            $band = $this->band(['avatar' => ['sizing' => ['aspect-ratio' => $value]]]);
+
+            $this->assertNull(
+                pp_udc_validate_map($band['udc'], 'testimonials'),
+                "aspect-ratio {$value} must be accepted at write"
+            );
+            $this->assertStringContainsString(
+                'aspect-ratio:' . $value . ';',
+                pp_udc_band_css(pp_udc_normalize_band($band)),
+                "aspect-ratio {$value} must reach the emitted band block verbatim"
+            );
+        }
+    }
+
+    /**
+     * THE REVERSE DIRECTION, and the half the ruling asked to be proven with the
+     * slash edge cases specifically — because `/` is GRAMMAR here, not a banned
+     * construct.
+     *
+     * The shared reject set bans the COMMENT delimiters `/*` and `*​/` but not a
+     * bare slash, so `16/9` clears the injection gate on its own merits and the
+     * ratio grammar is what has to reject everything below. Two failure families
+     * are deliberately covered together, because they are refused by different
+     * gates and a test that only covered one would let the other regress:
+     *
+     *   grammar      0, 16/0, -16/9, 1/2/3, 16//9, 16 9, calc(16/9), ''
+     *   injection    16/*9*​/, 16/9}, auto;color:red, url(x)
+     *
+     * Zero and negative are refused on BOTH sides of the slash: a zero denominator
+     * is a declaration that validates green and paints nothing, which is the I19
+     * class the engine refuses rather than emits.
+     */
+    public function testAMalformedOrHostileAspectRatioIsRefusedAtWrite(): void
+    {
+        $cases = [
+            '0', '16/0', '0/16', '-16/9', '16/-9', '1/2/3', '16//9', '16 9',
+            'calc(16/9)', '', '  ', 'auto auto', '16/9px', 'none',
+            '16/*9*/', '16/9}', 'auto;color:red', 'url(x)', 'var(--r)',
+        ];
+
+        foreach ($cases as $value) {
+            $error = pp_udc_validate_map(
+                ['avatar' => ['sizing' => ['aspect-ratio' => $value]]],
+                'testimonials'
+            );
+            $this->assertInstanceOf(
+                WP_Error::class,
+                $error,
+                sprintf('aspect-ratio %s must be refused at write', json_encode($value))
+            );
+        }
+    }
+
+    /**
+     * The emitter re-rejects a stored ratio the write gate would have refused, so
+     * data that reached storage another way (raw meta, a restore per #233) drops
+     * its own declaration instead of painting an inert or hostile one. The sibling
+     * of testAStoredValueThatNoLongerFitsItsGrammarDropsOnlyItsOwnDeclaration,
+     * pinned for this param because it is the newest one.
+     */
+    public function testAStoredHostileAspectRatioDropsOnlyItsOwnDeclaration(): void
+    {
+        $band = $this->band([
+            'avatar' => ['sizing' => ['aspect-ratio' => '16/9}', 'width' => '3rem']],
+        ]);
+        $css = pp_udc_band_css(pp_udc_normalize_band($band));
+
+        $this->assertStringNotContainsString('aspect-ratio', $css);
+        $this->assertStringNotContainsString('}' . 'aspect', $css);
+        $this->assertStringContainsString('width:3rem;', $css, 'the sibling declaration must survive');
+    }
+
+    /**
+     * ONE OWNER. The ratio grammar is _pp_validate_ratio() in lib/apply.php,
+     * reached through _pp_validate_token_value()'s `case 'ratio'` — the same route
+     * a v1 `ratio`-typed style slot takes. If this param ever grew its own
+     * validator the two surfaces could drift, which is the forked-grammar the repo
+     * architecture forbids; so the pin is that both routes agree, value for value.
+     */
+    public function testTheAspectRatioParamUsesTheSharedRatioGrammarAndNotASecondOne(): void
+    {
+        $param = pp_udc_groups()['sizing']['params']['aspect-ratio'];
+        $this->assertSame('ratio', $param['type']);
+        $this->assertSame('aspect-ratio', $param['property']);
+
+        foreach (['auto', '16/9', '1.6', '0', '16/0', '1/2/3', 'calc(16/9)'] as $value) {
+            $this->assertSame(
+                _pp_validate_token_value($value, 'ratio') === true,
+                pp_udc_validate_value($value, $param) === true,
+                sprintf('the udc param and the shared ratio grammar must agree on %s', json_encode($value))
+            );
+        }
+    }
+
+    // ── Background-image companions (#986) ───────────────────────────────────
+
+    private function stubImage(int $id): void
+    {
+        $GLOBALS['_pp_test_store']['posts'][$id]               = ['post_type' => 'attachment'];
+        $GLOBALS['_pp_test_store']['attachment_is_image'][$id] = true;
+        $GLOBALS['_pp_test_store']['attachment_urls'][$id]     = 'https://example.com/bg.jpg';
+    }
+
+    /**
+     * An authored band image gets cover/no-repeat/center unless the author said
+     * otherwise. v1's `.hero--cover` supplied these in structural CSS; on v2 any
+     * layout can carry a band image, so the engine supplies them instead.
+     */
+    public function testAnAuthoredBackgroundImageGetsItsCompanionDefaults(): void
+    {
+        $this->stubImage(42);
+        $css = pp_udc_band_css([
+            'component' => 'hero',
+            'id'        => 'pp-aabb1122',
+            'udc'       => ['_band' => ['background' => ['image' => '42']]],
+        ]);
+
+        $this->assertStringContainsString('background-image:url("', $css);
+        $this->assertStringContainsString('background-size:cover', $css);
+        $this->assertStringContainsString('background-repeat:no-repeat', $css);
+        $this->assertStringContainsString('background-position:center', $css);
+    }
+
+    /** A companion is a DEFAULT: an authored value for the same param wins. */
+    public function testAnAuthoredSizeBeatsTheCompanionDefault(): void
+    {
+        $this->stubImage(42);
+        $css = pp_udc_band_css([
+            'component' => 'hero',
+            'id'        => 'pp-aabb1122',
+            'udc'       => ['_band' => ['background' => ['image' => '42', 'size' => 'contain']]],
+        ]);
+
+        $this->assertStringContainsString('background-size:contain', $css);
+        $this->assertStringNotContainsString('background-size:cover', $css);
+        // The two the author did NOT set are still supplied.
+        $this->assertStringContainsString('background-repeat:no-repeat', $css);
+        $this->assertStringContainsString('background-position:center', $css);
+    }
+
+    /**
+     * THE ORDERING TRAP, pinned. A `background` shorthand from `background.fill`
+     * resets these longhands to their initial values, so a companion emitted
+     * BEFORE it would be silently erased and the image would tile again.
+     */
+    public function testCompanionsSurviveABackgroundShorthandOnTheSameBand(): void
+    {
+        $this->stubImage(42);
+        $css = pp_udc_band_css([
+            'component' => 'hero',
+            'id'        => 'pp-aabb1122',
+            'udc'       => ['_band' => ['background' => ['fill' => '#ffffff', 'image' => '42']]],
+        ]);
+
+        $shorthand = strpos($css, 'background:');
+        $size      = strpos($css, 'background-size:cover');
+        $this->assertNotFalse($shorthand, 'the fill must still emit its shorthand');
+        $this->assertNotFalse($size, 'the companion must still emit');
+        $this->assertGreaterThan(
+            $shorthand,
+            $size,
+            'background-size must print AFTER the background shorthand, or the shorthand resets it'
+        );
+    }
+
+    /** No image, no companions — they must not appear on an ordinary band. */
+    public function testABandWithNoImageGetsNoCompanions(): void
+    {
+        $css = pp_udc_band_css([
+            'component' => 'hero',
+            'id'        => 'pp-aabb1122',
+            'udc'       => ['_band' => ['background' => ['fill' => '#ffffff']]],
+        ]);
+
+        $this->assertStringNotContainsString('background-size', $css);
+        $this->assertStringNotContainsString('background-repeat', $css);
+        $this->assertStringNotContainsString('background-position', $css);
     }
 }

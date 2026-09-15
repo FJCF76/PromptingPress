@@ -13,7 +13,7 @@
  *      schema.json  applies_when
  *         │
  *         ├──► pp_ai_definition_suffix()          BEFORE the write (the catalog)
- *         │       "applies when layout = \"split\" AND proof is set"
+ *         │       "applies when background_image is set"
  *         │
  *         └──► pp_applies_when_clause_met()       AFTER the write (the advisory)
  *                 -> pp_validate_composition_smells() -> inert_slot
@@ -202,15 +202,15 @@ final class AppliesWhenTest extends TestCase
 
         $this->assertSame(
             [],
-            pp_applies_when_unmet_clauses($clauses, 'hero', ['layout' => 'split', 'proof' => 'x'], [])
+            pp_applies_when_unmet_clauses($clauses, 'section', ['layout' => 'split', 'proof' => 'x'], [])
         );
         $this->assertSame(
             [$clauses[1]],
-            pp_applies_when_unmet_clauses($clauses, 'hero', ['layout' => 'split'], [])
+            pp_applies_when_unmet_clauses($clauses, 'section', ['layout' => 'split'], [])
         );
         $this->assertSame(
             $clauses,
-            pp_applies_when_unmet_clauses($clauses, 'hero', [], []),
+            pp_applies_when_unmet_clauses($clauses, 'section', [], []),
             'both misses are reported: naming only the first sends the author to fix the wrong thing'
         );
     }
@@ -225,8 +225,8 @@ final class AppliesWhenTest extends TestCase
 
     public function testUnmetIgnoresAMalformedClauseList(): void
     {
-        $this->assertSame([], pp_applies_when_unmet_clauses([], 'hero', [], []));
-        $this->assertSame([], pp_applies_when_unmet_clauses(['a' => ['prop' => 'x', 'present' => true]], 'hero', [], []));
+        $this->assertSame([], pp_applies_when_unmet_clauses([], 'section', [], []));
+        $this->assertSame([], pp_applies_when_unmet_clauses(['a' => ['prop' => 'x', 'present' => true]], 'section', [], []));
     }
 
     // ── The inert_slot advisory ──────────────────────────────────────────────
@@ -243,39 +243,42 @@ final class AppliesWhenTest extends TestCase
     public function testAnInertSlotWarnsAndNamesTheUnmetCondition(): void
     {
         $smells = $this->inertSmells([
-            ['component' => 'hero', 'props' => ['id' => 'h', 'title' => 'T', 'layout' => 'cover'],
-             'style' => ['--hero-surface-bg' => '#fff']],
+            ['component' => 'section', 'props' => ['id' => 'h', 'title' => 'T', 'body' => 'Body text'],
+             'style' => ['--section-overlay-bg' => '#fff']],
         ]);
 
         $this->assertCount(1, $smells);
         $this->assertSame('h', $smells[0]['id']);
         $this->assertSame(0, $smells[0]['index']);
-        $this->assertStringContainsString('--hero-surface-bg', $smells[0]['message']);
-        $this->assertStringContainsString('applies when layout = "split" AND proof is set', $smells[0]['message']);
+        $this->assertStringContainsString('--section-overlay-bg', $smells[0]['message']);
+        $this->assertStringContainsString('applies when background_image is set', $smells[0]['message']);
     }
 
     /** ONE warning per slot, listing EVERY unmet clause — not one warning per clause. */
     public function testOneWarningPerSlotListsEveryUnmetClause(): void
     {
         $smells = $this->inertSmells([
-            ['component' => 'hero', 'props' => ['title' => 'T'], 'style' => ['--hero-button2-bg' => '#000']],
+            // cta: the two-button family carries the two-clause condition this pins,
+            // and hero's equivalent left with its slot map in #986.
+            ['component' => 'cta', 'props' => ['title' => 'T', 'body' => 'B', 'button_text' => 'Go', 'button_url' => '/'],
+             'style' => ['--cta-button2-bg' => '#000']],
         ]);
 
         $this->assertCount(1, $smells);
-        $this->assertStringContainsString('button_text is set AND button2_text is set', $smells[0]['message']);
+        $this->assertStringContainsString('button2_text is set', $smells[0]['message']);
     }
 
     /** ...and one warning PER SLOT, so a band that defeats six slots reports six. */
     public function testEveryInertSlotOnOneComponentGetsItsOwnWarning(): void
     {
         $smells = $this->inertSmells([
-            ['component' => 'hero', 'props' => ['title' => 'T', 'layout' => 'cover'],
-             'style' => ['--hero-surface-bg' => '#fff', '--hero-surface-padding' => '2rem']],
+            ['component' => 'section', 'props' => ['title' => 'T', 'layout' => 'cover'],
+             'style' => ['--section-overlay-bg' => '#fff', '--section-panel-padding' => '2rem']],
         ]);
 
         $this->assertCount(2, $smells, 'one warning per SLOT, not one per component');
-        $this->assertStringContainsString('--hero-surface-bg', $smells[0]['message']);
-        $this->assertStringContainsString('--hero-surface-padding', $smells[1]['message']);
+        $this->assertStringContainsString('--section-overlay-bg', $smells[0]['message']);
+        $this->assertStringContainsString('--section-panel-padding', $smells[1]['message']);
     }
 
     /**
@@ -287,8 +290,8 @@ final class AppliesWhenTest extends TestCase
     {
         $smells = $this->inertSmells([
             ['component' => 'section', 'props' => ['title' => 'A', 'body' => '<p>x</p>']],
-            ['component' => 'hero', 'props' => ['title' => 'T', 'layout' => 'cover'],
-             'style' => ['--hero-surface-bg' => '#fff']],
+            ['component' => 'section', 'props' => ['title' => 'T', 'layout' => 'cover'],
+             'style' => ['--section-overlay-bg' => '#fff']],
         ]);
 
         $this->assertCount(1, $smells);
@@ -298,15 +301,18 @@ final class AppliesWhenTest extends TestCase
     public function testAMetConditionIsSilent(): void
     {
         $this->assertSame([], $this->inertSmells([
-            ['component' => 'hero', 'props' => ['title' => 'T', 'layout' => 'split', 'proof' => '<p>x</p>'],
-             'style' => ['--hero-surface-bg' => '#fff']],
+            // The condition on `--section-overlay-bg` is `background_image is set`, so
+            // setting it is what makes the advisory silent.
+            ['component' => 'section', 'props' => ['title' => 'T', 'body' => '<p>x</p>',
+                                                  'background_image' => 'https://example.com/bg.png'],
+             'style' => ['--section-overlay-bg' => '#fff']],
         ]));
     }
 
     public function testASlotWithNoAppliesWhenIsSilent(): void
     {
         $this->assertSame([], $this->inertSmells([
-            ['component' => 'hero', 'props' => ['title' => 'T'], 'style' => ['--hero-bg' => '#101010']],
+            ['component' => 'section', 'props' => ['title' => 'T', 'body' => '<p>x</p>'], 'style' => ['--section-bg' => '#101010']],
         ]));
     }
 
@@ -410,7 +416,7 @@ final class AppliesWhenTest extends TestCase
             $this->assertSame(
                 [],
                 $this->inertSmells([
-                    ['component' => 'grid', 'props' => ['layout' => 'steps', 'items' => [['title' => 'One']]],
+                    ['component' => 'grid', 'props' => ['layout' => 'steps', 'items' => [['title' => 'One', 'body' => '<p>x</p>']]],
                      'style' => $style],
                 ]),
                 "{$label}: the renderer drops this declaration, so the advisory must not report it"
@@ -431,7 +437,7 @@ final class AppliesWhenTest extends TestCase
     public function testARetiredLegacySlotNameRaisesNoInertAdvisory(): void
     {
         $items = [
-            ['component' => 'grid', 'props' => ['layout' => 'steps', 'items' => [['title' => 'One']]],
+            ['component' => 'grid', 'props' => ['layout' => 'steps', 'items' => [['title' => 'One', 'body' => '<p>x</p>']]],
              'style' => ['--grid-card-bar-color' => '#ffffff']],
         ];
 
@@ -470,13 +476,13 @@ final class AppliesWhenTest extends TestCase
     {
         $smells = pp_validate_composition_smells([
             // 0: `layout` is an array — no defined comparison, so the clause fails open.
-            ['component' => 'hero', 'props' => ['layout' => ['not', 'scalar'], 'proof' => 'p'], 'style' => ['--hero-surface-bg' => '#fff']],
+            ['component' => 'section', 'props' => ['background_image' => ['not', 'scalar'], 'body' => 'p'], 'style' => ['--section-overlay-bg' => '#fff']],
             // 1: a non-scalar SLOT value is skipped before any condition is read.
-            ['component' => 'hero', 'props' => ['title' => 'T'], 'style' => ['--hero-surface-bg' => ['array']]],
+            ['component' => 'section', 'props' => ['title' => 'T', 'body' => '<p>x</p>'], 'style' => ['--section-overlay-bg' => ['array']]],
             // 2: a non-array style map.
-            ['component' => 'hero', 'props' => ['title' => 'T'], 'style' => 'not-an-array'],
+            ['component' => 'section', 'props' => ['title' => 'T', 'body' => '<p>x</p>'], 'style' => 'not-an-array'],
             // 3: a non-array props bag.
-            ['component' => 'hero', 'props' => 'not-an-array', 'style' => ['--hero-bg' => '#000']],
+            ['component' => 'section', 'props' => 'not-an-array', 'style' => ['--section-bg' => '#000']],
             // 4: an INT-keyed style entry (a raw-meta write or a history-ring snapshot can
             // carry a JSON array here, which PHP decodes to integer keys). Pins the SHAPE,
             // not the guard: without declare(strict_types) an int key coerces cleanly into
@@ -484,7 +490,7 @@ final class AppliesWhenTest extends TestCase
             // either way, so the is_string guard on the painted-style walk stays defensive
             // rather than load-bearing. What this row asserts is that such a map neither
             // fatals nor produces a spurious advisory.
-            ['component' => 'hero', 'props' => ['title' => 'T'], 'style' => ['#fff', '--hero-bg' => '#000']],
+            ['component' => 'section', 'props' => ['title' => 'T', 'body' => '<p>x</p>'], 'style' => ['#fff', '--section-bg' => '#000']],
         ]);
 
         $this->assertIsArray($smells, 'a corrupt row must be skipped, never fatal');
@@ -633,9 +639,9 @@ final class AppliesWhenTest extends TestCase
 
         // A clause list, ANDed, on the slot catalog.
         $this->assertStringContainsString(
-            'applies when layout = "split" AND proof is set',
+            'applies when background_image is set',
             $prompt,
-            '--hero-surface-* must advertise its condition to the agent BEFORE the write'
+            '--section-surface-* must advertise its condition to the agent BEFORE the write'
         );
         // An `in` set.
         $this->assertStringContainsString('layout is one of "image-left", "image-right"', $prompt);
@@ -690,7 +696,7 @@ final class AppliesWhenTest extends TestCase
         // testUnmetReportsEveryFailingClauseInDeclarationOrder — so they diverge by
         // design there, not by phrasing.)
         $smells = $this->inertSmells([
-            ['component' => 'grid', 'props' => ['layout' => 'cards', 'items' => [['title' => 'One']]],
+            ['component' => 'grid', 'props' => ['layout' => 'cards', 'items' => [['title' => 'One', 'body' => '<p>x</p>']]],
              'style' => ['--grid-step-bg' => '#eeeeee']],
         ]);
         $this->assertCount(1, $smells);

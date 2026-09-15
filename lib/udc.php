@@ -58,8 +58,39 @@
  *   [data-pp-chrome="nav"] .nav__menu ul li a { color: #f7f8fa; }
  *
  * Every rule is exactly one of those three scopes plus the role's selector, so
- * specificity is flat BY CONSTRUCTION and `!important` is never needed or used.
- * No v2 component emits an inline style attribute.
+ * specificity is flat BY CONSTRUCTION *within this engine's own emission*, and
+ * `!important` is never needed or used. No v2 component emits an inline style
+ * attribute.
+ *
+ * AND THAT FLATNESS IS NOW GLOBAL, not merely internal (#986, ruling D5 revised).
+ * It is worth saying how, because the mechanism is not specificity at all.
+ *
+ * A band block is [0,2,0] — one attribute plus one class. The v1 stylesheet that still
+ * ships carries rules well above that on elements a role can select: the premium button
+ * family reaches [0,5,1], and a hero CTA authored through the `button` preset painted
+ * the stylesheet's gradient instead of the author's fill. Printing the authored layer
+ * after the stylesheet only settles ties, so the write was accepted, reported applied,
+ * and overruled — the I35 class.
+ *
+ * The fix is a CASCADE LAYER, not per-rule surgery. The v1 stylesheet lives in
+ * `@layer pp-v1` (base.css in `pp-reset` below it), and this engine's authored blocks
+ * and in-band element defaults are UNLAYERED. Unlayered beats layered at any
+ * specificity, so no v1 rule can outrank an authored value however many classes it
+ * carries — and no enumeration has to stay complete for that to hold.
+ *
+ * The first attempt DID try per-rule surgery, and the reason it was abandoned is worth
+ * keeping: wrapping four premium rules in `:where()` zeroed them against a band block
+ * as intended and against `.btn` [0,1,0] as well, silently regressing every composed
+ * primary button on the components not yet rebuilt. A layer moves the whole sheet at
+ * once and cannot single out a rule by accident.
+ *
+ * TWO BOUNDED EXCEPTIONS, named rather than implied. The band-ROOT defaults tier sits
+ * in `pp-zero`, BELOW the v1 sheet on purpose, so an unauthored band still obeys the
+ * shared rhythm (#430/#431) — that tier is the one thing here designed to lose. And an
+ * unlayered third party still outranks the v1 sheet: WP core's injected
+ * `border-style: solid` now beats the issue-332 immunity baseline's `border-style:
+ * none`, which is why that baseline declares `border-width: 0` as well. #989 tracks the
+ * remaining v1 rules as a verification list rather than a surgery list.
  *
  *   site tokens ─▶ presets ─▶ role defaults (schema data) ─▶ band udc ─▶ breakpoint ─▶ state
  *        │            │               │                        │            │           │
@@ -315,7 +346,42 @@ function pp_udc_valid_preset_name(string $name): bool {
  * The leading `-pp-` cannot collide with a registry property: every real entry in
  * pp_udc_groups() is a plain CSS property name.
  */
+/**
+ * The cascade-layer order statement, as one string (#986).
+ *
+ * THE ORDER IS ESTABLISHED BY WHICHEVER COPY THE BROWSER SEES FIRST, and a second copy
+ * declaring the same order is a no-op — that is what makes it safe to emit more than
+ * once, and it is why the editor preview emits it ahead of its stylesheet links rather
+ * than trusting the copy at the top of base.css to arrive.
+ *
+ * The preview links its stylesheets without a cache-busting query, so a browser holding a
+ * pre-#986 base.css would get a document where the statement never arrives: base.css
+ * would be unlayered and therefore the STRONGEST sheet there, `pp-zero` would be created
+ * implicitly at first use by the inline defaults block and sort after it, and an
+ * unauthored band's root defaults would drop below the reset — the exact inversion that
+ * made an unauthored hero compute `padding-top: 0px`. Silently, and in the preview only,
+ * which is the surface whose whole promise is that it shows what the page will do.
+ *
+ * base.css keeps the literal because it is a static file; PreviewCascadeParityTest pins
+ * that the two agree, so the order cannot drift between them.
+ */
+function pp_css_layer_order(): string {
+    return '@layer pp-reset, pp-zero, pp-v1;';
+}
+
 const PP_UDC_BACKGROUND_OVERLAY_CARRIER = '-pp-background-overlay';
+
+/**
+ * What an authored band background image gets when the author says nothing else
+ * (#986). These are v1's `.hero--cover` values, which are also what anyone means
+ * by "put this photograph behind the band". See
+ * _pp_udc_background_image_companions().
+ */
+const PP_UDC_BACKGROUND_IMAGE_COMPANIONS = [
+    'background-size'     => 'cover',
+    'background-repeat'   => 'no-repeat',
+    'background-position' => 'center',
+];
 
 // ── Registry: groups and parameters ─────────────────────────────────────────
 
@@ -473,6 +539,29 @@ function pp_udc_groups(): array {
             // `none` is a real input and the declared default (#579, A-30).
             'max-width'  => ['property' => 'max-width',  'type' => 'length-or-none', 'signed' => false, 'max_values' => 1, 'keywords' => []],
             'max-height' => ['property' => 'max-height', 'type' => 'length-or-none', 'signed' => false, 'max_values' => 1, 'keywords' => []],
+            // ASPECT-RATIO (ruling D1, #986). The one property hero's rebuild found
+            // with NO home in either v2 system: no group emitted it, and the
+            // structural-CSS lint is fail-closed on unlisted properties
+            // (tests/js/css-lint.test.js, designOffencesIn()), so the moment a
+            // component declares roles its `aspect-ratio` could be neither authored
+            // here nor kept in the stylesheet. That is a capability DELETION, which
+            // is the #901 class the UDC exists to end — so the param joins the
+            // group rather than the capability being dropped.
+            //
+            // NO NEW GRAMMAR. `ratio` is the v1 slot type (#108), already owned by
+            // _pp_validate_ratio() in lib/apply.php and already dispatched by
+            // _pp_validate_token_value()'s `case 'ratio'`. Wiring it here is the
+            // whole change; a second validator would be the forked-grammar the repo
+            // architecture forbids.
+            //
+            // THE SLASH IS GRAMMAR HERE, NOT A DELIMITER. `16/9` carries a `/`, which
+            // the shared reject set deliberately does NOT ban (only the COMMENT
+            // delimiters `/*` and `*/`), so `16/9` clears _pp_forbidden_css_construct()
+            // while `16/*9*/` does not. The ratio grammar itself is what rejects
+            // `1/2/3`, `16//9`, `16 9` and `calc(16/9)`; zero and negative values are
+            // refused on both sides of the slash, because a zero denominator paints an
+            // inert declaration the browser silently drops (the I19 class).
+            'aspect-ratio' => ['property' => 'aspect-ratio', 'type' => 'ratio', 'signed' => false, 'max_values' => 1, 'keywords' => []],
         ]],
         // MOTION (Addendum A, ruling A3). Exactly two params, by the ruling.
         //
@@ -566,20 +655,28 @@ function pp_udc_motion_defaults(): array {
  *    exactly the "nothing visually invents itself" line. The state MECHANISM is
  *    proven on authored band values, which is where states are meant to be used.
  *
- * ── And one substitution, with its reason ───────────────────────────────────
+ * ── The padding references, and the substitution that used to be here ───────
  *
- * `.btn` reaches its padding through `--btn-padding-y` / `--btn-padding-x`, but
- * those two tokens hold `var(--space-sm)` and `var(--space-lg)` — a CHAIN, not a
- * literal. A reference is validated against the referencing param's grammar, and
- * the `length` grammar is literal-only on purpose (a `var()` in a length was an
- * injection-bypass surface in v1), so `@btn-padding-y` resolves to something a
- * length parameter correctly refuses. These presets therefore reference
- * `@space-sm` / `@space-lg` — the very tokens the button knobs alias — which
- * paints identically and still follows a retheme of the spacing scale. The cost
- * is real and worth naming: retuning `--btn-padding-x` alone moves `.btn` and
- * does NOT move a preset-styled role. Filed as a follow-up; fixing it properly
- * means either resolving one level of token chain in the registry or teaching
- * the length grammar to follow one, and both are their own decision.
+ * `.btn` reaches its padding through `--btn-padding-y` / `--btn-padding-x`, and
+ * these presets now reference exactly those two tokens — so retuning a button
+ * knob moves `.btn` and every preset-styled role together, which is the whole
+ * point of routing a value through a token instead of copying it.
+ *
+ * It did not always work. Both tokens hold `var(--space-sm)` / `var(--space-lg)`
+ * — a CHAIN, not a literal — and a reference used to be validated by re-parsing
+ * the token's value text against the referencing param's grammar. The `length`
+ * grammar is literal-only on purpose (a `var()` in a length was an
+ * injection-bypass surface in v1), so `@btn-padding-y` resolved to something a
+ * length parameter correctly refused, and these presets referenced `@space-sm` /
+ * `@space-lg` instead — the tokens the button knobs alias. That painted
+ * identically but broke the indirection: retuning `--btn-padding-x` alone moved
+ * `.btn` and did NOT move a preset-styled role.
+ *
+ * #972 (ruling D3) removed the reason for the substitution: a reference is now
+ * judged by the type the registry DECLARES for the token, so a `length`-typed
+ * token is referenceable whatever its value text happens to say. Nothing is
+ * inlined and no chain is followed — emission was always `var(--name)`, and the
+ * browser resolves the rest. See _pp_udc_reference_check().
  */
 function pp_udc_presets(): array {
     static $presets = null;
@@ -603,10 +700,10 @@ function pp_udc_presets(): array {
                     ':hover'      => ['color' => '@color-bg'],
                 ],
                 'spacing' => [
-                    'padding-top'    => '@space-sm',
-                    'padding-bottom' => '@space-sm',
-                    'padding-left'   => '@space-lg',
-                    'padding-right'  => '@space-lg',
+                    'padding-top'    => '@btn-padding-y',
+                    'padding-bottom' => '@btn-padding-y',
+                    'padding-left'   => '@btn-padding-x',
+                    'padding-right'  => '@btn-padding-x',
                 ],
                 'background' => [
                     'fill'   => '@color-accent',
@@ -649,10 +746,10 @@ function pp_udc_presets(): array {
                     ':hover'      => ['color' => '@color-text'],
                 ],
                 'spacing' => [
-                    'padding-top'    => '@space-sm',
-                    'padding-bottom' => '@space-sm',
-                    'padding-left'   => '@space-lg',
-                    'padding-right'  => '@space-lg',
+                    'padding-top'    => '@btn-padding-y',
+                    'padding-bottom' => '@btn-padding-y',
+                    'padding-left'   => '@btn-padding-x',
+                    'padding-right'  => '@btn-padding-x',
                 ],
                 'background' => [
                     'fill'   => '@color-surface',
@@ -837,6 +934,13 @@ function pp_udc_resolve_reference(string $name, array $band_tokens, bool $allow_
             'value' => (string) $site[$key]['value'],
             'css'   => 'var(' . $key . ')',
             'scope' => 'site',
+            // The registry's DECLARED type (#972, ruling D3). Carried so a caller
+            // can ask what the token IS rather than re-parsing what it currently
+            // SAYS — the difference that decides whether a token holding one level
+            // of `var()` indirection is referenceable. Only the site registry
+            // declares types; band `_tokens` and the shared base.css properties are
+            // untyped, so they carry null and keep value-parsing.
+            'type'  => isset($site[$key]['type']) ? (string) $site[$key]['type'] : null,
         ];
     }
     // Schema defaults only: the shared design-system properties (band rhythm,
@@ -855,6 +959,147 @@ function pp_udc_resolve_reference(string $name, array $band_tokens, bool $allow_
         }
     }
     return null;
+}
+
+/**
+ * Which PARAM types a token of a given DECLARED type satisfies (#972, ruling D3).
+ *
+ * The registry declares exactly six types — `color`, `length`, `font-family`,
+ * `number`, `shadow`, `raw` — so this table is small and closed by construction.
+ * `raw` is deliberately ABSENT rather than mapped to nothing: absence is what
+ * _pp_udc_reference_check() turns into the stated refusal below, and an empty
+ * list would read as "satisfies nothing yet" rather than "declares no usable
+ * grammar".
+ *
+ * THIS TABLE GOVERNS ONLY CHAIN-HOLDING TOKENS. _pp_udc_reference_check() sends
+ * every literal-valued token to the value parser exactly as before, so a row here
+ * can only ever widen the five chain-holders' reach — never narrow anything that
+ * worked before. Rows are therefore written to match what CSS genuinely accepts,
+ * not to mirror the value parser's quirks: `length-or-none` is `length` plus the
+ * keyword `none`, `gradient` is the colour-OR-gradient union (`background.fill`
+ * takes a plain colour today), and `line-height` and `background-position` both
+ * take a length as readily as their own native forms.
+ */
+function pp_udc_reference_type_table(): array {
+    // Built once, like every other table in this file (pp_udc_groups(),
+    // pp_udc_presets(), pp_udc_breakpoints(), …). _pp_udc_reference_check() runs
+    // per reference per breakpoint inside the emitter's placement loop, so a
+    // rebuilt literal here is pure allocation on a hot path.
+    static $table = null;
+    if ($table !== null) {
+        return $table;
+    }
+    $table = [
+        'color'       => ['color', 'gradient'],
+        'length'      => ['length', 'length-or-none', 'line-height', 'position'],
+        'font-family' => ['font-family'],
+        'number'      => ['font-weight', 'line-height', 'ratio'],
+        'shadow'      => ['shadow'],
+    ];
+    return $table;
+}
+
+/**
+ * THE ONE PREDICATE for "may this reference stand in for this parameter?".
+ *
+ * ── Why a declared type and not the value's text (#972, ruling D3) ──────────
+ *
+ * A reference is NEVER value-inlined: `@space-sm` emits `var(--space-sm)` and
+ * `@color-accent` emits `var(--color-accent)`. The token's stored text was only
+ * ever used to ANSWER A QUESTION about it, and re-parsing that text asks the
+ * wrong one the moment a token holds one level of indirection.
+ *
+ * Five shipped tokens do: `--btn-padding-y`/`-x` hold `var(--space-sm)`/
+ * `var(--space-lg)`, and `--btn-text`/`--text-meta-color`/`--text-kicker-color`
+ * hold `var(--color-bg)`/`var(--color-muted)`/`var(--color-accent)`. Under
+ * value-parsing the three colours were ACCEPTED (the colour grammar happens to
+ * take a bare registered `var()`) and the two lengths were REFUSED (the length
+ * grammar is literal-only, deliberately — a `var()` in a length was an
+ * injection-bypass surface in v1). Same shape of token, opposite answers,
+ * decided by a grammar quirk rather than by a rule: the hidden divergence I36
+ * forbids. The registry already knows `--btn-padding-y` IS a `length`.
+ *
+ * ── What this does NOT change ───────────────────────────────────────────────
+ *
+ * Nothing is inlined and no chain is followed: emission is still `var(--name)`,
+ * so deterministic minting (§3.1) and the provenance the cascade carries (I35)
+ * are untouched. The author-facing `var()` ban does not move an inch — this is
+ * about a REFERENCE to a registered token, never about author-written text,
+ * which still meets `_pp_forbidden_css_construct()` and the literal-only length
+ * grammar exactly as before. And a type MISMATCH still refuses: `@color-accent`
+ * from a length parameter is as dead as it ever was.
+ *
+ * ── raw ─────────────────────────────────────────────────────────────────────
+ *
+ * `--transition` is the registry's only `raw` token (`150ms ease`, a duration
+ * plus an easing in one string). It satisfies neither `duration` nor
+ * `timing-function`, and under the table above it declares no usable type at
+ * all. It is refused with a STATED REASON rather than by a grammar accident, so
+ * an author reads why instead of inferring it from a parse failure. Splitting it
+ * into two typed tokens would make it referenceable and is its own token-registry
+ * ruling (#972 option C), deliberately not folded in here.
+ *
+ * @param array $resolved A pp_udc_resolve_reference() result.
+ * @param array $param    The parameter definition being validated against.
+ * @return true|WP_Error
+ */
+function _pp_udc_reference_check(array $resolved, array $param) {
+    $declared = (string) ($resolved['type'] ?? '');
+    $value    = $resolved['value'];
+
+    // `raw` FIRST, so its refusal is a STATED REASON rather than a grammar
+    // accident. `--transition` (`150ms ease`) would fail the duration parse below
+    // anyway, but the author would then be reading a message about time units for
+    // a token that is simply not referenceable by a typed parameter at all.
+    if ($declared === 'raw') {
+        return new WP_Error('invalid_udc_value', sprintf(
+            'it is a "raw"-typed design token, which declares no single CSS grammar '
+            . '(its value "%s" is a compound), so it cannot be referenced by a typed '
+            . 'parameter. Set this parameter to a literal value instead.',
+            // BOUNDED AND CLEANED like every other value this engine reflects
+            // (_pp_udc_place() does the same with the stored value). A registry
+            // token's text has no length limit of its own and a `raw` token is
+            // injection-checked only, so it can still carry invisible formatting.
+            _pp_udc_reflect($value)
+        ));
+    }
+
+    // THE DECLARED TYPE RESCUES A CHAIN, AND NOTHING ELSE. Everything whose value
+    // is a literal keeps being judged exactly as before — so the ~50 literal-valued
+    // tokens are bit-for-bit unaffected and only the five chain-holders move.
+    //
+    // This ordering is deliberate and was corrected after the sweep test caught the
+    // first cut widening things it should not have. Judging by declared type FIRST
+    // would have accepted five `initial`-valued button sentinels (`--btn-bg`,
+    // `--btn-shadow`, …) that declare `color`/`shadow` but hold the CSS-wide
+    // keyword `initial`, which their own grammars refuse. Those refusals are
+    // correct and predate this ruling; a type-first gate would have quietly turned
+    // them into acceptances, which is an extension of the accepted surface this
+    // ruling did not ask for.
+    if (strpos($value, 'var(') === false) {
+        return pp_udc_validate_value($value, $param);
+    }
+
+    // Built only now: the two returns above never read it, and the literal-value
+    // one is the overwhelmingly common path.
+    $table = pp_udc_reference_type_table();
+
+    // UNTYPED chain-holder (a band `_token`, or a shared base.css property). No
+    // declaration to trust, so the value is still the only evidence.
+    if ($declared === '' || !isset($table[$declared])) {
+        return pp_udc_validate_value($value, $param);
+    }
+
+    $wanted = (string) ($param['type'] ?? '');
+    if (in_array($wanted, $table[$declared], true)) {
+        return true;
+    }
+
+    return new WP_Error('invalid_udc_value', sprintf(
+        'it is a "%s"-typed design token and this parameter takes a "%s" value.',
+        $declared,
+        $wanted
+    ));
 }
 
 // ── Background images ───────────────────────────────────────────────────────
@@ -990,6 +1235,48 @@ function _pp_udc_compose_background_layers(array $declarations): array {
 
     $declarations['background-image']['css'] =
         $layer . ',' . $declarations['background-image']['css'];
+    return $declarations;
+}
+
+/**
+ * The three companions an authored background image needs to behave like one.
+ *
+ * WHY THE ENGINE SUPPLIES THEM (#986). v1's `.hero--cover` carried
+ * `background-size: cover; background-repeat: no-repeat; background-position: center`
+ * in structural CSS. On v2 a band background image is `_band.background.image`, which
+ * ANY layout may carry — so the rule keyed to `.hero--cover` could not follow it, and
+ * without it an authored image painted at its intrinsic size, tiled, anchored
+ * top-left. That is not a narrowing an author would choose; it is a trap. CSS's
+ * initial values are the wrong default for a band background, and v1's behaviour is
+ * the recorded baseline.
+ *
+ * DEFAULTS, NOT OVERRIDES. Each companion is added ONLY when the author did not set
+ * it, so `{"image": 42, "size": "contain"}` still means contain. The params already
+ * exist and stay fully authorable (`background.size`, `.repeat`, `.position`).
+ *
+ * APPENDED LAST, and that is load-bearing rather than tidy: a `background` shorthand
+ * from `background.fill` RESETS these longhands to their initial values, so a
+ * companion emitted before it would be silently erased — the documented ordering trap
+ * that `_pp_udc_sort_declarations()` exists to manage. Printing after the shorthand is
+ * what makes them stick.
+ *
+ * They carry their own `source`, so the write path can disclose that the engine
+ * supplied them rather than leaving an author to infer it from the rendered page.
+ */
+function _pp_udc_background_image_companions(array $declarations): array {
+    if (!isset($declarations['background-image'])) {
+        return $declarations;
+    }
+    foreach (PP_UDC_BACKGROUND_IMAGE_COMPANIONS as $property => $value) {
+        if (isset($declarations[$property])) {
+            continue;
+        }
+        $declarations[$property] = [
+            'css'     => $value,
+            'literal' => $value,
+            'source'  => 'engine-companion',
+        ];
+    }
     return $declarations;
 }
 
@@ -1712,11 +1999,17 @@ function _pp_udc_validate_scalar(string $where, $value, array $param, array $ban
                 $ref
             ));
         }
-        // The REFERENCED value must satisfy this param's grammar. A reference to
-        // a colour token from a length parameter resolves to "0.25rem"-class
-        // nonsense the browser drops, which is the same accepted-but-dead class
-        // the colour validator has rejected since #230.
-        $check = pp_udc_validate_value($resolved['value'], $param);
+        // The REFERENCE must be usable for this param. A reference to a colour
+        // token from a length parameter resolves to "0.25rem"-class nonsense the
+        // browser drops, which is the same accepted-but-dead class the colour
+        // validator has rejected since #230.
+        //
+        // Routed through the ONE predicate (#972, ruling D3) so the write gate and
+        // the emitter cannot drift: a typed token is judged by what the registry
+        // DECLARES it to be, an untyped one by parsing its value. The message keeps
+        // naming the token and its value either way, because the author wrote a
+        // name and needs to see what it resolved to.
+        $check = _pp_udc_reference_check($resolved, $param);
         if ($check !== true) {
             return new WP_Error('invalid_prop_value', sprintf(
                 '%s references "@%s", whose value "%s" is not valid here: %s',
@@ -2190,6 +2483,9 @@ function pp_udc_compile_band(array $item, string $layer, ?array &$drops = null):
                 // list is deterministic too.
                 $declarations = _pp_udc_sort_declarations($declarations);
                 $declarations = _pp_udc_compose_background_layers($declarations);
+                // AFTER the compose, so the overlay has already been folded into
+                // background-image and the companions see the final layer list.
+                $declarations = _pp_udc_background_image_companions($declarations);
                 if ($declarations === []) {
                     continue;
                 }
@@ -2552,6 +2848,7 @@ function _pp_udc_place(
         $literal       = (string) $raw;
         $css           = $literal;
         $band_ref_name = null;
+        $ref_target    = null;
 
         $ref = pp_udc_parse_reference($literal);
         if ($ref !== null) {
@@ -2577,6 +2874,12 @@ function _pp_udc_place(
             $css          = $target['css'];
             $literal       = $target['value'];
             $band_ref_name = $target['scope'] === 'band' ? $ref : null;
+            // Carried to the re-validation below so the emitter asks the SAME
+            // question the write gate asked (#972, ruling D3). Without this the two
+            // gates disagree on exactly the five chain-holding tokens: a write of
+            // `@btn-padding-y` would be accepted and its declaration then dropped at
+            // emit, which is the write/render disagreement I29 forbids.
+            $ref_target = $target;
         }
 
         // Emit-time re-validation — the same engine the write path used, not a
@@ -2611,7 +2914,13 @@ function _pp_udc_place(
         // different reason and a different next action. One value, one classifier
         // (I25) — pp_check_udc_background_images owns every drop of this parameter,
         // well-shaped or not.
-        if ($source !== 'defaults' && pp_udc_validate_value($literal, $params[$param_name]) !== true) {
+        // ONE PREDICATE, BOTH GATES (#972, ruling D3): a reference is judged by
+        // _pp_udc_reference_check() here exactly as at the write gate, so what the
+        // write accepts is what the page emits. A literal is value-parsed as before.
+        $emit_check = $ref_target !== null
+            ? _pp_udc_reference_check($ref_target, $params[$param_name])
+            : pp_udc_validate_value($literal, $params[$param_name]);
+        if ($source !== 'defaults' && $emit_check !== true) {
             // The type test lives INSIDE the ledger branch for the same reason the
             // closure and the locator do: it is per-breakpoint work that only a
             // collector ever reads.
@@ -2752,14 +3061,61 @@ function pp_udc_component_defaults_css(string $component): string {
     // once zeroed the subheading rhythm (#336). At [0,2,0] it clears them.
     //
     // Authored values outrank both tiers; see pp_udc_band_css().
+    //
+    // THE ROOT TIER IS RANKED BY A CASCADE LAYER, NOT BY PRINTING FIRST (#986,
+    // ruling D5 revised). It used to be ranked under the shared design-system
+    // rules by source position alone: this block rides `pp-base`, components.css
+    // loads after, and both sit at zero specificity, so later won. The moment the
+    // v1 stylesheet went into `@layer pp-v1` that argument inverted — an
+    // UNLAYERED rule beats a layered one at any specificity, so the zeroed root
+    // tier would have started BEATING the band rhythm it is designed to yield to,
+    // which is the Sprint-0 cascade hazard arriving from the other side.
+    //
+    // `pp-zero` is declared BEFORE `pp-v1` (see assets/css/base.css), so the
+    // total order is exactly what the two rulings together require:
+    //
+    //   pp-zero (this root tier) < pp-v1 (base/components/utilities)
+    //     < element defaults (unlayered, below) < authored blocks (unlayered)
+    //
+    // The root tier now yields to #430/#431 STRUCTURALLY rather than by load
+    // order, so a plugin reordering the enqueues can no longer invert it either.
     $scope = '[data-pp-component="' . $component . '"]';
 
-    return _pp_udc_render_blocks($compiled, $scope, ':where(' . $scope . ')');
+    return _pp_udc_render_blocks($compiled, $scope, ':where(' . $scope . ')', 'pp-zero');
 }
 
-/** Renders a compiled result under one scope selector. */
-function _pp_udc_render_blocks(array $compiled, string $scope, ?string $root_scope = null): string {
-    $css   = '';
+/**
+ * Renders a compiled result under one scope selector.
+ *
+ * `$root_layer` puts the BAND-ROOT rules into a named cascade layer while the
+ * element rules stay where they were (#986, ruling D5 revised). Only the
+ * defaults tier asks for it; see pp_udc_component_defaults_css() for why the
+ * root tier has to rank under the v1 stylesheet and the element tier over it.
+ *
+ * When `$root_layer` is null NOTHING changes: root and element rules ride the
+ * same buffer in the same order they always did, so the authored tier and the
+ * chrome tier emit byte-identical CSS to before.
+ *
+ * THE TIER STRADDLES THE v1 STYLESHEET WHEN IT SPLITS, deliberately, and the token
+ * block is on the far side from the rules that read it. A component's `_tokens`
+ * defaults are root-scoped, so they go into `pp-zero` BELOW components.css, while the
+ * element rules consuming them via `var(--pp-…)` emit unlayered ABOVE it. That is safe
+ * because custom properties only contend on the SAME element: nothing in components.css
+ * declares a `--pp-*` on a `[data-pp-component=…]` selector (the four that declare
+ * `--pp-*` at all are legacy `--inverted` roots), so there is no rule positioned to beat
+ * a token default. It is latent rather than broken, and it is written down here because
+ * the split's tests assert the root/element RULE division and say nothing about which
+ * side of v1 a token default lands on.
+ */
+function _pp_udc_render_blocks(
+    array $compiled,
+    string $scope,
+    ?string $root_scope = null,
+    ?string $root_layer = null
+): string {
+    $css      = '';
+    $root_css = '';
+    $split    = $root_layer !== null;
     // Rules aimed at the band root may need a different weight from rules aimed
     // at elements inside it; callers that do not care pass one scope for both.
     $root_scope = $root_scope ?? $scope;
@@ -2769,7 +3125,11 @@ function _pp_udc_render_blocks(array $compiled, string $scope, ?string $root_sco
         foreach ($compiled['tokens'] as $name => $value) {
             $decls .= '--pp-' . $name . ':' . $value . ';';
         }
-        $css .= $root_scope . '{' . $decls . '}';
+        if ($split) {
+            $root_css .= $root_scope . '{' . $decls . '}';
+        } else {
+            $css .= $root_scope . '{' . $decls . '}';
+        }
     }
 
     // Bucketed once. The emission order below is an 8-tier x 3-breakpoint
@@ -2803,7 +3163,8 @@ function _pp_udc_render_blocks(array $compiled, string $scope, ?string $root_sco
                 if (($tier === 'base') !== $is_base) {
                     continue;
                 }
-                $rules = '';
+                $rules      = '';
+                $root_rules = '';
                 foreach (($by_state_bp[$state][$bp] ?? []) as $block) {
                     $decls = '';
                     foreach ($block['decls'] as $property => $entry) {
@@ -2823,17 +3184,37 @@ function _pp_udc_render_blocks(array $compiled, string $scope, ?string $root_sco
                     if ($decls === '') {
                         continue;
                     }
-                    $selector = ($block['selector'] !== ''
-                        ? $scope . ' ' . $block['selector']
-                        : $root_scope) . $state;
-                    $rules   .= $selector . '{' . $decls . '}';
+                    $is_root  = $block['selector'] === '';
+                    $selector = ($is_root
+                        ? $root_scope
+                        : $scope . ' ' . $block['selector']) . $state;
+                    if ($split && $is_root) {
+                        $root_rules .= $selector . '{' . $decls . '}';
+                    } else {
+                        $rules .= $selector . '{' . $decls . '}';
+                    }
                 }
-                if ($rules === '') {
-                    continue;
+                if ($rules !== '') {
+                    $css .= $is_base ? $rules : '@media ' . $meta['media'] . '{' . $rules . '}';
                 }
-                $css .= $is_base ? $rules : '@media ' . $meta['media'] . '{' . $rules . '}';
+                if ($root_rules !== '') {
+                    $root_css .= $is_base
+                        ? $root_rules
+                        : '@media ' . $meta['media'] . '{' . $root_rules . '}';
+                }
             }
         }
+    }
+
+    // THE GUARD FOLLOWS ITS DECLARATIONS INTO THE LAYER. A guard emitted outside
+    // the layer that holds the motion it neutralizes would outrank it always
+    // rather than by printing last, which is a different mechanism with a
+    // different failure mode; and one emitted inside the WRONG layer would lose
+    // outright. Split the same way the declarations were split.
+    if ($split) {
+        $root_css .= _pp_udc_reduced_motion_guard($motion_selectors, $scope, $root_scope, 'root');
+        $css      .= _pp_udc_reduced_motion_guard($motion_selectors, $scope, $root_scope, 'element');
+        return ($root_css !== '' ? '@layer ' . $root_layer . '{' . $root_css . '}' : '') . $css;
     }
 
     $css .= _pp_udc_reduced_motion_guard($motion_selectors, $scope, $root_scope);
@@ -2877,15 +3258,29 @@ function _pp_udc_render_blocks(array $compiled, string $scope, ?string $root_sco
  * (a timing function over 0.01ms is unobservable); add `transition-delay` and
  * this needs a per-param remedy rather than a constant.
  *
- * @param array $motion_selectors key => [selector, state]
+ * @param array  $motion_selectors key => [selector, state]
+ * @param string $want             'all', or 'root'/'element' to emit only the
+ *                                 half that belongs in one cascade layer.
  */
-function _pp_udc_reduced_motion_guard(array $motion_selectors, string $scope, string $root_scope): string {
+function _pp_udc_reduced_motion_guard(
+    array $motion_selectors,
+    string $scope,
+    string $root_scope,
+    string $want = 'all'
+): string {
     if ($motion_selectors === []) {
         return '';
     }
     $selectors = [];
     foreach ($motion_selectors as [$selector, $state]) {
-        $selectors[] = ($selector !== '' ? $scope . ' ' . $selector : $root_scope) . $state;
+        $is_root = $selector === '';
+        if (($want === 'root' && !$is_root) || ($want === 'element' && $is_root)) {
+            continue;
+        }
+        $selectors[] = ($is_root ? $root_scope : $scope . ' ' . $selector) . $state;
+    }
+    if ($selectors === []) {
+        return '';
     }
     return '@media (prefers-reduced-motion: reduce){'
         . implode(',', $selectors)
@@ -2898,14 +3293,21 @@ function _pp_udc_reduced_motion_guard(array $motion_selectors, string $scope, st
  * NOTHING THAT EMITS CSS MAY CALL THIS, and the rule is enforced rather than
  * requested: PreviewCascadeParityTest fails if any file outside tests/ names it.
  *
- * The reason is the whole of §3.4. The two layers do not rank by specificity —
- * both are zero-or-low by construction — they rank by the POSITION each prints
- * at, defaults before the theme stylesheets and authored after them. A single
- * string holds one position, so pasting this into one <style> block does not
- * emit the cascade, it flattens it: the defaults layer lands after the shared
- * design-system rules and starts beating them. That is not hypothetical. It is
- * what the editor preview did until the two-block fix, and it is why this
- * function is now a test convenience with a tripwire rather than an API.
+ * The reason is the whole of §3.4, RESTATED for cascade layers (#986) because the
+ * original argument is now only half true and a tripwire whose stated reason has
+ * expired is one a future maintainer deletes as obsolete.
+ *
+ * What changed: the band-ROOT half of the defaults tier is protected by `@layer
+ * pp-zero` wherever it prints, and the ELEMENT half is unlayered and already beats
+ * the design-system rules from either position. So flattening no longer inverts
+ * defaults-vs-stylesheet the way it did.
+ *
+ * What did NOT change, and is why this stays forbidden: the defaults tier and the
+ * AUTHORED tier are both unlayered, so their order relative to each other is still
+ * decided by nothing but source position — defaults first, authored after. A single
+ * string holds one position. Paste both into one <style> and an authored value stops
+ * reliably outranking a role default, which is the one ranking layers do not express
+ * here. The editor preview did exactly that until the two-block fix.
  *
  * Tests use it to assert the two halves compose, which is a real property worth
  * pinning — it just is not an emission strategy.
@@ -2917,11 +3319,14 @@ function pp_udc_page_css(array $items): string {
 /**
  * Layer 1: every v2 component's role defaults, once each.
  *
- * Printed BEFORE the theme stylesheets (see functions.php). Source order is
- * load-bearing, not incidental: `_band` defaults and the shared adjacent-band
- * rhythm rule both sit at zero specificity, so whichever prints later wins, and
- * the shared rhythm must. Printing this layer first is what keeps an unauthored
- * v2 band inside the #430/#431 rulings.
+ * Printed BEFORE the theme stylesheets (see functions.php), which still fixes this
+ * tier's order against the AUTHORED tier — both are otherwise unlayered.
+ *
+ * WHAT KEEPS AN UNAUTHORED BAND INSIDE #430/#431 IS NO LONGER PRINT ORDER (#986).
+ * It is `@layer pp-zero`: the band-root rules this emits sit in a layer strictly
+ * below the v1 stylesheet, so the shared adjacent-band rhythm wins structurally
+ * rather than by loading later. A component that needs its own rhythm opts out via a
+ * `:not()` on the shared rule — hero's #577 opener rhythm is the worked example.
  */
 function pp_udc_page_defaults_css(array $items): string {
     $css        = '';
@@ -3310,8 +3715,13 @@ function pp_udc_chrome_css(string $name, string $layer): string {
         return '';
     }
     $scope = '[data-pp-chrome="' . $name . '"]';
+    // Chrome's defaults tier splits exactly like a band's and for the same
+    // reason (#986, ruling D5 revised): its zeroed root tier was ranked under the
+    // shared header/footer rules by printing first, and layering the v1
+    // stylesheet would have inverted that. `pp-zero` keeps it underneath
+    // structurally.
     return $layer === 'defaults'
-        ? _pp_udc_render_blocks($compiled, $scope, ':where(' . $scope . ')')
+        ? _pp_udc_render_blocks($compiled, $scope, ':where(' . $scope . ')', 'pp-zero')
         : _pp_udc_render_blocks($compiled, $scope);
 }
 
@@ -4190,5 +4600,51 @@ function pp_udc_promote_band_identity(array $item, array $props): array {
     if (isset($item['id']) && is_scalar($item['id']) && pp_udc_valid_band_id((string) $item['id'])) {
         $props['__pp_udc_band'] = (string) $item['id'];
     }
+    // THE OVERLAY IS AN ACCESSIBILITY FACT, SO IT GETS A STRUCTURAL HOOK (#986).
+    //
+    // A focus ring over a scrim needs the on-overlay colour: `--color-accent` is
+    // 1.17:1 against the worst-case scrim, a WCAG 1.4.11 failure. v1 routed that
+    // through `.hero--cover .btn:focus`, which was sound while `cover` was the only
+    // layout that could carry a background image. On v2 `_band.background.image` and
+    // `.overlay` are authorable on EVERY layout, so a class keyed to one variant
+    // stopped following the thing it describes.
+    //
+    // The engine is what knows an overlay is being emitted, so the engine says so.
+    // Same posture as the reduced-motion guard under ruling A3: an accessibility
+    // affordance is STRUCTURAL — emitted, not authored, and not something an author
+    // can forget to switch on. The ring itself stays in the stylesheet, keyed to this
+    // attribute instead of to a layout class.
+    if (pp_udc_band_has_overlay($item)) {
+        $props['__pp_udc_overlay'] = '1';
+    }
     return $props;
+}
+
+/**
+ * Does this band paint a scrim over a background image?
+ *
+ * Reads the STORED map rather than the emitted CSS because the renderer runs
+ * before emission and needs the answer for an attribute. Deliberately narrow: an
+ * overlay only paints when there is an image under it (an overlay over nothing is
+ * dropped by _pp_udc_compose_background_layers()), so both must be present for the
+ * hook to appear — otherwise a band with a stray `overlay` key would claim a
+ * contrast problem it does not have.
+ *
+ * Breakpoint maps count: an overlay declared only at one width still darkens the
+ * band there, and a focus ring that is legible at some widths is not legible.
+ */
+function pp_udc_band_has_overlay(array $item): bool {
+    $band = $item['udc']['_band']['background'] ?? null;
+    if (!is_array($band)) {
+        return false;
+    }
+    $has = static function ($value): bool {
+        // A scalar is the plain form; an array is a breakpoint map or a state map,
+        // and any non-empty leaf in it still paints somewhere.
+        if (is_scalar($value)) {
+            return (string) $value !== '';
+        }
+        return is_array($value) && $value !== [];
+    };
+    return $has($band['image'] ?? null) && $has($band['overlay'] ?? null);
 }

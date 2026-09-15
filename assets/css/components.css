@@ -1,3 +1,4 @@
+@layer pp-v1 {
 /* ==========================================================================
    components.css — PromptingPress Component Styles
 
@@ -512,37 +513,46 @@
 }
 
 /* ==========================================================================
-   COMPONENT: hero
-   Full-width hero section. Variants: centered, left, split.
+   COMPONENT: hero  —  A v2 COMPONENT
+   The opening band of a page. Variants: left, centered, split (text + media)
+   and cover (a tall, centred band).
    ========================================================================== */
 
-.hero {
-  padding-top: var(--hero-padding-top, var(--space-xl));
-  padding-bottom: var(--hero-padding-bottom, var(--space-xl));
-  background: var(--hero-bg, var(--color-bg));
-  border: var(--hero-border-width, 0) solid var(--hero-border-color, transparent);
-  border-radius: var(--hero-radius, 0);
-  box-shadow: var(--hero-shadow, none);
-}
+/* STRUCTURAL CSS ONLY — this block is the v2 boundary (docs/v2/BUILD-SPEC-sprint0.md §2).
+   Layout scaffolding, wrapper geometry and accessibility affordances live here.
+   NO colour, type, size, spacing, border, shadow or aspect-ratio value may be added:
+   every one of those belongs to a role in components/hero/schema.json and is emitted by
+   the UDC engine into a band-scoped block in the document head. tests/js/css-lint.test.js
+   enforces this on exactly this block; adding a designable declaration fails CI.
 
-@media (min-width: 768px) {
-  .hero {
-    padding-top: var(--hero-padding-top, var(--space-2xl));
-    padding-bottom: var(--hero-padding-bottom, var(--space-2xl));
-  }
-}
+   The band root carries no rule of its own on three of the four layouts: its padding,
+   background, border, radius and shadow are the `_band` role's defaults, so there is
+   nothing structural left to say about it. Only `cover` keeps a root rule, because a
+   tall centred band IS geometry.
+
+   TWO THINGS THE v1 BLOCK DID THAT THIS ONE DELIBERATELY DOES NOT:
+
+   1. It set `text-align` per variant (`centered` and `cover` centred their text, `left`
+      and `split` left-aligned it). Text alignment is a DESIGNABLE value — the §2
+      boundary names it, and testimonials set the precedent when `title_align` became
+      the roles' `typography.align`. So a layout now aligns BOXES (align-items,
+      justify-content) and an author aligns TEXT: set `typography.align` on the `title`,
+      `subtitle`, `eyebrow` and `proof` roles. Stated here because it is a real
+      rendering change for every centred hero, not an oversight.
+
+   2. It re-coloured the title, the accent and the subtitle on `.hero--cover`, on the
+      assumption that a cover band is dark. v2 has no variant-scoped role defaults and
+      does not guess: a band with a dark background or a background image owns its own
+      contrast, exactly as the AI-facing docs already say for every v2 dark band. */
 
 .hero__inner {
   display: flex;
   flex-direction: column;
-  gap: var(--space-lg);
 }
 
 .hero__content {
   display: flex;
   flex-direction: column;
-  gap: var(--hero-content-gap, var(--space-md));
-  max-width: var(--hero-content-width, var(--measure-centered));
 }
 
 /* align-self keeps the pill sized to its text: .hero__content is a flex column,
@@ -551,74 +561,6 @@
 .hero__eyebrow {
   display: inline-block;
   align-self: flex-start;
-  padding: 0.35rem 0.85rem;
-  margin-bottom: var(--space-sm);
-  border: var(--hero-eyebrow-border-width, 0) solid var(--hero-eyebrow-border-color, transparent);
-  border-radius: var(--hero-eyebrow-radius, 3px);
-  font-size: 0.8125rem;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: var(--hero-eyebrow-text-transform, uppercase);
-  color: var(--hero-eyebrow-color, var(--color-text));
-  background: var(--hero-eyebrow-bg, var(--color-surface-accent));
-}
-
-.hero__title {
-  font-size: var(--hero-heading-size, clamp(2.5rem, 5vw, 4rem));
-  font-weight: var(--hero-heading-weight, var(--font-weight-heading));
-  color: var(--hero-heading-color, inherit);
-  line-height: 1.03;
-  /* Hero's heading measure (issue 578). The deleted rule capped `.hero--left` and
-     `.hero--split` titles at `12ch`, and because `.hero__content` is a flex item that
-     shrink-wraps to its WIDEST child, that cap narrowed the whole column — title,
-     subtitle AND buttons — to 468px of a 1088px inner at 1280 (43%). `ch` is also
-     viewport-local while the column is not: 24ch renders 896px at 1440/1280 but 792px
-     at 1152 and 744px at 1024, so any value tight enough to do typographic work
-     re-strands the column at exactly the laptop widths most of the audience uses. The
-     smallest inert-to-1024 value is ~29ch, which is `none` with extra steps. On split
-     the track binds first (~17ch), so 16/20/24ch and none are identical there. The
-     default is therefore `none` for every layout — matching what centered and cover
-     already do — and the real hero measure stays where it belongs, on
-     --hero-content-width. The SLOT still ships: before this, no operator could widen a
-     left hero without overriding this file.
-     Declared on the base rule rather than the two layout selectors so the slot reaches
-     all four layouts; unset it resolves to `none` on every one of them, which is the
-     initial value, so centered and cover are unchanged. */
-  max-width: var(--hero-heading-measure, none);
-  /* Heading rhythm (issue 584). hero is the one band whose title carried NO
-     margin-bottom declaration at all — the base.css universal `margin: 0` reset was
-     the whole story, and .hero__content's flex `gap` supplies the visible spacing.
-     The fallback is therefore `0`, which is exactly what the reset already computed,
-     so an unset hero is byte-identical. What this slot is FOR on a hero is ADDING air
-     below the headline: a value here stacks on top of --hero-content-gap rather than
-     replacing it. It is deliberately NOT the hero's band-fusing lever — the title is
-     never the hero's last visible element (the subheading and CTA group follow it), so
-     the seam-closing knob there is --hero-padding-bottom. The slot lands anyway because
-     the family is completed in one pass and the heading-rhythm surface must be uniform
-     across all ten bands for an agent to reason about it. */
-  margin-bottom: var(--hero-heading-margin-bottom, 0);
-}
-
-.hero__title-accent {
-  color: var(--hero-heading-accent-color, var(--color-accent));
-}
-
-@media (min-width: 768px) {
-  .hero__title {
-    font-size: var(--hero-heading-size, clamp(3rem, 4.5vw, 4.5rem));
-  }
-}
-
-.hero__subtitle {
-  font-size: var(--hero-subheading-size, 1.0625rem);
-  color: var(--hero-subheading-color, var(--color-muted));
-  max-width: 40ch;
-  /* The `1.6` literal here duplicated --line-height-body's exact shipped value
-     (base.css), which `body` already consumes — so a site that retuned body leading
-     moved every paragraph EXCEPT this one. Route the token with its own value as the
-     fallback: byte-identical at the shipped value, and it only changes render on a
-     site that has already retuned --line-height-body, which is the point (issue 577). */
-  line-height: var(--line-height-body, 1.6);
 }
 
 /* align-self places the GROUP's box; justify-content packs the buttons INSIDE it. The
@@ -629,7 +571,6 @@
 .hero__cta-group {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-sm);
   align-self: flex-start;
   justify-content: flex-start;
 }
@@ -638,14 +579,47 @@
   align-self: flex-start;
 }
 
-/* Centered variant */
-.hero--centered .hero__inner {
+.hero__proof {
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
+  justify-content: flex-start;
+}
+
+/* Centered variant.
+   THE LAYOUT CENTRES ITS TEXT, NOT JUST ITS BOXES (#986). The first v2 cut moved
+   text-align out to the roles entirely, on the principle that a layout aligns boxes
+   and an author aligns text. That read well and rendered wrong: `centered` is the
+   DEFAULT layout, no role ships a `typography.align` default, and every box here
+   carries a measure cap — so a wrapping headline rendered ragged-left inside a
+   centred box while the schema told the authoring AI "centered centers all content".
+   A layout that does not do what its own name says is a default-experience
+   regression, not a narrowing worth documenting.
+
+   So the alignment is structural and keyed to the modifier, exactly as v1 had it and
+   exactly as .section--centered still does. It is the modifier's geometry: the same
+   category as the align-items/justify-content below it, which nobody was tempted to
+   call value styling. css-lint classifies it that way too — see the layout-modifier
+   carve-out in designOffencesIn(), which is narrow enough that a ROLE declaring
+   text-align is still an offence.
+
+   AN AUTHORED `typography.align` STILL WINS, and now does so structurally rather
+   than by specificity luck: authored band blocks are unlayered and this stylesheet
+   sits in `pp-v1`, so an author who wants a centred hero with left-aligned prose
+   sets `typography.align` on the role and it lands. */
+.hero--centered .hero__title,
+.hero--centered .hero__subtitle,
+.hero--centered .hero__eyebrow,
+.hero--centered .hero__proof,
+.hero--cover .hero__title,
+.hero--cover .hero__subtitle,
+.hero--cover .hero__eyebrow,
+.hero--cover .hero__proof {
   text-align: center;
 }
 
-.hero--centered .hero__subtitle {
-  max-width: none;
+.hero--centered .hero__inner {
+  align-items: center;
 }
 
 .hero--centered .hero__eyebrow {
@@ -661,30 +635,18 @@
   align-self: center;
 }
 
-/* The proof row is the one flex row .hero__content never shrink-wraps (it sets no
-   align-items, so .hero__proof stretches). Its BOX is therefore centered already; its
-   ITEMS are not, and text-align:center — which this layout does inherit — has no say in
-   where a flex container puts its items. Centering follows the layout variant, so a
-   centered hero needs no second instruction from the operator (issue 338). */
 .hero--centered .hero__proof {
   justify-content: center;
 }
 
-/* Left variant — used by inner pages; compact vertical rhythm */
-.hero--left {
-  padding-top: var(--hero-padding-top, var(--space-xl));
-  padding-bottom: var(--hero-padding-bottom, var(--space-xl));
-}
-
+/* Left variant */
 .hero--left .hero__inner {
   align-items: flex-start;
-  text-align: left;
 }
 
-/* Split variant: text left, image right at lg+ */
+/* Split variant: one column until lg, two columns from 1024px. */
 .hero--split .hero__inner {
   align-items: flex-start;
-  text-align: left;
 }
 
 @media (min-width: 1024px) {
@@ -692,64 +654,27 @@
     display: grid;
     grid-template-columns: minmax(0, 1.08fr) minmax(0, 0.92fr);
     align-items: center;
-    gap: var(--space-xl);
-  }
-
-  .hero--split .hero__content {
-    max-width: var(--hero-content-width, 40rem);
   }
 }
 
-/* Cover variant: full-width background image with overlay */
-/* A flex row whose single item is .container. The container's auto inline margins already
-   absorb the free space, so this centering is what already happens — declared here only so
-   the row states its intent instead of resting on the flexbox initial value (issue 338). */
+/* Cover variant: a tall band whose single row centres its container.
+   Its BACKGROUND IMAGE is no longer here and no longer comes from `image_url`: it is
+   the `_band` role's `background.image` (an attachment id the engine resolves, ruling
+   A2) with `background.overlay` for the scrim, which is why this block no longer emits
+   a `.hero__overlay` element either — the scrim rides the same background layer list.
+   The consequence worth stating: a background image is now authorable on EVERY layout,
+   not only this one. What stays here is the geometry that makes `cover` a distinct
+   layout at all. */
 .hero--cover {
   position: relative;
-  background-size: cover;
-  background-position: var(--hero-bg-position, center);
-  background-repeat: no-repeat;
   min-height: 70vh;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
-.hero__overlay {
-  position: absolute;
-  inset: 0;
-  background: var(--hero-overlay-bg, var(--overlay-bg));
-}
-
-.hero--cover .container {
-  position: relative;
-  z-index: 1;
-}
-
 .hero--cover .hero__inner {
   align-items: center;
-  text-align: center;
-}
-
-.hero--cover .hero__title {
-  color: var(--hero-heading-color, var(--color-bg));
-}
-
-/* .hero--cover lays the same --overlay-bg scrim (via .hero__overlay) over an arbitrary
-   image as the section/cta/stats bg-image bands. The accented title substring paints
-   its OWN color (0,1,0) and does NOT inherit the near-white .hero--cover .hero__title
-   above, so it renders bare --color-accent at 1.16:1 over the overlay. Route the default
-   through the overlay accent role (#463) so the guarantee is uniform across all overlay
-   bands; the per-instance --hero-heading-accent-color slot still wins. Scoped to
-   .hero--cover — the plain (non-overlay) hero variants keep bare accent. */
-.hero--cover .hero__title-accent {
-  color: var(--hero-heading-accent-color, var(--color-accent-on-overlay));
-}
-
-.hero--cover .hero__subtitle {
-  color: var(--hero-subheading-color, var(--color-bg));
-  opacity: 0.85;
-  max-width: none;
 }
 
 .hero--cover .hero__eyebrow {
@@ -765,20 +690,10 @@
   align-self: center;
 }
 
-/* Cover centers its content like .hero--centered, so its proof row packs the same way. */
+/* Cover centres its content like .hero--centered, so its proof row packs the same way. */
 .hero--cover .hero__proof {
   justify-content: center;
 }
-
-/* NOTE (issue 535): the cover band's outline/ghost button routing used to live here as
-   `.hero--cover .btn--outline` { border-color/color: var(--color-bg) }. It NEVER painted:
-   `.hero .btn--outline` below has the IDENTICAL specificity [0,2,0] and wins on source
-   order, so a cover hero's outline primary rendered var(--hero-heading-color, var(--color-text))
-   = near-black ink on the dark scrim (measured ~3.6:1 over the worst-case overlay-over-
-   white composite, and far worse over a dark photo). The rules moved DOWN to sit after
-   `.hero .btn--outline`, where they actually win, and their literals now route through
-   the --color-accent-on-overlay role. See "Dark-band routing for the hero's cover band"
-   below. Do not re-add a cover button rule up here: it would be dead again. */
 
 .hero__image-wrap {
   flex-shrink: 0;
@@ -787,19 +702,8 @@
 .hero__surface {
   display: flex;
   flex-direction: column;
-  gap: var(--space-md);
   justify-content: center;
   min-height: 100%;
-  /* Inner proof/artifact surface — per-instance style slots (#24). Each falls back to
-     the original "soft SaaS" treatment so unset heroes render unchanged; the site-builder
-     AI overrides these to reach a Brand Book target (e.g. a 2px brutalist artifact). */
-  padding: var(--hero-surface-padding, var(--space-lg));
-  border: var(--hero-surface-border-width, 1px) solid
-    var(--hero-surface-border-color, var(--color-border));
-  border-radius: var(--hero-surface-radius, calc(var(--radius) * 2));
-  background: var(--hero-surface-bg,
-    linear-gradient(180deg, var(--color-bg) 0%, var(--color-surface) 100%));
-  box-shadow: var(--hero-surface-shadow, 0 20px 50px rgba(16, 24, 40, 0.08));
 }
 
 .hero__surface > * {
@@ -810,497 +714,26 @@
   margin-top: 0;
 }
 
-.hero__surface-label {
-  font-size: 0.75rem;
-  font-weight: 700;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: var(--color-muted);
-}
-
-.hero__surface-list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-sm);
-}
-
-.hero__surface-item {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-xs);
-  padding-top: var(--space-sm);
-  border-top: 1px solid var(--color-border);
-}
-
-.hero__surface-item:first-child {
-  padding-top: 0;
-  border-top: 0;
-}
-
-.hero__surface-key {
-  font-size: 0.8125rem;
-  color: var(--color-muted);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.hero__surface-value {
-  font-size: 1rem;
-  font-weight: 600;
-  color: var(--color-text);
-}
-
+/* object-fit/object-position are the crop BEHAVIOUR of a fixed box and stay structural
+   (the §2 boundary names object-fit and object-position; the lint classifies both).
+   The RATIO of that box is designable and is the `media` role's `sizing.aspect-ratio`
+   (ruling D1) — it had no home in either system before that param shipped. */
 .hero__image {
   width: 100%;
   height: auto;
-  aspect-ratio: var(--hero-image-aspect-ratio, auto);
   object-fit: cover;
-  object-position: var(--hero-image-position, center);
-  border-radius: var(--hero-image-radius, var(--radius));
+  object-position: center;
 }
 
-/* Hero accent: scoped button colors via style slots.
-   Only FILLED buttons take the accent as a background. Outline/ghost variants
-   must keep their transparent fill so the secondary CTA stays visually distinct
-   from the primary (a `.hero .btn` background here outranks `.btn--outline`'s
-   transparent and would otherwise flatten both CTAs into identical filled buttons). */
-.hero .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary) {
-  /* Per-instance filled-button fill slot (issue 514, analogous to --cta-button-bg on
-     .cta .btn): --hero-button-bg wins the (masked here) background-color AND, via the
-     premium `main .btn:not(...)` winner, the visible gradient-clearing fill. This
-     in-block consumption is the slot-contract keystone (StyleSlotContractTest). Unset it
-     falls to --hero-accent then the #458 global chain, so an unset button is byte-identical.
-     Global button surface routed under the hero slot (#458): --hero-accent still wins when
-     set; unset, fill falls to --btn-bg then --color-accent. Border honors its own
-     --btn-border-color knob, else FOLLOWS the fill (--hero-button-bg, then --btn-bg) so a
-     recolored button keeps a matching ring, else --color-accent.
-     Per-instance RING slot (issue 584): --hero-button-border leads the border chain, in
-     exactly the position --cta-button-border holds on the cta primary. Before it, the hero
-     primary's ring could only be moved by the BAND accent (--hero-accent, which repaints
-     every accented element in the band) or by the site-wide --btn-border-color — there was
-     no way to ring THIS button alone. A new link at the HEAD of an existing chain cannot
-     change an unset render, so this is byte-identical by construction. Its :hover twin is
-     on the rule below, per the positional-twin discipline: a ring added at rest only would
-     dissolve under the pointer, which is the #535 defect. */
-  background-color: var(--hero-button-bg, var(--hero-accent, var(--btn-bg, var(--color-accent))));
-  border-color: var(--hero-button-border, var(--hero-accent, var(--btn-border-color, var(--hero-button-bg, var(--btn-bg, var(--color-accent))))));
-}
-/* Per-instance filled-button HOVER fill slot (issue 530, the rest idiom above applied to
-   hover): --hero-button-hover-bg wins the (masked here) background-color AND, via the
-   premium `main .btn:not(...):hover` winner, the visible gradient-clearing hover fill.
-   This in-block consumption is the slot-contract keystone (StyleSlotContractTest) — the
-   VISIBLE win happens in the premium rule, exactly as --hero-button-bg does at rest.
-   Unset it falls to --hero-accent-hover then the literal, so an unset button is
-   byte-identical. Border mirrors the REST chain's ordering above (--hero-accent first, then
-   its own global knob, then FOLLOWS the fill) with each knob swapped for its hover equivalent.
-   The global hover tier (issue 539) completes that mirror: --btn-hover-bg and
-   --btn-hover-border-color take the positions --btn-bg and --btn-border-color hold at rest.
-   Routing the fill HERE is not redundant with the premium rule — it is load-bearing. This
-   rule is [0,6,0] and the premium hover winner is [0,5,1], so background-COLOR is decided
-   here while background-IMAGE is decided there. Today the gradient image masks whatever this
-   rule computes; the moment --btn-hover-bg clears that image to `none` in the premium rule,
-   THIS declaration becomes the visible pixel. Insert the tier only in the premium rule and a
-   site-wide hover retheme computes correctly, clears the gradient, and is then overridden
-   right back to --color-accent-hover by this line — the knob would be dead on every hero
-   primary. Same reason --btn-bg is in the rest chain above. */
-.hero .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover {
-  background-color: var(--hero-button-hover-bg, var(--hero-accent-hover, var(--btn-hover-bg, var(--color-accent-hover))));
-  /* --hero-button-hover-border is the positional twin of --hero-button-border on the
-     rest rule above (issue 584): the rest chain with every knob swapped for its hover
-     equivalent, so no authoring configuration can make the ring flip across the pointer
-     transition. Head of chain, so byte-identical unset. */
-  border-color: var(--hero-button-hover-border, var(--hero-accent-hover, var(--btn-hover-border-color, var(--hero-button-hover-bg, var(--btn-hover-bg, var(--color-accent-hover))))));
-}
-/* Ink + elevation slots for the hero primary button (issue 514, the --cta-button-color /
-   --cta-button-shadow idiom scoped to .cta__button). Kept at [0,4,0] — BELOW the premium
-   `main .btn:not(...)` winner [0,4,1] — so the premium cascade stays the visible winner
-   and the hover ink/elevation handoff is untouched; this rule only WIRES the slots inside
-   the hero block for the slot-contract keystone. Default `none` shadow: the premium winner
-   supplies the bevel via its own var(--hero-button-shadow, <bevel>) fallback, so an unset
-   button is byte-identical; --hero-button-shadow: none flattens rest + hover. NOTE: this
-   selector ALSO matches a cta2 authored as the filled `primary` variant (hero.php renders it
-   as `hero__cta hero__cta--secondary btn`, with no variant class) — that match was the #514
-   leak. The cta2 isolation rule below (issue 526) resets these slots on the secondary CTA,
-   which is what keeps this rule effectively primary-only. */
-.hero__cta:not(.btn--outline):not(.btn--ghost):not(.btn--secondary) {
-  color: var(--hero-button-color, var(--btn-text, var(--color-bg)));
-  box-shadow: var(--hero-button-shadow, none);
-}
-/* Outline (secondary) hero CTA: foreground tracks --hero-heading-color, which is defined
-   to contrast --hero-bg, so the ghost button stays readable on any hero palette
-   (the accent is not guaranteed to contrast the hero background). On hover it
-   fills with the accent and flips text to the hero background color. */
-.hero .btn--outline {
-  color: var(--hero-heading-color, var(--color-text));
-  border-color: var(--hero-heading-color, var(--color-text));
-}
-.hero .btn--outline:hover {
-  background-color: var(--hero-accent, var(--color-accent));
-  border-color: var(--hero-accent, var(--color-accent));
-  color: var(--hero-bg, var(--color-bg));
-}
-
-/* Dark-band routing for the hero's cover band (issue 535, the #474 mechanism applied to
-   the PRIMARY button). `.hero--cover` lays the same --overlay-bg scrim over an ARBITRARY
-   image as the section/cta/stats bg-image bands, so a transparent-fill button paints its
-   ink and ring straight onto that scrim. Two separate defaults failed there:
-     - outline inherited `.hero .btn--outline`'s var(--hero-heading-color, var(--color-text)) —
-       near-black #101828 on the scrim, ~3.6:1 against the worst-case overlay-over-WHITE
-       composite and far worse over a dark photo. The older `.hero--cover .btn--outline`
-       rule that was meant to handle this never won (identical [0,2,0], earlier in source);
-       these rules sit AFTER `.hero .btn--outline` so source order makes them the winner.
-     - ghost fell all the way to the shared `.btn--ghost` var(--color-accent) at 1.17:1.
-   Both now fall back to --color-accent-on-overlay (4.59:1, base.css), the same role
-   .hero--cover .hero__title-accent already uses (#463), so no new colour is invented.
-   The per-instance slot still wins: --hero-heading-color is the surface `.hero .btn--outline`
-   already reads, and it also drives .hero--cover .hero__title, so an author who sets it
-   has already chosen a colour that reads on their own scrim. Deliberately kept on
-   --hero-heading-color rather than --hero-button-color: that slot is documented in schema.json as
-   the FILLED primary's ink, and widening it to the transparent variants would change a
-   published slot's meaning. Scoped to `.hero--cover .btn--*` (not `.hero__cta`) so an
-   outline button authored inside the `proof` HTML surface is covered too; the second CTA
-   keeps its own [0,4,0] rules and is handled by the cover cta2 block below.
-   This is a REST-state fix only: on hover both variants paint their own contrasting fill,
-   so the ink leaves the scrim and needs no role token. Outline's hover rule already
-   outranks this one; ghost's ties with it and needs the explicit restoration below. */
-.hero--cover .btn--outline {
-  color: var(--hero-heading-color, var(--color-accent-on-overlay));
-  border-color: var(--hero-heading-color, var(--color-accent-on-overlay));
-}
-.hero--cover .btn--ghost {
-  color: var(--hero-heading-color, var(--color-accent-on-overlay));
-}
-/* HOVER restoration for the cover ghost (issue 535, the same leak the cta rules below
-   document). `.hero--cover .btn--ghost` [0,2,0] ties with the shared `.btn--ghost:hover`
-   [0,2,0] and follows it, so without this the on-overlay ink survived onto a hover that
-   fills with the near-white --color-surface — near-invisible. The outline twin needs no
-   restoration: `.hero .btn--outline:hover` is [0,3,0] and already outranks it. Value
-   copied verbatim from `.btn--ghost:hover`. */
-.hero--cover .btn--ghost:hover {
-  color: var(--color-accent);
-}
-
-/* Separation ring for the FILLED button on the cover band (issue 535, defect 2's
-   class-triggerable half; the .cta--has-bg-image twin lives in the cta block and carries
-   the fuller rationale). The premium gradient fill measures well under 2:1 against the
-   worst-case scrim composite, so the button's SHAPE disappears and only its label carries
-   it; its border followed the fill, so it added nothing. Here the border stops following
-   the fill and bottoms out at the on-overlay role (4.59:1, base.css) — the "border falling
-   back to a role token distinct from the fill" the recorded direction names.
-   --hero-accent and the PER-INSTANCE fill link --hero-button-bg stay ahead of the role, so a
-   cover hero an author deliberately flattened to a brand colour keeps its MATCHING ring
-   rather than gaining a near-white one. That is the scope #535's promise was written for.
-   BOTH GLOBAL tiers are deliberately ABSENT from this chain: the ring knob --btn-border-color
-   (issue 564) and the fill knob --btn-bg (issue 565). On a cover band the terminal is not a
-   bare default, it is a measured 4.59:1 separation role; leaving either global knob above it
-   let a site-wide retheme silently defeat the one thing this rule exists to guarantee. The
-   fill knob reached it by the border-follows-fill link: a site setting only --btn-bg (a
-   plausible button retheme aimed at no band in particular) repainted every unauthored ring on
-   every cover hero to that colour, unmeasured against the scrim — the #565 defect, the same
-   shape as #564's, one variable along. --color-accent-on-overlay is declared at :root
-   (base.css), so it is always set — parking either knob BELOW it would have been provably
-   dead code rather than a demotion, which is why both links are removed outright instead of
-   reordered. A site that genuinely wants its own ring on this band still has the per-instance
-   slots above, which is the documented escape hatch.
-   What changes, stated as resolved values rather than CSS bytes: only configurations that
-   author a GLOBAL knob and render a cover band. The unset render is computed-value-identical,
-   and so is every per-instance-authored render — the two knobs these rules stop honouring are
-   precisely the two broad ones. (Unlike the cta twins, no ORDER moved in this chain — the hero
-   already ranked --hero-accent above its fill link, so #564 and #565 each only deleted a link.)
-   The 4.59:1 figure is the UNAUTHORED default, not an invariant: --hero-accent and the
-   per-instance fill still sit above the role and can put an author's colour on this ring,
-   which is how #535 shipped it. What changed is that a knob nobody aimed at THIS band cannot.
-   [0,5,0], the SAME as `.hero .btn:not(...)` above, so it wins only by following it in
-   source order (pinned in css-lint) — not by outranking it. `.hero__cta` is used rather
-   than the bare `.btn` the two rules above use so the ring stays on the hero's own CTA
-   buttons instead of any `.btn` an author writes into the `proof` surface. The :hover twin
-   is [0,6,0] to beat `.hero .btn:not(...):hover`, whose border also follows the fill.
-   There is no `theme: inverted` hero, so the Q2 not-ringed case does not arise here. */
-.hero--cover .hero__cta:not(.btn--outline):not(.btn--ghost):not(.btn--secondary) {
-  /* --hero-button-border leads (issue 584), exactly as --cta-button-border leads the cta
-     primary's overlay ring below. This rule is the LIVE border winner on a cover hero, so a
-     ring slot absent here would be dead on the one band where a per-instance ring matters
-     most — while the schema still promised it applied. It sits ABOVE the measured
-     --color-accent-on-overlay role for the same reason the band accent and the per-instance
-     fill do, and #564/#565 stated that scope explicitly: every PER-INSTANCE link above the
-     role may still put an author's colour on this ring; only a GLOBAL knob nobody aimed at
-     this band may not. Head of chain, so byte-identical unset. */
-  border-color: var(--hero-button-border, var(--hero-accent, var(--hero-button-bg, var(--color-accent-on-overlay))));
-}
-.hero--cover .hero__cta:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover {
-  /* The rest twin's chain with every knob swapped for its hover equivalent, so the two are
-     positional twins and the ring cannot change role on pointer-enter. --btn-hover-border-color
-     (issue 564) and --btn-hover-bg (issue 565) are absent for the same reason their resting
-     counterparts are: a GLOBAL knob must not defeat the measured on-overlay separation role.
-     Dropping either from ONE state only would have produced exactly the rest->hover flip the
-     #543 twins exist to prevent, so each pair of halves moved together. */
-  border-color: var(--hero-button-hover-border, var(--hero-accent-hover, var(--hero-button-hover-bg, var(--color-accent-on-overlay))));
-}
-
-/* Second CTA button (cta2): per-instance bg/border/color override, independent
-   of the primary button (issue 111). Targeted via the dedicated .hero__cta--secondary
-   class (hero.php) rather than a positional :nth-child selector — this
-   codebase's CSS lint guard forbids nth-child/nth-of-type entirely, since a
-   position-based selector would silently reattach to the wrong element if
-   composition content were ever reordered. button_text/button2_text are fixed,
-   named props (not a reorderable array), so a dedicated class is both safe
-   and simpler than the positional alternative. Applies regardless of which
-   variant cta2 renders as — the primary button could independently also be
-   set to any of the 4 variants via button_variant, and this must not leak onto
-   it. One rule per variant, each falling back to that variant's own existing
-   default, so an unset override renders byte-identically to today. */
-.hero .hero__cta-group .hero__cta--secondary:not(.btn--outline):not(.btn--ghost):not(.btn--secondary) {
-  /* Global button surface routed through cta2's OWN chains (issue 554). --btn-bg takes the
-     position it holds in the hero PRIMARY's fill chain above — below the per-instance slots,
-     ahead of the literal — so a site-wide retheme paints BOTH hero buttons. Before this the
-     link was missing here and nowhere else: --btn-bg reached every other filled surface on
-     the theme (hero primary, cta primary, cta button2, section panel CTA, bare .btn) and this
-     one button alone stayed --color-accent. Worse than merely unthemed: --btn-bg ALREADY
-     reached cta2's background-IMAGE through the shared premium rule (via the #526 isolation
-     re-pointing), clearing the gradient while this rule kept painting the accent, so a
-     rethemed cta2 rendered a FLAT ACCENT pill next to a brand-coloured primary. Rendered,
-     both states, 1280 and 375. Unset, the chain still bottoms out at --color-accent. */
-  background-color: var(--hero-button2-bg, var(--hero-accent, var(--btn-bg, var(--color-accent))));
-  /* Border FOLLOWS the fill when its own knobs are unset (issue 526, the #514 idiom the
-     primary already uses above): --hero-button2-border wins, then --hero-accent, then the
-     global ring knob, then --hero-button2-bg — so a filled cta2 recolored with the fill slot
-     alone keeps a matching ring instead of a --color-accent one around a brand-colored
-     button. Unset, the chain still bottoms out at --color-accent, byte-identical.
-     --btn-border-color / --btn-bg sit at exactly the positions they hold in the hero
-     PRIMARY's rest ring (`.hero .btn:not(...)` above): the global ring knob AFTER
-     --hero-accent, --btn-bg at the tail of the border-follows-fill link (issue 554).
-     ORDERING IS LOAD-BEARING: the band accent must stay ahead of --btn-border-color, or a
-     site setting both --hero-accent and --btn-border-color SPLITS the very pair this issue
-     exists to join (the primary would ring itself with --hero-accent while cta2 rang itself
-     with the global knob). This used to be the hero's order ALONE — the cta family ranked
-     --btn-border-color ahead of its own accent, and each component was merely
-     self-consistent. Issue 564 moved the cta family onto this order too, because that split
-     was letting a site-wide ring retheme defeat an authored --cta-accent and, on photo
-     bands, the measured on-overlay separation role. Both components now rank the band accent
-     first, so the order is consistent WITHIN each pair and ACROSS the two families. */
-  border-color: var(--hero-button2-border, var(--hero-accent, var(--btn-border-color, var(--hero-button2-bg, var(--btn-bg, var(--color-accent))))));
-  color: var(--hero-button2-color, var(--btn-text, var(--color-bg)));
-}
-.hero .hero__cta-group .hero__cta--secondary:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover {
-  /* Global hover tier (issue 554, closing the gap #539 deliberately mirrored onto hover
-     rather than half-fixing). --btn-hover-bg takes the position --btn-bg holds in the rest
-     chain above, matching the hero primary's hover fill exactly. #539 left this out ON
-     PURPOSE while the rest chain lacked its twin — wiring only hover would have made a site
-     setting both knobs render --color-accent at rest and FLASH to the operator's colour on
-     hover. Both halves land together here, so rest and hover stay symmetric. */
-  background-color: var(--hero-button2-hover-bg, var(--hero-accent-hover, var(--btn-hover-bg, var(--color-accent-hover))));
-  /* Border follows the hover fill, but only from the LAST fallback position (issue 538,
-     the issue's Option 3 — the recorded decision). #530 left the fill out of this chain
-     entirely: unlike the hover FILL, the hover BORDER was never masked by the premium
-     gradient, so it has always painted, and inserting the fill AHEAD of --hero-accent-hover
-     would have repainted an explicitly authored accent ring on compositions that already
-     ship --hero-button2-hover-bg (shipped since #111, live in production).
-     Inserting it AFTER --hero-accent-hover changes exactly one case: --hero-button2-hover-bg
-     SET and both --hero-button2-hover-border and --hero-accent-hover unset — the common
-     "I only recolored the hover fill" author, who used to get a --color-accent-hover ring
-     around a brand-colored pill (the rest-state mismatch #526 removed). Every authored
-     value still wins: --hero-button2-hover-border first, then --hero-accent-hover, and with
-     the fill slot unset the chain still bottoms out at --color-accent-hover, so an unset
-     cta2 renders byte-identically. Same shape and same order as the hero PRIMARY's hover
-     ring ABOVE (`.hero .btn:not(...):hover`, and its .hero--cover twin), which already
-     routes its own fill slot from this position — do not follow `main .btn:not(...):hover`
-     further down the file as the precedent; that rule routes no fill slot at all.
-     OVERLAY BANDS, stated plainly because this chain is the only hover-ring winner there.
-     #535 gave the filled PRIMARY a separation ring on `.hero--cover` / bg-image bands, whose
-     whole point is that a ring FOLLOWING the fill is worthless over a scrim, so it bottoms out
-     at --color-accent-on-overlay instead. That ring never reached the SECOND button: its twin
-     at `.hero--cover .hero__cta:not(...):hover` is [0,6,0] and this rule is [0,7,0]. So on a
-     cover band a fill-only cta2 used to hover to a --color-accent-hover ring and now hovers
-     to a ring matching its fill. Neither clears WCAG 1.4.11 against the scrim (--color-accent
-     measures ~1.17:1 there), and the REST ring has followed the fill since #526, so this makes
-     hover consistent with rest rather than removing a compliant edge. It does remove the last
-     incidental fill-vs-ring edge, which is why #543 shipped its cta2 separation ring as BOTH a
-     rest and a hover twin (`.hero--cover .hero__cta-group .hero__cta--secondary:not(...)` and
-     its :hover, below) — a rest-only ring would have dissolved again the moment the pointer
-     landed. Each of those two rules matches its OWN base twin's specificity ([0,6,0] rest,
-     [0,7,0] hover) and follows it in source order, so THIS chain still decides every
-     non-cover band.
-     NOT mirrored onto the outline/ghost/secondary cta2 hover rules, for two different
-     reasons. Ghost is structurally different: its border bottoms out at `transparent`, so
-     following the fill would ADD a ring rather than match one. Outline and secondary do
-     paint a real ring, and a fill-only recolor does leave it stale there — but those two
-     variants do not follow the fill in EITHER state (their REST borders don't either), so
-     they are left whole rather than made half-consistent. On all three, set
-     --hero-button2-hover-border explicitly for a ring that tracks a recolored hover fill.
-     GLOBAL HOVER TIER (issue 554): --btn-hover-border-color sits after --hero-accent-hover
-     and --btn-hover-bg at the tail of the border-follows-fill link — the same two positions
-     their resting twins hold in the rest chain above, and the same two the hero PRIMARY's
-     hover ring uses. #538's Option-3 order (accent-hover AHEAD of the hover fill) is
-     preserved verbatim between them, so the one case #538 bought is untouched and the #548
-     accent-above-own-fill property still holds. */
-  border-color: var(--hero-button2-hover-border, var(--hero-accent-hover, var(--btn-hover-border-color, var(--hero-button2-hover-bg, var(--btn-hover-bg, var(--color-accent-hover))))));
-  color: var(--hero-button2-hover-color, var(--btn-text, var(--color-bg)));
-}
-
-.hero .hero__cta-group .hero__cta--secondary.btn--outline {
-  background-color: var(--hero-button2-bg, transparent);
-  color: var(--hero-button2-color, var(--hero-heading-color, var(--color-text)));
-  border-color: var(--hero-button2-border, var(--hero-heading-color, var(--color-text)));
-}
-.hero .hero__cta-group .hero__cta--secondary.btn--outline:hover {
-  background-color: var(--hero-button2-hover-bg, var(--hero-accent, var(--color-accent)));
-  border-color: var(--hero-button2-hover-border, var(--hero-accent, var(--color-accent)));
-  color: var(--hero-button2-hover-color, var(--hero-bg, var(--color-bg)));
-}
-
-.hero .hero__cta-group .hero__cta--secondary.btn--secondary {
-  background-color: var(--hero-button2-bg, var(--color-surface));
-  color: var(--hero-button2-color, var(--color-text));
-  border-color: var(--hero-button2-border, var(--color-border));
-}
-.hero .hero__cta-group .hero__cta--secondary.btn--secondary:hover {
-  background-color: var(--hero-button2-hover-bg, var(--color-border));
-  border-color: var(--hero-button2-hover-border, var(--color-border));
-  color: var(--hero-button2-hover-color, var(--color-text));
-}
-
-.hero .hero__cta-group .hero__cta--secondary.btn--ghost {
-  background-color: var(--hero-button2-bg, transparent);
-  color: var(--hero-button2-color, var(--color-accent));
-  border-color: var(--hero-button2-border, transparent);
-}
-.hero .hero__cta-group .hero__cta--secondary.btn--ghost:hover {
-  background-color: var(--hero-button2-hover-bg, var(--color-surface));
-  border-color: var(--hero-button2-hover-border, transparent);
-  color: var(--hero-button2-hover-color, var(--color-accent));
-}
-
-/* Dark-band routing for the SECOND CTA's transparent-fill variants on the cover band
-   (issue 535, Q3). #474 fixed exactly this defect for the cta component's button2 but was
-   scoped to that component; hero's cta2 has the same trigger and was left behind.
-   `button2_variant` DEFAULTS to `outline` (hero.php), so simply setting button2_text on a cover
-   hero shipped a sub-AA control without the author ever choosing a variant: the rules
-   above resolve var(--hero-button2-color, var(--hero-heading-color, var(--color-text))) to near-black
-   #101828 on the scrim (~3.6:1 measured), and ghost fell to var(--color-accent) at 1.17:1.
-   Both defaults now route through --color-accent-on-overlay, matching the primary above
-   and .hero--cover .hero__title-accent (#463). The --hero-button2-color / --hero-button2-border
-   slots still win, so the #61/#86 dark-surface-slot contract holds.
-   These carry the SAME [0,4,0] specificity as the base cta2 variant rules they override,
-   so they depend on following them in source order — do not move them above, and do not
-   add a competing `.hero--cover` cta2 rule for THESE variants further down the file. (The
-   #543 filled-cta2 ring below is not a competitor: it `:not()`s outline/ghost/secondary, so
-   its match set is disjoint from these two rules'.) Hover needs no
-   restoration here (unlike the primary and the cta component's): the cta2 `:hover` rules
-   are [0,5,0] and already outrank these, so the routed ink cannot leak into a state where
-   the button paints its own fill. A cta2 authored as the FILLED `primary` variant is not
-   handled here — it keeps its own [0,6,0]/[0,7,0] rules and gets the separation ring from
-   the #543 twin pair below, which is where a change to the filled cta2's border belongs. */
-.hero--cover .hero__cta-group .hero__cta--secondary.btn--outline {
-  color: var(--hero-button2-color, var(--color-accent-on-overlay));
-  border-color: var(--hero-button2-border, var(--color-accent-on-overlay));
-}
-.hero--cover .hero__cta-group .hero__cta--secondary.btn--ghost {
-  color: var(--hero-button2-color, var(--color-accent-on-overlay));
-}
-
-/* Separation ring for the FILLED cta2 on the cover band (issue 543), the twin of the
-   cta component's button2 ring — that rule carries the fuller rationale. #535 gave this
-   ring to the filled PRIMARY only (`.hero--cover .hero__cta:not(...)` above, [0,5,0]),
-   which the cta2 rules outrank at [0,6,0]/[0,7,0], so a filled PAIR on a cover hero
-   rendered one ringed button beside one dissolving into the scrim.
-   Note the block right above deliberately left the filled cta2 alone ("an explicit author
-   choice, not a default ... out of scope"). That scoping is what this issue reverses, with
-   the gate's approval: the defect is the PAIR's asymmetry, not the variant's default.
-   Both chains are the base cta2 chains with the terminal --color-accent /
-   --color-accent-hover swapped for --color-accent-on-overlay (4.59:1) AND the global tier
-   removed entirely — the ring knob by issue 564, the fill knob by issue 565.
-   --hero-button2-border, --hero-accent and the PER-INSTANCE fill still win at rest;
-   --hero-button2-hover-border, --hero-accent-hover and then the per-instance hover fill still
-   win on hover.
-   The contract used to be "the base chain VERBATIM, only the terminal changes" — #554 added
-   the global tier here on exactly that reasoning, so a cover hero would not be the one band a
-   site-wide retheme failed to reach. #564 and #565 together narrow it to: base chain verbatim
-   MINUS the global tier. On this band the terminal is a measured 4.59:1 separation role rather
-   than an ordinary default, and a site-wide retheme sitting above it defeated the guarantee the
-   rule exists to make — the ring knob directly, the fill knob through the border-follows-fill
-   link. Both are REMOVED rather than demoted because --color-accent-on-overlay is declared at
-   :root (base.css) and therefore always set, so any link below it is dead code. Per-instance
-   slots stay above everything as the escape hatch, which is why #535's matching-ring promise
-   survives here for an author who flattens THIS button with --hero-button2-bg.
-   Both halves move together in each case: dropping a knob from hover only would re-open the
-   rest->hover flip these twins exist to prevent.
-   [0,6,0] rest / [0,7,0] hover — equal to the base cta2 rules, so these win by SOURCE
-   ORDER only and must stay below them (pinned in css-lint). The hover twin is not
-   optional: #538 made the base hover ring follow the hover fill, so a rest-only ring
-   would dissolve again the moment the pointer landed — the same WCAG 1.4.11 hole
-   #535's rendered inspection caught on the primary. */
-.hero--cover .hero__cta-group .hero__cta--secondary:not(.btn--outline):not(.btn--ghost):not(.btn--secondary) {
-  border-color: var(--hero-button2-border, var(--hero-accent, var(--hero-button2-bg, var(--color-accent-on-overlay))));
-}
-.hero--cover .hero__cta-group .hero__cta--secondary:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover {
-  border-color: var(--hero-button2-hover-border, var(--hero-accent-hover, var(--hero-button2-hover-bg, var(--color-accent-on-overlay))));
-}
-
-/* cta2 slot isolation + premium fill routing (issue 526). Style slots are emitted as
-   inline custom properties on the .hero ROOT, so #514's primary-button slots INHERIT
-   down to the second CTA as well; when cta2 is authored as a filled `primary` variant it
-   also matches the shared premium `main .btn:not(...)` winner, and the PRIMARY's fill and
-   elevation repainted it (the #514 leak). A declaration ON the cta2 element beats the
-   inherited value regardless of source order, so this one rule fixes both halves:
-     - `--hero-button-bg: var(--hero-button2-bg)` — a var() that fails to substitute makes the
-       custom property GUARANTEED-INVALID, so with --hero-button2-bg unset every downstream
-       var(--hero-button-bg, <fallback>) takes its fallback (the premium chain's own
-       --cta-button-bg -> --btn-bg -> gradient literal): unset stays byte-identical and the
-       leak is killed. With --hero-button2-bg SET, the flat color resolves the premium
-       `background:` SHORTHAND to `background: <color>`, which resets background-image to
-       none and CLEARS the gradient that used to MASK the slot (the pre-existing half of
-       the bug) — the same mechanism #514 used for the primary: slot leads, then the
-       btn-token, then the literal.
-     - `--hero-button-color` / `--hero-button-shadow: initial` — `initial` IS the
-       guaranteed-invalid value for a custom property, so cta2 falls back to its own ink
-       rule above and to the premium bevel instead of the primary's ink/elevation.
-       Consequence, accepted with the fix: flattening the PRIMARY with
-       --hero-button-shadow: none no longer flattens cta2 with it (that coupling WAS the
-       leak). cta2 has no elevation slot of its own today; a --hero-cta2-shadow slot is
-       the follow-up if a flat pair is wanted.
-   Applied to EVERY cta2 variant on purpose: outline/ghost/secondary never consume
-   --hero-button-* (all three consumers are :not(.btn--outline):not(.btn--ghost):not(
-   .btn--secondary) rules), so those variants stay byte-identical while the isolation
-   holds even if a future rule wires the slots more widely.
-     - `--hero-button-hover-bg: var(--hero-button2-hover-bg)` (issue 530) — the same
-       guaranteed-invalid re-pointing applied to the HOVER surface, which closes the last
-       half of this defect class. Before #530 the premium hover rule read only
-       --cta-button-hover-bg, so a filled cta2 flashed back to the theme gradient on hover
-       (the accepted trait #514/#526 shipped) AND the primary's hover fill leaked onto it.
-       One declaration fixes both: cta2's own hover fill now resolves the premium
-       `background:` SHORTHAND to a flat color (clearing the gradient background-image), and
-       with --hero-button2-hover-bg unset the chain falls through to the premium literal rather
-       than to the primary's --hero-button-hover-bg. Rest and hover are now isolated
-       symmetrically. */
-.hero .hero__cta-group .hero__cta--secondary {
-  --hero-button-bg: var(--hero-button2-bg);
-  --hero-button-hover-bg: var(--hero-button2-hover-bg);
-  --hero-button-color: initial;
-  --hero-button-shadow: initial;
-}
-
-/* Split ratio: grid column ratios at desktop */
 @media (min-width: 1024px) {
   .hero--split[data-pp-split-ratio="60-40"] .hero__inner {
     grid-template-columns: 3fr 2fr;
   }
+
   .hero--split[data-pp-split-ratio="40-60"] .hero__inner {
     grid-template-columns: 2fr 3fr;
   }
-}
 
-@media (max-width: 767px) {
-  .hero__content {
-    max-width: var(--hero-content-width, none);
-  }
-
-  .hero__surface {
-    padding: var(--hero-surface-padding, var(--space-md));
-  }
-}
-
-/* Vertical align: cover + split variants (desktop only) */
-@media (min-width: 1024px) {
   .hero--cover[data-pp-vertical-align="top"] {
     align-items: flex-start;
   }
@@ -1312,52 +745,22 @@
   .hero--split[data-pp-vertical-align="top"] .hero__inner {
     align-items: start;
   }
+
   .hero--split[data-pp-vertical-align="bottom"] .hero__inner {
     align-items: end;
   }
 
-  /* stretch (#477): make the split media track the content column's height so
-     one asset balances any headline length, instead of a fixed-aspect card
-     that dwarfs a 4-5 line headline. align-items:stretch sizes BOTH grid
-     tracks to the row height, which the taller (content) column defines; the
-     image-wrap track then fills it and the image sizes to that box. Scoped to
-     the exact "stretch" attribute value, so top/center/bottom are untouched.
-     With height:100% here and the base width:100%, both dimensions are definite,
-     so any --hero-image-aspect-ratio is ignored by the CSS sizing algorithm and
-     the image fills the box (no aspect-ratio re-declaration needed, which also
-     keeps the --hero-image-aspect-ratio slot un-bypassed). object-fit:cover is
-     already the .hero__image default — the component's established crop idiom on
-     the bg-image and aspect-ratio paths. */
   .hero--split[data-pp-vertical-align="stretch"] .hero__inner {
     align-items: stretch;
   }
+
   .hero--split[data-pp-vertical-align="stretch"] .hero__image-wrap {
     height: 100%;
   }
+
   .hero--split[data-pp-vertical-align="stretch"] .hero__image {
     height: 100%;
   }
-}
-
-/* Proof slot: trust signals after CTA.
-   justify-content is the row's packing, and it is NOT inherited from the layout: the
-   left/split heroes want it at flex-start, and leaving it at the flexbox initial value
-   (normal -> flex-start) got them that for free — which is exactly why the centered hero
-   silently shipped a left-packed proof line. The variant rules above win on specificity with
-   or without this declaration; it is here so the row STATES its packing, and a reader does
-   not have to recall the flexbox initial value to know what a left hero does (issue 338). */
-.hero__proof {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-sm);
-  align-items: center;
-  justify-content: flex-start;
-  margin-top: var(--space-md);
-  font-size: 0.875rem;
-  /* Route the proof color through a per-instance slot so a dark hero can lift it
-     off the dark background; unset resolves to --color-muted, byte-identical to
-     the prior hardcoded value (issue 296). */
-  color: var(--hero-proof-color, var(--color-muted));
 }
 
 /* ==========================================================================
@@ -1784,17 +1187,20 @@
    hardcoded muted label colour would both fight the slot and put an unreviewable
    contrast pair on the page.
 
-   Which element carries which signal follows the theme's OWN stacked key/value
-   idiom, `.hero__surface-key` / `.hero__surface-value` above — the same geometry
-   (flex column, gap --space-xs), and there the KEY is the small tracked one while
-   the VALUE carries weight 600. A panel row is the same shape playing the same
-   two roles, so it splits the same way rather than inventing a second convention.
+   Which element carries which signal follows the stacked key/value idiom the theme
+   used to carry as `.hero__surface-key` / `.hero__surface-value` — the same geometry
+   (flex column, gap --space-xs), the KEY the small tracked one and the VALUE the one
+   at weight 600. THOSE TWO RULES ARE GONE (#986): they were hero helper classes that
+   styled markup an author hand-wrote, which the v2 structural-CSS boundary has no
+   place for. The idiom they established is kept here deliberately, because a panel row
+   is the same shape playing the same two roles and inventing a second convention for
+   it would be worse than outliving the rules that set the first.
    Two deliberate divergences from that idiom, both forced: no `color:
    var(--color-muted)` (see the slot/dark-panel note above), and no
    `text-transform: uppercase` (a panel label is authored free text and is
-   routinely a proper noun — "WordPress", "PHP" — which uppercasing mangles;
-   .hero__surface-key's 0.08em tracking is calibrated for uppercase, so the label
-   keeps `.section__eyebrow`'s gentler 0.04em instead).
+   routinely a proper noun — "WordPress", "PHP" — which uppercasing mangles; the
+   retired key rule's 0.08em tracking was calibrated for uppercase, so the label keeps
+   `.section__eyebrow`'s gentler 0.04em instead).
 
    The SIZE step carries the distinction; the WEIGHT is a bonus, not the proof.
    The theme ships no webfont (--font-body is `system-ui, sans-serif`), so which
@@ -4398,53 +3804,45 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
    ========================================================================== */
 
 @media (min-width: 768px) {
-  :where(main > [data-pp-component] + [data-pp-component]) {
+  /* `:not(.hero)` because hero is a v2 component and its padding — base edge AND
+     adjacent edge — is entirely the `_band` role's default now. Hero deliberately
+     keeps its own opener rhythm rather than the shared band tier (issue 577), and
+     on v2 that opt-out is expressed once, as a role default, instead of by the pair
+     of per-component adjacent rules that used to restate it here and at mobile.
+     Excluding it is what makes the role default reachable, and under cascade layers
+     that is not a source-order argument but a structural one: the band-root defaults
+     tier sits in `pp-zero`, strictly below this stylesheet's `pp-v1`, so a catch-all
+     matching hero would defeat hero's declared default at ANY specificity. The
+     ranking is deliberate — it is what keeps every OTHER unauthored v2 band inside
+     #430/#431 — so the exclusion, not a re-ranking, is the right lever.
+     An AUTHORED `_band` padding still wins either way: authored blocks are unlayered
+     and unlayered outranks every layer. The `:not()` sits inside `:where()`, so it
+     contributes no specificity of its own. */
+  :where(main > [data-pp-component] + [data-pp-component]:not(.hero)) {
     padding-top: var(--pp-band-padding-adjacent-top);
   }
 }
 
-/* HERO adjacent-top (issue 577), deliberately placed HERE and not with the other nine
-   per-component adjacent rules further down.
+/* HERO'S ADJACENT-TOP RULES ARE GONE, AND #577 SURVIVES THEM (#986).
    ------------------------------------------------------------------------------
-   TWO things make hero's rule different from its nine siblings:
+   Two rules used to live here — a desktop twin and a .hero--left twin — restating
+   hero's own opener rhythm on the adjacent edge, because the shared catch-all above
+   was quietly overriding it. On v2 that rhythm is stated ONCE, as the `_band` role's
+   padding-top/padding-bottom default in components/hero/schema.json, for the base
+   edge and the adjacent edge alike. Two hand-written rules restating a value the
+   role already declares is the duplication v2 exists to remove.
 
-   1. THE FALLBACK IS NOT THE SHARED BAND TIER. The other nine fall back to
-      --pp-band-padding-adjacent-top. Hero falls back to its OWN opener rhythm
-      (--space-2xl desktop / --space-xl mobile — the same values .hero's base rules
-      use), because hero's opt-out from the shared band rhythm is a stated intentional
-      difference and the adjacent edge is the one place the catch-all was quietly
-      overriding it. Hero keeps its opener rhythm on the adjacent edge too. This is a
-      deliberate render change: an unset adjacent hero's top edge moves from the band
-      tier (~5rem desktop / 3.35rem mobile) to 7rem / 4rem, which also makes an unset
-      adjacent hero SYMMETRIC with its own bottom edge.
+   What still has to be true is that the role default is REACHABLE, and that is the
+   `:not(.hero)` on the catch-alls above and in the mobile block. Under the cascade
+   layers (#986, ruling D5 revised) the defaults tier's band-root rules sit in
+   `pp-zero`, strictly BELOW this stylesheet in `pp-v1` — that is deliberate, it is
+   what keeps an unauthored v2 band obeying #430/#431 — so a catch-all that MATCHED
+   hero would beat hero's declared default every time. Excluding hero is what lets
+   its stated opt-out stand, and it is the same shape the nine legacy components
+   already use, each with its own adjacent rule.
 
-   2. PLACEMENT IS LOAD-BEARING. It must stay ABOVE the `[data-pp-spacing]` block
-      below. That block is [0,2,1] at desktop, identical to this rule, so source order
-      decides: an explicit compact/spacious override must keep governing BOTH edges of
-      an adjacent hero (issue 434's invariant, pinned at both breakpoints in
-      tests/e2e/style-render.spec.ts). Moving this rule down beside its siblings would
-      out-order that restatement and shave a spaced hero's top edge again. Mobile needs
-      no such care: the mobile block already restates the spacing rules AFTER its
-      per-component list, so hero's mobile rule lives with its siblings down there.
-
-   3. THE LEFT VARIANT GETS ITS OWN TWIN. OQ-1 (ii)'s principle is "hero keeps ITS OWN
-      opener rhythm on the adjacent edge", and .hero--left's own opener rhythm is
-      --space-xl on BOTH edges ("used by inner pages; compact vertical rhythm"), not
-      --space-2xl. A single flat value would have made the adjacent top edge follow the
-      WRONG hero's rhythm: measured, an adjacent .hero--left rendered 112px top against
-      its own 64px bottom at 1280 — an asymmetry the ruling never contemplated, on every
-      inner page. The twin below applies the same principle per variant, which also
-      makes left/split symmetric at both breakpoints. An image-less `split` hero degrades
-      to .hero--left (issue 440), so it is covered by the same rule. */
-@media (min-width: 768px) {
-  main > [data-pp-component] + .hero {
-    padding-top: var(--hero-padding-top, var(--space-2xl));
-  }
-  /* Equal specificity to the rule above, placed after it so the left variant wins. */
-  main > [data-pp-component] + .hero--left {
-    padding-top: var(--hero-padding-top, var(--space-xl));
-  }
-}
+   An AUTHORED `_band` padding wins over both regardless: authored blocks are
+   unlayered, and unlayered beats every layer at any specificity. */
 
 /* ==========================================================================
    SHARED: Text-Only Layout
@@ -4464,61 +3862,6 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
 
 .section--text-only .section__content {
   max-width: var(--section-body-measure, var(--measure-centered));
-}
-
-/* ==========================================================================
-   HERO: Spacing + Width overrides (data attributes)
-   Only hero.php emits data-pp-spacing / data-pp-width (components/hero/hero.php:90-91),
-   and by ruling no blanket non-hero width or spacing controls exist. These selectors
-   used to be written GENERICALLY, with a comment saying hero was the only emitter — CSS
-   that reads as an invitation to extend, which is the drift the ruling names. They are
-   now scoped to `.hero`, so the restriction is enforced by the selector rather than by a
-   comment (issue 578).
-
-   SPECIFICITY IS UNCHANGED, and that is load-bearing for the issue-434 rhythm pins
-   below: `[data-pp-component][data-pp-spacing="x"]` is two attributes (0,2,0) and
-   `.hero[data-pp-spacing="x"]` is a class plus an attribute (0,2,0) — identical.
-   Byte-identical: no element other than a hero root can carry these attributes today.
-
-   The shared adjacent-top catch-all these once had to be weighed against is now
-   `:where(...)` at zero specificity (v2 Sprint 0), so it no longer competes with
-   anything here. That changes no hero rendering: an ADJACENT hero lands on
-   `main > [data-pp-component] + .hero` (0,2,1), which still outranks both rules
-   above, and a non-adjacent hero never matched the catch-all in the first place.
-   ========================================================================== */
-
-.hero[data-pp-spacing="compact"] {
-  padding-top: var(--space-lg);
-  padding-bottom: var(--space-lg);
-}
-
-.hero[data-pp-spacing="spacious"] {
-  padding-top: var(--space-2xl);
-  padding-bottom: var(--space-2xl);
-}
-
-@media (min-width: 768px) {
-  main > .hero[data-pp-spacing="compact"] {
-    padding-top: var(--space-lg);
-    padding-bottom: var(--space-lg);
-  }
-  main > .hero[data-pp-spacing="spacious"] {
-    padding-top: var(--space-3xl);
-    padding-bottom: var(--space-3xl);
-  }
-}
-
-.hero[data-pp-width="narrow"] .container {
-  /* The literal 56rem here DUPLICATED --measure-centered's exact shipped value
-     (base.css), so a site that retuned its centered measure moved every centered body
-     EXCEPT a narrow hero's container. Route the token with its own value as the
-     fallback-free reference: byte-identical at the shipped value, and it only changes
-     render on a site that has already retuned --measure-centered (issue 578). */
-  max-width: var(--measure-centered);
-}
-
-.hero[data-pp-width="full"] .container {
-  max-width: 100%;
 }
 
 /* ==========================================================================
@@ -5031,15 +4374,18 @@ main > .grid .grid__item-link::after {
    The global --btn-* tier is deliberately NOT neutralised. A site-wide button token is
    site-wide by definition: an author-written .btn SHOULD follow a --btn-bg retheme exactly as
    the bare .btn primitive and every composed button do. What must not reach it is the
-   PER-INSTANCE styling of the band that happens to contain it. Nor are the band-level accent
-   slots (--hero-accent / --cta-accent / --hero-heading-color) neutralised: they colour every accented
-   element in the band by design, and a nested button is one of those elements. Concretely and
-   REACHABLY: `.hero .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary)` is [0,5,0],
-   which outranks the premium winner at [0,4,1], so on a hero with --hero-accent set an
-   author-written .btn in `proof` takes the accent as its ring (and its hover ring from the
-   [0,6,0] twin). That is the band accent doing its job — the same treatment every other
-   accented element in the band gets — and it is pinned as intended behaviour in css-lint's
-   INTENTIONALLY_REACHING list and in the e2e band-accent case. The cta family has the same
+   PER-INSTANCE styling of the band that happens to contain it. Nor is the band-level accent
+   slot (--cta-accent) neutralised: it colours every accented
+   element in the band by design, and a nested button is one of those elements.
+
+   HERO USED TO BE THIS PARAGRAPH'S WORKED EXAMPLE, and it no longer can be (#986).
+   `.hero .btn:not(...)` at [0,5,0] outranking the premium winner was the illustration;
+   hero is a v2 component now, declares no slots, and that rule is gone. The mechanism
+   it illustrated is unchanged for the components that still have slots, and the reach
+   question has a different answer on a v2 band anyway: an author-written .btn inside
+   hero's `proof` sits inside the band's `proof` ROLE, so it takes whatever that role
+   declares, and an authored role value beats this whole stylesheet outright — the sheet
+   is in `@layer pp-v1` and authored band blocks are unlayered. The cta family has the same
    shape one tier down (the border chains fall past the neutralised --cta-button-border to
    --cta-accent), though it is unreachable today: a .cta has no prop that can carry a nested
    .btn.
@@ -5052,18 +4398,6 @@ main > .grid .grid__item-link::after {
    this rule, so the author's own value paints their own button. Neither is the leak: the leak
    was the BAND's styling arriving somewhere nobody asked for it. */
 main .btn:not(.hero__cta):not(.cta__button):not(.section__panel-cta) {
-  --hero-button-bg: initial;
-  --hero-button-border: initial;
-  --hero-button-color: initial;
-  --hero-button-hover-bg: initial;
-  --hero-button-hover-border: initial;
-  --hero-button-shadow: initial;
-  --hero-button2-bg: initial;
-  --hero-button2-border: initial;
-  --hero-button2-color: initial;
-  --hero-button2-hover-bg: initial;
-  --hero-button2-hover-border: initial;
-  --hero-button2-hover-color: initial;
   --cta-button-bg: initial;
   --cta-button-border: initial;
   --cta-button-color: initial;
@@ -5130,11 +4464,11 @@ main .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary) {
   /* Superseded for background by the later "True final cascade" block; --section-panel-cta-bg
      and --hero-button-bg lead the chain here too (issues 514/536) so both rest primary-fill
      rules stay uniform. */
-  background: var(--section-panel-cta-bg, var(--hero-button-bg, var(--cta-button-bg,
-    linear-gradient(180deg, var(--color-accent) 0%, var(--color-accent-strong) 100%))));
-  box-shadow: var(--section-panel-cta-shadow, var(--hero-button-shadow, var(--cta-button-shadow,
+  background: var(--section-panel-cta-bg, var(--cta-button-bg,
+    linear-gradient(180deg, var(--color-accent) 0%, var(--color-accent-strong) 100%)));
+  box-shadow: var(--section-panel-cta-shadow, var(--cta-button-shadow,
     inset 0 1px 0 rgba(255, 255, 255, 0.18),
-    0 10px 24px color-mix(in srgb, var(--color-accent-strong) 16%, transparent))));
+    0 10px 24px color-mix(in srgb, var(--color-accent-strong) 16%, transparent)));
   /* NOTE (#458): border-color/background/box-shadow above are SUPERSEDED by the
      identical-specificity "True final cascade" block below (source order wins). Only `color`
      is the live winner for a composed primary, routed through the global --btn-text knob
@@ -5153,7 +4487,7 @@ main .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary) {
      wp_kses_post `body` HTML — the pre-existing trait of the whole family. Issue 545 closed
      that for all five families at once by neutralising them on non-owned composed buttons
      (see the block above this one), so the slot now reaches exactly .section__panel-cta. */
-  color: var(--section-panel-cta-color, var(--hero-button-color, var(--cta-button-color, var(--btn-text, var(--color-bg)))));
+  color: var(--section-panel-cta-color, var(--cta-button-color, var(--btn-text, var(--color-bg))));
 }
 
 main .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover {
@@ -5162,8 +4496,8 @@ main .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover {
      leads the chain here too (issue 530) and the global --btn-hover-bg closes it (issue 539)
      so both hover primary-fill rules stay uniform, the way #514 kept both REST rules
      uniform. */
-  background: var(--hero-button-hover-bg, var(--cta-button-hover-bg, var(--btn-hover-bg,
-    linear-gradient(180deg, var(--color-accent) 0%, var(--color-accent-hover) 100%))));
+  background: var(--cta-button-hover-bg, var(--btn-hover-bg,
+    linear-gradient(180deg, var(--color-accent) 0%, var(--color-accent-hover) 100%)));
   box-shadow: var(--cta-button-shadow,
     inset 0 1px 0 rgba(255, 255, 255, 0.2),
     0 14px 30px color-mix(in srgb, var(--color-accent-strong) 22%, transparent));
@@ -5295,11 +4629,11 @@ main .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary) {
      isolation re-pointing is needed (see the ink chain above for the one inheritance
      caveat the whole slot family shares); unset, it falls straight through to the
      hero/cta/--btn-bg chain and the gradient literal (byte-identical). */
-  background: var(--section-panel-cta-bg, var(--hero-button-bg, var(--cta-button-bg, var(--btn-bg,
-    linear-gradient(180deg, var(--color-accent-strong) 0%, var(--color-accent-hover) 100%)))));
-  box-shadow: var(--section-panel-cta-shadow, var(--hero-button-shadow, var(--cta-button-shadow, var(--btn-shadow,
+  background: var(--section-panel-cta-bg, var(--cta-button-bg, var(--btn-bg,
+    linear-gradient(180deg, var(--color-accent-strong) 0%, var(--color-accent-hover) 100%))));
+  box-shadow: var(--section-panel-cta-shadow, var(--cta-button-shadow, var(--btn-shadow,
     inset 0 1px 0 rgba(255, 255, 255, 0.16),
-    0 10px 22px color-mix(in srgb, var(--color-accent-strong) 14%, transparent)))));
+    0 10px 22px color-mix(in srgb, var(--color-accent-strong) 14%, transparent))));
 }
 
 main .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover {
@@ -5335,8 +4669,8 @@ main .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover {
      though #536 gave it no per-instance hover slot. That asymmetry is intended: the global
      tier is site-wide by definition, and a knob that skipped one filled surface would be the
      surprising behaviour. */
-  background: var(--hero-button-hover-bg, var(--cta-button-hover-bg, var(--btn-hover-bg,
-    linear-gradient(180deg, var(--color-accent) 0%, var(--color-accent-strong) 100%))));
+  background: var(--cta-button-hover-bg, var(--btn-hover-bg,
+    linear-gradient(180deg, var(--color-accent) 0%, var(--color-accent-strong) 100%)));
   /* --hero-button-shadow flattens hover too (issue 514, matching --cta-button-shadow's
      rest+hover contract): set `none` and both rest and hover lose the bevel. Unset falls
      to --cta-button-shadow then the hover bevel literal (byte-identical).
@@ -5345,9 +4679,9 @@ main .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover {
      This is the elevation contract only — the hover FILL is deliberately untouched here
      (#536 excludes hover; the panel CTA has no hover fill slot, so a flat rest fill still
      reverts to the premium hover gradient, the pre-#530 trait hero/cta both had). */
-  box-shadow: var(--section-panel-cta-shadow, var(--hero-button-shadow, var(--cta-button-shadow,
+  box-shadow: var(--section-panel-cta-shadow, var(--cta-button-shadow,
     inset 0 1px 0 rgba(255, 255, 255, 0.18),
-    0 14px 30px color-mix(in srgb, var(--color-accent-strong) 20%, transparent))));
+    0 14px 30px color-mix(in srgb, var(--color-accent-strong) 20%, transparent)));
 }
 
 main .btn:focus,
@@ -5437,6 +4771,20 @@ main .btn:focus-visible {
   outline-color: var(--color-accent-on-inverted);
 }
 
+/* THE RING FOLLOWS THE OVERLAY, NOT A LAYOUT CLASS (#986).
+   `.hero--cover` was a sound key while `cover` was the only hero layout that could
+   carry a background image. Ruling A2 made the band image `_band.background.image`,
+   authorable on EVERY layout, so a `left`, `centered` or `split` hero with an image
+   and a scrim kept the bare `--color-accent` ring — 1.17:1 over the worst-case
+   scrim, a WCAG 1.4.11 failure that did not exist in v1 because the markup could not
+   express the case.
+   `[data-pp-band-overlay]` is emitted by the ENGINE, which is the only thing that
+   knows a scrim is being painted, and only when an image and an overlay are both
+   present. Same posture as the reduced-motion guard under ruling A3: an
+   accessibility affordance is structural, emitted rather than authored, and not
+   something an author can forget to switch on. The legacy classes stay for the v1
+   components, which still express the case that way. */
+[data-pp-band-overlay] .btn:focus,
 .hero--cover .btn:focus,
 .cta--has-bg-image .btn:focus {
   outline-color: var(--color-accent-on-overlay);
@@ -5567,8 +4915,15 @@ main .btn {
      ZERO SPECIFICITY (v2 Sprint 0): wrapped in `:where()` for the same reason as
      its desktop twin above — this is the baseline rhythm DEFAULT, and a v2
      authored band block must outrank it. The per-component rules below still
-     win over it, now on specificity rather than on source order. */
-  :where(main > [data-pp-component] + [data-pp-component]) {
+     win over it, now on specificity rather than on source order.
+
+     `:not(.hero)` for the same reason as the desktop twin (#986): hero is a v2
+     component and its padding on both edges is the `_band` role's default. Without
+     the exclusion this rule would defeat that default outright, because the
+     band-root defaults tier sits in the `pp-zero` layer and this stylesheet sits in
+     `pp-v1` above it. Mobile is where it would show most: hero's own rhythm
+     (--space-xl) and the shared band tier genuinely differ here. */
+  :where(main > [data-pp-component] + [data-pp-component]:not(.hero)) {
     padding-top: var(--pp-band-padding-adjacent-top);
   }
   main > [data-pp-component] + .section {
@@ -5596,42 +4951,12 @@ main .btn {
   main > [data-pp-component] + .embed {
     padding-top: var(--embed-padding-top, var(--pp-band-padding-adjacent-top));
   }
-  /* hero joins the list on mobile (issue 577) — the generic rule above was outranking
-     its declared --hero-padding-top on this edge. THE FALLBACK IS THE ODD ONE OUT:
-     hero keeps its own opener rhythm (--space-xl, 4rem) instead of the shared
-     --pp-band-padding-adjacent-top (3.35rem here), matching .hero's own base rule.
-     Safe to sit with its siblings at this breakpoint because the [data-pp-spacing]
-     restatement below still out-orders it (issue 434); at desktop that restatement is
-     ABOVE the per-component list, which is why hero's desktop rule lives up in the
-     SHARED: Adjacent-Sibling Rhythm block instead.
-     NO .hero--left TWIN IS NEEDED HERE: the left variant's own opener rhythm at this
-     breakpoint is --space-xl, which is exactly what this rule already falls back to, so
-     left/split are symmetric on mobile through this one rule. The desktop twin exists
-     only because the two variants' rhythms DIVERGE there (--space-2xl vs --space-xl). */
-  main > [data-pp-component] + .hero {
-    padding-top: var(--hero-padding-top, var(--space-xl));
-  }
-
-  /* An explicit data-pp-spacing override (only hero emits it) must govern BOTH
-     edges symmetrically at mobile, exactly as the desktop restatement does (the
-     min-width:768px block by the base spacing rules). Without this restatement the
-     generic adjacent rule above [0,2,1] out-orders the base .hero[data-pp-spacing]
-     rules [0,2,0] (scoped to .hero in issue 578; the specificity is unchanged, which is
-     what keeps this ordering argument true) and shaves ONLY the top edge of a spaced
-     hero placed after another band,
-     leaving top=band-rhythm / bottom=spacing value — a compact/spacious hero reads
-     bottom-heavy instead of centered (issue 434). Same [0,2,1] specificity as the
-     adjacent rule, placed after it so source order wins both edges. Values mirror the
-     mobile BASE rules (compact --space-lg, spacious --space-2xl), NOT the larger
-     desktop tier, so mobile spacing is unchanged except the top edge is restored. */
-  main > .hero[data-pp-spacing="compact"] {
-    padding-top: var(--space-lg);
-    padding-bottom: var(--space-lg);
-  }
-  main > .hero[data-pp-spacing="spacious"] {
-    padding-top: var(--space-2xl);
-    padding-bottom: var(--space-2xl);
-  }
+  /* HERO IS NOT IN THIS LIST, AND THAT IS THE v2 SHAPE (#986).
+     It used to be, with a fallback of its own (--space-xl rather than the shared
+     --pp-band-padding-adjacent-top) because #577 gave hero its own opener rhythm.
+     That rhythm is now the `_band` role's padding default at every breakpoint, so
+     the rule restating it here is gone and the `:not(.hero)` on the mobile catch-all
+     below is what keeps the default reachable — see the note by the desktop twin. */
 
   /* Own mobile padding, routed through the padding slots so a declared
      --*-padding-top/bottom takes effect at mobile too (issue 302). faq now routes
@@ -5653,4 +4978,5 @@ main .btn {
     padding-top: var(--faq-padding-top, var(--pp-band-padding));
     padding-bottom: var(--faq-padding-bottom, var(--pp-band-padding));
   }
+}
 }

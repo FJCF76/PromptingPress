@@ -198,7 +198,7 @@ test.describe('AI Chat — streaming & apply (mock SSE)', () => {
         done: true,
         proposal: {
           steps: [
-            { type: 'action', name: 'update_component', description: 'Update hero title', params: { post_id: pageId, component_index: 0, props: { title: 'Updated Title' } } },
+            { type: 'action', name: 'update_component', description: 'Update band title', params: { post_id: pageId, component_index: 0, props: { title: 'Updated Title' } } },
           ],
         },
       },
@@ -215,7 +215,7 @@ test.describe('AI Chat — streaming & apply (mock SSE)', () => {
     );
     await expect(page.locator('.pp-ai-msg-assistant .pp-ai-msg-streaming')).toHaveCount(0);
 
-    await expect(page.locator('.pp-ai-proposal-step-label')).toHaveText('1. Update hero title');
+    await expect(page.locator('.pp-ai-proposal-step-label')).toHaveText('1. Update band title');
     const applyBtn = page.locator('.pp-ai-proposal-apply');
     await expect(applyBtn).toBeVisible({ timeout: 10000 });
     await expect(applyBtn).toHaveText('Apply');
@@ -281,8 +281,8 @@ test.describe('AI Chat — streaming & apply (mock SSE)', () => {
         done: true,
         proposal: {
           steps: [
-            { type: 'action', name: 'update_component', description: 'Update hero title', params: { post_id: pageId, component_index: 0, props: { title: 'A' } } },
-            { type: 'action', name: 'style_component', description: 'Add hero shadow', params: { post_id: pageId, component_index: 0, style: { '--hero-shadow': 'var(--shadow-md)' } } },
+            { type: 'action', name: 'update_component', description: 'Update band title', params: { post_id: pageId, component_index: 0, props: { title: 'A' } } },
+            { type: 'action', name: 'style_component', description: 'Add band shadow', params: { post_id: pageId, component_index: 0, style: { '--section-shadow': 'var(--shadow-md)' } } },
           ],
         },
       },
@@ -324,8 +324,8 @@ test.describe('AI Chat — streaming & apply (mock SSE)', () => {
     await expect(
       page.locator('.pp-ai-proposal-card .pp-ai-step-done', { hasText: 'All changes applied successfully.' }),
     ).toBeVisible({ timeout: 10000 });
-    await expect(page.locator('.pp-ai-proposal-card .pp-ai-status', { hasText: 'Applied: Update hero title' })).toBeVisible();
-    await expect(page.locator('.pp-ai-proposal-card .pp-ai-status', { hasText: 'Applied: Add hero shadow' })).toBeVisible();
+    await expect(page.locator('.pp-ai-proposal-card .pp-ai-status', { hasText: 'Applied: Update band title' })).toBeVisible();
+    await expect(page.locator('.pp-ai-proposal-card .pp-ai-status', { hasText: 'Applied: Add band shadow' })).toBeVisible();
 
     // #137: one atomic batch call carrying both steps, not two sequential
     // pp_ai_execute calls — the "steps" field is valid JSON with both entries.
@@ -358,7 +358,7 @@ test.describe('AI Chat — streaming & apply (mock SSE)', () => {
         done: true,
         proposal: {
           steps: [
-            { type: 'action', name: 'update_component', description: 'Update hero title', params: { post_id: pageId, component_index: 0, props: { title: 'A' } } },
+            { type: 'action', name: 'update_component', description: 'Update band title', params: { post_id: pageId, component_index: 0, props: { title: 'A' } } },
           ],
         },
       },
@@ -431,7 +431,7 @@ test.describe('AI Chat — streaming & apply (mock SSE)', () => {
         done: true,
         proposal: {
           steps: [
-            { type: 'action', name: 'update_component', description: 'Update hero title', params: { post_id: pageId, component_index: 0, props: { title: 'A' } } },
+            { type: 'action', name: 'update_component', description: 'Update band title', params: { post_id: pageId, component_index: 0, props: { title: 'A' } } },
           ],
         },
       },
@@ -650,7 +650,7 @@ test.describe('AI Chat — streaming & apply (mock SSE)', () => {
             {
               type: 'action',
               name: 'update_component',
-              description: 'Update hero title',
+              description: 'Update band title',
               params: { post_id: pageId, component_index: 0, props: { title: 'Transport' } },
             },
           ],
@@ -686,7 +686,7 @@ test.describe('AI Chat — streaming & apply (mock SSE)', () => {
         done: true,
         proposal: {
           steps: [
-            { type: 'action', name: 'update_component', description: 'Update hero title', params: { post_id: pageId, component_index: 0, props: { title: 'A' } } },
+            { type: 'action', name: 'update_component', description: 'Update band title', params: { post_id: pageId, component_index: 0, props: { title: 'A' } } },
           ],
         },
       },
@@ -881,7 +881,7 @@ test.describe('AI Chat — preview-error card typography and overflow (#662, #66
   // the longest unbroken run the disclosure can actually be asked to render. It is
   // interpolated into user_message AND raw_error, because since #661 the sentence
   // samples slot names too, so both elements carry a token with nothing to break on.
-  const LONG_SLOT = `--hero-${'x'.repeat(249)}`;
+  const LONG_SLOT = `--section-${'x'.repeat(246)}`;
 
   /**
    * The three arms of ppChatGetErrorStepClass(), each reached by its own payload
@@ -896,7 +896,7 @@ test.describe('AI Chat — preview-error card typography and overflow (#662, #66
       payload: {
         error_code: 'invalid_style_slot',
         user_message: `I tried to set "${LONG_SLOT}" on the hero component, but it doesn't support that style setting. The full list is in the details below.`,
-        alternatives: ['--hero-bg', '--hero-heading-color'],
+        alternatives: ['--section-bg', '--section-heading-color'],
         cross_component_hints: { '--grid-gap': { component: 'grid', slot: '--grid-gap', match: 'exact' } },
         raw_error: `Component "hero" has no style slot "${LONG_SLOT}".`,
       },

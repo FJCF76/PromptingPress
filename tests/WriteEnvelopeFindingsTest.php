@@ -3,7 +3,7 @@
  * tests/WriteEnvelopeFindingsTest.php — accepted composition writes report what they wrote (#687).
  *
  * THE FAILURE THIS CLOSES. A composition write could validate, store, return `ok: true`
- * and paint nothing. The pp-eval trap that demonstrated it: `--hero-overlay-bg` on a
+ * and paint nothing. The pp-eval trap that demonstrated it: `--section-overlay-bg` on a
  * `split`-layout hero. That slot renders only under `layout: "cover"`, so the value is
  * stored, the version bumps, the envelope says success, and nothing on the page reads it.
  * The #580 `inert_slot` advisory had always named it — but only on surfaces an agent had
@@ -70,18 +70,27 @@ final class WriteEnvelopeFindingsTest extends TestCase
         parent::tearDown();
     }
 
-    /** A hero whose overlay slot is inert: the slot paints only under layout "cover". */
+    /**
+     * A band whose eyebrow slot is inert: it paints only when `eyebrow` is set.
+     *
+     * RE-POINTED FROM HERO (#986). The original trap was `--section-overlay-bg` on a
+     * `split` hero — the slot paints only under `layout: "cover"` — and hero is a v2
+     * component now with no slots at all, so that exact trap cannot be built. The
+     * DEFECT CLASS is unchanged and is what these tests are about: a value that
+     * validates, stores, reports applied, and paints nothing. section's eyebrow family
+     * declares `applies_when: eyebrow present`, so omitting `eyebrow` reproduces it.
+     */
     private function trapPage(): int
     {
-        $id = pp_create_page('Inert overlay trap', 'draft');
+        $id = pp_create_page('Inert eyebrow trap', 'draft');
         pp_update_composition($id, [
             [
-                'component' => 'hero',
+                'component' => 'section',
                 'props'     => [
-                    'id'        => 'hero-1',
-                    'title'     => 'Ship faster',
-                    'layout'    => 'split',
-                    'image_url' => 'https://example.com/x.png',
+                    'id'    => 'section-1',
+                    'title' => 'Ship faster',
+                    'body'  => 'Body text',
+                    'body'  => 'Body text',
                 ],
             ],
         ]);
@@ -139,7 +148,7 @@ final class WriteEnvelopeFindingsTest extends TestCase
         $result = pp_execute_action('style_component', [
             'post_id'         => $id,
             'component_index' => 0,
-            'style'           => ['--hero-overlay-bg' => 'rgba(0,0,0,.5)'],
+            'style'           => ['--section-overlay-bg' => 'rgba(0,0,0,.5)'],
         ]);
 
         $this->assertTrue($result['ok'], 'the write is ACCEPTED — findings never block');
@@ -149,8 +158,8 @@ final class WriteEnvelopeFindingsTest extends TestCase
         $this->assertCount(1, $inert);
         $this->assertSame('warning', $inert[0]['severity']);
         $this->assertSame(0, $inert[0]['index'], 'the advisory names the band it belongs to');
-        $this->assertStringContainsString('--hero-overlay-bg', $inert[0]['message']);
-        $this->assertStringContainsString('layout = "cover"', $inert[0]['message'], 'it names the unmet condition');
+        $this->assertStringContainsString('--section-overlay-bg', $inert[0]['message']);
+        $this->assertStringContainsString('background_image is set', $inert[0]['message'], 'it names the unmet condition');
         $this->assertStringContainsString('nothing on the page reads it', $inert[0]['message']);
     }
 
@@ -164,12 +173,12 @@ final class WriteEnvelopeFindingsTest extends TestCase
         pp_execute_action('style_component', [
             'post_id'         => $id,
             'component_index' => 0,
-            'style'           => ['--hero-overlay-bg' => 'rgba(0,0,0,.5)'],
+            'style'           => ['--section-overlay-bg' => 'rgba(0,0,0,.5)'],
         ]);
 
         $this->assertSame(
             'rgba(0,0,0,.5)',
-            pp_get_composition($id)[0]['style']['--hero-overlay-bg'],
+            pp_get_composition($id)[0]['style']['--section-overlay-bg'],
             'report-only: the advisory describes the write, it does not undo it'
         );
     }
@@ -211,8 +220,8 @@ final class WriteEnvelopeFindingsTest extends TestCase
         $result = pp_execute_action('update_component', [
             'post_id'         => $id,
             'component_index' => 0,
-            'props'           => ['title' => 'Renamed'],
-            'style'           => ['--hero-overlay-bg' => 'rgba(0,0,0,.5)'],
+            'props'           => ['title' => 'Renamed', 'body' => 'Body text'],
+            'style'           => ['--section-overlay-bg' => 'rgba(0,0,0,.5)'],
         ]);
 
         $this->assertTrue($result['ok'], $result['error'] ?? '');
@@ -277,9 +286,9 @@ final class WriteEnvelopeFindingsTest extends TestCase
             'title'       => 'Seeded with an inert slot',
             'composition' => [
                 [
-                    'component' => 'hero',
-                    'props'     => ['id' => 'h', 'title' => 'T', 'layout' => 'split', 'image_url' => 'https://example.com/x.png'],
-                    'style'     => ['--hero-overlay-bg' => 'rgba(0,0,0,.5)'],
+                    'component' => 'section',
+                    'props'     => ['id' => 'h', 'title' => 'T', 'body' => 'Body text'],
+                    'style'     => ['--section-overlay-bg' => 'rgba(0,0,0,.5)'],
                 ],
             ],
         ]);
@@ -315,9 +324,9 @@ final class WriteEnvelopeFindingsTest extends TestCase
     {
         $other = pp_create_page('Someone else\'s page', 'draft');
         pp_update_composition($other, [[
-            'component' => 'hero',
-            'props'     => ['id' => 'h', 'title' => 'T', 'layout' => 'split', 'image_url' => 'https://example.com/x.png'],
-            'style'     => ['--hero-overlay-bg' => 'rgba(0,0,0,.5)'],
+            'component' => 'section',
+            'props'     => ['id' => 'h', 'title' => 'T', 'body' => 'Body text'],
+            'style'     => ['--section-overlay-bg' => 'rgba(0,0,0,.5)'],
         ]]);
         $this->assertContains(
             'inert_slot',
@@ -352,10 +361,10 @@ final class WriteEnvelopeFindingsTest extends TestCase
         pp_execute_action('style_component', [
             'post_id'         => $id,
             'component_index' => 0,
-            'style'           => ['--hero-overlay-bg' => 'rgba(0,0,0,.5)'],
+            'style'           => ['--section-overlay-bg' => 'rgba(0,0,0,.5)'],
         ]);
 
-        $result = pp_patch_composition($id, 'hero.title', 'Patched');
+        $result = pp_patch_composition($id, 'section.title', 'Patched');
 
         $this->assertIsArray($result);
         $this->assertTrue($result['ok'], $result['error'] ?? '');
@@ -449,7 +458,7 @@ final class WriteEnvelopeFindingsTest extends TestCase
         ]);
         $quiet = pp_create_page('Quiet page', 'draft');
         pp_update_composition($quiet, [
-            ['component' => 'hero', 'props' => ['id' => 'h', 'title' => 'T', 'layout' => 'centered']],
+            ['component' => 'section', 'props' => ['id' => 'h', 'title' => 'T', 'body' => 'Body text', 'layout' => 'centered']],
         ]);
 
         $noisyResult = pp_execute_action('update_component', [
@@ -703,7 +712,7 @@ final class WriteEnvelopeFindingsTest extends TestCase
     {
         $id = pp_create_page('Errors drown the advisory', 'draft');
         $composition = [[
-            'component' => 'hero',
+            'component' => 'section',
             'props'     => ['id' => 'h', 'title' => 'T', 'layout' => 'split', 'image_url' => 'https://example.com/x.png'],
         ]];
         for ($i = 0; $i < 40; $i++) {
@@ -715,7 +724,7 @@ final class WriteEnvelopeFindingsTest extends TestCase
         pp_update_composition($id, $composition);
 
         $result = pp_execute_action('style_component', [
-            'post_id' => $id, 'component_index' => 0, 'style' => ['--hero-overlay-bg' => 'rgba(0,0,0,.5)'],
+            'post_id' => $id, 'component_index' => 0, 'style' => ['--section-overlay-bg' => 'rgba(0,0,0,.5)'],
         ]);
 
         $this->assertTrue($result['ok']);
@@ -752,10 +761,12 @@ final class WriteEnvelopeFindingsTest extends TestCase
      */
     private function bulkyPage(int $bands): int
     {
+        // The lead band is a `section`, not a hero: hero is a v2 component (#986) and
+        // carries no `style` map, and these tests style index 0 through the v1 surface.
         $composition = [[
-            'component' => 'hero',
-            'props'     => ['id' => 'h', 'title' => 'T', 'layout' => 'split', 'image_url' => 'https://example.com/x.png'],
-            'style'     => ['--hero-overlay-bg' => 'rgba(0,0,0,.5)'],
+            'component' => 'section',
+            'props'     => ['id' => 'h', 'title' => 'T', 'body' => 'Body text'],
+            'style'     => ['--section-overlay-bg' => 'rgba(0,0,0,.5)'],
         ]];
         $body = str_repeat('lorem ipsum dolor sit amet ', 420);
         for ($i = 0; $i < $bands; $i++) {
@@ -796,14 +807,14 @@ final class WriteEnvelopeFindingsTest extends TestCase
         );
 
         $result = pp_execute_action('style_component', [
-            'post_id' => $id, 'component_index' => 0, 'style' => ['--hero-overlay-bg' => 'rgba(0,0,0,.6)'],
+            'post_id' => $id, 'component_index' => 0, 'style' => ['--section-overlay-bg' => 'rgba(0,0,0,.6)'],
         ]);
 
         // The write is untouched by the gate: it landed, exactly as authored.
         $this->assertTrue($result['ok'], $result['error'] ?? '');
         $stored = pp_get_composition($id);
         $this->assertCount(101, $stored);
-        $this->assertSame('rgba(0,0,0,.6)', $stored[0]['style']['--hero-overlay-bg']);
+        $this->assertSame('rgba(0,0,0,.6)', $stored[0]['style']['--section-overlay-bg']);
 
         // Exactly one entry, and it is the skip.
         $this->assertCount(1, $result['findings']);
@@ -823,7 +834,7 @@ final class WriteEnvelopeFindingsTest extends TestCase
         $id      = $this->bulkyPage(100);
         $bytes   = self::storedBytes($id);
         $result  = pp_execute_action('style_component', [
-            'post_id' => $id, 'component_index' => 0, 'style' => ['--hero-overlay-bg' => 'rgba(0,0,0,.6)'],
+            'post_id' => $id, 'component_index' => 0, 'style' => ['--section-overlay-bg' => 'rgba(0,0,0,.6)'],
         ]);
         $message = $result['findings'][0]['message'];
 
@@ -852,7 +863,7 @@ final class WriteEnvelopeFindingsTest extends TestCase
             'precondition: the engines DO have something to say about this page');
 
         $result = pp_execute_action('style_component', [
-            'post_id' => $id, 'component_index' => 0, 'style' => ['--hero-overlay-bg' => 'rgba(0,0,0,.6)'],
+            'post_id' => $id, 'component_index' => 0, 'style' => ['--section-overlay-bg' => 'rgba(0,0,0,.6)'],
         ]);
 
         $this->assertSame(['findings_skipped'], self::findingTypes($result));
@@ -880,7 +891,7 @@ final class WriteEnvelopeFindingsTest extends TestCase
         );
 
         $result = pp_execute_action('style_component', [
-            'post_id' => $id, 'component_index' => 0, 'style' => ['--hero-overlay-bg' => 'rgba(0,0,0,.6)'],
+            'post_id' => $id, 'component_index' => 0, 'style' => ['--section-overlay-bg' => 'rgba(0,0,0,.6)'],
         ]);
 
         $this->assertNotContains('findings_skipped', self::findingTypes($result));
@@ -983,7 +994,7 @@ final class WriteEnvelopeFindingsTest extends TestCase
     {
         $id = $this->trapPage();
         $result = pp_execute_action('style_component', [
-            'post_id' => $id, 'component_index' => 0, 'style' => ['--hero-overlay-bg' => 'rgba(0,0,0,.5)'],
+            'post_id' => $id, 'component_index' => 0, 'style' => ['--section-overlay-bg' => 'rgba(0,0,0,.5)'],
         ]);
 
         $this->assertSame(
@@ -1042,13 +1053,13 @@ final class WriteEnvelopeFindingsTest extends TestCase
 
         $batch = pp_ai_execute_batch([
             ['type' => 'action', 'name' => 'update_component', 'params' => [
-                'post_id' => $id, 'component_index' => 0, 'props' => ['title' => 'Step one'],
+                'post_id' => $id, 'component_index' => 0, 'props' => ['title' => 'Step one', 'body' => 'Body text'],
             ]],
             ['type' => 'action', 'name' => 'style_component', 'params' => [
-                'post_id' => $id, 'component_index' => 0, 'style' => ['--hero-overlay-bg' => 'rgba(0,0,0,.5)'],
+                'post_id' => $id, 'component_index' => 0, 'style' => ['--section-overlay-bg' => 'rgba(0,0,0,.5)'],
             ]],
             ['type' => 'action', 'name' => 'update_component', 'params' => [
-                'post_id' => $id, 'component_index' => 0, 'props' => ['title' => 'Step three'],
+                'post_id' => $id, 'component_index' => 0, 'props' => ['title' => 'Step three', 'body' => 'Body text'],
             ]],
         ]);
 
@@ -1070,7 +1081,7 @@ final class WriteEnvelopeFindingsTest extends TestCase
     {
         $id = $this->trapPage();
         $result = pp_execute_action('style_component', [
-            'post_id' => $id, 'component_index' => 0, 'style' => ['--hero-overlay-bg' => 'rgba(0,0,0,.5)'],
+            'post_id' => $id, 'component_index' => 0, 'style' => ['--section-overlay-bg' => 'rgba(0,0,0,.5)'],
         ]);
 
         $decoded = json_decode(
@@ -1105,7 +1116,7 @@ final class WriteEnvelopeFindingsTest extends TestCase
             'params' => [
                 'post_id'          => $id,
                 'component_index'  => 0,
-                'style'            => ['--hero-overlay-bg' => 'rgba(0,0,0,.5)'],
+                'style'            => ['--section-overlay-bg' => 'rgba(0,0,0,.5)'],
                 'expected_version' => $version,
             ],
         ]);
@@ -1127,7 +1138,7 @@ final class WriteEnvelopeFindingsTest extends TestCase
 
         $batch = pp_ai_execute_batch([
             ['type' => 'action', 'name' => 'style_component', 'params' => [
-                'post_id' => $id, 'component_index' => 0, 'style' => ['--hero-overlay-bg' => 'rgba(0,0,0,.5)'],
+                'post_id' => $id, 'component_index' => 0, 'style' => ['--section-overlay-bg' => 'rgba(0,0,0,.5)'],
             ]],
             ['type' => 'action', 'name' => 'update_component', 'params' => [
                 'post_id' => $id, 'component_index' => 0, 'props' => ['no_such_prop' => 'x'],

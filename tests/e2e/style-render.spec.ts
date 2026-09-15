@@ -1302,35 +1302,7 @@ test.describe('Safe-surface rendered proof', () => {
 
   // #24: a hero-surface slot must reach the rendered inner shell (.hero__surface only
   // renders for the split variant with proof markup).
-  test('#24 hero surface honors --hero-surface-border-width', async ({ page }) => {
-    pageId = createPage('E2E Hero Surface Slot');
-    setComposition(pageId, [
-      {
-        component: 'hero',
-        props: {
-          id: 'pp-hero01',
-          layout: 'split',
-          title: 'Hero',
-          proof: '<p>Product workflow surface</p>',
-        },
-      },
-    ]);
-
-    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
-    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
-
-    // Distinct from the 1px default, so honoring the slot is unambiguous.
-    const res = await styleComponent(page, pageId, { '--hero-surface-border-width': '7px' });
-    expect(res.success).toBe(true);
-
-    await page.goto(`/?page_id=${pageId}`);
-
-    const surface = page.locator('.hero__surface');
-    await expect(surface).toBeVisible({ timeout: 10000 });
-
-    const borderWidth = await surface.evaluate((el) => getComputedStyle(el).borderTopWidth);
-    expect(borderWidth).toBe('7px');
-  });
+  // RETIRED (#986): a hero style slot with no v2 successor — the value is a role parameter now, covered by the UDC contract tests.
 
   // #440: a `split` hero with no image and no proof has nothing for the second
   // column. The bug reserved an empty right half-band by keeping the two-column
@@ -1836,114 +1808,7 @@ test.describe('Safe-surface rendered proof', () => {
     expect(await prop(9, 'border-top-color')).not.toBe(BARE_ACCENT);
   });
 
-  test('#535 cover-hero primary and default second CTA clear AA on the scrim @smoke', async ({
-    page,
-  }) => {
-    pageId = createPage('E2E Cover Hero Button Contrast');
-    setComposition(pageId, [
-      // 0/1: outline PRIMARY + the DEFAULT (outline) second CTA. Before #535 both painted
-      // var(--hero-heading-color, var(--color-text)) = near-black #101828 on the scrim — the dead
-      // `.hero--cover .btn--outline` rule never won.
-      {
-        component: 'hero',
-        props: {
-          title: 'Cover outline', layout: 'cover',
-          button_text: 'Empezar', button_url: '/a', button_variant: 'outline',
-          button2_text: 'Hablar', button2_url: '/b',
-        },
-      },
-      // 2/3: ghost PRIMARY + ghost second CTA (both fell to --color-accent at 1.17:1).
-      {
-        component: 'hero',
-        props: {
-          title: 'Cover ghost', layout: 'cover',
-          button_text: 'Empezar', button_url: '/a', button_variant: 'ghost',
-          button2_text: 'Hablar', button2_url: '/b', button2_variant: 'ghost',
-        },
-      },
-      // 4: FILLED primary — gains the separation ring on the scrim.
-      { component: 'hero', props: { title: 'Cover filled', layout: 'cover', button_text: 'Empezar', button_url: '/a' } },
-      // 5: per-instance slot still wins over the routed fallback.
-      {
-        component: 'hero',
-        props: { title: 'Cover override', layout: 'cover', button_text: 'Empezar', button_url: '/a', button_variant: 'outline' },
-        style: { '--hero-heading-color': '#ffd166' },
-      },
-      // 6: a NON-cover hero must be untouched (no scrim, no routing).
-      { component: 'hero', props: { title: 'Plain hero', layout: 'centered', button_text: 'Empezar', button_url: '/a', button_variant: 'outline' } },
-    ]);
-
-    await page.setViewportSize({ width: 1280, height: 900 });
-    await page.goto(`/?page_id=${pageId}`);
-
-    const ctas = page.locator('.hero__cta');
-    await expect(ctas).toHaveCount(7, { timeout: 10000 });
-
-    const prop = async (i: number, p: string) =>
-      ctas.nth(i).evaluate((el, name) => getComputedStyle(el).getPropertyValue(name), p);
-
-    const ON_OVERLAY = 'rgb(250, 251, 255)';
-    const NEAR_BLACK = 'rgb(16, 24, 40)';   // --color-text, the defect's rendered value
-    const BARE_ACCENT = 'rgb(49, 87, 244)';
-
-    // 0: outline PRIMARY on the cover scrim — ink and ring both on the overlay role.
-    expect(await prop(0, 'color')).toBe(ON_OVERLAY);
-    expect(await prop(0, 'border-top-color')).toBe(ON_OVERLAY);
-    expect(await prop(0, 'color')).not.toBe(NEAR_BLACK);
-    // 1: the DEFAULT second CTA (button2_variant defaults to `outline`) — #535 Q3.
-    expect(await prop(1, 'color')).toBe(ON_OVERLAY);
-    expect(await prop(1, 'border-top-color')).toBe(ON_OVERLAY);
-
-    // 2/3: ghost primary + ghost second CTA.
-    expect(await prop(2, 'color')).toBe(ON_OVERLAY);
-    expect(await prop(3, 'color')).toBe(ON_OVERLAY);
-
-    // 4: FILLED primary gains the ring; the fill itself is unchanged.
-    expect(await prop(4, 'border-top-color')).toBe(ON_OVERLAY);
-
-    // 5: --hero-heading-color still wins over the routed fallback.
-    expect(await prop(5, 'color')).toBe('rgb(255, 209, 102)');
-    expect(await prop(5, 'border-top-color')).toBe('rgb(255, 209, 102)');
-
-    // 6: a plain (non-cover) hero keeps today's --hero-heading-color -> --color-text outline and
-    // its accent-bordered fill. The routing is scoped to the scrim, nothing else moved.
-    expect(await prop(6, 'color')).toBe(NEAR_BLACK);
-    expect(await prop(6, 'border-top-color')).toBe(NEAR_BLACK);
-    expect(await prop(6, 'color')).not.toBe(BARE_ACCENT);
-
-    /*
-     * HOVER, same leak class as the cta test above. `.hero--cover .btn--ghost` [0,2,0]
-     * ties with the shared `.btn--ghost:hover` and follows it, so the on-overlay ink
-     * survived onto a hover that fills with the near-white --color-surface. The outline
-     * twin was already safe ([0,3,0] hover outranks it) and is pinned here so a future
-     * specificity change to either rule is caught.
-     */
-    const PAGE_BG = 'rgb(252, 253, 255)';
-    const SURFACE = 'rgb(244, 247, 251)';
-
-    // See the cta test: kill the 150ms colour transition so the assertion reads the
-    // cascade's resolved value rather than a mid-flight blend.
-    await page.addStyleTag({ content: '*, *::before, *::after { transition: none !important; }' });
-
-    await ctas.nth(0).hover();
-    expect(await prop(0, 'color')).toBe(PAGE_BG);
-    expect(await prop(0, 'background-color')).toBe(BARE_ACCENT);
-    expect(await prop(0, 'border-top-color')).toBe(BARE_ACCENT);
-
-    await ctas.nth(2).hover();
-    expect(await prop(2, 'color')).toBe(BARE_ACCENT);
-    expect(await prop(2, 'background-color')).toBe(SURFACE);
-
-    // The second CTA's own :hover rules are [0,5,0] and outrank the [0,4,0] cover
-    // routing, so its hover ink is the variant's normal value, not a role token.
-    await ctas.nth(1).hover();
-    expect(await prop(1, 'color')).toBe(PAGE_BG);
-    expect(await prop(1, 'background-color')).toBe(BARE_ACCENT);
-
-    // The filled primary's ring must survive hover here too (see the cta test).
-    await ctas.nth(4).hover();
-    expect(await prop(4, 'border-top-color')).toBe(ON_OVERLAY);
-  });
+  // RETIRED (#986): pinned a hero style slot or the .hero__overlay element, neither of which exists on a v2 hero. The surviving behaviour is covered by the UDC contract tests and by the cta rows in the same block.
 
   /*
    * #474 — the compensating proof for the three SLOT_DECLARATION_EXEMPTIONS entries
@@ -2052,138 +1917,7 @@ test.describe('Safe-surface rendered proof', () => {
    * assertions are here too, because the whole point is that they were ALWAYS green — the
    * byte-identity bar this repo holds is untouched, only the in-between is.
    */
-  test('#540 a hover-only fill slot never renders an unchosen colour, fill or ring @smoke', async ({
-    page,
-  }) => {
-    pageId = createPage('E2E Hover Fill Flash');
-    setComposition(pageId, [
-      // 0: the reported repro — hover fill authored, resting fill left at the gradient.
-      {
-        component: 'hero',
-        props: { title: 'Hover only', button_text: 'Get started', button_url: '/a' },
-        style: { '--hero-button-hover-bg': 'rgb(185, 28, 28)' },
-      },
-      // 1: an OUTLINE second button in the same page. Its fill and border are visible at
-      // rest, so its tween is honest and must survive the fix untouched.
-      {
-        component: 'cta',
-        props: {
-          title: 'Outline second',
-          button_text: 'Primary',
-          button_url: '/a',
-          button2_text: 'Second',
-          button2_url: '/b',
-          button2_variant: 'outline',
-        },
-      },
-    ]);
-
-    /* The whole point of this test is that the 150ms tween RUNS, so the reduced-motion
-       preference has to be pinned. base.css clamps transition-duration to 0.01ms under
-       `reduce`, which would collapse every sample and fail the outline control with a
-       confusing message if a future config turns it on suite-wide. */
-    await page.emulateMedia({ reducedMotion: 'no-preference' });
-    await page.setViewportSize({ width: 1280, height: 900 });
-    await page.goto(`/?page_id=${pageId}`);
-
-    const filled = page.locator('.hero__cta').first();
-    const outline = page.locator('.cta__button--secondary');
-    await expect(filled).toBeVisible({ timeout: 10000 });
-
-    const read = (loc: any) =>
-      loc.evaluate((n: Element) => {
-        const s = getComputedStyle(n);
-        return { bg: s.backgroundColor, img: s.backgroundImage, ring: s.borderTopColor };
-      });
-
-    /* Sample the computed fill and ring on every animation frame across the hover window.
-       Two things this helper is careful about, both of which would otherwise turn a real
-       regression into a green run (or a green tree into a red one) on a loaded CI worker:
-
-       1. The settled hover value is READ BACK after the pointer has landed and the window
-          has closed, never taken from the last sampled frame. The rAF loop self-terminates
-          on its own clock, so on a slow worker its final frame can predate the hover.
-       2. Every frame is stamped, and the caller asserts that frames actually fell INSIDE
-          the transition window. rAF can be throttled or coalesced to a single tick; a
-          bare "we collected some frames" check passes on that, with zero tween coverage. */
-    const sampleHover = async (loc: any) => {
-      const handle = await loc.elementHandle();
-      const rest = await read(loc);
-      const box = (await loc.boundingBox())!;
-      await page.evaluate((n: Element) => {
-        (window as any).__f = [];
-        (window as any).__hoverAt = null;
-        const t0 = performance.now();
-        const tick = () => {
-          const s = getComputedStyle(n);
-          (window as any).__f.push({
-            t: performance.now(),
-            bg: s.backgroundColor,
-            img: s.backgroundImage,
-            ring: s.borderTopColor,
-          });
-          if (performance.now() - t0 < 1200) requestAnimationFrame(tick);
-        };
-        requestAnimationFrame(tick);
-      }, handle);
-      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-      // Stamp the moment the pointer landed, from the PAGE clock the frames are stamped on.
-      const hoverAt = await page.evaluate(() => performance.now());
-      await page.waitForTimeout(600);
-      const frames = await page.evaluate(() => (window as any).__f);
-      const hover = await read(loc); // settled, read by state and not by wall clock
-      await page.mouse.move(0, 0);
-      await page.waitForTimeout(400);
-      // The transition is 150ms; allow a frame of slack on each side.
-      const inWindow = frames.filter((fr: any) => fr.t >= hoverAt && fr.t <= hoverAt + 180);
-      return { rest, hover, frames, inWindow };
-    };
-
-    const f = await sampleHover(filled);
-
-    // Settled states: the authored hover fill wins and clears the gradient, exactly as
-    // before the fix. These pass on BOTH sides of #540 — that is the point.
-    expect(f.rest.img).not.toBe('none'); // resting slot unset -> premium gradient
-    expect(f.hover.bg).toBe('rgb(185, 28, 28)');
-    expect(f.hover.img).toBe('none');
-
-    /* The tween window was genuinely sampled. Without this the two assertions below can
-       filter an empty (or entirely post-settle) frame set and pass for the wrong reason. */
-    expect(f.inWindow.length).toBeGreaterThanOrEqual(3);
-
-    /* The guarantee: once the gradient mask is gone, the only fill colour that may render
-       is the authored one. Pre-fix this collected 7-8 frames of blue-to-red blend. */
-    const offBrandFill = f.frames.filter(
-      (fr: any) => fr.img === 'none' && fr.bg !== 'rgb(185, 28, 28)',
-    );
-    expect(offBrandFill).toEqual([]);
-
-    /* The ring rides the same swap (the #540 decision took border-color out of the list
-       too). Every frame must be one of the two authored endpoints, never between them.
-       The endpoints must actually DIFFER, or the two-element set collapses to one and the
-       ring half of the decision goes unverified while the assertion still passes. */
-    expect(f.rest.ring).not.toBe(f.hover.ring);
-    const ringEndpoints = new Set([f.rest.ring, f.hover.ring]);
-    const offBrandRing = f.frames.filter((fr: any) => !ringEndpoints.has(fr.ring));
-    expect(offBrandRing).toEqual([]);
-
-    // The narrowed list is scoped to the filled premium button...
-    expect(await filled.evaluate((n: Element) => getComputedStyle(n).transitionProperty)).toBe(
-      'box-shadow, color, transform',
-    );
-    // ...and the transparent variants keep the full five-property list, tween intact.
-    expect(await outline.evaluate((n: Element) => getComputedStyle(n).transitionProperty)).toBe(
-      'background-color, border-color, box-shadow, color, transform',
-    );
-    const o = await sampleHover(outline);
-    // Same window guard on the control, so a collapsed sampler fails as a sampler problem
-    // rather than as a bogus "the outline stopped animating".
-    expect(o.inWindow.length).toBeGreaterThanOrEqual(3);
-    const outlineRamp = o.inWindow.filter(
-      (fr: any) => fr.bg !== o.rest.bg && fr.bg !== o.hover.bg,
-    );
-    expect(outlineRamp.length).toBeGreaterThanOrEqual(2); // still genuinely animating
-  });
+  // RETIRED (#986): a hero style slot with no v2 successor — the value is a role parameter now, covered by the UDC contract tests.
 
   test('#474 an unset second button leaves the cta byte-identical; a set one renders the pair', async ({
     page,
@@ -2992,18 +2726,20 @@ test.describe('Safe-surface rendered proof', () => {
         '--section-eyebrow-border-color': 'transparent',
       },
     },
-    {
-      component: 'hero',
-      props: { id: 'pp-hero01', title: 'Hero' },
-      slots: {
-        '--hero-border-width': '0px',
-        '--hero-border-color': 'transparent',
-        '--hero-surface-border-width': '0px',
-        '--hero-surface-border-color': 'transparent',
-        '--hero-eyebrow-border-width': '0px',
-        '--hero-eyebrow-border-color': 'transparent',
-      },
-    },
+    // HERO'S ROW IS RETIRED, AND THE CASE IS INAPPLICABLE RATHER THAN UNPINNED (#986).
+    //
+    // It was left here with an EMPTY slot map during the repricing, which made it vacuous:
+    // `styleComponent()` refuses a v2 component with `no_style_slots`, so the row failed on
+    // its own setup rather than on anything about borders. A half-finished reprice, caught
+    // by CI because this row sits outside the @smoke subset.
+    //
+    // Why hero cannot come back to this list: issue 332 is WP core injecting
+    // `border-style: solid` through `:where([style*="border-width"])`, which matches on the
+    // INLINE STYLE ATTRIBUTE. A v2 component emits none, so core's selector has nothing to
+    // match and the trigger class is unreachable for it. Hero is covered by the v2
+    // border-sink pin below, which asserts exactly that — a stronger statement than this
+    // row made, because it holds for every trigger core might add rather than the slots
+    // that happened to exist.
   ];
 
   // Guard the guard. Derived from schema.json, NOT compared to a hardcoded count: a
@@ -3105,7 +2841,7 @@ test.describe('Safe-surface rendered proof', () => {
     });
   }
 
-  // REPLACES the testimonials row of BORDER_TRIGGER_CASES.
+  // REPLACES the testimonials AND hero rows of BORDER_TRIGGER_CASES (#986).
   //
   // The v1 strand asked "does the slot name in the inline style attribute trip WP
   // core's :where([style*=border-width]) into painting a 3px border?" For a v2
@@ -3115,31 +2851,48 @@ test.describe('Safe-surface rendered proof', () => {
   // what actually makes the component immune — and it is authored the v2 way, with
   // real border values in flight, so a regression that reintroduced inline style
   // emission would fail here rather than silently restoring the old exposure.
-  test('#332 a v2 band carries border values with no inline style attribute to trigger core', async ({
+  // Parameterised over every v2 component (#986), so a component's rebuild adds it here
+  // instead of leaving a vacuous row in the v1 list.
+  for (const v2 of [
+    {
+      component: 'testimonials',
+      rootSel: 'main > .testimonials',
+      innerSel: '.testimonials__item',
+      props: { id: 'pp-tst01', items: [{ quote: 'It works.', author: 'A' }] },
+      udc: {
+        card: { border: { width: '2px', color: '#345678' } },
+        eyebrow: { border: { width: '3px', color: '#876543' } },
+      },
+    },
+    {
+      component: 'hero',
+      rootSel: 'main > .hero',
+      innerSel: '.hero__image',
+      props: { id: 'pp-hero01', layout: 'split', title: 'Hero', image_url: '/x.png', image_alt: 'x' },
+      udc: {
+        media: { border: { width: '2px', style: 'solid', color: '#345678' } },
+        eyebrow: { border: { width: '3px', style: 'solid', color: '#876543' } },
+      },
+    },
+  ] as const) {
+  test(`#332 a v2 band (${v2.component}) carries border values with no inline style attribute to trigger core`, async ({
     page,
   }) => {
-    pageId = createPage('E2E Testimonials v2 Border Sink');
+    pageId = createPage(`E2E ${v2.component} v2 Border Sink`);
     setComposition(pageId, [
-      { component: 'testimonials', props: { id: 'pp-tst01', items: [{ quote: 'It works.', author: 'A' }] } },
+      { component: 'section', props: { id: 'pp-seed', body: '<p>Seed.</p>' } },
     ]);
 
     await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
     await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
 
     const res = await updateComposition(page, pageId, [
-      {
-        component: 'testimonials',
-        props: { id: 'pp-tst01', items: [{ quote: 'It works.', author: 'A' }] },
-        udc: {
-          card: { border: { width: '2px', color: '#345678' } },
-          eyebrow: { border: { width: '3px', color: '#876543' } },
-        },
-      },
+      { component: v2.component, props: v2.props, udc: v2.udc },
     ]);
     expect(res.success, `udc border write: ${JSON.stringify(res)}`).toBe(true);
 
     await page.goto(`/?page_id=${pageId}`);
-    const root = page.locator('main > .testimonials');
+    const root = page.locator(v2.rootSel);
     await expect(root).toBeVisible({ timeout: 10000 });
 
     // The sink is absent: no inline style attribute anywhere in the band.
@@ -3150,11 +2903,11 @@ test.describe('Safe-surface rendered proof', () => {
     ).toBe(0);
 
     // Non-vacuity: the values really did travel, via the scoped band block.
-    const cardBorder = await root
-      .locator('.testimonials__item')
+    const innerBorder = await root
+      .locator(v2.innerSel)
       .first()
       .evaluate((el) => getComputedStyle(el).borderTopWidth);
-    expect(cardBorder, 'the authored card border reached the card').toBe('2px');
+    expect(innerBorder, 'the authored border reached the element').toBe('2px');
 
     // And the root itself still takes no border from core's substring rule.
     const rootBorder = await root.evaluate((el) => {
@@ -3163,6 +2916,7 @@ test.describe('Safe-surface rendered proof', () => {
     });
     expect(rootBorder).toEqual({ top: '0px', right: '0px', bottom: '0px', left: '0px' });
   });
+  }
 
   // The OTHER inline-slot surface: issue 306's per-card style renders the custom property
   // on the .grid__item itself (components/grid/grid.php), so core's [style*=border-width]
@@ -3526,44 +3280,7 @@ test.describe('Safe-surface rendered proof', () => {
    * pins all four sides with `inset: 0`. If that ever becomes width-based, this declaration
    * would silently offset the overlay, and nothing else here would notice.
    */
-  test('#338 the cover hero overlay still covers the whole section', async ({ page }) => {
-    pageId = createPage('E2E Hero Cover Overlay');
-    setComposition(pageId, [
-      {
-        component: 'hero',
-        props: {
-          id: 'pp-hero01',
-          layout: 'cover',
-          title: 'A deliberately long hero headline that widens the content column',
-          proof: 'No card required',
-        },
-      },
-    ]);
-
-    await page.setViewportSize({ width: 1280, height: 900 });
-    await page.goto(`/?page_id=${pageId}`);
-
-    const hero = page.locator('.hero--cover');
-    await expect(hero).toBeVisible({ timeout: 10000 });
-
-    const cover = await hero.evaluate((el) => {
-      const overlay = el.querySelector('.hero__overlay') as Element;
-      const h = el.getBoundingClientRect();
-      const o = overlay.getBoundingClientRect();
-      return {
-        heroLeft: h.left,
-        heroWidth: h.width,
-        overlayLeft: o.left,
-        overlayWidth: o.width,
-        justifyContent: getComputedStyle(el).justifyContent,
-      };
-    });
-
-    expect(cover.justifyContent).toBe('center');
-    // The overlay is flush with the section on both edges — justify-content did not shift it.
-    expect(Math.abs(cover.overlayLeft - cover.heroLeft)).toBeLessThan(1);
-    expect(Math.abs(cover.overlayWidth - cover.heroWidth)).toBeLessThan(1);
-  });
+  // RETIRED (#986): pinned a hero style slot or the .hero__overlay element, neither of which exists on a v2 hero. The surviving behaviour is covered by the UDC contract tests and by the cta rows in the same block.
 
   /*
    * The CTA group carries the SAME unset-justify-content hole, but it hides: `align-self:
@@ -3590,7 +3307,25 @@ test.describe('Safe-surface rendered proof', () => {
       page,
     }) => {
       pageId = createPage(`E2E Hero CTA Wrap ${layout}`);
+      // THROUGH THE AUTHORING PATH, NOT A RAW META WRITE (#986, and 14.1).
+      //
+      // The measure that forces the wrap used to be the `--hero-content-width` STYLE SLOT,
+      // which renders as an inline custom property and therefore lands on a raw
+      // `setComposition()` write. It is the `content` role's `sizing.max-width` now, and a
+      // role value is emitted in a block keyed on `data-pp-band` — an id the engine mints
+      // on WRITE only. A raw meta write mints none, so the band renders with no attribute,
+      // the block selects nothing, and the authored measure silently does not apply.
+      //
+      // That is exactly what happened: the column stayed full-width, and the assertion
+      // below read a misalignment that the hero does not actually have. The guard after the
+      // write is the durable half of the fix — an inert fixture now fails saying so,
+      // instead of failing as if the component were broken.
       setComposition(pageId, [
+        { component: 'section', props: { id: 'pp-seed', body: '<p>Seed.</p>' } },
+      ]);
+      await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+      await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+      const written = await updateComposition(page, pageId, [
         {
           component: 'hero',
           props: {
@@ -3602,23 +3337,30 @@ test.describe('Safe-surface rendered proof', () => {
             button2_text: 'Book a demo',
             button2_url: '/contact',
           },
+          // Narrower than the two buttons side by side (each floors at `main .btn`'s
+          // min-width: 13.25rem), so they must wrap — and wide enough that one button is
+          // well short of filling its row, so "centered" and "left" stay different
+          // answers. Authored on the `content` ROLE now (#986): the measure was
+          // `--hero-content-width`, and hero has no style slots.
+          udc: { content: { sizing: { 'max-width': '26rem' } } },
         },
       ]);
-
-      await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
-      await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
-
-      // Narrower than the two buttons side by side (each floors at `main .btn`'s
-      // min-width: 13.25rem), so they must wrap — and wide enough that one button is well
-      // short of filling its row, so "centered" and "left" stay different answers.
-      const res = await styleComponent(page, pageId, { '--hero-content-width': '26rem' });
-      expect(res.success).toBe(true);
+      expect(written.success, `udc write: ${JSON.stringify(written)}`).toBe(true);
 
       await page.setViewportSize({ width: 1280, height: 900 });
       await page.goto(`/?page_id=${pageId}`);
 
       const group = page.locator('.hero__cta-group');
       await expect(group).toBeVisible({ timeout: 10000 });
+
+      // NON-VACUITY: the authored measure must actually have landed. 26rem is 416px, and
+      // without it the content column runs the full band width, which un-wraps the buttons
+      // and makes every alignment assertion below meaningless.
+      const authoredWidth = await group.evaluate((el: Element) => el.getBoundingClientRect().width);
+      expect(
+        Math.abs(authoredWidth - 416),
+        `the authored content measure did not apply (group is ${authoredWidth}px, expected ~416px) — the band block selected nothing`,
+      ).toBeLessThan(4);
 
       const boxes = await group.evaluate((el) => {
         const g = el.getBoundingClientRect();
@@ -3879,35 +3621,7 @@ test.describe('Safe-surface rendered proof', () => {
   // the eyebrow through the SAME base rules as any other id — exercising both ids proves the
   // reserved id gets no special treatment (acceptance: home-hero renders like any id).
   for (const heroId of ['pp-hero01', 'home-hero']) {
-    test(`#336 hero eyebrow radius is slot-driven and defaults to the documented 3px (#${heroId}) @smoke`, async ({
-      page,
-    }) => {
-      pageId = createPage(`E2E Hero Eyebrow Radius Slot ${heroId}`);
-      setComposition(pageId, [
-        { component: 'hero', props: { id: heroId, eyebrow: 'Kicker', title: 'Radius' } },
-      ]);
-
-      await page.setViewportSize({ width: 1280, height: 900 });
-      await page.goto(`/?page_id=${pageId}`);
-
-      const eyebrow = page.locator('.hero__eyebrow');
-      await expect(eyebrow).toBeVisible({ timeout: 10000 });
-
-      // Unset output stays byte-identical to pre-#336: the slot adds capability, not opinion.
-      expect(await eyebrow.evaluate((el) => getComputedStyle(el).borderRadius)).toBe('3px');
-
-      await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
-      await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
-      const res = await styleComponent(page, pageId, { '--hero-eyebrow-radius': '999px' });
-      expect(res.success).toBe(true);
-
-      await page.setViewportSize({ width: 1280, height: 900 });
-      await page.goto(`/?page_id=${pageId}`);
-      const rounded = await page
-        .locator('.hero__eyebrow')
-        .evaluate((el) => getComputedStyle(el).borderRadius);
-      expect(rounded).toBe('999px');
-    });
+    // RETIRED (#986): a hero style slot with no v2 successor — the value is a role parameter now, covered by the UDC contract tests.
   }
 
   // #356: the eyebrow pill had color/bg/radius slots but no border slot, so an
@@ -3918,43 +3632,7 @@ test.describe('Safe-surface rendered proof', () => {
   // was evicted in issue 412, so `home-hero` must render the border through the same base
   // slot rules as any other id (exercising both ids proves the reserved id is not special).
   for (const heroId of ['pp-hero01', 'home-hero']) {
-    test(`#356 hero eyebrow border is slot-driven and defaults to no border (#${heroId}) @smoke`, async ({
-      page,
-    }) => {
-      pageId = createPage(`E2E Hero Eyebrow Border Slot ${heroId}`);
-      setComposition(pageId, [
-        { component: 'hero', props: { id: heroId, eyebrow: 'Kicker', title: 'Border' } },
-      ]);
-
-      await page.setViewportSize({ width: 1280, height: 900 });
-      await page.goto(`/?page_id=${pageId}`);
-
-      const eyebrow = page.locator('.hero__eyebrow');
-      await expect(eyebrow).toBeVisible({ timeout: 10000 });
-
-      // Unset output stays byte-identical to pre-#356: the default pill has no
-      // visible border (0-width), the slot adds capability, not opinion.
-      expect(await eyebrow.evaluate((el) => getComputedStyle(el).borderTopWidth)).toBe('0px');
-
-      await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
-      await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
-      const res = await styleComponent(page, pageId, {
-        '--hero-eyebrow-border-width': '3px',
-        '--hero-eyebrow-border-color': '#ff0080',
-      });
-      expect(res.success).toBe(true);
-
-      await page.setViewportSize({ width: 1280, height: 900 });
-      await page.goto(`/?page_id=${pageId}`);
-      const outlined = await page.locator('.hero__eyebrow').evaluate((el) => {
-        const s = getComputedStyle(el);
-        return { width: s.borderTopWidth, color: s.borderTopColor };
-      });
-      // The outlined pill now renders: a real 3px border in the asked-for color,
-      // reaching even the ID-specificity benchmark heroes (routing proven).
-      expect(outlined.width).toBe('3px');
-      expect(outlined.color).toBe('rgb(255, 0, 128)');
-    });
+    // RETIRED (#986): a hero style slot with no v2 successor — the value is a role parameter now, covered by the UDC contract tests.
   }
 
   // #370: the eyebrow pill baked `text-transform: uppercase` with no slot, so a
@@ -3966,39 +3644,7 @@ test.describe('Safe-surface rendered proof', () => {
   // `var(--hero-eyebrow-text-transform, uppercase)` is the only rule that applies —
   // testing `home-hero` proves the reserved id renders the casing like any other id.
   for (const heroId of ['pp-hero01', 'home-hero']) {
-    test(`#370 hero eyebrow text-transform is slot-driven and defaults to uppercase (#${heroId}) @smoke`, async ({
-      page,
-    }) => {
-      pageId = createPage(`E2E Hero Eyebrow Text-Transform Slot ${heroId}`);
-      setComposition(pageId, [
-        { component: 'hero', props: { id: heroId, eyebrow: 'Kicker', title: 'Casing' } },
-      ]);
-
-      await page.setViewportSize({ width: 1280, height: 900 });
-      await page.goto(`/?page_id=${pageId}`);
-
-      const eyebrow = page.locator('.hero__eyebrow');
-      await expect(eyebrow).toBeVisible({ timeout: 10000 });
-
-      // Unset output stays byte-identical to pre-#370: the eyebrow still computes
-      // `uppercase`. The slot adds capability, not a new default.
-      expect(await eyebrow.evaluate((el) => getComputedStyle(el).textTransform)).toBe('uppercase');
-
-      await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
-      await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
-      const res = await styleComponent(page, pageId, {
-        '--hero-eyebrow-text-transform': 'none',
-      });
-      expect(res.success).toBe(true);
-
-      await page.setViewportSize({ width: 1280, height: 900 });
-      await page.goto(`/?page_id=${pageId}`);
-      // Setting the slot to `none` renders the kicker sentence-case, reaching even
-      // the ID-specificity benchmark heroes (routing proven).
-      expect(
-        await page.locator('.hero__eyebrow').evaluate((el) => getComputedStyle(el).textTransform),
-      ).toBe('none');
-    });
+    // RETIRED (#986): a hero style slot with no v2 successor — the value is a role parameter now, covered by the UDC contract tests.
   }
 
   // Strand 2. .stats__number had a color slot but no size slot at all, so the
@@ -5630,23 +5276,30 @@ test.describe('#441 global button tokens are byte-identical unset (real WP)', ()
     }
   });
 
-  test('an unset --btn-text renders the hero secondary CTA ink at its historical --color-bg @smoke', async ({
+  // RE-BASED FROM HERO'S SECONDARY ONTO THE cta PRIMARY (#986).
+  //
+  // The original drove hero's second CTA with `button2_variant: 'primary'`, forcing it into
+  // the filled treatment so it matched the `[0,6,0]` ink rule that routed through
+  // `--btn-text`. Both halves of that setup are gone: the prop was removed with the rebuild,
+  // and hero declares no band-scoped button rules at all now.
+  //
+  // The INVARIANT is untouched and still worth pinning: `--btn-text` registers as
+  // `var(--color-bg)`, and an unset registration must leave a filled composed button's ink
+  // at the historical `--color-bg` (#fcfdff). A wrong registration value would move this
+  // pixel, so it is not a tautology. The cta primary is a filled composed button that still
+  // routes through `--btn-text`, so the assertion moves there rather than being retired.
+  test('an unset --btn-text renders a composed primary\'s ink at its historical --color-bg @smoke', async ({
     page,
   }) => {
     pageId = createPage('E2E btn-text unset is byte-identical');
     setComposition(pageId, [
       {
-        component: 'hero',
+        component: 'cta',
         props: {
-          id: 'btn441-hero',
+          id: 'btn441-cta',
           title: 'Ship faster',
           button_text: 'Primary action',
           button_url: '/start',
-          button2_text: 'Secondary action',
-          button2_url: '/learn',
-          // PRIMARY variant so the secondary cta matches the [0,6,0] ink rule that
-          // routes through --btn-text (the outline default would take a different rule).
-          button2_variant: 'primary',
         },
       },
     ]);
@@ -5654,11 +5307,10 @@ test.describe('#441 global button tokens are byte-identical unset (real WP)', ()
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto(`/?page_id=${pageId}`);
 
-    const cta2 = page.locator('.hero__cta--secondary');
-    await expect(cta2).toBeVisible({ timeout: 10000 });
+    const btn = page.locator('.cta__button').first();
+    await expect(btn).toBeVisible({ timeout: 10000 });
 
-    const ink = await cta2.evaluate((el) => getComputedStyle(el).color);
-    // --color-bg #fcfdff — the historical fallback --btn-text now resolves to. Unchanged.
+    const ink = await btn.evaluate((el) => getComputedStyle(el).color);
     expect(ink).toBe('rgb(252, 253, 255)');
   });
 });
@@ -5710,8 +5362,7 @@ test.describe('#458 the global button surface is a real one-knob (real WP)', () 
           button_text: 'Primary',
           button_url: '/start',
           button2_text: 'Secondary',
-          button2_url: '/learn',
-          button2_variant: 'primary', // matches the [0,6,0] ink rule that routes through --btn-text
+          button2_url: '/learn', // matches the [0,6,0] ink rule that routes through --btn-text
         },
       },
       {
@@ -5735,10 +5386,21 @@ test.describe('#458 the global button surface is a real one-knob (real WP)', () 
 
   // The four composed-primary selectors. The hero primary is `.hero__cta` WITHOUT the
   // --secondary modifier (both share `.hero__cta`).
+  // HERO'S SECONDARY LEFT THIS SET (#986), and it left it by design rather than by
+  // accident. This sweep is "every composed PRIMARY button", and hero's second CTA now
+  // carries the v1 outline treatment as its `cta-secondary` ROLE DEFAULT — a muted
+  // surface, body ink, border-coloured edge. A role default is emitted unlayered and the
+  // v1 stylesheet is in `@layer pp-v1`, so `--btn-*` no longer reaches it. That is the
+  // contract working: the global button tier is the v1 slot cascade, and a v2 role
+  // default is the component's own stated design.
+  //
+  // Hero's PRIMARY stays in: the `cta` role declares no defaults on purpose, so it is
+  // still a bare `.btn` and still follows every `--btn-*` knob.
+  //
+  // The reach hero's secondary DOES have is pinned below rather than dropped.
   const SEL = {
     cta: '.cta__button',
     heroPrimary: '.hero__cta:not(.hero__cta--secondary)',
-    heroSecondary: '.hero__cta--secondary',
     section: '.section__panel-cta',
   };
 
@@ -5776,7 +5438,6 @@ test.describe('#458 the global button surface is a real one-knob (real WP)', () 
         return {
           cta: read(sel.cta),
           heroPrimary: read(sel.heroPrimary),
-          heroSecondary: read(sel.heroSecondary),
           section: read(sel.section),
           accentFill: resolve('background-color', 'var(--color-accent)'),
           accentBorder: resolve('border-top-color', 'var(--color-accent)'),
@@ -5793,26 +5454,30 @@ test.describe('#458 the global button surface is a real one-knob (real WP)', () 
         };
       }, SEL);
 
-      // INK — every composed primary bottoms out at --color-bg (the premium first-block color
-      // winner routed through --btn-text; the hero secondary via its own [0,6,0] rule).
+      // INK — every composed primary bottoms out at --color-bg (the premium first-block
+      // color winner routed through --btn-text).
       expect(got.cta.ink).toBe(got.bgInk);
       expect(got.heroPrimary.ink).toBe(got.bgInk);
-      expect(got.heroSecondary.ink).toBe(got.bgInk);
       expect(got.section.ink).toBe(got.bgInk);
 
-      // FILL + BORDER for the .cta/.hero [0,5,0] winners bottom out at --color-accent.
+      // FILL + BORDER for the .cta [0,5,0] winner bottoms out at --color-accent.
       expect(got.cta.bgColor).toBe(got.accentFill);
       expect(got.cta.border).toBe(got.accentBorder);
-      expect(got.heroPrimary.bgColor).toBe(got.accentFill);
-      expect(got.heroPrimary.border).toBe(got.accentBorder);
-      // The hero's SECOND cta, same two properties (#554). Its ink was already pinned above,
-      // but ink is not what that issue changed: it rewrote this button's fill and ring chains.
-      // Byte-identity-when-unset is the gate condition #554 shipped under, so it is asserted
-      // on the RENDERED pixel here, not only as chain text in css-lint. A reorder that
-      // repaints an unset cta2 through the premium-rule interaction is invisible to a static
-      // pin and lands here instead.
-      expect(got.heroSecondary.bgColor).toBe(got.accentFill);
-      expect(got.heroSecondary.border).toBe(got.accentBorder);
+
+      // HERO'S PRIMARY MOVED GROUPS (#986), and this is the honest place to say so.
+      // It used to be a `.hero .btn:not3` [0,5,0] winner that RESTORED a background-COLOR
+      // the premium shorthand had reset. Hero owns no band-scoped button rules now, so it
+      // is governed only by the premium block — exactly like the section-panel primary
+      // below: the fill is the accent GRADIENT (a background-image) and the colour behind
+      // it stays transparent. The rendered pixel is unchanged, because the gradient is
+      // opaque; what changed is which declaration paints it. An authored `cta` role (or
+      // the `button` preset) overrides it: the band block is unlayered and this
+      // stylesheet is in `@layer pp-v1`.
+      //
+      // Hero's SECONDARY is deliberately absent from every assertion in this block — it
+      // carries its own role default now and answers to the tokens that default
+      // references, not to `--btn-*`. Its reach is pinned in its own test below.
+      expect(got.heroPrimary.bgImage).toBe(got.premiumFill);
 
       // SECTION-PANEL primary is governed ONLY by the premium block: fill = the accent
       // gradient (background-IMAGE), border = --color-accent-strong, shadow = premium bevel.
@@ -5855,7 +5520,6 @@ test.describe('#458 the global button surface is a real one-knob (real WP)', () 
       return {
         cta: read(sel.cta),
         heroPrimary: read(sel.heroPrimary),
-        heroSecondary: read(sel.heroSecondary),
         section: read(sel.section),
       };
     }, SEL);
@@ -5877,25 +5541,37 @@ test.describe('#458 the global button surface is a real one-knob (real WP)', () 
     expect(got.section.shadow).toContain('rgb(10, 11, 12)');
 
     /*
-     * The hero's SECOND cta at REST (#554) — the surface this tier used to miss.
+     * THE HERO PAIR NO LONGER MOVES TOGETHER, AND THAT IS THE RESTORED v1 DEFAULT (#986).
      *
-     * Rendered, not static, because the defect was invisible to a chain pin: --btn-bg ALREADY
-     * reached this button's background-IMAGE through the shared premium rule (clearing the
-     * gradient) while its own [0,7,0] background-COLOR kept painting --color-accent. The
-     * computed result was a FLAT ACCENT pill, which no static chain assertion describes. The
-     * gradient-cleared check is what makes the pair assertion meaningful rather than
-     * accidentally-passing.
+     * #554 pinned that a global `--btn-*` retheme reached hero's SECOND cta as well as its
+     * first, so the pair stayed consistent. That pin assumed both buttons were bare `.btn`.
+     * They were, briefly: `button2_variant` was removed in the v2 rebuild and the first cut
+     * left `cta-secondary` with no defaults, which rendered two IDENTICAL filled buttons
+     * side by side — v1 defaulted the second to `outline`, so that was a regression, not a
+     * simplification.
+     *
+     * `cta-secondary` carries the outline treatment as its role default now. A role default
+     * is emitted unlayered and this stylesheet is in `@layer pp-v1`, so `--btn-*` does not
+     * reach it. The pair is deliberately ASYMMETRIC: the primary follows the global button
+     * tier, the secondary follows its role.
+     *
+     * Asserted as the new contract rather than deleted, so a future edit that silently
+     * re-attaches the secondary to `--btn-*` — or drops its default and makes the pair
+     * identical again — fails here with the reason.
      */
-    expect(got.heroSecondary.bgColor, 'hero cta2 rest fill follows --btn-bg').toBe('rgb(1, 2, 3)');
-    expect(got.heroSecondary.border, 'hero cta2 rest ring follows --btn-border-color').toBe(
-      'rgb(7, 8, 9)',
-    );
-    expect(got.heroSecondary.bgImage, 'hero cta2 gradient cleared, not merely overpainted').toBe(
-      'none',
-    );
-    // Stated as the pair property, so a future split fails with the right message.
-    expect(got.heroSecondary.bgColor, 'hero pair rest fill must match').toBe(got.heroPrimary.bgColor);
-    expect(got.heroSecondary.border, 'hero pair rest ring must match').toBe(got.heroPrimary.border);
+    const cta2 = await page
+      .locator('.hero__cta--secondary')
+      .first()
+      .evaluate((el: Element) => {
+        const cs = getComputedStyle(el);
+        return { bgColor: cs.backgroundColor, border: cs.borderTopColor, ink: cs.color };
+      });
+    expect(cta2.bgColor, 'hero cta2 must NOT follow --btn-bg').not.toBe('rgb(1, 2, 3)');
+    expect(cta2.border, 'hero cta2 must NOT follow --btn-border-color').not.toBe('rgb(7, 8, 9)');
+    expect(cta2.ink, 'hero cta2 must NOT follow --btn-text').not.toBe('rgb(4, 5, 6)');
+    // And it must be visibly DIFFERENT from the primary, which is the whole point of the
+    // restored default — not merely unreachable by the global tier.
+    expect(cta2.bgColor, 'the hero pair must not render identically').not.toBe(got.heroPrimary.bgColor);
   });
 
   test('a per-component --cta-button-bg still beats the global --btn-bg @smoke', async ({
@@ -5975,7 +5651,6 @@ test.describe('#539 the global button surface survives a hover (real WP)', () =>
           button_url: '/start',
           button2_text: 'Secondary',
           button2_url: '/learn',
-          button2_variant: 'primary',
         },
       },
       {
@@ -6005,9 +5680,11 @@ test.describe('#539 the global button surface survives a hover (real WP)', () =>
     return id;
   }
 
+  // heroCta2 is gone from this set for the same reason as the rest-state sweep above
+  // (#986): hero's second CTA follows its `cta-secondary` role default now, not the
+  // global hover knobs. Hero's PRIMARY is still here — it declares no role defaults.
   const SEL = {
     heroPrimary: '.hero__cta:not(.hero__cta--secondary)',
-    heroCta2: '.hero__cta--secondary',
     ctaPrimary: '.cta__button:not(.cta__button--secondary)',
     ctaButton2: '.cta__button--secondary',
     panelCta: '.section__panel-cta',
@@ -6057,8 +5734,12 @@ test.describe('#539 the global button surface survives a hover (real WP)', () =>
       // would pass through a reordered chain, a wrong literal, or an accidental repaint —
       // which is the whole failure class this test exists to catch.
       const expectedBorder: Record<string, string> = {
-        heroPrimary: probe.accentHover,
-        heroCta2: probe.accentHover,
+        // Hero's PRIMARY moved to the premium tier in #986: with no band-scoped rule of
+        // its own it bottoms out where the generic panel CTA does, at --color-accent
+        // rather than --color-accent-hover. Hero's SECONDARY is not in this set at all —
+        // it follows its `cta-secondary` role default, not the global hover knobs. The
+        // cta family still pins the band-scoped tier this block exists to protect.
+        heroPrimary: probe.accent,
         ctaPrimary: probe.accentHover,
         ctaButton2: probe.accentHover,
         // The generic panel CTA is governed by the premium rule, which bottoms out at
@@ -6106,7 +5787,10 @@ test.describe('#539 the global button surface survives a hover (real WP)', () =>
     // rule cleared its gradient while its own background-color kept painting the theme accent —
     // a FLAT ACCENT pill beside a brand-coloured primary. Its chains now route the tier in both
     // states, so it behaves like every other filled surface and is asserted like one.
-    const covered = ['heroPrimary', 'heroCta2', 'ctaPrimary', 'ctaButton2', 'panelCta'] as const;
+    // heroCta2 dropped (#986): hero's second CTA answers to its `cta-secondary` role
+    // default, not to the global hover knobs. Its non-reach is asserted explicitly in the
+    // #458 block rather than left as an absence here.
+    const covered = ['heroPrimary', 'ctaPrimary', 'ctaButton2', 'panelCta'] as const;
 
     for (const name of covered) {
       await page.locator(SEL[name]).first().hover();
@@ -6151,60 +5835,26 @@ test.describe('#539 the global button surface survives a hover (real WP)', () =>
     };
     const pair = {
       primary: await readHovered(SEL.heroPrimary),
-      cta2: await readHovered(SEL.heroCta2),
+      cta2: await readHovered('.hero__cta--secondary'),
     };
     // Guard the guard: prove these are hover reads, not rest reads. The sentinel only appears
     // in the hover chains, so a rest sample cannot produce it.
     expect(pair.primary.bgColor, 'sanity: primary sampled while hovered').toBe('rgb(1, 2, 3)');
-    expect(pair.cta2.bgColor, 'hero pair hover fill must match under a site-wide retheme').toBe(
+    // THE PAIR IS DELIBERATELY ASYMMETRIC NOW (#986), and the assertion is inverted rather
+    // than deleted. #554 pinned that a site-wide hover retheme moved BOTH hero buttons
+    // together, which assumed both were bare `.btn`. `cta-secondary` carries the v1 outline
+    // treatment as its role default now — emitted unlayered, so `--btn-hover-*` cannot
+    // reach it. The primary still follows the global tier; the secondary follows its role.
+    // A future edit that re-attaches the secondary to the global knobs fails here.
+    expect(pair.cta2.bgColor, 'hero cta2 hover fill must NOT follow --btn-hover-bg').not.toBe(
       pair.primary.bgColor,
     );
-    expect(pair.cta2.border, 'hero pair hover ring must match under a site-wide retheme').toBe(
-      pair.primary.border,
+    expect(pair.cta2.border, 'hero cta2 hover ring must NOT follow --btn-hover-border-color').not.toBe(
+      'rgb(7, 8, 9)',
     );
   });
 
-  test('a per-instance hover slot still beats the global --btn-hover-bg @smoke', async ({
-    page,
-  }) => {
-    pageId = buildHoverPage();
-
-    // Style ONLY the hero's own hover fill slot (component index 0), then set a conflicting
-    // global knob. The per-instance slot must win on that button; the cta primary, which has
-    // no per-instance hover slot set, must still take the global one.
-    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
-    const res = await styleComponent(
-      page,
-      pageId,
-      { '--hero-button-hover-bg': 'rgb(20,30,40)' },
-      undefined,
-      0,
-    );
-    expect(res.success).toBeTruthy();
-
-    await page.setViewportSize({ width: 1280, height: 900 });
-    await page.goto(`/?page_id=${pageId}`);
-    await expect(page.locator(SEL.ctaPrimary)).toBeVisible({ timeout: 10000 });
-    await page.addStyleTag({
-      content: NO_TRANSITION + ':root{--btn-hover-bg:rgb(1,2,3);}',
-    });
-
-    await page.locator(SEL.heroPrimary).first().hover();
-    const heroFill = await page
-      .locator(SEL.heroPrimary)
-      .first()
-      .evaluate((el) => getComputedStyle(el).backgroundColor);
-    // Per-instance slot wins over the global knob.
-    expect(heroFill).toBe('rgb(20, 30, 40)');
-
-    await page.locator(SEL.ctaPrimary).first().hover();
-    const ctaFill = await page
-      .locator(SEL.ctaPrimary)
-      .first()
-      .evaluate((el) => getComputedStyle(el).backgroundColor);
-    // ...and the global knob still governs the surface that set no slot of its own.
-    expect(ctaFill).toBe('rgb(1, 2, 3)');
-  });
+  // RETIRED (#986): pinned a hero style slot or the .hero__overlay element, neither of which exists on a v2 hero. The surviving behaviour is covered by the UDC contract tests and by the cta rows in the same block.
 
   test('a per-instance hover BORDER slot still beats the global --btn-hover-border-color @smoke', async ({
     page,
@@ -6534,6 +6184,338 @@ test.describe('Shared section-band rhythm (#431)', () => {
     }
   });
 
+  // THE SAME CLASS PIN, ON THE SURFACE THAT ACTUALLY BROKE (#986).
+  //
+  // The walker above drives a `testimonials` band whose udc map has no `cta` role
+  // and no button in it at all — so it could not have caught the defect ruling D5
+  // was written for, and could not catch its return. The defect was a hero whose
+  // `cta` role carried `"_preset": "button"` painting the v1 stylesheet's premium
+  // gradient instead of the author's fill: accepted at write, reported applied,
+  // and wrong on the page. That is the I35 class on the one family of v1 rules
+  // that reaches [0,5,1].
+  //
+  // A button is also where the emitted CSS and the rendered result diverge most
+  // easily, which is why this asserts COMPUTED values and not CSS text: the text
+  // was already correct while the bug was live.
+  test('#986/I35 an authored hero CTA outranks the v1 premium button rules, rest and hover @smoke', async ({
+    page,
+  }) => {
+    const composition = [
+      { component: 'section', props: { id: 'pp-sec01', body: '<p>Body.</p>' } },
+      {
+        component: 'hero',
+        props: {
+          id: 'pp-hero01',
+          title: 'Authored',
+          button_text: 'Primary',
+          button_url: '/a',
+          button2_text: 'Secondary',
+          button2_url: '/b',
+        },
+        udc: {
+          // The preset is the point: it is the path that failed, so it must be
+          // exercised, not avoided. Values beside it must still win over it.
+          cta: {
+            _preset: 'button',
+            background: { fill: '#ff00ff', ':hover': { fill: '#123456' } },
+            typography: { color: '#00ff00', ':hover': { color: '#ffff00' } },
+            border: { width: '4px', style: 'solid', color: '#0000ff' },
+          },
+          'cta-secondary': {
+            _preset: 'button-secondary',
+            background: { fill: '#00ffff' },
+            typography: { color: '#ff0000' },
+          },
+        },
+      },
+    ];
+
+    pageId = createPage('E2E v2 Hero CTA Outranked Guard');
+    setComposition(pageId, [{ component: 'section', props: { id: 'pp-sec01', body: '<p>Body.</p>' } }]);
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+    const res = await updateComposition(page, pageId, composition);
+    expect(res.success, `udc write: ${JSON.stringify(res)}`).toBe(true);
+
+    await page.goto(`/?page_id=${pageId}`);
+    const primary = page.locator('.hero__cta--primary').first();
+    await expect(primary).toBeVisible({ timeout: 10000 });
+
+    const read = (loc: typeof primary) =>
+      loc.evaluate((el: Element) => {
+        const s = getComputedStyle(el);
+        return {
+          bg: s.backgroundColor,
+          bgImage: s.backgroundImage,
+          color: s.color,
+          borderWidth: s.borderTopWidth,
+          borderColor: s.borderTopColor,
+        };
+      });
+
+    const rest = await read(primary);
+    expect(rest.bg, 'authored fill at rest').toBe('rgb(255, 0, 255)');
+    expect(rest.color, 'authored ink at rest').toBe('rgb(0, 255, 0)');
+    expect(rest.borderWidth, 'authored ring width at rest').toBe('4px');
+    expect(rest.borderColor, 'authored ring colour at rest').toBe('rgb(0, 0, 255)');
+    // The v1 premium rules paint their gradient through background-IMAGE, which is
+    // the half a background-COLOR assertion cannot see — and the half that made the
+    // original screenshots look plausible while the button was wrong.
+    expect(rest.bgImage, 'the v1 premium gradient must not paint').toBe('none');
+
+    const secondary = page.locator('.hero__cta--secondary').first();
+    const sec = await read(secondary);
+    expect(sec.bg, 'authored secondary fill').toBe('rgb(0, 255, 255)');
+    expect(sec.color, 'authored secondary ink').toBe('rgb(255, 0, 0)');
+    expect(sec.bgImage, 'no premium gradient on the secondary either').toBe('none');
+
+    await primary.hover();
+    await page.waitForTimeout(400);
+    const hover = await read(primary);
+    expect(hover.bg, 'authored fill on hover').toBe('rgb(18, 52, 86)');
+    expect(hover.color, 'authored ink on hover').toBe('rgb(255, 255, 0)');
+    expect(hover.bgImage, 'no premium hover gradient').toBe('none');
+  });
+
+  // THE REGRESSION NET FOR THE COMPONENTS THAT HAVE NOT BEEN REBUILT (#986).
+  //
+  // Ruling D5's first attempt wrapped four premium button rules in `:where()`.
+  // That zeroed them against a band block as intended AND against `.btn` [0,1,0],
+  // which nothing intended: every composed primary button outside a v2 band
+  // silently lost its 1px accent-strong ring for `.btn`'s 2px accent ring, lost
+  // its resting bevel, and had #540's transition narrowing defeated by
+  // `main .btn`'s five-property shorthand.
+  //
+  // None of that was visible to CI. tests/js/css-lint.test.js matches on selector
+  // SHAPE, so it stayed green against a `:where()`-wrapped compound, and the one
+  // rendered test that read transitionProperty on a filled premium button had been
+  // retired in the same branch. So this pins the four properties that moved, on a
+  // legacy component, at rest and on hover, as a rendered computed read.
+  test('#986 the v1 premium button treatment survives on a legacy cta, rest and hover @smoke', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E Legacy CTA Premium Treatment');
+    setComposition(pageId, [
+      {
+        component: 'cta',
+        props: { id: 'pp-cta01', title: 'Ready?', button_text: 'Start', button_url: '/x' },
+      },
+    ]);
+    await page.goto(`/?page_id=${pageId}`);
+    const btn = page.locator('.cta__button').first();
+    await expect(btn).toBeVisible({ timeout: 10000 });
+
+    const read = () =>
+      btn.evaluate((el: Element) => {
+        const s = getComputedStyle(el);
+        return {
+          borderWidth: s.borderTopWidth,
+          boxShadow: s.boxShadow,
+          transitionProperty: s.transitionProperty,
+        };
+      });
+
+    const rest = await read();
+    // 1px, not `.btn`'s 2px: the premium rule must still outrank the bare primitive.
+    expect(rest.borderWidth, 'premium ring width at rest').toBe('1px');
+    // The resting bevel exists. `none` is the signature of `.btn` winning.
+    expect(rest.boxShadow, 'premium bevel at rest').not.toBe('none');
+    // #540: the fill and the ring SNAP; only these three ease. A five-property list
+    // here is the off-brand mid-tween flash that issue removed.
+    expect(rest.transitionProperty, '#540 transition narrowing at rest').toBe(
+      'box-shadow, color, transform',
+    );
+
+    await btn.hover();
+    await page.waitForTimeout(400);
+    const hover = await read();
+    expect(hover.borderWidth, 'premium ring width on hover').toBe('1px');
+    expect(hover.boxShadow, 'premium bevel on hover').not.toBe('none');
+    expect(hover.transitionProperty, '#540 transition narrowing on hover').toBe(
+      'box-shadow, color, transform',
+    );
+  });
+
+  // THE THEME RESET STILL BEATS AN UNLAYERED CORE RULE (#986).
+  //
+  // WordPress core ships `:where(figure){margin:0 0 1em}` UNLAYERED on the front end.
+  // The theme's `* { margin: 0 }` used to win that tie on source order; once the
+  // stylesheet went into `@layer pp-reset` it lost at any specificity, and a `<figure>`
+  // in authored body HTML silently gained a 1em bottom margin (measured: 17.04px).
+  //
+  // The fix is one unlayered `figure { margin: 0 }` in base.css. Pinned as a RENDERED
+  // read against real core CSS, because that is the only place the interaction exists —
+  // a static lint of our own stylesheet cannot see a rule core contributes at runtime.
+  test('#986 an unlayered core rule does not re-margin a figure in authored body HTML @smoke', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E figure margin under layers');
+    setComposition(pageId, [
+      {
+        component: 'section',
+        props: {
+          id: 'pp-sec01',
+          title: 'Prose',
+          body: '<p>Before.</p><figure><img src="/x.png" alt="x"><figcaption>cap</figcaption></figure><p>After.</p>',
+        },
+      },
+    ]);
+    await page.goto(`/?page_id=${pageId}`);
+    const fig = page.locator('figure').first();
+    await expect(fig).toBeVisible({ timeout: 10000 });
+    const box = await fig.evaluate((el: Element) => {
+      const cs = getComputedStyle(el);
+      return { bottom: cs.marginBottom, top: cs.marginTop };
+    });
+    expect(box.bottom, 'core must not add a bottom margin the theme reset removed').toBe('0px');
+    expect(box.top, 'and the top stays zero too').toBe('0px');
+  });
+
+  // RESTORED DEFAULT: the centered layout centres its TEXT (#986).
+  //
+  // `centered` is hero's DEFAULT layout. The first v2 cut moved text-align out to the
+  // roles, and no role ships a `typography.align` default — so a wrapping headline
+  // rendered ragged-left inside a centred box while the schema told the authoring AI
+  // "centered centers all content". Single-line text hid it, which is why a
+  // screenshot did not catch it; the title here is deliberately long enough to wrap.
+  test('#986 the centered hero layout centres its text, and an authored align still wins @smoke', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E Hero Centered Text');
+    setComposition(pageId, [
+      {
+        component: 'hero',
+        props: {
+          id: 'pp-hero01',
+          layout: 'centered',
+          title: 'A deliberately long hero headline that has to wrap onto several lines to show its alignment',
+          subheading: 'A subheading long enough that it also wraps and can be read for alignment.',
+        },
+      },
+    ]);
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+    const title = page.locator('.hero__title').first();
+    await expect(title).toBeVisible({ timeout: 10000 });
+    expect(
+      await title.evaluate((el: Element) => getComputedStyle(el).textAlign),
+      'centered layout must centre the title text',
+    ).toBe('center');
+    expect(
+      await page.locator('.hero__subtitle').first().evaluate((el: Element) => getComputedStyle(el).textAlign),
+      'centered layout must centre the subtitle text',
+    ).toBe('center');
+
+    // The structural default must stay overridable: the authored tier is unlayered
+    // and the stylesheet is in `pp-v1`, so an authored align outranks it.
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+    const res = await updateComposition(page, pageId, [
+      {
+        component: 'hero',
+        props: {
+          id: 'pp-hero01',
+          layout: 'centered',
+          title: 'A deliberately long hero headline that has to wrap onto several lines to show its alignment',
+          subheading: 'A subheading long enough that it also wraps and can be read for alignment.',
+        },
+        udc: { title: { typography: { align: 'left' } } },
+      },
+    ]);
+    expect(res.success, `udc write: ${JSON.stringify(res)}`).toBe(true);
+    await page.goto(`/?page_id=${pageId}`);
+    expect(
+      await page.locator('.hero__title').first().evaluate((el: Element) => getComputedStyle(el).textAlign),
+      'an authored typography.align must beat the layout default',
+    ).toBe('left');
+  });
+
+  // RESTORED AFFORDANCE: the on-overlay focus ring follows the overlay (#986).
+  //
+  // v1 keyed it to `.hero--cover`, which was sound while `cover` was the only layout
+  // that could carry a background image. Ruling A2 made the band image
+  // `_band.background.image`, authorable on EVERY layout — so a `left` hero with an
+  // image and a scrim kept the bare `--color-accent` ring, 1.17:1 over the worst-case
+  // scrim. WCAG 1.4.11. The layout here is deliberately NOT cover.
+  test('#986 a non-cover hero with an overlay gets the on-overlay focus ring @smoke', async ({
+    page,
+  }) => {
+    const attachmentId = importTestImage('pp-overlay-ring');
+    try {
+      pageId = createPage('E2E Hero Overlay Focus Ring');
+      setComposition(pageId, [{ component: 'section', props: { id: 'pp-sec01', body: '<p>b</p>' } }]);
+      await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+      await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+      const res = await updateComposition(page, pageId, [
+        {
+          component: 'hero',
+          props: {
+            id: 'pp-hero01',
+            layout: 'left',
+            title: 'Overlaid',
+            button_text: 'Focus me',
+            button_url: '/x',
+          },
+          udc: {
+            _band: { background: { image: attachmentId, overlay: '#000000cc' } },
+          },
+        },
+      ]);
+      expect(res.success, `udc write: ${JSON.stringify(res)}`).toBe(true);
+
+      await page.goto(`/?page_id=${pageId}`);
+      const hero = page.locator('.hero').first();
+      await expect(hero).toBeVisible({ timeout: 10000 });
+
+      // The engine emitted the hook, on a layout that is not `cover`.
+      expect(
+        await hero.evaluate((el: Element) => el.hasAttribute('data-pp-band-overlay')),
+        'the engine must mark a band that paints a scrim',
+      ).toBe(true);
+      expect(
+        await hero.evaluate((el: Element) => el.className),
+        'this case must NOT be the cover layout, or it proves nothing new',
+      ).not.toContain('hero--cover');
+
+      const btn = page.locator('.hero__cta--primary').first();
+      const ring = await btn.evaluate((el: Element) => {
+        (el as HTMLElement).focus();
+        return getComputedStyle(el).outlineColor;
+      });
+      const onOverlay = await page.evaluate(() =>
+        getComputedStyle(document.documentElement).getPropertyValue('--color-accent-on-overlay').trim(),
+      );
+      expect(onOverlay, '--color-accent-on-overlay must be defined').not.toBe('');
+      // Compare through the browser so both sides canonicalise the colour.
+      const expected = await page.evaluate((c: string) => {
+        const probe = document.createElement('span');
+        probe.style.color = c;
+        document.body.appendChild(probe);
+        const out = getComputedStyle(probe).color;
+        probe.remove();
+        return out;
+      }, onOverlay);
+      expect(ring, 'the focus ring must use the on-overlay accent, not the bare accent').toBe(expected);
+
+      // The companion defaults ruling 2 restored: the image must cover, not tile.
+      const bg = await hero.evaluate((el: Element) => {
+        const s = getComputedStyle(el);
+        return { size: s.backgroundSize, repeat: s.backgroundRepeat, position: s.backgroundPosition };
+      });
+      // A scrim over a photograph is TWO background layers, so each longhand
+      // computes once per layer ("cover, cover"). Every layer must carry it — a
+      // per-layer check, not a string match, so the assertion survives an overlay
+      // being added or removed.
+      const everyLayer = (value: string, expected: string) =>
+        value.split(',').map((v) => v.trim()).every((v) => v === expected);
+      expect(everyLayer(bg.size, 'cover'), `background-size per layer: ${bg.size}`).toBe(true);
+      expect(everyLayer(bg.repeat, 'no-repeat'), `background-repeat per layer: ${bg.repeat}`).toBe(true);
+      expect(everyLayer(bg.position, '50% 50%'), `background-position per layer: ${bg.position}`).toBe(true);
+    } finally {
+      deleteAttachment(attachmentId);
+    }
+  });
+
   // One knob retunes the whole site's rhythm: overriding the shared definition at
   // :root moves every band's every edge together. Proves the fallback chains really
   // terminate in the two shared props, not per-component copies — and covers all
@@ -6633,31 +6615,7 @@ test.describe('Shared section-band rhythm (#431)', () => {
   // adjacent-sibling band rhythm. (The AFTER-another-band corner — where the mobile
   // adjacent rule used to shave only the top edge — is issue 434's fix and is proven
   // by the adjacent-position test immediately below.)
-  test('#430 data-pp-spacing compact/spacious stay symmetric at 1280 and 375', async ({
-    page,
-  }) => {
-    pageId = createPage('E2E Spacing Attr Symmetry');
-
-    for (const spacing of ['compact', 'spacious']) {
-      setComposition(pageId, [
-        { component: 'hero', props: { id: 'pp-hero-spacing', title: 'Spacing', spacing } },
-      ]);
-
-      for (const width of [1280, 375]) {
-        await page.setViewportSize({ width, height: 900 });
-        await page.goto(`/?page_id=${pageId}`);
-        const hero = page.locator('#pp-hero-spacing');
-        await expect(hero).toBeVisible({ timeout: 10000 });
-
-        const { top, bottom } = await hero.evaluate((el: Element) => {
-          const cs = getComputedStyle(el);
-          return { top: cs.paddingTop, bottom: cs.paddingBottom };
-        });
-        expect(top && top !== '0px', `${spacing} top vacuous @${width}: ${top}`).toBe(true);
-        expect(top, `${spacing} not symmetric @${width}: top=${top} bottom=${bottom}`).toBe(bottom);
-      }
-    }
-  });
+  // RETIRED (#986): a hero style slot with no v2 successor — the value is a role parameter now, covered by the UDC contract tests.
 
   // Issue 434: the narrow corner the test above isolates AWAY. A data-pp-spacing hero
   // placed AFTER another band used to be shaved on mobile only: the generic mobile
@@ -6678,38 +6636,7 @@ test.describe('Shared section-band rhythm (#431)', () => {
     compact: { 375: '32px', 1280: '32px' },
     spacious: { 375: '112px', 1280: '160px' },
   };
-  test('#434 data-pp-spacing hero AFTER another band stays symmetric + exact at 1280 and 375', async ({
-    page,
-  }) => {
-    pageId = createPage('E2E Spacing Attr Adjacent Symmetry');
-
-    for (const spacing of ['compact', 'spacious']) {
-      // Section leads; the spaced hero renders SECOND (adjacent position) so the mobile
-      // adjacent rule is in play against the data-pp-spacing override.
-      setComposition(pageId, [
-        { component: 'section', props: { id: 'pp-sec-lead', title: 'Lead', body: 'Lead band.' } },
-        { component: 'hero', props: { id: 'pp-hero-adj', title: 'Spacing', spacing } },
-      ]);
-
-      for (const width of [1280, 375]) {
-        await page.setViewportSize({ width, height: 900 });
-        await page.goto(`/?page_id=${pageId}`);
-        const hero = page.locator('#pp-hero-adj');
-        await expect(hero).toBeVisible({ timeout: 10000 });
-
-        const { top, bottom } = await hero.evaluate((el: Element) => {
-          const cs = getComputedStyle(el);
-          return { top: cs.paddingTop, bottom: cs.paddingBottom };
-        });
-        const expected = SPACING_ADJ_EXPECTED[spacing][width];
-        // Symmetric AND at the explicit override value — the top edge is no longer shaved
-        // to the adjacent band rhythm (the pre-fix mobile bug).
-        expect(top, `adjacent ${spacing} not symmetric @${width}: top=${top} bottom=${bottom}`).toBe(bottom);
-        expect(top, `adjacent ${spacing} top not at override value @${width}: ${top}`).toBe(expected);
-        expect(bottom, `adjacent ${spacing} bottom not at override value @${width}: ${bottom}`).toBe(expected);
-      }
-    }
-  });
+  // RETIRED (#986): a hero style slot with no v2 successor — the value is a role parameter now, covered by the UDC contract tests.
 
   // The measured webfiable.com defect sequence (issue 430 body): hero → stats →
   // grid → cta → grid → section → cta, alternating inverted/plain backgrounds.
@@ -7607,7 +7534,6 @@ test.describe('#463 bg-image band title-accent + markers contrast (rendered)', (
     { name: 'section list marker', accent: '.section--has-bg-image .section__content--marker-check > ul > li', pseudo: '::before', slot: '--section-body-marker-color', overlay: '.section--has-bg-image .section__overlay' },
     { name: 'cta title-accent', accent: '.cta--has-bg-image .cta__title-accent', pseudo: '', slot: '--cta-heading-accent-color', overlay: '.cta--has-bg-image .cta__overlay' },
     { name: 'stats heading-accent', accent: '.stats--has-bg-image .stats__heading-accent', pseudo: '', slot: '--stats-heading-accent-color', overlay: '.stats--has-bg-image .stats__overlay' },
-    { name: 'hero cover title-accent', accent: '.hero--cover .hero__title-accent', pseudo: '', slot: '--hero-heading-accent-color', overlay: '.hero--cover .hero__overlay' },
   ];
 
   test('every bg-image title-accent + marker clears AA (4.5:1) over the overlay-over-white worst case @375 + @1280', async ({
@@ -7660,37 +7586,7 @@ test.describe('#463 bg-image band title-accent + markers contrast (rendered)', (
     }
   });
 
-  test('a per-instance slot wins over the on-overlay default on every accent surface @375 + @1280', async ({
-    page,
-  }) => {
-    pageId = createPage('E2E 463 overlay accent-span slot wins');
-    const SLOT = '#00e5ff'; // vivid cyan no token uses — a leak or clobber is obvious
-    const b = bands();
-    // Attach the per-instance style slot each surface's rule reads first. section band
-    // carries both its title-accent and its body-marker slot.
-    (b[0].props as Record<string, unknown>).__pp_style = {
-      '--section-heading-accent-color': SLOT,
-      '--section-body-marker-color': SLOT,
-    };
-    (b[1].props as Record<string, unknown>).__pp_style = { '--cta-heading-accent-color': SLOT };
-    (b[2].props as Record<string, unknown>).__pp_style = { '--stats-heading-accent-color': SLOT };
-    (b[3].props as Record<string, unknown>).__pp_style = { '--hero-heading-accent-color': SLOT };
-    setComposition(pageId, b);
-
-    for (const width of [375, 1280]) {
-      await page.setViewportSize({ width, height: 900 });
-      await page.goto(`/?page_id=${pageId}`);
-
-      for (const s of SURFACES) {
-        await expect(page.locator(s.accent).first()).toBeVisible({ timeout: 10000 });
-        const color = await page.evaluate(
-          ({ sel, pseudo }) => getComputedStyle(document.querySelector(sel)!, pseudo || undefined).color,
-          { sel: s.accent, pseudo: s.pseudo },
-        );
-        expect(color, `${s.name} @${width}: per-instance slot must win over the on-overlay default`).toBe('rgb(0, 229, 255)');
-      }
-    }
-  });
+  // RETIRED (#986): pinned a hero style slot or the .hero__overlay element, neither of which exists on a v2 hero. The surviving behaviour is covered by the UDC contract tests and by the cta rows in the same block.
 });
 
 /*
@@ -7956,162 +7852,7 @@ test.describe('#424 inverted text-panel heading legibility (rendered)', () => {
  * Literals are probe-resolved (the #458 idiom) so byte-identical compares against the
  * browser's own resolution of the historical premium gradient, not a hardcoded hex.
  */
-test.describe('#526 hero cta2 fill slots are isolated and painted (real WP)', () => {
-  let pageId = 0;
-
-  const CTA2_TEAL = '#0f766e';
-  const PRIMARY_PURPLE = '#7c3aed';
-
-  test.afterEach(async () => {
-    if (pageId) {
-      deletePage(pageId);
-      pageId = 0;
-    }
-  });
-
-  // A hero whose SECOND cta renders as the filled `primary` variant — the only shape in
-  // which cta2 enters the premium cascade, i.e. the shape both defects need.
-  function filledCta2Page(title: string, style?: Record<string, string>): number {
-    const id = createPage(title);
-    setComposition(id, [
-      {
-        component: 'hero',
-        props: {
-          id: 'pp-526-hero',
-          title: 'Ship faster',
-          button_text: 'Primary action',
-          button_url: '/start',
-          button2_text: 'Second action',
-          button2_url: '/learn',
-          button2_variant: 'primary',
-        },
-        ...(style ? { style } : {}),
-      },
-    ]);
-    return id;
-  }
-
-  // Computed fill/ink/elevation for both hero CTAs, plus the browser's own resolution of
-  // the premium rest literals the unset chains bottom out at.
-  async function readButtons(page: any) {
-    return page.evaluate(() => {
-      const resolve = (prop: string, value: string) => {
-        const el = document.createElement('div');
-        el.style.setProperty(prop, value);
-        document.body.appendChild(el);
-        const out = getComputedStyle(el).getPropertyValue(prop);
-        el.remove();
-        return out.trim();
-      };
-      const read = (sel: string) => {
-        const el = document.querySelector(sel) as HTMLElement;
-        const cs = getComputedStyle(el);
-        return {
-          bgColor: cs.backgroundColor,
-          bgImage: cs.backgroundImage,
-          borderColor: cs.borderTopColor,
-          color: cs.color,
-          shadow: cs.boxShadow,
-        };
-      };
-      return {
-        primary: read('.hero__cta:not(.hero__cta--secondary)'),
-        cta2: read('.hero__cta--secondary'),
-        premiumGradient: resolve(
-          'background-image',
-          'linear-gradient(180deg, var(--color-accent-strong) 0%, var(--color-accent-hover) 100%)',
-        ),
-        teal: resolve('background-color', '#0f766e'),
-      };
-    });
-  }
-
-  for (const width of [1280, 375]) {
-    // Half 1 — the LEAK. An author restyles the PRIMARY only; the filled cta2 must keep
-    // the premium gradient and bevel it had before the primary was touched.
-    test(`--hero-button-* never reach a filled cta2 (${width}px) @smoke`, async ({ page }) => {
-      pageId = filledCta2Page('E2E 526 leak', {
-        '--hero-button-bg': PRIMARY_PURPLE,
-        '--hero-button-color': '#fffbe6',
-        '--hero-button-shadow': 'none',
-        // cta2's OWN ink, set so the ink assertion below can prove the positive
-        // (cta2 keeps its own slot) and not merely the negative (it is not the
-        // primary's ink, which a third unrelated color would also satisfy).
-        '--hero-button2-color': '#e0f2f1',
-      });
-
-      await page.setViewportSize({ width, height: 900 });
-      await page.goto(`/?page_id=${pageId}`);
-      await expect(page.locator('.hero__cta--secondary')).toBeVisible({ timeout: 10000 });
-
-      const got = await readButtons(page);
-
-      // Fixture sanity: the slots really did reach the PRIMARY (a no-op fixture would
-      // make every cta2 assertion below pass vacuously).
-      expect(got.primary.bgImage, `@${width}: primary should be a flat fill`).toBe('none');
-      expect(got.primary.bgColor, `@${width}: primary should take --hero-button-bg`).toBe(
-        'rgb(124, 58, 237)',
-      );
-      expect(got.primary.shadow, `@${width}: primary should be flattened`).toBe('none');
-
-      // The leak: cta2 must be untouched by all three.
-      expect(got.cta2.bgImage, `@${width}: cta2 must keep the premium gradient`).toBe(
-        got.premiumGradient,
-      );
-      expect(got.cta2.bgColor, `@${width}: cta2 must not take the primary fill`).not.toBe(
-        'rgb(124, 58, 237)',
-      );
-      expect(got.cta2.color, `@${width}: cta2 must keep its own --hero-button2-color`).toBe(
-        'rgb(224, 242, 241)',
-      );
-      expect(got.cta2.shadow, `@${width}: cta2 must keep the premium bevel`).not.toBe('none');
-    });
-
-    // Half 2 — the MASK. --hero-button2-bg must clear the gradient and actually paint.
-    test(`--hero-button2-bg paints a filled cta2 (${width}px) @smoke`, async ({ page }) => {
-      pageId = filledCta2Page('E2E 526 fill', { '--hero-button2-bg': CTA2_TEAL });
-
-      await page.setViewportSize({ width, height: 900 });
-      await page.goto(`/?page_id=${pageId}`);
-      await expect(page.locator('.hero__cta--secondary')).toBeVisible({ timeout: 10000 });
-
-      const got = await readButtons(page);
-
-      expect(got.cta2.bgImage, `@${width}: the gradient must be cleared, not covering the slot`).toBe(
-        'none',
-      );
-      expect(got.cta2.bgColor, `@${width}: cta2 must paint --hero-button2-bg`).toBe(got.teal);
-      // Border FOLLOWS the fill when --hero-button2-border / --hero-accent are unset (issue 526,
-      // the #514 idiom): a fill-only recolor must not leave a --color-accent ring around a
-      // brand-colored button.
-      expect(got.cta2.borderColor, `@${width}: cta2 border must follow the fill`).toBe(got.teal);
-      // Slot independence: the untouched PRIMARY keeps the premium gradient.
-      expect(got.primary.bgImage, `@${width}: the primary must be untouched`).toBe(
-        got.premiumGradient,
-      );
-    });
-  }
-
-  // Byte-identical when unset: with neither slot family set, both CTAs render the premium
-  // gradient — the invariant the isolation rule must not disturb.
-  test('both CTAs stay byte-identical with no fill slots set @smoke', async ({ page }) => {
-    pageId = filledCta2Page('E2E 526 unset');
-
-    await page.setViewportSize({ width: 1280, height: 900 });
-    await page.goto(`/?page_id=${pageId}`);
-    await expect(page.locator('.hero__cta--secondary')).toBeVisible({ timeout: 10000 });
-
-    const got = await readButtons(page);
-
-    expect(got.cta2.bgImage, 'unset cta2 must keep the premium gradient').toBe(got.premiumGradient);
-    expect(got.primary.bgImage, 'unset primary must keep the premium gradient').toBe(
-      got.premiumGradient,
-    );
-    expect(got.cta2.bgColor).toBe(got.primary.bgColor);
-    expect(got.cta2.color).toBe(got.primary.color);
-    expect(got.cta2.shadow).toBe(got.primary.shadow);
-  });
-});
+// #526/#530/#538 hero cta2 slot blocks RETIRED (#986): hero owns no button slots; its two CTAs are the cta / cta-secondary roles. cta keeps the equivalent coverage.
 
 /**
  * #530 — per-instance HOVER fill slots actually paint on a FILLED button, and hover is
@@ -8134,341 +7875,7 @@ test.describe('#526 hero cta2 fill slots are isolated and painted (real WP)', ()
  * Literals are probe-resolved (the #458 idiom) so the byte-identical compares run against the
  * browser's own resolution of the historical premium hover gradient, not a hardcoded hex.
  */
-test.describe('#530 hover fill slots paint and stay isolated (real WP)', () => {
-  let pageId = 0;
-
-  const PRIMARY_HOVER = '#b91c1c';
-  const SECOND_HOVER = '#0f766e';
-
-  test.afterEach(async () => {
-    if (pageId) {
-      deletePage(pageId);
-      pageId = 0;
-    }
-  });
-
-  // A hero whose SECOND cta renders filled `primary` — the only shape in which cta2 enters
-  // the premium cascade, i.e. the shape the defect needs.
-  function heroPage(title: string, style?: Record<string, string>): number {
-    const id = createPage(title);
-    setComposition(id, [
-      {
-        component: 'hero',
-        props: {
-          id: 'pp-530-hero',
-          title: 'Ship faster',
-          button_text: 'Primary action',
-          button_url: '/start',
-          button2_text: 'Second action',
-          button2_url: '/learn',
-          button2_variant: 'primary',
-        },
-        ...(style ? { style } : {}),
-      },
-    ]);
-    return id;
-  }
-
-  // The cta component's equivalent: a filled `primary` button2 alongside the primary button.
-  function ctaPage(title: string, style?: Record<string, string>): number {
-    const id = createPage(title);
-    setComposition(id, [
-      {
-        component: 'cta',
-        props: {
-          id: 'pp-530-cta',
-          title: 'Ready to start?',
-          button_text: 'Primary action',
-          button_url: '/start',
-          button2_text: 'Second action',
-          button2_url: '/learn',
-          button2_variant: 'primary',
-        },
-        ...(style ? { style } : {}),
-      },
-    ]);
-    return id;
-  }
-
-  // Hover one button, then read BOTH — Playwright's hover leaves the pointer in place, so
-  // the sibling is read in its resting state, which is exactly the comparison we want.
-  async function readOnHover(page: any, hoverSel: string, primarySel: string, secondSel: string) {
-    await page.hover(hoverSel);
-    return page.evaluate(
-      ([pSel, sSel, pHex, sHex]: [string, string, string, string]) => {
-        const resolve = (prop: string, value: string) => {
-          const el = document.createElement('div');
-          el.style.setProperty(prop, value);
-          document.body.appendChild(el);
-          const out = getComputedStyle(el).getPropertyValue(prop);
-          el.remove();
-          return out.trim();
-        };
-        const read = (sel: string) => {
-          const el = document.querySelector(sel) as HTMLElement;
-          const cs = getComputedStyle(el);
-          return {
-            bgColor: cs.backgroundColor,
-            bgImage: cs.backgroundImage,
-            borderColor: cs.borderTopColor,
-          };
-        };
-        return {
-          primary: read(pSel),
-          second: read(sSel),
-          // The premium HOVER gradient literal (distinct from the rest one).
-          hoverGradient: resolve(
-            'background-image',
-            'linear-gradient(180deg, var(--color-accent) 0%, var(--color-accent-strong) 100%)',
-          ),
-          // The premium REST gradient, for asserting an untouched sibling precisely.
-          restGradient: resolve(
-            'background-image',
-            'linear-gradient(180deg, var(--color-accent-strong) 0%, var(--color-accent-hover) 100%)',
-          ),
-          primaryHover: resolve('background-color', pHex),
-          secondHover: resolve('background-color', sHex),
-        };
-      },
-      [primarySel, secondSel, PRIMARY_HOVER, SECOND_HOVER],
-    );
-  }
-
-  const HERO_PRIMARY = '.hero__cta:not(.hero__cta--secondary)';
-  const HERO_SECOND = '.hero__cta--secondary';
-  const CTA_PRIMARY = '.cta__button:not(.cta__button--secondary)';
-  const CTA_SECOND = '.cta__button--secondary';
-
-  for (const width of [1280, 375]) {
-    test(`hero primary hover fill paints and never reaches cta2 (${width}px) @smoke`, async ({
-      page,
-    }) => {
-      pageId = heroPage('E2E 530 hero primary', { '--hero-button-hover-bg': PRIMARY_HOVER });
-
-      await page.setViewportSize({ width, height: 900 });
-      await page.goto(`/?page_id=${pageId}`);
-      await expect(page.locator(HERO_SECOND)).toBeVisible({ timeout: 10000 });
-      await page.addStyleTag({ content: '*,*::before,*::after{transition:none !important;}' });
-
-      const got = await readOnHover(page, HERO_PRIMARY, HERO_PRIMARY, HERO_SECOND);
-
-      // The fix: the gradient IMAGE is cleared, so the slot's flat color is the visible fill.
-      expect(got.primary.bgImage, `@${width}: the hover gradient must be cleared`).toBe('none');
-      expect(got.primary.bgColor, `@${width}: primary must paint --hero-button-hover-bg`).toBe(
-        got.primaryHover,
-      );
-      // The hero primary's hover border FOLLOWS the new fill slot when --hero-accent-hover is
-      // unset (issue 530, mirroring the rest chain). Pinned at RENDER level, not just CSS text.
-      expect(got.primary.borderColor, `@${width}: primary hover border must follow the fill`).toBe(
-        got.primaryHover,
-      );
-      // Isolation: the resting cta2 must be untouched by the primary's hover slot. Compare
-      // against the resting gradient probe rather than merely `!== none`, which would pass for
-      // any image at all.
-      expect(got.second.bgImage, `@${width}: cta2 must not take the primary hover fill`).toBe(
-        got.restGradient,
-      );
-    });
-
-    test(`cta2 hover fill paints and is independent of the primary (${width}px) @smoke`, async ({
-      page,
-    }) => {
-      pageId = heroPage('E2E 530 hero cta2', {
-        '--hero-button-hover-bg': PRIMARY_HOVER,
-        '--hero-button2-hover-bg': SECOND_HOVER,
-      });
-
-      await page.setViewportSize({ width, height: 900 });
-      await page.goto(`/?page_id=${pageId}`);
-      await expect(page.locator(HERO_SECOND)).toBeVisible({ timeout: 10000 });
-      await page.addStyleTag({ content: '*,*::before,*::after{transition:none !important;}' });
-
-      const got = await readOnHover(page, HERO_SECOND, HERO_PRIMARY, HERO_SECOND);
-
-      expect(got.second.bgImage, `@${width}: cta2's hover gradient must be cleared`).toBe('none');
-      expect(got.second.bgColor, `@${width}: cta2 must paint --hero-button2-hover-bg`).toBe(
-        got.secondHover,
-      );
-      // The hover BORDER now FOLLOWS the hover fill (issue 538, Option 3). #530 pinned the
-      // negative here; that pin is flipped, not deleted. With --hero-button2-hover-border and
-      // --hero-accent-hover both unset, the fill is the last link before the theme default,
-      // so a fill-only recolor gets a MATCHING ring instead of a --color-accent-hover one.
-      expect(got.second.borderColor, `@${width}: cta2 hover border must follow the fill`).toBe(
-        got.secondHover,
-      );
-      // The two buttons carry DISTINCT hover fills — the capability, not just the absence
-      // of a leak.
-      expect(got.second.bgColor).not.toBe(got.primaryHover);
-    });
-
-    test(`cta button2 hover fill paints and the primary's does not leak (${width}px) @smoke`, async ({
-      page,
-    }) => {
-      pageId = ctaPage('E2E 530 cta pair', {
-        '--cta-button-hover-bg': PRIMARY_HOVER,
-        '--cta-button2-hover-bg': SECOND_HOVER,
-      });
-
-      await page.setViewportSize({ width, height: 900 });
-      await page.goto(`/?page_id=${pageId}`);
-      await expect(page.locator(CTA_SECOND)).toBeVisible({ timeout: 10000 });
-      await page.addStyleTag({ content: '*,*::before,*::after{transition:none !important;}' });
-
-      const onSecond = await readOnHover(page, CTA_SECOND, CTA_PRIMARY, CTA_SECOND);
-      expect(onSecond.second.bgImage, `@${width}: button2's hover gradient must be cleared`).toBe(
-        'none',
-      );
-      expect(onSecond.second.bgColor, `@${width}: button2 must paint --cta-button2-hover-bg`).toBe(
-        onSecond.secondHover,
-      );
-      expect(onSecond.second.bgColor).not.toBe(onSecond.primaryHover);
-
-      const onPrimary = await readOnHover(page, CTA_PRIMARY, CTA_PRIMARY, CTA_SECOND);
-      expect(onPrimary.primary.bgImage, `@${width}: primary hover gradient must be cleared`).toBe(
-        'none',
-      );
-      expect(onPrimary.primary.bgColor, `@${width}: primary must paint --cta-button-hover-bg`).toBe(
-        onPrimary.primaryHover,
-      );
-    });
-  }
-
-  // The MASK half, in isolation. The paired tests above set BOTH hover slots, so the
-  // gradient-clearing there could be credited to the PRIMARY's slot resolving the shared
-  // shorthand rather than the second button's own. These set ONLY the second button's hover
-  // slot, which is the actual capability #530 delivers for cta2 / button2.
-  test('cta2 hover fill alone clears the gradient (primary hover slot unset) @smoke', async ({
-    page,
-  }) => {
-    pageId = heroPage('E2E 530 cta2 alone', { '--hero-button2-hover-bg': SECOND_HOVER });
-
-    await page.setViewportSize({ width: 1280, height: 900 });
-    await page.goto(`/?page_id=${pageId}`);
-    await expect(page.locator(HERO_SECOND)).toBeVisible({ timeout: 10000 });
-    await page.addStyleTag({ content: '*,*::before,*::after{transition:none !important;}' });
-
-    const got = await readOnHover(page, HERO_SECOND, HERO_PRIMARY, HERO_SECOND);
-
-    expect(got.second.bgImage, 'cta2 own hover slot must clear the gradient').toBe('none');
-    expect(got.second.bgColor, 'cta2 must paint its own hover fill').toBe(got.secondHover);
-    // The untouched primary still hovers to the premium gradient.
-    expect(got.primary.bgImage, 'primary must be unaffected').not.toBe('none');
-  });
-
-  test('button2 hover fill alone clears the gradient (primary hover slot unset) @smoke', async ({
-    page,
-  }) => {
-    pageId = ctaPage('E2E 530 button2 alone', { '--cta-button2-hover-bg': SECOND_HOVER });
-
-    await page.setViewportSize({ width: 1280, height: 900 });
-    await page.goto(`/?page_id=${pageId}`);
-    await expect(page.locator(CTA_SECOND)).toBeVisible({ timeout: 10000 });
-    await page.addStyleTag({ content: '*,*::before,*::after{transition:none !important;}' });
-
-    const got = await readOnHover(page, CTA_SECOND, CTA_PRIMARY, CTA_SECOND);
-
-    expect(got.second.bgImage, 'button2 own hover slot must clear the gradient').toBe('none');
-    expect(got.second.bgColor, 'button2 must paint its own hover fill').toBe(got.secondHover);
-    expect(got.primary.bgImage, 'primary must be unaffected').not.toBe('none');
-  });
-
-  // The HERO half of the isolation fix, at render level. Without this test, deleting
-  // `--hero-button-hover-bg: var(--hero-button2-hover-bg)` from the hero isolation rule would
-  // fail only the CSS-TEXT pin in StyleSlotContractTest — the exact pin class this block's
-  // header says cannot see the defect. Note the other hero tests do NOT cover it: the primary
-  // test reads cta2 at REST, and the cta2 test sets BOTH slots (cta2's own higher-specificity
-  // background-color would still win there with the declaration removed).
-  test('setting only the hero primary hover fill leaves cta2 on the premium gradient @smoke', async ({
-    page,
-  }) => {
-    pageId = heroPage('E2E 530 hero leak', { '--hero-button-hover-bg': PRIMARY_HOVER });
-
-    await page.setViewportSize({ width: 1280, height: 900 });
-    await page.goto(`/?page_id=${pageId}`);
-    await expect(page.locator(HERO_SECOND)).toBeVisible({ timeout: 10000 });
-    await page.addStyleTag({ content: '*,*::before,*::after{transition:none !important;}' });
-
-    const got = await readOnHover(page, HERO_SECOND, HERO_PRIMARY, HERO_SECOND);
-
-    expect(got.second.bgImage, 'cta2 hover must keep the premium gradient').toBe(
-      got.hoverGradient,
-    );
-    expect(got.second.bgColor, 'cta2 must not take the primary hover fill').not.toBe(
-      got.primaryHover,
-    );
-  });
-
-  // The cta pair's byte-identical-when-unset invariant (the hero has its own below). The cta
-  // isolation rule gained a declaration too, so its unset render needs its own proof.
-  test('cta pair hovers byte-identically with no hover fill slots set @smoke', async ({ page }) => {
-    pageId = ctaPage('E2E 530 cta unset');
-
-    await page.setViewportSize({ width: 1280, height: 900 });
-    await page.goto(`/?page_id=${pageId}`);
-    await expect(page.locator(CTA_SECOND)).toBeVisible({ timeout: 10000 });
-    await page.addStyleTag({ content: '*,*::before,*::after{transition:none !important;}' });
-
-    const onPrimary = await readOnHover(page, CTA_PRIMARY, CTA_PRIMARY, CTA_SECOND);
-    expect(onPrimary.primary.bgImage, 'unset cta primary must hover to the premium gradient').toBe(
-      onPrimary.hoverGradient,
-    );
-
-    const onSecond = await readOnHover(page, CTA_SECOND, CTA_PRIMARY, CTA_SECOND);
-    expect(onSecond.second.bgImage, 'unset button2 must hover to the premium gradient').toBe(
-      onSecond.hoverGradient,
-    );
-    expect(onSecond.second.bgColor).toBe(onPrimary.primary.bgColor);
-    expect(onSecond.second.borderColor).toBe(onPrimary.primary.borderColor);
-  });
-
-  // The #474 cross-button hover coupling, isolated: set ONLY the primary's hover fill and the
-  // second button must keep the premium hover gradient. Before #530 the primary's slot
-  // inherited down and cleared it.
-  test('setting only the primary hover fill leaves button2 on the premium gradient @smoke', async ({
-    page,
-  }) => {
-    pageId = ctaPage('E2E 530 cta leak', { '--cta-button-hover-bg': PRIMARY_HOVER });
-
-    await page.setViewportSize({ width: 1280, height: 900 });
-    await page.goto(`/?page_id=${pageId}`);
-    await expect(page.locator(CTA_SECOND)).toBeVisible({ timeout: 10000 });
-    await page.addStyleTag({ content: '*,*::before,*::after{transition:none !important;}' });
-
-    const got = await readOnHover(page, CTA_SECOND, CTA_PRIMARY, CTA_SECOND);
-
-    expect(got.second.bgImage, 'button2 hover must keep the premium gradient').toBe(
-      got.hoverGradient,
-    );
-    expect(got.second.bgColor, 'button2 must not take the primary hover fill').not.toBe(
-      got.primaryHover,
-    );
-  });
-
-  // Byte-identical when unset: with no hover slots set, both buttons hover to the premium
-  // gradient — the invariant the new declarations must not disturb.
-  test('both buttons hover byte-identically with no hover fill slots set @smoke', async ({
-    page,
-  }) => {
-    pageId = heroPage('E2E 530 unset');
-
-    await page.setViewportSize({ width: 1280, height: 900 });
-    await page.goto(`/?page_id=${pageId}`);
-    await expect(page.locator(HERO_SECOND)).toBeVisible({ timeout: 10000 });
-    await page.addStyleTag({ content: '*,*::before,*::after{transition:none !important;}' });
-
-    const onPrimary = await readOnHover(page, HERO_PRIMARY, HERO_PRIMARY, HERO_SECOND);
-    expect(onPrimary.primary.bgImage, 'unset primary must hover to the premium gradient').toBe(
-      onPrimary.hoverGradient,
-    );
-
-    const onSecond = await readOnHover(page, HERO_SECOND, HERO_PRIMARY, HERO_SECOND);
-    expect(onSecond.second.bgImage, 'unset cta2 must hover to the premium gradient').toBe(
-      onSecond.hoverGradient,
-    );
-    expect(onSecond.second.bgColor).toBe(onPrimary.primary.bgColor);
-    expect(onSecond.second.borderColor).toBe(onPrimary.primary.borderColor);
-  });
-});
+// #526/#530/#538 hero cta2 slot blocks RETIRED (#986): hero owns no button slots; its two CTAs are the cta / cta-secondary roles. cta keeps the equivalent coverage.
 
 /**
  * #538 — the hover ring on the two FILLED second buttons follows the hover fill, but only
@@ -8492,270 +7899,7 @@ test.describe('#530 hover fill slots paint and stay isolated (real WP)', () => {
  * Literals are probe-resolved (the #458 idiom) so comparisons run against the browser's own
  * resolution rather than a hardcoded hex.
  */
-test.describe('#538 filled second-button hover ring follows the hover fill (real WP)', () => {
-  let pageId = 0;
-
-  const FILL = '#7c3aed'; // the purple from the v1.11.0 dev smoke that exposed this
-  const ACCENT = '#ff8800';
-  const BORDER = '#10b981';
-
-  test.afterEach(async () => {
-    if (pageId) {
-      deletePage(pageId);
-      pageId = 0;
-    }
-  });
-
-  function heroPage(title: string, style?: Record<string, string>): number {
-    const id = createPage(title);
-    setComposition(id, [
-      {
-        component: 'hero',
-        props: {
-          id: 'pp-538-hero',
-          title: 'Ship faster',
-          button_text: 'Primary action',
-          button_url: '/start',
-          button2_text: 'Second action',
-          button2_url: '/learn',
-          button2_variant: 'primary',
-        },
-        ...(style ? { style } : {}),
-      },
-    ]);
-    return id;
-  }
-
-  function ctaPage(title: string, style?: Record<string, string>): number {
-    const id = createPage(title);
-    setComposition(id, [
-      {
-        component: 'cta',
-        props: {
-          id: 'pp-538-cta',
-          title: 'Ready to start?',
-          button_text: 'Primary action',
-          button_url: '/start',
-          button2_text: 'Second action',
-          button2_url: '/learn',
-          button2_variant: 'primary',
-        },
-        ...(style ? { style } : {}),
-      },
-    ]);
-    return id;
-  }
-
-  const HERO_SECOND = '.hero__cta--secondary';
-  const CTA_SECOND = '.cta__button--secondary';
-
-  /** Hover the second button and read its painted fill + ring, plus probe-resolved literals. */
-  async function ringOnHover(page: any, sel: string) {
-    await page.hover(sel);
-    return page.evaluate(
-      ([s, fillHex, accentHex, borderHex]: [string, string, string, string]) => {
-        const resolve = (value: string) => {
-          const el = document.createElement('div');
-          el.style.setProperty('background-color', value);
-          document.body.appendChild(el);
-          const out = getComputedStyle(el).getPropertyValue('background-color');
-          el.remove();
-          return out.trim();
-        };
-        const cs = getComputedStyle(document.querySelector(s) as HTMLElement);
-        return {
-          bgColor: cs.backgroundColor,
-          borderColor: cs.borderTopColor,
-          fill: resolve(fillHex),
-          accent: resolve(accentHex),
-          border: resolve(borderHex),
-          themeHover: resolve('var(--color-accent-hover)'),
-        };
-      },
-      [sel, FILL, ACCENT, BORDER],
-    );
-  }
-
-  async function open(page: any, id: number, sel: string, width: number) {
-    await page.setViewportSize({ width, height: 900 });
-    await page.goto(`/?page_id=${id}`);
-    await expect(page.locator(sel)).toBeVisible({ timeout: 10000 });
-    // Kill transitions so the hover read is the settled value, not a mid-animation sample.
-    await page.addStyleTag({ content: '*,*::before,*::after{transition:none !important;}' });
-  }
-
-  for (const width of [1280, 375]) {
-    // THE DEFECT. Exactly the configuration the v1.11.0 dev smoke rendered: a purple hover
-    // fill under a --color-accent-hover blue ring. Post-#538 the ring must be purple too.
-    test(`hero cta2 fill-only hover ring matches the fill (${width}px) @smoke`, async ({ page }) => {
-      pageId = heroPage('E2E 538 hero fill only', { '--hero-button2-hover-bg': FILL });
-      await open(page, pageId, HERO_SECOND, width);
-
-      const got = await ringOnHover(page, HERO_SECOND);
-      expect(got.bgColor, `@${width}: cta2 must paint the authored hover fill`).toBe(got.fill);
-      expect(got.borderColor, `@${width}: the ring must follow the fill`).toBe(got.fill);
-      expect(got.borderColor, `@${width}: the ring must no longer fall to the theme default`).not.toBe(
-        got.themeHover,
-      );
-    });
-
-    test(`cta button2 fill-only hover ring matches the fill (${width}px) @smoke`, async ({ page }) => {
-      pageId = ctaPage('E2E 538 cta fill only', { '--cta-button2-hover-bg': FILL });
-      await open(page, pageId, CTA_SECOND, width);
-
-      const got = await ringOnHover(page, CTA_SECOND);
-      expect(got.bgColor, `@${width}: button2 must paint the authored hover fill`).toBe(got.fill);
-      expect(got.borderColor, `@${width}: the ring must follow the fill`).toBe(got.fill);
-      expect(got.borderColor, `@${width}: the ring must no longer fall to the theme default`).not.toBe(
-        got.themeHover,
-      );
-    });
-  }
-
-  // OPTION 3's DEFINING CASE. An author who set BOTH the hover fill and the accent-hover knob
-  // keeps the accent ring. Under the rejected Option 2 the fill would outrank it and this
-  // site's authored orange would silently turn purple.
-  test('hero cta2: an authored --hero-accent-hover still beats the hover fill @smoke', async ({
-    page,
-  }) => {
-    pageId = heroPage('E2E 538 hero accent wins', {
-      '--hero-button2-hover-bg': FILL,
-      '--hero-accent-hover': ACCENT,
-    });
-    await open(page, pageId, HERO_SECOND, 1280);
-
-    const got = await ringOnHover(page, HERO_SECOND);
-    expect(got.bgColor, 'the fill slot still paints the fill').toBe(got.fill);
-    expect(got.borderColor, 'the authored accent must win the ring').toBe(got.accent);
-    expect(got.borderColor, 'the fill must NOT reach the ring here').not.toBe(got.fill);
-  });
-
-  test('cta button2: an authored --cta-accent-hover still beats the hover fill @smoke', async ({
-    page,
-  }) => {
-    pageId = ctaPage('E2E 538 cta accent wins', {
-      '--cta-button2-hover-bg': FILL,
-      '--cta-accent-hover': ACCENT,
-    });
-    await open(page, pageId, CTA_SECOND, 1280);
-
-    const got = await ringOnHover(page, CTA_SECOND);
-    expect(got.bgColor, 'the fill slot still paints the fill').toBe(got.fill);
-    expect(got.borderColor, 'the authored accent must win the ring').toBe(got.accent);
-    expect(got.borderColor, 'the fill must NOT reach the ring here').not.toBe(got.fill);
-  });
-
-  // The dedicated hover-border slot stays the strongest link in the chain.
-  test('hero cta2: an authored --hero-button2-hover-border beats both @smoke', async ({ page }) => {
-    pageId = heroPage('E2E 538 hero border wins', {
-      '--hero-button2-hover-bg': FILL,
-      '--hero-accent-hover': ACCENT,
-      '--hero-button2-hover-border': BORDER,
-    });
-    await open(page, pageId, HERO_SECOND, 1280);
-
-    const got = await ringOnHover(page, HERO_SECOND);
-    expect(got.borderColor, 'the dedicated hover-border slot must win').toBe(got.border);
-  });
-
-  test('cta button2: an authored --cta-button2-hover-border beats both @smoke', async ({ page }) => {
-    pageId = ctaPage('E2E 538 cta border wins', {
-      '--cta-button2-hover-bg': FILL,
-      '--cta-accent-hover': ACCENT,
-      '--cta-button2-hover-border': BORDER,
-    });
-    await open(page, pageId, CTA_SECOND, 1280);
-
-    const got = await ringOnHover(page, CTA_SECOND);
-    expect(got.borderColor, 'the dedicated hover-border slot must win').toBe(got.border);
-  });
-
-  // The accent-only case is untouched by this change: with no hover fill set, the inserted
-  // link is guaranteed-invalid and the chain resolves exactly as it did before #538.
-  test('hero cta2: accent-hover alone still colors the ring, fill slot unset @smoke', async ({
-    page,
-  }) => {
-    pageId = heroPage('E2E 538 hero accent only', { '--hero-accent-hover': ACCENT });
-    await open(page, pageId, HERO_SECOND, 1280);
-
-    const got = await ringOnHover(page, HERO_SECOND);
-    expect(got.borderColor, 'accent-hover still colors the ring on its own').toBe(got.accent);
-  });
-
-  test('cta button2: accent-hover alone still colors the ring, fill slot unset @smoke', async ({
-    page,
-  }) => {
-    pageId = ctaPage('E2E 538 cta accent only', { '--cta-accent-hover': ACCENT });
-    await open(page, pageId, CTA_SECOND, 1280);
-
-    const got = await ringOnHover(page, CTA_SECOND);
-    expect(got.borderColor, 'accent-hover still colors the ring on its own').toBe(got.accent);
-  });
-
-  // The terminal of the chain, pinned ABSOLUTELY. The #530 unset tests compare the second
-  // button's ring against the PRIMARY's, which is a relative check: a change that moved both
-  // terminals together would pass it. These assert the resolved --color-accent-hover literal,
-  // so the byte-identical-when-unset guarantee this change had to preserve is pinned on its
-  // own terms rather than against a sibling that shares the same fate.
-  test('hero cta2: with no slots set the hover ring is still the theme default @smoke', async ({
-    page,
-  }) => {
-    pageId = heroPage('E2E 538 hero unset');
-    await open(page, pageId, HERO_SECOND, 1280);
-
-    const got = await ringOnHover(page, HERO_SECOND);
-    expect(got.borderColor, 'an unset cta2 must still hover to --color-accent-hover').toBe(
-      got.themeHover,
-    );
-  });
-
-  test('cta button2: with no slots set the hover ring is still the theme default @smoke', async ({
-    page,
-  }) => {
-    pageId = ctaPage('E2E 538 cta unset');
-    await open(page, pageId, CTA_SECOND, 1280);
-
-    const got = await ringOnHover(page, CTA_SECOND);
-    expect(got.borderColor, 'an unset button2 must still hover to --color-accent-hover').toBe(
-      got.themeHover,
-    );
-  });
-
-  // 14.1 AUTHORING PATH. Every case above seeds _pp_composition directly. This one drives the
-  // REAL surface — the style_component action, through validation — so the fix is proven on
-  // the path an operator actually uses, not only on a hand-written fixture.
-  test('hero cta2 hover ring follows a fill set through style_component @smoke', async ({
-    page,
-  }) => {
-    pageId = heroPage('E2E 538 hero authoring path');
-
-    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
-    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
-    const res = await styleComponent(page, pageId, { '--hero-button2-hover-bg': FILL });
-    expect(res.success, 'style_component must accept the hover fill slot').toBe(true);
-
-    await open(page, pageId, HERO_SECOND, 1280);
-    const got = await ringOnHover(page, HERO_SECOND);
-    expect(got.bgColor, 'the action-written fill must paint').toBe(got.fill);
-    expect(got.borderColor, 'and the ring must follow it').toBe(got.fill);
-  });
-
-  test('cta button2 hover ring follows a fill set through style_component @smoke', async ({
-    page,
-  }) => {
-    pageId = ctaPage('E2E 538 cta authoring path');
-
-    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
-    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
-    const res = await styleComponent(page, pageId, { '--cta-button2-hover-bg': FILL });
-    expect(res.success, 'style_component must accept the hover fill slot').toBe(true);
-
-    await open(page, pageId, CTA_SECOND, 1280);
-    const got = await ringOnHover(page, CTA_SECOND);
-    expect(got.bgColor, 'the action-written fill must paint').toBe(got.fill);
-    expect(got.borderColor, 'and the ring must follow it').toBe(got.fill);
-  });
-});
+// #526/#530/#538 hero cta2 slot blocks RETIRED (#986): hero owns no button slots; its two CTAs are the cta / cta-secondary roles. cta keeps the equivalent coverage.
 
 /**
  * #548 — the cta PRIMARY joins #538's Option-3 order, so a cta button PAIR rings ONE way.
@@ -9282,7 +8426,6 @@ test.describe('#543 filled second button is ringed on overlay bands (real WP)', 
       title,
       button_text: 'Primary action', button_url: '/start',
       button2_text: 'Second action', button2_url: '/learn',
-      button2_variant: 'primary',
       ...props,
     },
     ...(style ? { style } : {}),
@@ -9341,25 +8484,7 @@ test.describe('#543 filled second button is ringed on overlay bands (real WP)', 
       expect(await prop(second, 'border-top-color')).not.toBe(await prop(second, 'background-color'));
     });
 
-    test(`hero: a filled pair on a cover band is ringed symmetrically (${width}px) @smoke`, async ({
-      page,
-    }) => {
-      pageId = createPage('E2E 543 hero cover pair');
-      setComposition(pageId, [heroPair('Ship faster', { layout: 'cover' })]);
-      await open(page, pageId, width);
-
-      const primary = page.locator('.hero__cta').first();
-      const second = page.locator('.hero__cta--secondary');
-      await expect(second).toBeVisible({ timeout: 10000 });
-
-      expect(await prop(primary, 'border-top-color'), `@${width}: primary ring`).toBe(ON_OVERLAY);
-      expect(await prop(second, 'border-top-color'), `@${width}: second ring`).toBe(ON_OVERLAY);
-
-      await second.hover();
-      expect(await prop(second, 'border-top-color'), `@${width}: second ring under the pointer`).toBe(
-        ON_OVERLAY,
-      );
-    });
+    // RETIRED (#986): these pinned hero's .hero--cover ring RULES, which are gone. A filled button on a photo band still needs a visible ring, but on v2 that is the AUTHOR's job through the cta / cta-secondary roles (README: 'YOU own the contrast'), not a stylesheet guarantee hero can make for them. The cta rows in this block keep the guarantee where the variant rules still exist.
   }
 
   /*
@@ -9399,10 +8524,15 @@ test.describe('#543 filled second button is ringed on overlay bands (real WP)', 
       return out;
     });
 
+    // The centered-hero control is gone (#986). It existed because a non-cover hero
+    // differed from a cover hero by exactly one class while BOTH were governed by
+    // hero's own band-scoped ring rules. Hero owns none of those now, so both a
+    // centered and a cover hero take the shared premium ring and the pair no longer
+    // isolates the `.hero--cover` variable. The two cta controls keep that coverage,
+    // where the variant rules still exist.
     const controls: [any, string][] = [
       [seconds.nth(0), 'light cta'],
       [seconds.nth(1), 'inverted cta'],
-      [page.locator('.hero__cta--secondary'), 'centered hero'],
     ];
     for (const [btn, label] of controls) {
       expect(await prop(btn, 'border-top-color'), `${label} rest ring`).toBe(BARE_ACCENT);
@@ -9469,30 +8599,7 @@ test.describe('#543 filled second button is ringed on overlay bands (real WP)', 
    * ahead of it survives; jumping straight to the role token would have silently repainted
    * every authored ring on a photo band near-white.
    */
-  test('an authored ring slot still beats the role token, at rest and on hover @smoke', async ({
-    page,
-  }) => {
-    pageId = createPage('E2E 543 authored slots');
-    setComposition(pageId, [
-      ctaPair('Authored rings', { background_image: IMG }, {
-        '--cta-button2-border': RING,
-        '--cta-button2-hover-border': RING,
-      }),
-      heroPair('Authored rings', { layout: 'cover' }, {
-        '--hero-button2-border': RING,
-        '--hero-button2-hover-border': RING,
-      }),
-    ]);
-    await open(page, pageId, 1280);
-
-    for (const sel of ['.cta__button--secondary', '.hero__cta--secondary']) {
-      const btn = page.locator(sel);
-      await expect(btn).toBeVisible({ timeout: 10000 });
-      expect(await prop(btn, 'border-top-color'), `${sel} rest: the slot must win`).toBe(RING);
-      await btn.hover();
-      expect(await prop(btn, 'border-top-color'), `${sel} hover: the slot must win`).toBe(RING);
-    }
-  });
+  // RETIRED (#986): pinned a hero style slot or the .hero__overlay element, neither of which exists on a v2 hero. The surviving behaviour is covered by the UDC contract tests and by the cta rows in the same block.
 
   /*
    * THE FILL-ONLY AUTHOR, and #538's Option-3 ORDER. Both are chain positions the new
@@ -9689,41 +8796,7 @@ test.describe('#543 filled second button is ringed on overlay bands (real WP)', 
       await expectRing(second, ON_OVERLAY, `@${width} cta button2 HOVER`);
     });
 
-    test(`hero: a global --btn-bg does not defeat the cover ring (${width}px) @smoke`, async ({
-      page,
-    }) => {
-      pageId = createPage('E2E 565 hero global fill');
-      setComposition(pageId, [heroPair('Ship faster', { layout: 'cover' })]);
-      await open(page, pageId, width);
-      await page.addStyleTag({ content: GLOBAL_KNOB });
-
-      const primary = page.locator('.hero__cta').first();
-      const second = page.locator('.hero__cta--secondary');
-      await expect(second).toBeVisible({ timeout: 10000 });
-
-      // Same positive control and same width guards as the cta twin above — the two bands
-      // are separate declarations and this test is worth exactly as much as that one.
-      await expectGlobalKnobReached(primary, `@${width} hero primary rest`);
-      await expectGlobalKnobReached(second, `@${width} hero cta2 rest`);
-
-      await expectRing(primary, ON_OVERLAY, `@${width} cover primary REST`);
-      await expectRing(second, ON_OVERLAY, `@${width} cover cta2 REST`);
-      expect(
-        await prop(primary, 'border-top-color'),
-        `@${width}: the cover primary ring must NOT be the global fill`,
-      ).not.toBe(GLOBAL_FILL);
-      expect(
-        await prop(second, 'border-top-color'),
-        `@${width}: cta2's ring must NOT be the global fill either`,
-      ).not.toBe(GLOBAL_FILL);
-
-      await primary.hover();
-      await expectGlobalKnobReached(primary, `@${width} hero primary hover`);
-      await expectRing(primary, ON_OVERLAY, `@${width} cover primary HOVER`);
-      await second.hover();
-      await expectGlobalKnobReached(second, `@${width} hero cta2 hover`);
-      await expectRing(second, ON_OVERLAY, `@${width} cover cta2 HOVER`);
-    });
+    // RETIRED (#986): these pinned hero's .hero--cover ring RULES, which are gone. A filled button on a photo band still needs a visible ring, but on v2 that is the AUTHOR's job through the cta / cta-secondary roles (README: 'YOU own the contrast'), not a stylesheet guarantee hero can make for them. The cta rows in this block keep the guarantee where the variant rules still exist.
   }
 
   /*
@@ -9732,73 +8805,7 @@ test.describe('#543 filled second button is ringed on overlay bands (real WP)', 
    * role on a photo band", which is a stronger contract than the one that was decided (the
    * issue's option (c)) and would have silently repainted every authored flattened button.
    */
-  test('a per-instance fill still rings itself on a photo band, all four buttons @smoke', async ({
-    page,
-  }) => {
-    pageId = createPage('E2E 565 per-instance fill survives');
-    setComposition(pageId, [
-      ctaPair(
-        'Ready to start?',
-        { background_image: IMG },
-        {
-          '--cta-button-bg': FILL,
-          '--cta-button-hover-bg': FILL,
-          '--cta-button2-bg': FILL,
-          '--cta-button2-hover-bg': FILL,
-        },
-      ),
-      heroPair(
-        'Ship faster',
-        { layout: 'cover' },
-        {
-          '--hero-button-bg': FILL,
-          '--hero-button-hover-bg': FILL,
-          '--hero-button2-bg': FILL,
-          '--hero-button2-hover-bg': FILL,
-        },
-      ),
-    ]);
-    await open(page, pageId, 1280);
-    // The global knob is set TOO, so this proves precedence and not merely survival: the
-    // band's own fill must beat the site-wide one, which is the escape-hatch contract.
-    await page.addStyleTag({ content: GLOBAL_KNOB });
-
-    // All FOUR ring rules, not just the cta primary. Each is a physically separate
-    // declaration that ties on specificity with its base rule and wins by source order
-    // alone, so a static chain pin cannot stand in for a rendered one on any of them.
-    const buttons: Array<[string, string]> = [
-      ['.cta__button', 'cta primary'],
-      ['.cta__button--secondary', 'cta button2'],
-      ['.hero__cta:not(.hero__cta--secondary)', 'cover primary'],
-      ['.hero__cta--secondary', 'cover cta2'],
-    ];
-
-    for (const [selector, label] of buttons) {
-      const btn = page.locator(selector).first();
-      await expect(btn, `${label} must render`).toBeVisible({ timeout: 10000 });
-
-      const rest = await prop(btn, 'border-top-color');
-      await btn.hover();
-      const hover = await prop(btn, 'border-top-color');
-
-      // Equality FIRST, so a regression surfaces as "the ring flipped" rather than as a
-      // colour mismatch. Asserted before the absolute pins, or it could never fail alone.
-      expect(hover, `${label}: rest and hover must resolve alike — the halves moved together`).toBe(
-        rest,
-      );
-      expect(
-        rest,
-        `${label}: the band's own fill must still ring itself (#535 survives, per-instance)`,
-      ).toBe(FILL);
-      expect(rest, `${label}: and the site-wide fill must not reach this ring`).not.toBe(
-        GLOBAL_FILL,
-      );
-      expect(
-        parseFloat(await prop(btn, 'border-top-width')),
-        `${label}: the matching ring must have a width`,
-      ).toBeGreaterThan(0);
-    }
-  });
+  // RETIRED (#986): pinned a hero style slot or the .hero__overlay element, neither of which exists on a v2 hero. The surviving behaviour is covered by the UDC contract tests and by the cta rows in the same block.
 
   /*
    * CONTROL — nothing authored. The decision pins every unset configuration unchanged, so
@@ -10348,60 +9355,7 @@ test.describe('#545 per-instance button slots stay off nested author buttons (re
       expect(got.nested.shadow, `@${width}: the elevation slot must not flatten it`).not.toBe('none');
     });
 
-    test(`hero: the hero button slots paint the hero CTA and not the proof button (${width}px) @smoke`, async ({
-      page,
-    }) => {
-      pageId = heroPage('E2E 545 hero', {
-        '--hero-button-bg': PURPLE,
-        '--hero-button-color': INK,
-        '--hero-button-shadow': 'none',
-        '--hero-button-hover-bg': '#4c1d95',
-      });
-
-      await page.setViewportSize({ width, height: 900 });
-      await page.goto(`/?page_id=${pageId}`);
-      await expect(page.locator('.hero__cta')).toBeVisible({ timeout: 10000 });
-
-      const got = await readButtons(page, '.hero__cta', '.hero__proof .btn');
-
-      expect(got.owned.bgColor, `@${width}: the hero CTA must still paint the fill slot`).toBe(
-        got.purple,
-      );
-      expect(got.nested.bgImage, `@${width}: the proof button must keep the premium gradient`).toBe(
-        got.premiumGradient,
-      );
-      expect(got.nested.bgColor, `@${width}: the proof button must not take the fill slot`).not.toBe(
-        got.purple,
-      );
-      expect(got.nested.color, `@${width}: the proof button must keep the theme ink`).toBe(
-        got.colorBg,
-      );
-
-      // HOVER is a separate winner chain (#530 routed --hero-button-hover-bg through the
-      // premium hover rule), and it leaked exactly like rest did.
-      await page.addStyleTag({ content: '*,*::before,*::after{transition:none !important;}' });
-      await page.locator('.hero__proof .btn').hover();
-      const hoveredNested = await readButtons(page, '.hero__cta', '.hero__proof .btn');
-      // Positive control, not just `not.toBe('none')`: any gradient would satisfy a negative
-      // assertion, including a wrong one.
-      expect(
-        hoveredNested.nested.bgImage,
-        `@${width}: the proof button must resolve the premium HOVER gradient exactly`,
-      ).toBe(hoveredNested.premiumHoverGradient);
-      expect(
-        hoveredNested.nested.bgColor,
-        `@${width}: the hero hover fill slot must not reach the proof button`,
-      ).not.toBe('rgb(76, 29, 149)');
-
-      // The paired half: the hero's OWN button must still take the hover slot, so a fix that
-      // killed both would fail here.
-      await page.locator('.hero__cta').first().hover();
-      const hoveredOwned = await readButtons(page, '.hero__cta', '.hero__proof .btn');
-      expect(
-        hoveredOwned.owned.bgColor,
-        `@${width}: the hero CTA must still paint --hero-button-hover-bg`,
-      ).toBe('rgb(76, 29, 149)');
-    });
+    // RETIRED (#986): a hero style slot with no v2 successor — the value is a role parameter now, covered by the UDC contract tests.
   }
 
   // Unset: a nested button must render exactly like a composed button with no band styling,
@@ -10436,38 +9390,7 @@ test.describe('#545 per-instance button slots stay off nested author buttons (re
   // the premium winner at [0,4,1], so a hero band accent rings an author-written proof button
   // exactly as it accents every other element in the band. If a future change decides that is
   // wrong, this test is where the decision gets revisited — it is not an accident.
-  test('a hero BAND ACCENT still reaches a nested author button (deliberate) @smoke', async ({
-    page,
-  }) => {
-    const ACCENT_545 = '#c2410c';
-    pageId = heroPage('E2E 545 band accent', { '--hero-accent': ACCENT_545 });
-
-    await page.setViewportSize({ width: 1280, height: 900 });
-    await page.goto(`/?page_id=${pageId}`);
-    await expect(page.locator('.hero__proof .btn')).toBeVisible({ timeout: 10000 });
-
-    const got = await page.evaluate(() => {
-      const resolve = (value: string) => {
-        const el = document.createElement('div');
-        el.style.setProperty('background-color', value);
-        document.body.appendChild(el);
-        const out = getComputedStyle(el).backgroundColor;
-        el.remove();
-        return out;
-      };
-      const nested = document.querySelector('.hero__proof .btn') as HTMLElement;
-      const owned = document.querySelector('.hero__cta') as HTMLElement;
-      return {
-        nestedBorder: getComputedStyle(nested).borderTopColor,
-        ownedBorder: getComputedStyle(owned).borderTopColor,
-        accent: resolve('#c2410c'),
-      };
-    });
-
-    expect(got.nestedBorder, 'the band accent is not neutralised — it rings the nested button too')
-      .toBe(got.accent);
-    expect(got.ownedBorder, 'and it rings the hero CTA the same way').toBe(got.accent);
-  });
+  // RETIRED (#986): a hero style slot with no v2 successor — the value is a role parameter now, covered by the UDC contract tests.
 
   test('a nested OUTLINE author button is unaffected, styled band or not @smoke', async ({
     page,
@@ -11816,22 +10739,40 @@ test.describe('#577 dead and defeated style slots render', () => {
   // was dead there — while the CSS comment above the catch-all claimed hero had no
   // padding slot at all. Two register rows fall out of the one fix.
 
-  test('#577 row 1: an authored --hero-padding-top wins on an ADJACENT hero at 1280 and 375 @smoke', async ({
+  test('#577 row 1 (v2): an authored _band padding wins on an ADJACENT hero at 1280 and 375 @smoke', async ({
     page,
   }) => {
-    pageId = createPage('E2E 577 hero adjacent slot');
+    // REWRITTEN ONTO `udc` (#986), because the invariant survives the rebuild and the
+    // mechanism does not. The slot is gone; what replaced it is the `:not(.hero)` on the
+    // shared adjacent-top catch-all. Without that exclusion the catch-all and the
+    // defaults tier are both zero-specificity and components.css prints later, so an
+    // authored `_band` padding on an adjacent hero would validate, store, report applied
+    // and then render the shared value — the identical I35 defect this row was filed for,
+    // reintroduced through a different door.
+    pageId = createPage('E2E 577 hero adjacent band padding');
     // A section leads, so the hero renders SECOND — the adjacent position, the only
-    // place this slot was dead.
+    // place the value was ever dead.
+    //
+    // WRITTEN THROUGH THE REAL AUTHORING SURFACE, not setComposition: band ids are minted
+    // on WRITE, and a raw meta write mints none. Without an id the band emits no
+    // `data-pp-band` attribute, so its authored block has nothing to select and the test
+    // would read the role default and call it a regression. (It did, once — which is what
+    // this comment is here to stop happening twice.)
     setComposition(pageId, [
       { component: 'section', props: { id: 'pp-sec-lead', title: 'Lead', body: '<p>Lead band.</p>' } },
       { component: 'hero', props: { id: 'pp-hero-adj', title: 'Adjacent hero' } },
     ]);
-
     await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
     await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
-    // component_index 1 = the hero (index 0 is the leading section).
-    const res = await styleComponent(page, pageId, { '--hero-padding-top': LOUD_PX }, undefined, 1);
-    expect(res.success).toBe(true);
+    const res = await updateComposition(page, pageId, [
+      { component: 'section', props: { id: 'pp-sec-lead', title: 'Lead', body: '<p>Lead band.</p>' } },
+      {
+        component: 'hero',
+        props: { id: 'pp-hero-adj', title: 'Adjacent hero' },
+        udc: { _band: { spacing: { 'padding-top': LOUD_PX } } },
+      },
+    ]);
+    expect(res.success, `udc band padding write: ${JSON.stringify(res)}`).toBe(true);
 
     for (const width of [1280, 375]) {
       await page.setViewportSize({ width, height: 900 });
@@ -11839,7 +10780,7 @@ test.describe('#577 dead and defeated style slots render', () => {
       const hero = page.locator('#pp-hero-adj');
       await expect(hero).toBeVisible({ timeout: 10000 });
       const { 'padding-top': top } = await computed(page, '#pp-hero-adj', ['padding-top']);
-      expect(top, `adjacent hero --hero-padding-top @${width}`).toBe(LOUD_PX);
+      expect(top, `adjacent hero authored _band padding-top @${width}`).toBe(LOUD_PX);
     }
   });
 
@@ -11883,7 +10824,24 @@ test.describe('#577 dead and defeated style slots render', () => {
   //
   // An image-less `split` hero degrades to .hero--left (issue 440), so it is covered by
   // the same rule and is asserted here rather than assumed.
-  test('#577 row 9: an adjacent LEFT/SPLIT hero keeps the compact opener rhythm, symmetric @smoke', async ({
+  /**
+   * ROW 9 IS NOW A NARROWING PIN, and the rename says so (#986).
+   *
+   * v1 gave `.hero--left` (and the split variant, which degrades to it) a COMPACT opener
+   * rhythm — `--space-xl` on both edges — while centered and cover took `--space-2xl` at
+   * desktop. Those were two stylesheet rules per breakpoint, keyed on the variant class.
+   *
+   * v2 has no variant dimension: a role default is per COMPONENT, and padding is a
+   * designable value the structural-CSS boundary keeps out of the stylesheet, so there is
+   * no legal place left to say "left heroes are tighter". Every hero layout therefore
+   * shares one opener rhythm by default, and a band that wants the compact one sets its
+   * own `_band` `spacing` — which row 1 above proves reaches an adjacent hero.
+   *
+   * Pinned rather than deleted because it is a real rendering change on inner pages: an
+   * adjacent left/split hero grows from 64px to 112px at desktop. Recorded in
+   * components/hero/README.md under the narrowings.
+   */
+  test('#577 row 9 (v2): an adjacent LEFT/SPLIT hero takes the ONE hero opener rhythm, symmetric @smoke', async ({
     page,
   }) => {
     pageId = createPage('E2E 577 hero left adjacent fallback');
@@ -11906,11 +10864,11 @@ test.describe('#577 dead and defeated style slots render', () => {
           'padding-top',
           'padding-bottom',
         ]);
-        // Compact opener rhythm at BOTH breakpoints, and symmetric with its own bottom.
-        expect(top, `adjacent ${id} top @${width}`).toBe(HERO_OPENER_COMPACT);
-        expect(bottom, `adjacent ${id} bottom @${width}`).toBe(HERO_OPENER_COMPACT);
-        // Not the centered hero's rhythm, and not the old shared band tier.
-        expect(top, `adjacent ${id} must not take the centered opener @${width}`).not.toBe(HERO_OPENER_DESKTOP);
+        // ONE hero rhythm at each breakpoint now, and still symmetric with its own
+        // bottom — the symmetry is what row 9 has always really been about.
+        const expected = width >= 768 ? HERO_OPENER_DESKTOP : HERO_OPENER_COMPACT;
+        expect(top, `adjacent ${id} top @${width}`).toBe(expected);
+        expect(bottom, `adjacent ${id} bottom @${width}`).toBe(expected);
       }
     }
   });
@@ -12844,36 +11802,7 @@ test.describe('#578 hero heading measure', () => {
   });
 
   /** The slot ships and works: an operator can now cap a hero headline deliberately. */
-  test('#578 --hero-heading-measure caps the title on every layout @smoke', async ({ page }) => {
-    pageId = createPage('E2E 578 hero measure slot');
-    setComposition(pageId, [
-      {
-        component: 'hero',
-        props: { id: 'pp-h578c', layout: 'centered', title: LONG_TITLE, subheading: SUBTITLE },
-      },
-    ]);
-
-    await open(page, 1280, '#pp-h578c .hero__title');
-    expect((await measureHero(page, '#pp-h578c')).titleMaxWidth).toBe('none');
-
-    // styleComponent dispatches through the admin AJAX endpoint, so it needs the chat
-    // screen's localized config (window.ppAiChat) — it is not present on the front end.
-    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
-    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
-
-    // `centered` never carried the 12ch rule, so this also proves the slot was declared
-    // on the unscoped .hero__title rule rather than on the two formerly-capped layouts.
-    const res = await styleComponent(page, pageId, { '--hero-heading-measure': '20rem' });
-    expect(res.success).toBe(true);
-
-    await open(page, 1280, '#pp-h578c .hero__title');
-    const capped = await measureHero(page, '#pp-h578c');
-    const rootFont = await page.evaluate(() =>
-      parseFloat(getComputedStyle(document.documentElement).fontSize),
-    );
-    expect(capped.titleMaxWidth).toBe(`${Math.round(rootFont * 20)}px`);
-    expect(capped.titleWidth).toBe(Math.round(rootFont * 20));
-  });
+  // RETIRED (#986): a hero style slot with no v2 successor — the value is a role parameter now, covered by the UDC contract tests.
 });
 
 /**
@@ -12928,42 +11857,10 @@ test.describe('#584 slot families, as rendered', () => {
   // ── A-38: the four new ring slots actually paint, and outrank the global knob ──────
 
   const RING_CASES = [
-    {
-      name: 'hero primary (plain band)',
-      sel: '.hero__cta',
-      component: (style: Record<string, string>) => ({
-        component: 'hero',
-        props: {
-          id: 'pp-h584a',
-          layout: 'left',
-          title: 'Ring slot',
-          button_text: 'Start',
-          button_url: '/start',
-        },
-        style,
-      }),
-      slots: { rest: '--hero-button-border', hover: '--hero-button-hover-border' },
-    },
-    {
-      // The case the source pins missed. `.hero--cover .hero__cta:not3` is the live border
-      // winner here, NOT `.hero .btn:not3`.
-      name: 'hero primary (cover band)',
-      sel: '.hero__cta',
-      component: (style: Record<string, string>) => ({
-        component: 'hero',
-        props: {
-          id: 'pp-h584b',
-          layout: 'cover',
-          title: 'Ring slot on a photo band',
-          image_url: TALL_PNG_584,
-          image_alt: 'Backdrop',
-          button_text: 'Start',
-          button_url: '/start',
-        },
-        style,
-      }),
-      slots: { rest: '--hero-button-border', hover: '--hero-button-hover-border' },
-    },
+    // HERO'S TWO RING ROWS ARE GONE (#986). They authored `--hero-button-border` /
+    // `--hero-button-hover-border` on a hero band; hero owns no button slots now, and its
+    // CTA ring is whatever the `cta` role (or the `button` preset) sets. The panel-CTA
+    // rows below keep this block's coverage of the ring-slot contract.
     {
       // The panel CTA's ring is decided by the SHARED premium rule, not by the section
       // block's keystone. If the slot had only been routed in the keystone (the literal
@@ -13096,11 +11993,9 @@ test.describe('#584 slot families, as rendered', () => {
     // The whole justification for the row: band fusing requires margin-bottom 0 on the upper
     // band's last element, and six of ten bands could not express it. Measured on all six.
     const BANDS: Array<{ slot: string; sel: string; band: unknown }> = [
-      {
-        slot: '--hero-heading-margin-bottom',
-        sel: '.hero__title',
-        band: { component: 'hero', props: { id: 'pp-x1', layout: 'left', title: 'Hero' } },
-      },
+      // hero's row is gone (#986): its heading rhythm is the `title` role's
+      // `spacing.margin-bottom`, not a slot. It was already the one band excluded from
+      // the zero assertion below (its shipped margin is 0), so nothing else moves.
       {
         slot: '--cta-heading-margin-bottom',
         sel: '.cta__title',
@@ -13148,7 +12043,7 @@ test.describe('#584 slot families, as rendered', () => {
     // unset" is a claim rather than a fact. Then zeroed, in one composition.
     pageId = createPage('E2E 584 heading rhythm');
     setComposition(pageId, BANDS.map(({ band }) => band));
-    await open584(page, 1280, '.hero__title');
+    await open584(page, 1280, '.cta__title');
     const unset = await page.evaluate(
       (sels: string[]) =>
         sels.map((s) =>
@@ -13156,11 +12051,11 @@ test.describe('#584 slot families, as rendered', () => {
         ),
       BANDS.map((b) => b.sel),
     );
-    // hero's shipped value is the universal reset's 0; four are var(--space-lg) = 32px and
-    // cta is var(--space-xs) = 4px. These are the exact literals the six new slots carry as
-    // their fallbacks, measured rather than restated from the stylesheet.
+    // FIVE bands now, not six: hero left this slot family in #986 (its heading rhythm is
+    // the `title` role's `spacing.margin-bottom`). cta is var(--space-xs) = 4px and four
+    // are var(--space-lg) = 32px. These are the exact literals the remaining slots carry
+    // as their fallbacks, measured rather than restated from the stylesheet.
     expect(unset, 'unset heading rhythm must be unchanged').toEqual([
-      '0px',
       '4px',
       '32px',
       '32px',
@@ -13168,15 +12063,16 @@ test.describe('#584 slot families, as rendered', () => {
       '32px',
     ]);
 
-    // LIVE first, with a value no default could produce. Asserting only the zeroed state
-    // would be vacuous on hero, whose shipped margin is already 0 — it would read as proof
-    // of a capability without exercising it.
+    // LIVE first, with a value no default could produce. (The vacuity this guards against
+    // was hero's: its shipped margin was already 0, so a zero-only assertion proved
+    // nothing there. Hero has left the family, and the live-value step stays because the
+    // same trap would return the day another band ships a 0 default.)
     setComposition(
       pageId,
       BANDS.map(({ band, slot }) => ({ ...(band as object), style: { [slot]: '11px' } })),
     );
     for (const width of [1280, 375]) {
-      await open584(page, width, '.hero__title');
+      await open584(page, width, '.cta__title');
       const authored = await page.evaluate(
         (sels: string[]) =>
           sels.map((s) =>
@@ -13194,16 +12090,12 @@ test.describe('#584 slot families, as rendered', () => {
     // on none of these bands is the heading the band's trailing element (each has a required
     // content prop that renders after it), so this is the band's INTERNAL header rhythm —
     // the seam with the band below is closed with --<component>-padding-bottom.
-    const FUSABLE = BANDS.filter((b) => b.slot !== '--hero-heading-margin-bottom');
+    const FUSABLE = BANDS;
     setComposition(
       pageId,
-      BANDS.map(({ band, slot }) =>
-        slot === '--hero-heading-margin-bottom'
-          ? band
-          : { ...(band as object), style: { [slot]: '0' } },
-      ),
+      BANDS.map(({ band, slot }) => ({ ...(band as object), style: { [slot]: '0' } })),
     );
-    await open584(page, 1280, '.hero__title');
+    await open584(page, 1280, '.cta__title');
     const zeroed = await page.evaluate(
       (sels: string[]) =>
         sels.map((s) => getComputedStyle(document.querySelector(s) as HTMLElement).marginBottom),

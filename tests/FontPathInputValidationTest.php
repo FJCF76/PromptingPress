@@ -175,23 +175,38 @@ class FontPathInputValidationTest extends TestCase
      */
     public function testEveryLegitimateFontUrlStillDerivesAPassingFamily(): void
     {
-        $urls = [
-            'https://fonts.googleapis.com/css2?family=Inter',
-            'https://fonts.googleapis.com/css2?family=Open+Sans',
-            'https://fonts.googleapis.com/css2?family=Poppins',
-            'https://fonts.googleapis.com/css2?family=Roboto:wght@400;700',
-            'https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Playfair+Display:wght@700&display=swap',
-            'https://fonts.googleapis.com/css?family=Open+Sans:400,700&subset=latin-ext',
-            'https://fonts.googleapis.com/css2?family=Source+Sans+3:ital,wght@0,400;1,700',
-            'https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400&display=swap',
-            'https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400',
-            'https://fonts.googleapis.com/css2?family=Press+Start+2P',
-            'https://fonts.bunny.net/css?family=inter:400,600,700|playfair-display:700',
+        // KEYED BY THE EXPECTED FAMILY, not a bare list (#968, ruling D2).
+        //
+        // As a list this corpus walked past the defect by construction: it asserted
+        // only that *a* passing family was derived, never WHICH, so the two-family
+        // URL below could derive the BODY face and the test stayed green. The
+        // multi-family rows are the point of the map — each names the PRIMARY face,
+        // which is what "the first family" means to an author reading the docblock.
+        $expected = [
+            'https://fonts.googleapis.com/css2?family=Inter'                          => 'Inter',
+            'https://fonts.googleapis.com/css2?family=Open+Sans'                      => 'Open Sans',
+            'https://fonts.googleapis.com/css2?family=Poppins'                        => 'Poppins',
+            'https://fonts.googleapis.com/css2?family=Roboto:wght@400;700'            => 'Roboto',
+            // The repeated-parameter (CSS2) multi-family shape — the exact URL
+            // ai-instructions/retheme.md:194 ships as its Google example.
+            'https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Playfair+Display:wght@700&display=swap' => 'Inter',
+            'https://fonts.googleapis.com/css?family=Open+Sans:400,700&subset=latin-ext' => 'Open Sans',
+            'https://fonts.googleapis.com/css2?family=Source+Sans+3:ital,wght@0,400;1,700' => 'Source Sans 3',
+            'https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400&display=swap'  => 'Noto Sans JP',
+            'https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400'         => 'IBM Plex Mono',
+            'https://fonts.googleapis.com/css2?family=Press+Start+2P'                 => 'Press Start 2P',
+            // The pipe-joined (legacy) multi-family shape — retheme.md:199's Bunny
+            // example. It always took the first; the row above now agrees with it.
+            'https://fonts.bunny.net/css?family=inter:400,600,700|playfair-display:700' => 'inter',
         ];
 
-        foreach ($urls as $url) {
+        foreach ($expected as $url => $family) {
             $derived = _pp_derive_font_family_from_url($url);
-            $this->assertNotSame('', $derived, "no family derived from $url");
+            $this->assertSame(
+                $family,
+                $derived,
+                "the family derived from $url must be the FIRST one the URL requests"
+            );
             $this->assertTrue(
                 _pp_validate_font_family($derived),
                 "the family derived from $url must still pass the grammar (got: $derived)"
@@ -201,6 +216,52 @@ class FontPathInputValidationTest extends TestCase
                 "enqueue_font must still accept $url"
             );
         }
+    }
+
+    /**
+     * The two multi-family syntaxes agree with each other (#968, ruling D2).
+     *
+     * THIS IS THE DEFECT, STATED AS A TEST. `ai-instructions/retheme.md` ships these
+     * two URLs side by side as equivalent ways to request the same Inter + Playfair
+     * pair, one per font host. Before the fix the CSS2 form derived "Playfair
+     * Display" (parse_str keeps the LAST repeated key) while the pipe form derived
+     * "inter" (the explode('|') already took the first) — so `apply_to: "heading"`
+     * on the documented Google example wrote the BODY face as the heading token.
+     *
+     * Pinned as a pair rather than as two independent rows because the invariant is
+     * the AGREEMENT: one function must not answer "which family" two different ways
+     * depending on which syntax the author used (I36). Since #965 the derived family
+     * also decides whether the call is refused, so a disagreement here is reachable
+     * as a refusal, not only as a wrong token value.
+     */
+    public function testBothDocumentedMultiFamilySyntaxesDeriveTheirPrimaryFace(): void
+    {
+        $css2 = 'https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Playfair+Display:wght@700&display=swap';
+        $pipe = 'https://fonts.bunny.net/css?family=inter:400,600,700|playfair-display:700';
+
+        $this->assertSame('Inter', _pp_derive_font_family_from_url($css2));
+        $this->assertSame('inter', _pp_derive_font_family_from_url($pipe));
+
+        $this->assertSame(
+            'inter',
+            strtolower(_pp_derive_font_family_from_url($css2)),
+            'both documented multi-family syntaxes must derive the same primary face'
+        );
+    }
+
+    /**
+     * The first-value reader matches parse_str()'s decoding, so the ruling changes
+     * WHICH value is taken and nothing else about which URLs resolve.
+     */
+    public function testTheFirstValueReaderDecodesLikeParseStr(): void
+    {
+        $this->assertSame('Open Sans', _pp_derive_font_family_from_url('https://x/css?family=Open+Sans'));
+        $this->assertSame('Open Sans', _pp_derive_font_family_from_url('https://x/css?family=Open%20Sans'));
+        // parse_str() urldecodes KEYS too, so an encoded key was always a match.
+        $this->assertSame('Inter', _pp_derive_font_family_from_url('https://x/css?fam%69ly=Inter&family=Playfair+Display'));
+        // A bare key is a present key with an empty value, exactly as parse_str reads it.
+        $this->assertSame('', _pp_derive_font_family_from_url('https://x/css?family&display=swap'));
+        $this->assertSame('', _pp_derive_font_family_from_url('https://x/css?display=swap'));
     }
 
     /**
@@ -943,5 +1004,45 @@ class FontPathInputValidationTest extends TestCase
         unlink($tmp);
 
         return $written;
+    }
+
+    // ── The two parse_str() shapes _pp_first_query_value() does NOT honour (#986) ──
+    //
+    // Pinned rather than asserted in prose. Both fail SAFE — the key is not found, so
+    // the deriver returns '' and the caller refuses the enqueue — and the first one
+    // closes a URL-reachable fatal: under parse_str() `family[]=` bound the key to an
+    // ARRAY, which the deriver then handed to explode(), a TypeError on PHP 8.
+
+    public function testBracketArrayFamilyIsNotHonouredAndDoesNotFatal(): void
+    {
+        $this->assertSame(
+            '',
+            _pp_derive_font_family_from_url('https://fonts.googleapis.com/css2?family[]=Inter&display=swap'),
+            'bracket-array syntax must not resolve a family — and must not reach explode() as an array'
+        );
+    }
+
+    public function testADottedKeyIsNotRewrittenIntoFamily(): void
+    {
+        // parse_str() rewrites `.` in a key to `_`; nothing here does, so a key that
+        // would only BECOME `family` under that rewrite stays unfound.
+        $this->assertSame(
+            '',
+            _pp_derive_font_family_from_url('https://fonts.googleapis.com/css2?fam.ily=Inter')
+        );
+    }
+
+    public function testTheFirstFamilyStillWinsAcrossBothMultiFamilySyntaxes(): void
+    {
+        // The ruled behaviour (#968), pinned beside its boundaries so the narrowing
+        // above cannot be mistaken for a change to it.
+        $this->assertSame(
+            'Inter',
+            _pp_derive_font_family_from_url('https://fonts.googleapis.com/css2?family=Inter&family=Playfair+Display')
+        );
+        $this->assertSame(
+            'Inter',
+            _pp_derive_font_family_from_url('https://fonts.googleapis.com/css?family=Inter|Playfair+Display')
+        );
     }
 }

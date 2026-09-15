@@ -1156,10 +1156,10 @@ class WriteRenderGrammarTest extends TestCase
             '--cta-button-hover-bg'    => ['cta', '--cta-button-hover-bg', $cta],
             '--cta-button2-bg'         => ['cta', '--cta-button2-bg', $cta2],
             '--cta-button2-hover-bg'   => ['cta', '--cta-button2-hover-bg', $cta2],
-            '--hero-button-bg'         => ['hero', '--hero-button-bg', $hero],
-            '--hero-button-hover-bg'   => ['hero', '--hero-button-hover-bg', $hero],
-            '--hero-button2-bg'        => ['hero', '--hero-button2-bg', $hero2],
-            '--hero-button2-hover-bg'  => ['hero', '--hero-button2-hover-bg', $hero2],
+            '--cta-button-bg'         => ['cta', '--cta-button-bg', $hero],
+            '--cta-button-hover-bg'   => ['cta', '--cta-button-hover-bg', $hero],
+            '--cta-button2-bg'        => ['cta', '--cta-button2-bg', $hero2],
+            '--cta-button2-hover-bg'  => ['cta', '--cta-button2-hover-bg', $hero2],
             '--section-panel-cta-bg'   => ['section', '--section-panel-cta-bg', $section],
         ];
     }

@@ -245,9 +245,9 @@ No build step. No transpilation. No bundler. What you write is what ships.
 
 A single layer of CSS custom properties controls the entire visual system: colors, typography (including mono/meta/label/kicker roles), spacing, borders, shadows, measures. Product defaults live in `assets/css/base.css`. Site-specific overrides are stored in the database and **survive theme updates** — no file to lose when the theme ZIP gets replaced.
 
-234 per-instance style slots let AI make this page's hero dark and spacious while that page's hero is tight, accent-bordered, and lifted with a drop shadow — all through composition data, no CSS edits. 10 named recipes (like `dark-spacious` or `compact`) expand to multiple slot values at once.
+185 per-instance style slots let AI make this page's band dark and spacious while that page's is tight, accent-bordered, and lifted with a drop shadow — all through composition data, no CSS edits. 7 named recipes expand to multiple slot values at once. `hero` and `testimonials` have moved past slots entirely: they are on the v2 Universal Design Contract, where named roles carry every designable value, per breakpoint and per state.
 
-`testimonials` has moved past slots entirely. It is the first component on the **Universal Design Contract** (v2): instead of a fixed list of slots someone had to think of in advance, it declares ROLES — the quote, the card, the attribution, the heading — and every role accepts the full design vocabulary (typography, spacing, border, shadow, background, sizing, motion), per breakpoint and in three states (`:hover`, `:focus-visible`, `:active`). Shared looks are named `presets` a band applies by name. That is how a brand's serif-italic pull-quote in a white 1px-bordered card became expressible at all.
+Those two are on the **Universal Design Contract** (v2) — `testimonials` first, `hero` second. Instead of a fixed list of slots someone had to think of in advance, a v2 component declares ROLES — testimonials' quote, card and attribution; hero's title, subtitle, media, surface and its two CTAs — and every role accepts the full design vocabulary (typography, spacing, border, shadow, background, sizing, motion), per breakpoint and in three states (`:hover`, `:focus-visible`, `:active`). Shared looks are named `presets` a band applies by name. That is how a brand's serif-italic pull-quote in a white 1px-bordered card became expressible at all.
 
 ```bash
 # Preview a token change without applying
@@ -351,6 +351,7 @@ the HANDOFF report.
 → Why a DB write can't land before the safety gate (the design): [docs/operating-loop-safety.md](docs/operating-loop-safety.md)
 → Every `wp pp apply` command, flag, and error (reference): [docs/reference-apply-cli.md](docs/reference-apply-cli.md)
 → Apply a token change and roll it back, step by step (how-to): [docs/howto-apply-and-rollback.md](docs/howto-apply-and-rollback.md)
+→ Why a value you wrote beats the theme's own stylesheet (the design): [docs/explanation-cascade-layers.md](docs/explanation-cascade-layers.md)
 
 ---
 
@@ -458,6 +459,7 @@ npm run env:stop
 | **CLI reference** | [`docs/reference-apply-cli.md`](docs/reference-apply-cli.md) — every command, envelope, and refusal |
 | **Step-by-step guides** | [`docs/howto-apply-and-rollback.md`](docs/howto-apply-and-rollback.md) and the [`ai-instructions/`](ai-instructions/) playbooks (create a page, revise a section, style a component, validate a site) |
 | **Component contracts** | each [`components/<name>/`](components/) folder: `schema.json` (typed contract) + `README.md` (usage) — or run `wp pp schema <component>` |
+| **Editing the stylesheet** | [`docs/explanation-cascade-layers.md`](docs/explanation-cascade-layers.md) — why the theme CSS is in a cascade layer, and where a new rule goes |
 | **What changed** | [`CHANGELOG.md`](CHANGELOG.md) (engineering record) and [Releases](https://github.com/FJCF76/PromptingPress/releases) (user-facing notes with upgrade steps) |
 
 ---
@@ -471,7 +473,7 @@ of this file carries the current version; this section is deliberately version-f
 does not go stale between releases.
 
 **What exists today:**
-- 12 components with schema contracts and 234 per-instance style slots, plus named recipes — and `testimonials` on the v2 Universal Design Contract, where roles replace slots
+- 12 components with schema contracts and 185 per-instance style slots, plus named recipes — and `hero` + `testimonials` on the v2 Universal Design Contract, where roles replace slots
 - A contract-test suite that enforces the style-slot contract: every declared slot must be consumed by the CSS, and literal re-declarations that would defeat a slot fail the build — including cross-stylesheet clobbers, where an automatic-match rule in `base.css`/`utilities.css` outranks a component slot (issue [#342](https://github.com/FJCF76/PromptingPress/issues/342)). Known exceptions live in shrink-only ledgers (issues [#309](https://github.com/FJCF76/PromptingPress/issues/309), [#342](https://github.com/FJCF76/PromptingPress/issues/342)); the static guards account for every clobber candidate, and the rendered computed-style checks own the true cascade proof
 - Typed action/apply layer with validation, preview, and rollback
 - Bounded presentation controls — button variants, typography roles, shadow/border/radius slots

@@ -708,7 +708,8 @@ class ReflectedTextInventoryTest extends TestCase
     public function testTheStrictEnumRejectionRoutesTheValueThroughTheOwner(): void
     {
         $errors = pp_validate_composition_errors([
-            ['component' => 'hero', 'props' => ['title' => 'X', 'spacing' => self::HOSTILE]],
+            // `layout`, not hero's retired `spacing`: a strict enum that still exists.
+            ['component' => 'section', 'props' => ['title' => 'X', 'body' => 'B', 'layout' => self::HOSTILE]],
         ]);
 
         $message = $this->firstMessageContaining($errors, 'must be one of');
@@ -723,7 +724,7 @@ class ReflectedTextInventoryTest extends TestCase
     public function testAnOrdinaryRejectedEnumValueIsByteIdentical(): void
     {
         $errors = pp_validate_composition_errors([
-            ['component' => 'hero', 'props' => ['title' => 'X', 'spacing' => 'sunset']],
+            ['component' => 'section', 'props' => ['title' => 'X', 'body' => 'B', 'layout' => 'sunset']],
         ]);
 
         $this->assertStringContainsString('got "sunset".', $this->firstMessageContaining($errors, 'must be one of'));
@@ -828,7 +829,7 @@ class ReflectedTextInventoryTest extends TestCase
         $GLOBALS['wpdb'] = new PP_Lockable_Wpdb();
         try {
             $id = pp_create_page('Reflected text authoring path', 'draft');
-            pp_update_composition($id, [['component' => 'hero', 'props' => ['title' => 'Hi']]]);
+            pp_update_composition($id, [['component' => 'section', 'props' => ['title' => 'Hi', 'body' => 'Body text']]]);
 
             $by_key = pp_execute_action('update_component', [
                 'post_id'         => $id,
@@ -842,7 +843,7 @@ class ReflectedTextInventoryTest extends TestCase
             $by_value = pp_execute_action('update_component', [
                 'post_id'         => $id,
                 'component_index' => 0,
-                'props'           => ['spacing' => self::HOSTILE],
+                'props'           => ['layout' => self::HOSTILE],
             ]);
             $this->assertFalse($by_value['ok'], 'premise: an out-of-enum value is still refused');
             // Pinned to the ENUM path specifically. Without this, a future required-field
@@ -858,7 +859,7 @@ class ReflectedTextInventoryTest extends TestCase
             $stored = pp_get_composition($id)[0]['props'];
             $this->assertSame('Hi', $stored['title'], 'the authored prop is untouched');
             $this->assertArrayNotHasKey(self::HOSTILE, $stored, 'no phantom key persisted');
-            $this->assertArrayNotHasKey('spacing', $stored, 'and no rejected enum value persisted');
+            $this->assertArrayNotHasKey('layout', $stored, 'and no rejected enum value persisted');
         } finally {
             unset($GLOBALS['wpdb']);
         }

@@ -1,9 +1,16 @@
 <?php
 /**
- * tests/ComponentPropsTest.php — PHPUnit tests for hero spacing and section centered layout
+ * tests/ComponentPropsTest.php — PHPUnit tests for component prop rendering
  *
- * Covers: data-pp-spacing on hero (only component retaining spacing prop),
- *         and section centered layout variant.
+ * Covers: per-component prop -> markup contracts across the component set — section's
+ *         centered layout variant, the shared eyebrow/title_accent mechanisms, the
+ *         responsive `image_id` companion, and the `width`/`spacing` props being
+ *         IGNORED by every component that never declared them.
+ *
+ * The old header described "hero spacing" as this file's subject. Hero was the last
+ * component declaring `spacing` and `width`, and #986 removed both: band padding is
+ * the `_band` role's spacing and the content measure is the `content` role's
+ * `sizing.max-width`. No component declares either prop now.
  */
 
 use PHPUnit\Framework\TestCase;
@@ -374,26 +381,6 @@ class ComponentPropsTest extends TestCase
         $this->assertStringNotContainsString('example.com/image.jpg', $html);
     }
 
-    // ── Hero Spacing (hero retains spacing prop) ────────────────────────────
-
-    public function testHeroSpacingOutputsAttribute(): void
-    {
-        $html = $this->render('hero', [
-            'title' => 'Test Hero',
-            'spacing' => 'spacious',
-        ]);
-        $this->assertStringContainsString('data-pp-spacing="spacious"', $html);
-    }
-
-    public function testHeroSpacingInvalidFallsBackToDefault(): void
-    {
-        $html = $this->render('hero', [
-            'title' => 'Test Hero',
-            'spacing' => 'huge',
-        ]);
-        $this->assertStringNotContainsString('data-pp-spacing', $html);
-    }
-
     // ── Centered layout (unrelated to width/spacing props) ───────────────────
 
     public function testSectionCenteredRendersWithoutWidthOrSpacingAttributes(): void
@@ -436,6 +423,12 @@ class ComponentPropsTest extends TestCase
             'stats'   => ['stats', ['items' => [['number' => '10', 'label' => 'X']]]],
             'logos'   => ['logos', ['items' => [['image_url' => 'logo.png']]]],
             'embed'   => ['embed', ['content' => '<p>Embed</p>']],
+            // HERO JOINS THE LIST (#986), and it is the newest regression here: it was
+            // the LAST component declaring `width` and `spacing`, so until the v2
+            // rebuild it was the one component this provider had to leave out. Pinning
+            // it makes "no component reads these props" a tested statement rather than
+            // an assumed one.
+            'hero'    => ['hero', ['title' => 'Test']],
         ];
     }
 
@@ -444,11 +437,11 @@ class ComponentPropsTest extends TestCase
     public function testRenderStyleVarsBasic(): void
     {
         $result = pp_render_style_vars(
-            ['--hero-bg' => '#1a1a2e', '--hero-padding-top' => '8rem'],
-            'hero'
+            ['--section-bg' => '#1a1a2e', '--section-padding-top' => '8rem'],
+            'section'
         );
-        $this->assertStringContainsString('--hero-bg: #1a1a2e', $result);
-        $this->assertStringContainsString('--hero-padding-top: 8rem', $result);
+        $this->assertStringContainsString('--section-bg: #1a1a2e', $result);
+        $this->assertStringContainsString('--section-padding-top: 8rem', $result);
     }
 
     public function testRenderStyleVarsEmpty(): void
@@ -460,11 +453,11 @@ class ComponentPropsTest extends TestCase
     public function testRenderStyleVarsSkipsUnknownSlot(): void
     {
         $result = pp_render_style_vars(
-            ['--hero-bg' => '#1a1a2e', '--hero-display' => 'none'],
-            'hero'
+            ['--section-bg' => '#1a1a2e', '--section-display' => 'none'],
+            'section'
         );
-        $this->assertStringContainsString('--hero-bg', $result);
-        $this->assertStringNotContainsString('--hero-display', $result);
+        $this->assertStringContainsString('--section-bg', $result);
+        $this->assertStringNotContainsString('--section-display', $result);
     }
 
     public function testRenderStyleVarsEmitsKeywordAndVarReferenceUnchanged(): void
@@ -472,21 +465,21 @@ class ComponentPropsTest extends TestCase
         // #230: an accepted value must SURVIVE to CSS output — esc_attr touches
         // none of ( ) - so the reference reaches the browser intact.
         $result = pp_render_style_vars(
-            ['--hero-button2-bg' => 'transparent', '--hero-accent' => 'var(--color-accent)'],
-            'hero'
+            ['--section-panel-cta-bg' => 'transparent', '--section-panel-marker-color' => 'var(--color-accent)'],
+            'section'
         );
-        $this->assertStringContainsString('--hero-button2-bg: transparent', $result);
-        $this->assertStringContainsString('--hero-accent: var(--color-accent)', $result);
+        $this->assertStringContainsString('--section-panel-cta-bg: transparent', $result);
+        $this->assertStringContainsString('--section-panel-marker-color: var(--color-accent)', $result);
     }
 
     public function testRenderStyleVarsSkipsRecipeKey(): void
     {
         $result = pp_render_style_vars(
-            ['__recipe' => 'dark-spacious', '--hero-bg' => '#1a1a2e'],
-            'hero'
+            ['__recipe' => 'dark-spacious', '--section-bg' => '#1a1a2e'],
+            'section'
         );
         $this->assertStringNotContainsString('__recipe', $result);
-        $this->assertStringContainsString('--hero-bg', $result);
+        $this->assertStringContainsString('--section-bg', $result);
     }
 
     public function testRenderStyleVarsRejectsInjection(): void
@@ -497,21 +490,6 @@ class ComponentPropsTest extends TestCase
         );
         // Semicolon in value triggers injection guard — slot is skipped.
         $this->assertSame('', $result);
-    }
-
-    // ── Gradient-typed style slots render unmangled (#99) ────────────────
-
-    public function testRenderStyleVarsGradientSurvivesUnmangledForHero(): void
-    {
-        // A validated gradient round-trips unmangled through the render
-        // boundary: pp_render_style_vars() re-validates via the shared engine
-        // (issue #330), and a valid gradient passes, reaching CSS output exactly
-        // like a flat color already does (testRenderStyleVarsBasic above).
-        $result = pp_render_style_vars(
-            ['--hero-bg' => 'linear-gradient(135deg, #1a1a2e, #16121f)'],
-            'hero'
-        );
-        $this->assertStringContainsString('--hero-bg: linear-gradient(135deg, #1a1a2e, #16121f)', $result);
     }
 
     public function testRenderStyleVarsGradientSurvivesUnmangledForCta(): void
@@ -546,22 +524,10 @@ class ComponentPropsTest extends TestCase
         // The primary practical motivation for gradient support: a
         // transparent-to-dark scrim over a background image for legibility.
         $result = pp_render_style_vars(
-            ['--hero-overlay-bg' => 'linear-gradient(to bottom, transparent, rgba(0,0,0,0.7))'],
-            'hero'
+            ['--section-overlay-bg' => 'linear-gradient(to bottom, transparent, rgba(0,0,0,0.7))'],
+            'section'
         );
-        $this->assertStringContainsString('--hero-overlay-bg: linear-gradient(to bottom, transparent, rgba(0,0,0,0.7))', $result);
-    }
-
-    public function testHeroComponentRendersGradientBackgroundInInlineStyle(): void
-    {
-        // End-to-end: a gradient value set on a real component's __pp_style
-        // survives all the way into the rendered <section style="..."> output,
-        // exactly the "exact production regression" pattern used for #36.
-        $html = $this->render('hero', [
-            'title' => 'Welcome',
-            '__pp_style' => ['--hero-bg' => 'linear-gradient(135deg, #1a1a2e, #16121f)'],
-        ]);
-        $this->assertStringContainsString('--hero-bg: linear-gradient(135deg, #1a1a2e, #16121f)', $html);
+        $this->assertStringContainsString('--section-overlay-bg: linear-gradient(to bottom, transparent, rgba(0,0,0,0.7))', $result);
     }
 
     public function testRenderStyleVarsUnknownComponent(): void
@@ -876,51 +842,6 @@ class ComponentPropsTest extends TestCase
         return array_merge(['title' => 'T', 'button_text' => 'Go', 'button2_text' => 'Learn more'], $extra);
     }
 
-    public function testHeroCtaVariantDefaultsToPrimary(): void
-    {
-        $html = $this->render('hero', $this->heroProps());
-        $this->assertMatchesRegularExpression('/class="hero__cta btn"[^-]/', $html . ' ');
-    }
-
-    public function testHeroCta2VariantDefaultsToOutline(): void
-    {
-        // Preserves pre-#93 behavior: an unset button2_variant still renders outline.
-        $html = $this->render('hero', $this->heroProps());
-        $this->assertStringContainsString('class="hero__cta hero__cta--secondary btn btn--outline"', $html);
-    }
-
-    public function testHeroCtaVariantSecondary(): void
-    {
-        $html = $this->render('hero', $this->heroProps(['button_variant' => 'secondary']));
-        $this->assertStringContainsString('class="hero__cta btn btn--secondary"', $html);
-    }
-
-    public function testHeroCtaVariantGhost(): void
-    {
-        $html = $this->render('hero', $this->heroProps(['button_variant' => 'ghost']));
-        $this->assertStringContainsString('class="hero__cta btn btn--ghost"', $html);
-    }
-
-    public function testHeroCta2VariantPrimary(): void
-    {
-        $html = $this->render('hero', $this->heroProps(['button2_variant' => 'primary']));
-        $this->assertStringContainsString('class="hero__cta btn"', $html);
-        // Neither button should carry a btn-- modifier now.
-        $this->assertSame(0, substr_count($html, 'btn--'));
-    }
-
-    public function testHeroCtaVariantInvalidFallsBackToPrimary(): void
-    {
-        $html = $this->render('hero', $this->heroProps(['button_variant' => 'neon']));
-        $this->assertMatchesRegularExpression('/class="hero__cta btn"[^-]/', $html . ' ');
-    }
-
-    public function testHeroCta2VariantInvalidFallsBackToOutline(): void
-    {
-        $html = $this->render('hero', $this->heroProps(['button2_variant' => 'neon']));
-        $this->assertStringContainsString('class="hero__cta hero__cta--secondary btn btn--outline"', $html);
-    }
-
     // ── CRITICAL regression: button enrichment must not break --cta-accent ──
     //
     // The shared .btn was tokenized with --btn-* defaults. Existing compositions
@@ -970,28 +891,6 @@ class ComponentPropsTest extends TestCase
         );
     }
 
-    public function testHeroAccentFillExcludesOutlineGhostSecondary(): void
-    {
-        // Same guard for hero's equivalent rule (this specific fix predates
-        // #111 — pins it so a future refactor can't silently reintroduce it).
-        $css = file_get_contents(dirname(__DIR__) . '/assets/css/components.css');
-        $this->assertMatchesRegularExpression(
-            '/\.hero\s+\.btn:not\(\.btn--outline\):not\(\.btn--ghost\):not\(\.btn--secondary\)\s*\{[^}]*var\(\s*--hero-accent\b/s',
-            $css,
-            ".hero .btn's accent-fill rule must exclude outline/ghost/secondary via :not()."
-        );
-    }
-
-    public function testHeroSchemaDeclaresAllSixCta2Slots(): void
-    {
-        $schema = json_decode(file_get_contents(dirname(__DIR__) . '/components/hero/schema.json'), true);
-        $slots = $schema['styling']['style_slots'];
-        foreach (['--hero-button2-bg', '--hero-button2-border', '--hero-button2-color', '--hero-button2-hover-bg', '--hero-button2-hover-border', '--hero-button2-hover-color'] as $name) {
-            $this->assertArrayHasKey($name, $slots, "hero must declare {$name}.");
-            $this->assertSame('color', $slots[$name]['type']);
-        }
-    }
-
     public function testCtaSchemaDeclaresAllSixButtonSlots(): void
     {
         $schema = json_decode(file_get_contents(dirname(__DIR__) . '/components/cta/schema.json'), true);
@@ -1002,20 +901,6 @@ class ComponentPropsTest extends TestCase
         }
     }
 
-    public function testHeroCta2OverrideAppliesOnlyToSecondaryButton(): void
-    {
-        // The override must be scoped to .hero__cta--secondary, not leak onto
-        // the primary button — even when the override is set, the primary's
-        // rendered class list carries no such class.
-        $html = $this->render('hero', $this->heroProps([
-            '__pp_style' => ['--hero-button2-color' => '#00ff00'],
-        ]));
-        $this->assertStringContainsString('--hero-button2-color: #00ff00', $html);
-        $this->assertStringContainsString('hero__cta hero__cta--secondary btn', $html);
-        // Only ONE button should carry the secondary class.
-        $this->assertSame(1, substr_count($html, 'hero__cta--secondary'));
-    }
-
     public function testCtaButtonOverrideRenders(): void
     {
         $html = $this->render('cta', $this->ctaProps([
@@ -1024,27 +909,6 @@ class ComponentPropsTest extends TestCase
         ]));
         $this->assertStringContainsString('--cta-button-bg: #ff00ff', $html);
         $this->assertStringContainsString('--cta-button-border: #ffff00', $html);
-    }
-
-    public function testHeroCta2VariantsAllRouteThroughOverrideSlotsInCss(): void
-    {
-        // Comprehensive coverage beyond the keystone contract test's "at least
-        // one compatible consumption" check — every one of the 4 variant-specific
-        // rule blocks must reference --hero-button2-bg, not just one of them. Count the FILL
-        // consumptions specifically: issue 526 adds a SECOND kind of reference (the cta2
-        // isolation rule re-points --hero-button-bg at this slot, routing it into the
-        // premium gradient-clearing chain), and one combined total would let a deleted
-        // variant consumption hide behind an added reference of the other kind. That
-        // declaration has its own pin in StyleSlotContractTest. Comments are stripped
-        // because the prose around these rules names the slot repeatedly.
-        $css = file_get_contents(dirname(__DIR__) . '/assets/css/components.css');
-        $css = preg_replace('#/\*.*?\*/#s', '', $css);
-        $this->assertSame(
-            4,
-            substr_count($css, 'background-color: var(--hero-button2-bg'),
-            '--hero-button2-bg must be consumed as the fill in exactly 4 rules: the '
-            . 'primary-shape rule plus outline/secondary/ghost — one per variant (#111).'
-        );
     }
 
     public function testCtaButtonVariantsAllRouteThroughOverrideSlotsInCss(): void
@@ -1749,18 +1613,6 @@ class ComponentPropsTest extends TestCase
         $this->assertMatchesRegularExpression('/src="data:image\/svg\+xml,[^"]*"/', $html);
     }
 
-    public function testHeroCoverVariantRendersDataUriSvgBackgroundImage(): void
-    {
-        $svg = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg"><rect width="10" height="10"/></svg>';
-        $html = $this->render('hero', [
-            'title' => 'Welcome',
-            'layout' => 'cover',
-            'image_url' => $svg,
-        ]);
-        $this->assertStringContainsString('background-image:url(data:image/svg+xml,', $html);
-        $this->assertStringNotContainsString('background-image:url();', $html);
-    }
-
     // ── Section-header pattern: eyebrow + subheading + alignment (#102/#85) ──
 
     private function gridProps(array $extra = []): array
@@ -1771,6 +1623,79 @@ class ComponentPropsTest extends TestCase
     private function sectionProps(array $extra = []): array
     {
         return array_merge(['body' => '<p>Body</p>'], $extra);
+    }
+
+    /**
+     * REWRITTEN from testAllSixComponentsDeclareTitleAccentSlot (#986).
+     *
+     * The old test asserted all SIX components declared a `title_accent` prop AND a
+     * colour-typed `--*-heading-accent-color` STYLE SLOT. Hero left the slot system,
+     * so the slot half is dead for hero only — but the invariant it protected is not:
+     * every component that offers a `title_accent` prop must offer a way to colour it.
+     * Deleting the test would have dropped the five surviving components' coverage
+     * along with hero's, so it is narrowed and hero's half is re-expressed in v2 terms.
+     */
+    public function testEveryComponentWithTitleAccentCanStyleIt(): void
+    {
+        $v1 = [
+            'grid'    => '--grid-heading-accent-color',
+            'section' => '--section-heading-accent-color',
+            'cta'     => '--cta-heading-accent-color',
+            'faq'     => '--faq-heading-accent-color',
+            'stats'   => '--stats-heading-accent-color',
+        ];
+        foreach ($v1 as $component => $slot) {
+            $schema = json_decode(file_get_contents(dirname(__DIR__) . "/components/{$component}/schema.json"), true);
+            $this->assertArrayHasKey('title_accent', $schema['props'], "{$component} must declare title_accent prop.");
+            $this->assertArrayHasKey($slot, $schema['styling']['style_slots'], "{$component} must declare {$slot}.");
+            $this->assertSame('color', $schema['styling']['style_slots'][$slot]['type']);
+        }
+
+        // Hero keeps the PROP and answers the same question through a ROLE.
+        $hero = json_decode(file_get_contents(dirname(__DIR__) . '/components/hero/schema.json'), true);
+        $this->assertArrayHasKey('title_accent', $hero['props'], 'hero must still declare title_accent prop.');
+        $this->assertSame([], $hero['styling']['style_slots'] ?? [], 'hero declares no style slots on v2.');
+        $this->assertArrayHasKey('title-accent', $hero['roles'], 'hero must expose title-accent as a role.');
+        $this->assertContains(
+            'typography',
+            $hero['roles']['title-accent']['groups'],
+            'the title-accent role must permit typography so its colour is authorable.'
+        );
+    }
+
+    /**
+     * RE-BASED from testHeroImagePositionRejectsInjectionInStyleSlot (#986).
+     *
+     * Hero's `--hero-image-position` slot is gone, but the invariant is a REFUSAL, not
+     * a hero fact: a `position`-typed slot must not let a semicolon smuggle a second
+     * declaration into the rendered style attribute. Section carries the surviving
+     * position-typed slot, so the red proof moves there rather than being deleted.
+     */
+    public function testPositionSlotRejectsInjectionInStyleSlot(): void
+    {
+        $html = $this->render('section', $this->sectionProps([
+            'title'        => 'T',
+            'layout'       => 'text-image',
+            'image_url'    => 'https://example.com/photo.jpg',
+            '__pp_style'   => ['--section-bg-position' => 'top; background:url(evil)'],
+        ]));
+        $this->assertStringNotContainsString('url(evil)', $html);
+    }
+
+    /**
+     * RE-BASED from testRenderStyleVarsGradientSurvivesUnmangledForHero (#986).
+     *
+     * pp_render_style_vars() still serves every v1 component; hero was only the
+     * fixture. The #99/#330 invariant — a validated gradient round-trips unmangled
+     * through the render boundary — is re-proved on section.
+     */
+    public function testRenderStyleVarsGradientSurvivesUnmangled(): void
+    {
+        $result = pp_render_style_vars(
+            ['--section-bg' => 'linear-gradient(135deg, #1a1a2e, #16121f)'],
+            'section'
+        );
+        $this->assertStringContainsString('--section-bg: linear-gradient(135deg, #1a1a2e, #16121f)', $result);
     }
 
     public function testHeroEyebrowRenders(): void
@@ -1934,14 +1859,6 @@ class ComponentPropsTest extends TestCase
                 "cta__eyebrow must be a direct child of cta__text (layout: {$layout})"
             );
         }
-    }
-
-    public function testHeroSchemaDeclaresEyebrowSlots(): void
-    {
-        $schema = json_decode(file_get_contents(dirname(__DIR__) . '/components/hero/schema.json'), true);
-        $slots = $schema['styling']['style_slots'];
-        $this->assertArrayHasKey('--hero-eyebrow-color', $slots);
-        $this->assertArrayHasKey('--hero-eyebrow-bg', $slots);
     }
 
     public function testGridSchemaDeclaresHeaderSlots(): void
@@ -2276,10 +2193,15 @@ class ComponentPropsTest extends TestCase
         }
     }
 
-    public function testAllSixComponentsDeclareTitleAccentSlot(): void
+    /**
+     * FIVE components now, not six (#986): hero's `--hero-heading-accent-color` is the
+     * `title-accent` ROLE's `typography.color`, pinned in its schema rather than here.
+     */
+    public function testAllFiveSlotComponentsDeclareTitleAccentSlot(): void
     {
         $expected = [
-            'hero'    => '--hero-heading-accent-color',
+            // hero's accent colour is the `title-accent` role's `typography.color` (#986),
+            // declared in its schema's roles block, not as a slot.
             'grid'    => '--grid-heading-accent-color',
             'section' => '--section-heading-accent-color',
             'cta'     => '--cta-heading-accent-color',
@@ -3268,23 +3190,6 @@ class ComponentPropsTest extends TestCase
     }
 
     /**
-     * The SECOND typed helper this one prop reaches: the cover layout hands image_url to
-     * pp_esc_image_src(), also `string $url`. Guarding at the READ covers it with no
-     * second edit, because everything below reads the guarded local.
-     *
-     * @dataProvider fatalNonScalars
-     */
-    public function testHeroCoverStoredNonScalarImageUrlRendersWithoutABackgroundImage($bad): void
-    {
-        $html = $this->render('hero', $this->heroProps([
-            'layout' => 'cover', 'image_url' => $bad,
-        ]));
-        $this->assertStringNotContainsString('background-image', $html, 'no background image');
-        $this->assertStringContainsString('hero--cover', $html, 'the cover band still renders');
-        $this->assertStringContainsString('hero__overlay', $html, 'the overlay still paints');
-    }
-
-    /**
      * section already falls back to text-only when there is no image URL. An array
      * defeated that gate by being truthy, so the band kept its image layout and hit the
      * typed call. With the guard the EXISTING fallback fires.
@@ -3519,10 +3424,17 @@ class ComponentPropsTest extends TestCase
         );
         $this->assertStringContainsString('hero--split', $hero, 'and the split layout is kept');
 
+        // The cover arm is INVERTED in v2 (#986): a cover hero no longer paints
+        // `image_url` as a background, because a band background image is the `_band`
+        // role's `background.image` (an attachment id the engine resolves, ruling A2)
+        // and hero emits no inline style at all. So the guard's accept-side claim here
+        // is that the prop reaches NOTHING on this layout — no background, no inline
+        // style attribute — rather than that it paints.
         $cover = $this->render('hero', $this->heroProps([
             'layout' => 'cover', 'image_url' => 'https://example.com/bg.jpg',
         ]));
-        $this->assertStringContainsString('background-image:url(https://example.com/bg.jpg)', $cover);
+        $this->assertStringNotContainsString('background-image', $cover);
+        $this->assertStringNotContainsString('style=', $cover);
 
         $section = $this->render('section', $this->sectionProps([
             'layout' => 'image-left', 'image_url' => 'https://example.com/side.jpg', 'image_alt' => 'Side',
@@ -3531,27 +3443,6 @@ class ComponentPropsTest extends TestCase
             '<img src="https://example.com/side.jpg" alt="Side" class="section__image" loading="lazy">',
             $section
         );
-    }
-
-    // ── Image focal point + aspect ratio style slots (#108) ──────────────────
-
-    public function testHeroCoverBgPositionOverrideRenders(): void
-    {
-        $html = $this->render('hero', $this->heroProps([
-            'layout' => 'cover', 'image_url' => 'https://example.com/bg.jpg',
-            '__pp_style' => ['--hero-bg-position' => 'top left'],
-        ]));
-        $this->assertStringContainsString('--hero-bg-position: top left', $html);
-    }
-
-    public function testHeroImagePositionAndAspectRatioOverrideRenders(): void
-    {
-        $html = $this->render('hero', $this->heroProps([
-            'layout' => 'split', 'image_url' => 'https://example.com/photo.jpg',
-            '__pp_style' => ['--hero-image-position' => 'top', '--hero-image-aspect-ratio' => '16/9'],
-        ]));
-        $this->assertStringContainsString('--hero-image-position: top', $html);
-        $this->assertStringContainsString('--hero-image-aspect-ratio: 16/9', $html);
     }
 
     public function testSectionImagePositionAndAspectRatioOverrideRenders(): void
@@ -3580,24 +3471,6 @@ class ComponentPropsTest extends TestCase
     {
         $html = $this->render('stats', $this->statsProps(['background_image' => 'https://example.com/bg.jpg', '__pp_style' => ['--stats-bg-position' => 'left']]));
         $this->assertStringContainsString('--stats-bg-position: left', $html);
-    }
-
-    public function testHeroImagePositionRejectsInjectionInStyleSlot(): void
-    {
-        $html = $this->render('hero', $this->heroProps([
-            'layout' => 'split', 'image_url' => 'https://example.com/photo.jpg',
-            '__pp_style' => ['--hero-image-position' => 'top; background:url(evil)'],
-        ]));
-        $this->assertStringNotContainsString('url(evil)', $html);
-    }
-
-    public function testHeroSchemaDeclaresPositionAndRatioSlotTypes(): void
-    {
-        $schema = json_decode(file_get_contents(dirname(__DIR__) . '/components/hero/schema.json'), true);
-        $slots = $schema['styling']['style_slots'];
-        $this->assertSame('position', $slots['--hero-image-position']['type']);
-        $this->assertSame('ratio', $slots['--hero-image-aspect-ratio']['type']);
-        $this->assertSame('position', $slots['--hero-bg-position']['type']);
     }
 
     public function testSectionCtaStatsSchemaDeclareBgPositionSlot(): void

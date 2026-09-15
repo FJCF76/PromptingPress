@@ -163,17 +163,17 @@ class SchemaTruthfulnessTest extends TestCase
             );
         }
 
-        $hero = $this->slots('hero')['--hero-heading-size'];
-        $this->assertNotSame(
-            'var(--pp-band-heading-size)',
-            $hero['default'],
-            'hero is EXEMPT from the shared band scale by design; do not fold it in here.'
-        );
-        $this->assertStringContainsString(
-            'EXEMPT',
-            $hero['description'],
-            'hero must SAY it is exempt — an undocumented exception reads as an oversight.'
-        );
+        // HERO'S EXEMPTION MOVED WITH HERO (#986). It was the one band whose heading
+        // size deliberately did NOT default to the shared scale — an opener is bigger —
+        // and that is still true, but it is now expressed as the `title` role's
+        // `typography.size` default (a responsive clamp pair) rather than as a slot
+        // default carrying the word EXEMPT in its description. Asserted where it lives.
+        $schema = json_decode(file_get_contents(dirname(__DIR__) . '/components/hero/schema.json'), true);
+        $size   = $schema['roles']['title']['defaults']['typography']['size'];
+        $this->assertIsArray($size, 'hero keeps a RESPONSIVE heading size, which is the exemption');
+        $this->assertStringContainsString('clamp(', $size['d']);
+        $this->assertStringNotContainsString('pp-band-heading-size', json_encode($size),
+            'hero is EXEMPT from the shared band scale by design; do not fold it in here.');
     }
 
     /**

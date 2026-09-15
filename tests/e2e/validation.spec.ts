@@ -119,14 +119,20 @@ test.describe('Post-Apply Validation', () => {
   test('broken media: missing image triggers validation error', async ({
     page,
   }) => {
-    // 1. Create page with a cover hero whose background image URL is unresolvable.
+    // 1. Create a page with a band whose background image URL is unresolvable.
+    //    `section`, not a cover hero (#986): a v2 hero no longer paints `image_url` as a
+    //    band background, and `style_component` refuses a v2 component outright — so the
+    //    old fixture could no longer reach either half of what this test measures.
+    //    section keeps `background_image` and its style slots, so the broken-media signal
+    //    and the styling write are both still exercised.
     pageId = createPage('E2E Validation Broken Media');
     setComposition(pageId, [
       {
-        component: 'hero',
+        component: 'section',
         props: {
-          title: 'Hero With Bad Image',
-          layout: 'cover',
+          title: 'Band With Bad Image',
+          body: '<p>Body.</p>',
+          layout: 'image-left',
           image_url: 'http://localhost:8889/wp-content/uploads/2026/06/nonexistent-image.jpg',
         },
       },
@@ -154,7 +160,7 @@ test.describe('Post-Apply Validation', () => {
       data.append('name', 'style_component');
       data.append('params[post_id]', String(pid));
       data.append('params[component_index]', '0');
-      data.append('params[style]', JSON.stringify({ '--hero-padding-top': '4rem' }));
+      data.append('params[style]', JSON.stringify({ '--section-padding-top': '4rem' }));
       if (baseline && baseline.success && baseline.data) {
         data.append('params[expected_version]', String(baseline.data.version));
       }

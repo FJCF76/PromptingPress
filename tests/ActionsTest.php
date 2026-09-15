@@ -471,15 +471,15 @@ class ActionsTest extends TestCase
         // specific rule path — and never blocks on it.
         $post_id = pp_create_page('Dangling var snapshot');
         pp_update_composition($post_id, [
-            ['component' => 'hero', 'props' => ['title' => 'A'], 'style' => ['--hero-button2-bg' => 'var(--nonexistent-token)']],
+            ['component' => 'section', 'props' => ['title' => 'A'], 'style' => ['--section-panel-cta-bg' => 'var(--nonexistent-token)']],
         ]);
-        pp_update_composition($post_id, [['component' => 'hero', 'props' => ['title' => 'B']]]);
+        pp_update_composition($post_id, [['component' => 'section', 'props' => ['title' => 'B']]]);
 
         $result = pp_execute_action('restore_composition', ['post_id' => $post_id, 'steps_back' => 1]);
 
         // The write succeeds and the snapshot is preserved verbatim.
         $this->assertTrue($result['ok'], $result['error'] ?? 'restore failed');
-        $this->assertSame('var(--nonexistent-token)', pp_get_composition($post_id)[0]['style']['--hero-button2-bg']);
+        $this->assertSame('var(--nonexistent-token)', pp_get_composition($post_id)[0]['style']['--section-panel-cta-bg']);
 
         // ...and the dangling reference is reported as a blocking-class finding.
         $errors = array_values(array_filter(
@@ -492,20 +492,21 @@ class ActionsTest extends TestCase
     public function testRestoreOfValidVarStyleValueReportsNoFindings(): void
     {
         // The mirror case: a snapshot using the newly ACCEPTED forms is clean.
-        // `--hero-button2-color` (the button's INK), not `--hero-button2-bg`: the bg
+        // `--section-panel-cta-color` (the button's INK), not `--section-panel-cta-bg`: the bg
         // slot declares `role: "fill"`, and since #579 a transparent fill raises a
         // non-blocking `transparent_fill` advisory, which would make this findings
         // assertion about the warn channel instead of about var() acceptance.
         //
-        // The two button labels are load-bearing for the SAME reason since #580:
-        // `--hero-button2-*` declares applies_when button_text + button2_text, so a
-        // hero with neither renders no second button and the slot raises an
-        // `inert_slot` advisory — again the warn channel, not var() acceptance.
+        // The panel setup is load-bearing for the SAME reason since #580:
+        // `--section-panel-cta-*` declares applies_when layout = "text-panel" AND
+        // panel_cta_text AND panel_cta_url, so a section without them renders no panel
+        // CTA and the slot raises an `inert_slot` advisory — again the warn channel,
+        // not var() acceptance.
         $post_id = pp_create_page('Valid var snapshot');
         pp_update_composition($post_id, [
-            ['component' => 'hero', 'props' => ['title' => 'A', 'button_text' => 'One', 'button2_text' => 'Two'], 'style' => ['--hero-button2-color' => 'transparent', '--hero-accent' => 'var(--color-accent)']],
+            ['component' => 'section', 'props' => ['title' => 'A', 'body' => 'Body text', 'layout' => 'text-panel', 'panel_cta_text' => 'Go', 'panel_cta_url' => '/x'], 'style' => ['--section-panel-cta-color' => 'transparent', '--section-heading-accent-color' => 'var(--color-accent)']],
         ]);
-        pp_update_composition($post_id, [['component' => 'hero', 'props' => ['title' => 'B']]]);
+        pp_update_composition($post_id, [['component' => 'section', 'props' => ['title' => 'B', 'body' => 'Body text']]]);
 
         $result = pp_execute_action('restore_composition', ['post_id' => $post_id, 'steps_back' => 1]);
         $this->assertTrue($result['ok']);
@@ -3060,33 +3061,33 @@ class ActionsTest extends TestCase
     public function testAddComponentWithStyleWritesStyleOntoNewItem(): void
     {
         $id = pp_create_page('Add Style Test', 'draft');
-        pp_update_composition($id, [['component' => 'hero', 'props' => ['title' => 'First']]]);
+        pp_update_composition($id, [['component' => 'section', 'props' => ['title' => 'First', 'body' => 'Body text']]]);
 
         $result = pp_execute_action('add_component', [
             'post_id'   => $id,
-            'component' => 'hero',
-            'props'     => ['title' => 'Styled'],
-            'style'     => ['--hero-bg' => '#1a1a2e', '--hero-padding-top' => '8rem'],
+            'component' => 'section',
+            'props' => ['title' => 'Styled', 'body' => 'Body text'],
+            'style'     => ['--section-bg' => '#1a1a2e', '--section-padding-top' => '8rem'],
         ]);
         $this->assertTrue($result['ok']);
         $comp = pp_get_composition($id);
         $this->assertCount(2, $comp);
-        $this->assertSame('#1a1a2e', $comp[1]['style']['--hero-bg']);
-        $this->assertSame('8rem', $comp[1]['style']['--hero-padding-top']);
+        $this->assertSame('#1a1a2e', $comp[1]['style']['--section-bg']);
+        $this->assertSame('8rem', $comp[1]['style']['--section-padding-top']);
     }
 
     public function testAddComponentRejectsInvalidStyleValue(): void
     {
         $id = pp_create_page('Add Bad Value', 'draft');
-        pp_update_composition($id, [['component' => 'hero', 'props' => ['title' => 'First']]]);
+        pp_update_composition($id, [['component' => 'section', 'props' => ['title' => 'First', 'body' => 'Body text']]]);
 
         // Same rejection (and same shared-engine error code) as items[].style /
         // style_component would give for a non-color value on a color slot.
         $result = pp_validate_action('add_component', [
             'post_id'   => $id,
-            'component' => 'hero',
-            'props'     => ['title' => 'Styled'],
-            'style'     => ['--hero-bg' => 'not-a-color'],
+            'component' => 'section',
+            'props' => ['title' => 'Styled', 'body' => 'Body text'],
+            'style'     => ['--section-bg' => 'not-a-color'],
         ]);
         $this->assertInstanceOf(WP_Error::class, $result);
         $this->assertEquals('invalid_style_value', $result->get_error_code());
@@ -3148,22 +3149,22 @@ class ActionsTest extends TestCase
     {
         $id = pp_create_page('Add Style Pos', 'draft');
         pp_update_composition($id, [
-            ['component' => 'hero', 'props' => ['title' => 'First']],
+            ['component' => 'section', 'props' => ['title' => 'First', 'body' => 'Body text']],
             ['component' => 'section', 'props' => ['body' => 'Last']],
         ]);
 
         $result = pp_execute_action('add_component', [
             'post_id'   => $id,
-            'component' => 'hero',
-            'props'     => ['title' => 'Inserted'],
-            'style'     => ['--hero-bg' => '#123456'],
+            'component' => 'section',
+            'props' => ['title' => 'Inserted', 'body' => 'Body text'],
+            'style'     => ['--section-bg' => '#123456'],
             'position'  => 1,
         ]);
         $this->assertTrue($result['ok']);
         $comp = pp_get_composition($id);
         $this->assertCount(3, $comp);
         $this->assertSame('Inserted', $comp[1]['props']['title']);
-        $this->assertSame('#123456', $comp[1]['style']['--hero-bg']);
+        $this->assertSame('#123456', $comp[1]['style']['--section-bg']);
         $this->assertArrayNotHasKey('style', $comp[0]);
         $this->assertArrayNotHasKey('style', $comp[2]);
     }
@@ -3175,26 +3176,26 @@ class ActionsTest extends TestCase
         // is HONORED (persisted onto the new item) and an invalid style is
         // REJECTED — never a silent ok:true with the styling gone.
         $id = pp_create_page('Regression 368', 'draft');
-        pp_update_composition($id, [['component' => 'hero', 'props' => ['title' => 'First']]]);
+        pp_update_composition($id, [['component' => 'section', 'props' => ['title' => 'First', 'body' => 'Body text']]]);
 
         // Valid style is honored, not dropped.
         $ok = pp_execute_action('add_component', [
             'post_id'   => $id,
-            'component' => 'hero',
-            'props'     => ['title' => 'Styled'],
-            'style'     => ['--hero-bg' => '#0d1117'],
+            'component' => 'section',
+            'props' => ['title' => 'Styled', 'body' => 'Body text'],
+            'style'     => ['--section-bg' => '#0d1117'],
         ]);
         $this->assertTrue($ok['ok']);
         $comp = pp_get_composition($id);
         $this->assertArrayHasKey('style', $comp[1], 'Valid style must be persisted, not silently dropped.');
-        $this->assertSame('#0d1117', $comp[1]['style']['--hero-bg']);
+        $this->assertSame('#0d1117', $comp[1]['style']['--section-bg']);
 
         // Invalid style is rejected, not silently accepted behind ok:true.
         $bad = pp_execute_action('add_component', [
             'post_id'   => $id,
-            'component' => 'hero',
-            'props'     => ['title' => 'Bad'],
-            'style'     => ['--hero-bg' => 'not-a-color'],
+            'component' => 'section',
+            'props' => ['title' => 'Bad', 'body' => 'Body text'],
+            'style'     => ['--section-bg' => 'not-a-color'],
         ]);
         $this->assertFalse($bad['ok'], 'Invalid style must be rejected, never silently accepted.');
         $this->assertCount(2, pp_get_composition($id), 'A rejected add must not append.');
@@ -4301,13 +4302,13 @@ class ActionsTest extends TestCase
     {
         $post_id = pp_create_page('Style test');
         pp_update_composition($post_id, [
-            ['component' => 'hero', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello']],
+            ['component' => 'section', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello']],
         ]);
 
         $result = pp_validate_action('style_component', [
             'post_id'         => $post_id,
             'component_index' => 0,
-            'style'           => ['--hero-bg' => '#1a1a2e', '--hero-padding-top' => '8rem'],
+            'style'           => ['--section-bg' => '#1a1a2e', '--section-padding-top' => '8rem'],
         ]);
         $this->assertTrue($result);
     }
@@ -4316,13 +4317,13 @@ class ActionsTest extends TestCase
     {
         $post_id = pp_create_page('Style test');
         pp_update_composition($post_id, [
-            ['component' => 'hero', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello']],
+            ['component' => 'section', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello']],
         ]);
 
         $result = pp_validate_action('style_component', [
             'post_id'         => $post_id,
             'component_index' => 0,
-            'style'           => ['--hero-display' => 'none'],
+            'style'           => ['--section-display' => 'none'],
         ]);
         $this->assertInstanceOf(WP_Error::class, $result);
         $this->assertEquals('invalid_style_slot', $result->get_error_code());
@@ -4332,13 +4333,13 @@ class ActionsTest extends TestCase
     {
         $post_id = pp_create_page('Style test');
         pp_update_composition($post_id, [
-            ['component' => 'hero', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello']],
+            ['component' => 'section', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello']],
         ]);
 
         $result = pp_validate_action('style_component', [
             'post_id'         => $post_id,
             'component_index' => 0,
-            'style'           => ['--hero-bg' => 'not-a-color'],
+            'style'           => ['--section-bg' => 'not-a-color'],
         ]);
         $this->assertInstanceOf(WP_Error::class, $result);
         $this->assertEquals('invalid_style_value', $result->get_error_code());
@@ -4350,13 +4351,13 @@ class ActionsTest extends TestCase
         // background, and a slot that follows the brand accent via var().
         $post_id = pp_create_page('Style test');
         pp_update_composition($post_id, [
-            ['component' => 'hero', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello']],
+            ['component' => 'section', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello']],
         ]);
 
         $result = pp_validate_action('style_component', [
             'post_id'         => $post_id,
             'component_index' => 0,
-            'style'           => ['--hero-button2-bg' => 'transparent', '--hero-accent' => 'var(--color-accent)'],
+            'style'           => ['--section-panel-cta-bg' => 'transparent', '--section-heading-accent-color' => 'var(--color-accent)'],
         ]);
         $this->assertTrue($result);
     }
@@ -4365,95 +4366,16 @@ class ActionsTest extends TestCase
     {
         $post_id = pp_create_page('Style test');
         pp_update_composition($post_id, [
-            ['component' => 'hero', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello']],
+            ['component' => 'section', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello']],
         ]);
 
         $result = pp_validate_action('style_component', [
             'post_id'         => $post_id,
             'component_index' => 0,
-            'style'           => ['--hero-button2-bg' => 'var(--nonexistent-token)'],
+            'style'           => ['--section-panel-cta-bg' => 'var(--nonexistent-token)'],
         ]);
         $this->assertInstanceOf(WP_Error::class, $result);
         $this->assertEquals('invalid_style_value', $result->get_error_code());
-    }
-
-    // ── #514 hero primary-button fill slots (authoring-path mandate) ──────────
-
-    /**
-     * Authoring-path acceptance (issue 514): the three new hero primary-button
-     * fill slots are accepted through the REAL validate surface, exercising the
-     * shared schema-derived validator (a color, a color, and a shadow slot).
-     */
-    public function testStyleComponentAcceptsHeroButtonFillSlots(): void
-    {
-        $post_id = pp_create_page('Hero button fill test');
-        pp_update_composition($post_id, [
-            ['component' => 'hero', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello']],
-        ]);
-
-        $result = pp_validate_action('style_component', [
-            'post_id'         => $post_id,
-            'component_index' => 0,
-            'style'           => [
-                '--hero-button-bg'     => '#7c3aed',
-                '--hero-button-color'  => '#ffffff',
-                '--hero-button-shadow' => 'none',
-            ],
-        ]);
-        $this->assertTrue($result);
-    }
-
-    /**
-     * The `color`-typed --hero-button-bg goes through the same shared validator as
-     * every other color slot: a non-color value is rejected with the standard code
-     * (authoring-path negative branch, issue 514).
-     */
-    public function testStyleComponentRejectsInvalidHeroButtonBg(): void
-    {
-        $post_id = pp_create_page('Hero button fill reject test');
-        pp_update_composition($post_id, [
-            ['component' => 'hero', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello']],
-        ]);
-
-        $result = pp_validate_action('style_component', [
-            'post_id'         => $post_id,
-            'component_index' => 0,
-            'style'           => ['--hero-button-bg' => 'not-a-color'],
-        ]);
-        $this->assertInstanceOf(WP_Error::class, $result);
-        $this->assertEquals('invalid_style_value', $result->get_error_code());
-    }
-
-    /**
-     * End-to-end authoring: setting the fill slots through the real apply surface
-     * persists them onto the component's style map (issue 514), so a site-builder
-     * AI can produce a filled brand-accent hero button through composition style
-     * slots alone — the capability #514 adds.
-     */
-    public function testStyleComponentPersistsHeroButtonFillSlots(): void
-    {
-        $post_id = pp_create_page('Hero button fill persist test');
-        pp_update_composition($post_id, [
-            ['component' => 'hero', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello']],
-        ]);
-
-        $result = pp_execute_action('style_component', [
-            'post_id'         => $post_id,
-            'component_index' => 0,
-            'style'           => [
-                '--hero-button-bg'     => '#7c3aed',
-                '--hero-button-color'  => '#ffffff',
-                '--hero-button-shadow' => 'none',
-                '--hero-accent'        => '#7c3aed',
-            ],
-        ]);
-        $this->assertTrue($result['ok']);
-
-        $comp = pp_get_composition($post_id);
-        $this->assertSame('#7c3aed', $comp[0]['style']['--hero-button-bg']);
-        $this->assertSame('#ffffff', $comp[0]['style']['--hero-button-color']);
-        $this->assertSame('none', $comp[0]['style']['--hero-button-shadow']);
-        $this->assertSame('#7c3aed', $comp[0]['style']['--hero-accent']);
     }
 
     // ── #584 authoring path: the twelve new slots and the two new item props ──
@@ -4470,7 +4392,7 @@ class ActionsTest extends TestCase
         // The six components that could not execute band fusing. Zero is the value the
         // procedure actually asks for, so zero is the value authored here.
         $cases = [
-            'hero'   => ['--hero-heading-margin-bottom'   => '0'],
+            'section'   => ['--section-heading-margin-bottom'   => '0'],
             'cta'    => ['--cta-heading-margin-bottom'    => '0'],
             'stats'  => ['--stats-heading-margin-bottom'  => '0'],
             'table'  => ['--table-heading-margin-bottom'  => '1.5rem'],
@@ -4478,7 +4400,7 @@ class ActionsTest extends TestCase
             'logos'  => ['--logos-heading-margin-bottom'  => '0'],
         ];
         $props = [
-            'hero'  => ['title' => 'Hello'],
+            'section'  => ['title' => 'Hello'],
             'cta'   => ['title' => 'Go', 'button_text' => 'Start', 'button_url' => '/start'],
             'stats' => ['title' => 'Numbers', 'items' => [['number' => '10', 'label' => 'x']]],
             'table' => ['title' => 'Plans', 'headers' => ['A'], 'rows' => [['1']]],
@@ -4522,30 +4444,6 @@ class ActionsTest extends TestCase
         ]);
         $this->assertInstanceOf(WP_Error::class, $result);
         $this->assertSame('invalid_style_value', $result->get_error_code());
-    }
-
-    public function testStyleComponentPersistsTheHeroPrimaryRingSlots(): void
-    {
-        // Rest AND hover together: the positional-twin discipline this issue applies is only
-        // real if an author can actually set both through the surface.
-        $post_id = pp_create_page('Hero ring slots');
-        pp_update_composition($post_id, [
-            ['component' => 'hero', 'props' => [
-                'title' => 'Hello', 'button_text' => 'Start', 'button_url' => '/start',
-            ]],
-        ]);
-        $result = pp_execute_action('style_component', [
-            'post_id'         => $post_id,
-            'component_index' => 0,
-            'style'           => [
-                '--hero-button-border'       => '#7c3aed',
-                '--hero-button-hover-border' => '#5b21b6',
-            ],
-        ]);
-        $this->assertTrue($result['ok']);
-        $comp = pp_get_composition($post_id);
-        $this->assertSame('#7c3aed', $comp[0]['style']['--hero-button-border']);
-        $this->assertSame('#5b21b6', $comp[0]['style']['--hero-button-hover-border']);
     }
 
     public function testStyleComponentPersistsThePanelCtaRingSlots(): void
@@ -4719,96 +4617,6 @@ class ActionsTest extends TestCase
         $this->assertTrue($result['ok']);
     }
 
-    // ── #526 hero cta2 fill slot (authoring-path mandate) ────────────────────
-
-    /**
-     * Authoring path for the issue 526 combination: a filled second CTA styled with its
-     * own --hero-button2-* slots ALONGSIDE the primary's #514 --hero-button-* slots goes
-     * through the real validate + apply surface, and both families persist independently.
-     * The leak only bites when an author sets --hero-button-* AND makes cta2 a filled
-     * `primary`, so the path that PRODUCES that state is exercised here rather than
-     * assumed. This pins authoring only — it says nothing about the rendered cascade;
-     * the fix itself is proven by the CSS pins in StyleSlotContractTest and the rendered
-     * computed-style pins in tests/e2e/style-render.spec.ts.
-     */
-    public function testStyleComponentPersistsIndependentHeroCta2AndPrimaryFillSlots(): void
-    {
-        $post_id = pp_create_page('Hero cta2 fill test');
-        pp_update_composition($post_id, [
-            ['component' => 'hero', 'props' => [
-                'id'           => 'pp-aabb1122',
-                'title'        => 'Hello',
-                'button_text'     => 'Get started',
-                'button2_text'    => 'Talk to sales',
-                'button2_variant' => 'primary',
-            ]],
-        ]);
-
-        $result = pp_execute_action('style_component', [
-            'post_id'         => $post_id,
-            'component_index' => 0,
-            'style'           => [
-                '--hero-button-bg'     => '#7c3aed',
-                '--hero-button-shadow' => 'none',
-                '--hero-button2-bg'       => '#0f766e',
-                '--hero-button2-color'    => '#ffffff',
-            ],
-        ]);
-        $this->assertTrue($result['ok']);
-
-        $comp = pp_get_composition($post_id);
-        $this->assertSame('#7c3aed', $comp[0]['style']['--hero-button-bg']);
-        $this->assertSame('none', $comp[0]['style']['--hero-button-shadow']);
-        $this->assertSame('#0f766e', $comp[0]['style']['--hero-button2-bg']);
-        $this->assertSame('#ffffff', $comp[0]['style']['--hero-button2-color']);
-        $this->assertSame('primary', $comp[0]['props']['button2_variant']);
-    }
-
-    // ── #530 hover fill slots (authoring-path mandate) ───────────────────────
-
-    /**
-     * Authoring path for issue 530: the four filled-button HOVER fill slots go through the
-     * real validate + apply surface together. --hero-button-hover-bg is the NEW slot this
-     * issue adds, so the authoring contract for it is exercised rather than assumed (raw
-     * _pp_composition seeding would bypass the schema allowlist entirely and prove nothing
-     * about whether an author can actually set it). The cta2/button2 hover slots already
-     * existed but were DEAD on a filled button, so they are pinned here too — the capability
-     * #530 delivers is the pair (rest + hover) being settable and independent per button.
-     * This pins authoring only; the rendered cascade is proven by the CSS pins in
-     * StyleSlotContractTest and the computed-style :hover pins in e2e/style-render.spec.ts.
-     */
-    public function testStyleComponentPersistsHeroHoverFillSlotsIndependently(): void
-    {
-        $post_id = pp_create_page('Hero hover fill test');
-        pp_update_composition($post_id, [
-            ['component' => 'hero', 'props' => [
-                'id'           => 'pp-aabb1122',
-                'title'        => 'Hello',
-                'button_text'     => 'Get started',
-                'button2_text'    => 'Talk to sales',
-                'button2_variant' => 'primary',
-            ]],
-        ]);
-
-        $result = pp_execute_action('style_component', [
-            'post_id'         => $post_id,
-            'component_index' => 0,
-            'style'           => [
-                '--hero-button-bg'        => '#7c3aed',
-                '--hero-button-hover-bg'  => '#6d28d9',
-                '--hero-button2-bg'          => '#0f766e',
-                '--hero-button2-hover-bg'    => '#115e59',
-            ],
-        ]);
-        $this->assertTrue($result['ok']);
-
-        $comp = pp_get_composition($post_id);
-        $this->assertSame('#7c3aed', $comp[0]['style']['--hero-button-bg']);
-        $this->assertSame('#6d28d9', $comp[0]['style']['--hero-button-hover-bg']);
-        $this->assertSame('#0f766e', $comp[0]['style']['--hero-button2-bg']);
-        $this->assertSame('#115e59', $comp[0]['style']['--hero-button2-hover-bg']);
-    }
-
     /** The cta component's two hover fill slots author independently too (issue 530). */
     public function testStyleComponentPersistsCtaHoverFillSlotsIndependently(): void
     {
@@ -4854,23 +4662,6 @@ class ActionsTest extends TestCase
             'style'           => ['--hero-button-hover-bg' => 'not-a-color'],
         ]);
         $this->assertInstanceOf(WP_Error::class, $result);
-    }
-
-    /** --hero-button2-bg is a color slot on the shared validator: garbage is rejected (issue 526). */
-    public function testStyleComponentRejectsInvalidHeroCta2Bg(): void
-    {
-        $post_id = pp_create_page('Hero cta2 fill reject test');
-        pp_update_composition($post_id, [
-            ['component' => 'hero', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello']],
-        ]);
-
-        $result = pp_validate_action('style_component', [
-            'post_id'         => $post_id,
-            'component_index' => 0,
-            'style'           => ['--hero-button2-bg' => 'not-a-color'],
-        ]);
-        $this->assertInstanceOf(WP_Error::class, $result);
-        $this->assertEquals('invalid_style_value', $result->get_error_code());
     }
 
     // ── #536 section panel-CTA fill slots (authoring-path mandate) ────────────
@@ -5026,68 +4817,68 @@ class ActionsTest extends TestCase
     {
         $post_id = pp_create_page('Style test');
         pp_update_composition($post_id, [
-            ['component' => 'hero', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello']],
+            ['component' => 'section', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello']],
         ]);
 
         // Set initial style.
         $result = pp_execute_action('style_component', [
             'post_id'         => $post_id,
             'component_index' => 0,
-            'style'           => ['--hero-bg' => '#1a1a2e', '--hero-padding-top' => '8rem'],
+            'style'           => ['--section-bg' => '#1a1a2e', '--section-padding-top' => '8rem'],
         ]);
         $this->assertTrue($result['ok']);
 
         $comp = pp_get_composition($post_id);
-        $this->assertSame('#1a1a2e', $comp[0]['style']['--hero-bg']);
-        $this->assertSame('8rem', $comp[0]['style']['--hero-padding-top']);
+        $this->assertSame('#1a1a2e', $comp[0]['style']['--section-bg']);
+        $this->assertSame('8rem', $comp[0]['style']['--section-padding-top']);
 
         // Patch: change one, add one, leave the other.
         $result = pp_execute_action('style_component', [
             'post_id'         => $post_id,
             'component_index' => 0,
-            'style'           => ['--hero-bg' => '#0d1117', '--hero-heading-color' => '#f0f0f0'],
+            'style'           => ['--section-bg' => '#0d1117', '--section-heading-color' => '#f0f0f0'],
         ]);
         $this->assertTrue($result['ok']);
 
         $comp = pp_get_composition($post_id);
-        $this->assertSame('#0d1117', $comp[0]['style']['--hero-bg']);
-        $this->assertSame('#f0f0f0', $comp[0]['style']['--hero-heading-color']);
-        $this->assertSame('8rem', $comp[0]['style']['--hero-padding-top']); // preserved
+        $this->assertSame('#0d1117', $comp[0]['style']['--section-bg']);
+        $this->assertSame('#f0f0f0', $comp[0]['style']['--section-heading-color']);
+        $this->assertSame('8rem', $comp[0]['style']['--section-padding-top']); // preserved
     }
 
     public function testStyleComponentNullRemovesSlot(): void
     {
         $post_id = pp_create_page('Style test');
         pp_update_composition($post_id, [
-            ['component' => 'hero', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello'],
-             'style' => ['--hero-bg' => '#1a1a2e', '--hero-padding-top' => '8rem']],
+            ['component' => 'section', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello'],
+             'style' => ['--section-bg' => '#1a1a2e', '--section-padding-top' => '8rem']],
         ]);
 
         $result = pp_execute_action('style_component', [
             'post_id'         => $post_id,
             'component_index' => 0,
-            'style'           => ['--hero-bg' => null],
+            'style'           => ['--section-bg' => null],
         ]);
         $this->assertTrue($result['ok']);
 
         $comp = pp_get_composition($post_id);
-        $this->assertArrayNotHasKey('--hero-bg', $comp[0]['style']);
-        $this->assertSame('8rem', $comp[0]['style']['--hero-padding-top']);
+        $this->assertArrayNotHasKey('--section-bg', $comp[0]['style']);
+        $this->assertSame('8rem', $comp[0]['style']['--section-padding-top']);
     }
 
     public function testStyleComponentNullPassesValidation(): void
     {
         $post_id = pp_create_page('Null validation test');
         pp_update_composition($post_id, [
-            ['component' => 'hero', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello'],
-             'style' => ['--hero-bg' => '#1a1a2e']],
+            ['component' => 'section', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello'],
+             'style' => ['--section-bg' => '#1a1a2e']],
         ]);
 
         // null should pass validation (not be treated as an invalid value).
         $result = pp_validate_action('style_component', [
             'post_id'         => $post_id,
             'component_index' => 0,
-            'style'           => ['--hero-bg' => null],
+            'style'           => ['--section-bg' => null],
         ]);
         $this->assertTrue($result);
     }
@@ -5132,18 +4923,18 @@ class ActionsTest extends TestCase
     {
         $post_id = pp_create_page('Style test');
         pp_update_composition($post_id, [
-            ['component' => 'hero', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello']],
+            ['component' => 'section', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello']],
         ]);
 
         $result = pp_execute_action('style_component', [
             'post_id'      => $post_id,
             'component_id' => 'pp-aabb1122',
-            'style'        => ['--hero-bg' => '#1a1a2e'],
+            'style'        => ['--section-bg' => '#1a1a2e'],
         ]);
         $this->assertTrue($result['ok']);
 
         $comp = pp_get_composition($post_id);
-        $this->assertSame('#1a1a2e', $comp[0]['style']['--hero-bg']);
+        $this->assertSame('#1a1a2e', $comp[0]['style']['--section-bg']);
     }
 
     // ── Recipe support ───────────────────────────────────────────────────
@@ -5152,51 +4943,51 @@ class ActionsTest extends TestCase
     {
         $post_id = pp_create_page('Recipe test');
         pp_update_composition($post_id, [
-            ['component' => 'hero', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello']],
+            ['component' => 'section', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello', 'body' => 'Body text']],
         ]);
 
         $result = pp_execute_action('style_component', [
             'post_id'         => $post_id,
             'component_index' => 0,
-            'recipe'          => 'dark-spacious',
+            'recipe'          => 'accent-panel',
         ]);
         $this->assertTrue($result['ok']);
 
         $comp = pp_get_composition($post_id);
         $style = $comp[0]['style'];
-        $this->assertSame('#0d1117', $style['--hero-bg']);
-        $this->assertSame('#f0f0f0', $style['--hero-heading-color']);
-        $this->assertSame('6rem', $style['--hero-padding-top']);
-        $this->assertSame('dark-spacious', $style['__recipe']);
+        $this->assertSame('#f0f4ff', $style['--section-bg']);
+        $this->assertSame('#c8d6e5', $style['--section-border-color']);
+        $this->assertSame('1rem', $style['--section-radius']);
+        $this->assertSame('accent-panel', $style['__recipe']);
     }
 
     public function testRecipePlusOverride(): void
     {
         $post_id = pp_create_page('Recipe override test');
         pp_update_composition($post_id, [
-            ['component' => 'hero', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello']],
+            ['component' => 'section', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello', 'body' => 'Body text']],
         ]);
 
         $result = pp_execute_action('style_component', [
             'post_id'         => $post_id,
             'component_index' => 0,
-            'recipe'          => 'dark-spacious',
-            'style'           => ['--hero-bg' => '#222222'], // override recipe's bg
+            'recipe'          => 'accent-panel',
+            'style'           => ['--section-bg' => '#222222'], // override recipe's bg
         ]);
         $this->assertTrue($result['ok']);
 
         $comp = pp_get_composition($post_id);
         $style = $comp[0]['style'];
-        $this->assertSame('#222222', $style['--hero-bg']); // overridden
-        $this->assertSame('#f0f0f0', $style['--hero-heading-color']); // from recipe
-        $this->assertSame('dark-spacious', $style['__recipe']);
+        $this->assertSame('#222222', $style['--section-bg']); // overridden
+        $this->assertSame('#c8d6e5', $style['--section-border-color']); // from recipe
+        $this->assertSame('accent-panel', $style['__recipe']);
     }
 
     public function testInvalidRecipeRejected(): void
     {
         $post_id = pp_create_page('Recipe test');
         pp_update_composition($post_id, [
-            ['component' => 'hero', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello']],
+            ['component' => 'section', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello']],
         ]);
 
         $result = pp_validate_action('style_component', [
@@ -5212,13 +5003,13 @@ class ActionsTest extends TestCase
     {
         $post_id = pp_create_page('Recipe inspect');
         pp_update_composition($post_id, [
-            ['component' => 'hero', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello']],
+            ['component' => 'section', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello', 'body' => 'Body text']],
         ]);
 
         $result = pp_inspect_composition($post_id);
         $this->assertArrayHasKey('available_recipes', $result[0]);
-        $this->assertCount(3, $result[0]['available_recipes']); // hero has 3 recipes
-        $this->assertSame('dark-spacious', $result[0]['available_recipes'][0]['name']);
+        $this->assertCount(2, $result[0]['available_recipes']); // section has 2 recipes
+        $this->assertSame('accent-panel', $result[0]['available_recipes'][0]['name']);
     }
 
     // ── Misspelled Style Slots Are Rejected, Never Repaired (#607) ────────
@@ -5241,21 +5032,21 @@ class ActionsTest extends TestCase
     {
         $post_id = pp_create_page('Reject test');
         pp_update_composition($post_id, [
-            ['component' => 'hero', 'props' => ['title' => 'Hi']],
+            ['component' => 'section', 'props' => ['title' => 'Hi']],
         ]);
 
-        // --hero-bgs is one edit from --hero-bg: exactly the case the removed
+        // --section-bgs is one edit from --section-bg: exactly the case the removed
         // repair used to substitute silently. It is now simply invalid.
         $result = pp_preview_action('style_component', [
             'post_id'         => $post_id,
             'component_index' => 0,
-            'style'           => ['--hero-bgs' => '#1a1a2e'],
+            'style'           => ['--section-bgs' => '#1a1a2e'],
         ]);
 
         $this->assertInstanceOf(WP_Error::class, $result, 'A misspelled slot must not preview.');
         $this->assertSame('invalid_style_slot', $result->get_error_code());
         $this->assertStringContainsString(
-            '--hero-bgs',
+            '--section-bgs',
             $result->get_error_message(),
             'The validator names the slot the author actually wrote.'
         );
@@ -5269,13 +5060,13 @@ class ActionsTest extends TestCase
         // unchanged by the removal.
         $post_id = pp_create_page('Reject test');
         pp_update_composition($post_id, [
-            ['component' => 'hero', 'props' => ['title' => 'Hi']],
+            ['component' => 'section', 'props' => ['title' => 'Hi']],
         ]);
 
         $params = [
             'post_id'         => $post_id,
             'component_index' => 0,
-            'style'           => ['--hero-bgs' => '#1a1a2e'],
+            'style'           => ['--section-bgs' => '#1a1a2e'],
         ];
         $error  = pp_preview_action('style_component', $params);
         $this->assertInstanceOf(WP_Error::class, $error);
@@ -5284,16 +5075,16 @@ class ActionsTest extends TestCase
 
         $this->assertSame('invalid_style_slot', $friendly['error_code']);
         $this->assertStringContainsString(
-            '--hero-bgs',
+            '--section-bgs',
             $friendly['raw_error'],
             'The rejected slot name must reach the author verbatim.'
         );
         $this->assertSame(
-            array_keys(pp_get_style_slots('hero')),
+            array_keys(pp_get_style_slots('section')),
             $friendly['alternatives'],
             'The alternatives list is the declared slot set, unchanged by #607.'
         );
-        $this->assertContains('--hero-bg', $friendly['alternatives']);
+        $this->assertContains('--section-bg', $friendly['alternatives']);
     }
 
     public function testDeclaredStyleSlotStillPreviews(): void
@@ -5306,13 +5097,13 @@ class ActionsTest extends TestCase
         // testPreviewStyleComponentBranchOnlyReportsTheValidatorVerdict.
         $post_id = pp_create_page('Happy path test');
         pp_update_composition($post_id, [
-            ['component' => 'hero', 'props' => ['title' => 'Hi']],
+            ['component' => 'section', 'props' => ['title' => 'Hi']],
         ]);
 
         $preview = pp_preview_action('style_component', [
             'post_id'         => $post_id,
             'component_index' => 0,
-            'style'           => ['--hero-bg' => '#1a1a2e'],
+            'style'           => ['--section-bg' => '#1a1a2e'],
         ]);
 
         $this->assertNotInstanceOf(WP_Error::class, $preview, 'A declared slot must still preview.');
@@ -5393,37 +5184,37 @@ class ActionsTest extends TestCase
     {
         $post_id = pp_create_page('Error test');
         pp_update_composition($post_id, [
-            ['component' => 'hero', 'props' => ['title' => 'Hi']],
+            ['component' => 'section', 'props' => ['title' => 'Hi']],
         ]);
 
-        $error  = new WP_Error('invalid_style_slot', 'Component "hero" has no style slot "--hero-display". Available: --hero-bg, ...');
+        $error  = new WP_Error('invalid_style_slot', 'Component "section" has no style slot "--section-display". Available: --section-bg, ...');
         $result = _pp_build_friendly_error($error, [
             'post_id'         => $post_id,
             'component_index' => 0,
         ]);
 
         $this->assertSame('invalid_style_slot', $result['error_code']);
-        $this->assertStringNotContainsString('Component "hero" has no style slot', $result['user_message']);
-        $this->assertStringContainsString('hero', $result['user_message']);
+        $this->assertStringNotContainsString('Component "section" has no style slot', $result['user_message']);
+        $this->assertStringContainsString('section', $result['user_message']);
         $this->assertNotEmpty($result['alternatives']);
-        $this->assertContains('--hero-bg', $result['alternatives']);
+        $this->assertContains('--section-bg', $result['alternatives']);
     }
 
     public function testFriendlyErrorForInvalidValueShowsFormatHint(): void
     {
         $post_id = pp_create_page('Error test');
         pp_update_composition($post_id, [
-            ['component' => 'hero', 'props' => ['title' => 'Hi']],
+            ['component' => 'section', 'props' => ['title' => 'Hi']],
         ]);
 
-        $error  = new WP_Error('invalid_style_value', 'Style slot "--hero-bg": Value must be a valid CSS color...');
+        $error  = new WP_Error('invalid_style_value', 'Style slot "--section-bg": Value must be a valid CSS color...');
         $result = _pp_build_friendly_error($error, [
             'post_id'         => $post_id,
             'component_index' => 0,
         ]);
 
         $this->assertSame('invalid_style_value', $result['error_code']);
-        $this->assertStringContainsString('--hero-bg', $result['user_message']);
+        $this->assertStringContainsString('--section-bg', $result['user_message']);
         $this->assertStringContainsString('hex', $result['user_message']);
         $this->assertStringNotContainsString('Value must be a valid CSS color', $result['user_message']);
     }
@@ -5444,10 +5235,10 @@ class ActionsTest extends TestCase
     {
         $post_id = pp_create_page('Error test');
         pp_update_composition($post_id, [
-            ['component' => 'hero', 'props' => ['title' => 'Hi']],
+            ['component' => 'section', 'props' => ['title' => 'Hi']],
         ]);
 
-        $error  = new WP_Error('invalid_recipe', 'Component "hero" has no recipe "dark-blue". Available: dark-spacious, compact, bold-headline');
+        $error  = new WP_Error('invalid_recipe', 'Component "section" has no recipe "dark-blue". Available: dark-spacious, compact, bold-headline');
         $result = _pp_build_friendly_error($error, [
             'post_id'         => $post_id,
             'component_index' => 0,
@@ -5466,20 +5257,20 @@ class ActionsTest extends TestCase
         $post_id = pp_create_page('Id Error test');
         pp_update_composition($post_id, [
             ['component' => 'nav', 'props' => []],
-            ['component' => 'hero', 'props' => ['id' => 'pp-a1b2c3d4', 'title' => 'Hi']],
+            ['component' => 'section', 'props' => ['id' => 'pp-a1b2c3d4', 'title' => 'Hi']],
         ]);
 
-        $error  = new WP_Error('invalid_style_slot', 'Component "hero" has no style slot "--hero-bgg". Available: --hero-bg, ...');
+        $error  = new WP_Error('invalid_style_slot', 'Component "section" has no style slot "--section-bgg". Available: --section-bg, ...');
         $result = _pp_build_friendly_error($error, [
             'post_id'      => $post_id,
             'component_id' => 'pp-a1b2c3d4',
-            'style'        => ['--hero-bgg' => '#1a1a2e'],
+            'style'        => ['--section-bgg' => '#1a1a2e'],
         ]);
 
         $this->assertSame('invalid_style_slot', $result['error_code']);
-        $this->assertStringContainsString('hero', $result['user_message']);
+        $this->assertStringContainsString('section', $result['user_message']);
         $this->assertNotEmpty($result['alternatives'], 'Should list hero slots, not fail as if nav (index 0) had none.');
-        $this->assertContains('--hero-bg', $result['alternatives']);
+        $this->assertContains('--section-bg', $result['alternatives']);
     }
 
     public function testFriendlyErrorPrefersComponentIdOverStaleComponentIndex(): void
@@ -5492,20 +5283,20 @@ class ActionsTest extends TestCase
         $post_id = pp_create_page('Precedence test');
         pp_update_composition($post_id, [
             ['component' => 'nav', 'props' => []],
-            ['component' => 'hero', 'props' => ['id' => 'pp-a1b2c3d4', 'title' => 'Hi']],
+            ['component' => 'section', 'props' => ['id' => 'pp-a1b2c3d4', 'title' => 'Hi']],
         ]);
 
-        $error  = new WP_Error('invalid_style_slot', 'Component "hero" has no style slot "--hero-bgs". Available: --hero-bg, ...');
+        $error  = new WP_Error('invalid_style_slot', 'Component "section" has no style slot "--section-bgs". Available: --section-bg, ...');
         $result = _pp_build_friendly_error($error, [
             'post_id'         => $post_id,
             'component_id'    => 'pp-a1b2c3d4',
             'component_index' => 0, // stale: points at nav, id points at hero
-            'style'           => ['--hero-bgs' => '#1a1a2e'],
+            'style'           => ['--section-bgs' => '#1a1a2e'],
         ]);
 
         $this->assertSame('invalid_style_slot', $result['error_code']);
         $this->assertContains(
-            '--hero-bg',
+            '--section-bg',
             $result['alternatives'],
             'component_id must win over a conflicting component_index.'
         );
@@ -5558,17 +5349,17 @@ class ActionsTest extends TestCase
         $post_id = pp_create_page('Id Recipe Error test');
         pp_update_composition($post_id, [
             ['component' => 'nav', 'props' => []],
-            ['component' => 'hero', 'props' => ['id' => 'pp-a1b2c3d4', 'title' => 'Hi']],
+            ['component' => 'section', 'props' => ['id' => 'pp-a1b2c3d4', 'title' => 'Hi']],
         ]);
 
-        $error  = new WP_Error('invalid_recipe', 'Component "hero" has no recipe "dark-blue". Available: dark-spacious, compact, bold-headline');
+        $error  = new WP_Error('invalid_recipe', 'Component "section" has no recipe "dark-blue". Available: dark-spacious, compact, bold-headline');
         $result = _pp_build_friendly_error($error, [
             'post_id'      => $post_id,
             'component_id' => 'pp-a1b2c3d4',
         ]);
 
         $this->assertSame('invalid_recipe', $result['error_code']);
-        $this->assertNotEmpty($result['alternatives'], 'Should list hero recipes, not fail as if nav (index 0) had none.');
+        $this->assertNotEmpty($result['alternatives'], 'Should list section recipes, not fail as if nav (index 0) had none.');
     }
 
     public function testFriendlyErrorResolvesComponentIdForInvalidStyleValue(): void
@@ -5576,17 +5367,17 @@ class ActionsTest extends TestCase
         $post_id = pp_create_page('Id Value Error test');
         pp_update_composition($post_id, [
             ['component' => 'nav', 'props' => []],
-            ['component' => 'hero', 'props' => ['id' => 'pp-a1b2c3d4', 'title' => 'Hi']],
+            ['component' => 'section', 'props' => ['id' => 'pp-a1b2c3d4', 'title' => 'Hi']],
         ]);
 
-        $error  = new WP_Error('invalid_style_value', 'Style slot "--hero-bg": Value must be a valid CSS color...');
+        $error  = new WP_Error('invalid_style_value', 'Style slot "--section-bg": Value must be a valid CSS color...');
         $result = _pp_build_friendly_error($error, [
             'post_id'      => $post_id,
             'component_id' => 'pp-a1b2c3d4',
         ]);
 
         $this->assertSame('invalid_style_value', $result['error_code']);
-        $this->assertStringContainsString('hero', $result['user_message']);
+        $this->assertStringContainsString('section', $result['user_message']);
         $this->assertStringContainsString('hex', $result['user_message']);
     }
 
@@ -5806,13 +5597,13 @@ class ActionsTest extends TestCase
     {
         $post_id = pp_create_page('Bounds baseline');
         pp_update_composition($post_id, [
-            ['component' => 'hero', 'props' => ['title' => 'Hi']],
+            ['component' => 'section', 'props' => ['title' => 'Hi']],
         ]);
 
         $params = [
             'post_id'         => $post_id,
             'component_index' => 0,
-            'style'           => ['--hero-bgs' => '#1a1a2e'],
+            'style'           => ['--section-bgs' => '#1a1a2e'],
         ];
         $error    = pp_preview_action('style_component', $params);
         $friendly = _pp_build_friendly_error($error, $params);
@@ -5822,7 +5613,7 @@ class ActionsTest extends TestCase
             $friendly['raw_error'],
             'A single mistyped slot is the common case and must pass through untouched.'
         );
-        $this->assertStringContainsString('--hero-bgs', $friendly['raw_error']);
+        $this->assertStringContainsString('--section-bgs', $friendly['raw_error']);
         $this->assertArrayNotHasKey(
             'unknown_slots_unscanned',
             $friendly,
@@ -5870,7 +5661,10 @@ class ActionsTest extends TestCase
                 $widest_name  = $component;
             }
         }
-        $this->assertNotSame('section', $widest_name, 'The target below must differ from the source.');
+        // The fixture must not BE the widest component, or the "aimed at a different
+        // component" premise collapses. `section` became the widest once hero moved to
+        // the UDC and declared no slots (#986), so the fixture is `cta`.
+        $this->assertNotSame('cta', $widest_name, 'The target below must differ from the source.');
 
         $style = [];
         foreach (array_keys($widest_slots) as $slot) {
@@ -5879,11 +5673,11 @@ class ActionsTest extends TestCase
 
         $post_id = pp_create_page('Widest component map');
         pp_update_composition($post_id, [
-            ['component' => 'section', 'props' => ['title' => 'Hi']],
+            ['component' => 'cta', 'props' => ['title' => 'Hi', 'button_text' => 'Go', 'button_url' => '/x']],
         ]);
 
         $result = _pp_build_friendly_error(
-            new WP_Error('invalid_style_slot', 'Component "section" has no style slot.'),
+            new WP_Error('invalid_style_slot', 'Component "cta" has no style slot.'),
             ['post_id' => $post_id, 'component_index' => 0, 'style' => $style]
         );
 
@@ -5936,8 +5730,11 @@ class ActionsTest extends TestCase
         for ($i = 0; $i < PP_CROSS_COMPONENT_HINT_MAX; $i++) {
             $style['--zz-unknown-' . $i] = '1rem';
         }
-        // Real slots on another component, positioned past the bound.
-        $tail = array_slice(array_keys(pp_get_style_slots('hero')), 0, 5);
+        // Real slots on another component, positioned past the bound. `cta`, not the
+        // fixture's own `section`: a slot the fixture component itself declares is
+        // valid, so it would never be a hint candidate in the first place and the
+        // bound would not be what excluded it.
+        $tail = array_slice(array_keys(pp_get_style_slots('cta')), 0, 5);
         foreach ($tail as $slot) {
             $style[$slot] = '1rem';
         }
@@ -6132,14 +5929,14 @@ class ActionsTest extends TestCase
     {
         $post_id = pp_create_page('CSS keyword test');
         pp_update_composition($post_id, [
-            ['component' => 'hero', 'props' => ['title' => 'Hi']],
+            ['component' => 'section', 'props' => ['title' => 'Hi']],
         ]);
 
-        $error  = new WP_Error('invalid_style_value', 'Style slot "--hero-bg": Value must be a valid CSS color...');
+        $error  = new WP_Error('invalid_style_value', 'Style slot "--section-bg": Value must be a valid CSS color...');
         $result = _pp_build_friendly_error($error, [
             'post_id'         => $post_id,
             'component_index' => 0,
-            'style'           => ['--hero-bg' => 'initial'],
+            'style'           => ['--section-bg' => 'initial'],
         ]);
 
         $this->assertStringContainsString('initial', $result['user_message']);
@@ -6150,15 +5947,15 @@ class ActionsTest extends TestCase
     {
         $post_id = pp_create_page('Non-keyword test');
         pp_update_composition($post_id, [
-            ['component' => 'hero', 'props' => ['title' => 'Hi']],
+            ['component' => 'section', 'props' => ['title' => 'Hi']],
         ]);
 
         // "red" is not a CSS keyword like none/unset — it's just an invalid color format.
-        $error  = new WP_Error('invalid_style_value', 'Style slot "--hero-bg": Value must be a valid CSS color...');
+        $error  = new WP_Error('invalid_style_value', 'Style slot "--section-bg": Value must be a valid CSS color...');
         $result = _pp_build_friendly_error($error, [
             'post_id'         => $post_id,
             'component_index' => 0,
-            'style'           => ['--hero-bg' => 'red'],
+            'style'           => ['--section-bg' => 'red'],
         ]);
 
         // Non-keyword values should still get the format hint, not the keyword path.
@@ -8213,5 +8010,69 @@ class ActionsTest extends TestCase
         $this->assertTrue($batch['ok']);
         $this->assertSame(1, pp_get_composition_marker($id)['version']);
         $this->assertSame(1, $batch['versions'][$id]);
+    }
+
+
+    /**
+     * THE SEVEN HERO BUTTON-SLOT TESTS ARE REPLACED BY THIS ONE (#986).
+     *
+     * They pinned `style_component` writing `--hero-button-*` / `--hero-button2-*`:
+     * accepted, rejected on a bad colour, persisted, and kept independent between the
+     * two CTAs. Hero is a v2 component now, so `style_component` refuses it outright and
+     * the same four properties are contract facts of the UDC path instead — proven here
+     * through the REAL authoring surface (14.1), not a raw meta write.
+     *
+     * The independence half is what earns its keep: on v1 it took a dedicated isolation
+     * rule to stop the primary's slots reaching the second CTA, and the test existed
+     * because that rule could regress. On v2 they are two different roles with two
+     * different selectors, so the property holds by construction — and this pins that it
+     * really does, rather than assuming it.
+     */
+    public function testHeroCtaDesignIsAuthoredThroughRolesAndStyleComponentRefusesIt(): void
+    {
+        $post_id = pp_create_page('Hero CTA roles');
+
+        // style_component is the v1 surface and must REFUSE a v2 component by name.
+        $refused = pp_validate_action('style_component', [
+            'post_id'         => $post_id,
+            'component_index' => 0,
+            'style'           => ['--hero-button-bg' => '#ff0000'],
+        ]);
+        $this->assertInstanceOf(WP_Error::class, $refused);
+
+        // The accepted path: roles, through update_composition.
+        $udc = [
+            'cta' => [
+                'background' => ['fill' => '#ff5c2e', ':hover' => ['fill' => '#c73310']],
+                'border'     => ['color' => '#ff5c2e'],
+            ],
+            'cta-secondary' => [
+                'background' => ['fill' => '#101828', ':hover' => ['fill' => '#1f2a44']],
+            ],
+        ];
+        $ok = pp_update_composition($post_id, [
+            ['component' => 'hero', 'id' => 'pp-11aa22bb',
+             'props' => ['title' => 'Hello'], 'udc' => $udc],
+        ]);
+        $this->assertTrue($ok === true || (is_array($ok) && ($ok['ok'] ?? false)), 'the udc write must be accepted');
+
+        // Persisted as authored.
+        $stored = pp_get_composition($post_id);
+        $this->assertSame('#ff5c2e', $stored[0]['udc']['cta']['background']['fill']);
+        $this->assertSame('#101828', $stored[0]['udc']['cta-secondary']['background']['fill']);
+
+        // A bad colour is refused on the same parameter.
+        $bad = pp_udc_validate_map(['cta' => ['background' => ['fill' => 'not-a-colour']]], 'hero');
+        $this->assertInstanceOf(WP_Error::class, $bad);
+
+        // INDEPENDENCE: the primary's fill reaches its own selector and not the second's.
+        $css = pp_udc_band_css(pp_udc_normalize_band($stored[0]));
+        // Slice exactly ONE rule — to its own closing brace — or the window spills into
+        // the next selector and the isolation assertion reads the sibling's colour.
+        $start   = strpos($css, '.hero__cta--primary{');
+        $this->assertNotFalse($start, 'the primary CTA role must emit a rule');
+        $primary = substr($css, $start, strpos($css, '}', $start) - $start);
+        $this->assertStringContainsString('#ff5c2e', $primary);
+        $this->assertStringNotContainsString('#101828', $primary, 'the second CTA\'s fill must not reach the primary');
     }
 }

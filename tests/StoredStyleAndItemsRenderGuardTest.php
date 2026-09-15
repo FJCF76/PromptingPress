@@ -157,7 +157,8 @@ class StoredStyleAndItemsRenderGuardTest extends TestCase
         // testimonials is out: the v1 STYLE-SLOT roster; testimonials left it when it was rebuilt on the Universal Design Contract (v2) and now declares roles instead of slots, so it paints no stored style map and
         // has no __pp_style read to guard. Its v2 equivalent — a hostile `udc` map
         // reaching the emitter — is guarded in UdcEngineTest.
-        'hero', 'grid', 'section', 'cta', 'stats', 'faq', 'logos', 'table', 'embed',
+        // hero left this roster in #986 (v2: no __pp_style read to guard).
+        'grid', 'section', 'cta', 'stats', 'faq', 'logos', 'table', 'embed',
     ];
 
     /**
@@ -298,6 +299,8 @@ class StoredStyleAndItemsRenderGuardTest extends TestCase
     private static function bandProps(string $component): array
     {
         $base = [
+            // hero stays here: it still RENDERS (it is simply no longer in the
+            // style-slot roster above, because a v2 component has no `__pp_style` read).
             'hero'         => ['title' => 'Hero heading'],
             'grid'         => ['title' => 'Grid heading', 'items' => [['title' => 'Card one', 'text' => 'Card body']]],
             'section'      => ['title' => 'Section heading', 'body' => '<p>Section body</p>', 'layout' => 'text-only'],
@@ -792,8 +795,12 @@ class StoredStyleAndItemsRenderGuardTest extends TestCase
      */
     public function testAMalformedStyleLeavesNoResidueInAMergedStyleAttribute(): void
     {
+        // hero is OUT of this control set (#986): a v2 hero paints no background from
+        // `image_url` at all — a band background image is the `_band` role's
+        // `background.image`, emitted by the engine into the head, never into an inline
+        // style attribute. There is therefore no merged `style=""` for a malformed map
+        // to leave residue in, which is exactly what this test measures.
         $background_props = [
-            'hero'    => ['layout' => 'cover', 'image_url' => '/bg.png'],
             'cta'     => ['background_image' => '/bg.png'],
             'section' => ['background_image' => '/bg.png'],
             'stats'   => ['background_image' => '/bg.png'],
@@ -837,24 +844,33 @@ class StoredStyleAndItemsRenderGuardTest extends TestCase
      * plus the slot's declared grammar (#330). Asserting it here means a future relaxation
      * of either gate fails a test instead of quietly painting attacker-shaped CSS.
      */
+    /**
+     * RE-POINTED FROM HERO TO SECTION (#986). The adversarial map is unchanged in
+     * shape and intent — one valid declaration, a separator-carrying key, an undeclared
+     * slot, two injection attempts and another component's slot — but it has to be
+     * aimed at a component that still HAS a style-slot sink. A v2 hero reads no
+     * `__pp_style` at all, so the same map paints nothing there for a reason that has
+     * nothing to do with the render boundary this test measures; that inertness is
+     * pinned separately by the sweep above.
+     */
     public function testAnArrayPpStyleInPropsCannotPaintMoreThanAValidStyleMap(): void
     {
         $id = pp_create_page('Adversarial style map', 'draft');
         pp_update_composition($id, [[
-            'component' => 'hero',
-            'props'     => array_merge(self::bandProps('hero'), ['__pp_style' => [
-                '--hero-bg'                 => '#123456',            // declared + valid: must paint
-                '--hero-bg; background'     => 'red',                // slot name carrying a separator
+            'component' => 'section',
+            'props'     => array_merge(self::bandProps('section'), ['__pp_style' => [
+                '--section-bg'              => '#123456',            // declared + valid: must paint
+                '--section-bg; background'  => 'red',                // slot name carrying a separator
                 '--not-a-declared-slot'     => 'red',                // undeclared slot
-                '--hero-padding-top'        => 'red; background-image:url(//evil/x)',
-                '--hero-padding-bottom'     => 'url(//evil/x.png)',
+                '--section-padding-top'     => 'red; background-image:url(//evil/x)',
+                '--section-padding-bottom'  => 'url(//evil/x.png)',
                 '--grid-bg'                 => '#000000',            // another component's slot
             ]]),
         ]]);
 
         $html = $this->renderStored($id);
 
-        $this->assertStringContainsString('--hero-bg: #123456', $html, 'the one declared, valid declaration paints');
+        $this->assertStringContainsString('--section-bg: #123456', $html, 'the one declared, valid declaration paints');
         $this->assertStringNotContainsString('evil', $html, 'no injected url survives the render boundary');
         $this->assertStringNotContainsString('background-image:url(//', $html, 'no smuggled declaration is emitted');
         $this->assertStringNotContainsString('--not-a-declared-slot', $html, 'an undeclared slot is dropped');

@@ -4986,6 +4986,14 @@ function pp_preview_document_head(array $composition, string $dir_uri): string {
 
     return '<meta charset="UTF-8">'
         . '<meta name="viewport" content="width=device-width,initial-scale=1">'
+        // THE LAYER ORDER, AHEAD OF EVERYTHING (#986). base.css carries the same
+        // statement, but the links below have no cache-busting query, so a browser
+        // holding a pre-#986 base.css would build this document with no order
+        // established at all — base.css unlayered and therefore strongest, and the
+        // band-root defaults tier sorted below its reset. Re-declaring an order that
+        // already exists is a no-op, so this costs nothing on a fresh load and rescues
+        // a stale one. One owner: pp_css_layer_order().
+        . '<style id="pp-layer-order">' . pp_css_layer_order() . '</style>'
         . $fonts
         . $link('base.css')
         . ($base_block !== '' ? '<style id="pp-udc-defaults">' . $base_block . '</style>' : '')

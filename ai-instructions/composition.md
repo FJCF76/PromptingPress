@@ -17,7 +17,7 @@ The format is AI-native: the same JSON a human edits in the admin meta box is wh
 
 ```json
 [
-  { "component": "hero",    "props": { "title": "Welcome", "layout": "centered" }, "style": { "--hero-bg": "#0d1117", "--hero-heading-color": "#f0f0f0" } },
+  { "component": "hero",    "props": { "title": "Welcome", "layout": "centered" }, "udc": { "_band": { "background": { "fill": "#0d1117" } }, "title": { "typography": { "color": "#f0f0f0" } } } },
   { "component": "section", "props": { "body": "<p>Content.</p>" } },
   { "component": "faq",     "props": { "items": [{ "question": "Q?", "answer": "A." }] } },
   { "component": "cta",     "props": { "title": "Go", "button_text": "Click", "button_url": "/" } }
@@ -44,7 +44,7 @@ See `AI_CONTEXT.md` → Component index for the current list. As of last update:
 
 | Name    | Required props                          | Optional props (selection)                              |
 |---------|-----------------------------------------|---------------------------------------------------------|
-| hero    | title                                   | title_accent, eyebrow, subheading, button_text, button_url, button2_text, button2_url, button_variant, button2_variant, layout, image_url, image_id, image_alt, spacing, width, split_ratio, vertical_align, proof |
+| hero    | title                                   | title_accent, eyebrow, subheading, button_text, button_url, button2_text, button2_url, layout, image_url, image_id, image_alt, split_ratio, vertical_align, proof |
 | section | one of: body / body_items / panel content | body, title, title_accent, eyebrow, subheading, title_align, layout, theme, image_url, image_id, image_alt, background_image, body_marker, body_items, panel_heading, panel_body, panel_items, panel_items_marker, panel_cta_text, panel_cta_url, panel_cta_variant |
 | faq     | items[] {question, answer}              | title, title_accent, eyebrow, theme, id                 |
 | grid    | items[] (fields: number, title, text, text_role, bullets[], image_url, image_alt, image_id, link_url, link_text, style — none individually required) | title, title_accent, eyebrow, subheading, title_align, layout, card_emphasis, theme, columns, image_treatment |
@@ -386,7 +386,7 @@ All seven heading-bearing components accept `title_accent`: an exact, case-sensi
 
 > `testimonials` is a v2 component: it keeps `eyebrow` and `subheading` as CONTENT props but has no `title_align` and no `theme`. Its styling is the `udc` map.
 
-`eyebrow` renders a short kicker label as a pill above the title (e.g. `"NEW"`) on all six; the pill defaults to uppercase, overridable per component via the `text-transform`-typed `--<component>-eyebrow-text-transform` style slot (`none` for sentence case, or `lowercase`/`capitalize`). `subheading` renders a supporting line below the title on section, grid, and testimonials only — hero uses `subheading` and cta uses `body` for the same concept, so neither has a `subheading` prop. `title_align` (`start` default, or `center`; section and grid only) centers the eyebrow/title/subheading header block — independent of the component's overall layout. **testimonials no longer has it**: it is a v2 component, so header alignment is the `heading`/`eyebrow`/`subheading` roles' `typography.align` in the band's `udc` map, with `spacing.margin-left`/`margin-right` set to `auto` to centre the block. The eyebrow pill's casing is likewise the `eyebrow` role's `typography.transform` there, not a style slot.
+`eyebrow` renders a short kicker label as a pill above the title (e.g. `"NEW"`) on all six; on the v1 components the pill defaults to uppercase, overridable via the `text-transform`-typed `--<component>-eyebrow-text-transform` style slot (`none` for sentence case, or `lowercase`/`capitalize`). `subheading` renders a supporting line below the title on section, grid, and testimonials only — hero uses `subheading` and cta uses `body` for the same concept, so neither has a `subheading` prop. `title_align` (`start` default, or `center`; section and grid only) centers the eyebrow/title/subheading header block — independent of the component's overall layout. **hero and testimonials no longer have it**: both are v2 components, so header alignment is the header roles' `typography.align` in the band's `udc` map (hero's `centered` and `cover` layouts already centre their text structurally, and an authored `align` overrides that), with `spacing.margin-left`/`margin-right` set to `auto` to centre the block. The eyebrow pill's casing is likewise the `eyebrow` role's `typography.transform` there, not a style slot.
 
 ### image_id (hero, section, logos / grid / testimonials items) — responsive images (#107, #584)
 

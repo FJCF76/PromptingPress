@@ -1,131 +1,248 @@
 # Component: hero
 
-Full-width hero section with headline, optional subheading, optional CTA button, and optional image.
+The opening band of a page: an optional eyebrow, an `<h1>`, an optional supporting
+line, up to two CTAs, and optional media or trust-signal markup.
+
+**hero is on the Universal Design Contract (v2).** It declares **no style slots** and
+**no named recipes**. Every designable value — colour, type, spacing, border, shadow,
+size, crop — is set through the `udc` map on the band, per role. See
+`docs/v2/BUILD-SPEC-sprint0.md` §3, and `ai-instructions/style-component.md` for the
+authoring shape.
 
 ## Props
 
 | Prop            | Type   | Required | Default      | Description |
 |-----------------|--------|----------|--------------|-------------|
-| `id`            | string | No       | `''`         | HTML id for anchor linking |
-| `title`         | string | Yes      | —            | Primary headline text |
-| `title_accent`  | string | No       | `''`         | Exact substring of `title` to render in an accent color |
-| `eyebrow`       | string | No       | `''`         | Short kicker/label rendered as a pill above the title |
-| `subheading`      | string | No       | `''`         | Supporting subheadline |
-| `button_text`      | string | No       | `''`         | Primary CTA button label (both buttons hidden if empty) |
-| `button_url`       | string | No       | `'#'`        | Primary CTA button URL |
-| `button2_text`     | string | No       | `''`         | Secondary CTA button label (only shown when `button_text` is set) |
-| `button2_url`      | string | No       | `'#'`        | Secondary CTA button URL |
-| `button_variant`   | enum   | No       | `'primary'`  | Primary button style: `primary` / `secondary` / `outline` / `ghost` |
-| `button2_variant`  | enum   | No       | `'outline'`  | Secondary button style: `primary` / `secondary` / `outline` / `ghost` |
-| `layout`       | enum   | No       | `'centered'` | Layout: `left`, `centered`, `split`, or `cover` |
-| `image_url`     | string | No       | `''`         | Image URL — inline image in `split` layout, background image in `cover` layout |
-| `image_id`      | int    | No       | `0`          | Media Library attachment ID for the `split` layout image. When set and it resolves, renders responsively (`srcset`/`sizes`) via `wp_get_attachment_image()`; falls back to `image_url` otherwise |
-| `image_alt`     | string | No       | `''`         | Alt text for the `split` layout image |
-| `spacing`       | enum   | No       | `'default'`  | Vertical padding: `default` / `compact` / `spacious` |
-| `width`         | enum   | No       | `'default'`  | Content width: `default` / `narrow` (the `--measure-centered` token, 56rem by default, so a retuned centered measure moves this too) / `full`. `width` and `spacing` are hero-only props — no other component emits `data-pp-width` / `data-pp-spacing`, and the CSS is scoped to `.hero` |
-| `split_ratio`   | enum   | No       | `'50-50'`    | Column ratio for `split` layout: `50-50` / `60-40` / `40-60` |
-| `vertical_align`| enum   | No       | `'center'`   | Vertical content alignment for `cover`/`split` layouts: `top` / `center` / `bottom` / `stretch`. `stretch` (split only) makes the media column fill the content column's height — one asset balances any headline length; on `cover` it renders like `center` |
-| `proof`         | string | No       | `''`         | HTML string for trust signals (logos, ratings), rendered after the CTA group |
+| `id`            | string | No       | `''`         | HTML id for anchor linking. The author's anchor name, NOT the band id that scopes styling — the engine mints that one. |
+| `title`         | string | Yes      | —            | The headline. Plain text; HTML is escaped except the accent span. |
+| `title_accent`  | string | No       | `''`         | Exact substring of `title` to wrap in the accent span. Colour it through the `title-accent` role. |
+| `eyebrow`       | string | No       | `''`         | Short kicker above the headline. Its pill treatment is the `eyebrow` role's design. |
+| `subheading`    | string | No       | `''`         | Supporting line under the headline. |
+| `button_text`   | string | No       | `''`         | The primary CTA's label. Its look is the `cta` role. |
+| `button_url`    | string | No       | `'#'`        | The primary CTA's href. |
+| `button2_text`  | string | No       | `''`         | The second CTA's label; the button renders only when this is set. Its look is the `cta-secondary` role. |
+| `button2_url`   | string | No       | `'#'`        | The second CTA's href. |
+| `layout`        | enum   | No       | `centered`   | `left`, `centered`, `split`, `cover`. Structural — see Layout below. |
+| `split_ratio`   | enum   | No       | `50-50`      | `50-50`, `60-40`, `40-60`. The split row's grid tracks. Structural. |
+| `vertical_align`| enum   | No       | `center`     | `top`, `center`, `bottom`, `stretch`. Cross-axis alignment on split/cover. Structural. |
+| `image_url`     | string | No       | `''`         | The SPLIT layout's media column. NOT a band background — see Layout. |
+| `image_alt`     | string | No       | `''`         | Alt text for that image. |
+| `image_id`      | number | No       | `0`          | Media Library attachment id for that image, for responsive srcset. |
+| `proof`         | string | No       | `''`         | Rich HTML (kses-sanitized) for trust signals. Renders as the `proof` row, or as the `surface` panel on a split layout. |
 
-## Layouts
+### Four props that used to exist
 
-- **centered** — All content centered horizontally. Best for homepage hero.
-- **left** — Content aligned left. Best for interior page headers.
-- **split** — Text on left, image on right (two-column at lg+). Best for feature introductions.
-- **cover** — Fullscreen background image with a dark overlay and light text. Best for high-impact landing pages. Both CTAs sit on that overlay, so their `outline`/`ghost` defaults fall back to `--color-accent-on-overlay` rather than the light-surface accent, and every filled CTA — the primary and the second button (`button2_*`) alike — defaults its border to the same role so its shape stays visible against the image and an unstyled filled pair stays symmetric (the role is the last link, so `--hero-button-border`, `--hero-accent` and this band's own `--hero-button-bg` all still win ahead of it for the PRIMARY, and `--hero-button2-border`, `--hero-accent` and `--hero-button2-bg` for the second button, in that order — the site-wide button tokens are deliberately NOT in these chains: `--btn-border-color` / `--btn-hover-border-color` left in #564 and `--btn-bg` / `--btn-hover-bg` in #565, because the role carries a measured 4.59:1 contrast guarantee that a site-wide retheme was cancelling, the ring tokens directly and the fill tokens through the border-follows-fill link. Flattening this band with `--hero-button2-bg` still gives a matching ring; a site-wide `--btn-bg` does not reach it). `--hero-heading-color` (first CTA) and `--hero-button2-color` / `--hero-button2-border` (second) still win when set. The focus ring routes through the same role for every variant, filled included — it is drawn outside the button and so lands on the overlay, where the bare accent measured 1.17:1 against WCAG 1.4.11's 3:1. Only the colour changes; width, style and offset are unchanged. Keyboard focus is the motivating case, but the routing attaches to `:focus`, so it recolours whatever ring the button already paints, a pointer click included. This applies to any `cover` hero, image or not: the scrim is painted either way.
+- **`spacing`** (`compact` / `default` / `spacious`) — REMOVED. It was a three-step
+  bundle of vertical padding. Set `_band` `spacing.padding-top` and
+  `spacing.padding-bottom` directly, per breakpoint if you want — which the prop could
+  never do.
+- **`width`** (`narrow` / `default` / `full`) — REMOVED. It was a bundle of content
+  measure, and one of the six interacting width mechanisms #908 reported. Set the
+  `content` role's `sizing.max-width`.
+- **`button_variant`** / **`button2_variant`** (`primary` / `secondary` / `outline` /
+  `ghost`) — REMOVED. A variant is a bundle of button colours, which is exactly what a
+  preset is: put `"_preset": "button"` (or `"button-secondary"`) on the `cta` /
+  `cta-secondary` role and override anything you like beside it. THE DEFAULT PAIR STILL
+  LOOKS LIKE A PAIR: `cta-secondary` carries the v1 outline treatment as its role
+  default, so an unauthored hero renders a filled primary beside a muted, bordered
+  secondary exactly as it did on v1 — the prop went, the default did not.
 
-## Usage
+`layout`, `split_ratio` and `vertical_align` STAY, because the UDC taxonomy has no
+layout group: removing them would delete the capability rather than move it.
 
-```php
-// Centered homepage hero
-pp_get_component('hero', [
-    'title'    => 'Build AI-Ready WordPress Sites',
-    'subheading' => 'PromptingPress gives AI tools a clear map of your site.',
-    'button_text' => 'Get Started',
-    'button_url'  => '/get-started',
-    'layout'  => 'centered',
-]);
+## Roles
 
-// Split hero with image
-pp_get_component('hero', [
-    'title'     => 'The Abstraction Layer',
-    'subheading'  => 'lib/wp.php is the only file that calls WordPress.',
-    'layout'   => 'split',
-    'image_url' => get_template_directory_uri() . '/assets/images/diagram.png',
-]);
+| Role | Selector | What it owns |
+|---|---|---|
+| `_band` | the `<section>` | band padding, background (including `image` + `overlay`), border, radius, shadow |
+| `inner` | `.hero__inner` | the gap between the text column and the media column |
+| `content` | `.hero__content` | the text column's gap and its measure |
+| `eyebrow` | `.hero__eyebrow` | the kicker pill: background, border, radius, casing, ink |
+| `title` | `.hero__title` | the `<h1>`: size, ink, leading, measure, rhythm |
+| `title-accent` | `.hero__title-accent` | the accented substring's ink |
+| `subtitle` | `.hero__subtitle` | the supporting line: size, ink, measure |
+| `cta-group` | `.hero__cta-group` | the button row's gap |
+| `cta` | `.hero__cta--primary` | the primary button |
+| `cta-secondary` | `.hero__cta--secondary` | the second button — the only role with a colour-bearing default (see below) |
+| `proof` | `.hero__proof` | the trust-signal row |
+| `surface` | `.hero__surface` | the split layout's proof panel |
+| `media` | `.hero__image` | the split layout's image: radius, and its crop ratio |
 
-// Interior page header (left-aligned, no CTA)
-pp_get_component('hero', [
-    'title'   => pp_page_title(),
-    'layout' => 'left',
-]);
+### The two CTA roles are deliberately asymmetric
+
+Role defaults outrank presets. A default on `cta` would suppress exactly the part of a
+`button` preset that makes it a button — you would get the type, padding and motion and
+not the fill. So **`cta` declares no design defaults at all**, and a preset lands whole:
+
+```json
+"udc": {
+  "cta":           { "_preset": "button" },
+  "cta-secondary": { "_preset": "button-secondary", "border": { "radius": "0" } }
+}
 ```
 
-## Style slots
+Anything you set beside a preset wins over it.
 
-49 per-instance style slots, declared in `schema.json` under `styling.style_slots`
-and set with the `style_component` action. This table is the map — read each slot's
-`type`, effective `default`, `applies_when` condition and full description from the
-schema itself, or with `wp pp operate inspect-composition --post_id=<id>`.
+**`cta-secondary` DOES declare defaults, and that is the deliberate part.** Both buttons
+render as a bare `.btn` now that `button2_variant` is gone, so with nothing declared an
+unauthored hero showed two identical filled buttons side by side. v1 defaulted the second
+to `outline`. Losing that is a default-experience regression, not a narrowing worth
+documenting, so the role carries the v1 outline treatment — muted surface, body ink,
+border-coloured 2px edge — with every value an `@token` reference, so a retheme moves it
+and no colour is baked into schema data.
 
-`◦` = conditional (`applies_when`): setting it outside that configuration is accepted
-and stored but paints nothing, and `wp pp check page` reports a non-blocking
-`inert_slot` smell.
+The cost, stated rather than discovered: those are the `button-secondary` preset's own
+values, duplicated. Because role defaults outrank presets, applying a DIFFERENT preset to
+`cta-secondary` is partly suppressed by them. That duplication is temporary — #974 lets a
+role name its own preset as its default, and retires this block when it lands.
 
-| Group | Slots |
-|---|---|
-| Band | `--hero-padding-top` · `--hero-padding-bottom` · `--hero-bg` · `--hero-overlay-bg` ◦ · `--hero-bg-position` ◦ · `--hero-border-color` · `--hero-border-width` · `--hero-radius` · `--hero-shadow` |
-| Heading | `--hero-heading-color` · `--hero-heading-accent-color` · `--hero-heading-size` · `--hero-heading-measure` · `--hero-heading-margin-bottom` · `--hero-heading-weight` · `--hero-subheading-size` ◦ · `--hero-subheading-color` ◦ |
-| Eyebrow | `--hero-eyebrow-color` ◦ · `--hero-eyebrow-bg` ◦ · `--hero-eyebrow-radius` ◦ · `--hero-eyebrow-border-width` ◦ · `--hero-eyebrow-border-color` ◦ · `--hero-eyebrow-text-transform` ◦ |
-| Accent | `--hero-accent` · `--hero-accent-hover` |
-| Content | `--hero-proof-color` · `--hero-content-gap` · `--hero-content-width` |
-| Image (`split`) | `--hero-image-radius` ◦ · `--hero-image-position` ◦ · `--hero-image-aspect-ratio` ◦ |
-| Buttons | `--hero-button-bg` · `--hero-button-hover-bg` · `--hero-button-border` · `--hero-button-hover-border` · `--hero-button-color` · `--hero-button-shadow` · `--hero-button2-bg` ◦ · `--hero-button2-border` ◦ · `--hero-button2-color` ◦ · `--hero-button2-hover-bg` ◦ · `--hero-button2-hover-border` ◦ · `--hero-button2-hover-color` ◦ |
-| Proof panel (`split` + `proof`) | `--hero-surface-bg` ◦ · `--hero-surface-padding` ◦ · `--hero-surface-border-color` ◦ · `--hero-surface-border-width` ◦ · `--hero-surface-radius` ◦ · `--hero-surface-shadow` ◦ |
+### Worked example — a dark hero with a background image
 
-`--hero-heading-measure` defaults to `none`, not to the shared `--measure-heading`
-token: `.hero__content` is a flex item that shrink-wraps to its widest child, so a cap
-here narrows the whole content column (title, subheading AND buttons), not just the
-headline. The hero measure you almost always want is `--hero-content-width`. See
-`ai-instructions/style-component.md` → "Text measures".
+```json
+"udc": {
+  "_band": {
+    "background": { "image": 42, "overlay": "rgba(10,10,18,0.62)" },
+    "spacing":    { "padding-top": "7rem", "padding-bottom": "6rem" }
+  },
+  "title":        { "typography": { "color": "#F2EEE5", "align": "center" } },
+  "title-accent": { "typography": { "color": "#FF5C2E" } },
+  "subtitle":     { "typography": { "color": "#E8E2D4", "align": "center" } },
+  "cta":          { "_preset": "button" }
+}
+```
 
-The six `--hero-surface-*` slots paint the **`proof` panel's frame** — its background,
-padding, border, radius and shadow. They do not reach the panel's contents, which are
-whatever HTML you pass in `proof`.
+`image` is a Media Library **attachment id**, never a URL: the engine resolves it,
+verifies it is a real image on this site, and builds the `url()` itself.
 
-## Stated defaults (and what would reopen them)
+### YOU own the contrast
 
-These values are deliberate product defaults, not oversights, and are not authorable.
-Each names the condition that would reopen the decision. Adding a control needs a
-**named incident** — a real composition that could not be built — not a hypothesis.
+v2 has no variant-scoped defaults and does not guess. The v1 `cover` variant re-coloured
+the title, the accent and the subtitle on the assumption that a cover band is dark; it no
+longer does. A band carrying a dark background or a background image owns its own
+contrast — set `typography.color` on every text role over it, and check each against the
+background for WCAG AA.
 
-| Default | Why it is a default | What would reopen it |
-|---|---|---|
-| `.hero__title { line-height: 1.03 }` | The hero title is the product's only display-scale heading (up to `clamp(3rem, 4.5vw, 4.5rem)` at 768px+), and display type needs tighter leading than the shared `--line-height-heading: 1.2`, which is tuned for band headings at ~2rem. The hero is already a ratified opt-out from the shared heading scale; this is that opt-out's typographic other half. | An operator sets `--font-heading` to a face whose ascender/descender metrics collide at `1.03` on a two-line title. |
-| `.hero__subtitle { max-width: 40ch }` | A hero subtitle is a **lede**, and `ch` is the right unit because the cap tracks the subtitle's own type size automatically — no slot needed to keep it proportional. The hero is exempt from `--measure-heading`, and this is a **body** measure, not a heading one. | An operator writes a long hero subtitle and it strands mid-column. |
-| `.hero--cover { min-height: 70vh }` | A cover hero's job is a full-bleed opening image. `70vh` is the "most of the fold, not all of it" choice: it deliberately leaves the next band's top edge visible as a scroll affordance, which a `100vh` hero destroys. | **An operator wants a full-viewport or a short-banner cover hero and has no path** — `--hero-padding-*` do not reach `min-height`. This is the strongest add-a-control candidate in the ratified set; the remedy would be a single `--hero-cover-min-height` slot. |
-| The default split ratio `minmax(0, 1.08fr) minmax(0, 0.92fr)` (1024px and up, where `split` becomes a two-column grid at all) | It is **the unset default of a shipped authorable control**, not an unexamined literal: `split_ratio` supplies the other two ratios, so this is one of three reachable values — the one you get by not choosing. Note the enum value is named `50-50` but renders a slight text-column bias (1.08 / 0.92); `50-50` emits no `data-pp-split-ratio` attribute and falls to this base rule. The `minmax(0, …)` wrapper is the documented grid-overflow mechanism, not a taste value. | An operator needs a ratio outside the three shipped ones — a **prop-enum** question, not a style-slot one. |
-| `3fr 2fr` (`60-40`) and `2fr 3fr` (`40-60`) | These **are** the `split_ratio` enum's rendered values, selected by `[data-pp-split-ratio]`. A literal that is the implementation of an enum is not a missing control. | As above. |
-| `.hero__surface-label` (`0.75rem` / `700` / `0.18em`), `.hero__surface-key` (`0.8125rem` / `0.08em`) and `.hero__surface-value` (`1rem` / `600`) type | **The template never emits these hyphenated child classes** — see the note below. They render only if you hand-write the class names into `proof`, which is free-form HTML. Slotting or tokenising type for markup the product never generates would add controls to a surface with no authoring path. | `proof` gains a structured schema — at which point the whole panel needs a slot family, and these literals are the smallest part of it. |
+## Layout
 
-**The `.hero__surface-*` class vocabulary — read this before styling the proof panel.**
-`hero.php` emits exactly one of these classes: the wrapper `<div class="hero__surface">`,
-and only on a `split` hero that has `proof`. That wrapper is what the six
-`--hero-surface-*` slots paint. The hyphenated children — `.hero__surface-label`,
-`.hero__surface-list`, `.hero__surface-item`, `.hero__surface-key`,
-`.hero__surface-value` — are **styled in `components.css` but never generated**. They
-exist so a `proof` string can opt into a key/value proof-panel look by using those class
-names itself. Nothing emits them for you, and no validation checks them, so a `proof`
-that does not use them simply renders as whatever HTML you passed, inside a styled frame.
+`layout` selects geometry, not colour:
 
-## CSS
+- **`left`** / **`centered`** — one column, aligned to the start or centred.
+- **`split`** — text left, media right from 1024px. If a split hero has neither media
+  (`image_url` / `image_id`) nor `proof`, there is nothing for the second column, so it
+  degrades to `left` at RENDER time; the stored prop is not rewritten.
+- **`cover`** — a tall (`min-height: 70vh`), centre-aligned band.
 
-Styles live in `assets/css/components.css` under the `/* === COMPONENT: hero === */` section.
+**A layout that says "centered" centres the TEXT too.** `centered` and `cover` centre
+the content box AND the text inside it, from the stylesheet, keyed to the layout class.
 
-Layouts are applied via the BEM modifier class `hero--{layout}`.
+That is a correction of an earlier v2 cut, and the reasoning is worth keeping. The first
+pass moved text alignment out to the roles on the principle that a layout aligns boxes
+and an author aligns text. It read well and rendered wrong: `centered` is the DEFAULT
+layout, no role ships a `typography.align` default, and every box here carries a measure
+cap — so a wrapping headline sat ragged-left inside a centred box while this file and the
+schema both said "centered centers all content". Single-line text hid it.
 
-## What NOT to change
+Alignment driven by a layout MODIFIER is the modifier's geometry, the same category as
+the `align-items` beside it. An authored `typography.align` on a role still overrides it,
+and now does so structurally rather than by specificity luck: authored band blocks are
+unlayered and the stylesheet lives in `@layer pp-v1`.
 
-- Do not add WordPress function calls to `hero.php`. Use pp_* wrappers from `lib/wp.php`.
-- Do not add raw hex color values to component CSS. Use CSS variables from `base.css`.
-- Do not modify `schema.json` without updating this README.
+**`cover` no longer paints `image_url` as a background.** A band background image is
+`_band` `background.image`, which means any layout can carry one — not just this one.
+`image_url` / `image_id` now mean the split layout's `<img>` and nothing else.
+
+**And the engine supplies what a background image needs.** Set `background.image` and you
+get `background-size: cover`, `background-repeat: no-repeat` and `background-position:
+center` unless you set them yourself — v1's `.hero--cover` values, which are also what
+anyone means by putting a photograph behind a band. Without them an authored image
+painted at its intrinsic size, tiled, anchored top-left. Set `background.size` (or
+`.repeat`, or `.position`) and yours wins.
+
+**A scrim gets the accessible focus ring automatically.** When a band carries both an
+image and an `overlay`, the engine marks it and the focus ring switches to
+`--color-accent-on-overlay`. v1 keyed that to `.hero--cover`, which stopped following the
+thing it described once any layout could carry an image: a bare accent ring is 1.17:1
+over a dark scrim, a WCAG 1.4.11 failure. Structural, emitted, not something you can
+forget to switch on — the same posture as the reduced-motion guard.
+
+## Structural CSS
+
+`assets/css/components.css` keeps only layout scaffolding, wrapper geometry and
+accessibility affordances for this component: the flex/grid skeleton, the split tracks,
+`cover`'s `min-height`, the eyebrow's `align-self`, and the media box's `object-fit` /
+`object-position`. No colour, type, size, spacing, border, shadow or aspect-ratio value
+may be added there — `tests/js/css-lint.test.js` fails CI on one.
+
+Two helper families were retired with the slot map and are **absent**: the
+`.hero__surface-label` / `-list` / `-item` / `-key` / `-value` classes that used to style
+author-written markup inside the proof panel. They were pure value-styling, and they are
+not roles either, because hero does not render them — an author does. Write plain
+semantic markup in `proof`; it inherits the `surface` role's typography.
+
+## Stated defaults
+
+These values are fixed by the theme's structural CSS or by a role default, and each one
+is deliberate rather than unexamined.
+
+- **Headline leading: `line-height: 1.03`.** A hero headline is display type, often two
+  or three words per line at desktop, and body leading would leave it looking loosely
+  set; 1.03 keeps the lines as one mass without clipping descenders at the clamp's
+  largest step. It is a role default, so a band can override it.
+- **Subtitle measure: `max-width: 40ch`.** The supporting line is read once, fast, and a
+  measure near 40 characters keeps it to two or three lines beside a large headline
+  instead of running the full content width. It is the `subtitle` role's
+  `sizing.max-width`, so a band that wants a longer line sets one.
+- **Split tracks: `minmax(0, 1.08fr)` and `minmax(0, 0.92fr)`.** The default split is
+  deliberately NOT 50/50 by area: the text column carries the headline and both CTAs, so
+  it takes the slightly larger share, and `minmax(0, …)` is what lets a long unbroken
+  word shrink its track instead of overflowing the row. `split_ratio` selects the
+  alternatives.
+- **Split ratio `60-40` renders `3fr 2fr`** (and `40-60` renders `2fr 3fr`). Whole-number
+  fractions rather than percentages, so the gap between the columns is subtracted from
+  the row once by `grid` rather than compounding into each track's percentage.
+
+**What would reopen it** (the reopening condition for any default above): a NAMED INCIDENT — a real brand whose
+specification these values cannot express, or a measured legibility failure at a stated
+viewport. Not a preference, and not a second opinion about taste: every one of these is
+a role default or structural geometry, so a band that disagrees can already say so in its
+`udc` map without anything here changing.
+
+- `_band` padding is hero's own opener rhythm (`@space-2xl` desktop, `@space-xl` at
+  tablet and phone), deliberately NOT the shared band tier — hero opts out of it, and on
+  v2 that opt-out is one role default instead of a pair of stylesheet rules.
+- `title` declares **no colour and no weight**. Both inherit: the colour from the band,
+  the weight from `base.css`'s shared `h1`–`h6` rule. The weight is left there because
+  the theme's `--font-weight-heading` is `650`, which CSS Fonts 4 allows and this
+  engine's `font-weight` grammar does not yet accept — referencing it would ship a
+  default the validator refuses.
+- `title` size is responsive by default: `clamp(3rem, 4.5vw, 4.5rem)` on desktop,
+  `clamp(2.5rem, 5vw, 4rem)` below. This is hero's documented exemption from the shared
+  band heading scale — an opener is bigger.
+- `surface` fills with `@color-surface`. The v1 default was a white-to-surface gradient;
+  a gradient cannot carry `var()` colour stops through the value grammar, and a frozen
+  literal would stop following a retheme, so the flat token-following fill is the
+  default and a gradient is one authored value away.
+
+### Two capabilities that narrowed
+
+**1. The left/split opener rhythm.** v1 gave `left` and `split` heroes a compact opener
+(`--space-xl` on both edges) while `centered` and `cover` took `--space-2xl` at desktop —
+two stylesheet rules keyed on the variant class. v2 has no variant dimension: a role
+default is per COMPONENT, and padding is a designable value the §2 boundary keeps out of
+the stylesheet, so there is no legal place left to say "left heroes are tighter". Every
+layout now shares one opener rhythm, and a band that wants the compact one sets its own
+`_band` `spacing`. The visible effect: an adjacent left/split hero grows from 64px to
+112px at desktop.
+
+(Text alignment per variant was on this list in an earlier draft and is NOT a narrowing:
+`centered` and `cover` centre their text structurally — see Layout above. It was listed
+here while the first v2 cut had moved alignment entirely to the roles, which turned the
+default layout into one that did not do what its name said.)
+
+**2. The media focal point.** `object-position` on the media box is a fixed `center` in
+the stylesheet now. It was the
+v1 `--hero-image-position` slot; the v2 boundary classifies `object-position` as
+structural, so it has a home — but it is no longer author-reachable. Recorded as a
+narrowing rather than a move. Its sibling, the crop RATIO, **is** authorable: it is the
+`media` role's `sizing.aspect-ratio`, a parameter the engine gained because of this
+rebuild.

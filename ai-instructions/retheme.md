@@ -112,8 +112,8 @@ where you have not coloured that edge yourself. The premium gradient fill measur
 worst-case composite, so without that ring the button's shape disappears into the band
 and only its label carries it. The solid inverted band does NOT
 get this ring — the same fill measures 3.23:1 there, which already clears the 3:1
-non-text bar. Per-instance slots (`--cta-button-border`, `--hero-accent`, and
-`--cta-button2-border` / `--hero-button2-border` for the second button) still win, so
+non-text bar. Per-instance slots (`--cta-button-border`, and
+`--cta-button2-border` for the second button) still win, so
 you can recolour the ring; a band you darken yourself with `--cta-bg` gets no automatic
 ring, because nothing in CSS can compare your authored band colour to the button fill.
 
@@ -228,12 +228,22 @@ it rounds every card and panel too, and no longer reaches the button at all.
 
 ### The global button color tokens (the site-wide button surface)
 
+> **HERO IS NOT ON THIS SURFACE ANY MORE (#986).** Everything in this section describes the
+> v1 per-instance STYLE SLOT cascade, which still governs cta, section, grid, faq, stats,
+> logos, embed and table. `hero` and `testimonials` are v2 components with no style slots:
+> their buttons and text are ROLES, styled through the band's `udc` map. Any
+> `--hero-button-*`, `--hero-button2-*` or `--hero-accent*` name below is HISTORY — writing
+> one is refused with `no_style_slots`. Read them as "the cta equivalent"; to restyle a
+> hero button, set `background.fill`, `typography.color` and `border.color` (plus a
+> `:hover` map) on its `cta` / `cta-secondary` role, or apply the `button` /
+> `button-secondary` preset. A role value beats every tier described here, because
+> authored band blocks are unlayered and this stylesheet lives in `@layer pp-v1`.
+
 The shared button system carries four registered color tokens, the button analog of
 `--btn-radius`, set via `update_design_token`. They are a REAL site-wide restyle knob: the
-premium `main .btn` primary cascade (and the `.cta`/`.hero` primary rules) route their
+premium `main .btn` primary cascade (and the `.cta` primary rules) route their
 fill, border, ink, and shadow fallbacks through these tokens (#458), so setting one at
-`:root` restyles EVERY composed primary button — the section-panel CTA, the CTA-block
-button, and the hero button alike. Three of the four register as `initial` (unset), so each
+`:root` restyles EVERY composed primary button — the section-panel CTA and the CTA-block button alike. Three of the four register as `initial` (unset), so each
 consuming rule resolves its own literal until you set the token; an unset button therefore
 renders byte-identically to today.
 
@@ -245,17 +255,18 @@ renders byte-identically to today.
 | `--btn-shadow` | change every button's elevation (a `--shadow-*` preset, or `none` to flatten) | bare `.btn`, premium primary | `none` (bare) / premium bevel (composed primary) |
 
 **Per-component slots still win.** `--btn-*` sits BETWEEN the per-component slots
-(`--cta-button-*`, `--cta-button2-*`, `--cta-accent`, `--hero-button-*`, `--hero-button2-*`,
-`--hero-accent`, `--section-panel-cta-*`) and the literal fallback. A component that sets its own slot keeps
+(`--cta-button-*`, `--cta-button2-*`, `--cta-accent`, `--section-panel-cta-*`) and the literal
+fallback. HERO IS NOT ON THAT LIST ANY MORE: it is a v2 component with no style slots, so its
+two buttons are the `cta` and `cta-secondary` ROLES in the band's `udc` map. A role value
+outranks every tier here — authored band blocks are unlayered and this stylesheet is in
+`@layer pp-v1` — so a `--btn-*` retheme moves every button EXCEPT one a hero band has
+authored, which is the intended reading of "the author's value wins". A component that sets its own slot keeps
 overriding the global token, so a site-wide `--btn-bg` recolors every button that has not
 been individually restyled.
-(The hero's per-instance FILLED-primary slots are `--hero-button-bg` / `--hero-button-hover-bg`
-/ `--hero-button-color` / `--hero-button-shadow`; `--hero-accent` recolors only its border. A
-cta or hero SECOND button has its own family — `--cta-button2-*` / `--hero-button2-*` — which the
+(A cta SECOND button has its own family — `--cta-button2-*` — which the
 primary's slots never reach in rest OR hover, so restyling the primary alone leaves the second
-button on the global token. Since #554 that holds for BOTH second buttons: the cta block's and
-the hero's each route `--btn-bg` / `--btn-hover-bg` through their own chains, so neither is an
-exception any more. The section's `text-panel` CTA has its own family too —
+button on the global token. Since #554 it routes `--btn-bg` / `--btn-hover-bg` through its own
+chain, so it is not an exception any more. The section's `text-panel` CTA has its own family too —
 `--section-panel-cta-bg` / `--section-panel-cta-color` / `--section-panel-cta-shadow`, plus the
 ring pair `--section-panel-cta-border` / `--section-panel-cta-hover-border` (#584) — which is the
 only way to give one section's panel button a flat brand fill, or its own ring, without moving
@@ -276,10 +287,11 @@ gradient the moment a pointer lands.
 | `--btn-hover-bg` | recolor every button's hover fill | bare `.btn`, `.cta`/`.hero` primary, BOTH filled second buttons (cta and hero), the section-panel CTA, premium `main .btn` primary | `--color-accent-hover` (bare) / the premium hover gradient (composed primary) |
 | `--btn-hover-border-color` | recolor every button's hover border | same surfaces as above, with the same `background_image` / `cover` carve-out (#564) | `--color-accent-hover` (bare/`.cta`/`.hero`) / `--color-accent` (premium) |
 
-Per-instance hover slots still win **for their own property**: `--hero-button-hover-bg`,
-`--cta-button-hover-bg`, `--hero-button2-hover-bg`, `--cta-button2-hover-bg` beat
-`--btn-hover-bg` for the fill; `--cta-button-hover-border`, `--hero-button2-hover-border`,
-`--cta-button2-hover-border` beat `--btn-hover-border-color` for the border.
+Per-instance hover slots still win **for their own property**:
+`--cta-button-hover-bg` and `--cta-button2-hover-bg` beat
+`--btn-hover-bg` for the fill; `--cta-button-hover-border` and
+`--cta-button2-hover-border` beat `--btn-hover-border-color` for the border. On hero, a
+`:hover` map inside the `cta` / `cta-secondary` role beats all of them.
 
 One cross-property note, same as at rest: `--btn-hover-border-color` outranks the per-instance
 hover FILL slots inside a border chain. An explicit global ring beats a ring merely inferred

@@ -128,17 +128,17 @@ class PreviewErrorActionabilityTest extends TestCase
 
     public function testANearMissSlotNameStillNamesTheSettingsTheComponentHas(): void
     {
-        // `--hero-bgs` for `--hero-bg`. The cross-component scan normalizes it to
+        // `--section-bgs` for `--section-bg`. The cross-component scan normalizes it to
         // `--*-bgs`, which no registered component declares, so it produces no hint —
         // the condition that used to be read as "impossible" all by itself.
         $post_id = $this->authorPage('Near miss', [
-            ['component' => 'hero', 'props' => ['title' => 'Hi']],
+            ['component' => 'section', 'props' => ['title' => 'Hi', 'body' => 'Body text']],
         ]);
 
         $params = [
             'post_id'         => $post_id,
             'component_index' => 0,
-            'style'           => ['--hero-bgs' => '#111111'],
+            'style'           => ['--section-bgs' => '#111111'],
         ];
 
         $error = pp_preview_action('style_component', $params);
@@ -157,7 +157,7 @@ class PreviewErrorActionabilityTest extends TestCase
             'With no hint, `alternatives` is the only thing left naming a next action.'
         );
         $this->assertContains(
-            '--hero-bg',
+            '--section-bg',
             $friendly['alternatives'],
             'The slot the author meant is in the payload they were told was impossible.'
         );
@@ -204,18 +204,18 @@ class PreviewErrorActionabilityTest extends TestCase
         // 11,309 characters on hero (the descriptions alone are 11,213 of it). The full
         // list still ships, in `alternatives`, behind the <details>.
         $post_id = $this->authorPage('Visible settings', [
-            ['component' => 'hero', 'props' => ['title' => 'Hi']],
+            ['component' => 'section', 'props' => ['title' => 'Hi', 'body' => 'Body text']],
         ]);
 
         $params = [
             'post_id'         => $post_id,
             'component_index' => 0,
-            'style'           => ['--hero-bgs' => '#111111'],
+            'style'           => ['--section-bgs' => '#111111'],
         ];
 
         $friendly = _pp_build_friendly_error(pp_preview_action('style_component', $params), $params);
 
-        $declared = array_keys(pp_get_style_slots('hero'));
+        $declared = array_keys(pp_get_style_slots('section'));
         $this->assertGreaterThan(
             PP_FRIENDLY_SLOT_SAMPLE_MAX,
             count($declared),
@@ -236,7 +236,7 @@ class PreviewErrorActionabilityTest extends TestCase
         }
 
         // And it names what was tried, which the old message never did.
-        $this->assertStringContainsString('--hero-bgs', $friendly['user_message']);
+        $this->assertStringContainsString('--section-bgs', $friendly['user_message']);
     }
 
     // ── Why "names nothing" is not where a real rejection lands ───────────

@@ -291,7 +291,11 @@ final class UdcPresetStateMotionTest extends TestCase
     {
         $css = pp_udc_band_css($this->band(['card' => ['_preset' => 'button']]));
         $this->assertStringContainsString('font-weight:600;', $css);
-        $this->assertStringContainsString('padding-left:var(--space-lg);', $css);
+        // `var(--btn-padding-x)`, not `var(--space-lg)`: the presets reference the
+        // button's OWN padding knobs again (#972, ruling D3). They referenced the
+        // spacing scale underneath only while a chain-holding token was
+        // unreferenceable, which painted the same pixels but broke the indirection.
+        $this->assertStringContainsString('padding-left:var(--btn-padding-x);', $css);
         $this->assertStringContainsString('transition-duration:150ms;', $css);
     }
 
@@ -302,6 +306,47 @@ final class UdcPresetStateMotionTest extends TestCase
         ]));
         $this->assertStringContainsString('font-weight:600;', $css, 'typography comes through');
         $this->assertStringNotContainsString('padding-left', $css, 'and nothing else does');
+    }
+
+    /**
+     * A PRESET-STYLED ROLE FOLLOWS A RETUNE OF THE BUTTON'S OWN PADDING KNOBS
+     * (#972, ruling D3) — the indirection this ruling bought, proven rather than
+     * asserted in prose.
+     *
+     * What "follows" means mechanically is that the emitted declaration carries the
+     * TOKEN NAME, so the browser resolves whatever `--btn-padding-x` holds at paint
+     * time. Two things are therefore pinned, and the second is the one that would
+     * have silently regressed: the name must be the button knob, and it must NOT be
+     * `--space-lg`, the token the knob aliases. Those paint identically today,
+     * which is exactly why the substitution went unnoticed — and why retuning
+     * `--btn-padding-x` alone used to move `.btn` while leaving every preset-styled
+     * role behind.
+     *
+     * Not pinned as a frozen literal (`0.5rem`), deliberately: a literal here would
+     * re-freeze the value and the test would pass while the indirection was gone.
+     */
+    public function testAPresetStyledRoleFollowsARetuneOfTheButtonPaddingKnobs(): void
+    {
+        $css = pp_udc_band_css($this->band(['heading-accent' => ['_preset' => 'button']]));
+
+        foreach (['padding-top:var(--btn-padding-y);', 'padding-left:var(--btn-padding-x);'] as $declaration) {
+            $this->assertStringContainsString($declaration, $css);
+        }
+        $this->assertStringNotContainsString(
+            'var(--space-lg)',
+            $css,
+            'the preset must reference the button knob, not the spacing token it aliases'
+        );
+
+        // And the knobs really are the aliasing chain, so the pin is about a live
+        // indirection rather than a coincidence of names.
+        foreach (['btn-padding-y' => '--space-sm', 'btn-padding-x' => '--space-lg'] as $knob => $alias) {
+            $this->assertStringContainsString(
+                $alias,
+                pp_udc_resolve_reference($knob, [])['value'],
+                "@{$knob} must still be one level of indirection over {$alias}"
+            );
+        }
     }
 
     public function testAGroupGrainPresetComposesWithARoleGrainOneOnTheSameRole(): void
@@ -344,6 +389,22 @@ final class UdcPresetStateMotionTest extends TestCase
                             $resolved = pp_udc_resolve_reference($ref, []);
                             $this->assertNotNull($resolved, "preset {$name} references @{$ref}, which must resolve");
                             $literal = $resolved['value'];
+                            // A REFERENCE IS JUDGED THE WAY THE ENGINE JUDGES IT
+                            // (#972, ruling D3), not by re-parsing the token's value
+                            // text. The two are the same answer for a token holding a
+                            // literal, and they differ for the five that hold one level
+                            // of var() indirection — `@btn-padding-y` among them, which
+                            // these presets reference precisely so a retune of the
+                            // button knobs reaches a preset-styled role. Asking
+                            // pp_udc_validate_value() here would re-assert the
+                            // literal-only length grammar this ruling took out of the
+                            // reference path, and fail on a value the engine accepts.
+                            $this->assertTrue(
+                                _pp_udc_reference_check($resolved, $params[$param]) === true,
+                                "preset {$name} {$group}.{$param} = @{$ref} must be usable for its parameter"
+                            );
+                            $seen++;
+                            continue;
                         }
                         $this->assertTrue(
                             pp_udc_validate_value((string) $literal, $params[$param]) === true,

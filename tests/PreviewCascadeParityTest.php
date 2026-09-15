@@ -181,7 +181,9 @@ final class PreviewCascadeParityTest extends TestCase
 
         $this->assertStringNotContainsString('data-pp-chrome', $head);
         $this->assertStringNotContainsString('<link rel="stylesheet" href="https://fonts', $head);
-        $this->assertSame(2, substr_count($head, '<style'), 'still exactly the two cascade tiers');
+        // Counts the UDC TIERS, not every <style> in the head: the layer-order statement
+        // (#986) is a third block and deliberately not one of them.
+        $this->assertSame(2, substr_count($head, 'id="pp-udc-'), 'still exactly the two cascade tiers');
     }
 
     // ── 1. The preview's own positions ───────────────────────────────────────
@@ -239,7 +241,7 @@ final class PreviewCascadeParityTest extends TestCase
     {
         $head = $this->head();
 
-        $this->assertSame(2, substr_count($head, '<style'), 'exactly two style blocks');
+        $this->assertSame(2, substr_count($head, 'id="pp-udc-'), 'exactly two UDC blocks');
         $this->assertStringContainsString('font-size:19px', $head, 'the authored value is emitted');
         $this->assertStringContainsString(':where(', $head, 'the root-level defaults are emitted at zero specificity');
     }
@@ -249,7 +251,9 @@ final class PreviewCascadeParityTest extends TestCase
     {
         $head = pp_preview_document_head([], 'https://example.test/theme');
 
-        $this->assertStringNotContainsString('<style', $head);
+        // The layer-order statement is always emitted (#986); what must be absent here is
+        // any UDC tier.
+        $this->assertStringNotContainsString('id="pp-udc-', $head);
         $this->assertStringContainsString('base.css', $head, 'the stylesheets are still linked');
     }
 
@@ -269,7 +273,7 @@ final class PreviewCascadeParityTest extends TestCase
             'props'     => ['items' => [['quote' => 'Great.', 'author' => 'Ada']]],
         ]], 'https://example.test/theme');
 
-        $this->assertSame(1, substr_count($head, '<style'), 'exactly one block');
+        $this->assertSame(1, substr_count($head, 'id="pp-udc-'), 'exactly one UDC block');
         $this->assertStringContainsString('id="pp-udc-defaults"', $head);
         $this->assertStringNotContainsString('pp-udc-authored', $head, 'nothing authored, nothing emitted');
         $this->assertLessThan(
@@ -534,6 +538,42 @@ final class PreviewCascadeParityTest extends TestCase
             $callers,
             'pp_udc_page_css() flattens the two cascade tiers into one position; '
             . 'emit pp_udc_page_defaults_css() and pp_udc_page_authored_css() separately'
+        );
+    }
+
+    /**
+     * The preview establishes the cascade-layer order itself (#986).
+     *
+     * Not decoration. The preview's stylesheet links carry no cache-busting query, so a
+     * browser holding a pre-#986 base.css would build a document where the order was
+     * never declared: base.css unlayered and therefore the strongest sheet present, and
+     * the band-root defaults tier sorted below its reset. That is the inversion that made
+     * an unauthored hero compute padding-top 0px — invisible here, because the emitted
+     * CSS text would be byte-identical either way.
+     */
+    public function testThePreviewDeclaresTheLayerOrderBeforeItsStylesheets(): void
+    {
+        $head = pp_preview_document_head([], 'https://example.test/theme');
+
+        $order = strpos($head, pp_css_layer_order());
+        $base  = strpos($head, 'base.css');
+        $this->assertNotFalse($order, 'the preview must declare the layer order');
+        $this->assertNotFalse($base);
+        $this->assertLessThan(
+            $base,
+            $order,
+            'the layer order must be declared BEFORE base.css, or a stale cached copy leaves it unestablished'
+        );
+    }
+
+    /** base.css and the PHP owner must declare the SAME order, or the two documents disagree. */
+    public function testTheStylesheetAndThePhpOwnerAgreeOnTheLayerOrder(): void
+    {
+        $css = file_get_contents(dirname(__DIR__) . '/assets/css/base.css');
+        $this->assertStringStartsWith(
+            pp_css_layer_order(),
+            ltrim($css),
+            'assets/css/base.css must open with the same @layer statement pp_css_layer_order() returns'
         );
     }
 }

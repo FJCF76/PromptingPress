@@ -145,7 +145,7 @@ class AiContextTest extends TestCase
         // must name the four uncapped measures, or an agent reading it will believe
         // `none` is never valid on a measure and cannot restore their declared default.
         $this->assertStringContainsString(
-            'the four text measures that ship uncapped (`--hero-heading-measure`, `--section-heading-measure`, `--cta-body-measure`, `--faq-body-measure`)',
+            'the three text measures that ship uncapped (`--section-heading-measure`, `--cta-body-measure`, `--faq-body-measure`)',
             $prompt,
             'the length-or-none carrier set must be stated, not just --stats-max-width'
         );
@@ -286,6 +286,11 @@ class AiContextTest extends TestCase
             );
         }
     }
+
+    // The hero-cover adjacency carve-out RETIRED with it (#986): a `cover` hero no
+    // longer paints `image_url` as a band background, so there is no hero-shaped
+    // exception left for the annotation to make. An image-backed band of any component
+    // is covered by the generic `background_image` branch, which other tests pin.
 
     /**
      * An array prop whose `items` is a VALUE grammar (or which declares no `items` at all)
@@ -646,7 +651,7 @@ class AiContextTest extends TestCase
 
     public function testSummarizeComponentIncludesImageFilename(): void
     {
-        $item = ['component' => 'hero', 'props' => [
+        $item = ['component' => 'section', 'props' => [
             'layout' => 'cover',
             'image_url' => 'https://example.com/wp-content/uploads/photo.jpg',
         ]];
@@ -673,13 +678,13 @@ class AiContextTest extends TestCase
             'post_status' => 'publish',
         ];
         $GLOBALS['_pp_test_store']['post_meta'][40]['_pp_composition'] = wp_json_encode([
-            ['component' => 'hero', 'props' => ['title' => 'Welcome', 'layout' => 'cover']],
+            ['component' => 'section', 'props' => ['title' => 'Welcome', 'layout' => 'cover']],
             ['component' => 'section', 'props' => ['title' => 'About', 'layout' => 'image-left']],
         ]);
 
         $messages = pp_ai_format_messages('System', [], 40);
         $system = $messages[0]['content'];
-        $this->assertStringContainsString('[0] hero', $system);
+        $this->assertStringContainsString('[0] section', $system);
         $this->assertStringContainsString('[1] section', $system);
         $this->assertStringContainsString('component_index', $system);
     }
@@ -703,7 +708,7 @@ class AiContextTest extends TestCase
     public function testSystemPromptContainsStyleSlotsForStyledComponents(): void
     {
         $prompt = pp_ai_system_prompt();
-        $this->assertStringContainsString('--hero-bg', $prompt);
+        $this->assertStringContainsString('--section-bg', $prompt);
         $this->assertStringContainsString('Style slots:', $prompt);
     }
 
@@ -716,7 +721,7 @@ class AiContextTest extends TestCase
     public function testSystemPromptContainsRecipesForStyledComponents(): void
     {
         $prompt = pp_ai_system_prompt();
-        $this->assertStringContainsString('dark-spacious', $prompt);
+        $this->assertStringContainsString('accent-panel', $prompt);
         $this->assertStringContainsString('Recipes:', $prompt);
     }
 
@@ -835,9 +840,12 @@ class AiContextTest extends TestCase
         ];
         $GLOBALS['_pp_test_store']['post_meta'][60]['_pp_composition'] = wp_json_encode([
             [
-                'component' => 'hero',
-                'props' => ['id' => 'pp-test123', 'title' => 'Welcome', 'layout' => 'split', 'button_url' => '/go'],
-                'style' => ['--hero-bg' => '#0d1117', '--hero-heading-color' => '#f0f0f0', '__recipe' => 'dark-spacious'],
+                // `cta`, not hero: this pins that the page context carries style slots, a
+                // recipe and typed editable props, and hero has none of the first two
+                // since #986. cta still declares all three, including `button_url`.
+                'component' => 'cta',
+                'props' => ['id' => 'pp-test123', 'title' => 'Welcome', 'body' => 'B', 'button_text' => 'Go', 'button_url' => '/go'],
+                'style' => ['--cta-bg' => '#0d1117', '--cta-heading-color' => '#f0f0f0', '__recipe' => 'dark-bold'],
             ],
         ]);
 
@@ -845,8 +853,8 @@ class AiContextTest extends TestCase
         $system = $messages[0]['content'];
 
         $this->assertStringContainsString('pp-test123', $system);
-        $this->assertStringContainsString('recipe: dark-spacious', $system);
-        $this->assertStringContainsString('--hero-bg: #0d1117', $system);
+        $this->assertStringContainsString('recipe: dark-bold', $system);
+        $this->assertStringContainsString('--cta-bg: #0d1117', $system);
         $this->assertStringContainsString('Editable:', $system);
         $this->assertStringContainsString('title (string)', $system);
         // A prop with a schema format shows its family so the AI patches valid
@@ -863,15 +871,15 @@ class AiContextTest extends TestCase
         ];
         $GLOBALS['_pp_test_store']['post_meta'][61]['_pp_composition'] = wp_json_encode([
             [
-                'component' => 'hero',
-                'props' => ['title' => 'Hello'],
+                'component' => 'section',
+                'props' => ['title' => 'Hello', 'body' => 'Body text'],
             ],
         ]);
 
         $messages = pp_ai_format_messages('System', [], 61);
         $system = $messages[0]['content'];
 
-        $this->assertStringContainsString('[0] hero', $system);
+        $this->assertStringContainsString('[0] section', $system);
         $this->assertStringNotContainsString('Style:', $system);
     }
 
@@ -922,11 +930,40 @@ class AiContextTest extends TestCase
         return $messages[0]['content'];
     }
 
+    /**
+     * REWRITTEN from testAdjacencyNotAnnotatedForHeroCoverImage (#986).
+     *
+     * The old test pinned the `$is_hero_cover` carve-out in _pp_resolve_component_bg():
+     * a `cover` hero painting `image_url` through an inline style was image-backed, so
+     * the flat-colour "these bands share a background" hint had to stay silent even
+     * when a `--hero-bg` slot matched the neighbour. The carve-out is gone with the
+     * inline style, but the OUTCOME it guaranteed is still required, so it is pinned
+     * here in v2 terms rather than deleted with the mechanism.
+     *
+     * On v2 the guarantee comes from a different direction and the test says so: a v2
+     * component carries no `theme` prop and no `--{name}-bg` style slot, so every v2
+     * band resolves to null and is never described as a flat-colour band. That is the
+     * SAFE direction (silent, never wrong), and it is the property worth pinning —
+     * _pp_resolve_component_bg() does not read the band's `udc` map, so a v2 band
+     * background is under-described by design until that is widened.
+     */
+    public function testAdjacencyNotAnnotatedForAV2BandBackground(): void
+    {
+        $system = $this->pageContextFor(712, [
+            ['component' => 'hero', 'props' => ['title' => 'A', 'layout' => 'cover'],
+             'udc' => ['_band' => ['background' => ['fill' => '#092082']]]],
+            ['component' => 'section', 'props' => ['title' => 'B', 'body' => 'Body'],
+             'style' => ['--section-bg' => '#092082']],
+        ]);
+
+        $this->assertStringNotContainsString('share background', $system);
+    }
+
     public function testAdjacencyAnnotatedForMatchingStyleOverride(): void
     {
         $system = $this->pageContextFor(700, [
-            ['component' => 'section', 'props' => ['title' => 'A'], 'style' => ['--section-bg' => '#092082']],
-            ['component' => 'stats', 'props' => ['title' => 'B'], 'style' => ['--stats-bg' => '#092082']],
+            ['component' => 'section', 'props' => ['title' => 'A', 'body' => 'Body text'], 'style' => ['--section-bg' => '#092082']],
+            ['component' => 'stats', 'props' => ['title' => 'B', 'body' => 'Body text'], 'style' => ['--stats-bg' => '#092082']],
         ]);
 
         // Exact wording snapshot (guards against silent drift from the #377 vocabulary).
@@ -991,8 +1028,8 @@ class AiContextTest extends TestCase
     public function testAdjacencyNotAnnotatedForDifferingBackgrounds(): void
     {
         $system = $this->pageContextFor(703, [
-            ['component' => 'section', 'props' => ['title' => 'A'], 'style' => ['--section-bg' => '#092082']],
-            ['component' => 'stats', 'props' => ['title' => 'B'], 'style' => ['--stats-bg' => '#ffffff']],
+            ['component' => 'section', 'props' => ['title' => 'A', 'body' => 'Body text'], 'style' => ['--section-bg' => '#092082']],
+            ['component' => 'stats', 'props' => ['title' => 'B', 'body' => 'Body text'], 'style' => ['--stats-bg' => '#ffffff']],
         ]);
 
         $this->assertStringNotContainsString('Adjacent bands sharing a background', $system);
@@ -1004,8 +1041,8 @@ class AiContextTest extends TestCase
         // Neither band sets an override or a non-default theme -> both inherit the
         // body background -> the pair is never annotated (issue skip rule).
         $system = $this->pageContextFor(704, [
-            ['component' => 'section', 'props' => ['title' => 'A']],
-            ['component' => 'stats', 'props' => ['title' => 'B']],
+            ['component' => 'section', 'props' => ['title' => 'A', 'body' => 'Body text']],
+            ['component' => 'stats', 'props' => ['title' => 'B', 'body' => 'Body text']],
         ]);
 
         $this->assertStringNotContainsString('Adjacent bands sharing a background', $system);
@@ -1015,7 +1052,7 @@ class AiContextTest extends TestCase
     public function testAdjacencyNotAnnotatedForSingleComponent(): void
     {
         $system = $this->pageContextFor(705, [
-            ['component' => 'section', 'props' => ['title' => 'A'], 'style' => ['--section-bg' => '#092082']],
+            ['component' => 'section', 'props' => ['title' => 'A', 'body' => 'Body text'], 'style' => ['--section-bg' => '#092082']],
         ]);
 
         $this->assertStringNotContainsString('Adjacent bands sharing a background', $system);
@@ -1028,7 +1065,7 @@ class AiContextTest extends TestCase
         // so a co-set --*-bg slot must NOT produce a fusing hint.
         $system = $this->pageContextFor(706, [
             ['component' => 'section', 'props' => ['title' => 'A', 'background_image' => 'https://ex.test/a.jpg'], 'style' => ['--section-bg' => '#092082']],
-            ['component' => 'stats', 'props' => ['title' => 'B'], 'style' => ['--stats-bg' => '#092082']],
+            ['component' => 'stats', 'props' => ['title' => 'B', 'body' => 'Body text'], 'style' => ['--stats-bg' => '#092082']],
         ]);
 
         $this->assertStringNotContainsString('share background', $system);
@@ -1039,8 +1076,8 @@ class AiContextTest extends TestCase
         // `transparent` reveals the inherited background, so two transparent bands
         // resolve to null and are not annotated.
         $system = $this->pageContextFor(707, [
-            ['component' => 'section', 'props' => ['title' => 'A'], 'style' => ['--section-bg' => 'transparent']],
-            ['component' => 'stats', 'props' => ['title' => 'B'], 'style' => ['--stats-bg' => 'transparent']],
+            ['component' => 'section', 'props' => ['title' => 'A', 'body' => 'Body text'], 'style' => ['--section-bg' => 'transparent']],
+            ['component' => 'stats', 'props' => ['title' => 'B', 'body' => 'Body text'], 'style' => ['--stats-bg' => 'transparent']],
         ]);
 
         $this->assertStringNotContainsString('share background', $system);
@@ -1050,16 +1087,16 @@ class AiContextTest extends TestCase
     {
         // [0] default, [1] and [2] share #092082 -> only the [1]/[2] pair annotated.
         $system = $this->pageContextFor(708, [
-            ['component' => 'hero', 'props' => ['title' => 'A']],
-            ['component' => 'section', 'props' => ['title' => 'B'], 'style' => ['--section-bg' => '#092082']],
-            ['component' => 'cta', 'props' => ['title' => 'C'], 'style' => ['--cta-bg' => '#092082']],
+            ['component' => 'section', 'props' => ['title' => 'A', 'body' => 'Body text']],
+            ['component' => 'section', 'props' => ['title' => 'B', 'body' => 'Body text'], 'style' => ['--section-bg' => '#092082']],
+            ['component' => 'cta', 'props' => ['title' => 'C', 'body' => 'Body text'], 'style' => ['--cta-bg' => '#092082']],
         ]);
 
         $this->assertStringContainsString(
             '[1] section and [2] cta share background #092082 (adjacent — facing paddings/margins control the visible seam)',
             $system
         );
-        $this->assertStringNotContainsString('[0] hero', $this->onlyAdjacencyLines($system));
+        $this->assertStringNotContainsString('[0] section', $this->onlyAdjacencyLines($system));
     }
 
     public function testAdjacencyMatchesGradientOverrideIgnoringWhitespaceRunsAndCase(): void
@@ -1069,8 +1106,8 @@ class AiContextTest extends TestCase
         // like ", " vs "," is intentionally NOT normalized — that would require rendered
         // -CSS parsing, which #378 puts out of scope; this stays a cheap string hint.)
         $system = $this->pageContextFor(709, [
-            ['component' => 'section', 'props' => ['title' => 'A'], 'style' => ['--section-bg' => 'linear-gradient(90deg,  #AA0000,  #00BB00)']],
-            ['component' => 'stats', 'props' => ['title' => 'B'], 'style' => ['--stats-bg' => 'linear-gradient(90deg, #aa0000, #00bb00)']],
+            ['component' => 'section', 'props' => ['title' => 'A', 'body' => 'Body text'], 'style' => ['--section-bg' => 'linear-gradient(90deg,  #AA0000,  #00BB00)']],
+            ['component' => 'stats', 'props' => ['title' => 'B', 'body' => 'Body text'], 'style' => ['--stats-bg' => 'linear-gradient(90deg, #aa0000, #00bb00)']],
         ]);
 
         $this->assertStringContainsString('share background', $this->onlyAdjacencyLines($system));
@@ -1098,8 +1135,8 @@ class AiContextTest extends TestCase
     {
         $long = 'linear-gradient(180deg, #111111 0%, #222222 40%, #333333 100%)'; // > 40 chars
         $system = $this->pageContextFor(711, [
-            ['component' => 'section', 'props' => ['title' => 'A'], 'style' => ['--section-bg' => $long]],
-            ['component' => 'stats', 'props' => ['title' => 'B'], 'style' => ['--stats-bg' => $long]],
+            ['component' => 'section', 'props' => ['title' => 'A', 'body' => 'Body text'], 'style' => ['--section-bg' => $long]],
+            ['component' => 'stats', 'props' => ['title' => 'B', 'body' => 'Body text'], 'style' => ['--stats-bg' => $long]],
         ]);
 
         // Displayed value capped at 37 chars + '...'; the full value never appears.
@@ -1107,25 +1144,13 @@ class AiContextTest extends TestCase
         $this->assertStringNotContainsString($long . ' (adjacent', $system);
     }
 
-    public function testAdjacencyNotAnnotatedForHeroCoverImage(): void
-    {
-        // A hero cover layout with an image_url is image-backed even with a matching
-        // --hero-bg slot -> no fusing hint.
-        $system = $this->pageContextFor(712, [
-            ['component' => 'hero', 'props' => ['title' => 'A', 'layout' => 'cover', 'image_url' => 'https://ex.test/h.jpg'], 'style' => ['--hero-bg' => '#092082']],
-            ['component' => 'section', 'props' => ['title' => 'B'], 'style' => ['--section-bg' => '#092082']],
-        ]);
-
-        $this->assertStringNotContainsString('share background', $system);
-    }
-
     public function testAdjacencyNotAnnotatedForNonConsecutiveMatch(): void
     {
         // [0] and [2] match but a default band at [1] breaks the run -> no annotation.
         $system = $this->pageContextFor(713, [
-            ['component' => 'section', 'props' => ['title' => 'A'], 'style' => ['--section-bg' => '#092082']],
-            ['component' => 'grid', 'props' => ['title' => 'B']],
-            ['component' => 'cta', 'props' => ['title' => 'C'], 'style' => ['--cta-bg' => '#092082']],
+            ['component' => 'section', 'props' => ['title' => 'A', 'body' => 'Body text'], 'style' => ['--section-bg' => '#092082']],
+            ['component' => 'grid', 'props' => ['title' => 'B', 'body' => 'Body text']],
+            ['component' => 'cta', 'props' => ['title' => 'C', 'body' => 'Body text'], 'style' => ['--cta-bg' => '#092082']],
         ]);
 
         $this->assertStringNotContainsString('share background', $system);
@@ -1137,9 +1162,9 @@ class AiContextTest extends TestCase
         // through the component-index loop) resolves to null via the is_string guard,
         // so it breaks the run and never emits a spurious pair or crashes.
         $system = $this->pageContextFor(714, [
-            ['component' => 'section', 'props' => ['title' => 'A'], 'style' => ['--section-bg' => '#092082']],
-            ['props' => ['title' => 'orphan']],
-            ['component' => 'cta', 'props' => ['title' => 'C'], 'style' => ['--cta-bg' => '#092082']],
+            ['component' => 'section', 'props' => ['title' => 'A', 'body' => 'Body text'], 'style' => ['--section-bg' => '#092082']],
+            ['props' => ['title' => 'orphan', 'body' => 'Body text']],
+            ['component' => 'cta', 'props' => ['title' => 'C', 'body' => 'Body text'], 'style' => ['--cta-bg' => '#092082']],
         ]);
 
         $this->assertStringNotContainsString('share background', $system);
@@ -1486,7 +1511,7 @@ class AiContextTest extends TestCase
     /**
      * Extracts just the adjacency-hint lines from the system content so a negative
      * assertion about them can't be fooled by the component index (which also
-     * contains "[0] hero").
+     * contains "[0] section").
      */
     private function onlyAdjacencyLines(string $system): string
     {
