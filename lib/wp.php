@@ -2214,8 +2214,13 @@ function pp_check_udc_background_images(?int $post_id = null, ?array $compositio
         if (!is_array($map)) {
             continue;
         }
-        foreach (_pp_udc_dangling_background_images($map) as $where => $id) {
-            $dangling[] = ['scope' => 'chrome "' . $name . '"', 'where' => $where, 'id' => $id];
+        foreach (_pp_udc_dangling_background_images($map) as $row) {
+            $dangling[] = _pp_udc_background_image_row(
+                'chrome "%s"',
+                (string) $name,
+                $row['role'],
+                $row['id']
+            );
         }
     }
 
@@ -2245,12 +2250,13 @@ function pp_check_udc_background_images(?int $post_id = null, ?array $compositio
                 }
                 $component = isset($item['component']) && is_scalar($item['component'])
                     ? (string) $item['component'] : '?';
-                foreach (_pp_udc_dangling_background_images($item['udc']) as $where => $id) {
-                    $dangling[] = [
-                        'scope' => 'band ' . ((int) $i + 1) . ' ("' . $component . '")',
-                        'where' => $where,
-                        'id'    => $id,
-                    ];
+                foreach (_pp_udc_dangling_background_images($item['udc']) as $row) {
+                    $dangling[] = _pp_udc_background_image_row(
+                        'band ' . ((int) $i + 1) . ' ("%s")',
+                        $component,
+                        $row['role'],
+                        $row['id']
+                    );
                 }
             }
         }
@@ -2268,6 +2274,17 @@ function pp_check_udc_background_images(?int $post_id = null, ?array $compositio
             'pass'            => false,
             'severity'        => 'warning',
             'class'           => 'configuration',
+            // HASHED OVER THE RAW BYTES, RENDERED FROM THE CLEANED ONES (#1004).
+            //
+            // The two halves of the locator are deliberately not the same string, and
+            // this is the precedent pp_check_token_override_validity() already sets one
+            // screen up: it keys on the raw token and prints `$safe_token`.
+            //
+            // Hashing the CLEANED pair would make the key many-to-one — two stored roles
+            // that differ only past the reflection bound would share one acknowledgement,
+            // so acknowledging one dangling image would silently acknowledge another. It
+            // would also re-key every acknowledgement already stored against this check.
+            // Neither is a price worth paying for a bound that belongs on the message.
             'finding_key'     => 'udc_background_image:' . substr(sha1($row['scope'] . '|' . $row['where']), 0, 12),
             'acknowledgeable' => true,
             'next_action'     => 'Re-import the image (import_media returns a new attachment_id) and set it, '
@@ -2275,8 +2292,8 @@ function pp_check_udc_background_images(?int $post_id = null, ?array $compositio
             'message'         => sprintf(
                 '%s %s references attachment %d, which is no longer a Media Library image on this site, '
                 . 'so that background is not painted. Everything else on it still renders.',
-                $row['scope'],
-                $row['where'],
+                $row['scope_display'],
+                $row['where_display'],
                 $row['id']
             ),
         ];
@@ -2535,9 +2552,65 @@ function pp_check_udc_emit_drops(?int $post_id = null, ?array $composition = nul
 }
 
 /**
+ * One dangling-background-image row, carrying its locator in both forms (#1004).
+ *
+ * WHY A ROW NEEDS TWO SPELLINGS OF ONE LOCATOR. `scope`/`where` feed the
+ * acknowledgement hash and must stay byte-stable across this change; the `_display`
+ * pair is what an operator reads and must be bounded, because both fragments — a
+ * chrome or component NAME and a role KEY — are stored data with no length of their
+ * own. Measured before the fix: a 5,000-character stored role key produced a
+ * 5,177-character readiness message, on a channel that rides the preflight envelope
+ * of EVERY mutation.
+ *
+ * The readiness `checks[]` channel is explicitly OUTSIDE the reflected-text carve-out
+ * that lets `findings[].message` copy validator text verbatim — the rule is stated at
+ * the sibling ledger in lib/udc.php, and its producer,
+ * pp_check_udc_emit_drops(), has bounded these same two fragments since #981. This
+ * function is the other half of that discipline, applied to the check that predates it.
+ *
+ * REFLECTED PER FRAGMENT, NOT OVER THE COMPOSED STRING, so the quotes always close:
+ * bounding `band 1 ("<5000 chars>")` as one unit would cut the closing `")` off and
+ * leave an operator staring at an unterminated locator.
+ *
+ * The attachment id is an int and is NOT reflected — it is not text, and passing it
+ * through a string cleaner would be a coercion bug wearing a fix's clothes.
+ *
+ * @param string $scope_format A sprintf template with ONE `%s` for the cleaned name.
+ * @param string $name         Stored chrome name or component name, raw.
+ * @param string $role         Stored role key, raw.
+ * @param int    $id           Attachment id.
+ * @return array{scope:string,where:string,scope_display:string,where_display:string,id:int}
+ */
+function _pp_udc_background_image_row(string $scope_format, string $name, string $role, int $id): array {
+    return [
+        // RAW — the hash inputs. Byte-identical to every version before #1004.
+        'scope'         => sprintf($scope_format, $name),
+        'where'         => 'role "' . $role . '"',
+        // CLEANED — what reaches the operator.
+        'scope_display' => sprintf($scope_format, _pp_udc_reflect($name)),
+        'where_display' => 'role "' . _pp_udc_reflect($role) . '"',
+        'id'            => $id,
+    ];
+}
+
+/**
  * Every `background.image` in one `udc` map whose attachment no longer paints.
  *
- * Returns `role "x"` => attachment id.
+ * Returns a LIST of `['role' => <stored role key, raw>, 'id' => <attachment id>]`.
+ *
+ * IT RETURNS THE BARE ROLE, NOT A FORMATTED LOCATOR, and it returns a LIST rather
+ * than a map keyed by that locator (#1004). Both halves of that shape are load-bearing:
+ *
+ *   - THE CALLER NEEDS THE FRAGMENT, because the locator has to exist twice — raw for
+ *     the acknowledgement hash, cleaned for the operator's screen. Formatting it here
+ *     would leave the caller re-deriving one of the two from the other, which is how
+ *     a bound and a hash drift apart.
+ *   - A MAP KEYED BY THE LOCATOR IS FAIL-OPEN once anything cleans that key. Two stored
+ *     roles differing only past the reflection bound, or only by a zero-width character,
+ *     would collapse into one entry and the second dangling image would vanish from a
+ *     report whose whole job is to end a silent drop (I29). The sibling ledger in
+ *     lib/udc.php never had this exposure because it appends to a list; this one is a
+ *     list now for the same reason.
  *
  * ONE IMAGE PER ROLE IS ALL THERE CAN BE, so a flat walk of the roles is complete
  * rather than a shortcut. `background.image` is declared `single_valued`, which
@@ -2547,7 +2620,7 @@ function pp_check_udc_emit_drops(?int $post_id = null, ?array $composition = nul
  * this walk has to widen with it or the advisory goes quietly incomplete while the
  * emitter keeps dropping declarations.
  *
- * @return array<string,int>
+ * @return array<int,array{role:string,id:int}>
  */
 function _pp_udc_dangling_background_images(array $udc): array {
     $out = [];
@@ -2563,7 +2636,7 @@ function _pp_udc_dangling_background_images(array $udc): array {
             continue;
         }
         if (pp_udc_background_image_url($id) === null) {
-            $out['role "' . (string) $role . '"'] = (int) $id;
+            $out[] = ['role' => (string) $role, 'id' => (int) $id];
         }
     }
     return $out;
