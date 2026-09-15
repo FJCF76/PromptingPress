@@ -91,10 +91,16 @@ authored tier — which is unlayered.
 
 Unlayered beats a layer in EVERY state, not only at rest. So a colour an author sets at
 REST also outranks this stylesheet's `:hover` and current-page rules, which are in
-`pp-v1`. Measured in Chromium: authoring `nav.link.typography.color` alone takes the link
-hover, the logo hover and the current-page accent all to the authored colour. The logo
-case is the worst — its hover rule sets colour and nothing else, so hovering it then does
-nothing at all.
+`pp-v1`.
+
+Each role loses its OWN hover: authoring `nav.logo`'s colour erases the logo's accent
+hover, authoring `nav.toggle`'s erases the toggle's, and so on. `nav.link` loses two,
+because the current-page accent lives on a DIFFERENT role (`link-current`) that the
+author did not set. Measured in Chromium with `link`, `logo` and `toggle` authored at
+rest and no state maps: link hover `rgb(49,87,244)` → `rgb(10,125,50)`, logo hover the
+same, current-page link the same. The logo case is the worst, because its hover rule sets
+colour and nothing else — there is no surviving underline, so hovering it does nothing
+visible at all.
 
 ```
 author sets link colour at REST        (unlayered, [0,2,3])   ← wins

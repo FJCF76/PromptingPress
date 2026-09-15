@@ -165,11 +165,22 @@ defaults, so a value you set at REST outranks the theme stylesheet in EVERY stat
 including the hover and current-page treatments that stylesheet provides. Setting
 `nav.link.typography.color` on its own flattens the accent hover AND the current-page
 accent onto your one colour; setting `nav.logo` or `nav.toggle` colour on its own leaves
-those controls with no hover feedback at all. The header example above does this
-correctly: every INTERACTIVE role it colours — `logo`, `toggle`, `link` — carries a
-`":hover"`, and `link` is accompanied by `link-current`. Copy that shape. (The footer's
-`blurb`, `heading` and `copyright` need no `":hover"`: they are static text with no
-built-in hover treatment to cancel. The rule is about roles the visitor can point at.) (`link-current` reaches every current item by itself —
+those controls with no hover feedback at all.
+
+**The rule is per-role, and it applies to the roles that HAVE a built-in hover.** Each
+role loses its own: colour `logo` at rest and the logo's hover goes, colour `toggle` and
+the toggle's goes. `link` loses two, because the current-page accent lives on a separate
+role you did not set — which is why `link` is the one that also needs `link-current`.
+
+The roles with a built-in hover to preserve are, on the header: `logo`, `toggle`, `link`.
+On the footer: `link`, `address-link`, `social-link` — the same exposure, same fix.
+
+Roles with no hover treatment need no `":hover"`: the footer's `blurb`, `heading`,
+`copyright` and `note` are static text, and `link-current` deliberately holds its colour
+under the pointer rather than flickering to the hover colour — so neither example below
+gives it one, and that is correct rather than an omission.
+
+Both examples above do this correctly. Copy that shape. (`link-current` reaches every current item by itself —
 WordPress adds `current-menu-item` to everything it marks current, and only ever adds
 `current_page_item` or `aria-current="page"` alongside it.)
 
