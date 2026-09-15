@@ -1187,17 +1187,20 @@
    hardcoded muted label colour would both fight the slot and put an unreviewable
    contrast pair on the page.
 
-   Which element carries which signal follows the theme's OWN stacked key/value
-   idiom, `.hero__surface-key` / `.hero__surface-value` above — the same geometry
-   (flex column, gap --space-xs), and there the KEY is the small tracked one while
-   the VALUE carries weight 600. A panel row is the same shape playing the same
-   two roles, so it splits the same way rather than inventing a second convention.
+   Which element carries which signal follows the stacked key/value idiom the theme
+   used to carry as `.hero__surface-key` / `.hero__surface-value` — the same geometry
+   (flex column, gap --space-xs), the KEY the small tracked one and the VALUE the one
+   at weight 600. THOSE TWO RULES ARE GONE (#986): they were hero helper classes that
+   styled markup an author hand-wrote, which the v2 structural-CSS boundary has no
+   place for. The idiom they established is kept here deliberately, because a panel row
+   is the same shape playing the same two roles and inventing a second convention for
+   it would be worse than outliving the rules that set the first.
    Two deliberate divergences from that idiom, both forced: no `color:
    var(--color-muted)` (see the slot/dark-panel note above), and no
    `text-transform: uppercase` (a panel label is authored free text and is
-   routinely a proper noun — "WordPress", "PHP" — which uppercasing mangles;
-   .hero__surface-key's 0.08em tracking is calibrated for uppercase, so the label
-   keeps `.section__eyebrow`'s gentler 0.04em instead).
+   routinely a proper noun — "WordPress", "PHP" — which uppercasing mangles; the
+   retired key rule's 0.08em tracking was calibrated for uppercase, so the label keeps
+   `.section__eyebrow`'s gentler 0.04em instead).
 
    The SIZE step carries the distinction; the WEIGHT is a bonus, not the proof.
    The theme ships no webfont (--font-body is `system-ui, sans-serif`), so which
@@ -4371,15 +4374,18 @@ main > .grid .grid__item-link::after {
    The global --btn-* tier is deliberately NOT neutralised. A site-wide button token is
    site-wide by definition: an author-written .btn SHOULD follow a --btn-bg retheme exactly as
    the bare .btn primitive and every composed button do. What must not reach it is the
-   PER-INSTANCE styling of the band that happens to contain it. Nor are the band-level accent
-   slots (--hero-accent / --cta-accent / --hero-heading-color) neutralised: they colour every accented
-   element in the band by design, and a nested button is one of those elements. Concretely and
-   REACHABLY: `.hero .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary)` is [0,5,0],
-   which outranks the premium winner at [0,4,1], so on a hero with --hero-accent set an
-   author-written .btn in `proof` takes the accent as its ring (and its hover ring from the
-   [0,6,0] twin). That is the band accent doing its job — the same treatment every other
-   accented element in the band gets — and it is pinned as intended behaviour in css-lint's
-   INTENTIONALLY_REACHING list and in the e2e band-accent case. The cta family has the same
+   PER-INSTANCE styling of the band that happens to contain it. Nor is the band-level accent
+   slot (--cta-accent) neutralised: it colours every accented
+   element in the band by design, and a nested button is one of those elements.
+
+   HERO USED TO BE THIS PARAGRAPH'S WORKED EXAMPLE, and it no longer can be (#986).
+   `.hero .btn:not(...)` at [0,5,0] outranking the premium winner was the illustration;
+   hero is a v2 component now, declares no slots, and that rule is gone. The mechanism
+   it illustrated is unchanged for the components that still have slots, and the reach
+   question has a different answer on a v2 band anyway: an author-written .btn inside
+   hero's `proof` sits inside the band's `proof` ROLE, so it takes whatever that role
+   declares, and an authored role value beats this whole stylesheet outright — the sheet
+   is in `@layer pp-v1` and authored band blocks are unlayered. The cta family has the same
    shape one tier down (the border chains fall past the neutralised --cta-button-border to
    --cta-accent), though it is unreachable today: a .cta has no prop that can carry a nested
    .btn.

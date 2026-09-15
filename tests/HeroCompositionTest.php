@@ -3,6 +3,24 @@
  * tests/HeroCompositionTest.php — PHPUnit tests for hero composition props
  *
  * Covers: split_ratio, vertical_align, proof slot.
+ *
+ * RETIRED HERE BY #986, recorded so this file carries the same audit trail the e2e and
+ * css-lint suites do (BUILD-SPEC §5). Six blocks went; none had a surviving mechanism:
+ *
+ *   - The cta2 markup contract (testFilledCta2CarriesSecondaryClassAndNoVariantClass,
+ *     testDefaultCta2KeepsOutlineVariantClass) asserted the `btn--outline` /
+ *     `btn--secondary` modifier classes. `button2_variant` is gone, so hero.php emits
+ *     no modifier at all. REPLACED BY the role-selector lint in tests/UdcEngineTest.php,
+ *     which checks every hero role's selector against a rendered fixture, and by
+ *     `cta-secondary`'s own role defaults, which is where the outline look lives now.
+ *   - The three #514/#526 fill-slot render pins asserted `--hero-button-*` reaching the
+ *     root as inline custom properties. Hero emits no inline style attribute at all now.
+ *     REPLACED BY testHeroCtaDesignIsAuthoredThroughRolesAndStyleComponentRefusesIt in
+ *     tests/ActionsTest.php.
+ *   - The four `data-pp-width` tests and testSpacingCompactOutputsAttribute asserted
+ *     attributes for props that no longer exist. REPLACED BY `_band` spacing and the
+ *     `content` role's `sizing.max-width`; that no component reads `width`/`spacing` any
+ *     more is pinned by strippedComponentProvider() in tests/ComponentPropsTest.php.
  */
 
 use PHPUnit\Framework\TestCase;

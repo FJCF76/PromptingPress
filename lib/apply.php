@@ -708,10 +708,25 @@ function _pp_derive_font_family_from_url(string $url): string {
  * forbids. Since #965 the derived family decides whether the whole `enqueue_font`
  * call is REFUSED, so it is load-bearing rather than cosmetic.
  *
- * DECODING MATCHES parse_str() DELIBERATELY, key and value alike: it urldecodes
- * both, so `fam%69ly=X` reached the old code as `family`. Anything narrower here
- * would silently change which URLs resolve at all, which is a second behaviour
- * change riding along with the ruled one.
+ * DECODING MATCHES parse_str() FOR FLAT `key=value` PAIRS, key and value alike: it
+ * urldecodes both, so `fam%69ly=X` reached the old code as `family`, and `+` and `%20`
+ * both become a space in either. Anything narrower there would silently change which
+ * URLs resolve at all, which is a second behaviour change riding along with the ruled one.
+ *
+ * IT IS NOT parse_str() IN FULL, and the claim is narrowed to what is true (#986 review).
+ * parse_str() does two further things to KEYS that this loop deliberately does not:
+ *
+ *   - Bracket syntax builds an array. `?family[]=Inter` bound `$parsed['family']` to an
+ *     ARRAY, which the caller then handed to explode() — a TypeError on PHP 8, i.e. a
+ *     fatal reachable from a URL. Here `urldecode('family[]') === 'family'` is false, so
+ *     the key is simply not found and the caller refuses the enqueue. That is a NARROWING
+ *     toward refusal, and it closes a fatal rather than opening anything.
+ *   - `.` and leading spaces in a key are rewritten to `_`. A key that only becomes
+ *     `family` after that rewrite is not found here either.
+ *
+ * Both shapes are absent from every font URL any provider emits, and both fail SAFE.
+ * They are stated rather than implied because "matches parse_str()" read as a promise
+ * that the two agree everywhere, and they do not.
  *
  * @return string The decoded first value, or '' when the key is absent.
  */

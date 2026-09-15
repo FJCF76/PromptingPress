@@ -1,9 +1,16 @@
 <?php
 /**
- * tests/ComponentPropsTest.php — PHPUnit tests for hero spacing and section centered layout
+ * tests/ComponentPropsTest.php — PHPUnit tests for component prop rendering
  *
- * Covers: data-pp-spacing on hero (only component retaining spacing prop),
- *         and section centered layout variant.
+ * Covers: per-component prop -> markup contracts across the component set — section's
+ *         centered layout variant, the shared eyebrow/title_accent mechanisms, the
+ *         responsive `image_id` companion, and the `width`/`spacing` props being
+ *         IGNORED by every component that never declared them.
+ *
+ * The old header described "hero spacing" as this file's subject. Hero was the last
+ * component declaring `spacing` and `width`, and #986 removed both: band padding is
+ * the `_band` role's spacing and the content measure is the `content` role's
+ * `sizing.max-width`. No component declares either prop now.
  */
 
 use PHPUnit\Framework\TestCase;
@@ -416,6 +423,12 @@ class ComponentPropsTest extends TestCase
             'stats'   => ['stats', ['items' => [['number' => '10', 'label' => 'X']]]],
             'logos'   => ['logos', ['items' => [['image_url' => 'logo.png']]]],
             'embed'   => ['embed', ['content' => '<p>Embed</p>']],
+            // HERO JOINS THE LIST (#986), and it is the newest regression here: it was
+            // the LAST component declaring `width` and `spacing`, so until the v2
+            // rebuild it was the one component this provider had to leave out. Pinning
+            // it makes "no component reads these props" a tested statement rather than
+            // an assumed one.
+            'hero'    => ['hero', ['title' => 'Test']],
         ];
     }
 

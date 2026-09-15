@@ -2364,67 +2364,22 @@ describe('CSS lint: premium layer honors padding/type/width slots (#302)', () =>
         });
     });
 
-    // An explicit data-pp-spacing override (hero only) must win BOTH edges at EVERY
-    // breakpoint (#434). The desktop restatement `main > [data-pp-component]
-    // [data-pp-spacing="…"]` [0,2,1] out-orders the desktop adjacent rule; before #434
-    // the mobile @media block had no such restatement, so the generic mobile adjacent
-    // rule [0,2,1] shaved a spaced hero's top edge alone (top=band rhythm / bottom=
-    // spacing value) when the hero followed another band. The fix mirrors the desktop
-    // restatement into the mobile block.
+    // THE TWO #434 RESTATEMENT PINS ARE RETIRED, AND SO ARE THEIR HELPERS (#986).
     //
-    // This pin is breakpoint- AND source-order-aware, not just "a rule with this selector
-    // exists somewhere" (which two duplicated DESKTOP bodies would satisfy). It asserts,
-    // per breakpoint media block: (1) the restatement lives INSIDE that block, (2) at
-    // mobile it appears AFTER the generic adjacent rule so source order wins both edges,
-    // (3) both edges resolve to the SAME token (symmetry), and (4) the token is the tier
-    // intended for that breakpoint. Tier is asserted by token NAME, not px value, so a
-    // retune of the --space-* scale in base.css doesn't churn this pin — only a deliberate
-    // mis-mapping (e.g. mobile spacious regressing to the desktop --space-3xl tier) fails.
-    function mediaBlocks(css, queryRe) {
-        const stripped = stripComments(css);
-        const opener = new RegExp('@media\\s*\\(' + queryRe + '\\)\\s*\\{', 'g');
-        const blocks = [];
-        let m;
-        while ((m = opener.exec(stripped)) !== null) {
-            let depth = 1;
-            let i = opener.lastIndex;
-            while (i < stripped.length && depth > 0) {
-                if (stripped[i] === '{') depth++;
-                else if (stripped[i] === '}') depth--;
-                i++;
-            }
-            blocks.push(stripped.slice(opener.lastIndex, i - 1));
-        }
-        return blocks;
-    }
-    // Returns the body of the restatement rule for `spacing` inside `block`, or null.
-    function spacingRuleBody(block, spacing) {
-        const re = new RegExp(
-            '(?:^|[}{;])\\s*main\\s*>\\s*\\.hero\\[data-pp-spacing="' +
-            spacing + '"\\]\\s*\\{([^}]*)\\}'
-        );
-        const m = re.exec(block);
-        return m ? m[1] : null;
-    }
-    function assertSymmetricTier(body, selectorLabel, expectedToken) {
-        expect(body, `${selectorLabel} restatement missing`).not.toBeNull();
-        const top = body.match(/padding-top\s*:\s*var\(\s*(--space-[a-z0-9]+)\s*\)/);
-        const bot = body.match(/padding-bottom\s*:\s*var\(\s*(--space-[a-z0-9]+)\s*\)/);
-        expect(top, `${selectorLabel} must set padding-top to a --space-* token`).not.toBeNull();
-        expect(bot, `${selectorLabel} must set padding-bottom to a --space-* token`).not.toBeNull();
-        // Symmetry: both edges resolve to the same scale step (never shaved).
-        expect(top[1], `${selectorLabel} not symmetric: top=${top[1]} bottom=${bot[1]}`).toBe(bot[1]);
-        // Tier: the token intended for this breakpoint.
-        expect(top[1], `${selectorLabel} on wrong tier`).toBe(expectedToken);
-    }
-
-    // THE TWO #434 RESTATEMENT PINS ARE RETIRED (#986). Both refereed
-    // `.hero[data-pp-spacing="compact"|"spacious"]` against the adjacent rule, at each
-    // breakpoint. `spacing` was a bundle of two padding values, which the UDC expresses
-    // directly, so the prop and its data attribute are gone and there is no restatement
-    // left to order. The symmetry they protected — a spaced band is never shaved on one
-    // edge — is now structural: an author sets `_band` padding-top and padding-bottom
-    // themselves, and no rule in this stylesheet touches hero's padding at all.
+    // What they pinned: an explicit `data-pp-spacing` override (hero only) had to win
+    // BOTH edges at EVERY breakpoint, because before #434 the mobile @media block had
+    // no restatement and the generic mobile adjacent rule shaved a spaced hero's top
+    // edge alone. `spacing` was a bundle of two padding values, which the UDC expresses
+    // directly, so the prop, its data attribute and the rules are all gone.
+    //
+    // Three helpers went with them — mediaBlocks(), spacingRuleBody() and
+    // assertSymmetricTier() — rather than being left with no callers. The last targeted
+    // `main > .hero[data-pp-spacing="…"]`, a selector nothing can emit now, so keeping
+    // it would have preserved the shape of a test without its subject.
+    //
+    // The symmetry they protected — a spaced band is never shaved on one edge — is now
+    // structural: an author sets `_band` padding-top and padding-bottom themselves, and
+    // no rule in this stylesheet touches hero's padding at all.
 });
 
 /**
@@ -5579,10 +5534,11 @@ describe('CSS lint: per-instance button slots are neutralised on non-owned butto
  * CSS lint: the per-instance RING slots for the hero primary and the section panel CTA (#584).
  *
  * Two filled surfaces reached their ring only through a knob that also moves something else:
- * the hero primary through the BAND accent (--hero-accent repaints every accented element in
- * the band) or the site-wide --btn-border-color; the panel CTA through --btn-border-color
- * alone, because it is the one filled surface that had NEITHER of the two tiers its siblings
- * carry above the global knob. #584 gives each its own ring slot at the HEAD of the chain,
+ * the hero primary through the BAND accent or the site-wide --btn-border-color; the panel CTA
+ * through --btn-border-color alone, because it is the one filled surface that had NEITHER of
+ * the two tiers its siblings carry above the global knob. Only the panel CTA is still on this
+ * surface — hero left the slot system in #986 — so this block pins the panel CTA and keeps
+ * the hero half only as the history that explains the shape. #584 gives each its own ring slot at the HEAD of the chain,
  * in exactly the position --cta-button-border holds on the cta primary, plus the hover twin
  * (P6: a control added without a state twin is a future flip bug).
  *
@@ -5591,7 +5547,9 @@ describe('CSS lint: per-instance button slots are neutralised on non-owned butto
  *   1. HEAD POSITION. A slot anywhere below the band accent or the global knob is a slot the
  *      site-wide retheme defeats — the #564 defect, one tier down.
  *   2. POSITIONAL TWIN. The hover chain is the rest chain with every knob swapped for its
- *      hover equivalent. A rest-only ring dissolves under the pointer (#535).
+ *      hover equivalent. A rest-only ring dissolves under the pointer (#535). Asserted for
+ *      the panel CTA; hero's half went with its rows (#986), since hero declares no ring
+ *      slots and its CTA ring is now its `cta` / `cta-secondary` role's border.
  *   3. THE PANEL CTA IS ROUTED IN BOTH PLACES. Its section-block keystone is [0,4,0] and the
  *      shared premium winner is [0,4,1] (hover: [0,5,0] vs [0,5,1]), so the keystone NEVER
  *      decides its border. Route only there and the slot is dead; route only in the premium
@@ -5602,7 +5560,7 @@ describe('CSS lint: per-instance button slots are neutralised on non-owned butto
  * Media-aware (parseRules), so a ring wrapped in a never-matching @media reads as red, and
  * uniqueness is asserted rather than assumed (the #542 idiom).
  */
-describe('CSS lint: per-instance ring slots for the hero primary and panel CTA (#584)', () => {
+describe('CSS lint: per-instance ring slots for the panel CTA (#584)', () => {
     const ringRules = parseRules();
     const NOT3 = ':not(.btn--outline):not(.btn--ghost):not(.btn--secondary)';
 
@@ -5662,6 +5620,36 @@ describe('CSS lint: per-instance ring slots for the hero primary and panel CTA (
                 '--color-accent-hover'],
         },
     ];
+
+    // PROPERTY 2, RE-BASED RATHER THAN RETIRED (#986). The positional-twin pin used to
+    // iterate a pair list covering hero AND the panel CTA; removing hero's pair took the
+    // panel CTA's comparison with it, leaving the docblock promising a property nothing
+    // asserted. The per-row chain checks below verify each chain in isolation and cannot
+    // see the RELATIONSHIP between them, which is the whole point of the property: the
+    // hover chain must be the rest chain with every knob swapped for its hover
+    // equivalent, or a ring dissolves under the pointer (#535).
+    test('panel CTA: the hover ring chain is the positional twin of the rest chain', () => {
+        const rest = borderChain(lastTopLevel('main .btn' + NOT3 + ''));
+        const hover = borderChain(lastTopLevel('main .btn' + NOT3 + ':hover'));
+        // The rest chain ends in a FILL fallback the hover chain does not carry, so
+        // compare the knob positions the two share, in order.
+        const swap = (name) =>
+            name
+                .replace('--section-panel-cta-border', '--section-panel-cta-hover-border')
+                .replace('--cta-button-border', '--cta-button-hover-border')
+                .replace('--cta-accent', '--cta-accent-hover')
+                .replace('--btn-border-color', '--btn-hover-border-color');
+        // Compare only the positions whose rest knob HAS a hover twin. Past those the
+        // two chains legitimately diverge: the rest chain carries a border-follows-fill
+        // link (`--section-panel-cta-bg`) that hover has no equivalent for, then each
+        // ends in its own literal. Comparing those positions would assert a symmetry
+        // the design deliberately does not have.
+        const twinned = rest.filter((knob) => swap(knob) !== knob);
+        expect(twinned.length, 'the rest chain must carry the four knob tiers').toBe(4);
+        twinned.forEach((knob, i) => {
+            expect(hover[i], `hover position ${i} must twin rest position ${i}`).toBe(swap(knob));
+        });
+    });
 
     RINGS.forEach(({ what, body, slot, chain }) => {
         test(`${what}: ${slot} LEADS the border chain`, () => {

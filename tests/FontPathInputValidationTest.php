@@ -1005,4 +1005,44 @@ class FontPathInputValidationTest extends TestCase
 
         return $written;
     }
+
+    // ── The two parse_str() shapes _pp_first_query_value() does NOT honour (#986) ──
+    //
+    // Pinned rather than asserted in prose. Both fail SAFE — the key is not found, so
+    // the deriver returns '' and the caller refuses the enqueue — and the first one
+    // closes a URL-reachable fatal: under parse_str() `family[]=` bound the key to an
+    // ARRAY, which the deriver then handed to explode(), a TypeError on PHP 8.
+
+    public function testBracketArrayFamilyIsNotHonouredAndDoesNotFatal(): void
+    {
+        $this->assertSame(
+            '',
+            _pp_derive_font_family_from_url('https://fonts.googleapis.com/css2?family[]=Inter&display=swap'),
+            'bracket-array syntax must not resolve a family — and must not reach explode() as an array'
+        );
+    }
+
+    public function testADottedKeyIsNotRewrittenIntoFamily(): void
+    {
+        // parse_str() rewrites `.` in a key to `_`; nothing here does, so a key that
+        // would only BECOME `family` under that rewrite stays unfound.
+        $this->assertSame(
+            '',
+            _pp_derive_font_family_from_url('https://fonts.googleapis.com/css2?fam.ily=Inter')
+        );
+    }
+
+    public function testTheFirstFamilyStillWinsAcrossBothMultiFamilySyntaxes(): void
+    {
+        // The ruled behaviour (#968), pinned beside its boundaries so the narrowing
+        // above cannot be mistaken for a change to it.
+        $this->assertSame(
+            'Inter',
+            _pp_derive_font_family_from_url('https://fonts.googleapis.com/css2?family=Inter&family=Playfair+Display')
+        );
+        $this->assertSame(
+            'Inter',
+            _pp_derive_font_family_from_url('https://fonts.googleapis.com/css?family=Inter|Playfair+Display')
+        );
+    }
 }

@@ -1301,19 +1301,13 @@ final class UdcEngineTest extends TestCase
             // is optional and renders only when its content prop is set, so a
             // sparse fixture would silently skip most of the role sweep and this
             // lint would pass while declaring selectors nobody had checked.
-            // HERO'S FIXTURE MUST TURN EVERYTHING ON, like the chrome ones below: its
-            // `media` and `surface` roles only render on a split layout, and `surface`
-            // wins that column over the image when `proof` is set — so two fixtures
-            // would be needed to reach both. `proof` is omitted here and the image is
-            // provided, which reaches `media`; `surface` is covered by the split+proof
-            // case in HeroCompositionTest.
-            // HERO NEEDS TWO FIXTURES, and it is the first component that does.
+            // HERO NEEDS THREE FIXTURES, and it is the first component that does.
             // Three of its roles are mutually exclusive in one render: `proof` only
             // renders on a NON-split layout, while `surface` is what the same `proof`
             // markup becomes on split, and `media` is the split column `surface` takes
             // over when proof is present. One prop set can therefore never reach all
-            // thirteen. The list form below renders each fixture and checks every role
-            // against their union — which keeps the lint's promise (no role goes
+            // thirteen, and two cannot either. The list form below renders each of the
+            // three and checks every role against their union — which keeps the lint's promise (no role goes
             // unchecked) instead of quietly dropping the three it cannot reach.
             'hero' => [
                 [
