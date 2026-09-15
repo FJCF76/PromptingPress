@@ -3813,6 +3813,13 @@ const PP_SITE_UDC_OPTION = 'pp_site_udc';
  * is not there and the next writer clears a CAS it should have failed. One row,
  * one update_option(), one atomic swap of content AND baseline together.
  *
+ * SINCE #1016 THE ROW CARRIES TWO BASELINES, this one for chrome and
+ * PP_SITE_PRESETS_VERSION_KEY for the preset store. The argument above is
+ * unchanged and is in fact why both live here: two counters in ONE row still swap
+ * atomically with the content they certify, where two ROWS could not. What the
+ * second counter buys is that neither tenant's write makes the other's baseline
+ * stale.
+ *
  * It lives in the engine-owned `_`-prefixed namespace alongside `_tokens`,
  * `_band` and `_preset`, so it can never collide with a chrome component name
  * (those are registry-controlled and carry no underscore).
@@ -3919,9 +3926,11 @@ function pp_udc_is_chrome(string $name): bool {
 /**
  * The stored chrome container, read FAIL-CLOSED.
  *
- * Returns `['version' => int, 'chrome' => [name => map]]`. A row that is absent,
- * unparseable, or not an object resolves to version 0 and NO chrome styling —
- * never to a partial map, and never to a fatal.
+ * Returns the five-key shape pp_udc_parse_site_map() documents — `version`,
+ * `chrome`, `corrupt`, `presets`, `presets_version`, plus `presets_unreadable` —
+ * on every answer. A row that is absent, unparseable, or not an object resolves to
+ * version 0 and NO chrome styling and NO presets — never to a partial map, and
+ * never to a fatal.
  *
  * Both halves of that are invariants rather than taste. I9: a failed read is never
  * mapped to a valid answer, so a corrupt row must not read as "the author styled
@@ -3976,8 +3985,11 @@ function pp_udc_site_map(): array {
  * unreadable one.
  *
  * Returns `['version' => int, 'chrome' => [name => map], 'corrupt' => bool,
- * 'presets' => [name => preset], 'presets_version' => int]` — the same five keys
- * on every return, healthy or not.
+ * 'presets' => [name => preset], 'presets_version' => int,
+ * 'presets_unreadable' => [name, …]]` — the same six keys on every return, healthy
+ * or not. `presets_unreadable` names the members this parser had to drop, because
+ * the WRITER rebuilds the subtree from `presets` and would otherwise delete them as
+ * a side effect of an unrelated save.
  *
  * ABSENT AND CORRUPT ARE DIFFERENT ANSWERS, and conflating them is a data-loss bug
  * rather than a tidiness one. Both yield NO chrome styling — that part is the same
