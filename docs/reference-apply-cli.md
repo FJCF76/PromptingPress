@@ -916,6 +916,8 @@ wp pp schema hero
 | `description` | string\|null | `null` when the schema declares none |
 | `composable` | bool | False for `nav` and `footer` |
 | `content_requirement` | object | **Present only when declared.** Today only `section` (#488) |
+| `retired_props` | object | **Present only when declared.** A map of `prop name` => the v2 surface that replaced it, plus a `_note` describing the block for a human reading the schema. Drives the `retired_prop` refusal (#1007). Today `hero` (4 keys) and `testimonials` (2) |
+| `refuse_props_when` | array | **Present only when declared.** One object per rule: `when` (a list of `applies_when` clauses), `props` (the prop names refused when every clause is met), and `message` (the route the refusal names). Drives the `inert_prop` refusal (#1006). Today `hero` (1 rule) |
 | `malformed` | bool | **Present only when** `schema.json` could not be decoded, so an empty report is never mistaken for an empty contract |
 | `props` | array | One object per declared prop, in declaration order |
 | `style_slots` | array | One object per declared style slot, in declaration order |

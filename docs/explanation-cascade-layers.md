@@ -217,4 +217,6 @@ above a primitive.
 - Issues #992 (the chrome state-erasure defect) and #994 (retiring the chrome CSS block for
   nav and footer together, which fixes it).
 - `docs/v2/BUILD-SPEC-sprint0.md` §3.4 — the cascade contract.
+- `docs/explanation-validation-scope.md` — the sibling design note on what a write is
+  allowed to refuse on behalf of, and the two schema keys every component rebuild declares.
 - Issue #989 — the remaining v1 rules, now a verification list rather than a surgery list.
