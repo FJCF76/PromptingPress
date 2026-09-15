@@ -458,6 +458,34 @@ final class UdcCustomPresetsTest extends TestCase
     }
 
     /**
+     * A hostile page title does not ride the refusal into a terminal.
+     *
+     * The locator is built from stored site data — a title an author typed — and
+     * lands in an operator-facing message. Cleaned and bounded at the sink, the
+     * same treatment the emit-drop ledger gives its own stored fragments.
+     */
+    public function testAHostilePageTitleIsCleanedOutOfTheRefusal(): void
+    {
+        $this->assertTrue($this->save('brand-type', $this->brandType())['ok']);
+
+        $id = pp_create_page("Evil\x1b[31m\nTitle", 'draft');
+        $this->assertTrue(pp_execute_action('update_composition', [
+            'post_id'     => $id,
+            'composition' => [[
+                'component' => 'testimonials',
+                'props'     => ['items' => [['quote' => 'Great.', 'author' => 'Ada']]],
+                'udc'       => ['list' => [PP_UDC_PRESET_KEY => 'brand-type']],
+            ]],
+        ])['ok']);
+
+        $result = pp_execute_action('delete_preset', ['name' => 'brand-type']);
+
+        $this->assertFalse($result['ok']);
+        $this->assertStringNotContainsString("\x1b", $result['error'], 'no escape byte reaches the terminal');
+        $this->assertStringNotContainsString("\n", $result['error'], 'no newline breaks the message up');
+    }
+
+    /**
      * FAIL CLOSED ON A PAGE NOBODY CAN READ. "No references found" and "I could not
      * look" are different answers and only one of them makes a delete safe (I9).
      */
@@ -491,6 +519,165 @@ final class UdcCustomPresetsTest extends TestCase
             $result,
             'a preview that says "fine" and a write that refuses disagree'
         );
+    }
+
+    // ── 5b. What the adversarial pass found ─────────────────────────────────
+
+    /**
+     * A SHADOWED ROW CAN BE DELETED, which is the only way out of that state.
+     *
+     * The readiness check tells an operator to save their version under another
+     * name and then delete the shadowed row. A refusal keyed on the NAME made that
+     * impossible: the row would sit in the store forever, spending the count and
+     * byte budget and keeping the warning lit. A stated route back that does not
+     * work is worse than no route.
+     */
+    public function testAShadowedCustomRowCanBeDeletedEvenThoughTheNameIsAThemePreset(): void
+    {
+        // Seeded raw, because the save verb refuses the name — which is exactly
+        // why this state can only arrive from a theme upgrade.
+        $GLOBALS['_pp_test_store']['options'][PP_SITE_UDC_OPTION] = (string) wp_json_encode([
+            PP_SITE_UDC_VERSION_KEY     => 1,
+            PP_SITE_PRESETS_VERSION_KEY => 1,
+            PP_SITE_PRESETS_KEY         => [
+                'button' => ['grain' => 'role', 'udc' => ['typography' => ['size' => '19px']]],
+            ],
+        ]);
+        $this->assertSame(['button'], pp_udc_shadowed_presets());
+
+        $result = pp_execute_action('delete_preset', ['name' => 'button']);
+
+        $this->assertTrue($result['ok'], $result['error'] ?? '');
+        $this->assertSame([], pp_udc_shadowed_presets(), 'the shadow is gone');
+        $this->assertIsArray(pp_udc_resolve_preset('button'), 'the THEME preset is untouched');
+        $this->assertSame([], pp_udc_custom_presets());
+    }
+
+    /** A theme preset with no stored row of that name is still undeletable. */
+    public function testAnUnshadowedThemePresetIsStillUndeletable(): void
+    {
+        $result = pp_execute_action('delete_preset', ['name' => 'link']);
+
+        $this->assertFalse($result['ok']);
+        $this->assertStringContainsString('shipped by the theme', $result['error']);
+    }
+
+    /**
+     * THE BASELINE DOES NOT GO BACKWARDS when the last preset is deleted.
+     *
+     * Both keys used to be written only when the map was non-empty, so create then
+     * delete left the counter absent, which reads as 0 — and a caller still holding
+     * the baseline it earned before either write would pass the compare and
+     * overwrite whatever happened in between. A counter that can rewind is not a
+     * counter.
+     */
+    public function testDeletingTheLastPresetDoesNotRewindTheBaseline(): void
+    {
+        $this->assertTrue($this->save('brand-type', $this->brandType())['ok']);
+        $this->assertSame(1, pp_udc_site_map()['presets_version']);
+
+        $this->assertTrue(pp_execute_action('delete_preset', ['name' => 'brand-type'])['ok']);
+
+        $this->assertSame([], pp_udc_custom_presets(), 'the store is empty');
+        $this->assertSame(2, pp_udc_site_map()['presets_version'], 'but the baseline moved forward');
+
+        $stale = $this->save('other', $this->brandType(), 'role', ['expected_version' => 0]);
+        $this->assertFalse($stale['ok'], 'a baseline from before both writes must not pass');
+        $this->assertSame('site_option_conflict', $stale['error_code']);
+    }
+
+    /**
+     * A PRESET ROW NOBODY CAN PARSE STOPS THE WRITE instead of being dropped by it.
+     *
+     * The writer rebuilds `_presets` from the PARSED map and the parser fails closed
+     * per member, so a malformed row would vanish as a side effect of saving some
+     * unrelated preset — silent data loss on an operation that never mentioned it.
+     */
+    public function testAnUnreadablePresetRowRefusesTheNextPresetWrite(): void
+    {
+        $GLOBALS['_pp_test_store']['options'][PP_SITE_UDC_OPTION] = (string) wp_json_encode([
+            PP_SITE_UDC_VERSION_KEY     => 1,
+            PP_SITE_PRESETS_VERSION_KEY => 1,
+            PP_SITE_PRESETS_KEY         => [
+                'good'   => ['grain' => 'role', 'udc' => ['typography' => ['size' => '19px']]],
+                'broken' => ['grain' => 'role'],
+            ],
+        ]);
+        $this->assertSame(['broken'], pp_udc_site_map()['presets_unreadable']);
+
+        $result = $this->save('unrelated', $this->brandType());
+
+        $this->assertFalse($result['ok'], 'an unrelated save must not silently drop the bad row');
+        $this->assertSame('site_option_corrupt', $result['error_code']);
+        $this->assertStringContainsString('broken', $result['error']);
+        $this->assertStringContainsString('good', json_encode(array_keys(pp_udc_custom_presets())));
+    }
+
+    /**
+     * A PRESET RESOLVES SITE TOKENS ONLY, at emit as at its definition.
+     *
+     * The definition gate validates with no band tokens, so a preset naming a
+     * band-local token is refused. If the emitter handed such a preset the BAND's
+     * tokens, a row written raw could be refused by every gate and paint anyway on
+     * whichever band happens to mint that name — the write/render disagreement I29
+     * forbids. Same scope on both sides: it resolves everywhere or nowhere.
+     */
+    public function testAPresetDoesNotResolveABandLocalTokenAtEmitEither(): void
+    {
+        $GLOBALS['_pp_test_store']['options'][PP_SITE_UDC_OPTION] = (string) wp_json_encode([
+            PP_SITE_UDC_VERSION_KEY     => 1,
+            PP_SITE_PRESETS_VERSION_KEY => 1,
+            PP_SITE_PRESETS_KEY         => [
+                'sneaky' => ['grain' => 'role', 'udc' => ['typography' => ['size' => '@band-only']]],
+            ],
+        ]);
+
+        $emitted = $this->emittedFor([
+            '_tokens' => ['band-only' => '99px'],
+            'list'    => [PP_UDC_PRESET_KEY => 'sneaky'],
+        ]);
+
+        $this->assertArrayNotHasKey(
+            'font-size',
+            $emitted,
+            'a band token must not rescue a reference the definition gate refuses'
+        );
+
+        // THE POSITIVE CONTROL, so this proves SCOPING rather than "a preset never
+        // resolves a reference at all" — which would pass the assertion above while
+        // breaking every shipped preset.
+        $GLOBALS['_pp_test_store']['options'][PP_SITE_UDC_OPTION] = (string) wp_json_encode([
+            PP_SITE_UDC_VERSION_KEY     => 1,
+            PP_SITE_PRESETS_VERSION_KEY => 1,
+            PP_SITE_PRESETS_KEY         => [
+                'sitely' => ['grain' => 'role', 'udc' => ['typography' => ['color' => '@color-accent']]],
+            ],
+        ]);
+        $emitted = $this->emittedFor(['list' => [PP_UDC_PRESET_KEY => 'sitely']]);
+        $this->assertArrayHasKey('color', $emitted, 'a SITE token still resolves inside a preset');
+    }
+
+    /**
+     * The properties one compile emitted, flattened across blocks.
+     *
+     * @return array<string, string>
+     */
+    private function emittedFor(array $udc): array
+    {
+        $compiled = pp_udc_compile_band([
+            'component' => 'testimonials',
+            'id'        => 'pp-a1b2c3d4',
+            'props'     => ['items' => [['quote' => 'Great.', 'author' => 'Ada']]],
+            'udc'       => $udc,
+        ], 'authored');
+
+        $out = [];
+        foreach ($compiled['blocks'] as $block) {
+            foreach ($block['decls'] as $property => $entry) {
+                $out[(string) $property] = (string) $entry['css'];
+            }
+        }
+        return $out;
     }
 
     // ── 6. The T2 intersect, on a CUSTOM preset, band AND chrome ────────────

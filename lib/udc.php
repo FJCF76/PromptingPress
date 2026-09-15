@@ -1035,10 +1035,20 @@ function pp_udc_validate_preset_definition(string $name, $preset): ?WP_Error {
 function pp_udc_preset_references(string $name): array {
     $out = ['references' => [], 'unreadable' => []];
 
+    // EVERY FRAGMENT OF A LOCATOR IS CLEANED AND BOUNDED, for the reason the drop
+    // ledger states one function over: these strings are built from STORED site
+    // data — a page title an author typed, a role key a raw `wp option update`
+    // wrote — and they ride an operator-facing refusal. A title carrying an escape
+    // sequence or five thousand characters would otherwise reach a terminal
+    // through a delete that was refused for an unrelated reason.
     $site = pp_udc_site_map();
     foreach (($site['chrome'] ?? []) as $chrome_name => $map) {
         foreach (_pp_udc_map_references_preset(is_array($map) ? $map : [], $name) as $where) {
-            $out['references'][] = sprintf('site chrome "%s" %s', $chrome_name, $where);
+            $out['references'][] = sprintf(
+                'site chrome "%s" %s',
+                _pp_udc_reflect((string) $chrome_name),
+                $where
+            );
         }
     }
 
@@ -1063,7 +1073,11 @@ function pp_udc_preset_references(string $name): array {
             // UNREADABLE IS NOT EMPTY. A page whose bytes nobody could decode may
             // hold the reference, and "I could not look" must never be reported as
             // "there is nothing there" (invariant I9) — the caller refuses on it.
-            $out['unreadable'][] = sprintf('page %d ("%s")', $id, (string) ($page['title'] ?? ''));
+            $out['unreadable'][] = sprintf(
+                'page %d ("%s")',
+                $id,
+                _pp_udc_reflect((string) ($page['title'] ?? ''))
+            );
             continue;
         }
         foreach ((array) ($result['composition'] ?? []) as $i => $item) {
@@ -1075,8 +1089,8 @@ function pp_udc_preset_references(string $name): array {
                 $out['references'][] = sprintf(
                     'page %d ("%s") band %s %s',
                     $id,
-                    (string) ($page['title'] ?? ''),
-                    $band,
+                    _pp_udc_reflect((string) ($page['title'] ?? '')),
+                    _pp_udc_reflect($band),
                     $where
                 );
             }
@@ -1101,11 +1115,15 @@ function _pp_udc_map_references_preset(array $udc, string $name): array {
             continue;
         }
         if (($role_map[PP_UDC_PRESET_KEY] ?? null) === $name) {
-            $found[] = sprintf('role "%s"', (string) $role_name);
+            $found[] = sprintf('role "%s"', _pp_udc_reflect((string) $role_name));
         }
         foreach ($role_map as $group_name => $group_map) {
             if (is_array($group_map) && ($group_map[PP_UDC_PRESET_KEY] ?? null) === $name) {
-                $found[] = sprintf('role "%s" group "%s"', (string) $role_name, (string) $group_name);
+                $found[] = sprintf(
+                    'role "%s" group "%s"',
+                    _pp_udc_reflect((string) $role_name),
+                    _pp_udc_reflect((string) $group_name)
+                );
             }
         }
     }
@@ -2793,14 +2811,27 @@ function pp_udc_compile_band(array $item, string $layer, ?array &$drops = null):
                     _pp_udc_reflect((string) $role_name),
                     _pp_udc_reflect((string) $group_name)
                 );
+                // A PRESET SEES SITE TOKENS ONLY, HERE AS AT ITS DEFINITION (#1016).
+                //
+                // A preset belongs to the site, not to any band, so
+                // pp_udc_validate_preset_definition() validates it with no band
+                // tokens and refuses an `@name` that only some band could resolve.
+                // Handing the BAND's tokens to a preset-sourced value at emit would
+                // undo that: a preset stored by a raw `wp option update` could carry
+                // `@quote-size-d`, be refused by every gate, and paint anyway on any
+                // band that happens to mint that name. The write gate and the
+                // emitter would disagree about the same stored bytes, which is the
+                // disagreement I29 forbids. Same scope on both sides, so a preset
+                // either resolves everywhere or nowhere.
+                $source_tokens = strncmp($source, 'preset:', 7) === 0 ? [] : $band_tokens;
                 foreach ($group_map as $param_name => $value) {
                     if (isset($states[$param_name]) && is_array($value)) {
                         foreach ($value as $state_param => $state_value) {
-                            _pp_udc_place($resolved, (string) $param_name, $params, (string) $state_param, $state_value, $source, $band_tokens, $breakpoints, $referenced, $drops, $where);
+                            _pp_udc_place($resolved, (string) $param_name, $params, (string) $state_param, $state_value, $source, $source_tokens, $breakpoints, $referenced, $drops, $where);
                         }
                         continue;
                     }
-                    _pp_udc_place($resolved, '', $params, (string) $param_name, $value, $source, $band_tokens, $breakpoints, $referenced, $drops, $where);
+                    _pp_udc_place($resolved, '', $params, (string) $param_name, $value, $source, $source_tokens, $breakpoints, $referenced, $drops, $where);
                 }
             }
         }
@@ -3950,11 +3981,12 @@ function pp_udc_parse_site_map(string $raw): array {
     // eventually trip over. Derived once, so a sixth key cannot reintroduce it.
     $empty = static function (bool $corrupt): array {
         return [
-            'version'         => 0,
-            'chrome'          => [],
-            'corrupt'         => $corrupt,
-            'presets'         => [],
-            'presets_version' => 0,
+            'version'            => 0,
+            'chrome'             => [],
+            'corrupt'            => $corrupt,
+            'presets'            => [],
+            'presets_version'    => 0,
+            'presets_unreadable' => [],
         ];
     };
     if (trim($raw) === '') {
@@ -4010,6 +4042,13 @@ function pp_udc_parse_site_map(string $raw): array {
             // string, and a preset named "7" is a name an author can legally pick.
             $name = (string) $name;
             if (!pp_udc_valid_preset_name($name) || !_pp_udc_is_preset_shaped($preset)) {
+                // RECORDED, NOT JUST SKIPPED. Dropping it from the registry is right
+                // — an unusable preset must not reach the compiler. Forgetting that
+                // it existed is not: the WRITER rebuilds `_presets` from this array,
+                // so a silent drop turns "save an unrelated preset" into "delete the
+                // row nobody could parse". The writer refuses instead, and it needs
+                // this list to say which row to look at.
+                $out['presets_unreadable'][] = $name;
                 continue;
             }
             $out['presets'][$name] = $preset;
@@ -4220,9 +4259,18 @@ function pp_udc_site_container(
     int $presets_version
 ): array {
     $out = [PP_SITE_UDC_VERSION_KEY => $version];
-    if ($presets !== []) {
+    // THE BASELINE OUTLIVES THE STORE, and gating both keys on a non-empty map was
+    // an ABA bug. Create a preset then delete it and the counter went back to
+    // absent, which reads as 0 — so a caller still holding the baseline it earned
+    // before either write passed the compare and overwrote whatever had happened
+    // in between. A counter that can go backwards is not a counter. It is written
+    // from the first preset write onward, and only a site that has never had one
+    // stores neither key (which is what keeps every pre-#1016 row byte-identical).
+    if ($presets !== [] || $presets_version > 0) {
         $out[PP_SITE_PRESETS_VERSION_KEY] = $presets_version;
-        $out[PP_SITE_PRESETS_KEY]         = $presets;
+    }
+    if ($presets !== []) {
+        $out[PP_SITE_PRESETS_KEY] = $presets;
     }
     foreach ($chrome as $name => $map) {
         $out[(string) $name] = $map;

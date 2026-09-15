@@ -4623,7 +4623,25 @@ pp_register_action('delete_preset', [
                 _pp_schema_value_for_message($params['name'])
             ));
         }
-        if (isset(pp_udc_system_presets()[$name])) {
+        // A THEME PRESET CANNOT BE DELETED — BUT A ROW IT SHADOWS MUST BE.
+        //
+        // Refusing on the NAME alone closed the only way out of the shadowed state:
+        // the readiness check tells an operator to save their version elsewhere and
+        // then delete the shadowed row, and with a name-only refusal that row could
+        // never be removed. It would sit in the store forever, spending the count
+        // and the byte budget, keeping the warning lit. A stated route back that
+        // does not work is worse than no route (invariant I24).
+        //
+        // The store holds CUSTOM rows only, so deleting by name here removes the
+        // site's row and cannot touch the theme's — which is what makes this safe
+        // to allow rather than merely convenient.
+        // SHADOWED means the name is in BOTH registries, not merely in the store.
+        // Testing only for a stored row would treat every ordinary custom preset as
+        // shadowed and skip the reference gate for all of them.
+        $stored   = isset(pp_udc_custom_presets()[$name]);
+        $shipped  = isset(pp_udc_system_presets()[$name]);
+        $shadowed = $stored && $shipped;
+        if ($shipped && !$stored) {
             return new WP_Error('invalid_param_value', sprintf(
                 'The preset "%s" is shipped by the theme and cannot be deleted. Theme presets are: %s. '
                 . 'A band that should not use it can simply stop referencing it.',
@@ -4635,6 +4653,17 @@ pp_register_action('delete_preset', [
         // THE REVERSE DANGLING-REFERENCE GATE (#1016). Run in `validate` so the
         // refusal reaches a PREVIEW too: an author asking "what would this do"
         // should be told it would break eleven bands before they run it, not after.
+        //
+        // SKIPPED FOR A SHADOWED ROW, and the reason is the gate's own purpose. It
+        // exists to stop a delete from turning live references into dangling ones.
+        // A shadowed row is already outranked by the theme preset of the same name,
+        // so every reference resolves to the theme's bundle BEFORE the delete and
+        // to the same bundle after it. Nothing can dangle, and blocking on
+        // references that are not even pointing at the row being removed would be
+        // the lockout this clause just finished opening.
+        if ($shadowed) {
+            return null;
+        }
         $scan = pp_udc_preset_references($name);
         if ($scan['unreadable'] !== []) {
             return new WP_Error('invalid_param_value', sprintf(

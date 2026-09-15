@@ -7978,6 +7978,27 @@ function pp_update_site_preset(string $name, ?array $preset, ?int $expected_vers
                 PP_SITE_UDC_OPTION
             ));
         }
+        // A PRESET ROW NOBODY CAN PARSE STOPS THE WRITE, rather than being quietly
+        // dropped by it. This function rebuilds `_presets` from the PARSED map, and
+        // the parser fails closed per member — so a malformed row would vanish as a
+        // side effect of saving some unrelated preset, with an ok:true over it. That
+        // is the same silent-data-loss shape as the chrome normalizer's, one tenant
+        // over, and it gets the same answer: refuse, name the row, and say how to
+        // clear it deliberately.
+        if (($current['presets_unreadable'] ?? []) !== []) {
+            return new WP_Error('site_option_corrupt', sprintf(
+                'The preset store holds %d entr%s this engine cannot read (%s), and writing a preset now '
+                . 'would drop %s. Nothing was written. Repair or remove %s with `wp option patch` on %s, '
+                . 'then write again.',
+                count($current['presets_unreadable']),
+                count($current['presets_unreadable']) === 1 ? 'y' : 'ies',
+                implode(', ', array_map('_pp_udc_reflect', $current['presets_unreadable'])),
+                count($current['presets_unreadable']) === 1 ? 'it' : 'them',
+                count($current['presets_unreadable']) === 1 ? 'it' : 'them',
+                PP_SITE_UDC_OPTION
+            ));
+        }
+
         if ($expected_version !== null && $current['presets_version'] !== $expected_version) {
             return new WP_Error('site_option_conflict', sprintf(
                 'The site presets have changed since you read them (you sent baseline %d, the stored '

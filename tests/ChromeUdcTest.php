@@ -54,11 +54,12 @@ class ChromeUdcTest extends TestCase
      * would start life defined on a healthy row and missing on an empty one.
      */
     private const ABSENT_ROW = [
-        'version'         => 0,
-        'chrome'          => [],
-        'corrupt'         => false,
-        'presets'         => [],
-        'presets_version' => 0,
+        'version'            => 0,
+        'chrome'             => [],
+        'corrupt'            => false,
+        'presets'            => [],
+        'presets_version'    => 0,
+        'presets_unreadable' => [],
     ];
 
     protected function setUp(): void
