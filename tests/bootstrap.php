@@ -829,6 +829,16 @@ if (!function_exists('delete_option')) {
         if (!empty($GLOBALS['_pp_test_unwritable_options'][$key])) {
             return false;
         }
+        // CORE PARITY ON THE ABSENT ROW. Core deletes with $wpdb->delete() and returns
+        // false when it affected no rows, so an absent row and a refused delete return
+        // the SAME false — that ambiguity is the whole reason a caller has to re-read
+        // the stored state to tell them apart. Returning true here made any such
+        // disambiguation untestable: the caller's "did it actually go?" branch was
+        // unreachable, so a test for it passed without exercising it (observed while
+        // pinning the pp_site_udc clear arm, #1003).
+        if (!array_key_exists($key, $GLOBALS['_pp_test_store']['options'] ?? [])) {
+            return false;
+        }
         unset($GLOBALS['_pp_test_store']['options'][$key]);
         return true;
     }

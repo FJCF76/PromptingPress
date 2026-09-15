@@ -713,6 +713,98 @@ class ChromeUdcTest extends TestCase
         }
     }
 
+    /**
+     * I1 ON THE CLEAR ARM. The write arm has reported a refused write since #981;
+     * the clear arm eight lines away returned the closure's bare `true` whatever
+     * the store did, so a clear against an unwritable store reported success and
+     * left the chrome exactly where it was.
+     *
+     * Pinned through the real action surface, and with the STORED STATE asserted
+     * as well as the envelope: a refusal that reports honestly but silently
+     * removed the row would pass an envelope-only assertion.
+     */
+    public function testAClearTheStoreRefusesIsReportedInsteadOfSucceedingOverIt(): void
+    {
+        foreach (['', '{}'] as $clear) {
+            $this->write(['nav' => ['_band' => ['background' => ['fill' => '#101828']]]]);
+            $GLOBALS['_pp_test_unwritable_options'][PP_SITE_UDC_OPTION] = true;
+
+            $result = pp_execute_action('update_site_option', [
+                'key' => PP_SITE_UDC_OPTION, 'value' => $clear,
+            ]);
+
+            unset($GLOBALS['_pp_test_unwritable_options'][PP_SITE_UDC_OPTION]);
+
+            $this->assertFalse(
+                $result['ok'],
+                "'{$clear}' against a store that refused the delete must not report success"
+            );
+            $this->assertSame('site_option_write_failed', $result['error_code']);
+            $this->assertStringContainsString(
+                PP_SITE_UDC_OPTION,
+                $result['error'],
+                'the refusal must name the option it could not clear'
+            );
+            $this->assertArrayHasKey(
+                'nav',
+                pp_udc_site_map()['chrome'],
+                'the chrome is still stored, which is what makes the success report a lie'
+            );
+            $this->assertNotSame('', pp_udc_chrome_authored_css());
+        }
+    }
+
+    /**
+     * THE INSTRUMENT, NOT THE OUTCOME. The unit harness has no `notoptions` cache,
+     * so a get_option() read-back and a row read behave identically here and no
+     * behavioural test can tell them apart. In production they do not: core's
+     * delete_option() poisons `notoptions` UNCONDITIONALLY, before the `if ($result)`
+     * that returns false, and get_option() short-circuits on `notoptions` before it
+     * reaches the DB — so a get_option() read-back answers "gone" for exactly the
+     * refused delete the branch above exists to catch.
+     *
+     * That is not a hypothetical: the first cut of this fix used get_option() and was
+     * green on the whole suite while being inert in production. A behavioural pin
+     * cannot fail on it, so this one reads the source.
+     */
+    public function testTheClearArmConfirmsTheRemovalAgainstTheRowNotTheOptionCache(): void
+    {
+        $source = file_get_contents(dirname(__DIR__) . '/lib/wp.php');
+        $start  = strpos($source, 'function _pp_update_site_udc(');
+        $this->assertNotFalse($start, '_pp_update_site_udc() must exist');
+        $clear = substr($source, $start, strpos($source, '// THE WRITE PATH', $start) !== false
+            ? strpos($source, '// THE WRITE PATH', $start) - $start
+            : 4000);
+
+        $this->assertStringContainsString(
+            '_pp_read_site_udc_locked($wpdb)',
+            $clear,
+            'the clear arm must confirm the removal through the row-authoritative reader'
+        );
+        $this->assertStringNotContainsString(
+            'get_option(PP_SITE_UDC_OPTION',
+            $clear,
+            'a get_option() read-back here is defeated by the notoptions cache core '
+            . 'poisons before delete_option() returns false'
+        );
+    }
+
+    /**
+     * I1's second clause on the same arm: clearing a row that is ALREADY absent is
+     * a success, not a failure. delete_option() returns false for both "refused"
+     * and "there was nothing there", and only the first is a failure.
+     */
+    public function testClearingChromeThatIsAlreadyAbsentSucceeds(): void
+    {
+        $this->assertSame(['version' => 0, 'chrome' => [], 'corrupt' => false], pp_udc_site_map());
+
+        $result = pp_execute_action('update_site_option', [
+            'key' => PP_SITE_UDC_OPTION, 'value' => '',
+        ]);
+
+        $this->assertTrue($result['ok'], 'nothing to remove is not a failure to remove');
+    }
+
     /** A corrupt MARKER on a readable map: the chrome still loads, the baseline does not. */
     public function testANonNumericVersionOnAReadableMapZeroesTheBaselineWithoutLosingTheChrome(): void
     {
