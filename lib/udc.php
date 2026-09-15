@@ -2364,11 +2364,27 @@ function _pp_udc_validate_scalar(string $where, $value, array $param, array $ban
     if ($ref !== null) {
         $resolved = pp_udc_resolve_reference($ref, $band_tokens);
         if ($resolved === null) {
-            return new WP_Error('invalid_prop_value', sprintf(
-                '%s references "@%s", which is not defined in this band\'s "_tokens" and is not a registered design token.',
-                $where,
-                $ref
-            ));
+            // THE MESSAGE HAS TO NAME THE SCOPE THE CALLER ACTUALLY HAS. A band map
+            // can reach its own `_tokens`; a PRESET DEFINITION cannot, because a
+            // preset belongs to the site and not to any band — it is validated with
+            // no band tokens for exactly that reason. Telling a preset author their
+            // reference "is not defined in this band's _tokens" points them at a
+            // place they do not have and cannot create, which is the same class of
+            // wrong-subject message the preset origin suffix exists to prevent.
+            // `$band_tokens` being empty is the honest discriminator: it is the
+            // scope, not a guess about the caller.
+            return new WP_Error('invalid_prop_value', $band_tokens === []
+                ? sprintf(
+                    '%s references "@%s", which is not a registered design token. '
+                    . 'Only site design tokens resolve here.',
+                    $where,
+                    $ref
+                )
+                : sprintf(
+                    '%s references "@%s", which is not defined in this band\'s "_tokens" and is not a registered design token.',
+                    $where,
+                    $ref
+                ));
         }
         // The REFERENCE must be usable for this param. A reference to a colour
         // token from a length parameter resolves to "0.25rem"-class nonsense the

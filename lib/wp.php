@@ -1459,10 +1459,37 @@ function pp_composition_pages(bool $fresh = false): array {
     // certify as absent. Same rule pp_composition_db_handle() states for the
     // composition read — a reader may degrade to a cached value, a gate may not be
     // opened by one — so the gate asks for a fresh list and says why here.
-    if ($cache !== null && !$fresh) {
+    // A FRESH READ BYPASSES THE MEMO. IT DOES NOT REPLACE IT.
+    //
+    // The first version refilled `$cache` from the fresh query, which quietly made
+    // one gate's read change what every LATER caller in the same request sees — and
+    // in the test suite, where one process runs every file, it leaked the gate's
+    // pages into an unrelated file's expectations (a prompt that asserts "No pages
+    // exist yet" began listing them). A caller that asks for a fresh answer is
+    // saying its own read must not be stale; it is not saying everyone else's
+    // should change. Bypassing on the way in and leaving the memo alone gives the
+    // gate its guarantee and costs every other caller nothing.
+    if ($fresh) {
+        return _pp_composition_pages_query();
+    }
+    if ($cache !== null) {
         return $cache;
     }
 
+    $cache = _pp_composition_pages_query();
+    return $cache;
+}
+
+/**
+ * The query itself, with no memo around it.
+ *
+ * Extracted so the cached path and the fresh path run the SAME query and can never
+ * answer differently about what a composition page IS. The memo is the caller's
+ * concern; this is the answer.
+ *
+ * @return array<int, array{id: int, title: string, status: string, url: string}>
+ */
+function _pp_composition_pages_query(): array {
     $posts = get_posts([
         'post_type'      => 'page',
         'post_status'    => ['publish', 'draft', 'pending', 'private'],
@@ -1473,17 +1500,16 @@ function pp_composition_pages(bool $fresh = false): array {
         'order'          => 'ASC',
     ]);
 
-    $cache = [];
+    $out = [];
     foreach ($posts as $post) {
-        $cache[] = [
+        $out[] = [
             'id'     => $post->ID,
             'title'  => $post->post_title,
             'status' => $post->post_status,
             'url'    => (string) get_permalink($post->ID),
         ];
     }
-
-    return $cache;
+    return $out;
 }
 
 /**

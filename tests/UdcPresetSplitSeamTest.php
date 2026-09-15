@@ -303,6 +303,14 @@ class UdcPresetSplitSeamTest extends TestCase
      * is the half that needed a registry: the role-grain check reads
      * `$fragment[PP_UDC_PRESET_KEY]` off a resolved preset, and no shipped preset
      * carries one.
+     *
+     * AN EARLIER VERSION OF THIS TEST WAS VACUOUS, and the way it failed is worth
+     * keeping. It put `_preset` at the TOP of the band map, where `_preset` is not
+     * a role name — so the refusal it caught was `unknown_udc_role`, which a
+     * perfectly well-formed preset produces just as readily. It passed for a reason
+     * that had nothing to do with nesting, and the mutation that disables the
+     * nested guard left it green. Asserting the CODE is what makes that visible:
+     * the nested refusal is `invalid_prop_value`, not `unknown_udc_role`.
      */
     public function testAStoredPresetThatItselfNamesAPresetIsRefusedAtRoleGrain(): void
     {
@@ -311,10 +319,18 @@ class UdcPresetSplitSeamTest extends TestCase
                 PP_UDC_PRESET_KEY => 'button',
                 'typography'      => ['size' => '19px'],
             ]],
+            'clean'   => ['grain' => 'role', 'udc' => ['typography' => ['size' => '19px']]],
         ]);
 
-        $error = pp_udc_validate_map([PP_UDC_PRESET_KEY => 'chained'] + [], 'testimonials');
+        $error = pp_udc_validate_map(['quote' => [PP_UDC_PRESET_KEY => 'chained']], 'testimonials');
+
         $this->assertInstanceOf(WP_Error::class, $error);
+        $this->assertSame('invalid_prop_value', $error->get_error_code());
+        $this->assertStringContainsString('one level only', $error->get_error_message());
+
+        // The control: the same shape with a preset that nests nothing is accepted,
+        // so the refusal above is about the nesting and not about the reference.
+        $this->assertNull(pp_udc_validate_map(['quote' => [PP_UDC_PRESET_KEY => 'clean']], 'testimonials'));
     }
 
     /** The same rule, reached through a role map, with the message it produces. */

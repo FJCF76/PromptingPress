@@ -291,6 +291,15 @@ final class UdcCustomPresetsTest extends TestCase
     {
         $result = $this->save('bad', ['typography' => ['size' => '@quote-size-d']]);
         $this->assertFalse($result['ok'], 'a band token cannot be resolved from a site preset');
+        // ASSERT THE WORDING, because a bare `ok === false` hid a message aimed at
+        // the wrong subject: it told a preset author their reference was "not
+        // defined in this band's _tokens", naming a place a preset does not have
+        // and cannot create. Same rule the sibling test enforces against naming a
+        // component and a role the author never wrote.
+        $this->assertSame('invalid_prop_value', $result['error_code']);
+        $this->assertStringContainsString('Preset "bad"', $result['error']);
+        $this->assertStringNotContainsString("this band's", $result['error']);
+        $this->assertStringContainsString('Only site design tokens resolve here', $result['error']);
 
         $this->assertTrue(
             $this->save('good', ['typography' => ['color' => '@color-accent']])['ok'],
@@ -678,6 +687,339 @@ final class UdcCustomPresetsTest extends TestCase
             }
         }
         return $out;
+    }
+
+    // ── 5c. What the testing specialist's mutation campaign found ───────────
+
+    /**
+     * THE NAME CHARSET GUARD, on both verbs.
+     *
+     * Removing it left the whole suite green — and it is not cosmetic: a name the
+     * charset refuses is STORED by the write and then dropped by the read, because
+     * both ends use the same predicate. The author gets ok:true, the preset does
+     * not exist, and the row carries an entry nothing will ever resolve while it
+     * spends the shared byte ceiling. Reported-success-with-no-effect, which is the
+     * I35 class this change's own docblocks invoke.
+     */
+    public function testAnIllegalPresetNameIsRefusedByBothVerbs(): void
+    {
+        $save = $this->save('bad name!', $this->brandType());
+        $this->assertFalse($save['ok'], 'a name the reader will drop must not be written');
+        $this->assertStringContainsString('1-64 characters', $save['error']);
+        $this->assertSame([], pp_udc_custom_presets(), 'and nothing was stored');
+
+        $delete = pp_execute_action('delete_preset', ['name' => 'bad name!']);
+        $this->assertFalse($delete['ok']);
+        $this->assertStringContainsString('1-64 characters', $delete['error']);
+    }
+
+    /** The boundary itself, in both directions, plus the empty name. */
+    public function testThePresetNameLengthBoundaryIsExact(): void
+    {
+        $this->assertTrue($this->save(str_repeat('a', 64), $this->brandType())['ok'], '64 is legal');
+
+        $tooLong = $this->save(str_repeat('a', 65), $this->brandType());
+        $this->assertFalse($tooLong['ok'], '65 is not');
+        $this->assertStringContainsString('1-64 characters', $tooLong['error']);
+
+        $this->assertFalse($this->save('', $this->brandType())['ok'], 'and neither is empty');
+    }
+
+    /**
+     * THE ROW CEILING, which is a different fact from the per-preset ceiling.
+     *
+     * Only the per-preset bound had a test, and that test asserts the two messages
+     * differ — so the change shipped a pin for the message that is NOT the
+     * data-loss one and none for the message that is. The bound is reachable:
+     * 64 presets x 8 KB each is eight times the row ceiling.
+     */
+    public function testTheRowCeilingRefusesAndLeavesTheStoredRowReadable(): void
+    {
+        $big = ['typography' => ['size' => '19px'], 'description' => str_repeat('x', 7000)];
+        $i   = 0;
+        $refusal = null;
+        while ($i < PP_SITE_PRESETS_MAX) {
+            $result = $this->save('p' . $i, ['typography' => ['size' => '19px']], 'role', [
+                'description' => str_repeat('x', 7000),
+            ]);
+            if (!$result['ok']) {
+                $refusal = $result;
+                break;
+            }
+            $i++;
+        }
+
+        $this->assertNotNull($refusal, 'the shared row ceiling must be reachable');
+        $this->assertSame('invalid_option_value', $refusal['error_code']);
+        $this->assertStringContainsString('would be', $refusal['error']);
+        $this->assertStringContainsString('bytes', $refusal['error']);
+        $this->assertStringNotContainsString('which is the limit', $refusal['error'], 'that is the COUNT bound');
+
+        // The load-bearing half: the row the refusal protected is still readable.
+        $site = pp_udc_site_map();
+        $this->assertFalse($site['corrupt'], 'the refusal exists so the row never becomes unreadable');
+        $this->assertCount($i, $site['presets']);
+    }
+
+    /**
+     * A CORRUPT ROW REFUSES A BASELINED PRESET WRITE, and accepts an unbaselined
+     * one — the recovery route the message promises.
+     *
+     * The chrome arm has this test; the preset arm did not, and the guard survived
+     * being turned off. An unreadable row reports version 0, which is also what a
+     * never-written row reports, so a caller holding an ordinary 0 would otherwise
+     * pass the compare and overwrite bytes the operator may want back.
+     */
+    public function testACorruptRowRefusesABaselinedPresetWriteButAllowsADeliberateOne(): void
+    {
+        $GLOBALS['_pp_test_store']['options'][PP_SITE_UDC_OPTION] = '{not json at all';
+        $this->assertTrue(pp_udc_site_map()['corrupt']);
+
+        $baselined = $this->save('brand-type', $this->brandType(), 'role', ['expected_version' => 0]);
+        $this->assertFalse($baselined['ok']);
+        $this->assertSame('site_option_corrupt', $baselined['error_code']);
+
+        $deliberate = $this->save('brand-type', $this->brandType());
+        $this->assertTrue(
+            $deliberate['ok'],
+            'a write with no baseline is the caller saying "I know what is there": ' . ($deliberate['error'] ?? '')
+        );
+    }
+
+    /**
+     * THE SHADOWED-ROW BYPASS RESTS ON A CLAIM. This is the claim, asserted.
+     *
+     * Deleting a shadowed row skips the reference gate, on the argument that every
+     * reference to that name already resolves to the THEME bundle and still will
+     * afterwards, so nothing can dangle. Removing the bypass left the suite green,
+     * because the only test deleted a shadowed row nothing referenced.
+     */
+    public function testDeletingAShadowedRowLeavesItsReferencesResolvingToTheThemePreset(): void
+    {
+        $GLOBALS['_pp_test_store']['options'][PP_SITE_UDC_OPTION] = (string) wp_json_encode([
+            PP_SITE_UDC_VERSION_KEY     => 1,
+            PP_SITE_PRESETS_VERSION_KEY => 1,
+            PP_SITE_PRESETS_KEY         => [
+                'button' => ['grain' => 'role', 'udc' => ['typography' => ['size' => '99px']]],
+            ],
+            'nav' => ['link' => [PP_UDC_PRESET_KEY => 'button']],
+        ]);
+
+        $id = pp_create_page('References the shadowed name', 'draft');
+        $this->assertTrue(pp_execute_action('update_composition', [
+            'post_id'     => $id,
+            'composition' => [[
+                'component' => 'testimonials',
+                'id'        => 'pp-a1b2c3d4',
+                'props'     => ['items' => [['quote' => 'Great.', 'author' => 'Ada']]],
+                'udc'       => ['list' => [PP_UDC_PRESET_KEY => 'button']],
+            ]],
+        ])['ok']);
+
+        $before = pp_udc_resolve_preset('button');
+        $this->assertTrue(pp_execute_action('delete_preset', ['name' => 'button'])['ok']);
+        $after = pp_udc_resolve_preset('button');
+
+        $this->assertSame($before, $after, 'the name resolves to the same theme bundle either side');
+        $this->assertSame(
+            pp_udc_system_presets()['button'],
+            $after,
+            'and that bundle is the theme\'s, not the row that was removed'
+        );
+        $this->assertNull(
+            pp_udc_validate_map(['list' => [PP_UDC_PRESET_KEY => 'button']], 'testimonials'),
+            'the band that referenced it is still valid — nothing dangled'
+        );
+    }
+
+    /** A malformed preset baseline reads as 0 and refuses a baselined write by mismatching. */
+    public function testAMalformedPresetBaselineReadsAsZeroWithoutLosingThePresets(): void
+    {
+        foreach (['abc', '3x', ' 4', '-1'] as $junk) {
+            $GLOBALS['_pp_test_store']['options'][PP_SITE_UDC_OPTION] = (string) wp_json_encode([
+                PP_SITE_UDC_VERSION_KEY     => 1,
+                PP_SITE_PRESETS_VERSION_KEY => $junk,
+                PP_SITE_PRESETS_KEY         => [
+                    'brand-type' => ['grain' => 'role', 'udc' => $this->brandType()],
+                ],
+            ]);
+
+            $site = pp_udc_site_map();
+            $this->assertSame(0, $site['presets_version'], "junk baseline {$junk} must read as 0");
+            $this->assertFalse($site['corrupt'], 'a junk marker on a readable row is not a corrupt container');
+            $this->assertIsArray(pp_udc_resolve_preset('brand-type'), 'the presets still resolve');
+
+            $stale = $this->save('brand-type', $this->brandType(), 'role', ['expected_version' => 3]);
+            $this->assertFalse($stale['ok'], 'and a baselined write mismatches rather than passing');
+            $this->assertSame('site_option_conflict', $stale['error_code']);
+        }
+    }
+
+    /**
+     * The write envelope reports what changed, on both verbs and in preview.
+     *
+     * Blanking the `from`/`to` pair on either arm left the suite green. On a repo
+     * whose last three gates were write-path and approval-surface truth gates, two
+     * new site-scope verbs shipping with no assertion on what their envelope says
+     * is the gap most out of step with the program: `from`/`to` is exactly what an
+     * approval surface renders.
+     */
+    public function testBothVerbsReportWhatChangedInPreviewAndInExecute(): void
+    {
+        $definition = ['grain' => 'role', 'udc' => $this->brandType()];
+
+        $preview = pp_preview_action('save_preset', [
+            'name' => 'brand-type', 'grain' => 'role', 'udc' => $this->brandType(),
+        ]);
+        $this->assertSame('preset.brand-type', $preview['changes'][0]['path']);
+        $this->assertNull($preview['changes'][0]['from'], 'a create has no before');
+        $this->assertSame($definition, $preview['changes'][0]['to']);
+
+        $created = $this->save('brand-type', $this->brandType());
+        $this->assertNull($created['changes'][0]['from']);
+        $this->assertSame($definition, $created['changes'][0]['to']);
+
+        $replaced = $this->save('brand-type', ['typography' => ['size' => '21px']]);
+        $this->assertSame($definition, $replaced['changes'][0]['from'], 'a replace reports the old one');
+        $this->assertSame(
+            ['grain' => 'role', 'udc' => ['typography' => ['size' => '21px']]],
+            $replaced['changes'][0]['to']
+        );
+
+        $deletePreview = pp_preview_action('delete_preset', ['name' => 'brand-type']);
+        $this->assertNull($deletePreview['changes'][0]['to'], 'a delete reports no after');
+
+        $deleted = pp_execute_action('delete_preset', ['name' => 'brand-type']);
+        $this->assertTrue($deleted['ok']);
+        $this->assertNull($deleted['changes'][0]['to']);
+    }
+
+    /** The shadow check reaches the surface an operator actually reads. */
+    public function testTheShadowCheckReachesPreflight(): void
+    {
+        $GLOBALS['_pp_test_store']['options'][PP_SITE_UDC_OPTION] = (string) wp_json_encode([
+            PP_SITE_UDC_VERSION_KEY     => 1,
+            PP_SITE_PRESETS_VERSION_KEY => 1,
+            PP_SITE_PRESETS_KEY         => [
+                'button' => ['grain' => 'role', 'udc' => $this->brandType()],
+            ],
+        ]);
+
+        $rows = array_values(array_filter(
+            pp_preflight([])['checks'],
+            static fn(array $c): bool => ($c['check'] ?? '') === 'shadowed_presets'
+        ));
+
+        $this->assertCount(1, $rows, 'a check nobody splices into preflight is not a check');
+        $this->assertSame('warning', $rows[0]['severity']);
+        $this->assertTrue($rows[0]['acknowledgeable']);
+    }
+
+    /**
+     * Every fragment of a delete locator is cleaned, not just the page title.
+     *
+     * Role keys, group keys and chrome names all come off a row a raw
+     * `wp option update` can write — the same premise the page-title case rests on.
+     */
+    public function testEveryLocatorFragmentIsCleanedNotJustTheTitle(): void
+    {
+        $this->assertTrue($this->save('brand-type', $this->brandType())['ok']);
+
+        $hostileRole  = "link";
+        $hostileGroup = "typo
+graphy";
+        $GLOBALS['_pp_test_store']['options'][PP_SITE_UDC_OPTION] = (string) wp_json_encode([
+            PP_SITE_UDC_VERSION_KEY     => 1,
+            PP_SITE_PRESETS_VERSION_KEY => 1,
+            PP_SITE_PRESETS_KEY         => [
+                'brand-type' => ['grain' => 'role', 'udc' => $this->brandType()],
+            ],
+            'nav' => [
+                $hostileRole => [PP_UDC_PRESET_KEY => 'brand-type'],
+                'link'       => [$hostileGroup => [PP_UDC_PRESET_KEY => 'brand-type']],
+            ],
+        ]);
+
+        $result = pp_execute_action('delete_preset', ['name' => 'brand-type']);
+
+        $this->assertFalse($result['ok']);
+        $this->assertStringNotContainsString("", $result['error'], 'role key cleaned');
+        $this->assertStringNotContainsString("
+", $result['error'], 'group key cleaned');
+        $this->assertStringContainsString('site chrome "nav"', $result['error'], 'and it still says where');
+    }
+
+    /** The reference list is bounded, and says so when it truncates. */
+    public function testTheReferenceListIsBoundedAndDeclaresTheOverflow(): void
+    {
+        $this->assertTrue($this->save('brand-type', $this->brandType())['ok']);
+
+        $bands = [];
+        for ($i = 0; $i < 21; $i++) {
+            $bands[] = [
+                'component' => 'testimonials',
+                'id'        => sprintf('pp-%08x', $i + 1),
+                'props'     => ['items' => [['quote' => 'Great.', 'author' => 'Ada']]],
+                'udc'       => ['list' => [PP_UDC_PRESET_KEY => 'brand-type']],
+            ];
+        }
+        $id = pp_create_page('Many references', 'draft');
+        $this->assertTrue(pp_execute_action('update_composition', [
+            'post_id' => $id, 'composition' => $bands,
+        ])['ok']);
+
+        $result = pp_execute_action('delete_preset', ['name' => 'brand-type']);
+
+        $this->assertFalse($result['ok']);
+        $this->assertStringContainsString('21 places', $result['error']);
+        $this->assertStringContainsString('and 1 more', $result['error'], 'the cap declares itself');
+    }
+
+    /** Two unreadable pages are named, and read as plural. */
+    public function testTwoUnreadablePagesAreBothNamed(): void
+    {
+        $this->assertTrue($this->save('brand-type', $this->brandType())['ok']);
+
+        $a = pp_create_page('Corrupt A', 'draft');
+        $b = pp_create_page('Corrupt B', 'draft');
+        update_post_meta($a, '_pp_composition', '{not json');
+        update_post_meta($b, '_pp_composition', '{also not json');
+
+        $result = pp_execute_action('delete_preset', ['name' => 'brand-type']);
+
+        $this->assertFalse($result['ok']);
+        $this->assertStringContainsString((string) $a, $result['error']);
+        $this->assertStringContainsString((string) $b, $result['error']);
+        $this->assertStringContainsString('those pages', $result['error'], 'plural wording');
+    }
+
+    /**
+     * The three refusals pp_udc_validate_preset_definition() owns that the action
+     * params cannot produce.
+     *
+     * _pp_preset_definition_from_params() builds the array itself, so a caller
+     * cannot send an unknown field, a non-string description, or a non-array
+     * preset. The branches are not dead: this function is the documented one-engine
+     * seam a stored-row validator would reuse, and it is called here at that level
+     * rather than left advertising refusals nothing can reach.
+     */
+    public function testTheDefinitionValidatorOwnsThreeShapesTheParamsCannotProduce(): void
+    {
+        $valid = ['grain' => 'role', 'udc' => $this->brandType()];
+
+        $notArray = pp_udc_validate_preset_definition('x', 'button');
+        $this->assertInstanceOf(WP_Error::class, $notArray);
+        $this->assertStringContainsString('must be an object', $notArray->get_error_message());
+
+        $unknownField = pp_udc_validate_preset_definition('x', $valid + ['colour' => 'red']);
+        $this->assertInstanceOf(WP_Error::class, $unknownField);
+        $this->assertStringContainsString('colour', $unknownField->get_error_message());
+
+        $badDescription = pp_udc_validate_preset_definition('x', $valid + ['description' => 42]);
+        $this->assertInstanceOf(WP_Error::class, $badDescription);
+        $this->assertStringContainsString('description must be text', $badDescription->get_error_message());
+
+        $this->assertNull(pp_udc_validate_preset_definition('x', $valid), 'and the valid shape passes');
     }
 
     // ── 6. The T2 intersect, on a CUSTOM preset, band AND chrome ────────────
