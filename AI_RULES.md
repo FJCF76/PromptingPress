@@ -62,6 +62,32 @@ To revert a token to its default, use `pp_execute_apply('reset_design_token', ['
 To revert all tokens, use `pp_execute_apply('reset_all_design_tokens', [])`.
 CLI: `wp pp apply execute update_design_token --params='{"token":"--color-accent","value":"#b45309"}'`.
 
+## Cascade layers — where a new CSS rule goes
+
+The v1 stylesheet is wrapped in cascade layers and the v2 engine's authored output is
+NOT, which is what makes a value an author writes beat a stylesheet rule that carries
+more classes. Read `docs/explanation-cascade-layers.md` before changing this.
+
+Order, declared once at the top of `assets/css/base.css`:
+`@layer pp-reset, pp-zero, pp-v1;` then unlayered.
+
+Rules for editing `assets/css/`:
+
+- **Put new rules INSIDE the existing `@layer` block** of the file you are editing. Every
+  rule in `base.css`, `components.css` and `utilities.css` is inside one. A rule added
+  after the closing brace is unlayered and will outrank the entire theme, including the
+  authored band blocks it must not beat.
+- **An unlayered rule needs a stated reason in the file.** The only legitimate case is a
+  rule that exists to defeat unlayered third-party CSS, and even then check first: the
+  issue-332 border baseline stayed INSIDE the layer, because unlayered it would have
+  erased every component border the theme draws.
+- **Never add `!important`.** BUILD-SPEC §3.4 forbids it, and it wins against the site
+  owner as well as against the engine.
+- **Verify a cascade claim by reading the computed value, not by counting selectors.** The
+  first attempt at this used `:where()` on four rules, passed every test, and silently
+  regressed every composed primary button. The CSS lint matches selector SHAPE and cannot
+  see specificity.
+
 ## Anti-slop rules
 
 When building or editing components:
@@ -136,7 +162,7 @@ theme itself). For **site customization**, the parent-theme rows (`templates/`,
 |--------------------------|---------------------------------|----------------------------------|
 | /templates/              | Page layouts                    | Release-level only — inspect for site work |
 | /components/             | Reusable sections               | Release-level only — inspect for site work |
-| /assets/css/base.css     | Design token defaults           | Release-level only — site tokens via update_design_token |
+| /assets/css/base.css     | Design token defaults + the `@layer` order statement | Release-level only — site tokens via update_design_token; see docs/explanation-cascade-layers.md |
 | /assets/css/components.css | Component styles              | Release-level only — inspect for site work |
 | /assets/js/pp-editor-logic.js | Pure JS logic (testable)   | Release-level only — run npm test after |
 | /assets/js/main.js       | Nav toggle, dropdown submenus   | Release-level only — inspect for site work |

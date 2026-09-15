@@ -351,6 +351,7 @@ the HANDOFF report.
 → Why a DB write can't land before the safety gate (the design): [docs/operating-loop-safety.md](docs/operating-loop-safety.md)
 → Every `wp pp apply` command, flag, and error (reference): [docs/reference-apply-cli.md](docs/reference-apply-cli.md)
 → Apply a token change and roll it back, step by step (how-to): [docs/howto-apply-and-rollback.md](docs/howto-apply-and-rollback.md)
+→ Why a value you wrote beats the theme's own stylesheet (the design): [docs/explanation-cascade-layers.md](docs/explanation-cascade-layers.md)
 
 ---
 
@@ -458,6 +459,7 @@ npm run env:stop
 | **CLI reference** | [`docs/reference-apply-cli.md`](docs/reference-apply-cli.md) — every command, envelope, and refusal |
 | **Step-by-step guides** | [`docs/howto-apply-and-rollback.md`](docs/howto-apply-and-rollback.md) and the [`ai-instructions/`](ai-instructions/) playbooks (create a page, revise a section, style a component, validate a site) |
 | **Component contracts** | each [`components/<name>/`](components/) folder: `schema.json` (typed contract) + `README.md` (usage) — or run `wp pp schema <component>` |
+| **Editing the stylesheet** | [`docs/explanation-cascade-layers.md`](docs/explanation-cascade-layers.md) — why the theme CSS is in a cascade layer, and where a new rule goes |
 | **What changed** | [`CHANGELOG.md`](CHANGELOG.md) (engineering record) and [Releases](https://github.com/FJCF76/PromptingPress/releases) (user-facing notes with upgrade steps) |
 
 ---
