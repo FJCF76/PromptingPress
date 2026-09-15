@@ -4,35 +4,15 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
-## [Unreleased — v2.0.0-alpha.1] — v2 Sprint 1: the contract-boundary gate fixes, presets/states/motion, chrome and background images, the batched hardening, then hero rebuilt on the contract, and the nav chrome surface verified (#962, #965, #970, #976, #981, #986, #968, #972, #991)
+## [v2.0.0-alpha.1] — 2026-09-15 — v2 Sprint 1 "engine": the contract-boundary gate fixes, presets/states/motion, chrome and background images, the batched hardening, hero rebuilt on the contract, and the nav chrome surface verified (#962, #965, #970, #976, #981, #986, #968, #972, #991)
+
+**Sprint 1 is the engine sprint: the UDC contract stops being something testimonials proved and becomes something a second component, the site chrome and a shared vocabulary all run on.** Presets give a look a name. Three states replace one. A motion group arrives with `prefers-reduced-motion` handled for you. The header and footer move onto the same engine as the bands. A background takes a Media Library image without anyone writing a `url()`. hero is rebuilt on the contract, and the v1 stylesheet is put in a cascade layer so an authored value actually wins. Underneath all of that, three contract-boundary gate fixes and eight honesty fixes close gaps between what the system accepts and what it then does.
+
+**This is a prerelease, and it is the first installable v2 build.** `2.0.0-alpha.0` was never tagged, so everything Sprint 0 landed reaches an install for the first time here. It is not production software — the reference deployment stays on 1.20.0 until 2.0.0. There is no upgrade path from 1.x and there will not be one: a 1.x site's stored pages are written against props and style-slot maps v2 does not have, so v2 installs onto fresh content, and reconstructing the brand site on it is 2.0.0's acceptance test.
+
+### The three contract-boundary gate fixes (#962)
 
 **The three things the Sprint-0 contract-boundary review said had to be true before anything else is built on the UDC contract.** One value could take a page's styling down to the last rule; the editor preview ranked the cascade differently from the page it was previewing; and a test promised coverage of the consent gate that its assertions never delivered. None of the three changes what the contract IS — they make the contract hold.
-
-### The header row is stylable, and the one place chrome styling still bites you is now stated
-
-The site header has been on the v2 styling engine since #976: its roles live in the `nav` entry of the `pp_site_udc` site option, in the same shape a band's `udc` map takes. This pass verified that surface end to end against a real browser and closed the gaps the verification found.
-
-**A new `container` role reaches the header ROW.** `sizing.min-height` sets the row's height and `spacing.gap` the space between logo, hamburger and menu — the two designable values in the header bar that no authoring surface could reach before. `_band` stays the bar itself (its background and border); `container` is the row inside it, so a background set there paints an inset band rather than the whole header.
-
-**Set a colour at rest, set its hover too.** Chrome roles carry no defaults of their own, so the header's resting appearance still comes from the theme stylesheet — and an authored value outranks that stylesheet in *every* state, not just at rest. Styling `nav.link` alone therefore flattens the hover accent AND the current-page accent onto your one colour; styling `nav.logo` or `nav.toggle` alone leaves those controls with no hover feedback at all.
-
-That is a real gap, not a design choice, and it is tracked as #992 with the fix scoped in #994. Until then the system tells you rather than letting you find out: the schema role descriptions, the `update_site_option` action description, the runtime AI instructions, both chrome READMEs and the header how-to all now say to pair every resting colour with its `":hover"`, and to pair `link` with `link-current`. The shipped examples were corrected to demonstrate the shape they describe.
-
-**What the verification actually proved,** on a real page with computed style reads rather than screenshots alone: a chrome write through the genuine CLI reaches the rendered page; a stale concurrency baseline is refused by a second process and leaves the stored map untouched; the retired `pp_header_*` colour options are still refused by name; `:focus-visible` authored on a nav link lands under real keyboard focus; a dark header over a dark band carries its own ink on every role; and the mobile menu still opens and closes at 375px with the panel authored — border, padding and all.
-
-`link-current` reaches every current item on its own, and that is now pinned rather than assumed: WordPress only ever adds `current_page_item` and `aria-current="page"` alongside `current-menu-item`, so the one selector is a superset of all three. If a future WordPress release breaks that, the test fails loudly instead of the current-page treatment quietly disappearing.
-
-### Docs
-
-- `docs/explanation-cascade-layers.md` gains the chrome half of the cascade story: why a half-migrated component's authored values silently outrank its own remaining state rules, with the measured values and the general lesson (move a component's states and its resting values together, or not at all).
-- The AI-facing role enumerations in `AI_CONTEXT.md` and `ai-instructions/set-logo.md` are now derived-checked by a test, after both drifted out of step with the schema in this very change.
-- Two sentences that told the model to read chrome roles "from the catalog" were corrected — the component catalog lists only composable components, so chrome is deliberately absent from it. They now point at `wp pp schema <component>`.
-
-### Tests
-
-- Rendered pins for the chrome write path, the CAS refusal, focus-visible, dark chrome, the container role, the `current-menu-item` superset, and the mobile panel under authored styling.
-- A characterization test pinning today's state-erasure behaviour (#992) so the fix in #994 has a red-to-green to flip. It asserts the wrong answer on purpose and says so; it is deleted or inverted when #994 lands.
-- `ChromeAuthoringSurfaceTest::testAiFacingDocsEnumerateEveryChromeRole` derives the AI-facing role lists from the registry, which immediately caught a footer role missing from the header how-to.
 
 ### One authored value could erase the rest of a page's styling
 
@@ -76,13 +56,6 @@ Two input-validation boundaries on the design-token path, one at write and one a
 
 **Delimiter balancing now covers square brackets and CSS strings.** The shared guard already required parentheses and quote marks to close; it now requires `[` and `]` to close and nest the same way, and it consumes a CSS string whole so a delimiter sitting inside one is neither counted nor able to discharge a real one. Balanced brackets stay legal, so a grid track list such as `[full-start] 1fr [full-end]` is accepted. **The narrowing:** a `udc` value with an unmatched bracket is refused at write, and a design-token override with one is accepted at write but dropped at render and reported. Measured before shipping: no shipped token default, component slot default or UDC role default is affected.
 
-### Known issues
-
-- Seven shipped `--btn-*` defaults declare a type their own default value does not satisfy (#967) — `var()` under a `length`, `initial` under `color`/`shadow`. They are defaults, never stored overrides, so nothing is dropped today; the type metadata is what is wrong. Inventoried by a test so the set cannot grow unnoticed.
-- `update_design_token` does not check delimiter balance for the one `raw`-typed token (#966): the write succeeds and the value is dropped at render with an advisory. Recorded as a write/render asymmetry for a decision rather than narrowed unasked.
-- `_pp_derive_font_family_from_url()` derives the LAST `family=` parameter, not the first as its docblock says (#968). Behaviour left unchanged here, because either direction is a decision of its own.
-- A `font-family` `var()` reference is checked for SHAPE only. Unlike `color`, the token is not required to exist or to be font-typed, so a misspelled reference validates and paints nothing. Recorded and pinned as current behaviour rather than silently narrowed.
-
 ### Fixed
 
 - The CSS delimiter guard now covers authored values, not only band tokens — the write path, the emit-time re-validation and the referenced-token gate through one call.
@@ -102,9 +75,7 @@ Two input-validation boundaries on the design-token path, one at write and one a
 
 PHP 4813 → 4865; JS 1879 unchanged. Both halves of the delimiter fix are red-proven against the pre-fix code, including through `create_page` rather than the validator alone; the preview's block ORDER and the fact that the AJAX endpoint still routes through the shared head builder are each pinned against a mutation that reverts them; `pp_udc_page_css()` — the concatenation that was the preview's bug — is now a test-only convenience with a tokenized source tripwire that fails if any production file calls it. `pp_udc_compile_band()`'s `$layer` argument is required, so no caller can silently ask for both tiers merged. The font-path boundaries are pinned in both directions (#965): the refused shapes are refused at every boundary the guard serves, and a legitimate bracketed value and every real font-URL shape still pass. The emitter is a named function so a test asserts the string it produces rather than a copy of its loop, and each gate of the render predicate is pinned by a case where it alone decides. Hostile fixtures are built with `chr()`/`mb_chr()`, never as literal escapes.
 
----
-
-## Presets, three states, and motion (#970)
+### Presets, three states, and motion (#970)
 
 **A shared look now has a name, an element can be styled while you hover, focus or press it, and the engine knows how fast things move.** Three capabilities from one ruling, landing on one seam: they are all just more of the vocabulary a band's `udc` map already speaks.
 
@@ -326,7 +297,7 @@ variable, reversed keys, or `compact()`. Each was replaced by one that goes red,
 and the harness gained the affordance that made an unreachable branch testable.
 Local Playwright style-render @smoke: 199 passed, 1 skipped.
 
-## hero rebuilt on the contract, and the cascade fixed underneath it (#986, #968, #972)
+### hero rebuilt on the contract, and the cascade fixed underneath it (#986, #968, #972)
 
 **hero is the second component on the UDC, and the first one that made the engine
 prove it could carry a real component.** 20 props became 16, 49 style slots became
@@ -335,9 +306,17 @@ writes is a `udc` map on the band: every role takes typography, spacing, border,
 shadow, background, sizing and motion, per breakpoint, in `:hover` / `:focus-visible`
 / `:active`, with `button` and `button-secondary` presets for the CTA pair.
 
+### ⚠️ Breaking: hero's four props and its 49 style slots are gone
+
 Four props are gone, each because it was a bundle the contract expresses directly.
 `spacing` and `width` were padding and a content measure. `button_variant` and
 `button2_variant` were bundles of button colours, which is what a preset is.
+
+The 49-entry `style_slots` map hero declared in 1.x does not exist in v2 either; the
+13 roles replace it. There is **no migration**, per the v2 no-backward-compatibility
+directive. A stored 1.x hero band carrying any of those four props, or any of those
+49 slots, is written against a schema this release does not have: restate the styling
+as a `udc` map on the band.
 
 **The four defaults that came back.** A first cut of this rebuild moved several
 behaviours out to "the author decides", and for four of them that was the wrong
@@ -406,9 +385,71 @@ nor the stylesheet's allowed set, so the moment hero declared roles it could be
 neither authored nor kept — a capability deletion hiding inside a rebuild. It is a
 `sizing` parameter now, validated by the same ratio grammar the v1 slots always used.
 
+### Tests
+
+PHP 5017 → 4975; JS 1880 → 1782. Warnings 11 and deprecations 2 unchanged. Both
+counts fall, which is what a rebuild that deletes what it replaces looks like: the
+PHP drop is concentrated in `StyleSlotContractTest.php`, where hero's 49 style-slot
+contract cases went with the slot map, and the whole JS drop is
+`tests/js/css-lint.test.js`, whose per-declaration cases for hero's ~850 stylesheet
+lines have nothing left to lint now that those lines are structural scaffolding. The
+`:where()` attempt that measurement killed is itself a rendered test now, so it fails
+if it returns. Hero's CTA pair is deliberately asymmetric — with `cta-secondary`
+carrying role defaults the global `--btn-*` tier no longer reaches hero's second
+button — and the seven repriced rendered tests pin that asymmetry rather than
+dropping it. Local Playwright style-render `@smoke`: 150 passed, 1 skipped, 0 failed.
+
+### The header row is stylable, and the one place chrome styling still bites you is now stated
+
+The site header has been on the v2 styling engine since #976: its roles live in the `nav` entry of the `pp_site_udc` site option, in the same shape a band's `udc` map takes. This pass verified that surface end to end against a real browser and closed the gaps the verification found.
+
+**A new `container` role reaches the header ROW.** `sizing.min-height` sets the row's height and `spacing.gap` the space between logo, hamburger and menu — the two designable values in the header bar that no authoring surface could reach before. `_band` stays the bar itself (its background and border); `container` is the row inside it, so a background set there paints an inset band rather than the whole header.
+
+**Set a colour at rest, set its hover too.** Chrome roles carry no defaults of their own, so the header's resting appearance still comes from the theme stylesheet — and an authored value outranks that stylesheet in *every* state, not just at rest. Styling `nav.link` alone therefore flattens the hover accent AND the current-page accent onto your one colour; styling `nav.logo` or `nav.toggle` alone leaves those controls with no hover feedback at all.
+
+That is a real gap, not a design choice, and it is tracked as #992 with the fix scoped in #994. Until then the system tells you rather than letting you find out: the schema role descriptions, the `update_site_option` action description, the runtime AI instructions, both chrome READMEs and the header how-to all now say to pair every resting colour with its `":hover"`, and to pair `link` with `link-current`. The shipped examples were corrected to demonstrate the shape they describe.
+
+**What the verification actually proved,** on a real page with computed style reads rather than screenshots alone: a chrome write through the genuine CLI reaches the rendered page; a stale concurrency baseline is refused by a second process and leaves the stored map untouched; the retired `pp_header_*` colour options are still refused by name; `:focus-visible` authored on a nav link lands under real keyboard focus; a dark header over a dark band carries its own ink on every role; and the mobile menu still opens and closes at 375px with the panel authored — border, padding and all.
+
+`link-current` reaches every current item on its own, and that is now pinned rather than assumed: WordPress only ever adds `current_page_item` and `aria-current="page"` alongside `current-menu-item`, so the one selector is a superset of all three. If a future WordPress release breaks that, the test fails loudly instead of the current-page treatment quietly disappearing.
+
+### Docs
+
+- `docs/explanation-cascade-layers.md` gains the chrome half of the cascade story: why a half-migrated component's authored values silently outrank its own remaining state rules, with the measured values and the general lesson (move a component's states and its resting values together, or not at all).
+- The AI-facing role enumerations in `AI_CONTEXT.md` and `ai-instructions/set-logo.md` are now derived-checked by a test, after both drifted out of step with the schema in this very change.
+- Two sentences that told the model to read chrome roles "from the catalog" were corrected — the component catalog lists only composable components, so chrome is deliberately absent from it. They now point at `wp pp schema <component>`.
+
+### Tests
+
+- Rendered pins for the chrome write path, the CAS refusal, focus-visible, dark chrome, the container role, the `current-menu-item` superset, and the mobile panel under authored styling.
+- A characterization test pinning today's state-erasure behaviour (#992) so the fix in #994 has a red-to-green to flip. It asserts the wrong answer on purpose and says so; it is deleted or inverted when #994 lands.
+- `ChromeAuthoringSurfaceTest::testAiFacingDocsEnumerateEveryChromeRole` derives the AI-facing role lists from the registry, which immediately caught a footer role missing from the header how-to.
+
+### Known issues
+
+- **An authored chrome colour erases that property's hover and current-page states** (#992). Chrome roles ship no defaults, so a header's resting appearance comes from the theme stylesheet — and an authored value outranks that stylesheet in every state, not just at rest. Styling `nav.link` alone flattens both the hover accent and the current-page accent onto your one colour; styling `nav.logo` or `nav.toggle` alone leaves those controls with no hover feedback at all. Pair every resting colour with its `":hover"`, and pair `link` with `link-current`. A characterization test pins today's behaviour so the fix scoped in #994 has a red-to-green to flip.
+- **The nav dropdown chevron is invisible on a dark header** and sits out of line with its siblings (#995). It is not reachable from any role, so authoring cannot correct it.
+- Seven shipped `--btn-*` defaults declare a type their own default value does not satisfy (#967) — `var()` under a `length`, `initial` under `color`/`shadow`. They are defaults, never stored overrides, so nothing is dropped today; the type metadata is what is wrong. Inventoried by a test so the set cannot grow unnoticed.
+- `update_design_token` does not check delimiter balance for the one `raw`-typed token (#966): the write succeeds and the value is dropped at render with an advisory. Recorded as a write/render asymmetry for a decision rather than narrowed unasked.
+- A `font-family` `var()` reference is checked for SHAPE only. Unlike `color`, the token is not required to exist or to be font-typed, so a misspelled reference validates and paints nothing. Recorded and pinned as current behaviour rather than silently narrowed.
+
+### Tests — the sprint total
+
+PHP **4977 tests / 29449 assertions**, warnings **11**, deprecations **2**. JS
+**1782 passed** across 36 files. Full local Playwright suite (every spec, not the
+`@smoke` subset): **316 passed, 1 skipped, 0 failed**.
+
+Against 2.0.0-alpha.0's 4813 PHP and 1879 JS, the sprint added 164 PHP tests and
+removed 97 JS ones. The JS figure is not a regression and the PHP figure is not the
+whole story: both move because two components' worth of value-styled CSS and one
+component's 49-slot style contract were deleted, and the cases that existed only to
+guard them were deleted with them. Warnings and deprecations did not move all sprint.
+
 ---
 
 ## [v2.0.0-alpha.0] — 2026-09-13 — v2 Sprint 0: the Universal Design Contract, and testimonials rebuilt on it (#958)
+
+_Never tagged and never published as a release. This entry records what Sprint 0 landed on `main`; the work itself first reaches an install in 2.0.0-alpha.1._
 
 The first code of the v2 program. A component's designable surface stops being a hand-curated list of CSS custom properties and becomes a typed contract: named ROLES, each accepting families of parameters, per breakpoint and on hover, validated by one shared engine and emitted as a band-scoped block in the document head. `testimonials` is the first component on it. The other eleven are untouched and keep the v1 style-slot system exactly as it is until their own rebuild sprint — this is a build order, not a compatibility layer.
 
