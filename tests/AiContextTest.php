@@ -126,6 +126,107 @@ class AiContextTest extends TestCase
     }
 
     /**
+     * #1005 — the runtime prompt's delimiter-limits claim is checked against the
+     * GATES, not against itself.
+     *
+     * WHY THIS TEST IS EXECUTABLE RATHER THAN A STRING PIN. The defect it closes was
+     * a sentence that had been true when it was written and became false when #965
+     * moved the balance gate to the design-token RENDER boundary. A string pin would
+     * have survived that move unchanged — it pins the prose, and the prose was the
+     * thing that drifted. `ai-instructions/style-component.md` was updated in #965 and
+     * the runtime prompt was not, so the two model-facing surfaces disagreed and the
+     * authoritative one was the wrong one.
+     *
+     * So this runs the REAL predicates over probe values and asserts the prompt's
+     * claims match what they actually do. The claim and its evidence move together or
+     * the test goes red.
+     *
+     * THE FOUR CLAIMS, each one a thing the pre-#1005 sentence got wrong:
+     *   1. the limits are not `typography.family`-only — they serve every v2 parameter
+     *   2. they DO reach a design token, at render
+     *   3. a design token is nonetheless ACCEPTED at write, so the failure is a
+     *      silent drop rather than a refusal — which is the part that steers the model
+     *   4. brackets count, not only parentheses
+     */
+    public function testTheDelimiterLimitsParagraphMatchesTheGatesItDescribes(): void
+    {
+        $prompt   = pp_ai_system_prompt();
+        $registry = pp_design_tokens();
+        $this->assertNotEmpty($registry, 'the probe needs a real token registry to be meaningful');
+
+        // CLAIM 2 + 3: a design token takes an unbalanced value at write and loses it
+        // at render. Both halves asserted, because the prompt now promises both.
+        foreach (["'Foo's Font', serif", '"Foo (Display"'] as $unbalanced) {
+            $this->assertNotInstanceOf(
+                WP_Error::class,
+                _pp_validate_token_value('--font-heading', $unbalanced),
+                'the write path accepts it — that is why the prompt must warn about the RENDER drop'
+            );
+            $this->assertFalse(
+                pp_token_override_renders('--font-heading', $unbalanced, $registry),
+                'the render gate drops it, so the limits DO reach a design token'
+            );
+        }
+
+        // CLAIM 1: the gate is not scoped to `typography.family`. A background fill is
+        // the cheapest counter-example that is not a font at all.
+        $this->assertInstanceOf(
+            WP_Error::class,
+            pp_udc_validate_map(['card' => ['background' => ['fill' => 'rgb(0,0,0']]], 'testimonials'),
+            'every v2 udc parameter runs the balance gate, not only typography.family'
+        );
+
+        // CLAIM 4: brackets, not only parentheses.
+        $this->assertFalse(
+            _pp_udc_delimiters_balanced('([)]'),
+            'the gate requires proper NESTING, which the old sentence never mentioned'
+        );
+
+        // And the prompt must say all of it. These are the claims, not the prose:
+        // the assertions above are what makes them true.
+        $this->assertStringContainsString('EVERY v2 `udc` parameter, not just `typography.family`', $prompt);
+        $this->assertStringContainsString('the `:root` block the theme emits for design-token overrides', $prompt);
+        $this->assertStringContainsString('ACCEPTED at write and then DROPPED at render', $prompt);
+        $this->assertStringContainsString('`token_override_validity`', $prompt);
+        $this->assertStringNotContainsString(
+            'APPLY ONLY ON A v2 `udc` `typography.family` PARAMETER',
+            $prompt,
+            'the pre-#1005 claim was false on four axes; it must not come back'
+        );
+    }
+
+    /**
+     * #1005 — the two model-facing surfaces that describe the delimiter limits must
+     * not disagree again.
+     *
+     * `ai-instructions/style-component.md` was right and `lib/ai-context.php` was wrong
+     * for a whole release, and nothing noticed because no test read both. This reads
+     * both. It deliberately pins the SHARED CLAIM rather than identical wording — the
+     * instruction file writes for a reader with time, the runtime prompt for a model
+     * mid-turn, and forcing them to be byte-identical would be a worse contract than
+     * forcing them to agree.
+     */
+    public function testTheRuntimePromptAndTheInstructionFileAgreeOnWhereTheLimitsBite(): void
+    {
+        $prompt = pp_ai_system_prompt();
+        $doc    = file_get_contents(dirname(__DIR__) . '/ai-instructions/style-component.md');
+        $this->assertNotFalse($doc, 'the instruction file is the surface that was already correct');
+
+        foreach ([
+            'both say a udc value is refused at write'   => ['REFUSED at write', 'REFUSED at write'],
+            'both say a design token is dropped at render' => ['DROPPED at render', 'DROPPED at render'],
+        ] as $why => [$in_prompt, $in_doc]) {
+            $this->assertStringContainsString($in_prompt, $prompt, $why);
+            $this->assertStringContainsString($in_doc, $doc, $why);
+        }
+
+        // Neither surface may claim a v1 style slot is subject to the limits: it is the
+        // one sink where an unclosed mark really is inert, and saying otherwise would
+        // send an author renaming a font for no reason.
+        $this->assertStringContainsString('NOT a v1 style slot', $prompt);
+    }
+
+    /**
      * #579 — the `length-or-none` band-geometry grammar must be surfaced, and the
      * "how do I remove a max-width" guidance must route to the slot's own removal
      * value instead of the pre-#579 `100%` workaround, which existed only because
