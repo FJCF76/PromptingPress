@@ -44,6 +44,23 @@ use PHPUnit\Framework\TestCase;
 
 class ChromeUdcTest extends TestCase
 {
+    /**
+     * What pp_udc_site_map() answers for a row that was never written.
+     *
+     * Named rather than repeated because the container grew a second subtree in
+     * #1016: these three assertions are the ones that pin "absent reads as
+     * ABSENT, not as an empty-but-versioned container", and they must keep
+     * comparing the WHOLE shape — loosening them to a subset is how a future key
+     * would start life defined on a healthy row and missing on an empty one.
+     */
+    private const ABSENT_ROW = [
+        'version'         => 0,
+        'chrome'          => [],
+        'corrupt'         => false,
+        'presets'         => [],
+        'presets_version' => 0,
+    ];
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -695,7 +712,7 @@ class ChromeUdcTest extends TestCase
 
     public function testAnAbsentRowReadsAsNoChromeStylingAndVersionZero(): void
     {
-        $this->assertSame(['version' => 0, 'chrome' => [], 'corrupt' => false], pp_udc_site_map());
+        $this->assertSame(self::ABSENT_ROW, pp_udc_site_map());
         $this->assertSame('', pp_udc_chrome_authored_css());
         $this->assertSame('', pp_udc_chrome_defaults_css());
     }
@@ -922,7 +939,7 @@ class ChromeUdcTest extends TestCase
             $this->assertTrue($result['ok'], "'{$clear}' must clear: " . ($result['error'] ?? ''));
             $this->assertSame('', pp_udc_chrome_authored_css());
             $this->assertSame(
-                ['version' => 0, 'chrome' => [], 'corrupt' => false],
+                self::ABSENT_ROW,
                 pp_udc_site_map(),
                 'a cleared row reads as ABSENT, not as an empty-but-versioned container'
             );
@@ -1012,7 +1029,7 @@ class ChromeUdcTest extends TestCase
      */
     public function testClearingChromeThatIsAlreadyAbsentSucceeds(): void
     {
-        $this->assertSame(['version' => 0, 'chrome' => [], 'corrupt' => false], pp_udc_site_map());
+        $this->assertSame(self::ABSENT_ROW, pp_udc_site_map());
 
         $result = pp_execute_action('update_site_option', [
             'key' => PP_SITE_UDC_OPTION, 'value' => '',

@@ -622,12 +622,18 @@ function pp_udc_motion_defaults(): array {
 /**
  * The SYSTEM presets — named `udc` fragments the theme ships (ruling A3).
  *
- * Sprint 1 ships the resolution MECHANISM plus these three. Sprint 2 adds
- * author/AI-created presets; when it does, it merges its site-stored rows into
- * pp_udc_resolve_preset() and nothing else about the contract moves. That is what
- * "the Sprint-1/2 schemas encode against the preset contract from day one" buys:
- * the grain declaration, the name charset and the lookup seam are all already the
- * shape a custom preset needs.
+ * Sprint 1 shipped the resolution MECHANISM plus these three, and predicted that
+ * Sprint 2 would merge its site-stored rows in without moving anything else about
+ * the contract. That prediction held exactly (#1016): the merge is one `+` in
+ * pp_udc_presets(), and the grain declaration, the name charset and the lookup
+ * seam all took a custom preset unchanged. What the prediction did NOT cover, and
+ * what the merge cost in the end, was the container: two live paths rebuilt the
+ * site row from chrome names alone and would have deleted the preset store on
+ * every chrome write. The contract did not move; the storage layer under it did.
+ *
+ * These three are the UN-DELETABLE half of the registry. They ship in the theme,
+ * so no site write can remove one, and a custom preset may not take one of their
+ * names.
  *
  * ── Where the values come from ──────────────────────────────────────────────
  *
@@ -678,7 +684,7 @@ function pp_udc_motion_defaults(): array {
  * inlined and no chain is followed — emission was always `var(--name)`, and the
  * browser resolves the rest. See _pp_udc_reference_check().
  */
-function pp_udc_presets(): array {
+function pp_udc_system_presets(): array {
     static $presets = null;
     if ($presets !== null) {
         return $presets;
@@ -786,14 +792,92 @@ function pp_udc_presets(): array {
 }
 
 /**
+ * EVERY preset this site can reference: the theme's, plus the site's own (#1016).
+ *
+ * THE SEAM SPRINT 1 PROMISED, built where it said it would be. Until this existed
+ * the registry was a hardcoded `static` with no injection point, which left three
+ * branches of the preset path unreachable from any test — the nested-preset
+ * refusals, the group-grain DEFINITION branch, and, the one that mattered, the
+ * WRITE GATE's half of the T2 intersect split. #974 proved that last one by
+ * mutation: giving the gate a deliberately narrower second copy of the split left
+ * all 5012 tests green, because no preset existed that could tell the two apart.
+ * A store the tests can seed is what makes those branches provable, and it is the
+ * same store custom presets needed anyway. One seam, both jobs.
+ *
+ * SYSTEM WINS A COLLISION, and the collision is not supposed to happen. A custom
+ * preset may not TAKE a system name (the create verb refuses it, invariant I36 —
+ * two different bundles behind one bare name is exactly the hidden aliasing that
+ * rule forbids). The reachable case is the other direction: a theme release ships
+ * a system preset whose name a site already used. Resolving that silently in
+ * either direction changes what the site paints on upgrade, so the ranking is
+ * deterministic AND the shadowed row is reported — see pp_udc_shadowed_presets().
+ *
+ * CACHED ON THE STORED BYTES, not on "have I run yet". The sibling reader
+ * pp_udc_site_map() states the reason and this inherits it: a write during the
+ * same request changes the bytes and the cache misses, so this can never serve a
+ * stale registry back to the code that just wrote one. That is not hypothetical
+ * here — a save-then-read inside one action is the ordinary path.
+ */
+function pp_udc_presets(): array {
+    $system = pp_udc_system_presets();
+    $custom = pp_udc_custom_presets();
+    if ($custom === []) {
+        return $system; // The overwhelmingly common site, and no array work for it.
+    }
+    // `+` keeps the LEFT operand's key on a collision, so this is "system wins",
+    // and it also orders the theme's three first, which is the order the refusal
+    // messages and the runtime prompt list them in.
+    return $system + $custom;
+}
+
+/**
+ * The site's own presets, read fail-closed from the site container (#1016).
+ *
+ * The option guard is not ceremony. pp_udc_presets() is reached from places
+ * pp_udc_site_map() never was — a refusal message listing the available names,
+ * the runtime prompt's preset line — and this file is loaded by tooling that has
+ * the engine without the option store. No store means no custom presets, which is
+ * the same answer an empty store gives and is never mistaken for one: both are
+ * "the theme's three", and neither is a failed read mapped onto a valid answer.
+ */
+function pp_udc_custom_presets(): array {
+    if (!function_exists('get_option')) {
+        return [];
+    }
+    $site = pp_udc_site_map();
+    return isset($site['presets']) && is_array($site['presets']) ? $site['presets'] : [];
+}
+
+/**
+ * Custom preset names a theme-shipped preset is currently outranking (#1016).
+ *
+ * A SILENT RENDERING CHANGE IS THE THING THIS EXISTS TO PREVENT. The create verb
+ * refuses a system name, so the only way into this state is a theme upgrade that
+ * ships a name a site already used — and on that upgrade every band referencing
+ * the name starts painting the theme's bundle instead of the author's, with
+ * nothing anywhere saying so. Deterministic is not the same as disclosed.
+ *
+ * @return array<int, string>
+ */
+function pp_udc_shadowed_presets(): array {
+    $custom = pp_udc_custom_presets();
+    if ($custom === []) {
+        return [];
+    }
+    return array_values(array_intersect(array_keys($custom), array_keys(pp_udc_system_presets())));
+}
+
+/**
  * Resolves a preset name to its fragment, or null when nothing carries that name.
  *
  * THE ONE LOOKUP POINT, and the reason it exists as its own function rather than
- * an array read at the two call sites: Sprint 2's site-stored custom presets
- * merge HERE and nowhere else. Returning null rather than an empty fragment is
- * the same discipline pp_udc_resolve_reference() keeps — a failed read is never
- * mapped to a valid answer (invariant I9), so the caller refuses instead of
- * silently applying nothing.
+ * an array read at the call sites: site-stored custom presets merge in
+ * pp_udc_presets() and nowhere else, so every consumer of a preset — the write
+ * gate, the emitter, the disclosure — sees the same registry without any of them
+ * learning that a second source exists. Returning null rather than an empty
+ * fragment is the same discipline pp_udc_resolve_reference() keeps — a failed
+ * read is never mapped to a valid answer (invariant I9), so the caller refuses
+ * instead of silently applying nothing.
  *
  * @return array{grain: string, udc: array}|null
  */
@@ -1842,7 +1926,7 @@ function _pp_udc_validate_group_map(
                 }
                 $error = _pp_udc_validate_param(
                     $component, $role, $group_name, (string) $state_param,
-                    $state_value, $params, $band_tokens, $param_name
+                    $state_value, $params, $band_tokens, $param_name, $origin
                 );
                 if ($error !== null) {
                     return $error;
@@ -1870,7 +1954,7 @@ function _pp_udc_validate_group_map(
 
         $error = _pp_udc_validate_param(
             $component, $role, $group_name, $param_name,
-            $param_value, $params, $band_tokens, ''
+            $param_value, $params, $band_tokens, '', $origin
         );
         if ($error !== null) {
             return $error;
@@ -1894,23 +1978,37 @@ function _pp_udc_validate_param(
     $value,
     array $params,
     array $band_tokens,
-    string $state
+    string $state,
+    string $origin = ''
 ): ?WP_Error {
+    // THE ORIGIN HAS TO REACH THE VALUE-LEVEL MESSAGE, and for a while it did not.
+    //
+    // Every STRUCTURAL refusal in _pp_udc_validate_group_map() already carried
+    // ` (via preset "name")`, but the refusal an author actually meets — a value
+    // that fails its parameter's grammar — did not, because this function never
+    // took the suffix. With three well-formed theme presets that was invisible.
+    // With site-stored presets it is the ordinary case, and the message it
+    // produced pointed at a role, a group and a parameter in the author's OWN
+    // band that hold no such value: they would go hunting for something they
+    // never wrote. Invariant I24 asks for a stated reason AND a route back, and
+    // the route back here is the preset's name.
     $where = sprintf(
-        'Component "%s" role "%s" group "%s"%s parameter "%s"',
+        'Component "%s" role "%s" group "%s"%s%s parameter "%s"',
         $component,
         $role,
         $group,
+        $origin,
         $state !== '' ? ' ' . $state : '',
         $param_name
     );
 
     if (!isset($params[$param_name])) {
         return new WP_Error('invalid_prop_value', sprintf(
-            'Component "%s" role "%s" group "%s"%s has no parameter %s. Available parameters: %s',
+            'Component "%s" role "%s" group "%s"%s%s has no parameter %s. Available parameters: %s',
             $component,
             $role,
             $group,
+            $origin,
             $state !== '' ? ' ' . $state : '',
             _pp_render_undeclared_prop_keys([$param_name]),
             implode(', ', array_keys($params))
@@ -3423,6 +3521,56 @@ const PP_SITE_UDC_MAX_BYTES = 65536;
 const PP_SITE_UDC_MAX_DEPTH = 8;
 
 /**
+ * The custom-preset subtree of the site container, and its own CAS baseline (#1016).
+ *
+ * TWO SUBTREES, ONE ROW, TWO COUNTERS. Ruling A3 says custom presets are
+ * site-stored; ruling A1 already built a site-scoped container with an advisory
+ * lock, a baseline INSIDE the value, a cache-bypassing row read for the compare,
+ * a byte ceiling and a fail-closed reader. A sibling option would be a second copy
+ * of all of it, so presets move in here instead — under an engine-owned
+ * `_`-prefixed key, which by construction cannot collide with a chrome component
+ * name (those are registry-controlled and carry no underscore).
+ *
+ * The BASELINE is not shared, and that is deliberate rather than tidy. One counter
+ * would mean a chrome write invalidates every preset baseline a caller is holding
+ * and vice versa — a conflict refusal for a reason that has nothing to do with
+ * what the caller read. A guarantee that refuses for unrelated reasons teaches
+ * callers to stop sending baselines, which is how I8 gets lost in practice. Two
+ * counters in ONE row keep both compares honest and both writes atomic.
+ *
+ * WHAT MAKES THAT SAFE IS THE PRESERVE-FOREIGN-SUBTREE RULE, not the counters:
+ * every writer reads the current row inside the lock, patches only the subtree it
+ * owns, and carries the other one forward. Both halves of that were BROKEN when
+ * this key was designed — pp_udc_normalize_site_map() rebuilt the container from
+ * chrome names alone, and the clear arm deleted the whole row — so the rule is
+ * pinned in both directions rather than left as an intention.
+ *
+ *     {"_version": 4,            <- chrome's baseline
+ *      "_presets_version": 2,    <- the preset store's baseline
+ *      "_presets": {"brand-cta": {"grain": "role", "udc": {…}}},
+ *      "nav": {…}, "footer": {…}}
+ */
+const PP_SITE_PRESETS_KEY         = '_presets';
+const PP_SITE_PRESETS_VERSION_KEY = '_presets_version';
+
+/**
+ * Two bounds on the preset store, because one cannot describe both failures.
+ *
+ * The container's 64 KB ceiling is SHARED with chrome, so an unbounded preset
+ * store can crowd chrome styling out of a row that still validates — a chrome
+ * write would then be refused for a reason the author cannot see from the chrome
+ * write. Capping the COUNT alone does not close that: one enormous preset reaches
+ * the same place. So both are bounded, and the refusal names which bound it hit —
+ * "too many presets" over a byte exhaustion would be a message that sends the
+ * author to delete rows when the fix is to shrink one.
+ *
+ * 64 presets is far past any real design system's shared-bundle count; 8 KB is
+ * roughly ten times the largest system preset this theme ships.
+ */
+const PP_SITE_PRESETS_MAX     = 64;
+const PP_SITE_PRESET_MAX_BYTES = 8192;
+
+/**
  * The chrome components, derived from the template-owned list rather than retyped.
  *
  * ONE LIST, TWO READERS. pp_template_owned_components() already decides which
@@ -3511,7 +3659,9 @@ function pp_udc_site_map(): array {
  * drifted would either refuse writes on a readable row or accept them on an
  * unreadable one.
  *
- * Returns `['version' => int, 'chrome' => [name => map], 'corrupt' => bool]`.
+ * Returns `['version' => int, 'chrome' => [name => map], 'corrupt' => bool,
+ * 'presets' => [name => preset], 'presets_version' => int]` — the same five keys
+ * on every return, healthy or not.
  *
  * ABSENT AND CORRUPT ARE DIFFERENT ANSWERS, and conflating them is a data-loss bug
  * rather than a tidiness one. Both yield NO chrome styling — that part is the same
@@ -3523,12 +3673,26 @@ function pp_udc_site_map(): array {
  * answer it was being mapped to was the empty site.
  */
 function pp_udc_parse_site_map(string $raw): array {
-    $empty = ['version' => 0, 'chrome' => [], 'corrupt' => false];
+    // ONE SHAPE ON EVERY RETURN, and it stopped being free the moment the
+    // container grew a second subtree (#1016). Four early returns used to spell
+    // the empty answer as a literal; a fifth key added to the populated answer
+    // alone would make `$site['presets']` defined on a healthy row and undefined
+    // on an absent one — a distinction no caller wants and every caller would
+    // eventually trip over. Derived once, so a sixth key cannot reintroduce it.
+    $empty = static function (bool $corrupt): array {
+        return [
+            'version'         => 0,
+            'chrome'          => [],
+            'corrupt'         => $corrupt,
+            'presets'         => [],
+            'presets_version' => 0,
+        ];
+    };
     if (trim($raw) === '') {
-        return $empty;
+        return $empty(false);
     }
     if (strlen($raw) > PP_SITE_UDC_MAX_BYTES) {
-        return ['version' => 0, 'chrome' => [], 'corrupt' => true];
+        return $empty(true);
     }
 
     $decoded = json_decode($raw, true, PP_SITE_UDC_MAX_DEPTH);
@@ -3544,15 +3708,43 @@ function pp_udc_parse_site_map(string $raw): array {
     if (!is_array($decoded)
         || json_last_error() !== JSON_ERROR_NONE
         || (function_exists('pp_is_list') && pp_is_list($decoded) && $decoded !== [])) {
-        return ['version' => 0, 'chrome' => [], 'corrupt' => true];
+        return $empty(true);
     }
 
-    $out = ['version' => 0, 'chrome' => [], 'corrupt' => false];
+    $out = $empty(false);
     if (isset($decoded[PP_SITE_UDC_VERSION_KEY]) && is_scalar($decoded[PP_SITE_UDC_VERSION_KEY])) {
         $version = (string) $decoded[PP_SITE_UDC_VERSION_KEY];
         // Reject, never coerce: a non-numeric version is a corrupt marker, and
         // reading it as 0 would hand a caller a baseline the store never issued.
         $out['version'] = preg_match('/^[0-9]+$/', $version) ? (int) $version : 0;
+    }
+    // THE PRESET BASELINE READS EXACTLY LIKE THE CHROME ONE (#1016), including the
+    // parts that look like omissions. Absent means 0, which is also what a row
+    // written before this key existed reports — that is the migration story, and it
+    // needs no migration: the first preset write persists the key at 1, and until
+    // then a caller holding baseline 0 is holding the truth. A malformed marker
+    // also reads 0 WITHOUT flagging the container corrupt, because `corrupt` is a
+    // statement about the container and not its members (see above); a junk
+    // baseline on a readable row refuses every baselined preset write by
+    // mismatching, which is the safe direction.
+    if (isset($decoded[PP_SITE_PRESETS_VERSION_KEY]) && is_scalar($decoded[PP_SITE_PRESETS_VERSION_KEY])) {
+        $presets_version = (string) $decoded[PP_SITE_PRESETS_VERSION_KEY];
+        $out['presets_version'] = preg_match('/^[0-9]+$/', $presets_version) ? (int) $presets_version : 0;
+    }
+    if (isset($decoded[PP_SITE_PRESETS_KEY]) && is_array($decoded[PP_SITE_PRESETS_KEY])) {
+        foreach ($decoded[PP_SITE_PRESETS_KEY] as $name => $preset) {
+            // FAIL CLOSED PER MEMBER, exactly as a junk chrome entry does: a row
+            // that decoded fine but holds one unusable preset contributes no
+            // preset rather than a half-shaped one the resolver would hand to the
+            // compiler. `json_decode` turns an all-digit key into an INTEGER array
+            // key, so the cast is not cosmetic — pp_udc_valid_preset_name() takes a
+            // string, and a preset named "7" is a name an author can legally pick.
+            $name = (string) $name;
+            if (!pp_udc_valid_preset_name($name) || !_pp_udc_is_preset_shaped($preset)) {
+                continue;
+            }
+            $out['presets'][$name] = $preset;
+        }
     }
     foreach (pp_udc_chrome_names() as $name) {
         if (isset($decoded[$name]) && is_array($decoded[$name])) {
@@ -3560,6 +3752,20 @@ function pp_udc_parse_site_map(string $raw): array {
         }
     }
     return $out;
+}
+
+/**
+ * True when a stored value has the shape the resolver may hand to the compiler.
+ *
+ * The same two fields _pp_udc_preset_fragment() reads, checked before it reads
+ * them. A stored preset comes off a row that a raw `wp option update` can write,
+ * so "the write gate accepted it" is never a premise the READER may rely on — the
+ * identical reason pp_udc_parse_site_map() fails closed on the container.
+ */
+function _pp_udc_is_preset_shaped($preset): bool {
+    return is_array($preset)
+        && isset($preset['grain']) && is_string($preset['grain']) && $preset['grain'] !== ''
+        && isset($preset['udc']) && is_array($preset['udc']);
 }
 
 /**
