@@ -4700,16 +4700,19 @@ pp_register_action('delete_preset', [
             ));
         }
         if ($scan['references'] !== []) {
+            // THE COUNT IS THE TOTAL, THE LIST IS THE SAMPLE. The collector caps
+            // what it keeps, so `references` is at most PP_UDC_MAX_PRESET_REFERENCES
+            // while `references_total` is exact — and it is the total an operator
+            // needs to know, not how many the collector chose to hold.
+            $total = (int) ($scan['references_total'] ?? count($scan['references']));
             return new WP_Error('invalid_param_value', sprintf(
                 'The preset "%s" is still referenced by %s, so it was not deleted: %s. Change or remove '
                 . 'those references first — deleting now would leave each of them pointing at a preset '
                 . 'that does not exist, and those declarations would stop painting with nothing to say why.',
                 $name,
-                count($scan['references']) === 1 ? '1 place' : count($scan['references']) . ' places',
+                $total === 1 ? '1 place' : $total . ' places',
                 implode('; ', array_slice($scan['references'], 0, 20))
-                    . (count($scan['references']) > 20
-                        ? sprintf('; and %d more', count($scan['references']) - 20)
-                        : '')
+                    . ($total > 20 ? sprintf('; and %d more', $total - 20) : '')
             ));
         }
         return null;

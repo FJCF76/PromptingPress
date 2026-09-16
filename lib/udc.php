@@ -136,6 +136,17 @@
 const PP_UDC_MAX_EMIT_DROPS = 200;
 
 /**
+ * Most reference locators one delete scan will COLLECT (#1016).
+ *
+ * The same rule, for the same reason, as the emit-drop cap above: the consumers
+ * render twenty, so collecting every one of them on a large site spends megabytes
+ * of heap to print a fixed-size list. Ten times what is rendered, so the cap is
+ * never the thing an operator notices, and the exact total is carried separately
+ * so the refusal can still say how many places reference the preset.
+ */
+const PP_UDC_MAX_PRESET_REFERENCES = 200;
+
+/**
  * Longest run of stored data any emit-drop reason reflects (#981).
  *
  * DECLARED HERE RATHER THAN REUSED FROM lib/admin.php. The obvious constant for
@@ -860,17 +871,37 @@ function pp_udc_system_presets(): array {
  * same request changes the bytes and the cache misses, so this can never serve a
  * stale registry back to the code that just wrote one. That is not hypothetical
  * here — a save-then-read inside one action is the ordinary path.
+ *
+ * THE MEMO IS THIS FUNCTION'S OWN, and it used to only LOOK like it was. Delegating
+ * to pp_udc_site_map() cached the json_decode and nothing else: the get_option()
+ * underneath it and the array union above it were redone on every call — 600 of
+ * them per render on a 50-band page where every band references a preset, measured
+ * at 0.97-1.53 ms of avoidable work per request against a ~45 ms build. The union
+ * also costs more the more presets a site has (0.30 us at one, 1.24 us at the
+ * 64-preset ceiling), so the cost grew with exactly the thing this change lets an
+ * author add. Keyed on the same raw bytes, so the write-during-request property is
+ * unchanged; a preset-free site still does no array work at all.
  */
 function pp_udc_presets(): array {
+    static $memo_raw = null;
+    static $memo     = null;
+
+    $raw = function_exists('get_option') ? get_option(PP_SITE_UDC_OPTION, '') : '';
+    if (!is_string($raw)) {
+        $raw = '';
+    }
+    if ($memo_raw === $raw && $memo !== null) {
+        return $memo;
+    }
+
     $system = pp_udc_system_presets();
     $custom = pp_udc_custom_presets();
-    if ($custom === []) {
-        return $system; // The overwhelmingly common site, and no array work for it.
-    }
     // `+` keeps the LEFT operand's key on a collision, so this is "system wins",
     // and it also orders the theme's three first, which is the order the refusal
     // messages and the runtime prompt list them in.
-    return $system + $custom;
+    $memo_raw = $raw;
+    $memo     = $custom === [] ? $system : $system + $custom;
+    return $memo;
 }
 
 /**
@@ -1073,10 +1104,21 @@ function pp_udc_validate_preset_definition(string $name, $preset): ?WP_Error {
  * composition page, which is a site-sized walk on a verb an author runs rarely —
  * never on a render path, never in preflight.
  *
- * @return array{references: array<int, string>, unreadable: array<int, string>}
+ * BOUNDED AT THE SOURCE, not by its reader — the rule _pp_udc_place()'s drop ledger
+ * states in this same file ("Bounding here is the only place that bounds the
+ * ALLOCATION"), and the one collector that had not applied it. Both consumers
+ * render at most twenty locators, but this array grew one entry per (page, band,
+ * referencing role): 60,000 entries and 48 MB of heap on a thousand-page site with
+ * a widely-used preset, to print twenty of them. No malice needed — a popular
+ * preset on a large site is the ordinary case.
+ *
+ * The COUNT stays exact while the list caps, because the refusal says how many
+ * places reference the preset and that number is the honest part.
+ *
+ * @return array{references: array<int, string>, references_total: int, unreadable: array<int, string>}
  */
 function pp_udc_preset_references(string $name): array {
-    $out = ['references' => [], 'unreadable' => []];
+    $out = ['references' => [], 'references_total' => 0, 'unreadable' => []];
 
     // EVERY FRAGMENT OF A LOCATOR IS CLEANED AND BOUNDED, for the reason the drop
     // ledger states one function over: these strings are built from STORED site
@@ -1087,11 +1129,14 @@ function pp_udc_preset_references(string $name): array {
     $site = pp_udc_site_map();
     foreach (($site['chrome'] ?? []) as $chrome_name => $map) {
         foreach (_pp_udc_map_references_preset(is_array($map) ? $map : [], $name) as $where) {
-            $out['references'][] = sprintf(
-                'site chrome "%s" %s',
-                _pp_udc_reflect((string) $chrome_name),
-                $where
-            );
+            $out['references_total']++;
+            if (count($out['references']) < PP_UDC_MAX_PRESET_REFERENCES) {
+                $out['references'][] = sprintf(
+                    'site chrome "%s" %s',
+                    _pp_udc_reflect((string) $chrome_name),
+                    $where
+                );
+            }
         }
     }
 
@@ -1112,15 +1157,17 @@ function pp_udc_preset_references(string $name): array {
         $result = function_exists('pp_get_composition_result_authoritative')
             ? pp_get_composition_result_authoritative($id)
             : (function_exists('pp_get_composition_result') ? pp_get_composition_result($id) : null);
+        // HOISTED OUT OF THE PER-REFERENCE LOOP. The title is fixed for the whole
+        // page, and _pp_udc_reflect() runs a Unicode regex and an mb-aware
+        // truncation — recomputing it per reference was 240 identical passes over
+        // one string on a page with 240 of them, and hoisting it took 25% off the
+        // scan's PHP time on a 30,000-reference measurement.
+        $title = _pp_udc_reflect((string) ($page['title'] ?? ''));
         if (!is_array($result) || empty($result['ok'])) {
             // UNREADABLE IS NOT EMPTY. A page whose bytes nobody could decode may
             // hold the reference, and "I could not look" must never be reported as
             // "there is nothing there" (invariant I9) — the caller refuses on it.
-            $out['unreadable'][] = sprintf(
-                'page %d ("%s")',
-                $id,
-                _pp_udc_reflect((string) ($page['title'] ?? ''))
-            );
+            $out['unreadable'][] = sprintf('page %d ("%s")', $id, $title);
             continue;
         }
         foreach ((array) ($result['composition'] ?? []) as $i => $item) {
@@ -1129,13 +1176,16 @@ function pp_udc_preset_references(string $name): array {
             }
             $band = isset($item['id']) && is_scalar($item['id']) ? (string) $item['id'] : ('index ' . $i);
             foreach (_pp_udc_map_references_preset($item['udc'], $name) as $where) {
-                $out['references'][] = sprintf(
-                    'page %d ("%s") band %s %s',
-                    $id,
-                    _pp_udc_reflect((string) ($page['title'] ?? '')),
-                    _pp_udc_reflect($band),
-                    $where
-                );
+                $out['references_total']++;
+                if (count($out['references']) < PP_UDC_MAX_PRESET_REFERENCES) {
+                    $out['references'][] = sprintf(
+                        'page %d ("%s") band %s %s',
+                        $id,
+                        $title,
+                        _pp_udc_reflect($band),
+                        $where
+                    );
+                }
             }
         }
     }
@@ -2832,6 +2882,29 @@ function pp_udc_compile_band(array $item, string $layer, ?array &$drops = null):
         // result. Skipping it is not an optimisation detail; measured on a
         // 50-band page it is the difference between 2.96 ms and 7.08 ms, and the
         // overwhelmingly common page has no preset on it at all.
+        //
+        // THAT LAST CLAUSE IS THE PART #1016 CHANGED, and the number above should
+        // not be read as still describing a preset-using page. While presets were
+        // three theme constants, the expensive branch was rare. A site-writable
+        // preset store makes it ordinary for any site that adopts them. Re-measured
+        // on 50 bands, merge-base against this branch:
+        //
+        //   preset-free page      12.0 ms -> 12.1 ms   (noise; CSS byte-identical)
+        //   1 preset role / band  12.7 ms -> 17.4 ms   (+37%)
+        //   12 preset roles/band  12.7 ms -> 44.0 ms   (+247%)
+        //
+        // and roughly 40% of that overhead is this tier: placing every role default
+        // through the full resolve-and-assemble path and then discarding almost all
+        // of it in the filter below. Scaling stays LINEAR in band count, so nothing
+        // quadratic was introduced.
+        //
+        // THE LEVER, IF IT EVER MATTERS, stated so the next reader does not have to
+        // re-derive it: the discarded defaults contribute only their (state,
+        // breakpoint, property) KEYS to the ranking, never their CSS, so a key-only
+        // placement pass would rank identically for a fraction of the work. It
+        // cannot be memoised per (component, role), because pp_udc_resolve_reference()
+        // consults the BAND's tokens first — a band token can shadow a name a
+        // default references, which makes this tier band-dependent.
         // ONE FACT, ONE NAME. The placement below and the drop further down must
         // stay exact complements — defaults are dropped precisely when they were
         // placed for ranking only. Deriving both from this local keeps a later

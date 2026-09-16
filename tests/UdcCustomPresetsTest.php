@@ -1205,6 +1205,78 @@ graphy";
         $this->assertStringContainsString('broken0', $result['error']);
     }
 
+    // ── 5e. What the performance specialist measured ────────────────────────
+
+    /**
+     * THE REGISTRY MEMO IS KEYED ON THE STORED BYTES, so a write during the same
+     * request is still seen.
+     *
+     * The memo is the point — the union and the option read were being redone on
+     * every preset resolution, 600 times on a dense page — but a memo that cannot
+     * be invalidated is worse than none here, because save-then-read inside one
+     * action is the ordinary path.
+     */
+    public function testTheRegistryMemoStillSeesAWriteInTheSameRequest(): void
+    {
+        $this->assertArrayNotHasKey('brand-type', pp_udc_presets(), 'warm the memo on an empty store');
+
+        $this->assertTrue($this->save('brand-type', $this->brandType())['ok']);
+
+        $this->assertArrayHasKey(
+            'brand-type',
+            pp_udc_presets(),
+            'a write changes the stored bytes, so the memo must miss'
+        );
+        $this->assertArrayHasKey('button', pp_udc_presets(), 'and the theme presets are still there');
+
+        $this->assertTrue(pp_execute_action('delete_preset', ['name' => 'brand-type'])['ok']);
+        $this->assertArrayNotHasKey('brand-type', pp_udc_presets(), 'and a delete too');
+    }
+
+    /**
+     * The reference collector caps what it KEEPS while counting what it FINDS.
+     *
+     * Both consumers render twenty locators, so collecting every one of them spent
+     * heap linear in site size to print a fixed-size list — the rule the emit-drop
+     * ledger states in the same file and this collector had not applied. The count
+     * stays exact, because "how many places reference this" is the part an operator
+     * acts on.
+     */
+    public function testTheReferenceCollectorCapsWhatItKeepsAndCountsWhatItFinds(): void
+    {
+        $this->assertTrue($this->save('brand-type', $this->brandType())['ok']);
+
+        $wanted = PP_UDC_MAX_PRESET_REFERENCES + 25;
+        $bands  = [];
+        for ($i = 0; $i < $wanted; $i++) {
+            $bands[] = [
+                'component' => 'testimonials',
+                'id'        => sprintf('pp-%08x', $i + 1),
+                'props'     => ['items' => [['quote' => 'Great.', 'author' => 'Ada']]],
+                'udc'       => ['list' => [PP_UDC_PRESET_KEY => 'brand-type']],
+            ];
+        }
+        $id = pp_create_page('Very many references', 'draft');
+        $this->assertTrue(pp_execute_action('update_composition', [
+            'post_id' => $id, 'composition' => $bands,
+        ])['ok']);
+
+        $scan = pp_udc_preset_references('brand-type');
+
+        $this->assertSame($wanted, $scan['references_total'], 'the count is exact');
+        $this->assertCount(
+            PP_UDC_MAX_PRESET_REFERENCES,
+            $scan['references'],
+            'the kept list is capped'
+        );
+
+        // And the refusal reports the TOTAL, not the size of the sample.
+        $result = pp_execute_action('delete_preset', ['name' => 'brand-type']);
+        $this->assertFalse($result['ok']);
+        $this->assertStringContainsString($wanted . ' places', $result['error']);
+        $this->assertStringContainsString(sprintf('and %d more', $wanted - 20), $result['error']);
+    }
+
     // ── 6. The T2 intersect, on a CUSTOM preset, band AND chrome ────────────
 
     /**
