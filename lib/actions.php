@@ -942,10 +942,17 @@ function pp_execute_action(string $name, array $params): array {
     // a preset to declare a group nav's `link` does not permit and that role starts
     // partially applying it, silently, because the only channel that reports the
     // skip fires on the other verb. #993's own reasoning said this becomes
-    // constructible the moment custom presets ship — so it ships closed rather than
-    // as the next latent finding. The disclosure is derived from the STORED
-    // container either way, so what a preset write reports is the state that write
-    // produced, not a stale reading of it.
+    // constructible the moment custom presets ship — so the CHROME half ships closed
+    // rather than as the next latent finding. The disclosure is derived from the
+    // STORED container either way, so what a preset write reports is the state that
+    // write produced, not a stale reading of it.
+    //
+    // BE PRECISE ABOUT WHAT IS STILL OPEN: this closes the chrome half only. A
+    // preset is referenced from BANDS too — delete_preset's own scan proves it, and
+    // names them `page %d ("%s") band %s role "%s"` — and a preset write that
+    // changes what those bands paint has no findings channel, because the
+    // composition disclosures are assembled per composition write. See the filed
+    // follow-up.
     $writes_site_udc = ($name === 'update_site_option' && ($params['key'] ?? '') === PP_SITE_UDC_OPTION)
         || $name === 'save_preset'
         || $name === 'delete_preset';
@@ -2941,10 +2948,12 @@ function _pp_restore_batch_snapshot_report(array $snapshot): array {
         // ── THE READ-COMPARE-WRITE, AS ONE UNIT THE LOCK CAN WRAP (#979) ─────
         //
         // pp_site_udc is the one whitelisted key whose FORWARD writes all run inside
-        // an advisory lock: _pp_update_site_udc() (lib/wp.php) wraps both its write
-        // and its clear arm in _pp_with_advisory_lock(_pp_site_udc_lock_name(), …),
-        // because the row carries a version counter and a lost update there silently
-        // discards a concurrent author's chrome. This restore replays that same row
+        // an advisory lock. Two functions write it, and both take the same lock:
+        // _pp_update_site_udc() (lib/wp.php) wraps its write arm and its clear arm,
+        // and pp_update_site_preset() wraps the preset store that shares the row
+        // (#1016) — each through _pp_with_advisory_lock(_pp_site_udc_lock_name(), …),
+        // because the row carries version counters and a lost update there silently
+        // discards a concurrent author's chrome or presets. This restore replays that same row
         // and was taking no lock at all — making the rollback the one writer in the
         // system able to land on top of a CAS-guarded write that had just committed,
         // defeating the guarantee ruling A1 introduced.
@@ -4679,6 +4688,7 @@ pp_register_action('delete_preset', [
         }
         $scan = pp_udc_preset_references($name);
         if ($scan['unreadable'] !== []) {
+            $unreadable_total = (int) $scan['unreadable_total'];
             return new WP_Error('invalid_param_value', sprintf(
                 'Whether "%s" is still in use cannot be determined: the stored composition of %s could '
                 . 'not be read, and a preset may not be deleted while a page that might reference it is '
@@ -4692,11 +4702,8 @@ pp_register_action('delete_preset', [
                 // tens-of-KB message on the terminal, the chat envelope and the
                 // model's context. The count is stated separately, so nothing
                 // diagnostic is lost by showing ten names instead of all of them.
-                implode(', ', array_slice($scan['unreadable'], 0, 10))
-                    . (count($scan['unreadable']) > 10
-                        ? sprintf(', and %d more', count($scan['unreadable']) - 10)
-                        : ''),
-                count($scan['unreadable']) === 1 ? 'it' : 'those pages'
+                pp_udc_bounded_list($scan['unreadable'], 10, $unreadable_total),
+                $unreadable_total === 1 ? 'it' : 'those pages'
             ));
         }
         if ($scan['references'] !== []) {
@@ -4704,15 +4711,14 @@ pp_register_action('delete_preset', [
             // what it keeps, so `references` is at most PP_UDC_MAX_PRESET_REFERENCES
             // while `references_total` is exact — and it is the total an operator
             // needs to know, not how many the collector chose to hold.
-            $total = (int) ($scan['references_total'] ?? count($scan['references']));
+            $total = (int) $scan['references_total'];
             return new WP_Error('invalid_param_value', sprintf(
                 'The preset "%s" is still referenced by %s, so it was not deleted: %s. Change or remove '
                 . 'those references first — deleting now would leave each of them pointing at a preset '
                 . 'that does not exist, and those declarations would stop painting with nothing to say why.',
                 $name,
                 $total === 1 ? '1 place' : $total . ' places',
-                implode('; ', array_slice($scan['references'], 0, 20))
-                    . ($total > 20 ? sprintf('; and %d more', $total - 20) : '')
+                pp_udc_bounded_list($scan['references'], 20, $total, '; ')
             ));
         }
         return null;

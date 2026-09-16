@@ -919,16 +919,6 @@ function pp_preflight(array $context = [], ?array $drift = null): array {
         $checks[] = $retired_check;
     }
 
-    // Check 8f: a site preset a theme preset now outranks (warning-grade,
-    // advisory, #1016). Unconditional for the same reason as 8d: a preset is
-    // referenced from bands AND from chrome, so there is no page context in which
-    // skipping it would be right. The site cannot create this state — the save
-    // verb refuses a theme name — so when it appears, a theme upgrade changed what
-    // the site paints and nothing else would say so.
-    foreach (pp_check_shadowed_presets() as $shadow_check) {
-        $checks[] = $shadow_check;
-    }
-
     // Check 8e: stored `udc` values the emitter discards at render (warning-grade,
     // advisory). The GENERAL case of 8c — a deleted attachment was never the only
     // way a stored value stops painting, it was only the one anybody could see. The
@@ -941,6 +931,16 @@ function pp_preflight(array $context = [], ?array $drift = null): array {
     // clause was never what decided it.
     foreach (pp_check_udc_emit_drops($pp_bg_post, $pp_udc_composition) as $drop_check) {
         $checks[] = $drop_check;
+    }
+
+    // Check 8f: a site preset a theme preset now outranks (warning-grade,
+    // advisory, #1016). Unconditional for the same reason as 8d: a preset is
+    // referenced from bands AND from chrome, so there is no page context in which
+    // skipping it would be right. The site cannot create this state — the save
+    // verb refuses a theme name — so when it appears, a theme upgrade changed what
+    // the site paints and nothing else would say so.
+    foreach (pp_check_shadowed_presets() as $shadow_check) {
+        $checks[] = $shadow_check;
     }
 
     // Check 9: Screenshot readiness (warning-grade, advisory — never blocks a mutation).

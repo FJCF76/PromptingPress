@@ -1277,6 +1277,64 @@ graphy";
         $this->assertStringContainsString(sprintf('and %d more', $wanted - 20), $result['error']);
     }
 
+    /**
+     * A CHROME CLEAR MUST NOT REWIND THE PRESET BASELINE.
+     *
+     * The container builder fixed this ABA for the preset verbs and the clear arm
+     * reintroduced it through the other tenant: it deleted the row whenever the
+     * preset MAP was empty, so create-then-delete-then-clear-chrome put the counter
+     * back to 0 and a caller holding a baseline from before all three passed the
+     * compare. A counter that can go backwards is not a counter, whichever verb
+     * rewinds it.
+     */
+    public function testAChromeClearDoesNotRewindThePresetBaseline(): void
+    {
+        $this->assertTrue($this->save('brand-type', $this->brandType())['ok']);
+        $this->assertTrue(pp_execute_action('delete_preset', ['name' => 'brand-type'])['ok']);
+        $this->assertSame([], pp_udc_custom_presets(), 'the store is empty');
+        $this->assertSame(2, pp_udc_site_map()['presets_version']);
+
+        $this->assertTrue($this->clearChrome()['ok']);
+
+        $this->assertSame(
+            2,
+            pp_udc_site_map()['presets_version'],
+            'clearing chrome is not a reset of the preset baseline'
+        );
+        $stale = $this->save('other', $this->brandType(), 'role', ['expected_version' => 0]);
+        $this->assertFalse($stale['ok'], 'so a baseline from before those writes still conflicts');
+        $this->assertSame('site_option_conflict', $stale['error_code']);
+    }
+
+    /** A site that never had a preset still loses the row entirely on a clear. */
+    public function testAChromeClearOnASiteThatNeverHadPresetsStillRemovesTheRow(): void
+    {
+        $this->assertTrue($this->writeChrome(['nav' => ['_band' => ['background' => ['fill' => '#101828']]]])['ok']);
+
+        $this->assertTrue($this->clearChrome()['ok']);
+
+        $this->assertFalse(
+            isset($GLOBALS['_pp_test_store']['options'][PP_SITE_UDC_OPTION]),
+            'nothing has ever been written to either tenant, so the row goes away'
+        );
+    }
+
+    /** The unreadable-pages list caps at source too, and its count stays exact. */
+    public function testTheUnreadablePageListIsCappedAtSource(): void
+    {
+        $this->assertTrue($this->save('brand-type', $this->brandType())['ok']);
+        $wanted = PP_UDC_MAX_PRESET_REFERENCES + 5;
+        for ($i = 0; $i < $wanted; $i++) {
+            $id = pp_create_page('Corrupt ' . $i, 'draft');
+            update_post_meta($id, '_pp_composition', '{not json');
+        }
+
+        $scan = pp_udc_preset_references('brand-type');
+
+        $this->assertSame($wanted, $scan['unreadable_total'], 'the count is exact');
+        $this->assertCount(PP_UDC_MAX_PRESET_REFERENCES, $scan['unreadable'], 'the kept list caps');
+    }
+
     // ── 6. The T2 intersect, on a CUSTOM preset, band AND chrome ────────────
 
     /**

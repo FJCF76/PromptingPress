@@ -1444,9 +1444,16 @@ function pp_assign_menu_location(int $menu_id, string $location): bool {
  * Returns all pages using the Composition template.
  * Each entry: ['id' => int, 'title' => string, 'status' => string, 'url' => string].
  * URL is get_permalink() for all statuses (best available WP link, not guaranteed public for drafts).
- * Uses static cache — safe to call multiple times per request.
+ * Uses a static cache unless `$fresh` is passed — safe to call multiple times per
+ * request, and cheap to, EXCEPT on the fresh path.
  *
- * @return array
+ * @param  bool $fresh Bypass the memo for this call and leave it untouched. For a
+ *                     GATE, which may not be opened by a possibly-stale list: a
+ *                     page missing from a memo filled earlier in the request is a
+ *                     reference the gate would not see. A fresh call re-queries
+ *                     every time and does NOT refill the memo, so one caller's
+ *                     need for freshness never changes what others see.
+ * @return array<int, array{id: int, title: string, status: string, url: string}>
  */
 function pp_composition_pages(bool $fresh = false): array {
     static $cache = null;
@@ -7697,7 +7704,15 @@ function _pp_update_site_udc(string $value, ?int $expected_version) {
             // what makes the next read report ABSENT rather than an empty-but-
             // versioned container — the property the clear path exists for and the
             // one its tests pin.
-            if ($current['presets'] !== []) {
+            // THE BASELINE OUTLIVES THE STORE HERE TOO, and gating this on the preset
+            // MAP alone reintroduced through the other tenant's verb exactly the ABA
+            // pp_udc_site_container() fixed. Create a preset, delete it, then clear
+            // chrome: the map is empty so the row was deleted, and `presets_version`
+            // read 0 again — so a caller still holding the baseline it earned before
+            // any of that passed the compare. The row goes away only when NEITHER
+            // tenant has ever written, which is also what keeps a pre-#1016 row
+            // byte-identical.
+            if ($current['presets'] !== [] || $current['presets_version'] > 0) {
                 $kept = pp_udc_normalize_site_map(
                     [],
                     $current['version'] + 1,
@@ -8011,7 +8026,7 @@ function pp_update_site_preset(string $name, ?array $preset, ?int $expected_vers
         // is the same silent-data-loss shape as the chrome normalizer's, one tenant
         // over, and it gets the same answer: refuse, name the row, and say how to
         // clear it deliberately.
-        if (($current['presets_unreadable'] ?? []) !== []) {
+        if ($current['presets_unreadable'] !== []) {
             return new WP_Error('site_option_corrupt', sprintf(
                 'The preset store holds %d entr%s this engine cannot read (%s), and writing a preset now '
                 . 'would drop %s. Nothing was written. Repair or remove %s with `wp option patch` on %s, '
@@ -8023,10 +8038,11 @@ function pp_update_site_preset(string $name, ?array $preset, ?int $expected_vers
                 // 64 KB row, which admits thousands of short junk keys — and this is
                 // precisely the refusal that fires on rows an attacker chose. The
                 // count is already in the message, so the slice loses nothing.
-                implode(', ', array_slice(array_map('_pp_udc_reflect', $current['presets_unreadable']), 0, 10))
-                    . (count($current['presets_unreadable']) > 10
-                        ? sprintf(', and %d more', count($current['presets_unreadable']) - 10)
-                        : ''),
+                pp_udc_bounded_list(
+                    array_map('_pp_udc_reflect', $current['presets_unreadable']),
+                    10,
+                    count($current['presets_unreadable'])
+                ),
                 count($current['presets_unreadable']) === 1 ? 'it' : 'them',
                 count($current['presets_unreadable']) === 1 ? 'it' : 'them',
                 PP_SITE_UDC_OPTION

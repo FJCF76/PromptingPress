@@ -138,13 +138,40 @@ const PP_UDC_MAX_EMIT_DROPS = 200;
 /**
  * Most reference locators one delete scan will COLLECT (#1016).
  *
- * The same rule, for the same reason, as the emit-drop cap above: the consumers
- * render twenty, so collecting every one of them on a large site spends megabytes
- * of heap to print a fixed-size list. Ten times what is rendered, so the cap is
- * never the thing an operator notices, and the exact total is carried separately
- * so the refusal can still say how many places reference the preset.
+ * The same rule, for the same reason, as the emit-drop cap above: the one consumer
+ * renders a fixed-size list, so collecting every occurrence on a large site spends
+ * megabytes of heap to print it. Comfortably more than either render cap (twenty
+ * reference locators, ten unreadable pages), so the collection cap is never the
+ * thing an operator notices, and an exact total is carried separately so a refusal
+ * can still say how many there really are.
  */
 const PP_UDC_MAX_PRESET_REFERENCES = 200;
+
+/**
+ * Renders a bounded list into a message, with a tail that states the TRUE total.
+ *
+ * ONE CONTRACT, ONE IMPLEMENTATION. Three hand-rolled copies of this shape had
+ * grown across the preset work — each a slice, a comparison against the same
+ * literal written twice, and a sprintf tail — and they had already drifted apart
+ * on their separator (`, and` against `; and`). The repo owns the contract in
+ * _pp_render_undeclared_prop_keys() (lib/admin.php), whose docblock states the
+ * part that matters: "The count in the 'and N more' tail is the TRUE total, so a
+ * truncated list never reads as a complete one."
+ *
+ * `$total` is passed rather than derived, because the callers that matter collect
+ * a CAPPED sample and count separately — deriving it from the sample would report
+ * the cap as the answer, which is the one thing the tail exists to prevent.
+ *
+ * The per-site prose comments stay where they are: they explain WHY each list is
+ * bounded, which a shared helper cannot.
+ */
+function pp_udc_bounded_list(array $items, int $shown, int $total, string $separator = ', '): string {
+    $rendered = implode($separator, array_slice($items, 0, $shown));
+    if ($total > $shown) {
+        $rendered .= sprintf('%sand %d more', $separator, $total - $shown);
+    }
+    return $rendered;
+}
 
 /**
  * Longest run of stored data any emit-drop reason reflects (#981).
@@ -689,6 +716,11 @@ function pp_udc_motion_defaults(): array {
  * so no site write can remove one, and a custom preset may not take one of their
  * names.
  *
+ * NOTE FOR WHOEVER SHIPS A FOURTH: the runtime prompt derives this list, but the
+ * two preset action DESCRIPTIONS in lib/actions.php restate the three names by
+ * hand — they are built at file load, before this file is loaded, so they cannot
+ * interpolate. Update them in the same change.
+ *
  * ── Where the values come from ──────────────────────────────────────────────
  *
  * Nothing here is invented. Every value is read off the theme's existing button
@@ -875,8 +907,10 @@ function pp_udc_system_presets(): array {
  * THE MEMO IS THIS FUNCTION'S OWN, and it used to only LOOK like it was. Delegating
  * to pp_udc_site_map() cached the json_decode and nothing else: the get_option()
  * underneath it and the array union above it were redone on every call — 600 of
- * them per render on a 50-band page where every band references a preset, measured
- * at 0.97-1.53 ms of avoidable work per request against a ~45 ms build. The union
+ * them per render on a 50-band page with TWELVE preset-referencing roles per band,
+ * measured at 0.97-1.53 ms of avoidable work against that page's ~45 ms build. (The
+ * other 50-band figures in this file are taken on different scenarios; each says
+ * which, because they are not readings of the same thing.) The union
  * also costs more the more presets a site has (0.30 us at one, 1.24 us at the
  * 64-preset ceiling), so the cost grew with exactly the thing this change lets an
  * author add. Keyed on the same raw bytes, so the write-during-request property is
@@ -1106,19 +1140,24 @@ function pp_udc_validate_preset_definition(string $name, $preset): ?WP_Error {
  *
  * BOUNDED AT THE SOURCE, not by its reader — the rule _pp_udc_place()'s drop ledger
  * states in this same file ("Bounding here is the only place that bounds the
- * ALLOCATION"), and the one collector that had not applied it. Both consumers
- * render at most twenty locators, but this array grew one entry per (page, band,
- * referencing role): 60,000 entries and 48 MB of heap on a thousand-page site with
- * a widely-used preset, to print twenty of them. No malice needed — a popular
- * preset on a large site is the ordinary case.
+ * ALLOCATION"), and the one collector that had not applied it. Its one consumer,
+ * delete_preset's validate arm, renders at most twenty reference locators and ten
+ * unreadable pages, but BOTH arrays grew one entry per occurrence: 60,000 entries
+ * and 48 MB of heap on a thousand-page site with a widely-used preset, to print
+ * twenty of them. No malice needed — a popular preset on a large site is the
+ * ordinary case. Both are capped here now, and both carry an exact count.
  *
  * The COUNT stays exact while the list caps, because the refusal says how many
  * places reference the preset and that number is the honest part.
  *
- * @return array{references: array<int, string>, references_total: int, unreadable: array<int, string>}
+ * @return array{references: array<int, string>, references_total: int,
+ *               unreadable: array<int, string>, unreadable_total: int}
  */
 function pp_udc_preset_references(string $name): array {
-    $out = ['references' => [], 'references_total' => 0, 'unreadable' => []];
+    $out = [
+        'references' => [], 'references_total' => 0,
+        'unreadable' => [], 'unreadable_total' => 0,
+    ];
 
     // EVERY FRAGMENT OF A LOCATOR IS CLEANED AND BOUNDED, for the reason the drop
     // ledger states one function over: these strings are built from STORED site
@@ -1167,7 +1206,10 @@ function pp_udc_preset_references(string $name): array {
             // UNREADABLE IS NOT EMPTY. A page whose bytes nobody could decode may
             // hold the reference, and "I could not look" must never be reported as
             // "there is nothing there" (invariant I9) — the caller refuses on it.
-            $out['unreadable'][] = sprintf('page %d ("%s")', $id, $title);
+            $out['unreadable_total']++;
+            if (count($out['unreadable']) < PP_UDC_MAX_PRESET_REFERENCES) {
+                $out['unreadable'][] = sprintf('page %d ("%s")', $id, $title);
+            }
             continue;
         }
         foreach ((array) ($result['composition'] ?? []) as $i => $item) {
@@ -1422,7 +1464,8 @@ function pp_udc_resolve_reference(string $name, array $band_tokens, bool $allow_
  */
 function pp_udc_reference_type_table(): array {
     // Built once, like every other table in this file (pp_udc_groups(),
-    // pp_udc_presets(), pp_udc_breakpoints(), …). _pp_udc_reference_check() runs
+    // pp_udc_system_presets(), pp_udc_breakpoints(), …). NOT pp_udc_presets(),
+    // which is memoised on the stored option bytes and rebuilds when they change. _pp_udc_reference_check() runs
     // per reference per breakpoint inside the emitter's placement loop, so a
     // rebuilt literal here is pure allocation on a hot path.
     static $table = null;
@@ -1982,7 +2025,7 @@ function pp_udc_validate_map($udc, string $component): ?WP_Error {
         // ahead of anything downstream of it.
         if (array_key_exists(PP_UDC_PRESET_KEY, $role_map)) {
             $error = _pp_udc_validate_preset_reference(
-                $component, $role_name, null, $role_map[PP_UDC_PRESET_KEY], 'role', $permitted, $band_tokens
+                $component, $role_name, null, $role_map[PP_UDC_PRESET_KEY], 'role', $permitted
             );
             if ($error !== null) {
                 return $error;
@@ -2084,14 +2127,23 @@ function _pp_udc_nested_preset_error(string $where, ?string $name): WP_Error {
  *     semantics degrade into a fully silent no-op in exactly the case where the
  *     author is most wrong about what they asked for.
  *
- * Whatever survives the intersection is then validated exactly as if the author
- * had written it inline — param names, value grammar, the lot — so a preset is no
- * wider a door than writing the same map by hand. The COMPILER intersects through
+ * Whatever survives the intersection is then validated with the same param names
+ * and the same value grammar an inline map gets — so a preset is never a WIDER
+ * door than writing the same map by hand. It is deliberately narrower in one
+ * place: `@` references resolve against SITE tokens only, because a preset belongs
+ * to the site and not to any band, so a band-local token accepted inline is
+ * refused through a preset. The COMPILER intersects through
  * the same predicate (see _pp_udc_split_preset_by_permitted), so what the envelope
  * says was skipped is what the page actually omits.
  *
  * At GROUP grain there is nothing to intersect: the author named one group, and
  * if the role does not permit it that is a refusal like any other.
+ *
+ * NO `$band_tokens` PARAMETER, deliberately. It used to take one and thread it
+ * into the group validator; both hand-offs now pass `[]`, because a preset sees
+ * SITE tokens only — the same scope its definition gate and the emitter use.
+ * Keeping a parameter the body no longer reads would state the opposite rule to
+ * the next person who opens this signature.
  *
  * @param string|null $group      Group name for group-grain, null for role-grain.
  * @param string      $grain      'role', or the group name being projected onto.
@@ -2103,8 +2155,7 @@ function _pp_udc_validate_preset_reference(
     ?string $group,
     $value,
     string $grain,
-    array $permitted,
-    array $band_tokens
+    array $permitted
 ): ?WP_Error {
     $where = $group === null
         ? sprintf('Component "%s" role "%s" "%s"', $component, $role, PP_UDC_PRESET_KEY)
@@ -2273,7 +2324,7 @@ function _pp_udc_validate_group_map(
                 );
             }
             $error = _pp_udc_validate_preset_reference(
-                $component, $role, $group_name, $param_value, $group_name, $permitted, $band_tokens
+                $component, $role, $group_name, $param_value, $group_name, $permitted
             );
             if ($error !== null) {
                 return $error;
@@ -2868,7 +2919,7 @@ function pp_udc_compile_band(array $item, string $layer, ?array &$drops = null):
             //
             // So a defaults-named preset's skipped groups need a CHANNEL that does
             // not exist yet, and choosing one is a ruling rather than an
-            // implementation detail. Left inert, said out loud, still debt.
+            // implementation detail. Left inert, said out loud, filed as #1018.
             foreach (_pp_udc_preset_sources($declared, $permitted) as $preset_source) {
                 $sources[]   = $preset_source;
                 $has_presets = true;
@@ -2879,9 +2930,10 @@ function pp_udc_compile_band(array $item, string $layer, ?array &$drops = null):
         // AND ONLY WHEN THERE IS ONE. With no preset in play there is nothing for
         // them to outrank, so every entry they would place is either overwritten
         // by the band's own value or dropped again — pure work for an identical
-        // result. Skipping it is not an optimisation detail; measured on a
-        // 50-band page it is the difference between 2.96 ms and 7.08 ms, and the
-        // overwhelmingly common page has no preset on it at all.
+        // result. Skipping it is not an optimisation detail; measured on a 50-band
+        // page with ONE preset-referencing role per band, it is the difference
+        // between 2.96 ms and 7.08 ms for this tier alone, and the overwhelmingly
+        // common page has no preset on it at all.
         //
         // THAT LAST CLAUSE IS THE PART #1016 CHANGED, and the number above should
         // not be read as still describing a preset-using page. While presets were
@@ -3484,7 +3536,7 @@ function _pp_udc_place(
             // a carve-out — it is a drop on no channel at all. The save verb
             // verifies the attachment is live, so this is the deleted-afterwards
             // case. Extending 8c to resolve preset references is the fuller fix and
-            // is filed rather than done here.
+            // is filed as #1018 rather than done here.
             $owned_by_8c = ($params[$param_name]['type'] ?? '') === 'attachment_id'
                 && strncmp($source, 'preset:', 7) !== 0;
             if ($note && !$owned_by_8c) {
@@ -4075,9 +4127,9 @@ function pp_udc_is_chrome(string $name): bool {
 /**
  * The stored chrome container, read FAIL-CLOSED.
  *
- * Returns the five-key shape pp_udc_parse_site_map() documents — `version`,
- * `chrome`, `corrupt`, `presets`, `presets_version`, plus `presets_unreadable` —
- * on every answer. A row that is absent, unparseable, or not an object resolves to
+ * Returns the six-key shape pp_udc_parse_site_map() documents — `version`,
+ * `chrome`, `corrupt`, `presets`, `presets_version`, `presets_unreadable` — on
+ * every answer. A row that is absent, unparseable, or not an object resolves to
  * version 0 and NO chrome styling and NO presets — never to a partial map, and
  * never to a fatal.
  *
@@ -4425,9 +4477,12 @@ function pp_udc_normalize_site_map(
  * and "carried forward untouched" stops being true the moment something touches
  * it. One builder keeps the key set and its ordering identical either way.
  *
- * The preset keys are OMITTED when the store is empty, so a site with no custom
- * presets keeps storing the byte-identical container it stored before this key
- * existed — which is what lets every pre-#1016 row stay valid with no migration.
+ * The preset MAP is omitted when the store is empty. The preset BASELINE is
+ * omitted only on a site that has NEVER had a preset — a counter that outlived its
+ * map must keep outliving it, or deleting the last preset rewinds it. So a
+ * pre-#1016 row still stores neither key and stays byte-identical, with no
+ * migration, while a site that has used presets keeps its baseline even at zero
+ * presets.
  */
 function pp_udc_site_container(
     array $chrome,
@@ -4537,7 +4592,11 @@ function pp_udc_site_findings(): array {
         return [[
             'type'     => 'findings_skipped',
             'severity' => 'warning',
-            'message'  => 'The chrome disclosure report could not be built for this write, so this '
+            // SUBJECT-NEUTRAL, because this row now rides preset envelopes too. Saying
+            // "the chrome disclosure report" on a `save_preset` result names the wrong
+            // subject — the same class the `$subject` parameter was threaded through
+            // the validators to fix.
+            'message'  => 'The disclosure report for this write could not be built, so this '
                           . 'envelope says nothing about what the engine normalized. The write itself '
                           . 'landed. Read the stored map with `wp pp operate inspect`.',
             'index'    => null,
