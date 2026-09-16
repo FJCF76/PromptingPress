@@ -141,7 +141,7 @@ flowchart TD
     end
 
     subgraph Mutation["🛡️ Validated mutation layer"]
-        Action["Typed action layer\n20 actions · validate · preview · execute"]
+        Action["Typed action layer\n26 actions · validate · preview · execute"]
         Apply["Apply layer\ndesign tokens · file mutations · backup + rollback"]
         Guard["Guardrails\nsurface classification · CSS conflict detection · data-loss guard"]
     end
@@ -393,7 +393,7 @@ No theme files were edited. No WordPress internals were called. No visual builde
 /components/{name}/        Component partials + schema.json
 /templates/                Page layout files (pp_* wrappers only)
 /lib/wp.php                WP abstraction layer
-/lib/actions.php           Typed action model (20 actions)
+/lib/actions.php           Typed action model (26 actions)
 /lib/apply.php             Apply layer (file + option mutations, backup/rollback)
 /lib/operate.php           Operating loop: inspect, preflight, run tokens
 /lib/cli.php               WP-CLI commands (wp pp action · apply · operate · schema · check · validate · integrity · screenshot · target · sync)

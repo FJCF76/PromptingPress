@@ -167,7 +167,7 @@ theme itself). For **site customization**, the parent-theme rows (`templates/`,
 | /assets/js/pp-editor-logic.js | Pure JS logic (testable)   | Release-level only — run npm test after |
 | /assets/js/main.js       | Nav toggle, dropdown submenus   | Release-level only — inspect for site work |
 | /lib/wp.php              | WP function wrappers (read + write) | Only to add pp_ functions   |
-| /lib/actions.php         | Typed action model (20 actions) | Add actions following the contract |
+| /lib/actions.php         | Typed action model (26 actions) | Add actions following the contract |
 | /lib/guardrails.php      | CSS conflict detection, surface classification, theme integrity | Extend for new checks |
 | /lib/operate.php         | Operating loop: inspect, preflight, run tokens | Extend for new checks |
 | /lib/apply.php           | Apply layer (file + option mutations) | Add applies following the contract |
