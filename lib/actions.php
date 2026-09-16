@@ -935,9 +935,29 @@ function pp_execute_action(string $name, array $params): array {
     // the composition arm has. It can only append a key, and pp_udc_site_findings() reads
     // through the fail-closed site reader, so a corrupt row yields no findings rather than
     // a throw over a write that already landed.
+    //
+    // A PRESET WRITE CARRIES IT TOO (#1016), and keying this on one action name was
+    // the same shape of gap #993 filed. A preset is referenced from chrome, so
+    // saving one changes what chrome paints WITHOUT any chrome write happening: edit
+    // a preset to declare a group nav's `link` does not permit and that role starts
+    // partially applying it, silently, because the only channel that reports the
+    // skip fires on the other verb. #993's own reasoning said this becomes
+    // constructible the moment custom presets ship — so the CHROME half ships closed
+    // rather than as the next latent finding. The disclosure is derived from the
+    // STORED container either way, so what a preset write reports is the state that
+    // write produced, not a stale reading of it.
+    //
+    // BE PRECISE ABOUT WHAT IS STILL OPEN: this closes the chrome half only. A
+    // preset is referenced from BANDS too — delete_preset's own scan proves it, and
+    // names them `page %d ("%s") band %s role "%s"` — and a preset write that
+    // changes what those bands paint has no findings channel, because the
+    // composition disclosures are assembled per composition write. See the filed
+    // follow-up.
+    $writes_site_udc = ($name === 'update_site_option' && ($params['key'] ?? '') === PP_SITE_UDC_OPTION)
+        || $name === 'save_preset'
+        || $name === 'delete_preset';
     if (($result['ok'] ?? false)
-        && $name === 'update_site_option'
-        && ($params['key'] ?? '') === PP_SITE_UDC_OPTION
+        && $writes_site_udc
         && !array_key_exists('findings', $result)
         && function_exists('pp_udc_site_findings')) {
         $result['findings'] = _pp_bounded_findings(
@@ -1112,8 +1132,25 @@ function _pp_snapshot_batch_targets(array $steps): array {
             $font_urls = pp_get_font_urls();
         }
 
+        // THE PRESET VERBS CAPTURE THE SAME ROW (#1016), because they write it.
+        //
+        // This arm is how a site option gets a rollback baseline, and it keyed on
+        // ONE action name. `save_preset` and `delete_preset` write `pp_site_udc`
+        // without going through `update_site_option`, so without this line a batch
+        // that saved a preset and then failed would roll back everything EXCEPT
+        // the preset — and `rollback_errors: []` would say so was fine.
+        //
+        // The restore arm needs no change: it restores any whitelisted key from
+        // the captured raw string, and the whole row is what is captured, so both
+        // subtrees and both baselines come back together rather than in halves.
+        $option_step_key = null;
         if ($name === 'update_site_option' && isset($params['key'])) {
-            $key = (string) $params['key'];
+            $option_step_key = (string) $params['key'];
+        } elseif ($name === 'save_preset' || $name === 'delete_preset') {
+            $option_step_key = PP_SITE_UDC_OPTION;
+        }
+        if ($option_step_key !== null) {
+            $key = $option_step_key;
             if (!array_key_exists($key, $site_options)) {
                 // Capture PRESENCE and VALUE separately (#291): an option that was
                 // absent (no DB row) and one that held an explicit '' both used to
@@ -2911,10 +2948,12 @@ function _pp_restore_batch_snapshot_report(array $snapshot): array {
         // ── THE READ-COMPARE-WRITE, AS ONE UNIT THE LOCK CAN WRAP (#979) ─────
         //
         // pp_site_udc is the one whitelisted key whose FORWARD writes all run inside
-        // an advisory lock: _pp_update_site_udc() (lib/wp.php) wraps both its write
-        // and its clear arm in _pp_with_advisory_lock(_pp_site_udc_lock_name(), …),
-        // because the row carries a version counter and a lost update there silently
-        // discards a concurrent author's chrome. This restore replays that same row
+        // an advisory lock. Two functions write it, and both take the same lock:
+        // _pp_update_site_udc() (lib/wp.php) wraps its write arm and its clear arm,
+        // and pp_update_site_preset() wraps the preset store that shares the row
+        // (#1016) — each through _pp_with_advisory_lock(_pp_site_udc_lock_name(), …),
+        // because the row carries version counters and a lost update there silently
+        // discards a concurrent author's chrome or presets. This restore replays that same row
         // and was taking no lock at all — making the rollback the one writer in the
         // system able to land on top of a CAS-guarded write that had just committed,
         // defeating the guarantee ruling A1 introduced.
@@ -4396,8 +4435,8 @@ pp_register_action('create_page', [
 
 pp_register_action('update_site_option', [
     'scope'       => 'site',
-    'description' => 'Updates a whitelisted WordPress site option (blogname, blogdescription, pp_logo_id, pp_logo_alt, site_icon, pp_footer_show_logo, pp_footer_blurb, pp_footer_contact, pp_footer_copyright, pp_footer_menu_label, pp_footer_contact_label, pp_footer_secondary_label, pp_footer_note, pp_footer_logo_id, pp_footer_social, pp_site_udc, pp_og_image, pp_og_site_name, pp_og_default_description, pp_twitter_card). pp_logo_id takes a Media Library attachment ID (not a URL) to set the site logo. site_icon takes a Media Library image attachment ID (not a URL) to set the browser-tab favicon and app/OS icon; this is WordPress core\'s site_icon option, so once set the favicon and apple-touch-icon tags render automatically (no page composition needed). Core renders the chosen attachment as-is on this path (the Customizer\'s square-crop step is not run), so pass a roughly square source (ideally >=512px) for a clean icon; any image is accepted. pp_footer_show_logo is a boolean (1/0/true/false) that turns the footer logo on/off. The header and footer are template-owned chrome: they cannot be composed, and pp_site_udc is the ONLY way to style them. pp_site_udc is a JSON object holding one `udc` map per chrome component — {"nav": {...}, "footer": {...}} — in exactly the shape a band\'s `udc` takes, validated by the same engine and the same grammar: the same roles/groups/parameters, the same @token references, the same breakpoint and :hover/:focus-visible/:active state maps, the same presets. Read each chrome component\'s declared roles with `wp pp schema <component>`; the composable-component catalog does not list chrome. Example: {"nav":{"_band":{"background":{"fill":"#101828"}},"link":{"typography":{"color":"#f7f8fa",":hover":{"color":"@color-accent"}}},"link-current":{"typography":{"color":"@color-accent"}},"logo":{"typography":{"color":"#ffffff",":hover":{"color":"@color-accent"}}}}}. YOU OWN THE CONTRAST: set a colour on every text role you put over a new chrome background. YOU ALSO OWN THE STATES (#992): a value you set at REST outranks the theme stylesheet in EVERY state, so setting a role\'s colour silently cancels that role\'s built-in hover treatment. Whenever you set typography.color on nav\'s link, logo or toggle, set its ":hover" colour in the same write; and whenever you set nav\'s link, set link-current too, or the visitor loses both the hover feedback and the you-are-here marker on the current page. Chrome styling is SITE-WIDE — there is no per-page chrome override, and a key that is not a chrome component name is refused. A write REPLACES the whole option, so send every chrome component you want to keep in the same write; `\'\'` clears all chrome styling. The write is CONCURRENCY-VERSIONED: the stored object carries a `_version`, and you may pass it back as expected_version — or simply leave it in the value you send back — so a write that would overwrite someone else\'s newer edit is refused instead (re-read with `wp pp operate inspect`, re-apply, retry). pp_footer_blurb, pp_footer_contact, and pp_footer_copyright are text (empty pp_footer_copyright keeps the default copyright line). Footer STRUCTURE: pp_footer_menu_label and pp_footer_contact_label are optional column headings (text) above the footer menu and contact block; pp_footer_note is an optional secondary line (text) that, when set, moves the copyright into a delimited bottom bar and renders opposite it (empty keeps the copyright inline). A SECOND footer menu column is available: assign a menu to the "footer_secondary" theme location (assign_menu_location / set_menu) and it renders as an extra footer column; pp_footer_secondary_label is its optional heading (text, empty = a headless second column). This is how to render a distinct footer menu such as a Legal column (Aviso legal / Privacidad / Cookies) alongside the primary footer menu; with no menu assigned to footer_secondary the footer is unchanged. pp_footer_logo_id is an optional footer logo override (Media Library attachment ID, not a URL) so a light logo variant can serve a dark footer while pp_logo_id stays the header logo; unset falls back to pp_logo_id. pp_footer_social renders the footer social-icon row: a JSON string holding an ordered list of {network, url} objects, where network is one of a CLOSED set (x, linkedin, facebook, instagram, youtube, github, tiktok, mastodon) and url is an http(s) profile URL. Unknown networks, non-http(s) values and malformed JSON are rejected; empty or unset renders no row. Open Graph / Twitter social-share defaults (#468): pp_og_image is the social-share image (a Media Library image attachment ID, not a URL, same rule as pp_logo_id) — it feeds og:image (+ width/height from the attachment metadata, alt from the attachment alt) and twitter:image; pp_og_site_name overrides the og:site_name (defaults to the site name); pp_og_default_description is the site-wide fallback social description used when a page has no meta_description (text, 320 chars or fewer, same cap as meta_description); pp_twitter_card is the Twitter card type, one of summary or summary_large_image (defaults to summary_large_image). These render as og:*/twitter:* tags in wp_head; per-page og_title/twitter_title overrides go through update_seo_meta.',
-    'semantics'   => 'Replace. Key must be whitelisted. Value replaces entirely and is validated against the key type (pp_logo_id, pp_footer_logo_id, site_icon, and pp_og_image must be an image attachment ID; pp_footer_show_logo must be a boolean; pp_site_udc must be a JSON object whose keys are chrome component names, each holding a valid udc map (an unknown key, an unknown role/group/parameter, or a bad value is refused naming the exact place); pp_twitter_card must be summary or summary_large_image; pp_og_default_description is capped at 320 characters; pp_footer_social must be a JSON array of {network, url} objects with a known network and an http(s) URL; the other pp_footer_*/pp_og_site_name keys — blurb, contact, copyright, menu_label, contact_label, secondary_label, note, og_site_name — are free text).',
+    'description' => 'Updates a whitelisted WordPress site option (blogname, blogdescription, pp_logo_id, pp_logo_alt, site_icon, pp_footer_show_logo, pp_footer_blurb, pp_footer_contact, pp_footer_copyright, pp_footer_menu_label, pp_footer_contact_label, pp_footer_secondary_label, pp_footer_note, pp_footer_logo_id, pp_footer_social, pp_site_udc, pp_og_image, pp_og_site_name, pp_og_default_description, pp_twitter_card). pp_logo_id takes a Media Library attachment ID (not a URL) to set the site logo. site_icon takes a Media Library image attachment ID (not a URL) to set the browser-tab favicon and app/OS icon; this is WordPress core\'s site_icon option, so once set the favicon and apple-touch-icon tags render automatically (no page composition needed). Core renders the chosen attachment as-is on this path (the Customizer\'s square-crop step is not run), so pass a roughly square source (ideally >=512px) for a clean icon; any image is accepted. pp_footer_show_logo is a boolean (1/0/true/false) that turns the footer logo on/off. The header and footer are template-owned chrome: they cannot be composed, and pp_site_udc is the ONLY way to style them. pp_site_udc is a JSON object holding one `udc` map per chrome component — {"nav": {...}, "footer": {...}} — in exactly the shape a band\'s `udc` takes, validated by the same engine and the same grammar: the same roles/groups/parameters, the same @token references, the same breakpoint and :hover/:focus-visible/:active state maps, the same presets. Read each chrome component\'s declared roles with `wp pp schema <component>`; the composable-component catalog does not list chrome. Example: {"nav":{"_band":{"background":{"fill":"#101828"}},"link":{"typography":{"color":"#f7f8fa",":hover":{"color":"@color-accent"}}},"link-current":{"typography":{"color":"@color-accent"}},"logo":{"typography":{"color":"#ffffff",":hover":{"color":"@color-accent"}}}}}. YOU OWN THE CONTRAST: set a colour on every text role you put over a new chrome background. YOU ALSO OWN THE STATES (#992): a value you set at REST outranks the theme stylesheet in EVERY state, so setting a role\'s colour silently cancels that role\'s built-in hover treatment. Whenever you set typography.color on nav\'s link, logo or toggle, set its ":hover" colour in the same write; and whenever you set nav\'s link, set link-current too, or the visitor loses both the hover feedback and the you-are-here marker on the current page. Chrome styling is SITE-WIDE — there is no per-page chrome override, and a key that is not a chrome component name is refused. A write REPLACES the whole CHROME subtree, so send every chrome component you want to keep in the same write; `\'\'` clears all chrome styling. It does NOT replace the whole option: the row also holds the site\'s custom presets under the engine-owned `_presets` / `_presets_version` keys (#1016), written only by `save_preset` / `delete_preset` and preserved automatically across every chrome write AND across a `\'\'` clear. A chrome write that CARRIES either key is REFUSED with `invalid_option_value`, so if you read the stored bytes back, strip those two keys before sending the rest — `_version` is the one engine-owned key you may leave in. The write is CONCURRENCY-VERSIONED: the stored object carries a `_version`, and you may pass it back as expected_version — or simply leave it in the value you send back — so a write that would overwrite someone else\'s newer edit is refused instead (re-read with `wp pp operate inspect`, re-apply, retry). pp_footer_blurb, pp_footer_contact, and pp_footer_copyright are text (empty pp_footer_copyright keeps the default copyright line). Footer STRUCTURE: pp_footer_menu_label and pp_footer_contact_label are optional column headings (text) above the footer menu and contact block; pp_footer_note is an optional secondary line (text) that, when set, moves the copyright into a delimited bottom bar and renders opposite it (empty keeps the copyright inline). A SECOND footer menu column is available: assign a menu to the "footer_secondary" theme location (assign_menu_location / set_menu) and it renders as an extra footer column; pp_footer_secondary_label is its optional heading (text, empty = a headless second column). This is how to render a distinct footer menu such as a Legal column (Aviso legal / Privacidad / Cookies) alongside the primary footer menu; with no menu assigned to footer_secondary the footer is unchanged. pp_footer_logo_id is an optional footer logo override (Media Library attachment ID, not a URL) so a light logo variant can serve a dark footer while pp_logo_id stays the header logo; unset falls back to pp_logo_id. pp_footer_social renders the footer social-icon row: a JSON string holding an ordered list of {network, url} objects, where network is one of a CLOSED set (x, linkedin, facebook, instagram, youtube, github, tiktok, mastodon) and url is an http(s) profile URL. Unknown networks, non-http(s) values and malformed JSON are rejected; empty or unset renders no row. Open Graph / Twitter social-share defaults (#468): pp_og_image is the social-share image (a Media Library image attachment ID, not a URL, same rule as pp_logo_id) — it feeds og:image (+ width/height from the attachment metadata, alt from the attachment alt) and twitter:image; pp_og_site_name overrides the og:site_name (defaults to the site name); pp_og_default_description is the site-wide fallback social description used when a page has no meta_description (text, 320 chars or fewer, same cap as meta_description); pp_twitter_card is the Twitter card type, one of summary or summary_large_image (defaults to summary_large_image). These render as og:*/twitter:* tags in wp_head; per-page og_title/twitter_title overrides go through update_seo_meta.',
+    'semantics'   => 'Replace. Key must be whitelisted. Value replaces entirely and is validated against the key type (pp_logo_id, pp_footer_logo_id, site_icon, and pp_og_image must be an image attachment ID; pp_footer_show_logo must be a boolean; pp_site_udc must be a JSON object whose keys are chrome component names, each holding a valid udc map (an unknown key, an unknown role/group/parameter, or a bad value is refused naming the exact place); the engine-owned `_presets` and `_presets_version` keys that share the row are refused here and are preserved across chrome writes and clears without being sent; pp_twitter_card must be summary or summary_large_image; pp_og_default_description is capped at 320 characters; pp_footer_social must be a JSON array of {network, url} objects with a known network and an http(s) URL; the other pp_footer_*/pp_og_site_name keys — blurb, contact, copyright, menu_label, contact_label, secondary_label, note, og_site_name — are free text).',
     'params'      => [
         'key'   => ['type' => 'string', 'required' => true],
         'value' => ['type' => 'string', 'required' => true],
@@ -4500,6 +4539,231 @@ pp_register_action('update_site_option', [
         }
         return _pp_action_result('update_site_option', 'site', ['key' => $params['key']], [
             ['path' => $params['key'], 'from' => $current, 'to' => $stored],
+        ]);
+    },
+]);
+
+// ── Actions: save_preset / delete_preset ────────────────────────────────────
+// Scope: site | Semantics: one preset per call. Store: pp_site_udc `_presets`.
+
+/**
+ * The definition a preset verb assembles from its params.
+ *
+ * Built in one place so the validate arm and the execute arm judge and store the
+ * SAME object. Two constructions would be two chances for a field that validated
+ * to differ from the field that landed — the shape of bug the write-path honesty
+ * invariants exist to close.
+ */
+function _pp_preset_definition_from_params(array $params): array {
+    $preset = [
+        'grain' => isset($params['grain']) && is_string($params['grain']) ? $params['grain'] : '',
+        'udc'   => isset($params['udc']) && is_array($params['udc']) ? $params['udc'] : [],
+    ];
+    // Omitted rather than stored empty: an absent description and a blank one are
+    // the same fact, and storing '' would spend bytes from a shared ceiling to say
+    // nothing.
+    if (isset($params['description']) && is_string($params['description']) && trim($params['description']) !== '') {
+        $preset['description'] = $params['description'];
+    }
+    return $preset;
+}
+
+pp_register_action('save_preset', [
+    'scope'       => 'site',
+    'description' => 'Creates or replaces ONE named site preset — a reusable `udc` fragment that any band or chrome role can apply by name through a `"_preset"` key. `name` is 1-64 characters of letters, digits, hyphen or underscore, written BARE at the reference site (an `@name` always means a design token, never a preset). `description` is an optional author-facing note stored beside the preset and surfaced by `wp pp operate inspect`; a blank or whitespace-only value is stored as absent rather than as an empty string. `grain` is either "role" (a bundle of groups, applied beside a role\'s own groups: `"cta": {"_preset": "brand-cta", "border": {"radius": "12px"}}`) or ONE group name (applied beside that group\'s parameters: `"quote": {"typography": {"_preset": "brand-type", "size": "1.25rem"}}`). `udc` is the fragment itself, in exactly the shape the same grain takes inside a band: for "role" a map of groups, for a group grain a map of that group\'s parameters. It is validated by the SAME engine and the SAME grammar a band\'s `udc` gets — same parameters, same units, same `@token` references, same breakpoint maps, same `:hover`/`:focus-visible`/`:active` states. `@token` references resolve against the SITE design tokens only: a preset belongs to the site, not to a band, so a band-local token name is refused here. Every group in the taxonomy may be declared; what a preset may declare is NOT narrowed by where it will be applied, because a role-grain preset applies the groups each target role permits and skips the rest (the write that applies it discloses which). A name the theme already ships (button, button-secondary, link) is REFUSED — those are theme-owned and cannot be replaced, and shadowing them would put two different bundles behind one name. Replacing an existing preset of your own is allowed and takes effect everywhere it is referenced, immediately. The store is concurrency-versioned separately from chrome styling: pass the `presets_version` you read as `expected_version` and a write that would overwrite someone else\'s newer edit is refused instead. Read the current store with `wp pp operate inspect` (under `chrome`, as `presets` and `presets_version`).',
+    // NO CONSTANT INTERPOLATION HERE. Action definitions are built when this file
+    // loads, and lib/udc.php — where the two bounds live — loads after it. The
+    // numbers belong to the refusals, which run at write time and can read them;
+    // restating them in a string that loads earlier would either fatal or drift.
+    'semantics'   => 'Replace, at one-preset grain. Only the named preset is written; every other preset, and all chrome styling in the same row, is left exactly as it was. A preset that fails the shared grammar is refused naming the preset, the group and the parameter. Bounded two ways — a maximum number of presets per site, and a maximum size for any one preset — and the refusal names which bound it hit and what that limit is. Updating an existing preset is allowed even at the count limit, so a site that reached it can still edit its way back under it.',
+    'params'      => [
+        'name'             => ['type' => 'string', 'required' => true],
+        'grain'            => ['type' => 'string', 'required' => true],
+        'udc'              => ['type' => 'array',  'required' => true],
+        'description'      => ['type' => 'string', 'required' => false],
+        'expected_version' => ['type' => 'int',    'required' => false],
+    ],
+    'validate' => function (array $params) {
+        return pp_udc_validate_preset_definition(
+            (string) $params['name'],
+            _pp_preset_definition_from_params($params)
+        );
+    },
+    'preview' => function (array $params): array {
+        $stored = pp_udc_custom_presets();
+        $name   = (string) $params['name'];
+        $before = $stored[$name] ?? null;
+        $after  = _pp_preset_definition_from_params($params);
+        return _pp_action_preview('save_preset', 'site', ['name' => $name], $before, $after, [
+            ['path' => 'preset.' . $name, 'from' => $before, 'to' => $after],
+        ]);
+    },
+    'execute' => function (array $params): array {
+        $name   = (string) $params['name'];
+        $stored = pp_udc_custom_presets();
+        $before = $stored[$name] ?? null;
+        $after  = _pp_preset_definition_from_params($params);
+
+        $result = pp_update_site_preset(
+            $name,
+            $after,
+            isset($params['expected_version']) && is_numeric($params['expected_version'])
+                ? (int) $params['expected_version']
+                : null
+        );
+        if (is_wp_error($result)) {
+            // The code travels with the message, for the reason the site-option
+            // arm states: a conflict is precisely the refusal a caller must be
+            // able to recognise in order to re-read and retry, and string-matching
+            // prose is not recognising it.
+            return _pp_action_error(
+                'save_preset',
+                'site',
+                $result->get_error_message(),
+                (string) $result->get_error_code()
+            );
+        }
+        return _pp_action_result('save_preset', 'site', ['name' => $name], [
+            ['path' => 'preset.' . $name, 'from' => $before, 'to' => $after],
+        ]);
+    },
+]);
+
+pp_register_action('delete_preset', [
+    'scope'       => 'site',
+    'description' => 'Removes ONE named site preset. A preset that any band or chrome role still references is REFUSED, and the refusal LISTS the references — page, band and role — so you can retarget them first. That is the reverse of the rule that refuses a band naming a preset which does not exist: deleting out from under a reference would leave every one of those bands pointing at nothing, and the declarations would silently stop painting. A theme-shipped preset cannot be deleted — UNLESS your site also stores a preset under that same name, in which case it is YOUR row that is removed and every reference keeps resolving, unchanged, to the theme\'s bundle. That is the escape route when a theme release ships a name you were already using: save your version under a new name, repoint the references, then delete the shadowed row. The store is concurrency-versioned: pass the `presets_version` you read as `expected_version`.',
+    'semantics'   => 'Delete, at one-preset grain, refused while referenced. Only the named preset is removed; every other preset, and all chrome styling in the same row, is untouched. A page whose stored composition cannot be read also refuses the delete: a reference cannot be ruled out in bytes nobody can decode, and the refusal names the page so it can be repaired first. A name that is not stored is refused rather than reported as a successful no-op.',
+    'params'      => [
+        'name'             => ['type' => 'string', 'required' => true],
+        'expected_version' => ['type' => 'int',    'required' => false],
+    ],
+    'validate' => function (array $params) {
+        $name = (string) $params['name'];
+        if (!pp_udc_valid_preset_name($name)) {
+            return new WP_Error('invalid_param_value', sprintf(
+                'A preset name must be 1-64 characters of letters, digits, hyphen or underscore; got %s.',
+                _pp_schema_value_for_message($params['name'])
+            ));
+        }
+        // A THEME PRESET CANNOT BE DELETED — BUT A ROW IT SHADOWS MUST BE.
+        //
+        // Refusing on the NAME alone closed the only way out of the shadowed state:
+        // the readiness check tells an operator to save their version elsewhere and
+        // then delete the shadowed row, and with a name-only refusal that row could
+        // never be removed. It would sit in the store forever, spending the count
+        // and the byte budget, keeping the warning lit. A stated route back that
+        // does not work is worse than no route (invariant I24).
+        //
+        // The store holds CUSTOM rows only, so deleting by name here removes the
+        // site's row and cannot touch the theme's — which is what makes this safe
+        // to allow rather than merely convenient.
+        // SHADOWED means the name is in BOTH registries, not merely in the store.
+        // Testing only for a stored row would treat every ordinary custom preset as
+        // shadowed and skip the reference gate for all of them.
+        $stored   = isset(pp_udc_custom_presets()[$name]);
+        $shipped  = isset(pp_udc_system_presets()[$name]);
+        $shadowed = $stored && $shipped;
+        if ($shipped && !$stored) {
+            return new WP_Error('invalid_param_value', sprintf(
+                'The preset "%s" is shipped by the theme and cannot be deleted. Theme presets are: %s. '
+                . 'A band that should not use it can simply stop referencing it.',
+                $name,
+                pp_udc_preset_names_for_message(pp_udc_system_presets())
+            ));
+        }
+
+        // NOT-STORED IS A VALIDATE-STAGE FACT TOO. It used to live only in the
+        // writer, so `preview` built an ok:true envelope for a name that does not
+        // exist while `execute` refused it — the verb's own semantics promised the
+        // refusal, and the preview contradicted it. The writer keeps its copy as the
+        // under-lock backstop, exactly as the reference gate does.
+        if (!isset(pp_udc_custom_presets()[$name])) {
+            return new WP_Error('invalid_param_value', sprintf(
+                'There is no site preset called "%s", so there is nothing to delete. Stored presets: %s',
+                $name,
+                pp_udc_preset_names_for_message(pp_udc_custom_presets()) ?: '(none)'
+            ));
+        }
+
+        // THE REVERSE DANGLING-REFERENCE GATE (#1016). Run in `validate` so the
+        // refusal reaches a PREVIEW too: an author asking "what would this do"
+        // should be told it would break eleven bands before they run it, not after.
+        //
+        // SKIPPED FOR A SHADOWED ROW, and the reason is the gate's own purpose. It
+        // exists to stop a delete from turning live references into dangling ones.
+        // A shadowed row is already outranked by the theme preset of the same name,
+        // so every reference resolves to the theme's bundle BEFORE the delete and
+        // to the same bundle after it. Nothing can dangle, and blocking on
+        // references that are not even pointing at the row being removed would be
+        // the lockout this clause just finished opening.
+        if ($shadowed) {
+            return null;
+        }
+        $scan = pp_udc_preset_references($name);
+        if ($scan['unreadable'] !== []) {
+            $unreadable_total = (int) $scan['unreadable_total'];
+            return new WP_Error('preset_scan_unreadable', sprintf(
+                'Whether "%s" is still in use cannot be determined: the stored composition of %s could '
+                . 'not be read, and a preset may not be deleted while a page that might reference it is '
+                . 'unreadable. Repair %s first (wp pp operate composition-history --post_id=<id>), then '
+                . 'delete again.',
+                $name,
+                // BOUNDED LIKE ITS SIBLING ELEVEN LINES DOWN. Each fragment is
+                // cleaned by _pp_udc_reflect(), but the LIST was not, and its
+                // length is linear in the number of unreadable composition pages —
+                // so a site with many of them turned every refusal into a
+                // tens-of-KB message on the terminal, the chat envelope and the
+                // model's context. The count is stated separately, so nothing
+                // diagnostic is lost by showing ten names instead of all of them.
+                pp_udc_bounded_list($scan['unreadable'], 10, $unreadable_total),
+                $unreadable_total === 1 ? 'it' : 'those pages'
+            ));
+        }
+        if ($scan['references'] !== []) {
+            // THE COUNT IS THE TOTAL, THE LIST IS THE SAMPLE. The collector caps
+            // what it keeps, so `references` is at most PP_UDC_MAX_PRESET_REFERENCES
+            // while `references_total` is exact — and it is the total an operator
+            // needs to know, not how many the collector chose to hold.
+            $total = (int) $scan['references_total'];
+            return new WP_Error('preset_in_use', sprintf(
+                'The preset "%s" is still referenced by %s, so it was not deleted: %s. Change or remove '
+                . 'those references first — deleting now would leave each of them pointing at a preset '
+                . 'that does not exist, and those declarations would stop painting with nothing to say why.',
+                $name,
+                $total === 1 ? '1 place' : $total . ' places',
+                pp_udc_bounded_list($scan['references'], 20, $total, '; ')
+            ));
+        }
+        return null;
+    },
+    'preview' => function (array $params): array {
+        $name   = (string) $params['name'];
+        $before = pp_udc_custom_presets()[$name] ?? null;
+        return _pp_action_preview('delete_preset', 'site', ['name' => $name], $before, null, [
+            ['path' => 'preset.' . $name, 'from' => $before, 'to' => null],
+        ]);
+    },
+    'execute' => function (array $params): array {
+        $name   = (string) $params['name'];
+        $before = pp_udc_custom_presets()[$name] ?? null;
+
+        $result = pp_update_site_preset(
+            $name,
+            null,
+            isset($params['expected_version']) && is_numeric($params['expected_version'])
+                ? (int) $params['expected_version']
+                : null
+        );
+        if (is_wp_error($result)) {
+            return _pp_action_error(
+                'delete_preset',
+                'site',
+                $result->get_error_message(),
+                (string) $result->get_error_code()
+            );
+        }
+        return _pp_action_result('delete_preset', 'site', ['name' => $name], [
+            ['path' => 'preset.' . $name, 'from' => $before, 'to' => null],
         ]);
     },
 ]);

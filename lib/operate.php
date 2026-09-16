@@ -933,6 +933,16 @@ function pp_preflight(array $context = [], ?array $drift = null): array {
         $checks[] = $drop_check;
     }
 
+    // Check 8f: a site preset a theme preset now outranks (warning-grade,
+    // advisory, #1016). Unconditional for the same reason as 8d: a preset is
+    // referenced from bands AND from chrome, so there is no page context in which
+    // skipping it would be right. The site cannot create this state — the save
+    // verb refuses a theme name — so when it appears, a theme upgrade changed what
+    // the site paints and nothing else would say so.
+    foreach (pp_check_shadowed_presets() as $shadow_check) {
+        $checks[] = $shadow_check;
+    }
+
     // Check 9: Screenshot readiness (warning-grade, advisory — never blocks a mutation).
     // The operating loop forbids native VERIFIED without screenshots, so surface capture
     // readiness BEFORE mutation. A missing browser is a capability warning, not a gate:

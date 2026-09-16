@@ -1444,19 +1444,82 @@ function pp_assign_menu_location(int $menu_id, string $location): bool {
  * Returns all pages using the Composition template.
  * Each entry: ['id' => int, 'title' => string, 'status' => string, 'url' => string].
  * URL is get_permalink() for all statuses (best available WP link, not guaranteed public for drafts).
- * Uses static cache — safe to call multiple times per request.
+ * Uses a static cache unless `$fresh` is passed — safe to call multiple times per
+ * request, and cheap to, EXCEPT on the fresh path.
  *
- * @return array
+ * @param  bool $fresh Bypass the memo for this call and leave it untouched. For a
+ *                     GATE, which may not be opened by a possibly-stale list: a
+ *                     page missing from a memo filled earlier in the request is a
+ *                     reference the gate would not see. A fresh call re-queries
+ *                     every time and does NOT refill the memo, so one caller's
+ *                     need for freshness never changes what others see.
+ * @return array<int, array{id: int, title: string, status: string, url: string}>
  */
-function pp_composition_pages(): array {
+function pp_composition_pages(bool $fresh = false): array {
     static $cache = null;
+    // THE CACHE IS RIGHT FOR A LISTING AND WRONG FOR A GATE (#1016).
+    //
+    // Every existing caller renders or reports, and re-querying for each of them
+    // within one request is waste. pp_udc_preset_references() is different in kind:
+    // it decides whether a DELETE is safe, and a page missing from a list cached
+    // earlier in the request is a reference it will not see and will therefore
+    // certify as absent. Same rule pp_composition_db_handle() states for the
+    // composition read — a reader may degrade to a cached value, a gate may not be
+    // opened by one — so the gate asks for a fresh list and says why here.
+    // A FRESH READ BYPASSES THE MEMO. IT DOES NOT REPLACE IT.
+    //
+    // The first version refilled `$cache` from the fresh query, which quietly made
+    // one gate's read change what every LATER caller in the same request sees — and
+    // in the test suite, where one process runs every file, it leaked the gate's
+    // pages into an unrelated file's expectations (a prompt that asserts "No pages
+    // exist yet" began listing them). A caller that asks for a fresh answer is
+    // saying its own read must not be stale; it is not saying everyone else's
+    // should change. Bypassing on the way in and leaving the memo alone gives the
+    // gate its guarantee and costs every other caller nothing.
+    if ($fresh) {
+        return _pp_composition_pages_query();
+    }
     if ($cache !== null) {
         return $cache;
     }
 
+    $cache = _pp_composition_pages_query();
+    return $cache;
+}
+
+/**
+ * Composition pages a REFERENCE GATE must consider, including trashed ones.
+ *
+ * pp_composition_pages() lists what an operator would call the site's pages, and
+ * deliberately excludes the trash — right for every listing caller. A gate asking
+ * "is anything still pointing at this?" cannot use that set: `restore_page` is a
+ * shipped verb, so a trashed page's references are dormant, not gone, and deleting
+ * out from under them turns an untrash into a page full of dangling references.
+ *
+ * STATED LIMIT, because this still is not everything: the composition HISTORY ring
+ * is not scanned, so `restore_composition` can also resurrect a reference this gate
+ * certified as absent. Walking the ring is a different and much larger read, and the
+ * honest posture is to say so rather than imply the gate is total.
+ *
+ * @return array<int, array{id: int, title: string, status: string, url: string}>
+ */
+function pp_composition_pages_for_reference_gate(): array {
+    return _pp_composition_pages_query(['publish', 'draft', 'pending', 'private', 'trash']);
+}
+
+/**
+ * The query itself, with no memo around it.
+ *
+ * Extracted so the cached path and the fresh path run the SAME query and can never
+ * answer differently about what a composition page IS. The memo is the caller's
+ * concern; this is the answer.
+ *
+ * @return array<int, array{id: int, title: string, status: string, url: string}>
+ */
+function _pp_composition_pages_query(?array $statuses = null): array {
     $posts = get_posts([
         'post_type'      => 'page',
-        'post_status'    => ['publish', 'draft', 'pending', 'private'],
+        'post_status'    => $statuses ?? ['publish', 'draft', 'pending', 'private'],
         'meta_key'       => '_wp_page_template',
         'meta_value'     => 'composition.php',
         'posts_per_page' => -1,
@@ -1464,17 +1527,16 @@ function pp_composition_pages(): array {
         'order'          => 'ASC',
     ]);
 
-    $cache = [];
+    $out = [];
     foreach ($posts as $post) {
-        $cache[] = [
+        $out[] = [
             'id'     => $post->ID,
             'title'  => $post->post_title,
             'status' => $post->post_status,
             'url'    => (string) get_permalink($post->ID),
         ];
     }
-
-    return $cache;
+    return $out;
 }
 
 /**
@@ -2197,6 +2259,50 @@ function pp_check_retired_chrome_options(): array {
             count($present),
             implode(', ', $present),
             PP_SITE_UDC_OPTION
+        ),
+    ]];
+}
+
+/**
+ * Readiness row for a custom preset a theme preset is outranking (#1016).
+ *
+ * THE ONE PRESET STATE THAT ARRIVES WITHOUT ANYONE DOING ANYTHING. `save_preset`
+ * refuses a theme preset's name, so a site cannot create this collision. It gets
+ * created FOR the site, by a theme release that ships a preset whose name the site
+ * was already using — and at that moment every band and chrome role referencing
+ * that name silently starts painting the theme's bundle instead of the author's.
+ *
+ * Deterministic is not the same as disclosed. The ranking has to be stable (the
+ * alternative, a site preset quietly overriding a theme one, is the hidden
+ * aliasing I36 forbids in the other direction), so the ranking stays and the
+ * CHANGE is what gets reported. Configuration-class, acknowledgeable, warning
+ * severity: the site still renders, and the operator has a real choice to make —
+ * rename their preset and retarget its references, or accept the theme's.
+ */
+function pp_check_shadowed_presets(): array {
+    if (!function_exists('pp_udc_shadowed_presets')) {
+        return [];
+    }
+    $shadowed = pp_udc_shadowed_presets();
+    if ($shadowed === []) {
+        return [];
+    }
+    return [[
+        'check'           => 'shadowed_presets',
+        'pass'            => false,
+        'severity'        => 'warning',
+        'class'           => 'configuration',
+        'finding_key'     => 'shadowed_presets:' . implode(',', $shadowed),
+        'acknowledgeable' => true,
+        'next_action'     => 'Save your version under a different name (wp pp action execute save_preset), '
+                             . 'repoint the bands that referenced it, then delete the shadowed row.',
+        'message'         => sprintf(
+            '%d site preset(s) share a name with a preset the theme now ships: %s. The theme\'s version '
+            . 'wins, so every band and chrome role referencing %s is painting the theme\'s bundle rather '
+            . 'than yours — your stored version is intact but unreachable by name.',
+            count($shadowed),
+            implode(', ', $shadowed),
+            count($shadowed) === 1 ? 'that name' : 'those names'
         ),
     ]];
 }
@@ -7605,6 +7711,50 @@ function _pp_update_site_udc(string $value, ?int $expected_version) {
                     PP_SITE_UDC_OPTION
                 ));
             }
+            // A CLEAR CLEARS CHROME. IT IS NOT A CLEAR OF THE ROW (#1016).
+            //
+            // `''` is the documented way to remove all chrome styling, and the
+            // implementation was to delete the option — correct while chrome was
+            // the row's only tenant. With custom presets sharing it, deleting the
+            // row would destroy every shared bundle on the site as a side effect
+            // of restyling the header, reported as `ok: true`. The author asked to
+            // clear chrome; clearing chrome is what happens.
+            //
+            // The row still GOES AWAY when nothing is left in it, because that is
+            // what makes the next read report ABSENT rather than an empty-but-
+            // versioned container — the property the clear path exists for and the
+            // one its tests pin.
+            // THE BASELINE OUTLIVES THE STORE HERE TOO, and gating this on the preset
+            // MAP alone reintroduced through the other tenant's verb exactly the ABA
+            // pp_udc_site_container() fixed. Create a preset, delete it, then clear
+            // chrome: the map is empty so the row was deleted, and `presets_version`
+            // read 0 again — so a caller still holding the baseline it earned before
+            // any of that passed the compare. The row goes away only when NEITHER
+            // tenant has ever written, which is also what keeps a pre-#1016 row
+            // byte-identical.
+            if ($current['presets'] !== [] || $current['presets_version'] > 0) {
+                $kept = pp_udc_normalize_site_map(
+                    [],
+                    $current['version'] + 1,
+                    $current['presets'],
+                    $current['presets_version']
+                );
+                $encoded = wp_json_encode($kept);
+                if (!is_string($encoded)) {
+                    return new WP_Error('invalid_option_value', sprintf(
+                        'Option "%s" could not be encoded for storage; nothing was changed.',
+                        PP_SITE_UDC_OPTION
+                    ));
+                }
+                if (!update_option(PP_SITE_UDC_OPTION, $encoded, true)) {
+                    return new WP_Error('site_option_write_failed', sprintf(
+                        'The database did not accept the write to %s; the stored chrome styling is '
+                        . 'unchanged. Retry, and if it persists check the database is writable.',
+                        PP_SITE_UDC_OPTION
+                    ));
+                }
+                return true;
+            }
             if (!delete_option(PP_SITE_UDC_OPTION)) {
                 // delete_option() returns false for two different facts: the store
                 // REFUSED the delete, and there was nothing there to delete. Only the
@@ -7758,7 +7908,18 @@ function _pp_update_site_udc(string $value, ?int $expected_version) {
                 PP_SITE_UDC_OPTION
             ));
         }
-        $next    = pp_udc_normalize_site_map($decoded, $current['version'] + 1);
+        // THE PRESET SUBTREE IS CARRIED, NOT REBUILT (#1016). `$decoded` is the
+        // chrome the caller sent; `$current` is the row this lock is holding. A
+        // chrome write owns one subtree and must hand the other one back exactly
+        // as it found it — including its baseline, which a chrome write never
+        // advances, so a caller holding a preset baseline is not made stale by
+        // someone else restyling the nav.
+        $next    = pp_udc_normalize_site_map(
+            $decoded,
+            $current['version'] + 1,
+            $current['presets'],
+            $current['presets_version']
+        );
         $encoded = wp_json_encode($next);
         if (!is_string($encoded)) {
             // Never certify a write over a failed encode (invariant I3).
@@ -7828,6 +7989,180 @@ function _pp_update_site_udc(string $value, ?int $expected_version) {
             PP_SITE_UDC_OPTION
         )),
         'site chrome styling'
+    );
+}
+
+/**
+ * The CAS write for ONE custom preset (#1016, ruling A3).
+ *
+ * THE OTHER SUBTREE OF THE SAME ROW, and it rides the machinery ruling A1 already
+ * built rather than a second copy of it: the same advisory lock, the same
+ * cache-bypassing row read, the same byte ceiling, the same fail-closed reader,
+ * the same "a corrupt row refuses every baselined write" posture. What differs is
+ * the baseline it compares and the subtree it patches.
+ *
+ * ONE PRESET PER CALL, NOT A CONTAINER REPLACE. Chrome's verb replaces the whole
+ * map because a chrome map is small and whole-map editing is how it reads. A
+ * preset store is a registry other people's bands point INTO, so whole-store
+ * replace would make "add one preset" a call that can delete every other one by
+ * omission. The grain is the thing being changed.
+ *
+ * PRESERVE-FOREIGN-SUBTREE, from the other side: this rebuilds the row from the
+ * value it just read under the lock, replaces only `_presets`, advances only
+ * `_presets_version`, and leaves chrome and `_version` exactly as found — so a
+ * chrome baseline a caller is holding survives a preset write.
+ *
+ * @param array|null $preset The definition, or null to DELETE the named preset.
+ * @return true|WP_Error
+ */
+function pp_update_site_preset(string $name, ?array $preset, ?int $expected_version) {
+    $write = static function ($wpdb) use ($name, $preset, $expected_version) {
+        $current = _pp_read_site_udc_locked($wpdb);
+        if ($current === null) {
+            return new WP_Error('site_option_unreadable', sprintf(
+                'Could not read %s to check your baseline against it, so nothing was written. Retry; '
+                . 'if it persists, the database is not answering reads.',
+                PP_SITE_UDC_OPTION
+            ));
+        }
+        // Same sharp edge, same reason as the chrome arm: an unreadable row
+        // reports version 0, which is also what a never-written row reports, so a
+        // caller holding an ordinary `0` baseline must not pass the compare and
+        // overwrite bytes the operator may want recovered.
+        if ($current['corrupt'] && $expected_version !== null) {
+            return new WP_Error('site_option_corrupt', sprintf(
+                'The stored value of %s could not be read, so your baseline cannot be checked against '
+                . 'it and this write would overwrite it blind. Inspect the row and either repair it or '
+                . 'clear it (wp option delete %s), then write again; a write sent with no '
+                . 'expected_version replaces it deliberately.',
+                PP_SITE_UDC_OPTION,
+                PP_SITE_UDC_OPTION
+            ));
+        }
+        // A PRESET ROW NOBODY CAN PARSE STOPS THE WRITE, rather than being quietly
+        // dropped by it. This function rebuilds `_presets` from the PARSED map, and
+        // the parser fails closed per member — so a malformed row would vanish as a
+        // side effect of saving some unrelated preset, with an ok:true over it. That
+        // is the same silent-data-loss shape as the chrome normalizer's, one tenant
+        // over, and it gets the same answer: refuse, name the row, and say how to
+        // clear it deliberately.
+        if ($current['presets_unreadable'] !== []) {
+            return new WP_Error('site_option_corrupt', sprintf(
+                'The preset store holds %d entr%s this engine cannot read (%s), and writing a preset now '
+                . 'would drop %s. Nothing was written. Repair or remove %s with `wp option patch` on %s, '
+                . 'then write again.',
+                count($current['presets_unreadable']),
+                count($current['presets_unreadable']) === 1 ? 'y' : 'ies',
+                // Bounded for the same reason as the delete refusal's page list: the
+                // names are cleaned individually but the LIST is only capped by the
+                // 64 KB row, which admits thousands of short junk keys — and this is
+                // precisely the refusal that fires on rows an attacker chose. The
+                // count is already in the message, so the slice loses nothing.
+                pp_udc_bounded_list(
+                    array_map('_pp_udc_reflect', $current['presets_unreadable']),
+                    10,
+                    count($current['presets_unreadable'])
+                ),
+                count($current['presets_unreadable']) === 1 ? 'it' : 'them',
+                count($current['presets_unreadable']) === 1 ? 'it' : 'them',
+                PP_SITE_UDC_OPTION
+            ));
+        }
+
+        if ($expected_version !== null && $current['presets_version'] !== $expected_version) {
+            return new WP_Error('site_option_conflict', sprintf(
+                'The site presets have changed since you read them (you sent baseline %d, the stored '
+                . 'version is %d), so nothing was written. Re-read them (wp pp operate inspect reports '
+                . 'them under `chrome.presets`) and re-apply your change so you do not overwrite '
+                . 'someone else\'s edit.',
+                $expected_version,
+                $current['presets_version']
+            ));
+        }
+
+        $presets = $current['presets'];
+        if ($preset === null) {
+            if (!isset($presets[$name])) {
+                return new WP_Error('invalid_param_value', sprintf(
+                    'There is no site preset called "%s", so nothing was deleted. Stored presets: %s',
+                    $name,
+                    pp_udc_preset_names_for_message($presets) ?: '(none)'
+                ));
+            }
+            unset($presets[$name]);
+        } else {
+            // THE COUNT CEILING IS CHECKED ON A NEW NAME ONLY. Replacing an
+            // existing preset at the cap must keep working — otherwise a site that
+            // reached the limit could no longer EDIT its way back under it.
+            if (!isset($presets[$name]) && count($presets) >= PP_SITE_PRESETS_MAX) {
+                return new WP_Error('invalid_param_value', sprintf(
+                    'This site already has %d presets, which is the limit. Delete one before adding '
+                    . 'another; updating an existing preset is always allowed. Stored presets: %s',
+                    PP_SITE_PRESETS_MAX,
+                    pp_udc_preset_names_for_message($presets)
+                ));
+            }
+            $presets[$name] = $preset;
+        }
+
+        // The shape builder, NOT the normalizer: the chrome in this row was
+        // normalized when it was written, and a preset write carries it forward
+        // untouched rather than re-deriving it. `$current['version']` is passed
+        // through unchanged for the same reason — a preset write is not a chrome
+        // write and must not invalidate a chrome baseline someone is holding.
+        $next = pp_udc_site_container(
+            $current['chrome'],
+            $current['version'],
+            $presets,
+            $current['presets_version'] + 1
+        );
+        $encoded = wp_json_encode($next);
+        if (!is_string($encoded)) {
+            return new WP_Error('invalid_option_value', sprintf(
+                'Option "%s" could not be encoded for storage; nothing was written.',
+                PP_SITE_UDC_OPTION
+            ));
+        }
+        // Measured on the bytes that LAND, for the reason the chrome arm states: a
+        // map that validated can still normalize past the ceiling, and a row over
+        // the ceiling reads back as CORRUPT forever. Here it would take the site's
+        // chrome down with the presets, which is why the message says so.
+        if (strlen($encoded) > PP_SITE_UDC_MAX_BYTES) {
+            return new WP_Error('invalid_option_value', sprintf(
+                'Option "%s" would be %d bytes with this preset stored (the limit is %d), so storing '
+                . 'it would leave a row nothing can read back — the chrome styling in the same row '
+                . 'included. Nothing was written. Delete a preset you no longer use, or shrink this one.',
+                PP_SITE_UDC_OPTION,
+                strlen($encoded),
+                PP_SITE_UDC_MAX_BYTES
+            ));
+        }
+        // The preset baseline is incremented on every write, so the encoded string
+        // can never equal what is stored, so `false` means FAILED rather than "no
+        // change" — the same unambiguity the chrome arm relies on.
+        if (!update_option(PP_SITE_UDC_OPTION, $encoded, true)) {
+            return new WP_Error('site_option_write_failed', sprintf(
+                'The database did not accept the write to %s; nothing was changed. Retry, and if it '
+                . 'persists check the database is writable.',
+                PP_SITE_UDC_OPTION
+            ));
+        }
+        return true;
+    };
+
+    if (!function_exists('_pp_with_advisory_lock')) {
+        return $write(null);
+    }
+    return _pp_with_advisory_lock(
+        _pp_site_udc_lock_name(),
+        static function ($wpdb) use ($write) {
+            return $write($wpdb);
+        },
+        new WP_Error('site_option_locked', sprintf(
+            'Could not take the write lock for %s; nothing was written. Retry in a moment.',
+            PP_SITE_UDC_OPTION
+        )),
+        'site presets'
     );
 }
 
