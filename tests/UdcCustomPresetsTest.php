@@ -1335,6 +1335,109 @@ graphy";
         $this->assertCount(PP_UDC_MAX_PRESET_REFERENCES, $scan['unreadable'], 'the kept list caps');
     }
 
+    // ── 5f. What the api-contract specialist found ──────────────────────────
+
+    /**
+     * ONE FACT, ONE ERROR CODE, ACROSS BOTH VERBS.
+     *
+     * The two verbs reported identical refusal facts under different codes —
+     * and one of them borrowed the COMPONENT-PROP vocabulary for an action param.
+     * A caller keying on the code to say "pick another name" had to match two,
+     * and could not tell a bad preset param from a bad band prop.
+     */
+    public function testBothVerbsReportTheSameFactUnderTheSameCode(): void
+    {
+        foreach (['bad name!', 'button'] as $name) {
+            $save   = $this->save($name, $this->brandType());
+            $delete = pp_execute_action('delete_preset', ['name' => $name]);
+
+            $this->assertFalse($save['ok'], $name);
+            $this->assertFalse($delete['ok'], $name);
+            $this->assertSame(
+                'invalid_param_value',
+                $save['error_code'],
+                "save_preset must speak the PARAM vocabulary for {$name}"
+            );
+            $this->assertSame($save['error_code'], $delete['error_code'], "both verbs agree on {$name}");
+        }
+
+        // A bad VALUE inside the fragment keeps the engine's own code, because it
+        // is the same fact a band write reports.
+        $badValue = $this->save('fine-name', ['typography' => ['size' => '19 pixels']]);
+        $this->assertFalse($badValue['ok']);
+        $this->assertSame('invalid_prop_value', $badValue['error_code']);
+    }
+
+    /**
+     * PREVIEW AND EXECUTE AGREE about a name that is not stored.
+     *
+     * The existence check lived only in the writer, so preview built an ok:true
+     * envelope for a delete that execute refused — while the verb's own semantics
+     * string promised the refusal. An author asking "what would this do" was told
+     * the wrong answer.
+     */
+    public function testPreviewAndExecuteAgreeOnANameThatIsNotStored(): void
+    {
+        $preview = pp_preview_action('delete_preset', ['name' => 'never-made']);
+        $execute = pp_execute_action('delete_preset', ['name' => 'never-made']);
+
+        $this->assertInstanceOf(WP_Error::class, $preview, 'the preview must refuse too');
+        $this->assertSame('invalid_param_value', $preview->get_error_code());
+        $this->assertFalse($execute['ok']);
+        $this->assertSame($preview->get_error_code(), $execute['error_code']);
+    }
+
+    /**
+     * The two STATE refusals carry codes a caller can act on.
+     *
+     * "Retarget these references" and "repair this page" are nothing like "fix the
+     * parameter you sent", and collapsing all three onto one code forces the
+     * string-matching that machine-readable codes exist to prevent.
+     */
+    public function testTheStateRefusalsHaveTheirOwnCodes(): void
+    {
+        $this->assertTrue($this->save('brand-type', $this->brandType())['ok']);
+        $this->assertTrue($this->writeChrome([
+            'nav' => ['link' => [PP_UDC_PRESET_KEY => 'brand-type']],
+        ])['ok']);
+
+        $inUse = pp_execute_action('delete_preset', ['name' => 'brand-type']);
+        $this->assertFalse($inUse['ok']);
+        $this->assertSame('preset_in_use', $inUse['error_code']);
+
+        $id = pp_create_page('Corrupt', 'draft');
+        update_post_meta($id, '_pp_composition', '{not json');
+        $unreadable = pp_execute_action('delete_preset', ['name' => 'brand-type']);
+        $this->assertFalse($unreadable['ok']);
+        $this->assertSame('preset_scan_unreadable', $unreadable['error_code']);
+    }
+
+    /**
+     * A TRASHED page still counts as a reference, because `restore_page` is a
+     * shipped verb: its references are dormant, not gone.
+     */
+    public function testATrashedPageStillBlocksTheDelete(): void
+    {
+        $this->assertTrue($this->save('brand-type', $this->brandType())['ok']);
+
+        $id = pp_create_page('Trashed but restorable', 'draft');
+        $this->assertTrue(pp_execute_action('update_composition', [
+            'post_id'     => $id,
+            'composition' => [[
+                'component' => 'testimonials',
+                'props'     => ['items' => [['quote' => 'Great.', 'author' => 'Ada']]],
+                'udc'       => ['list' => [PP_UDC_PRESET_KEY => 'brand-type']],
+            ]],
+        ])['ok']);
+        $GLOBALS['_pp_test_store']['posts'][$id]['post_status'] = 'trash';
+
+        $result = pp_execute_action('delete_preset', ['name' => 'brand-type']);
+
+        $this->assertFalse($result['ok'], 'an untrash would resurrect the reference');
+        $this->assertSame('preset_in_use', $result['error_code']);
+        $this->assertStringContainsString((string) $id, $result['error']);
+    }
+
     // ── 6. The T2 intersect, on a CUSTOM preset, band AND chrome ────────────
 
     /**

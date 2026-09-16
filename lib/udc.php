@@ -998,11 +998,24 @@ function pp_udc_shadowed_presets(): array {
  * an `@name` that only resolves inside some band is refused here as dangling. Site
  * tokens resolve normally, which is how the theme's own presets follow a retheme.
  *
+ * THE REFUSALS HERE SPEAK THE PARAM VOCABULARY, not the prop one. Everything this
+ * function rejects arrived as an ACTION PARAM (`name`, `grain`, `udc`), so it emits
+ * `invalid_param_value` — the code the sibling verb already used for the same facts,
+ * and the code a caller branches on to say "fix what you sent". It used to emit
+ * `invalid_prop_value`, which is the COMPONENT-PROP vocabulary: the same fact
+ * reported under two different codes depending on which verb you called, and one of
+ * them borrowed from a different surface entirely.
+ *
+ * The value-grammar refusals underneath keep whatever the shared engine emits
+ * (`invalid_prop_value`, `unknown_udc_group`), and that is deliberate: a bad value
+ * inside the fragment is the SAME fact a band write reports, and forking its codes
+ * here would be a second vocabulary for one engine.
+ *
  * @param mixed $preset The stored shape: ['grain' => …, 'udc' => …, 'description' => …].
  */
 function pp_udc_validate_preset_definition(string $name, $preset): ?WP_Error {
     if (!pp_udc_valid_preset_name($name)) {
-        return new WP_Error('invalid_prop_value', sprintf(
+        return new WP_Error('invalid_param_value', sprintf(
             'A preset name must be 1-64 characters of letters, digits, hyphen or underscore; got %s. '
             . 'The charset is the design-token charset, because a preset name is stable text, not CSS.',
             _pp_schema_value_for_message($name)
@@ -1016,7 +1029,7 @@ function pp_udc_validate_preset_definition(string $name, $preset): ?WP_Error {
     // name rather than an `@` sigil: one namespace, one meaning, visible in the
     // source an author reads.
     if (isset(pp_udc_system_presets()[$name])) {
-        return new WP_Error('invalid_prop_value', sprintf(
+        return new WP_Error('invalid_param_value', sprintf(
             'The preset "%s" is shipped by the theme and cannot be replaced. Theme presets are: %s. '
             . 'Pick another name — anything you set on a band beside a preset already overrides it, '
             . 'so a variant does not need to shadow the original.',
@@ -1025,7 +1038,7 @@ function pp_udc_validate_preset_definition(string $name, $preset): ?WP_Error {
         ));
     }
     if (!is_array($preset)) {
-        return new WP_Error('invalid_prop_value', sprintf(
+        return new WP_Error('invalid_param_value', sprintf(
             'Preset "%s" must be an object with "grain" and "udc"; got %s.',
             $name,
             _pp_schema_value_for_message($preset)
@@ -1033,7 +1046,7 @@ function pp_udc_validate_preset_definition(string $name, $preset): ?WP_Error {
     }
     foreach (array_keys($preset) as $key) {
         if (!in_array((string) $key, ['grain', 'udc', 'description'], true)) {
-            return new WP_Error('invalid_prop_value', sprintf(
+            return new WP_Error('invalid_param_value', sprintf(
                 'Preset "%s" has no field %s. A preset carries "grain" (either "role" or one group '
                 . 'name), "udc" (the fragment), and an optional "description".',
                 $name,
@@ -1042,7 +1055,7 @@ function pp_udc_validate_preset_definition(string $name, $preset): ?WP_Error {
         }
     }
     if (isset($preset['description']) && !is_string($preset['description'])) {
-        return new WP_Error('invalid_prop_value', sprintf(
+        return new WP_Error('invalid_param_value', sprintf(
             'Preset "%s" description must be text; got %s.',
             $name,
             _pp_schema_value_for_message($preset['description'])
@@ -1052,7 +1065,7 @@ function pp_udc_validate_preset_definition(string $name, $preset): ?WP_Error {
     $groups = pp_udc_groups();
     $grain  = isset($preset['grain']) && is_string($preset['grain']) ? $preset['grain'] : '';
     if ($grain !== 'role' && !isset($groups[$grain])) {
-        return new WP_Error('invalid_prop_value', sprintf(
+        return new WP_Error('invalid_param_value', sprintf(
             'Preset "%s" grain must be "role" (a bundle of groups, applied beside a role\'s own) or '
             . 'one group name (applied beside that group\'s parameters); got %s. Groups: %s',
             $name,
@@ -1061,7 +1074,7 @@ function pp_udc_validate_preset_definition(string $name, $preset): ?WP_Error {
         ));
     }
     if (!isset($preset['udc']) || !is_array($preset['udc']) || $preset['udc'] === []) {
-        return new WP_Error('invalid_prop_value', sprintf(
+        return new WP_Error('invalid_param_value', sprintf(
             'Preset "%s" declares nothing. A preset that contributes no value is a reference that '
             . 'paints nothing, which the engine refuses wherever it can see it.',
             $name
@@ -1101,13 +1114,13 @@ function pp_udc_validate_preset_definition(string $name, $preset): ?WP_Error {
     // author deleting rows when the fix is to shrink one.
     $encoded = wp_json_encode($preset);
     if (!is_string($encoded)) {
-        return new WP_Error('invalid_prop_value', sprintf(
+        return new WP_Error('invalid_param_value', sprintf(
             'Preset "%s" could not be encoded for storage; nothing was written.',
             $name
         ));
     }
     if (strlen($encoded) > PP_SITE_PRESET_MAX_BYTES) {
-        return new WP_Error('invalid_prop_value', sprintf(
+        return new WP_Error('invalid_param_value', sprintf(
             'Preset "%s" is %d bytes and the limit for one preset is %d. The preset store shares a '
             . 'row with your chrome styling, so a single outsized preset would start refusing chrome '
             . 'writes. Split it into two presets, or drop the values a band can set for itself.',
@@ -1182,11 +1195,14 @@ function pp_udc_preset_references(string $name): array {
     if (!function_exists('pp_composition_pages')) {
         return $out;
     }
-    // FRESH, NOT CACHED. pp_composition_pages() memoizes for the request, which is
-    // right for the listings that call it and wrong here: a page missing from a
-    // list cached earlier in this request is a reference this scan would not see
-    // and would report as absent, certifying a delete that breaks it.
-    foreach (pp_composition_pages(true) as $page) {
+    // FRESH, AND INCLUDING THE TRASH. pp_composition_pages() memoizes for the
+    // request and excludes trashed pages — both right for the listings that call
+    // it, both wrong for a gate. A page missing from a list cached earlier in this
+    // request is a reference this scan would not see; and a TRASHED page's
+    // references are dormant rather than gone, because `restore_page` is a shipped
+    // verb. Either would certify a delete that a later untrash turns into a page
+    // full of dangling references.
+    foreach (pp_composition_pages_for_reference_gate() as $page) {
         $id = (int) ($page['id'] ?? 0);
         // THE AUTHORITATIVE READ, because this is a GATE and not a report.
         // pp_composition_db_handle()'s docblock draws the line: readers may

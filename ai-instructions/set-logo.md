@@ -158,7 +158,9 @@ Style the header to match the SITE's real header, not the hero: a dark hero is n
 
 ## Writing the container safely
 
-`pp_site_udc` holds BOTH chrome components, and a write REPLACES the whole option. So send `nav` and `footer` together when both are styled, or you will drop the one you left out. The option carries a `_version`; pass it back as `expected_version` and a write that would overwrite someone else's newer edit is refused (`site_option_conflict`) instead of clobbering it — re-read, re-apply, retry.
+`pp_site_udc` holds BOTH chrome components, and a write REPLACES the whole CHROME subtree. So send `nav` and `footer` together when both are styled, or you will drop the one you left out. The option carries a `_version`; pass it back as `expected_version` and a write that would overwrite someone else's newer edit is refused (`site_option_conflict`) instead of clobbering it — re-read, re-apply, retry.
+
+**The row has a second tenant, and it is not yours to send.** The site's custom presets live in the same option under the engine-owned `_presets` and `_presets_version` keys, written only by `save_preset` / `delete_preset`. They are preserved automatically across every chrome write and across a `""` clear, so leaving them out never loses one — and a chrome write that CARRIES either key is refused with `invalid_option_value`. If you read the stored bytes back before editing, strip those two keys and send the rest; `_version` is the one engine-owned key you may leave in place.
 
 **Pair every colour you set at rest with its hover (#992).** Chrome roles carry no
 defaults, so a value you set at REST outranks the theme stylesheet in EVERY state —
@@ -207,7 +209,7 @@ Setting it through this action renders the attachment as-is: the Customizer's sq
 | `pp_logo_id` | Media Library attachment ID (integer) | Must be an image. Never a URL. |
 | `pp_logo_alt` | string | Optional. Overrides the alt on BOTH chrome logos (header and footer — there is no `pp_footer_logo_alt`). Unset defaults to the attachment's own alt metadata, then the site title; the alt is never empty. Empty or whitespace-only counts as unprovided and falls through the chain. |
 | `site_icon` | Media Library attachment ID (integer) | Optional (#414). Must be an image. Never a URL. WP core favicon / app icon; rendered as-is on a direct write (no auto-crop), so supply a square source (ideally >=512px). Renders via `wp_site_icon` in `wp_head`. |
-| `pp_site_udc` | JSON object | Optional. **All** chrome styling: `{"nav": {<udc map>}, "footer": {<udc map>}}`, each in the same shape a band's `udc` takes. Replaces the whole option on write; carries a `_version` you may pass back as `expected_version`. |
+| `pp_site_udc` | JSON object | Optional. **All** chrome styling: `{"nav": {<udc map>}, "footer": {<udc map>}}`, each in the same shape a band's `udc` takes. Replaces the whole CHROME subtree on write, not the whole option: the site's custom presets share the row under `_presets`/`_presets_version`, are preserved automatically, and are refused if you send them. Carries a `_version` you may pass back as `expected_version`. |
 | `pp_footer_show_logo` | boolean (`1`/`0`/`true`/`false`) | Optional, default off. Turns the footer logo on/off. Uses the same resolved logo as the header. |
 | `pp_footer_blurb` | string | Optional. Brand/description line under the footer logo. |
 | `pp_footer_contact` | string | Optional. Contact/secondary text block (newlines become line breaks). |

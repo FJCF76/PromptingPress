@@ -1488,6 +1488,26 @@ function pp_composition_pages(bool $fresh = false): array {
 }
 
 /**
+ * Composition pages a REFERENCE GATE must consider, including trashed ones.
+ *
+ * pp_composition_pages() lists what an operator would call the site's pages, and
+ * deliberately excludes the trash — right for every listing caller. A gate asking
+ * "is anything still pointing at this?" cannot use that set: `restore_page` is a
+ * shipped verb, so a trashed page's references are dormant, not gone, and deleting
+ * out from under them turns an untrash into a page full of dangling references.
+ *
+ * STATED LIMIT, because this still is not everything: the composition HISTORY ring
+ * is not scanned, so `restore_composition` can also resurrect a reference this gate
+ * certified as absent. Walking the ring is a different and much larger read, and the
+ * honest posture is to say so rather than imply the gate is total.
+ *
+ * @return array<int, array{id: int, title: string, status: string, url: string}>
+ */
+function pp_composition_pages_for_reference_gate(): array {
+    return _pp_composition_pages_query(['publish', 'draft', 'pending', 'private', 'trash']);
+}
+
+/**
  * The query itself, with no memo around it.
  *
  * Extracted so the cached path and the fresh path run the SAME query and can never
@@ -1496,10 +1516,10 @@ function pp_composition_pages(bool $fresh = false): array {
  *
  * @return array<int, array{id: int, title: string, status: string, url: string}>
  */
-function _pp_composition_pages_query(): array {
+function _pp_composition_pages_query(?array $statuses = null): array {
     $posts = get_posts([
         'post_type'      => 'page',
-        'post_status'    => ['publish', 'draft', 'pending', 'private'],
+        'post_status'    => $statuses ?? ['publish', 'draft', 'pending', 'private'],
         'meta_key'       => '_wp_page_template',
         'meta_value'     => 'composition.php',
         'posts_per_page' => -1,
