@@ -394,6 +394,127 @@ final class UdcEngineTest extends TestCase
     }
 
     /**
+     * THE ROLE-SELECTOR CHARSET GATE, WIDENED BY ONE CHARACTER AND NO MORE (#994, D4).
+     *
+     * A role selector becomes CSS SOURCE TEXT, so lib/udc.php gates it on a charset
+     * even though schemas are repo-owned and integrity-checked. A violating selector
+     * is SILENTLY SKIPPED — the role emits nothing — which is the right failure for a
+     * theme bug an operator cannot act on, and the wrong failure to leave untested:
+     * silence is what a deleted gate looks like too.
+     *
+     * `>` joined the charset so `link-current` could say `li.current-menu-item > a`,
+     * the child form the retired CSS used; the descendant form would have painted every
+     * link in a current parent's dropdown. This proves the widening landed AND that it
+     * widened nothing else — the exclusions are the gate.
+     *
+     * THE ANCHORS ARE TESTED SEPARATELY FROM THE CLASS, deliberately. `^...$` with no
+     * `/m` is what makes the charset a whole-string claim; a class widening cannot
+     * break it, but a careless rewrite of the pattern could, and a trailing-newline
+     * payload is the classic way that shows up.
+     */
+    public function testTheRoleSelectorCharsetAdmitsTheChildCombinatorAndNothingElse(): void
+    {
+        $accepted = [
+            '.nav__menu ul li.current-menu-item > a',  // the #994 widening
+            '.site-footer__nav ul',
+            '.testimonials__quote',
+            '.a-b_c.d e > f',
+        ];
+        $refused = [
+            '.a, .b',                    // a selector LIST — one role owning two surfaces
+            '.a[data-x="y"]',            // an attribute match
+            '.a:hover',                  // a pseudo-class; states are a separate dimension
+            '.a{color:red}.b',           // a closed rule and a second selector
+            ".a\n.b",                    // a newline with content after it
+            "a\n",                       // THE ANCHOR CASE, and the one `$` would have
+                                         // accepted: PCRE's `$` matches before a final
+                                         // newline, so only `\z` refuses this. The
+                                         // case above passes under BOTH anchors, which
+                                         // is why it never proved the claim it sat under.
+            '.a > b; .c',
+            str_repeat('.x', 61),        // over the 120-character bound
+        ];
+
+        foreach ($accepted as $selector) {
+            $this->assertSame(
+                1,
+                preg_match('/^[A-Za-z0-9_ .>\-]{1,120}\z/', $selector),
+                "the charset must accept {$selector}"
+            );
+        }
+        foreach ($refused as $selector) {
+            $this->assertSame(
+                0,
+                preg_match('/^[A-Za-z0-9_ .>\-]{1,120}\z/', $selector),
+                'the charset must refuse ' . json_encode($selector)
+            );
+        }
+
+        // AND THE GATE IS STILL WIRED TO THAT PATTERN. Asserting the regex in isolation
+        // proves a string, not a behaviour: the source pin is what fails if someone
+        // relaxes the live gate while this test keeps passing on a copy.
+        $source = file_get_contents(dirname(__DIR__) . '/lib/udc.php');
+        $this->assertIsString($source);
+        $this->assertStringContainsString(
+            "preg_match('/^[A-Za-z0-9_ .>\\-]{1,120}\\z/', \$selector)",
+            $source,
+            'the compile-time selector gate must use exactly this pattern, anchors included'
+        );
+    }
+
+    /**
+     * EVERY SHIPPED ROLE SELECTOR IS A WELL-FORMED SELECTOR, not merely a permitted
+     * string.
+     *
+     * The compile-time gate bounds the CHARACTER SET and says nothing about shape, so
+     * `> a`, `a >` and `a >> b` all clear it and are all invalid CSS. That is not a
+     * cosmetic problem: _pp_udc_reduced_motion_guard() groups every motion-carrying
+     * role selector into ONE comma-separated rule, and CSS discards an entire grouped
+     * rule when any selector in the list is invalid — so a single malformed role
+     * selector silently removes the engine's `prefers-reduced-motion` guard from every
+     * role in that scope. An accessibility guarantee, lost with no error anywhere.
+     *
+     * The input is repo-controlled, so this is a theme bug rather than an attack, and
+     * the right place to catch a theme bug is CI. Pinned as a SHAPE check over what is
+     * actually shipped rather than as a new runtime refusal, which would be a widening
+     * of the write contract nobody ruled on.
+     */
+    public function testEveryShippedRoleSelectorIsAWellFormedSelector(): void
+    {
+        $checked = 0;
+
+        foreach (glob(dirname(__DIR__) . '/components/*/schema.json') as $file) {
+            $component = basename(dirname($file));
+            foreach (pp_udc_component_roles($component) as $role => $definition) {
+                $selector = trim((string) ($definition['selector'] ?? ''));
+                if ($selector === '') {
+                    continue; // `_band` addresses the root and carries no selector.
+                }
+                $checked++;
+
+                // A combinator needs a simple selector on BOTH sides, and two in a row
+                // is never valid. Whitespace around `>` is legal and normalised first so
+                // the check is about structure, not formatting.
+                $normalised = preg_replace('/\s*>\s*/', '>', $selector);
+                $this->assertDoesNotMatchRegularExpression(
+                    '/(^>|>$|>>)/',
+                    $normalised,
+                    "{$component}.{$role} declares \"{$selector}\", which passes the charset gate "
+                    . 'but is not a valid selector — it would invalidate the grouped '
+                    . 'prefers-reduced-motion rule for every role in its scope'
+                );
+
+                // And no empty compound between descendant combinators either.
+                foreach (explode(' ', $normalised) as $part) {
+                    $this->assertNotSame('', trim($part), "{$component}.{$role} has an empty compound");
+                }
+            }
+        }
+
+        $this->assertGreaterThan(30, $checked, 'the sweep must actually reach the shipped selectors');
+    }
+
+    /**
      * F1 — THE CRITICAL GUARD.
      *
      * Band ids are minted on WRITE only. A band that reached storage without one
@@ -1208,11 +1329,43 @@ final class UdcEngineTest extends TestCase
                         "{$component}.{$role} defaults the group {$group}, which the role does not permit"
                     );
 
-                    foreach ($params as $param => $value) {
+                    // STATE SUB-MAPS ARE FLATTENED IN, not skipped (#994).
+                    //
+                    // A group map may carry a `:hover` / `:focus-visible` / `:active`
+                    // sibling of its params, and chrome's retirement is the first place
+                    // a SCHEMA DEFAULT uses one — nav's `logo`, `link` and `toggle` all
+                    // ship the accent hover that used to live in components.css. This
+                    // sweep walked group keys as if they were all params, so a state
+                    // map read as a parameter named ":hover" and failed with "unknown
+                    // parameter — it would vanish silently", which was exactly backwards:
+                    // the ENGINE emits it correctly (verified in the rendered defaults
+                    // block), and the SWEEP was the thing that could not see it.
+                    //
+                    // Flattening rather than special-casing means a state's values get
+                    // the identical grammar, reference and breakpoint checks the base
+                    // state's do — a `:hover` colour that no grammar accepts has to fail
+                    // here, not at render time.
+                    $states = pp_udc_states();
+                    $flat   = [];
+                    foreach ($params as $key => $value) {
+                        if (isset($states[$key])) {
+                            $this->assertIsArray(
+                                $value,
+                                "{$component}.{$role}.{$group}.{$key} must be a map of parameters"
+                            );
+                            foreach ($value as $stateParam => $stateValue) {
+                                $flat["{$key} {$stateParam}"] = [$stateParam, $stateValue];
+                            }
+                            continue;
+                        }
+                        $flat[$key] = [$key, $value];
+                    }
+
+                    foreach ($flat as $where => [$param, $value]) {
                         $this->assertArrayHasKey(
                             $param,
                             $groups[$group]['params'],
-                            "{$component}.{$role}.{$group} defaults an unknown parameter {$param} — it would vanish silently"
+                            "{$component}.{$role}.{$group} defaults an unknown parameter {$where} — it would vanish silently"
                         );
                         $spec    = $groups[$group]['params'][$param];
                         $perBp   = is_array($value) ? $value : ['d' => $value];
@@ -1358,10 +1511,20 @@ final class UdcEngineTest extends TestCase
         // markup — the template simply is not where it can be read. Enumerated
         // here rather than skipped by a wildcard so that adding a role on a class
         // NOBODY emits still fails, which is the whole point of this lint.
-        $emittedByWordPress = [
-            'current-menu-item', // wp_nav_menu marks the <li> for the current page
-            'sub-menu',          // wp_nav_menu wraps a nested level in <ul class="sub-menu">
-        ];
+        // THE ALLOWLIST IS EMPTY SINCE #994, and the emptiness is the point.
+        //
+        // It held `current-menu-item` and `sub-menu` because the harness's wp_nav_menu
+        // stub emitted a single flat `<ul><li><a>` and could not show them, so the two
+        // classes had to be taken on trust — which made `link-current` and `submenu`
+        // the two chrome role selectors this lint could never fail on. They are also
+        // the two the retirement leans on hardest.
+        //
+        // tests/bootstrap.php now drives the THEME's own walker over a two-level
+        // fixture that marks a current item and nests a sub-menu, so both classes are
+        // in the rendered markup like any other and are checked like any other. Kept
+        // as an empty list rather than deleted so the next reader sees that the bypass
+        // was closed deliberately, not that it never existed.
+        $emittedByWordPress = [];
 
         // A resolvable logo, so the chrome fixtures render the IMAGE branch of the
         // logo (.nav__logo-image) rather than the wordmark fallback. Without it

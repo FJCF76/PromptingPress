@@ -4215,10 +4215,11 @@ test.describe('chrome UDC renders (ruling A1)', () => {
     expect(bgColor).toBe('rgb(26, 26, 46)');
   });
 
-  test('an unstyled header is unchanged (no gradient, no inline style, no chrome block)', async ({
+  test('an unstyled header is unchanged (no gradient, no inline style) @smoke', async ({
     page,
   }) => {
-    // Defaults stay neutral: ruling A1 adds a capability and changes no default.
+    // Defaults stay neutral: ruling A1 added a capability and changed no default, and
+    // #994 moved where those defaults LIVE without moving what they say.
     pageId = createPage('E2E Header Default');
     setComposition(pageId, [{ component: 'hero', props: { id: 'pp-hero01', title: 'Hero' } }]);
 
@@ -4231,9 +4232,82 @@ test.describe('chrome UDC renders (ruling A1)', () => {
     expect(await header.evaluate((el) => getComputedStyle(el).backgroundImage)).toBe('none');
     expect(await header.evaluate((el) => el.getAttribute('style'))).toBeNull();
 
-    // A site with no chrome styling emits no chrome block at all.
+    // THE CHROME BLOCK IS PRESENT ON AN UNSTYLED SITE SINCE #994, and asserting its
+    // ABSENCE is what this test used to do. That was right while chrome shipped EMPTY
+    // role defaults and the header's resting appearance came from components.css; the
+    // retirement made those defaults the resting appearance, so a page without the
+    // block would be a page with an unpainted header. `pp_udc_chrome_defaults_css()`
+    // lost its no-stored-entry short-circuit in the same change for exactly this
+    // reason — the defaults are a property of the THEME, not of what a site wrote.
+    //
+    // What the test still guards is what it always meant: an unstyled site looks
+    // unstyled. So the assertions move from "no block" to the VALUES the block must
+    // carry, which are the values components.css used to declare.
     const html = await page.content();
-    expect(html).not.toContain('[data-pp-chrome=');
+    expect(html).toContain('[data-pp-chrome="nav"]');
+
+    // --color-bg / --color-border, the two the deleted `.site-header` rule named.
+    await expect(header).toHaveCSS('background-color', 'rgb(252, 253, 255)');
+    await expect(header).toHaveCSS('border-bottom-width', '1px');
+    await expect(header).toHaveCSS('border-bottom-style', 'solid');
+    await expect(header).toHaveCSS('border-bottom-color', 'rgb(217, 224, 235)');
+
+    // AND THE AUTHORED TIER IS STILL EMPTY. The two tiers print on either side of the
+    // stylesheets and only the defaults one should exist here; without this, the
+    // assertions above would also pass on a site that HAD written chrome styling that
+    // happened to match the defaults.
+    //
+    // TOLD APART BY SHAPE, not by a style id: both tiers ride wp_add_inline_style (on
+    // `pp-base` and `pp-utilities`), so neither has an id of its own to assert on. The
+    // defaults tier wraps its ROOT rule in `:where()` inside `@layer pp-zero`; the
+    // authored tier emits the bare attribute selector. `[data-pp-chrome="nav"]{` with
+    // the brace immediately after can therefore only be an authored `_band` block —
+    // every default element rule has a space and a class before its brace.
+    expect(html).toContain('@layer pp-zero{:where([data-pp-chrome="nav"])');
+    expect(html).not.toContain('[data-pp-chrome="nav"]{');
+  });
+
+  /**
+   * THE MOBILE PANEL'S SURFACE IS A `p`-KEYED DEFAULT, AND THE DESKTOP MENU HAS NONE.
+   *
+   * The failure this exists to catch is silent and one character wide: the engine's
+   * `d` breakpoint carries NO media query, so a panel fill written as `d` alone would
+   * paint a bar-coloured rectangle behind the DESKTOP links, and a `submenu` surface
+   * written the same way would put the dropdown's border and shadow on the mobile
+   * expand-in-place list. ChromeUdcTest refuses a `d`-only map statically; this is the
+   * rendered half, because "paints at the wrong width" is not a thing a schema sweep
+   * can see.
+   *
+   * Both widths in one test on purpose: asserting the phone value alone passes just as
+   * happily when the value is painting at EVERY width, which is the bug.
+   */
+  test('#994 the mobile panel surface is phone-scoped and does not reach the desktop menu @smoke', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E 994 Panel Breakpoints');
+    setComposition(pageId, [{ component: 'hero', props: { id: 'pp-hero01', title: 'Hero' } }]);
+    // Reuse this describe's own menu slot so afterEach tears it down: `primary` is a
+    // site-global theme location, and a leaked assignment hands every later spec a
+    // header menu it never seeded.
+    darkMenuId = createMenu(`E2E 994 bp ${Date.now()}`);
+    addCustomToMenu(darkMenuId, 'Elsewhere', '#elsewhere');
+    assignMenuToPrimary(darkMenuId);
+
+    const menu = page.locator('.nav__menu');
+
+    // PHONE — the disclosure panel carries the surface the deleted CSS declared.
+    await page.setViewportSize({ width: 375, height: 800 });
+    await page.goto(`/?page_id=${pageId}`);
+    await expect(page.locator('.nav__toggle')).toBeVisible({ timeout: 10000 });
+    await expect(menu).toHaveCSS('background-color', 'rgb(252, 253, 255)'); // --color-bg
+    await expect(menu).toHaveCSS('border-bottom-width', '1px');
+    expect(await menu.evaluate((el) => getComputedStyle(el).boxShadow)).not.toBe('none');
+
+    // DESKTOP — none of it follows. A transparent fill, no border, no shadow.
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await expect(menu).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+    await expect(menu).toHaveCSS('border-bottom-width', '0px');
+    expect(await menu.evaluate((el) => getComputedStyle(el).boxShadow)).toBe('none');
   });
 
   /**
@@ -5297,11 +5371,32 @@ function addPageToMenu(menuId: number, pageId: number): void {
 }
 
 /** Append a custom (non-post) item, so a menu can carry a link that is never current. */
-function addCustomToMenu(menuId: number, title: string, url: string): void {
+function addCustomToMenu(menuId: number, title: string, url: string, parentId?: number): void {
+  const parent = parentId ? ` --parent-id=${parentId}` : '';
   execSync(
-    `npx wp-env run cli wp menu item add-custom ${menuId} ${shq(title)} ${shq(url)}`,
+    `npx wp-env run cli wp menu item add-custom ${menuId} ${shq(title)} ${shq(url)}${parent}`,
     { cwd: process.cwd(), encoding: 'utf-8' },
   );
+}
+
+/**
+ * The db_id of the most recently added item in a menu.
+ *
+ * `wp menu item add-post` has no --porcelain, so the id of the page item a submenu
+ * must hang under is not returned by the call that creates it. Listing and taking the
+ * last row is how the CLI exposes it; the list is in menu order, which is insertion
+ * order for a menu nothing has reordered.
+ */
+function lastMenuItemId(menuId: number): number {
+  const rows = execSync(
+    `npx wp-env run cli wp menu item list ${menuId} --fields=db_id --format=csv`,
+    { cwd: process.cwd(), encoding: 'utf-8' },
+  )
+    .replace(/\r/g, '')
+    .trim()
+    .split('\n')
+    .filter((line) => /^\d+$/.test(line.trim()));
+  return parseInt(rows[rows.length - 1], 10);
 }
 
 function assignMenuToPrimary(menuId: number): void {
@@ -5350,10 +5445,30 @@ test.describe('#355 the active header link is reachable through the link-current
     addPageToMenu(menuId, pageId);
     // A SECOND, NON-CURRENT ITEM. The `link` and `link-current` roles emit at the same
     // specificity — `[data-pp-chrome="nav"] .nav__menu ul li a:hover` and
-    // `... li.current-menu-item a` are both (0,3,3) — so on the current item a tie is
+    // `... li.current-menu-item > a` are both (0,3,3) — so on the current item a tie is
     // broken by emission order and `link`'s hover cannot be read there. A plain
     // sibling is the only place `link`'s own states are observable. An in-page anchor,
     // so clicking it could never navigate a test away.
+    addCustomToMenu(menuId, 'Elsewhere', '#elsewhere');
+    assignMenuToPrimary(menuId);
+  }
+
+  /**
+   * The same page, but its menu item HAS CHILDREN (#994/#995).
+   *
+   * Two things need this shape and nothing else can supply it. `link-current`'s child
+   * combinator only matters when the current item has descendants to exclude, and
+   * #995's alignment defect only appears on an item the walker gives a disclosure
+   * button to. A current item WITHOUT children answers neither question, which is why
+   * the fixture above cannot be reused.
+   */
+  function seedCurrentItemPageWithChildren(title: string): void {
+    pageId = createPage(title);
+    setComposition(pageId, [{ component: 'hero', props: { id: 'pp-hero01', title: 'Hero' } }]);
+    menuId = createMenu(`E2E 994 ${Date.now()}`);
+    addPageToMenu(menuId, pageId);
+    const parent = lastMenuItemId(menuId);
+    addCustomToMenu(menuId, 'Child One', '#child-one', parent);
     addCustomToMenu(menuId, 'Elsewhere', '#elsewhere');
     assignMenuToPrimary(menuId);
   }
@@ -5405,8 +5520,11 @@ test.describe('#355 the active header link is reachable through the link-current
   /**
    * THE PREMISE UNDER `link-current`'s SELECTOR (#991).
    *
-   * The role's selector is `.nav__menu ul li.current-menu-item a` — one class, not a
-   * list. That is only correct because WordPress adds `current-menu-item` to EVERY
+   * The role's selector is `.nav__menu ul li.current-menu-item > a` — one class, not a
+   * list, and a CHILD combinator rather than a descendant one (ruling D4, #994: the
+   * descendant form would hand the current-page treatment to every link inside a current
+   * parent's dropdown). That one class is only correct because WordPress adds
+   * `current-menu-item` to EVERY
    * item it considers current: core sets `current_page_item` exclusively inside a
    * branch that has already pushed `current-menu-item` (wp-includes/nav-menu-template.php),
    * and `aria-current="page"` is rendered from the same `$menu_item->current` flag
@@ -5449,28 +5567,37 @@ test.describe('#355 the active header link is reachable through the link-current
   });
 
   /**
-   * CHARACTERIZATION TEST — THIS PINS A DEFECT, NOT A DESIRED BEHAVIOUR (#992).
+   * THE INVERSION OF THE #992 CHARACTERIZATION TEST (#994).
    *
-   * DELETE OR INVERT THIS TEST WHEN #994 LANDS. It exists so the fix has a
-   * red-to-green to flip; it is debt, deliberately incurred, and its assertions are
-   * the WRONG answer.
+   * That test pinned a DEFECT on purpose so this fix would have a red-to-green to
+   * flip, and its own docblock said "DELETE OR INVERT THIS TEST WHEN #994 LANDS".
+   * Inverted rather than deleted, deliberately: same page, same authored input, same
+   * three reads — only the expectations move. A deleted defect pin proves the defect
+   * is unreachable by nobody watching; an inverted one proves the exact scenario that
+   * used to fail now passes, which is the only evidence that answers "did you fix it
+   * or did you delete the test?"
    *
-   * What it records: chrome ships no role defaults, the v1 stylesheet sits in
-   * `@layer pp-v1`, and authored chrome blocks are unlayered. Unlayered beats layered
-   * at any specificity — in EVERY state, not just at rest. So a colour authored at
-   * REST also outranks the stylesheet's `:hover` and current-page rules, and a header
-   * styled only at rest silently loses its hover feedback and its you-are-here marker.
+   * WHAT CHANGED UNDERNEATH. Chrome shipped NO role defaults, so an authored value was
+   * the only unlayered declaration on the element and outranked the v1 stylesheet in
+   * EVERY state — including the `:hover` and current-page rules that stylesheet
+   * provided. #994 moved those treatments into role defaults, which sit in the same
+   * unlayered tier the authored value does, so they win or lose on specificity like
+   * anything else: `link`'s `:hover` at (0,3,3) beats an authored `link` base at
+   * (0,2,3), and `link-current` at (0,3,3) beats it too.
    *
-   * Scoped to the CLASS rather than the single current-page instance it was first
-   * reported as: link hover, logo hover and the current-page accent all collapse
-   * together, and the logo case leaves no hover affordance at all.
+   * EVERY ASSERTION STILL NEEDS ITS POSITIVE CONTROL, and now more than before: the
+   * claim has become "the colour DOES change on hover", which fails loudly if the
+   * hover never landed — but the current-page assertion is still an equality, so the
+   * hover-engaged proof is kept throughout rather than trimmed as redundant.
    */
-  test('#992 CHARACTERIZATION: an authored base colour erases the hover and current-page accents', async ({
+  test('#994 an authored base colour no longer erases the hover and current-page accents', async ({
     page,
   }) => {
-    seedCurrentItemPage('E2E 992 Base Erases States');
-    // Author ONLY resting colours — no `:hover` maps, no `link-current`.
+    seedCurrentItemPage('E2E 994 Base Keeps States');
+    // Author ONLY resting colours — no `:hover` maps, no `link-current`. Byte-for-byte
+    // the input the characterization test used.
     const AUTHORED = '#0a7d32'; // rgb(10, 125, 50)
+    const ACCENT = 'rgb(49, 87, 244)'; // --color-accent, the default the roles carry
     setChromeUdc({
       nav: {
         link: { typography: { color: AUTHORED } },
@@ -5485,43 +5612,164 @@ test.describe('#355 the active header link is reachable through the link-current
     await expect(activeLink).toBeVisible({ timeout: 10000 });
     const logo = page.locator('.nav__logo');
 
-    // EVERY ASSERTION BELOW NEEDS A POSITIVE CONTROL, and that is not pedantry here.
-    // The defect is "the colour does NOT change on hover", so asserting the hovered
-    // colour equals the resting colour passes just as happily when the hover never
-    // landed at all — pointer synthesis lost, element under the sticky header, page
-    // navigated. This pin is the red half of the red-to-green that #994 flips; if it
-    // had been passing because nothing was ever hovered, the flip would prove nothing.
-    // So each case first proves the hover ENGAGED, then asserts the colour held.
     const hoverEngaged = (target: typeof logo) =>
       target.evaluate((el) => el.matches(':hover'));
 
-    // DEFECT 1 — the current-page accent is gone; only the bold weight still marks it.
-    await expect(activeLink).toHaveCSS('color', 'rgb(10, 125, 50)');
+    // WAS DEFECT 1 — the current-page accent survives the author's `link` colour.
+    // The author never mentioned `link-current`; its DEFAULT is what holds the line.
+    await expect(activeLink).toHaveCSS('color', ACCENT);
     await expect(activeLink).toHaveCSS('font-weight', '700');
 
-    // DEFECT 2 — the link's accent hover is gone. Control: the stylesheet's hover rule
-    // sets BOTH colour and `text-decoration: underline`, and the author set only
-    // colour — so the underline appearing is proof the :hover rule really applied
-    // while its colour half lost to the unlayered authored value.
-    await activeLink.hover();
-    expect(await hoverEngaged(activeLink)).toBe(true);
-    await expect(activeLink).toHaveCSS('text-decoration-line', 'underline');
-    await expect(activeLink).toHaveCSS('color', 'rgb(10, 125, 50)');
+    // AND THE AUTHORED VALUE REALLY DID LAND, on the links it was written for. Without
+    // this the test above would pass just as happily if the whole chrome write had been
+    // dropped — "the accent is still there" is also what a no-op looks like.
+    const plainLink = page.locator('.nav__menu ul li:not(.current-menu-item) > a').first();
+    await expect(plainLink).toHaveCSS('color', 'rgb(10, 125, 50)');
 
-    // DEFECT 3 — the worst one: hovering the logo produces NO change at all. The logo's
-    // hover rule sets colour and nothing else, so there is no surviving side effect to
-    // lean on; `:hover` matching is the whole control.
+    // WAS DEFECT 2 — the link's accent hover answers again. The control is the same
+    // one the characterization test used: the stylesheet's hover set BOTH colour and
+    // an underline, and `link`'s hover default carries both, so the underline proves
+    // the rule applied while the colour proves which tier won.
+    await plainLink.hover();
+    expect(await hoverEngaged(plainLink)).toBe(true);
+    await expect(plainLink).toHaveCSS('text-decoration-line', 'underline');
+    await expect(plainLink).toHaveCSS('color', ACCENT);
+
+    // WAS DEFECT 3 — the worst one. Hovering the logo produced NO change at all,
+    // because its hover rule sets colour and nothing else, leaving no side effect to
+    // fall back on. It changes now.
+    await expect(logo).toHaveCSS('color', 'rgb(10, 125, 50)');
     await logo.hover();
     expect(await hoverEngaged(logo)).toBe(true);
-    await expect(logo).toHaveCSS('color', 'rgb(10, 125, 50)');
+    await expect(logo).toHaveCSS('color', ACCENT);
   });
 
   /**
-   * THE AUTHORED WAY OUT, until #994 removes the need for it (#992).
+   * THE `> a` GUARD, RENDERED (#994, ruling D4).
    *
-   * The mitigation the schema, the action description and the READMEs all now state:
-   * pair every resting colour with its `:hover`, and pair `link` with `link-current`.
-   * This proves the advice actually works rather than merely sounding right.
+   * `link-current`'s default paints the current page's link accent and bold. Its
+   * selector is a CHILD combinator, and the `>` exists in the role-selector charset
+   * only because of this case: with the descendant form the same default would also
+   * paint every link inside a current parent's DROPDOWN, so visiting a parent page
+   * would turn its whole submenu accent-coloured and bold.
+   *
+   * Unit tests cannot see this — it is a cascade outcome on markup WordPress emits —
+   * so it is measured where it happens.
+   */
+  test('#994 the current-page treatment stops at the current item and does not enter its dropdown', async ({
+    page,
+  }) => {
+    seedCurrentItemPageWithChildren('E2E 994 Current With Dropdown');
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+
+    const activeLink = page.locator('.nav__menu li.current-menu-item > a');
+    await expect(activeLink).toBeVisible({ timeout: 10000 });
+    await expect(activeLink).toHaveCSS('color', 'rgb(49, 87, 244)');
+    await expect(activeLink).toHaveCSS('font-weight', '700');
+
+    // The child of that very item: plain ink, normal weight. Read while the dropdown
+    // is closed on purpose — `display: none` does not stop `color` resolving, and the
+    // question is about the cascade, not about visibility.
+    const childLink = page.locator('.nav__menu li.current-menu-item .sub-menu li a').first();
+    await expect(childLink).toHaveCSS('color', 'rgb(16, 24, 40)');
+    await expect(childLink).toHaveCSS('font-weight', '400');
+  });
+
+  /**
+   * #995 DEFECT 2, MEASURED AS GEOMETRY rather than looked at.
+   *
+   * The parent link is display:block, so the disclosure button could not sit beside it
+   * and wrapped onto a second line; the <li> then grew to two lines while its siblings
+   * stayed at one, and the row's align-items:center lifted the parent's LABEL above its
+   * neighbours' baseline. Measured before the fix at 1280: parent <li> y=0.91 h=62.19,
+   * sibling y=15.20 h=33.59 — a ~14px misalignment with the chevron stranded below.
+   *
+   * Screenshots are how this was FOUND (pipeline rule 14.2) and boxes are how it stays
+   * fixed: a screenshot diff tolerates a 14px drift, an equality on the top edge does
+   * not.
+   */
+  test('#995 a parent menu item sits on the same baseline as its siblings @smoke', async ({
+    page,
+  }) => {
+    seedCurrentItemPageWithChildren('E2E 995 Parent Alignment');
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+
+    const parent = page.locator('.nav__menu > ul > li.menu-item-has-children').first();
+    const sibling = page.locator('.nav__menu > ul > li:not(.menu-item-has-children)').first();
+    await expect(parent).toBeVisible({ timeout: 10000 });
+
+    const parentBox = await parent.boundingBox();
+    const siblingBox = await sibling.boundingBox();
+    expect(parentBox).not.toBeNull();
+    expect(siblingBox).not.toBeNull();
+
+    // Same top edge and same height: the item is one line, like every other item.
+    expect(Math.abs(parentBox!.y - siblingBox!.y)).toBeLessThan(1);
+    expect(Math.abs(parentBox!.height - siblingBox!.height)).toBeLessThan(1);
+
+    // And the chevron is BESIDE the label, not under it — vertically overlapping the
+    // parent's own link rather than sitting past its bottom edge.
+    const toggleBox = await parent.locator('.nav__submenu-toggle').boundingBox();
+    expect(toggleBox).not.toBeNull();
+    expect(toggleBox!.y).toBeLessThan(parentBox!.y + parentBox!.height);
+    expect(toggleBox!.x).toBeGreaterThan(parentBox!.x);
+  });
+
+  /**
+   * #995 DEFECT 1 — the chevron is REACHABLE on a dark header now.
+   *
+   * It is not automatic, and the test says so rather than implying otherwise: the
+   * button is a SIBLING of the link, so `color: inherit` resolved against the <li>
+   * and no default can make it follow the `link` role. Before #994 there was no role
+   * covering the element at all, so a dark header left the chevron at the ambient ink
+   * — measured at 1:1 contrast against its own background, invisible. The fix is that
+   * `submenu-toggle` exists; this proves both halves of that sentence.
+   */
+  test('#995 the dropdown chevron follows an authored submenu-toggle colour', async ({
+    page,
+  }) => {
+    seedCurrentItemPageWithChildren('E2E 995 Chevron Ink');
+    setChromeUdc({
+      nav: {
+        _band: { background: { fill: '#101828' } },
+        link: { typography: { color: '#f7f8fa' } },
+        'submenu-toggle': { typography: { color: '#f7f8fa' } },
+      },
+    });
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+
+    const toggle = page.locator('.nav__submenu-toggle').first();
+    await expect(toggle).toBeVisible({ timeout: 10000 });
+
+    // The authored ink reaches the button, and the icon inherits it via currentColor.
+    await expect(toggle).toHaveCSS('color', 'rgb(247, 248, 250)');
+    await expect(page.locator('.nav__submenu-toggle-icon').first()).toHaveCSS(
+      'color',
+      'rgb(247, 248, 250)',
+    );
+
+    // Against the header it sits on — which is the whole defect, stated as the
+    // inequality that was an equality before.
+    await expect(page.locator('.site-header')).toHaveCSS('background-color', 'rgb(16, 24, 40)');
+  });
+
+  /**
+   * AUTHORED STATES STILL WIN, which is the other half of #994's fix.
+   *
+   * This test used to be "the authored way out" of #992: pair every resting colour
+   * with its `:hover` and pair `link` with `link-current`, or lose both. The pairing
+   * is no longer a rescue — the defaults hold those states now — so what it proves has
+   * changed from "the advice works" to something more important: an author who DOES
+   * set a state still beats the default that would otherwise carry it. A defaults tier
+   * that could not be overridden state-for-state would be a new I35, and the test
+   * above (which asserts the default wins when the author is silent) is only safe
+   * because this one asserts the reverse when the author speaks.
    */
   test('#992 pairing the states back restores hover feedback and the current-page marker', async ({
     page,
@@ -5572,6 +5820,14 @@ test.describe('#355 the active header link is reachable through the link-current
    * authored state reaches a nav link and beats that floor — keyboard-only, which is
    * why the link is reached with real Tab presses rather than `.focus()` (a scripted
    * focus does not always satisfy `:focus-visible`).
+   *
+   * READ ON A NON-CURRENT SIBLING SINCE #994. `.first()` is the CURRENT page's link in
+   * this fixture, and `link-current` carries a colour DEFAULT now — at (0,3,3) it
+   * outranks an authored `link` base at (0,2,3), so the current item is accent rather
+   * than the authored `#111111`. That is the #992 fix working exactly as intended (the
+   * you-are-here marker survives an author styling `link`), and it makes the current
+   * item the one place `link`'s own states cannot be observed. The sibling fixture
+   * exists for precisely this reason — see seedCurrentItemPage's own note.
    */
   test('#991 an authored focus-visible state reaches a nav link', async ({ page }) => {
     seedCurrentItemPage('E2E Focus Visible');
@@ -5582,14 +5838,21 @@ test.describe('#355 the active header link is reachable through the link-current
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto(`/?page_id=${pageId}`);
 
-    const link = page.locator('.nav__menu ul li a').first();
+    const link = page.locator('.nav__menu ul li:not(.current-menu-item) > a').first();
     await expect(link).toBeVisible({ timeout: 10000 });
     await expect(link).toHaveCSS('color', 'rgb(17, 17, 17)');
 
     // Walk the keyboard to the link so the browser's own focus-visible heuristic fires.
     // A scripted .focus() does NOT reliably satisfy :focus-visible, which is the whole
     // state under test, so the Tab walk is load-bearing rather than incidental.
-    for (let i = 0; i < 12; i += 1) {
+    // BUDGET RAISED FROM 12 (#994). The walk is bounded, never `while (true)` — but
+    // the bound has to clear the real tab order, and the target moved one stop further
+    // down it when this test switched to the non-current sibling. Measured in Chromium
+    // on this fixture: the skip link is stop 11, the current item 13, the sibling 14.
+    // 30 leaves headroom for a fixture that grows a menu item without making the loop
+    // unbounded, and the assertion below is what turns a missed target into a clear
+    // failure rather than a silently unproven state.
+    for (let i = 0; i < 30; i += 1) {
       await page.keyboard.press('Tab');
       if (await link.evaluate((el) => el === document.activeElement)) break;
     }
@@ -5604,9 +5867,9 @@ test.describe('#355 the active header link is reachable through the link-current
    * THE `container` ROLE IS NOT INERT (#991).
    *
    * `.nav__container`'s two designable declarations are `min-height` and `gap`, and
-   * before this role neither was reachable from any authoring surface. The role ships
-   * EMPTY defaults like every other chrome role (the carve-out in css-lint depends on
-   * that), so this proves it works when AUTHORED without giving it a default.
+   * before this role neither was reachable from any authoring surface. It carries them
+   * as DEFAULTS since #994 — the stylesheet no longer has them — so this proves both
+   * directions: the default paints on an unstyled site, and an authored value beats it.
    */
   test('#991 the container role reaches the header row', async ({ page }) => {
     // No menu needed: the header row exists on every page, and this asserts geometry
@@ -5619,10 +5882,11 @@ test.describe('#355 the active header link is reachable through the link-current
     await page.goto(`/?page_id=${pageId}`);
     const row = page.locator('.nav__container');
     await expect(row).toBeVisible({ timeout: 10000 });
-    // Unauthored, the stylesheet's own row height stands — the role adds no default.
-    // That half matters as much as the authored half: a chrome role that shipped a
-    // default would be unlayered and would start outranking components.css, which is
-    // what the css-lint carve-out and ChromeUdcTest's empty-defaults pin both forbid.
+    // Unauthored, the ROLE DEFAULT paints the row height — the value is the same 64px
+    // the stylesheet used to declare, which is the point: the retirement moved the
+    // declaration without moving the pixel. That half matters as much as the authored
+    // half, because a default that failed to paint would be invisible on every
+    // unstyled site and this is the only place that would show.
     await expect(row).toHaveCSS('min-height', '64px');
 
     setChromeUdc({

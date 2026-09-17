@@ -154,7 +154,28 @@
    normally; only bare-element borders on the roots are suppressed.
    ========================================================================== */
 
-[data-pp-component],
+/* CHROME IS EXCLUDED, and the exclusion restores a border rather than relaxing a
+   guard (#994). The baseline's premise is stated above: "every element that can carry
+   inline slot custom properties". Chrome cannot. The header and footer emit NO style
+   attribute at all — ratified contract (#223), enforced by
+   ChromeUdcTest::testBothChromeTemplatesCarryTheScopeAttributeAndNoStyleAttribute —
+   so core's `[style*="border-width"]` substring selector can never match them and this
+   baseline was never doing anything for them.
+
+   It was doing something TO them. `[data-pp-component]` matches the header and footer
+   roots, it sits in `@layer pp-v1`, and chrome's `_band` role defaults emit into
+   `@layer pp-zero` BELOW it — so once #994 moved the header's `border-bottom` and the
+   footer's `border-top` into those defaults, this rule silently deleted both. Measured
+   in Chromium at 375/768/1280: `border-bottom-width` on `.site-header` read `0px` /
+   `none` where it had read `1px` / `solid`. Nothing else was affected, because this
+   baseline claims only the two border longhands and chrome's background is not one.
+
+   `:where()` IS LOAD-BEARING HERE. The specificity argument above is exact — this
+   baseline must weigh (0,1,0) so it beats core's (0,0,1) and still loses on source
+   order to the component rules that really want a border. A bare
+   `:not([data-pp-chrome])` would weigh (0,2,0) and start beating `.hero`, `.cta`,
+   `.grid--dark` and the rest. `:where()` contributes zero, so the weight is unchanged. */
+[data-pp-component]:not(:where([data-pp-chrome])),
 .grid__item,
 .section__panel-row {
   border-style: none;
@@ -162,79 +183,71 @@
 }
 
 /* ==========================================================================
-   COMPONENT: nav
-   Site header, logo, nav links, hamburger toggle.
+   COMPONENT: nav  —  A v2 COMPONENT
+   Site header, logo, nav links, hamburger toggle, one-level dropdown submenus.
+
+   STRUCTURAL ONLY (BUILD-SPEC §2), since #994. Every designable value this
+   component has — colour, type, size, spacing, border, shadow — is a DEFAULT on a
+   role in components/nav/schema.json and is emitted by the engine. What is left
+   here is layout scaffolding, wrapper geometry, and accessibility affordances.
+
+   WHY THE TWO HALVES HAD TO MOVE TOGETHER. Chrome was carved out of that boundary
+   twice (#976, then #991) because its resting appearance lived in this file, and
+   the carve-out's own rule said: retire it in one change or not at all. The reason
+   is the cascade, not tidiness. An ELEMENT-level role default emits UNLAYERED while
+   this file sits in `@layer pp-v1`, so the moment a role default exists it outranks
+   the matching rule here at any specificity — the rule stops mattering rather than
+   stops existing. Leaving one behind is dead code that reads like live code.
+
+   AND IT IS WHAT FIXES #992. Because chrome shipped NO defaults, an author's resting
+   colour was the only unlayered value on the element, so it outranked this file's
+   `:hover` and current-page rules too and silently cancelled them. Those states are
+   role defaults now (`link`'s `:hover`, `link-current`), which means they sit in the
+   same unlayered tier as an authored base value and win on specificity the way they
+   always should have. A header styled at rest keeps its hover feedback and its
+   you-are-here marker.
+
+   THE THREE PROPERTIES THAT STAYED (#994, rulings H1/H2/H3) are here on purpose:
+     - `cursor: pointer` — an interaction affordance, the tier `outline` and
+       `pointer-events` already belong to.
+     - the `transition` SHORTHAND — the motion group carries duration and
+       timing-function and deliberately NOT `transition-property` (ruling A3), and
+       lib/udc.php states the intended arrangement: a role whose structural CSS sets
+       the shorthand keeps its property LIST while an authored duration overrides the
+       timing. Moving it would silently widen the list from `color` to `all`.
+     - `transform: rotate(180deg)` on the open chevron — its selector needs an ancestor
+       state (`.is-open` on a forebear), and the UDC has no ancestor-state dimension
+       (deliberately; see pp_udc_states()). The child combinator it also needs is NOT
+       the obstacle — ruling D4 admitted `>` to the role-selector charset in this same
+       change — which is why the ancestor state is the whole of the argument.
    ========================================================================== */
 
-:root {
-  /* Static fallback for the sticky header's real height (issue 63) — JS
-     (main.js) measures the actual rendered .site-header height on load and
-     resize and overrides this, since header height varies with content,
-     breakpoint, and font loading. Without this, an anchor jump to a
-     component's id (hero, section, cta, etc. all support one) lands with
-     the sticky header covering the heading, worst on mobile where the
-     header is proportionally taller. Not a design token: computed, not
-     AI-editable via update_design_token.
-  */
-  --pp-header-height: 65px;
-}
-
-/* Header DEFAULTS. Structural-CSS boundary (BUILD-SPEC §2): what lives here is the
-   header's resting appearance, and nothing an author sets.
-
-   This used to read `var(--header-bg, var(--color-bg))`, consuming an inline custom
-   property that base.php emitted from the pp_header_* site options. Those options
-   are gone (ruling A1) and chrome is styled through the pp_site_udc container, whose
-   block emits `background` on [data-pp-chrome="nav"] from the `pp-utilities` handle.
-   Since #986 that block outranks this rule STRUCTURALLY rather than by print order:
-   this file is inside `@layer pp-v1` and authored chrome blocks are unlayered, so an
-   authored value wins at ANY specificity, not only at equal specificity as the earlier
-   source-order argument had it. The consequence is bigger than a stronger override,
-   and it is why #992 exists: an authored value at REST also outranks every rule in
-   this block that paints a STATE — the hover accents below, and the current-page
-   accent — so a header styled at rest but not in hover loses its hover feedback
-   entirely. Retiring this block into role defaults (#994) is what fixes that; until
-   then these rules only survive because chrome ships no role defaults.
-   The var() indirection was removed rather than left pointing at a
-   property nothing can set: a custom property no surface writes is a knob the
-   stylesheet advertises and the system does not have. */
 .site-header {
   position: sticky;
   top: 0;
   z-index: 100;
-  background: var(--color-bg);
-  border-bottom: 1px solid var(--color-border);
 }
 
 .nav__container {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  min-height: 64px;
-  gap: var(--space-md);
 }
 
 .nav__logo {
-  font-family: var(--font-heading);
-  font-weight: 700;
-  font-size: 1.25rem;
-  color: var(--color-text);
-  text-decoration: none;
   flex-shrink: 0;
-  min-height: 44px;
   display: flex;
   align-items: center;
 }
 
-.nav__logo:hover {
-  color: var(--color-accent);
-}
-
 /* Cap the header logo the same way the footer caps it (.site-footer__logo-image).
-   The header is template-owned with zero style slots, so a real-world wordmark
-   (e.g. 664x150) would otherwise render near intrinsic size and blow out the
-   64px header row. Literal cap, consistent with the footer treatment.
-   issue 299, issue 582 */
+   A real-world wordmark (e.g. 664x150) would otherwise render near intrinsic size
+   and blow out the header row. This is wrapper GEOMETRY, which is why it stayed
+   here when the rest of nav's values left: it bounds the box the image lays out in
+   rather than expressing a look. The old note called it unauthorable because chrome
+   declared zero style slots; that is no longer true — `logo-image` is a role with a
+   `sizing` group, and an authored `sizing.max-height` outranks this line (the
+   authored tier is unlayered, this file is in `@layer pp-v1`). issue 299, issue 582 */
 .nav__logo-image {
   display: block;
   max-height: 2.5rem;
@@ -242,23 +255,15 @@
   object-fit: contain;
 }
 
-/* Hamburger toggle button */
+/* Hamburger toggle button. 44x44 is the pointer-target floor, not a look. */
 .nav__toggle {
   display: flex;
   align-items: center;
   justify-content: center;
   width: 44px;
   height: 44px;
-  background: none;
-  border: none;
-  border-radius: var(--radius);
-  color: var(--color-text);
   cursor: pointer;
   transition: color var(--transition);
-}
-
-.nav__toggle:hover {
-  color: var(--color-accent);
 }
 
 /* Open-state affordance (issue 426): the toggle swaps hamburger <-> close (X)
@@ -281,52 +286,24 @@
 /* Nav menu — visible without JS (progressive enhancement); JS adds/removes hidden. */
 .nav__menu {
   width: 100%;
-  padding: var(--space-sm) 0 var(--space-md);
 }
 
 /* WP menu list */
 .nav__menu ul {
   display: flex;
   flex-direction: column;
-  gap: var(--space-xs);
   list-style: none;
 }
 
-/* Nav links, logo and toggle default to the global text token; the `link`, `logo`
-   and `toggle` UDC roles are where an author changes them. Two roles, mirroring the
-   footer's text-vs-link split (issue 300),
-   so a header can carry a muted wordmark with brighter links (or the reverse).
-   Hover and the active/current link default to --color-accent (a global design token);
-   the `link` role's :hover state and the `link-current` role are where an author
-   changes each. The active EMPHASIS (font-weight:700) stays structural. */
+/* Nav links. Colour, padding, radius, the hover treatment and the current-page
+   treatment are all defaults on the `link` and `link-current` roles now (#994).
+   THREE RULES COLLAPSED INTO ONE ROLE and that is not a narrowing: WordPress only
+   adds `current_page_item` inside the branch that already added `current-menu-item`,
+   and `aria-current="page"` derives from the same flag, so `current-menu-item` is a
+   strict superset of all three selectors this file used to carry. */
 .nav__menu ul li a {
   display: block;
-  padding: var(--space-sm) var(--space-sm);
-  color: var(--color-text);
-  text-decoration: none;
-  border-radius: var(--radius);
   transition: color var(--transition);
-}
-
-.nav__menu ul li a:hover {
-  color: var(--color-accent);
-  text-decoration: underline;
-}
-
-/* Active link: WP sets current-menu-item on <li> — this is the primary active style.
-   Color defaults to the accent; the `link-current` UDC role is what reaches the
-   active link too (issue 355); --color-accent stays the fallback, so an unset header
-   renders byte-identically to before. The bold weight marks the current item either way. */
-.nav__menu ul li.current-menu-item > a,
-.nav__menu ul li.current_page_item > a {
-  font-weight: 700;
-  color: var(--color-accent);
-}
-
-/* aria-current="page" is a secondary enhancement (e.g. set by other means). */
-.nav__menu ul li a[aria-current="page"] {
-  font-weight: 700;
-  color: var(--color-accent);
 }
 
 /* Mobile (issue 426): the nav menu is a DISCLOSURE PANEL below the header row,
@@ -340,10 +317,11 @@
    It paints above page content because the whole .site-header is a z-index:100 sticky
    stacking context — this z-index only orders the panel within that context, adding
    no new stacking context of its own. Scoped to max-width:767px so the >=768px desktop
-   nav is entirely untouched. Short panel -> no body scroll-lock (see main.js). The
-   panel background defaults to --color-bg; the `menu` UDC role is what carries a
-   themed header into
-   the panel too (issue 333/426). */
+   nav is entirely untouched. Short panel -> no body scroll-lock (see main.js).
+   The panel's own background, border and shadow are `menu` role defaults keyed to
+   the `p` breakpoint since #994 — the engine emits them inside this same
+   `max-width: 767px` query, so the panel surface and the panel geometry still
+   arrive together even though they no longer live in the same file (issue 333/426). */
 @media (max-width: 767px) {
   .nav__container {
     position: relative;
@@ -355,9 +333,6 @@
     left: 0;
     right: 0;
     z-index: 99;
-    background: var(--color-bg);
-    border-bottom: 1px solid var(--color-border);
-    box-shadow: 0 8px 24px rgba(16, 24, 40, 0.12);
   }
 }
 
@@ -378,50 +353,79 @@
 
   .nav__menu {
     width: auto;
-    padding: 0;
     display: flex;
     align-items: center;
   }
 
   .nav__menu ul {
     flex-direction: row;
-    gap: var(--space-xs);
     align-items: center;
-  }
-
-  .nav__menu ul li a {
-    padding: var(--space-xs) var(--space-sm);
   }
 }
 
-/* ==========================================================================
+/* --------------------------------------------------------------------------
    NAV: Dropdown submenus (issue 381) — one level of nesting
-   WP's default walker emits <li class="menu-item-has-children"> wrapping a
-   nested <ul class="sub-menu">. main.js enhances each into an accessible
-   disclosure: it injects a .nav__submenu-toggle button, sets .pp-has-dropdown
-   on the <li>, and toggles .is-open. Pattern = WAI-ARIA *disclosure*
-   navigation (button + aria-expanded), NOT a menubar — so there are no
-   role="menu"/"menuitem" semantics here. Every selector is scoped under
-   .nav__menu, so the footer and other WP menus are untouched.
+
+   PART OF THE `COMPONENT: nav` BLOCK SINCE #994, not a banner of its own, and the
+   move is load-bearing rather than cosmetic: the structural-CSS lint slices a
+   component's block from its `COMPONENT: <name>` banner to the NEXT `/* =====`
+   banner. While these rules sat behind their own top-level banner they were
+   outside nav's slice, so retiring nav's designable values would have passed the
+   lint with fourteen of them still sitting here, unexamined. One component, one
+   block.
+
+   WP's walker emits <li class="menu-item-has-children"> wrapping a nested
+   <ul class="sub-menu">, and the THEME's walker (lib/nav-walker.php) emits the
+   .nav__submenu-toggle button between the two. main.js then marks the <li>
+   .pp-has-dropdown and owns .is-open. Pattern = WAI-ARIA *disclosure* navigation
+   (button + aria-expanded), NOT a menubar — so there are no role="menu"/"menuitem"
+   semantics here. Every selector is scoped under .nav__menu, so the footer and
+   other WP menus are untouched.
 
    No-JS progressive enhancement (mirrors the hamburger): submenus stay
-   visible/expanded until JS marks .pp-has-dropdown; on desktop, hover still
-   reveals the dropdown without JS (keyboard users rely on the JS-injected
-   disclosure button).
-   ========================================================================== */
+   visible/expanded until JS marks .pp-has-dropdown, and the disclosure button is
+   display:none until the same class appears — so a visitor without JS sees exactly
+   what they saw before the button became server-rendered, and never an inert
+   control. On desktop, hover still reveals the dropdown without JS.
+   -------------------------------------------------------------------------- */
 
-/* The disclosure button main.js injects after a parent link. */
+/* THE PARENT ITEM IS A ROW (#995, defect 2). The parent link is display:block, so
+   before this the inline-flex button could not sit beside it and wrapped onto a
+   second line: the <li> grew to two lines while its siblings stayed at one, and the
+   row's align-items:center then lifted the parent's LABEL ~14px above its
+   neighbours' baseline. Measured at 1280 before the fix: parent <li> y=0.91
+   h=62.19, sibling y=15.20 h=33.59. Making the item a wrapping flex row puts the
+   label and its chevron on one line and sends the submenu — the only child that
+   should break — to a line of its own. The link keeps `flex: 1 1 auto` so its tap
+   target still spans the mobile panel rather than shrinking to its text. */
+.nav__menu li.menu-item-has-children {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.nav__menu li.menu-item-has-children > a {
+  flex: 1 1 auto;
+}
+
+.nav__menu li.menu-item-has-children > .sub-menu {
+  flex-basis: 100%;
+}
+
+/* The disclosure button lib/nav-walker.php renders after a parent link. Hidden
+   until main.js marks the group, so the no-JS render carries no dead control. Its
+   padding, negative margin, ink, background, border and line-height are all
+   `submenu-toggle` role defaults (#994) — the role that also makes the chevron
+   reachable on a dark header at all (#995, defect 1). */
 .nav__submenu-toggle {
-  display: inline-flex;
+  display: none;
   align-items: center;
   justify-content: center;
-  padding: var(--space-xs);
-  margin-left: calc(-1 * var(--space-xs));
-  background: none;
-  border: 0;
-  color: inherit;
   cursor: pointer;
-  line-height: 0;
+}
+
+.nav__menu li.pp-has-dropdown > .nav__submenu-toggle {
+  display: inline-flex;
 }
 
 .nav__submenu-toggle-icon {
@@ -461,15 +465,13 @@
      panel cannot size to its content without jittering as the menu changes: add or
      rename one child and the panel's width jumps under the cursor. 12rem is the
      width at which a typical menu label does not wrap, so the panel reads as a
-     stable object rather than a reflow. No style slot is available to make it
-     authorable — chrome declares ZERO style slots by ratified contract (issue 223),
-     so a stated reason is the only disposition open to this literal.
-     Note the panel is reachable through the `menu` UDC role, which routes its
-     background (with a --color-surface fallback that differs from the mobile
-     panel's --color-bg), --radius its corners. Its box-shadow is a literal, like
-     this width. REOPENING CONDITION for both literals: the chrome model's own
-     boundary moving — i.e. if chrome ever gains style slots, they become slot
-     candidates rather than literals. */
+     stable object rather than a reflow. It is wrapper GEOMETRY and stays here for
+     that reason, not for want of a home: `submenu` is a role with a `sizing` group
+     since #994, so an authored `sizing.min-width` outranks this line. The panel's
+     surface — padding, background, border, radius and shadow — is a `submenu` role
+     default now, keyed `d` with a `p` reset, because a `d` value carries no media
+     query and would otherwise paint the desktop dropdown treatment onto the mobile
+     expand-in-place list too. */
   .nav__menu .sub-menu {
     position: absolute;
     top: 100%;
@@ -478,12 +480,6 @@
     min-width: 12rem;
     flex-direction: column;
     align-items: stretch;
-    gap: 0;
-    padding: var(--space-xs);
-    background: var(--color-surface);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius);
-    box-shadow: 0 8px 24px rgba(16, 24, 40, 0.12);
     display: none;
   }
 
@@ -492,8 +488,11 @@
     display: flex;
   }
 
+  /* The dropdown's own padding declaration is GONE (#994), not moved: it set
+     `var(--space-xs) var(--space-sm)` inside this same `min-width: 768px` query,
+     which is byte-for-byte what the `link` role's desktop padding already resolves
+     to on these very links. Two rules that always agreed; one of them was noise. */
   .nav__menu .sub-menu li a {
-    padding: var(--space-xs) var(--space-sm);
     white-space: nowrap;
   }
 }
@@ -506,6 +505,28 @@
    (worst on mobile, where the header is proportionally taller) — covering
    the heading instead of revealing it.
    ========================================================================== */
+
+:root {
+  /* Static fallback for the sticky header's real height (issue 63) — JS
+     (main.js) measures the actual rendered .site-header height on load and
+     resize and overrides this, since header height varies with content,
+     breakpoint, and font loading. Without this, an anchor jump to a
+     component's id (hero, section, cta, etc. all support one) lands with
+     the sticky header covering the heading, worst on mobile where the
+     header is proportionally taller. Not a design token: computed, not
+     AI-editable via update_design_token.
+
+     DECLARED BESIDE ITS CONSUMER SINCE #994, having previously sat inside the
+     `COMPONENT: nav` banner. Nav is a v2 component now, and the structural-CSS
+     boundary lets one declare no custom property at all — a `--*` in a component's
+     block is a value no role owns and no author can reach, which is the split
+     authority the boundary exists to end. This one genuinely belongs to neither
+     nav nor a role: nothing writes it but JavaScript, and everything that reads it
+     is the list below. base.css's `:root` was the wrong home too — that block IS
+     the design-token registry pp_design_tokens() parses, and a computed runtime
+     measurement is not a token an author may retune. */
+  --pp-header-height: 65px;
+}
 
 .hero,
 .section,
@@ -3095,30 +3116,42 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
 
 
 /* ==========================================================================
-   COMPONENT: footer
-   Site footer with nav and copyright.
-   ========================================================================== */
+   COMPONENT: footer  —  A v2 COMPONENT
+   Site footer with nav, contact, social row and copyright.
 
-/* Dark-marketing-footer chrome (issue 300). The footer is template-owned
-   (issue 223) with no composition style_slots, so its background/text/link
-   colours are authored through the footer's UDC roles in pp_site_udc, which emit a
-   scoped block from the pp-utilities handle. What remains below is the resting
-   appearance, and the former inline --footer-* custom
-   properties. Each property routes through var(--footer-*, <existing-literal>)
-   so an unset footer renders byte-identical to before. These are NOT schema
-   style_slots (footer declares none), so they are outside the issue 305 slot
-   guard; FooterChromeTest pins the consume-plus-fallback contract instead. */
-/* `background`, NOT `background-color` (issue 333): a footer fill may be gradient-typed
-   (color OR gradient), and a gradient is a CSS <image> — background-color would drop
-   it as invalid and the footer would paint nothing. The shorthand takes both. Its
-   longhand reset is a no-op: this rule is the only place .site-footer sets background. */
-.site-footer {
-  background: var(--color-surface);
-  color: inherit;
-  border-top: 1px solid var(--color-border);
-  padding-top: var(--space-lg);
-  padding-bottom: var(--space-lg);
-}
+   STRUCTURAL ONLY (BUILD-SPEC §2), since #994 — see the `COMPONENT: nav` banner for
+   why nav's and footer's retirements had to be one change. Every designable value
+   this component had is a DEFAULT on a role in components/footer/schema.json now;
+   what remains is layout scaffolding, wrapper geometry and accessibility
+   affordances.
+
+   `.site-footer` HAS NO RULE HERE AT ALL any more. Its background, top border and
+   band padding are `_band` role defaults, and the `_band` tier emits into
+   `@layer pp-zero` — strictly BELOW this stylesheet — so the old rule could not
+   have been left behind as a fallback: it would have won, and the defaults would
+   have painted nothing. That asymmetry (element defaults unlayered and winning,
+   root defaults layered and losing) is the whole reason this retirement is
+   delete-and-move rather than add-then-delete.
+
+   The `transition` shorthand on the three link rules below stays by ruling H2 (see
+   the nav banner): the motion group carries duration and timing-function and never
+   `transition-property`, so moving the shorthand would widen the animated list from
+   `color` to `all`.
+
+   TWO `color: inherit` DECLARATIONS, TWO DIFFERENT ANSWERS, because they were doing
+   different jobs. `.site-footer`'s is simply gone: a <footer> inherits `color`
+   whether or not you say so, and the declaration was a no-op. `.site-footer__heading`'s
+   was load-bearing — base.css gives every h1-h6 an explicit colour, and a rule that
+   MATCHES an element beats inheritance regardless of layer, so without it a footer
+   heading would stop following an authored dark footer's text colour. That one moved
+   to `typography.color: currentColor` on the `heading` role, which in the `color`
+   property is defined to mean `inherit`. Same computed value, now reachable.
+
+   `background`, NOT `background-color` (issue 333): a footer fill may be
+   gradient-typed, a gradient is a CSS <image>, and background-color would drop it as
+   invalid leaving the footer painting nothing. `background.fill` emits the shorthand,
+   which is why that param exists in that shape.
+   ========================================================================== */
 
 /* Footer layout (issue 427). The inner stacks two rows: the column grid, then
    the copyright line (or, when pp_footer_note is set, the delimited bottom bar
@@ -3126,7 +3159,6 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
 .site-footer__inner {
   display: flex;
   flex-direction: column;
-  gap: var(--space-lg);
 }
 
 /* The brand · nav · contact columns (issue 427). Mobile: a single-column grid
@@ -3136,10 +3168,13 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
    a sparse one (only the always-present nav) degrades to a single full-width
    column with no phantom empty tracks. align-items:start aligns the column tops.
    Every direct child here is a real column (the copyright is a sibling of this
-   grid, never inside it), which is what makes grid-auto-flow:column safe. */
+   grid, never inside it), which is what makes grid-auto-flow:column safe.
+   The space BETWEEN columns is design and is a `columns` role default, keyed across
+   all three breakpoints: this file's wider gap lived in a `min-width: 1024px` query,
+   and the engine's `d` breakpoint carries no media query at all, so reproducing it
+   takes `d` for 1024-and-up plus a `t` AND a `p` reset for everything below. */
 .site-footer__columns {
   display: grid;
-  gap: var(--space-lg);
 }
 
 @media (min-width: 1024px) {
@@ -3147,7 +3182,6 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
     grid-auto-flow: column;
     grid-auto-columns: minmax(0, 1fr);
     align-items: start;
-    gap: var(--space-xl);
   }
 }
 
@@ -3164,21 +3198,18 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
 .site-footer__brand {
   display: flex;
   flex-direction: column;
-  gap: var(--space-sm);
 }
 
 /* Social-icon row (issue 382), landing in the slot reserved by issue 427: a
    horizontal, wrapping row under the brand blurb. The row is a <ul>, so the
-   list chrome is reset here. Each icon link routes its color through the footer
-   muted token exactly like the nav links; the `social-link` UDC role is what an
-   author changes, and an unstyled footer is unchanged; the
-   inline SVG inherits that color via fill:currentColor. */
+   list chrome is reset here. The row's gap and its offset from the blurb are a
+   `social` role default (#994 added that role — the row had none, so neither value
+   was reachable from any authoring surface). Each icon link's ink and its hover are
+   `social-link` defaults; the inline SVG inherits that colour via fill:currentColor. */
 .site-footer__social {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--space-sm);
-  margin-top: var(--space-sm);
   padding: 0;
   list-style: none;
 }
@@ -3187,12 +3218,7 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: var(--color-muted);
   transition: color var(--transition);
-}
-
-.site-footer__social-link:hover {
-  color: var(--color-accent);
 }
 
 .site-footer__social-icon {
@@ -3201,48 +3227,34 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
   height: 1.25rem;
 }
 
-/* max-width: 32ch is the footer's ONLY measure cap (issue 582). The footer is a
-   tight dark-marketing-footer surface, not a general footer builder: a brand blurb
-   is a short descriptor sitting beside two or three menu columns, not body copy. A
-   `ch` unit keeps it short at ANY type size, because it scales with the font rather
-   than fixing a pixel width the next type-scale change would invalidate. No style
-   slot is available to make it authorable — chrome declares ZERO style slots by
-   ratified contract (issue 223) — so a stated reason is the only disposition open
-   to this literal. REOPENING CONDITION: the chrome model's own boundary moving,
-   i.e. if chrome ever gains style slots this becomes a slot candidate. */
-.site-footer__blurb {
-  font-size: 0.9rem;
-  max-width: 32ch;
-  margin-bottom: 0;
-}
+/* The brand blurb's measure cap has LEFT THIS FILE (issue 582, then #994). It was
+   the footer's only measure cap and, for one release, a literal nobody could reach:
+   chrome declared zero style slots, so the comment here carried a stated reason and
+   a REOPENING CONDITION — "the chrome model's own boundary moving". #994 is that
+   condition arriving. The cap is the `blurb` role's `sizing.max-width` now, and the
+   reason travelled with it into the role's description where an author reads it.
+   `margin-bottom: 0` stays: it is a UA reset, which the boundary counts as geometry.
 
-.site-footer__contact {
-  font-size: 0.9rem;
-  line-height: 1.6;
+   `.site-footer__contact` likewise has no rule here any more — its type size and
+   line-height are the `contact` role, one of the four the footer was missing. */
+.site-footer__blurb {
+  margin-bottom: 0;
 }
 
 /* The contact block is an <address> (issue 427). <address> defaults to italic;
    footer contact info is not, so reset it. Its email/phone links route the same
    muted token as the nav links (the `address-link` UDC role is the author's lever, so
-   an unset footer is unchanged), underlined for the actionable affordance. */
-.site-footer__address {
-  font-style: normal;
-}
-
+   an unset footer is unchanged), underlined for the actionable affordance. Both the
+   italic reset and the link treatment are role defaults now — `address`'s
+   `typography.style: normal` and `address-link`'s colour, underline and hover. */
 .site-footer__address a {
-  color: var(--color-muted);
-  text-decoration: underline;
   transition: color var(--transition);
 }
 
-.site-footer__address a:hover {
-  color: var(--color-accent);
-}
-
-/* Cap the footer logo the same way the nav caps it (.nav__logo-image). The
-   footer is template-owned with zero style slots, so a real-world wordmark
-   (e.g. 664x150) would otherwise render near intrinsic size and dominate the
-   footer. Literal cap, consistent with the nav treatment. issue 299 */
+/* Cap the footer logo the same way the nav caps it (.nav__logo-image). A real-world
+   wordmark (e.g. 664x150) would otherwise render near intrinsic size and dominate the
+   footer. Wrapper geometry, which is why it stayed when the footer's values left.
+   issue 299 */
 .site-footer__logo-image {
   display: block;
   max-height: 2.5rem;
@@ -3250,64 +3262,45 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
   object-fit: contain;
 }
 
+/* The menu list's two gaps are a `nav-list` role default (#994 added that role —
+   the list had none, so its row and column rhythm was unreachable). They go in as
+   `row-gap` and `column-gap` rather than the two-value `gap` shorthand, because the
+   length grammar is literal-only and `@space-sm @space-md` is not one value. */
 .site-footer__nav ul {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-sm) var(--space-md);
   list-style: none;
 }
 
 .site-footer__nav ul li a {
-  color: var(--color-muted);
-  text-decoration: none;
-  font-size: 0.9rem;
   transition: color var(--transition);
 }
 
-.site-footer__nav ul li a:hover {
-  color: var(--color-accent);
-  text-decoration: underline;
-}
-
-/* Copyright defaults to --color-muted (the `copyright` UDC role is the lever, so an
-   unset footer is unchanged). The old markup carried a .text-muted utility that
-   hardcoded --color-muted and would win over an authored colour on a dark footer;
-   footer.php dropped that class so the copyright follows the footer text color.
-   issue 300 */
+/* The copyright's size and ink are the `copyright` role. The old markup carried a
+   .text-muted utility that hardcoded --color-muted and would win over an authored
+   colour on a dark footer; footer.php dropped that class so the copyright follows
+   whatever the role says. `margin-bottom: 0` is a UA reset. issue 300 */
 .site-footer__copyright {
-  font-size: 0.875rem;
-  color: var(--color-muted);
   margin-bottom: 0;
 }
 
 /* Footer structure (issue 335). Optional column headings + a delimited bottom
    bar. Emitted only when the matching pp_footer_* option is set, so an unset
-   footer renders exactly as issue 300 left it. Styling is deliberately NEUTRAL
-   (no color/size opinion baked in): the heading inherits the footer text color
-   through the `heading` UDC role (so it follows whatever the footer sets),
-   and the bottom bar's divider reuses --color-border — the SAME token the
-   footer's own top border uses. The capability is the structure and the slots
-   that drive it, not a specific look. */
-.site-footer__heading {
-  font-size: 0.9rem;
-  font-weight: 600;
-  margin-bottom: var(--space-sm);
-  color: inherit;
-}
+   footer renders exactly as issue 300 left it. Styling stays NEUTRAL by INTENT and
+   the intent now lives in the schema: the `heading` role's colour is `currentColor`,
+   so a heading still follows whatever colour the footer itself carries, and the
+   bottom bar's divider reuses @color-border — the SAME token the footer's own top
+   border uses. The capability is the structure and the roles that drive it, not a
+   specific look. No rule remains here for `.site-footer__heading`: every one of its
+   four declarations was designable. */
 
-/* Bottom bar: a delimited band below the main footer flow. Full-width divider
-   (via --color-border, matching .site-footer's own border-top), with the
-   copyright and the optional secondary note on opposite ends on wider screens. */
-.site-footer__bottom {
-  border-top: 1px solid var(--color-border);
-  margin-top: var(--space-md);
-  padding-top: var(--space-md);
-}
-
+/* Bottom bar: a delimited band below the main footer flow. Its divider, offset and
+   padding are the `bottom` role; the row's gap is `bottom-row`, the fourth role the
+   footer was missing — `.site-footer__bottom-inner` had a designable gap and no role
+   at all, which the #994 inventory of three missed. */
 .site-footer__bottom-inner {
   display: flex;
   flex-direction: column;
-  gap: var(--space-sm);
 }
 
 @media (min-width: 768px) {
@@ -3319,8 +3312,6 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
 }
 
 .site-footer__note {
-  font-size: 0.875rem;
-  color: var(--color-muted);
   margin-bottom: 0;
 }
 

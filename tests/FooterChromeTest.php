@@ -150,48 +150,65 @@ class FooterChromeTest extends TestCase
         $this->assertMatchesRegularExpression('/class="site-footer__copyright"/', $html);
     }
 
-    // ── CSS consume + fallback contract (the issue 305 guard does NOT cover
-    //    the footer, which declares no style_slots — this is that guard). ────
+    // ── The resting-appearance contract, now read from the SCHEMA (#994) ────
+    //
+    // These four pinned the footer's resting values against components.css, because
+    // that is where they lived: the footer declared no style_slots, so the issue-305
+    // slot guard did not cover it and this file was that guard instead. #994 retired
+    // the whole block into role defaults, so the same four guarantees are asserted
+    // against components/footer/schema.json. Every one of them still says what it
+    // said; only the file holding the answer changed. Asserting them against the
+    // stylesheet now would pin their ABSENCE, which is the opposite of a guard.
+
+    /** The footer's own role defaults, as shipped. */
+    private function footerRoleDefaults(string $role): array
+    {
+        $roles = pp_udc_component_roles('footer');
+        $this->assertArrayHasKey($role, $roles, "footer must declare the {$role} role");
+        return $roles[$role]['defaults'] ?? [];
+    }
 
     public function testFooterBackgroundRoutesThroughSlotWithSurfaceFallback(): void
     {
-        $block = $this->cssRuleBlock('.site-footer');
-        $this->assertNotNull($block);
-        // MUST be the `background` shorthand, never `background-color`. An authored
-        // footer fill may be a gradient, and a gradient is a CSS <image>: assigning one
-        // to background-color is invalid, so the browser drops the declaration and the
-        // footer paints nothing. The authored value now arrives as a UDC block rather
-        // than an inline custom property, but the shorthand-vs-longhand requirement is
-        // unchanged — this rule is what an authored `background` has to override.
+        // MUST be the `background` SHORTHAND, never `background-color`. A footer fill
+        // may be a gradient, and a gradient is a CSS <image>: assigning one to
+        // background-color is invalid, so the browser drops the declaration and the
+        // footer paints nothing. `background.fill` is the param that emits the
+        // shorthand — which is the whole reason the taxonomy spells it that way —
+        // so the requirement survives the move as a claim about WHICH PARAM is used.
+        $band = $this->footerRoleDefaults('_band');
+        $this->assertSame('@color-surface', $band['background']['fill'] ?? null);
+        $this->assertArrayNotHasKey(
+            'color',
+            $band['background'],
+            'background-color cannot paint a gradient — the fill param emits the shorthand.'
+        );
+
+        // And the emitted text really is the shorthand, not merely the param name.
         $this->assertMatchesRegularExpression(
-            '/(?<!-)background:\s*var\(--color-surface\)/',
-            $block
+            '/(?<!-)background:var\(--color-surface\)/',
+            pp_udc_chrome_css('footer', 'defaults')
         );
-        $this->assertDoesNotMatchRegularExpression(
-            '/background-color:/',
-            $block,
-            'background-color cannot paint a gradient — use the background shorthand.'
-        );
-        $this->assertMatchesRegularExpression('/color:\s*inherit/', $block);
+
+        // `.site-footer`'s old `color: inherit` is NOT here and must not come back:
+        // a <footer> inherits `color` with or without it, so the declaration was a
+        // no-op. Its load-bearing twin on the heading is pinned separately below.
+        $this->assertArrayNotHasKey('typography', $band);
     }
 
     public function testFooterNavLinkRoutesThroughSlotWithMutedFallback(): void
     {
-        $block = $this->cssRuleBlock('.site-footer__nav ul li a');
-        $this->assertNotNull($block);
-        $this->assertMatchesRegularExpression(
-            '/color:\s*var\(--color-muted\)/',
-            $block
+        $this->assertSame(
+            '@color-muted',
+            $this->footerRoleDefaults('link')['typography']['color'] ?? null
         );
     }
 
     public function testFooterCopyrightRoutesThroughTextSlotWithMutedFallback(): void
     {
-        $block = $this->cssRuleBlock('.site-footer__copyright');
-        $this->assertNotNull($block);
-        $this->assertMatchesRegularExpression(
-            '/color:\s*var\(--color-muted\)/',
-            $block
+        $this->assertSame(
+            '@color-muted',
+            $this->footerRoleDefaults('copyright')['typography']['color'] ?? null
         );
     }
 
@@ -402,26 +419,105 @@ class FooterChromeTest extends TestCase
 
     public function testFooterHeadingRoutesThroughTextSlot(): void
     {
-        // Neutral: no baked color — inherits, so the `heading` UDC role reaches it.
-        $block = $this->cssRuleBlock('.site-footer__heading');
-        $this->assertNotNull($block);
-        $this->assertMatchesRegularExpression('/color:\s*inherit/', $block);
+        // NEUTRAL MEANS "FOLLOWS THE FOOTER", and that is a capability, not an
+        // absence. base.css gives every h1-h6 `color: var(--color-text)`, and a rule
+        // that MATCHES an element beats inheritance regardless of cascade layer — so
+        // without something handing the colour back, a footer heading would stop
+        // following an authored dark footer's text colour and sit at the light default
+        // on a dark band.
+        //
+        // The old `color: inherit` did that job. `currentColor` does it now: in the
+        // `color` property specifically, `currentcolor` is defined to compute to the
+        // inherited value, so this is the same behaviour spelled in a keyword the
+        // colour grammar accepts. The engine emits it verbatim.
+        $this->assertSame(
+            'currentColor',
+            $this->footerRoleDefaults('heading')['typography']['color'] ?? null
+        );
+        $this->assertStringContainsString(
+            '.site-footer__heading{font-size:0.9rem;font-weight:600;color:currentColor;',
+            pp_udc_chrome_css('footer', 'defaults')
+        );
+    }
+
+    /**
+     * THE DARK-FOOTER WRITE MUST NOT BE TOLD `heading` IGNORES ITS COLOUR (#994).
+     *
+     * `_pp_udc_band_values_cancelled_by_role_defaults()` warns when a colour set on the
+     * whole band cannot reach a role, because that role declares its own default for the
+     * same property and a direct declaration beats inheritance. True for five footer
+     * roles. FALSE for `heading`, whose default is `currentColor` — which in the `color`
+     * property is defined to compute to the inherited value, so the band's colour is
+     * exactly what it takes.
+     *
+     * The finding fired on `heading` until #994 gave the property a value carve-out, and
+     * it did so on the write the AI-facing docs tell the model to make, contradicting
+     * those same docs in the same release. The five correct names are what made it
+     * dangerous: a true advisory carrying one false name is how an advisory gets
+     * acknowledged into silence — the failure the function's own docblock names.
+     */
+    public function testADarkFooterWriteDoesNotClaimTheHeadingIgnoresTheBandColour(): void
+    {
+        $map = [
+            'footer' => [
+                '_band' => [
+                    'background' => ['fill' => '#101828'],
+                    'typography' => ['color' => '#ffffff'],
+                ],
+            ],
+        ];
+        // THE REAL WRITE SURFACE (rule 14.1), so the finding is read off the envelope an
+        // author or the model actually receives rather than off a direct emitter call.
+        $result = pp_execute_action('update_site_option', [
+            'key'   => PP_SITE_UDC_OPTION,
+            'value' => (string) wp_json_encode($map),
+        ]);
+        $this->assertTrue($result['ok'], $result['error'] ?? '');
+
+        $shadowed = array_values(array_filter(
+            $result['findings'] ?? [],
+            static fn (array $f): bool => ($f['type'] ?? '') === 'udc_band_value_shadowed_by_role_default'
+        ));
+        $this->assertCount(1, $shadowed, 'the disclosure must still fire — it is true of five roles');
+        $message = (string) $shadowed[0]['message'];
+
+        // THE ROLES THAT REALLY DO OVERRIDE IT. Asserted so the carve-out cannot be
+        // widened into silencing the whole finding.
+        foreach (['address-link', 'copyright', 'link', 'note', 'social-link'] as $role) {
+            $this->assertStringContainsString(
+                $role,
+                $message,
+                "{$role} declares its own colour default, so the disclosure must name it"
+            );
+        }
+
+        // AND THE ONE THAT DOES NOT.
+        $this->assertStringNotContainsString(
+            'heading',
+            $message,
+            '`heading` defaults to currentColor, which IS inheritance — naming it here tells '
+            . 'the author to fix something that already works, and contradicts the docs this '
+            . 'release ships'
+        );
     }
 
     public function testFooterBottomBarDividerUsesTheBorderToken(): void
     {
-        // The "delimited" band reuses --color-border (the footer's own border token),
-        // not a baked color/size opinion.
-        $block = $this->cssRuleBlock('.site-footer__bottom');
-        $this->assertNotNull($block);
-        $this->assertMatchesRegularExpression('/border-top:\s*1px solid var\(--color-border\)/', $block);
+        // The "delimited" band reuses @color-border (the footer's own border token),
+        // not a baked colour or size opinion. Three longhands rather than the
+        // `border-top` shorthand, because the border group is spelled per-side.
+        $border = $this->footerRoleDefaults('bottom')['border'] ?? [];
+        $this->assertSame('1px', $border['width-top'] ?? null);
+        $this->assertSame('solid', $border['style-top'] ?? null);
+        $this->assertSame('@color-border', $border['color-top'] ?? null);
     }
 
     public function testFooterNoteRoutesThroughTextSlot(): void
     {
-        $block = $this->cssRuleBlock('.site-footer__note');
-        $this->assertNotNull($block);
-        $this->assertMatchesRegularExpression('/color:\s*var\(--color-muted\)/', $block);
+        $this->assertSame(
+            '@color-muted',
+            $this->footerRoleDefaults('note')['typography']['color'] ?? null
+        );
     }
 
     public function testBaseTemplateMapsEveryFooterStructureOption(): void
@@ -631,15 +727,16 @@ class FooterChromeTest extends TestCase
 
     public function testFooterAddressResetsItalicAndRoutesLinkColor(): void
     {
-        $addr = $this->cssRuleBlock('.site-footer__address');
-        $this->assertNotNull($addr);
-        $this->assertMatchesRegularExpression('/font-style:\s*normal/', $addr);
-
-        $link = $this->cssRuleBlock('.site-footer__address a');
-        $this->assertNotNull($link);
-        $this->assertMatchesRegularExpression(
-            '/color:\s*var\(--color-muted\)/',
-            $link
+        // <address> renders italic by UA default and footer contact info is not; the
+        // reset is the `address` role's business now, and the links' muted ink is
+        // `address-link`'s.
+        $this->assertSame(
+            'normal',
+            $this->footerRoleDefaults('address')['typography']['style'] ?? null
+        );
+        $this->assertSame(
+            '@color-muted',
+            $this->footerRoleDefaults('address-link')['typography']['color'] ?? null
         );
     }
 
@@ -1153,18 +1250,17 @@ class FooterChromeTest extends TestCase
 
     public function testSocialRowCssResetsListAndRoutesLinkColor(): void
     {
-        // The row is a <ul>, so the list chrome must be reset; the link color routes
-        // through the footer link slot (muted fallback) exactly like the nav links.
+        // TWO HALVES THAT NOW LIVE IN DIFFERENT FILES, which is exactly the §2 split.
+        // The <ul>'s list-chrome reset is STRUCTURE and stays in the stylesheet; the
+        // icons' muted ink is a VALUE and is the `social-link` role.
         $slot = $this->cssRuleBlock('.site-footer__social');
         $this->assertNotNull($slot);
         $this->assertMatchesRegularExpression('/display:\s*flex/', $slot);
         $this->assertMatchesRegularExpression('/list-style:\s*none/', $slot);
 
-        $link = $this->cssRuleBlock('.site-footer__social-link');
-        $this->assertNotNull($link);
-        $this->assertMatchesRegularExpression(
-            '/color:\s*var\(--color-muted\)/',
-            $link
+        $this->assertSame(
+            '@color-muted',
+            $this->footerRoleDefaults('social-link')['typography']['color'] ?? null
         );
     }
 }

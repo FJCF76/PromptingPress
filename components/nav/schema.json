@@ -1,6 +1,6 @@
 {
   "component": "nav",
-  "description": "Site header with logo, primary navigation menu, and hamburger toggle on mobile. Reads a registered WP nav menu by theme location. Template-owned chrome (issue 223): it is rendered once by the theme, never composed. It is styled through the `nav` entry of the pp_site_udc site option (update_site_option) using the roles below — the same engine, grammar, groups, @token references, breakpoints, :hover/:focus-visible/:active state maps and presets a band's `udc` takes. It declares ZERO style props and zero style slots; the props below are content and configuration only. STATE PAIRING (#992): setting a role's colour at REST also cancels that role's built-in hover treatment, because the authored block outranks the stylesheet in every state. Whenever you set `typography.color` on `link`, `logo` or `toggle`, set its `:hover` colour in the same write — and when you set `link`, set `link-current` too, or the visitor loses both the hover feedback and the you-are-here marker.",
+  "description": "Site header with logo, primary navigation menu, and hamburger toggle on mobile. Reads a registered WP nav menu by theme location. Template-owned chrome (issue 223): it is rendered once by the theme, never composed. It is styled through the `nav` entry of the pp_site_udc site option (update_site_option) using the roles below — the same engine, grammar, groups, @token references, breakpoints, :hover/:focus-visible/:active state maps and presets a band's `udc` takes. It declares ZERO style props and zero style slots; the props below are content and configuration only. STATES ARE DEFAULTS NOW (#994, fixing #992): every role below carries the header's resting appearance AND its interaction treatment as role defaults, so setting `typography.color` at REST no longer cancels that role's hover or the current-page marker — they sit in the same unlayered tier your value does and win on specificity. Setting a `\":hover\"` map is an override, not a rescue. TWO THINGS STILL NEED YOU: set `submenu-toggle` whenever you set `link`, because the dropdown chevron is the link's SIBLING and nothing can make it follow the link colour on its own (#995); and remember a `\"_preset\"` fills in only where a role's defaults are SILENT, because role defaults out-rank presets.",
   "props": {
     "location": {
       "type": "string",
@@ -42,7 +42,16 @@
         "shadow",
         "motion"
       ],
-      "defaults": {}
+      "defaults": {
+        "border": {
+          "width-bottom": "1px",
+          "style-bottom": "solid",
+          "color-bottom": "@color-border"
+        },
+        "background": {
+          "fill": "@color-bg"
+        }
+      }
     },
     "container": {
       "selector": ".nav__container",
@@ -55,11 +64,18 @@
         "sizing",
         "motion"
       ],
-      "defaults": {}
+      "defaults": {
+        "spacing": {
+          "gap": "@space-md"
+        },
+        "sizing": {
+          "min-height": "64px"
+        }
+      }
     },
     "logo": {
       "selector": ".nav__logo",
-      "description": "The logo link: the wordmark when no logo image resolves, and the link wrapping the image when one does. Setting typography.color here cancels the built-in accent hover (#992) — set a :hover colour in the same write, or hovering the logo does nothing at all.",
+      "description": "The logo link: the wordmark when no logo image resolves, and the link wrapping the image when one does. Its accent hover is a role default, so setting `typography.color` here keeps the hover; set a `\":hover\"` colour to override it. The 44px `sizing.min-height` is a pointer-target floor, the same one `.nav__toggle`'s 44x44 keeps structurally — lower it only deliberately.",
       "groups": [
         "typography",
         "spacing",
@@ -68,7 +84,21 @@
         "sizing",
         "motion"
       ],
-      "defaults": {}
+      "defaults": {
+        "typography": {
+          "family": "@font-heading",
+          "weight": "700",
+          "size": "1.25rem",
+          "decoration": "none",
+          "color": "@color-text",
+          ":hover": {
+            "color": "@color-accent"
+          }
+        },
+        "sizing": {
+          "min-height": "44px"
+        }
+      }
     },
     "logo-image": {
       "selector": ".nav__logo-image",
@@ -85,7 +115,7 @@
     },
     "menu": {
       "selector": ".nav__menu",
-      "description": "The menu container. On phones this is the disclosure panel the hamburger opens, so its background is what a mobile visitor sees behind the links.",
+      "description": "The menu container. On phones this is the disclosure panel the hamburger opens, so its background is what a mobile visitor sees behind the links. Its phone-only shadow is a bespoke elevation (`0 8px 24px rgba(16, 24, 40, 0.12)`), shared with the `submenu` dropdown so the two panels read as one surface family; none of the theme's `--shadow-*` tokens matches it, which is why it is written out rather than referenced.",
       "groups": [
         "typography",
         "spacing",
@@ -95,11 +125,65 @@
         "shadow",
         "motion"
       ],
-      "defaults": {}
+      "defaults": {
+        "spacing": {
+          "padding-top": {
+            "d": "0",
+            "p": "@space-sm"
+          },
+          "padding-bottom": {
+            "d": "0",
+            "p": "@space-md"
+          }
+        },
+        "border": {
+          "width-bottom": {
+            "d": "0",
+            "p": "1px"
+          },
+          "style-bottom": {
+            "d": "none",
+            "p": "solid"
+          },
+          "color-bottom": {
+            "d": "currentColor",
+            "p": "@color-border"
+          }
+        },
+        "shadow": {
+          "box": {
+            "d": "none",
+            "p": "0 8px 24px rgba(16, 24, 40, 0.12)"
+          }
+        },
+        "background": {
+          "fill": {
+            "d": "transparent",
+            "p": "@color-bg"
+          }
+        }
+      }
+    },
+    "menu-list": {
+      "selector": ".nav__menu ul",
+      "description": "The menu LIST itself (the <ul> WordPress emits, and any nested one). Its `spacing.gap` is the space between menu items in both directions — the mobile stack and the desktop row share one value. This is the list, not the panel: the panel's background and padding are the `menu` role, and the desktop dropdown panel is `submenu`.",
+      "groups": [
+        "typography",
+        "spacing",
+        "border",
+        "background",
+        "sizing",
+        "motion"
+      ],
+      "defaults": {
+        "spacing": {
+          "gap": "@space-xs"
+        }
+      }
     },
     "submenu": {
       "selector": ".nav__menu .sub-menu",
-      "description": "The desktop dropdown panel for a menu item that has children. It is a separate surface from `menu`: the mobile disclosure panel and the desktop dropdown used to share one colour knob and fall back differently, which is exactly the hidden coupling that made the old surface hard to reason about.",
+      "description": "The desktop dropdown panel for a menu item that has children. It is a separate surface from `menu`: the mobile disclosure panel and the desktop dropdown used to share one colour knob and fall back differently, which is exactly the hidden coupling that made the old surface hard to reason about. Its shadow is the same bespoke elevation the mobile `menu` panel uses, deliberately: the two are the same kind of floating surface at different widths.",
       "groups": [
         "typography",
         "spacing",
@@ -109,11 +193,81 @@
         "shadow",
         "motion"
       ],
-      "defaults": {}
+      "defaults": {
+        "spacing": {
+          "padding": {
+            "d": "@space-xs",
+            "p": "0"
+          },
+          "gap": {
+            "d": "0",
+            "p": "@space-xs"
+          }
+        },
+        "border": {
+          "width": {
+            "d": "1px",
+            "p": "0"
+          },
+          "style": {
+            "d": "solid",
+            "p": "none"
+          },
+          "color": {
+            "d": "@color-border",
+            "p": "currentColor"
+          },
+          "radius": {
+            "d": "@radius",
+            "p": "0"
+          }
+        },
+        "shadow": {
+          "box": {
+            "d": "0 8px 24px rgba(16, 24, 40, 0.12)",
+            "p": "none"
+          }
+        },
+        "background": {
+          "fill": {
+            "d": "@color-surface",
+            "p": "transparent"
+          }
+        }
+      }
+    },
+    "submenu-toggle": {
+      "selector": ".nav__submenu-toggle",
+      "description": "The dropdown disclosure button beside a menu item that has children — the chevron. SET THIS WHENEVER YOU SET `link`: the button is a SIBLING of the link, not a child, so it cannot follow the link's colour on its own, and a header styled dark without it leaves the chevron on the default ink against your new background, invisible (#995). It is rendered only where a menu item actually has children, and it is hidden until JavaScript activates the disclosure.",
+      "groups": [
+        "typography",
+        "spacing",
+        "border",
+        "background",
+        "sizing",
+        "motion"
+      ],
+      "defaults": {
+        "typography": {
+          "line-height": "0",
+          "color": "@color-text"
+        },
+        "spacing": {
+          "padding": "@space-xs",
+          "margin-left": "-0.25rem"
+        },
+        "border": {
+          "width": "0",
+          "style": "none"
+        },
+        "background": {
+          "fill": "transparent"
+        }
+      }
     },
     "link": {
       "selector": ".nav__menu ul li a",
-      "description": "Every nav link at rest. Use the :hover, :focus-visible and :active states here for the interaction treatment. Setting typography.color here cancels BOTH the built-in accent hover and the current-page accent (#992), because an authored value outranks the stylesheet in every state: set a :hover colour AND the link-current role in the same write.",
+      "description": "Every nav link at rest. Its accent hover is a role default and the you-are-here marker is the `link-current` role's, so setting `typography.color` here cancels neither (#992 was fixed by #994). Use the :hover, :focus-visible and :active states here to OVERRIDE the built-in interaction treatment rather than to restore it.",
       "groups": [
         "typography",
         "spacing",
@@ -122,11 +276,35 @@
         "sizing",
         "motion"
       ],
-      "defaults": {}
+      "defaults": {
+        "typography": {
+          "decoration": "none",
+          "color": "@color-text",
+          ":hover": {
+            "decoration": "underline",
+            "color": "@color-accent"
+          }
+        },
+        "spacing": {
+          "padding-top": {
+            "d": "@space-xs",
+            "p": "@space-sm"
+          },
+          "padding-right": "@space-sm",
+          "padding-bottom": {
+            "d": "@space-xs",
+            "p": "@space-sm"
+          },
+          "padding-left": "@space-sm"
+        },
+        "border": {
+          "radius": "@radius"
+        }
+      }
     },
     "link-current": {
-      "selector": ".nav__menu ul li.current-menu-item a",
-      "description": "The link for the page the visitor is on. WordPress marks it current-menu-item on every item it considers current — that class is a superset of current_page_item and of aria-current=\"page\", which core only ever sets alongside it — so this one selector reaches them all. Structural CSS gives it bold weight. Set this whenever you set `link`, or the you-are-here marker collapses into the plain link colour (#992).",
+      "selector": ".nav__menu ul li.current-menu-item > a",
+      "description": "The link for the page the visitor is on. WordPress marks it current-menu-item on every item it considers current — that class is a superset of current_page_item and of aria-current=\"page\", which core only ever sets alongside it — so this one selector reaches them all. It targets that item's own link as a DIRECT CHILD, so a current page that has a dropdown does not hand the treatment to every link inside it. Both its accent colour and its bold weight are defaults of this role; set values here to change them.",
       "groups": [
         "typography",
         "spacing",
@@ -135,11 +313,16 @@
         "sizing",
         "motion"
       ],
-      "defaults": {}
+      "defaults": {
+        "typography": {
+          "weight": "700",
+          "color": "@color-accent"
+        }
+      }
     },
     "toggle": {
       "selector": ".nav__toggle",
-      "description": "The hamburger button, shown on phones only. Its two icons are swapped by structural CSS, not by anything set here, and they inherit this role's colour. Setting typography.color here cancels the built-in accent hover (#992) — pair it with a :hover colour.",
+      "description": "The hamburger button, shown on phones only. Its two icons are swapped by structural CSS, not by anything set here, and they inherit this role's colour. Its accent hover is a role default, so setting `typography.color` here keeps it; set a `\":hover\"` colour to override.",
       "groups": [
         "typography",
         "spacing",
@@ -148,7 +331,22 @@
         "sizing",
         "motion"
       ],
-      "defaults": {}
+      "defaults": {
+        "typography": {
+          "color": "@color-text",
+          ":hover": {
+            "color": "@color-accent"
+          }
+        },
+        "border": {
+          "width": "0",
+          "style": "none",
+          "radius": "@radius"
+        },
+        "background": {
+          "fill": "transparent"
+        }
+      }
     }
   },
   "styling": {
@@ -165,7 +363,9 @@
       "logo",
       "logo-image",
       "menu",
+      "menu-list",
       "submenu",
+      "submenu-toggle",
       "link",
       "link-current",
       "toggle"

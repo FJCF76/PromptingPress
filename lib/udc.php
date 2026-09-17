@@ -2849,7 +2849,52 @@ function pp_udc_compile_band(array $item, string $layer, ?array &$drops = null):
         // Second-layer gate, mirroring the render boundary's posture: schemas are
         // repo-controlled and integrity-checked, but a selector is emitted into
         // raw CSS and the cost of checking is a regex.
-        if ($selector !== '' && !preg_match('/^[A-Za-z0-9_ .\-]{1,120}$/', $selector)) {
+        //
+        // THE PERMITTED CHARSET, enumerated so the next reader knows what is
+        // deliberate: letters, digits, `_`, `.`, `-`, the SPACE (descendant), and
+        // `>` (child). Everything else is still out, and the exclusions matter as
+        // much as the inclusions — `,` would let one role own an unrelated
+        // selector list, `[` and `=` an attribute match, `:` a pseudo-class or (a
+        // colon being one character from a semicolon in effect) a place to end the
+        // selector early. None of those can be spelled here.
+        //
+        // WHAT THIS GATE DOES NOT CHECK, said plainly so the next reader does not
+        // over-trust it: it bounds the CHARACTER SET, not the SHAPE. `> a`, `a >` and
+        // `a >> b` all pass it and are all invalid CSS selectors — as `.` and `--` were
+        // before `>` existed here, so this is a fragility the widening enlarges rather
+        // than creates. It matters because _pp_udc_reduced_motion_guard() groups every
+        // motion-carrying role selector into ONE comma-separated rule, and CSS discards
+        // a whole grouped rule when any selector in the list is invalid: one malformed
+        // role selector would silently drop the prefers-reduced-motion guard for every
+        // role in that scope. The input is repo-controlled (schemas are on disk and
+        // integrity-checked), so this is a theme-bug blast radius, not a reachable one —
+        // and UdcEngineTest pins the shape of every shipped selector so a bad one fails
+        // in CI rather than in someone's browser.
+        //
+        // `>` JOINED IN #994 (ruling D4) for one measured reason. nav's
+        // current-page rules were `li.current-menu-item > a`; the `link-current`
+        // role could only spell the DESCENDANT form, which also matches every link
+        // in a current parent's dropdown. That cost nothing while chrome shipped no
+        // defaults, and became a visible regression the moment the retirement made
+        // those values a default — a current "Services" page would have turned its
+        // whole submenu bold and accent-coloured. A child combinator is inert as
+        // CSS source text: it cannot open a string, a comment or a declaration, and
+        // it cannot escape the rule it sits in.
+        //
+        // THE ANCHORS ARE THE OTHER HALF OF THIS GATE, and `\z` is doing that work
+        // rather than `$`. PCRE's `$` matches before a FINAL newline unless the `D`
+        // modifier is set, so `/^…$/` accepts "a\n" — excluding `\n` from the class
+        // does NOT close that, it is precisely what makes a trailing newline the one
+        // character `$` forgives. `\z` matches only at the true end of the subject.
+        //
+        // The practical exposure was nil (a trailing newline in a selector emits inert
+        // CSS, and nothing past it can follow — ".a\n.b" was refused either way), so
+        // this is consistency and honesty rather than a fix: every sibling string-to-CSS
+        // gate in this file already uses `\z` (pp_udc_valid_band_id, the `@reference`
+        // name gates), and a maintainer widening this class again should inherit an
+        // anchoring guarantee that is actually in force. Widen the CLASS if a ruling
+        // says so; do not widen the ANCHORING.
+        if ($selector !== '' && !preg_match('/^[A-Za-z0-9_ .>\-]{1,120}\z/', $selector)) {
             // DELIBERATELY NOT LEDGERED. A role selector comes only from a
             // repo-owned, integrity-checked component schema, never from an author
             // — the same reason a role DEFAULT's discard is filtered out of the
@@ -4567,10 +4612,11 @@ function pp_udc_site_container(
  * write arms in lib/wp.php, so the walk is bounded by construction. Stated because the
  * absence would otherwise read as an oversight.
  *
- * Of the four disclosures, `udc_band_value_shadowed_by_role_default` correctly yields
- * nothing today: chrome ships EMPTY role defaults (see #992/#994), so there is no default
- * for a `_band` value to be shadowed by. That silence is a fact about chrome, not a gap
- * here — and it starts speaking on its own the day #994 gives chrome real defaults.
+ * `udc_band_value_shadowed_by_role_default` STARTED SPEAKING WITH #994, exactly as the
+ * note here predicted it would. It used to yield nothing at all, because chrome shipped
+ * EMPTY role defaults and there was no default for an authored value to be shadowed by.
+ * Chrome's whole resting appearance is role defaults now, so an author whose value loses
+ * to one is told — which is the disclosure doing its job rather than a change to it.
  *
  * @return array<int, array{type: string, message: string, index: null}>
  */
@@ -4710,30 +4756,60 @@ function pp_udc_chrome_css(string $name, string $layer): string {
 /**
  * Layer 1 for chrome: role defaults, emitted once per page.
  *
- * SHORT-CIRCUITS BEFORE THE COMPONENT REGISTRY IS WARMED when no chrome entry is
- * stored, which is the overwhelmingly common case and the one that must cost
- * nothing.
+ * THE NO-STORED-ENTRY SHORT-CIRCUIT IS GONE (#994), and its own docblock is why.
+ * This function used to return '' whenever `pp_site_udc` held no chrome entry —
+ * a cost gate that was also, silently, a behavioural one: it emitted chrome role
+ * defaults ONLY on a site that had already written chrome styling, while the band
+ * path (pp_udc_page_defaults_css) emits a component's defaults unconditionally.
+ * That was inert exactly as long as nav and footer declared ZERO defaults, and the
+ * old comment said so: "the first person to add a chrome role default will find it
+ * silently absent on every unstyled site, so this gate has to go at the same time."
+ * #994 is that change. The header and footer's entire resting appearance is role
+ * defaults now, so keeping the gate would have left every unstyled site — which is
+ * most of them — with an unpainted header and footer.
  *
- * THAT GATE HAS A BEHAVIOURAL CONSEQUENCE, not only a cost one, and it differs from
- * the band path on purpose: pp_udc_page_defaults_css() emits a component's role
- * defaults whether or not any band authored anything, while this emits chrome role
- * defaults ONLY when a chrome entry is stored. It is inert today because nav and
- * footer declare ZERO role defaults — ruling A1 as issued keeps chrome's resting
- * appearance in components.css — and ChromeUdcTest pins that they stay empty. The
- * first person to add a chrome role default will find it silently absent on every
- * unstyled site, so this gate has to go at the same time. Chrome renders on every request — including 404 and search, where no
- * composition exists at all — so unlike the band layers this cannot lean on a
- * page lookup to stay off the hot path. Asking for the registry here would make
- * every request on an unstyled site pay a scandir plus twelve schema reads to
- * produce no CSS.
+ * WHAT THE GATE WAS ACTUALLY BUYING, stated at its real size: chrome renders on
+ * EVERY request, including 404 and search where no composition exists, so unlike the
+ * band layers it cannot lean on a page lookup to stay off the hot path. The work is a
+ * scandir of components/ plus a json_decode of EVERY component schema — twelve files,
+ * ~180 KB today, not the two chrome ones (pp_get_registered_components() builds the
+ * whole registry or none of it). That memo is per-PHP-process, so no cross-request
+ * cache absorbs it; what does absorb it in practice is the band path, which warms the
+ * same registry on any page carrying a composition.
+ *
+ * THE REAL FIGURES, because this note exists to be the one a capacity decision is made
+ * from and two earlier drafts of it were wrong (first "the two chrome schemas' reads",
+ * then "well under a millisecond"). Measured on PHP 8.3, one fresh process per sample:
+ *
+ *   an unstyled request  0.012 ms  ->  2.45 ms (p50), +719 KB transient
+ *     registry warm   ~1.15 ms / 642 KB   (json_decode alone ~1.0 ms)
+ *     compile         ~1.00 ms            (nav + footer, 28 roles)
+ *     token parse     ~0.24 ms
+ *     string build    ~0.055 ms
+ *
+ * On a page already carrying a v2 composition the band path has warmed the registry
+ * first, so the marginal cost is ~0.55 ms. On 404, search and archives — the routes
+ * this change was made for, where pp_udc_current_composition() returns [] and warms
+ * nothing — the full 2.45 ms is paid, about 5% of a measured 43-45 ms 404 TTFB. No
+ * database queries are added: it is file reads, json_decode and compile.
+ *
+ * Nothing here is superlinear (compile is flat at ~0.021 ms/role to 512 roles, and
+ * _pp_udc_render_blocks() is ~0.00088 ms/block with no re-scan), so the cost scales
+ * with how many roles chrome declares and nothing else. 47% of it is the registry
+ * decoding the ten schemas the chrome path never reads; #1020 tracks making that decode
+ * lazy, which is the available win and is deliberately not taken here — it is a change
+ * to shared infrastructure every caller depends on, with the #576 root-keyed
+ * invalidation handshake to get right.
+ *
+ * The alternative was an unpainted header and footer on every unstyled site.
+ *
+ * The names come from pp_udc_chrome_names() (the template-owned list) rather than from
+ * the stored row, because the defaults are a property of the THEME, not of what a site
+ * has written.
  */
 function pp_udc_chrome_defaults_css(): string {
-    $site = pp_udc_site_map();
-    if ($site['chrome'] === []) {
-        return '';
-    }
     $css = '';
-    foreach (array_keys($site['chrome']) as $name) {
+    foreach (pp_udc_chrome_names() as $name) {
         $css .= pp_udc_chrome_css((string) $name, 'defaults');
     }
     return $css;
@@ -5245,10 +5321,31 @@ function _pp_udc_band_values_cancelled_by_role_defaults(array $udc, string $comp
             if (!is_array($group_map) || !isset($groups[(string) $group_name]['params'])) {
                 continue;
             }
-            foreach ($group_map as $param_name => $unused) {
+            foreach ($group_map as $param_name => $default_value) {
                 $param = $groups[(string) $group_name]['params'][(string) $param_name] ?? null;
                 if ($param === null || !isset($declared[$param['property']])
                     || isset($authored_here[$param['property']])) {
+                    continue;
+                }
+                // A DEFAULT OF `currentColor` CANNOT CANCEL INHERITANCE — it IS
+                // inheritance (#994). In the `color` property specifically, CSS defines
+                // `currentcolor` as computing to the inherited value, which is exactly
+                // why footer's `heading` role uses it: a heading follows the band's own
+                // text colour, so an authored `_band` colour DOES reach it.
+                //
+                // Without this arm the documented dark-footer write named `heading`
+                // among the roles a band colour "does not reach", which is false — and
+                // false in the same commit that shipped AI-facing docs promising the
+                // opposite. The docblock above scopes this disclosure to a DIRECT
+                // declaration that beats inheritance; `color: currentcolor` is
+                // definitionally not one. Reading the `d` tier of a breakpoint map
+                // mirrors how the authored side resolves a scalar.
+                $resolved = is_array($default_value)
+                    ? ($default_value['d'] ?? null)
+                    : $default_value;
+                if ($param['property'] === 'color'
+                    && is_string($resolved)
+                    && strcasecmp(trim($resolved), 'currentColor') === 0) {
                     continue;
                 }
                 $cancelled[$param['property']][] = (string) $role_name;
