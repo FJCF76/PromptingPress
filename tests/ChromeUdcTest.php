@@ -80,6 +80,15 @@ class ChromeUdcTest extends TestCase
         return pp_execute_action('update_site_option', $params);
     }
 
+    /** The findings of one type, so a pin never asserts against a neighbour's message. */
+    private function findingsOfType(array $findings, string $type): array
+    {
+        return array_values(array_filter(
+            $findings,
+            static fn (array $f): bool => ($f['type'] ?? '') === $type
+        ));
+    }
+
     /** Validation only, for the refusal cases. */
     private function validate(array $map)
     {
@@ -1567,6 +1576,187 @@ class ChromeUdcTest extends TestCase
         // REACH chrome at all rather than being suppressed wholesale.
         $this->assertStringContainsString('background:var(--color-accent)', $block);
         $this->assertStringContainsString('line-height:1.4', $block);
+    }
+
+    /**
+     * THE SILENT LOSS, AND THE DISCLOSURE THAT ENDS IT (#994, ruling D8, invariant I35).
+     *
+     * RED-PROOF FIRST, because the whole point is that this was invisible. The stored
+     * map below is the measured case: `{"nav":{"logo":{"_preset":"button"}}}`. Before
+     * chrome had role defaults, it emitted the button treatment entire — `color:
+     * var(--color-bg)` over `background: var(--color-accent)`, inverted ink on an accent
+     * fill, which is what that preset is FOR. With `logo` defaulting typography and
+     * sizing, six of the preset's values are suppressed and the logo renders
+     * `@color-text` ink on the same accent fill: a contrast inversion, on a site whose
+     * stored map nobody edited, reported `ok: true`.
+     *
+     * Ruling D6 settled the precedence and D8 settled the remedy: disclose it. The three
+     * assertions below are the three things a disclosure has to be — TRUE (the loss is
+     * real and measurable), REACHED (it rides the channel the author actually sees), and
+     * ACTIONABLE (the route it names works when followed).
+     */
+    public function testAShadowedPresetValueIsDisclosedRatherThanSilentlyLost(): void
+    {
+        $result = $this->write(['nav' => ['logo' => ['_preset' => 'button']]]);
+        $this->assertTrue($result['ok'], $result['error'] ?? '');
+
+        // ── 1. THE LOSS IS REAL. The preset's ink does not land; the default's does.
+        $css = pp_udc_chrome_authored_css();
+        $this->assertSame(
+            1,
+            preg_match('/\[data-pp-chrome="nav"\] \.nav__logo\{[^}]*\}/', $css, $m),
+            'the preset must still produce a block — this is a shadowed VALUE, not a dropped preset'
+        );
+        $this->assertStringNotContainsString('color:var(--color-bg)', $m[0], 'the preset ink is suppressed');
+        $this->assertStringContainsString('background:var(--color-accent)', $m[0], 'the fill still lands');
+
+        // ── 2. IT IS DISCLOSED, on the write envelope.
+        $shadowed = $this->findingsOfType($result['findings'] ?? [], 'udc_preset_value_shadowed_by_role_default');
+        $this->assertCount(1, $shadowed, 'the write envelope must carry the disclosure');
+        $message = (string) $shadowed[0]['message'];
+
+        $this->assertStringContainsString('role "logo"', $message, 'it must name the role');
+        $this->assertStringContainsString('"button"', $message, 'and the preset');
+        $this->assertStringContainsString('typography.color', $message, 'and a suppressed parameter');
+        $this->assertStringContainsString(
+            'Write the value in your own map',
+            $message,
+            'a refusal or an advisory without the route back is the I24 class'
+        );
+
+        // ── 3. THE ROUTE IT NAMES ACTUALLY WORKS. Follow it and the inverted ink returns.
+        $this->write([
+            'nav' => ['logo' => [
+                '_preset'    => 'button',
+                'typography' => ['color' => '@color-bg'],
+            ]],
+        ]);
+        $this->assertStringContainsString(
+            'color:var(--color-bg)',
+            pp_udc_chrome_authored_css(),
+            'the authored map must out-rank both the preset and the role default'
+        );
+    }
+
+    /**
+     * THE DISCLOSURE REACHES STORED DATA, not only a fresh write (#994, ruling D8).
+     *
+     * This is the half that matters for a map written BEFORE the retirement, and the
+     * reason the finding is reconstructed from the preset REFERENCE rather than from a
+     * diff of the write: nobody is going to re-send those maps. `wp pp operate inspect`
+     * and the composition-findings path both re-derive from what is on disk, so a site
+     * that has not been touched since #994 still learns what its stored preset lost.
+     */
+    public function testTheShadowedPresetDisclosureIsDerivedFromStoredDataToo(): void
+    {
+        // SEEDED RAW, deliberately: this is the shape a site carries from before the
+        // change, and the point is that no write is needed to surface it.
+        $GLOBALS['_pp_test_store']['options'][PP_SITE_UDC_OPTION] =
+            (string) wp_json_encode(['_version' => 1, 'nav' => ['logo' => ['_preset' => 'button']]]);
+
+        $shadowed = $this->findingsOfType(
+            pp_udc_site_findings(),
+            'udc_preset_value_shadowed_by_role_default'
+        );
+        $this->assertCount(1, $shadowed, 'a stored map must disclose on re-read, not only at write');
+        $this->assertStringContainsString('role "logo"', (string) $shadowed[0]['message']);
+    }
+
+    /**
+     * THE PARAMETER LIST IS BOUNDED, with a tail that states the TRUE total.
+     *
+     * The message names PARAMETERS, and a role may permit every group in the taxonomy —
+     * so an unbounded interpolation here is one wide preset away. Routed through
+     * pp_udc_bounded_list(), the repo's one list contract, whose rule is that the "and N
+     * more" count is the real total so a truncated list never reads as a complete one.
+     */
+    public function testTheShadowedPresetDisclosureBoundsItsParameterList(): void
+    {
+        $saved = pp_execute_action('save_preset', [
+            'name'  => 'wide-probe',
+            'grain' => 'role',
+            'udc'   => ['typography' => [
+                'size' => '2rem', 'weight' => '700', 'family' => '@font-heading',
+                'decoration' => 'underline', 'color' => '@color-accent',
+                'line-height' => '2', 'letter-spacing' => '0.05em',
+            ]],
+        ]);
+        $this->assertTrue($saved['ok'], $saved['error'] ?? '');
+
+        // footer's `link` defaults size, decoration and colour; nav's `logo` defaults
+        // family, weight, size, decoration and colour — five of the seven above, which
+        // is under the cap. Use a role that defaults more by pairing with `logo` and
+        // asserting the SHAPE of the bound rather than a specific truncation.
+        $result = $this->write(['nav' => ['logo' => ['_preset' => 'wide-probe']]]);
+        $this->assertTrue($result['ok'], $result['error'] ?? '');
+
+        $shadowed = $this->findingsOfType($result['findings'] ?? [], 'udc_preset_value_shadowed_by_role_default');
+        $this->assertCount(1, $shadowed);
+        $message = (string) $shadowed[0]['message'];
+
+        // Five suppressed parameters, under the cap of six, so the list is complete and
+        // carries no tail. The bound's OTHER arm is pinned directly on the helper below.
+        $this->assertStringNotContainsString('and 0 more', $message);
+        foreach (['typography.family', 'typography.weight', 'typography.size',
+                  'typography.decoration', 'typography.color'] as $param) {
+            $this->assertStringContainsString($param, $message);
+        }
+    }
+
+    /** The bound itself, at the grain the message is built from. */
+    public function testTheBoundedListTailCarriesTheTrueTotalNotTheCap(): void
+    {
+        $items = ['a.one', 'a.two', 'a.three', 'a.four', 'a.five', 'a.six', 'a.seven', 'a.eight'];
+        $this->assertSame(
+            'a.one, a.two, a.three, a.four, a.five, a.six, and 2 more',
+            pp_udc_bounded_list($items, 6, count($items)),
+            'the tail must state how many there really are, not how many were hidden by the cap'
+        );
+    }
+
+    /**
+     * A PRESET VALUE THE ROLE DOES NOT DEFAULT IS NOT REPORTED, and a state is judged
+     * separately from its base.
+     *
+     * The rung is applied per (group, param, state) tuple, so a preset's `:hover` can
+     * survive while its base is suppressed. Reporting at group grain would claim a whole
+     * bundle lost when one value did; reporting at param grain would miss a state the
+     * role defaults separately. Both errors read as noise, and an advisory that cries
+     * wolf gets acknowledged into silence.
+     */
+    public function testTheShadowedPresetDisclosureJudgesEachStateSeparately(): void
+    {
+        $role = ['groups' => ['typography'], 'defaults' => ['typography' => ['color' => '@color-text']]];
+
+        // Base suppressed, `:hover` survives — the role declares no hover.
+        $this->assertSame(
+            ['typography.color'],
+            _pp_udc_preset_values_shadowed_by_role_defaults(
+                ['typography' => ['color' => '#fff', ':hover' => ['color' => '#eee']]],
+                $role
+            )
+        );
+
+        // Nothing reported when the role defaults nothing the preset sets.
+        $this->assertSame(
+            [],
+            _pp_udc_preset_values_shadowed_by_role_defaults(['typography' => ['size' => '2rem']], $role)
+        );
+
+        // A group the role does not permit belongs to udc_preset_groups_skipped, not here.
+        $this->assertSame(
+            [],
+            _pp_udc_preset_values_shadowed_by_role_defaults(['shadow' => ['box' => 'none']], $role)
+        );
+
+        // And a state the role DOES default is labelled with its state.
+        $this->assertSame(
+            ['typography.color (:hover)'],
+            _pp_udc_preset_values_shadowed_by_role_defaults(
+                ['typography' => [':hover' => ['color' => '#eee']]],
+                ['groups' => ['typography'], 'defaults' => ['typography' => [':hover' => ['color' => '@color-accent']]]]
+            )
+        );
     }
 
     /**

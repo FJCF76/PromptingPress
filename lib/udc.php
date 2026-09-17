@@ -5022,6 +5022,77 @@ function pp_udc_group_summary(): string {
  *
  * @return array<int, array{type: string, message: string, index: int|null}>
  */
+/**
+ * The preset parameters a role's own defaults suppress (#994, ruling D8).
+ *
+ * Presets rank under role defaults PER (group, param, state) TUPLE, which is the whole
+ * subtlety: a preset's base colour can be suppressed while its `:hover` counterpart
+ * survives, because the role declares one and not the other. Comparing at group grain
+ * would over-report (claiming a whole bundle lost when one value did) and comparing at
+ * param grain would under-report (missing a state the role defaults separately). So the
+ * walk is per tuple, and the label carries the state when there is one.
+ *
+ * GROUPS THE ROLE DOES NOT PERMIT ARE SKIPPED, because `udc_preset_groups_skipped`
+ * already owns them. Two findings for one cause is how an author learns to ignore both.
+ *
+ * Returns human-readable labels rather than structured tuples: the one consumer
+ * interpolates them into a sentence, and the caller bounds the list.
+ *
+ * @return array<int, string>  e.g. ['typography.color', 'typography.color (:hover)']
+ */
+function _pp_udc_preset_values_shadowed_by_role_defaults(array $fragment, array $role_def): array {
+    $defaults  = isset($role_def['defaults']) && is_array($role_def['defaults'])
+        ? $role_def['defaults']
+        : [];
+    $permitted = isset($role_def['groups']) && is_array($role_def['groups'])
+        ? $role_def['groups']
+        : [];
+    if ($defaults === []) {
+        return [];
+    }
+
+    $states    = pp_udc_states();
+    $shadowed  = [];
+
+    foreach ($fragment as $group => $group_map) {
+        $group = (string) $group;
+        if (!is_array($group_map) || !in_array($group, $permitted, true)) {
+            continue;
+        }
+        $group_defaults = isset($defaults[$group]) && is_array($defaults[$group])
+            ? $defaults[$group]
+            : [];
+        if ($group_defaults === []) {
+            continue;
+        }
+
+        foreach ($group_map as $key => $value) {
+            $key = (string) $key;
+
+            if (isset($states[$key])) {
+                if (!is_array($value)) {
+                    continue;
+                }
+                $state_defaults = isset($group_defaults[$key]) && is_array($group_defaults[$key])
+                    ? $group_defaults[$key]
+                    : [];
+                foreach (array_keys($value) as $param) {
+                    if (isset($state_defaults[(string) $param])) {
+                        $shadowed[] = $group . '.' . (string) $param . ' (' . $key . ')';
+                    }
+                }
+                continue;
+            }
+
+            if (isset($group_defaults[$key])) {
+                $shadowed[] = $group . '.' . $key;
+            }
+        }
+    }
+
+    return $shadowed;
+}
+
 function pp_udc_composition_findings(array $items): array {
     if (!pp_is_list($items)) {
         return [];
@@ -5083,6 +5154,77 @@ function pp_udc_composition_findings(array $items): array {
                     implode(', ', $split['skipped']),
                     count($split['skipped']) === 1 ? 'it was' : 'they were',
                     implode(', ', array_keys($split['applied']))
+                ),
+                'index'   => is_int($i) ? $i : null,
+            ];
+        }
+
+        // THE SHADOWED-PRESET DISCLOSURE (#994, ruling D8, invariant I35).
+        //
+        // Presets rank UNDER role defaults (site tokens -> presets -> role defaults ->
+        // the authored map), per (group, param, state) tuple. So a preset value whose
+        // tuple a role also defaults is accepted, stored, reported applied, and never
+        // painted — the same sentence the `_band` disclosure below is about, one rung
+        // over, and until #994 it could not happen on chrome because chrome declared no
+        // defaults at all.
+        //
+        // WHAT MADE IT URGENT rather than tidy. Measured on the stored map
+        // `{"nav":{"logo":{"_preset":"button"}}}`: before chrome had defaults the logo
+        // emitted the button treatment entire, `color: var(--color-bg)` over
+        // `background: var(--color-accent)` — inverted ink on an accent fill, which is
+        // the whole point of that preset. After, `logo`'s typography and sizing defaults
+        // suppress the colour, weight, size, decoration, hover colour and min-height,
+        // and the logo renders `@color-text` ink on the same accent fill. A contrast
+        // inversion, on a site whose stored map nobody edited, reported `ok: true` with
+        // an empty findings array.
+        //
+        // THE PRECEDENCE IS NOT THE DEFECT — ruling D6 settled that, and thinning the
+        // defaults to make room for presets would re-expose every chrome element to the
+        // structural rules the defaults exist to beat. The SILENCE was the defect.
+        //
+        // RECONSTRUCTED FROM STORED DATA, like both its neighbours: the preset reference
+        // survives minting unrewritten and the defaults are on disk, so this fires
+        // identically on the post-write envelope, on `wp pp check page`, and on restore.
+        // That last one is what reaches a map written BEFORE this change, which is the
+        // only channel that can.
+        foreach ($item['udc'] as $role_name => $role_map) {
+            if (!is_array($role_map) || !isset($role_map[PP_UDC_PRESET_KEY])
+                || !is_string($role_map[PP_UDC_PRESET_KEY]) || !isset($roles[(string) $role_name])) {
+                continue;
+            }
+            $preset = pp_udc_resolve_preset($role_map[PP_UDC_PRESET_KEY]);
+            if ($preset === null) {
+                continue;
+            }
+            $fragment = _pp_udc_preset_fragment($preset, 'role');
+            if (!is_array($fragment) || $fragment === []) {
+                continue;
+            }
+            $shadowed = _pp_udc_preset_values_shadowed_by_role_defaults(
+                $fragment,
+                $roles[(string) $role_name]
+            );
+            if ($shadowed === []) {
+                continue;
+            }
+            $total = count($shadowed);
+            $findings[] = [
+                'type'    => 'udc_preset_value_shadowed_by_role_default',
+                'message' => sprintf(
+                    'Component "%s" role "%s": the preset "%s" sets %s, but this role\'s own default '
+                    . 'for %s outranks a preset, so %s not applied. Write the value in your own map '
+                    . 'for this role, where it out-ranks both.',
+                    $component,
+                    (string) $role_name,
+                    _pp_udc_reflect($role_map[PP_UDC_PRESET_KEY]),
+                    // BOUNDED, through the repo's one list contract. This names
+                    // PARAMETERS, and a role may permit every group in the taxonomy —
+                    // so the list is capped and the tail carries the TRUE total, or the
+                    // next preset with a wide fragment turns a diagnostic into an
+                    // unbounded interpolation.
+                    pp_udc_bounded_list($shadowed, 6, $total),
+                    $total === 1 ? 'it' : 'them',
+                    $total === 1 ? 'it was' : 'they were'
                 ),
                 'index'   => is_int($i) ? $i : null,
             ];
