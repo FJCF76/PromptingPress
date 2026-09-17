@@ -83,40 +83,75 @@ the reset had started winning. That is why `pp-reset` is a layer of its own.
 If a band-root default must beat a shared rule, the answer is not to re-rank the layer. It
 is a `:not()` exclusion on the shared rule, which is what hero's `#577` opener rhythm uses.
 
-**1b. Chrome pays for this, and it is the one place the regime bites a user.** Nav and
-footer are on the engine but keep their resting appearance in `components.css`, because
-retiring that block is a change with its own visual risk on every page of every site
-(#994). So chrome ships EMPTY role defaults, and the only thing the engine adds is the
+**1b. Chrome used to pay for this, and the bill is what #994 settled.** Nav and footer
+were on the engine while keeping their resting appearance in `components.css`, because
+retiring that block was a change with its own visual risk on every page of every site.
+So chrome shipped EMPTY role defaults and the only thing the engine added was the
 authored tier — which is unlayered.
 
-Unlayered beats a layer in EVERY state, not only at rest. So a colour an author sets at
-REST also outranks this stylesheet's `:hover` and current-page rules, which are in
-`pp-v1`.
-
-Each role loses its OWN hover: authoring `nav.logo`'s colour erases the logo's accent
-hover, authoring `nav.toggle`'s erases the toggle's, and so on. `nav.link` loses two,
-because the current-page accent lives on a DIFFERENT role (`link-current`) that the
-author did not set. Measured in Chromium with `link`, `logo` and `toggle` authored at
-rest and no state maps: link hover `rgb(49,87,244)` → `rgb(10,125,50)`, logo hover the
-same, current-page link the same. The logo case is the worst, because its hover rule sets
-colour and nothing else — there is no surviving underline, so hovering it does nothing
-visible at all.
+Unlayered beats a layer in EVERY state, not only at rest. So a colour an author set at
+REST also outranked this stylesheet's `:hover` and current-page rules, which are in
+`pp-v1`. Each role lost its OWN hover; `nav.link` lost two, because the current-page
+accent lived on a DIFFERENT role (`link-current`) the author had not set. Measured in
+Chromium with `link`, `logo` and `toggle` authored at rest and no state maps: link hover
+`rgb(49,87,244)` → `rgb(10,125,50)`, logo hover the same, current-page link the same.
 
 ```
-author sets link colour at REST        (unlayered, [0,2,3])   ← wins
-components.css  .nav__menu ul li a:hover   (pp-v1, [0,0,4])   ← loses, despite :hover
-components.css  li.current-menu-item > a   (pp-v1, [0,1,3])   ← loses
+author sets link colour at REST        (unlayered, [0,2,3])   ← won
+components.css  .nav__menu ul li a:hover   (pp-v1, [0,0,4])   ← lost, despite :hover
+components.css  li.current-menu-item > a   (pp-v1, [0,1,3])   ← lost
 ```
 
-That is not the cascade misbehaving; it is the cost of holding chrome half-in. The fix is
-#994 (move the resting values into role defaults so the states move with them), and until
-then the AI-facing docs tell authors to pair every resting colour with its `:hover` and to
-pair `link` with `link-current`. `#992` tracks the defect; a characterization test in
-`tests/e2e/style-render.spec.ts` pins today's behaviour so the fix has a red-to-green.
+That was never the cascade misbehaving; it was the cost of holding chrome half-in. #994
+retired both blocks in one change, so those state rules are role DEFAULTS now — in the
+same unlayered tier the authored value is, ranked against it by ordinary specificity:
 
-The general lesson for anything else half-migrated: moving ONE tier of a component into
-the unlayered engine silently promotes it above every remaining state rule for the same
-property. Move a component's states and its resting values together, or not at all.
+```
+link-current default    .nav__menu ul li.current-menu-item > a   (unlayered, [0,3,3])  ← wins
+link :hover default     .nav__menu ul li a:hover                 (unlayered, [0,3,3])  ← wins
+author's link colour    .nav__menu ul li a                       (unlayered, [0,2,3])  ← loses to both
+```
+
+Re-measured after the change, same input: link hover back to `rgb(49,87,244)`, logo hover
+back to `rgb(49,87,244)`, current-page link back to `rgb(49,87,244)` with its bold weight.
+The characterization test in `tests/e2e/style-render.spec.ts` was INVERTED rather than
+deleted, so the exact scenario that used to fail is the one that now passes.
+
+The general lesson survives the fix, because it is what the fix obeyed: moving ONE tier of
+a component into the unlayered engine silently promotes it above every remaining state
+rule for the same property. Move a component's states and its resting values together, or
+not at all.
+
+**1c. A root default rides `pp-zero`, so anything in `pp-v1` aimed at that element wins —
+including a rule that was never about design.** This is the trap #994 walked into, and it
+is worth stating because the next component rebuild will meet it too.
+
+Chrome's `_band` defaults (the header's background and bottom border, the footer's
+background, top border and band padding) emit into `pp-zero`. After the retirement deleted
+the `.site-header` and `.site-footer` rules, the background painted and the borders did
+not. The rule that beat them was the issue-332 border-trigger immunity baseline:
+
+```css
+[data-pp-component], .grid__item, .section__panel-row { border-style: none; border-width: 0 }
+```
+
+It sits in `pp-v1` at (0,1,0), it matches the chrome roots (which carry
+`data-pp-component`), and it claims exactly the two longhands the borders needed. Measured
+in Chromium at 375/768/1280: `border-bottom-width` on `.site-header` read `0px` / `none`
+where it had read `1px` / `solid`.
+
+The fix was to narrow the baseline rather than re-rank the tier, because the baseline's own
+premise does not hold for chrome: it exists for elements that carry inline slot custom
+properties, and chrome emits NO style attribute at all (ratified contract #223, pinned by a
+test). It is now
+`[data-pp-component]:not(:where([data-pp-chrome]))`, where `:where()` keeps the weight at
+(0,1,0) so the baseline still beats WordPress core's (0,0,1) rule and still loses on source
+order to every component rule that legitimately draws a border.
+
+Two things generalize. A `pp-zero` default competes with EVERY `pp-v1` rule that matches its
+element, not only the ones written about that component. And the way you find out is by
+reading the computed value on a real page — the border's absence is invisible to a schema,
+to the emitter, and to a specificity argument made on paper.
 
 **2. An unlayered third party still wins.** Anything that is not in a layer outranks
 everything that is, whatever its specificity. WordPress core injects:
@@ -130,8 +165,12 @@ survives on the other half: core injects a STYLE and never a width, so `border-w
 still wins, and `solid` at zero width paints nothing.
 
 The baseline was NOT hoisted out of the layer to restore the old mechanism. Unlayered, it
-would outrank every layered component rule that legitimately draws a border — 13 of them
-today (`.cta--dark`, `.grid--dark`, `.site-footer`, ...) — and erase all of them.
+would outrank every layered component rule that legitimately draws a border (`.cta--dark`,
+`.grid--dark`, `.section--bordered`, ...) and erase all of them.
+
+`.site-footer` used to head that list and no longer belongs to it: since #994 the footer's
+top border is a `_band` role default, which is the very thing section 1c is about — the
+baseline had to stop matching chrome BECAUSE those borders left the stylesheet.
 
 Any future rule whose job is to defeat third-party CSS needs the same check: read the
 computed value, do not assume the specificity argument still holds.
@@ -211,11 +250,12 @@ above a primitive.
   `pp_udc_component_defaults_css()` and `_pp_udc_render_blocks()`'s `$root_layer`.
 - `tests/e2e/style-render.spec.ts` — `#986/I35 an authored hero CTA outranks the v1 premium
   button rules` and `#986 the v1 premium button treatment survives on a legacy cta` are the
-  rendered guards in both directions. `#992 CHARACTERIZATION: an authored base colour erases
-  the hover and current-page accents` is the chrome half, and is DEBT: it pins a defect on
-  purpose and is deleted or inverted when #994 lands.
-- Issues #992 (the chrome state-erasure defect) and #994 (retiring the chrome CSS block for
-  nav and footer together, which fixes it).
+  rendered guards in both directions. `#994 an authored base colour no longer erases the
+  hover and current-page accents` is the chrome half — the inversion of the debt-labelled
+  `#992 CHARACTERIZATION` test, same fixture and same authored input, opposite
+  expectations.
+- Issues #992 (the chrome state-erasure defect) and #994 (the retirement of the chrome CSS
+  block for nav and footer together, which fixed it).
 - `docs/v2/BUILD-SPEC-sprint0.md` §3.4 — the cascade contract.
 - `docs/explanation-validation-scope.md` — the sibling design note on what a write is
   allowed to refuse on behalf of, and the two schema keys every component rebuild declares.
