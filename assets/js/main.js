@@ -12,7 +12,8 @@
  *      (components.css) in sync with the real rendered header height
  *
  * Active nav link: handled server-side by WordPress (current-menu-item CSS class).
- * No JS needed — see .nav__menu li.current-menu-item > a in components.css.
+ * No JS needed — its colour and bold weight are the `link-current` role's defaults
+ * in components/nav/schema.json (they left components.css in #994).
  */
 
 (function () {
@@ -121,12 +122,24 @@
 
   // ── 5. Dropdown submenus (issue 381) — accessible disclosure ───────────────
   //
-  // WP's default nav walker emits <li class="menu-item-has-children"> wrapping a
-  // nested <ul class="sub-menu">. We enhance each into a WAI-ARIA *disclosure*
-  // (a button with aria-expanded controlling the submenu), NOT a menubar — the
-  // parent link stays independently usable, and the injected button only owns
-  // expand/collapse. Progressive enhancement: without JS, CSS still exposes the
-  // submenu (expanded on mobile, hover on desktop).
+  // WP's nav walker emits <li class="menu-item-has-children"> wrapping a nested
+  // <ul class="sub-menu">, and the theme's walker (lib/nav-walker.php) emits the
+  // disclosure BUTTON between the two. This block owns the disclosure's BEHAVIOUR
+  // — a WAI-ARIA *disclosure* (a button with aria-expanded controlling the
+  // submenu), NOT a menubar: the parent link stays independently usable and the
+  // button only owns expand/collapse.
+  //
+  // IT NO LONGER BUILDS THE BUTTON (#994, ruling D5). Before that the button and
+  // its chevron were created here, which made `.nav__submenu-toggle` a class no
+  // PHP emitted — and therefore a class no UDC role could legally select, since
+  // the role-selector lint checks selectors against RENDERED markup. Moving the
+  // markup to the server is what let the `submenu-toggle` role exist and #995's
+  // two chevron defects be fixed.
+  //
+  // Progressive enhancement is unchanged in what a visitor sees: without JS the
+  // button is display:none (it only appears once `.pp-has-dropdown` is set here),
+  // so there is never an inert control, and CSS still exposes the submenu
+  // (expanded on mobile, hover on desktop).
 
   var navMenu = document.getElementById('pp-nav-menu');
 
@@ -156,32 +169,32 @@
 
     Array.prototype.forEach.call(submenus, function (submenu) {
       var li = submenu.parentNode;
+
+      // THE BUTTON IS SERVER-RENDERED SINCE #994 (ruling D5). This block used to
+      // create it, fill it with the chevron SVG and insert it before the submenu;
+      // the theme's nav walker (lib/nav-walker.php) emits exactly that markup now,
+      // because the `submenu-toggle` UDC role needs a selector the server can prove
+      // it renders. What remains here is WIRING, not DOM: an id, aria-controls, and
+      // the listeners.
+      //
+      // TESTED FIRST, BEFORE ANY SIDE EFFECT. A menu the walker did not render — a
+      // third-party menu, or a submenu added after load — has no button, and must be
+      // left completely alone rather than half-enhanced: `.pp-has-dropdown` is what
+      // the stylesheet keys the COLLAPSE on, so marking it without a working toggle
+      // hides a submenu nothing can reopen. This used to run after the id was minted
+      // and the class added, then undo only the class — leaving a synthetic id on an
+      // element with no control and a burnt sequence number behind it.
+      var toggle = ppDirectChild(li, 'BUTTON');
+      if (!toggle) {
+        return;
+      }
+
       submenuSeq += 1;
       if (!submenu.id) {
         submenu.id = 'pp-submenu-' + submenuSeq;
       }
       li.classList.add('pp-has-dropdown');
-
-      var parentLink = ppDirectChild(li, 'A');
-      var labelText = parentLink ? parentLink.textContent.trim() : 'submenu';
-
-      var toggle = document.createElement('button');
-      toggle.type = 'button';
-      toggle.className = 'nav__submenu-toggle';
-      toggle.setAttribute('aria-expanded', 'false');
       toggle.setAttribute('aria-controls', submenu.id);
-      // Distinct accessible name so the button is not confused with the sibling
-      // parent link (which navigates); the two are separate controls by design.
-      toggle.setAttribute('aria-label', 'Toggle submenu for ' + labelText);
-      toggle.innerHTML =
-        '<svg class="nav__submenu-toggle-icon" width="16" height="16" viewBox="0 0 24 24" ' +
-        'fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">' +
-        '<polyline points="6 9 12 15 18 9" stroke="currentColor" stroke-width="2" ' +
-        'stroke-linecap="round" stroke-linejoin="round"/></svg>';
-
-      // Insert the button AFTER the parent link, never inside it, and before the
-      // submenu list.
-      li.insertBefore(toggle, submenu);
 
       toggle.addEventListener('click', function () {
         ppSetSubmenuOpen(li, toggle, !li.classList.contains('is-open'));

@@ -65,14 +65,96 @@ function pp_field(string $name, $id = null) {
  * Renders a registered WP nav menu by theme location.
  * Outputs nothing when the location has no assigned menu (fallback_cb false).
  *
+ * THE WALKER IS THE HEADER'S DISCLOSURE BUTTON (#994, ruling D5). It renders one
+ * `.nav__submenu-toggle` per submenu, which `assets/js/main.js` used to build in
+ * the browser — see lib/nav-walker.php for why that had to move server-side and
+ * what deliberately stayed in JavaScript.
+ *
+ * ADDED FOR EVERY LOCATION, NOT ONLY `primary`, and the reason it is harmless is worth
+ * stating exactly rather than approximately. The walker emits nothing at all for a FLAT
+ * menu, because `start_lvl()` only runs when an item has children, and the footer's menus
+ * are flat today.
+ *
+ * WHAT A NESTED NON-HEADER MENU WOULD ACTUALLY GET is a hidden, unwired button — not the
+ * header's disclosure. `.nav__submenu-toggle { display: none }` is UNSCOPED (that is what
+ * keeps the footer's appearance untouched), while both the rule that reveals it
+ * (`.nav__menu li.pp-has-dropdown > .nav__submenu-toggle`) and main.js's wiring
+ * (`#pp-nav-menu`) are header-only. So the markup would be inert rather than broken.
+ * Extending the disclosure to another location is a separate change, and it would mean
+ * scoping the reveal rule and widening what main.js enhances.
+ *
+ * The walker is passed only when WordPress's own walker class is loaded, so the
+ * unit harness (which stubs `wp_nav_menu`) and any context without core present
+ * degrade to core's default rather than fataling on a missing parent class.
+ *
  * @param string $location  Theme location slug (e.g. 'primary', 'footer').
  */
 function pp_nav_menu(string $location): void {
-    wp_nav_menu([
+    $args = [
         'theme_location' => $location,
         'container'      => false,
         'fallback_cb'    => false,
-    ]);
+    ];
+
+    $walker = pp_nav_menu_walker();
+    if ($walker !== null) {
+        $args['walker'] = $walker;
+    }
+
+    wp_nav_menu($args);
+}
+
+/**
+ * The theme's nav walker, or null when WordPress's base class is unavailable.
+ *
+ * REQUIRED LAZILY, not at file scope, because `class PP_Nav_Menu_Walker extends
+ * Walker_Nav_Menu` is a hard dependency on a core class: a file-scope declaration
+ * would fatal anywhere core has not loaded, the unit harness included. Loading it
+ * behind the class_exists() check keeps the dependency where it is actually needed.
+ *
+ * @return object|null
+ */
+function pp_nav_menu_walker() {
+    if (!class_exists('Walker_Nav_Menu')) {
+        return null;
+    }
+    if (!class_exists('PP_Nav_Menu_Walker')) {
+        require_once __DIR__ . '/nav-walker.php';
+    }
+    return class_exists('PP_Nav_Menu_Walker') ? new PP_Nav_Menu_Walker() : null;
+}
+
+/**
+ * The header's dropdown disclosure button, as one escaped HTML string (#994).
+ *
+ * A PLAIN FUNCTION RATHER THAN A WALKER METHOD, and it lives here rather than in
+ * lib/nav-walker.php, so the markup contract is reachable without WordPress's
+ * `Walker_Nav_Menu` class present — which is what lets the unit suite assert it
+ * directly (the class names both role selectors depend on, `aria-expanded="false"`,
+ * a distinct accessible name, the decorative `aria-hidden` icon) instead of only
+ * through a rendered menu.
+ *
+ * The accessible name is deliberately NOT the bare label: the button sits beside a
+ * link carrying that same label, and the two are different controls — the link
+ * navigates, the button discloses. "Toggle submenu for X" is the string
+ * assets/js/main.js built before #994, preserved verbatim so no screen-reader user
+ * hears a changed name.
+ *
+ * `aria-controls` is absent here and set by main.js, which mints the submenu's id
+ * next to the collapse behaviour that id labels; see lib/nav-walker.php.
+ *
+ * @param string $label  The parent item's title; may be empty.
+ */
+function pp_nav_submenu_toggle_markup(string $label): string {
+    $name = 'Toggle submenu for ' . ($label !== '' ? $label : 'submenu');
+
+    return '<button type="button" class="nav__submenu-toggle" aria-expanded="false"'
+        . ' aria-label="' . esc_attr($name) . '">'
+        . '<svg class="nav__submenu-toggle-icon" width="16" height="16" viewBox="0 0 24 24"'
+        . ' fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">'
+        . '<polyline points="6 9 12 15 18 9" stroke="currentColor" stroke-width="2"'
+        . ' stroke-linecap="round" stroke-linejoin="round"/></svg>'
+        . '</button>';
 }
 
 /**
