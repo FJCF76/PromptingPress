@@ -2438,6 +2438,92 @@ class ApplyTest extends TestCase
         $this->assertSame('invalid_text_transform', $result->get_error_code());
     }
 
+    // ── font-weight: the [1,1000] range (#988, fixed inside #1023) ───────
+
+    /**
+     * THE BOUNDARIES, BOTH DIRECTIONS.
+     *
+     * The old grammar accepted only the 100..900 ladder, on a docblock claim that it
+     * "is the whole usable range for real font families". The theme disproved it from
+     * inside: base.css ships `--font-weight-heading: 650` and v1's section title rule
+     * shipped `font-weight: 560`, so the grammar refused values the product renders.
+     *
+     * CSS Fonts 4 defines the absolute form as `normal | bold | <number [1,1000]>`,
+     * inclusive at both ends, and as a NUMBER rather than an integer — a variable font
+     * interpolates along a continuous `wght` axis. So the range is what is pinned, and
+     * a decimal is pinned as ACCEPTED rather than merely tolerated.
+     *
+     * @dataProvider fontWeightCases
+     */
+    public function testTheFontWeightRangeIsTheCssRange(string $value, bool $accepted): void
+    {
+        $result = _pp_validate_token_value($value, 'font-weight');
+        if ($accepted) {
+            $this->assertNotInstanceOf(WP_Error::class, $result, "'{$value}' is valid CSS font-weight and must be accepted");
+            return;
+        }
+        $this->assertInstanceOf(WP_Error::class, $result, "'{$value}' is not a valid font-weight and must be refused");
+        $this->assertSame('invalid_font_weight', $result->get_error_code());
+    }
+
+    public static function fontWeightCases(): array
+    {
+        return [
+            // The two values the theme itself ships, which the old ladder refused.
+            'the theme heading weight (650)'  => ['650', true],
+            'v1 section title weight (560)'   => ['560', true],
+            // The inclusive range ends.
+            'lower bound 1'                   => ['1', true],
+            'upper bound 1000'                => ['1000', true],
+            // A variable-font request: a number, not an integer.
+            'decimal on a wght axis'          => ['412.5', true],
+            // The old ladder still works — this is a widening, not a replacement.
+            'ladder 100'                      => ['100', true],
+            'ladder 400'                      => ['400', true],
+            'ladder 900'                      => ['900', true],
+            // Just outside, both ends.
+            'below the range (0)'             => ['0', false],
+            'above the range (1001)'          => ['1001', false],
+            'negative'                        => ['-100', false],
+            // Shapes the shared number owner refuses, pinned here so a future
+            // range-only rewrite cannot quietly admit them.
+            'exponent notation'               => ['1e3', false],
+            'explicit plus sign'              => ['+400', false],
+            'non-numeric'                     => ['bolderish', false],
+        ];
+    }
+
+    /** The keyword set is UNCHANGED by the widening. */
+    public function testTheFontWeightKeywordSetIsUnchanged(): void
+    {
+        foreach (['normal', 'bold', 'lighter', 'bolder'] as $keyword) {
+            $this->assertNotInstanceOf(
+                WP_Error::class,
+                _pp_validate_token_value($keyword, 'font-weight'),
+                "'{$keyword}' must stay accepted — the widening adds numbers, it removes nothing"
+            );
+        }
+        // And nothing keyword-SHAPED was admitted along with the range.
+        $this->assertInstanceOf(WP_Error::class, _pp_validate_token_value('heavy', 'font-weight'));
+    }
+
+    /**
+     * An EMPTY value is refused, but by the shared empty-value gate upstream of every
+     * type — so it carries `empty_value`, not this type's own code. Asserted separately
+     * rather than folded into the table above, because the distinction is the point: the
+     * range check never sees an empty string.
+     */
+    public function testAnEmptyFontWeightIsRefusedByTheSharedEmptyGate(): void
+    {
+        $result = _pp_validate_token_value('', 'font-weight');
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertSame('empty_value', $result->get_error_code());
+    }
+
+    // The udc-reference half of #988 is pinned in UdcEngineTest, not here: this file
+    // points get_template_directory() at a temp copy holding only assets/css, so
+    // pp_get_registered_components() finds no components and every role lookup is empty.
+
     // ── New Token Declarations ───────────────────────────────────────────
 
     public function testNewTokensFontWeightHeadingExists(): void

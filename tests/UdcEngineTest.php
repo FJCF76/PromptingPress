@@ -1018,6 +1018,40 @@ final class UdcEngineTest extends TestCase
 
     // ── The component's own boundary ────────────────────────────────────────
 
+    /**
+     * THE UNBLOCKING HALF OF #988, pinned where it actually bit (fixed inside #1023).
+     *
+     * `_pp_udc_reference_check()` judges a reference by the type the registry DECLARES
+     * (#972) and then validates the RESOLVED value through the shared grammar. While
+     * font-weight accepted only the 100..900 ladder, `@font-weight-heading` was therefore
+     * refused with a message quoting its own value — so no v2 component could reference
+     * the theme's own heading weight. The filed issue recorded the literal-value half;
+     * this is the half that made it a blocker, and it is asserted across EVERY v2
+     * component rather than on section alone, because the defect never belonged to one.
+     */
+    public function testTheThemesOwnHeadingWeightIsReferenceableFromEveryV2Component(): void
+    {
+        $this->assertSame(
+            '650',
+            pp_design_tokens()['--font-weight-heading']['value'],
+            'fixture premise: the shipped token sits off the old 100..900 ladder'
+        );
+
+        $roles = ['hero' => 'title', 'section' => 'heading', 'testimonials' => 'heading'];
+        foreach ($roles as $component => $role) {
+            $this->assertNull(
+                pp_udc_validate_map([$role => ['typography' => ['weight' => '@font-weight-heading']]], $component),
+                "{$component}.{$role} must be able to reference the theme's own heading weight"
+            );
+        }
+
+        // Non-vacuous: the roles named above must really be the heading roles, or this
+        // would pass against three typos.
+        foreach ($roles as $component => $role) {
+            $this->assertArrayHasKey($role, pp_udc_component_roles($component));
+        }
+    }
+
     public function testALegacyComponentAcceptsNoUdcMapAtAll(): void
     {
         // THE HOST HAS MOVED TWICE, and the comment is kept because the trap is real: ask

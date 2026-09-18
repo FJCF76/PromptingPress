@@ -1357,19 +1357,52 @@ function _pp_validate_font_style(string $value): bool {
 }
 
 /**
- * font-weight: the four general-purpose keywords, or a numeric weight.
+ * font-weight: the four general-purpose keywords, or a numeric weight in [1,1000].
  *
- * CSS accepts any number 1-1000, but the closed 100..900 ladder is the whole
- * usable range for real font families and keeps the value set predictable for an
- * authoring model. `normal`/`bold` are kept because they are what an author
- * writes when they mean "put it back".
+ * THE 100..900 LADDER WAS WRONG, AND THE THEME ITSELF DISPROVED IT (#988, fixed
+ * inside #1023 on the orchestrator's ruling). The old docblock argued that the
+ * closed ladder "is the whole usable range for real font families and keeps the
+ * value set predictable for an authoring model". Both halves failed:
+ *
+ *   - base.css ships `--font-weight-heading: 650`, and v1's section title rule
+ *     shipped `font-weight: 560`. The theme's own design language lived off the
+ *     ladder, so the grammar refused values the product renders.
+ *   - the refusal reached THROUGH a token reference. `_pp_udc_reference_check()`
+ *     judges a reference by the type the registry declares (#972), then validates
+ *     the resolved value here — so `@font-weight-heading` was refused with a
+ *     message quoting its own value. No v2 component could reference the theme's
+ *     heading weight at all: hero and testimonials as much as section.
+ *
+ * WHAT CSS ACTUALLY SAYS. CSS Fonts 4 defines `<font-weight-absolute>` as
+ * `normal | bold | <number [1,1000]>`. The range is inclusive at both ends and
+ * the value is a NUMBER, not an integer: variable fonts interpolate along a
+ * continuous weight axis, so `412.5` is a legitimate request on a font with a
+ * `wght` axis and renders as the nearest supported instance otherwise.
+ *
+ * DECIMALS ARE ADMITTED, deliberately, because refusing them would be this engine
+ * inventing a constraint CSS does not have — the same reasoning
+ * _pp_validate_line_height() states one function down for lengths. The narrower
+ * option was considered and rejected: an integer-only rule would have refused a
+ * legitimate variable-font weight for tidiness, which is the class of narrowing
+ * this fix exists to remove.
+ *
+ * `lighter`/`bolder` stay, though they are RELATIVE keywords rather than absolute
+ * ones. They have always been accepted here, they are valid `font-weight` values,
+ * and dropping them would be an unrelated narrowing riding along on a widening.
  */
 function _pp_validate_font_weight(string $value): bool {
     $value = strtolower(trim($value));
     if (in_array($value, ['normal', 'bold', 'lighter', 'bolder'], true)) {
         return true;
     }
-    return in_array($value, ['100', '200', '300', '400', '500', '600', '700', '800', '900'], true);
+    // _pp_validate_number() is the shared unitless-number owner: it already
+    // refuses a sign, an exponent, whitespace and anything non-numeric, so the
+    // only thing left to say here is the range. 0 and 1001 are refused by it.
+    if (!_pp_validate_number($value)) {
+        return false;
+    }
+    $weight = (float) $value;
+    return $weight >= 1.0 && $weight <= 1000.0;
 }
 
 /**
@@ -1658,7 +1691,7 @@ function _pp_validate_token_value(string $value, ?string $type, ?array $allowed 
             break;
         case 'font-weight':
             if (!_pp_validate_font_weight($value)) {
-                return new WP_Error('invalid_font_weight', 'Value must be a font-weight keyword (normal, bold, lighter, bolder) or a numeric weight from 100 to 900 in hundreds.');
+                return new WP_Error('invalid_font_weight', 'Value must be a font-weight keyword (normal, bold, lighter, bolder) or a number from 1 to 1000.');
             }
             break;
         case 'line-height':

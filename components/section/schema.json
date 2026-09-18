@@ -299,7 +299,7 @@
     },
     "heading": {
       "selector": ".section__title",
-      "description": "The band heading (an <h2>). NO WEIGHT DEFAULT, and that is a disclosed narrowing rather than an omission: v1 set section titles to font-weight 560, and the udc font-weight grammar accepts only the hundreds and the CSS keywords — so 560 cannot be expressed, and neither can the theme's OWN --font-weight-heading (650), even as a token reference. That is issue #988. With no default declared, the heading is an <h2> and takes base.css's --font-weight-heading, so section titles render at 650 rather than 560 until #988 widens the grammar. An author can set any of the hundreds today.",
+      "description": "The band heading (an <h2>).",
       "groups": [
         "typography",
         "spacing",
@@ -312,6 +312,7 @@
         "typography": {
           "size": "@pp-band-heading-size",
           "color": "@color-text",
+          "weight": "560",
           "line-height": {
             "d": "1.12",
             "t": "1.12",
@@ -369,7 +370,7 @@
     },
     "body": {
       "selector": ".section__content",
-      "description": "The rich-text body container. Its measure is this role's `sizing.max-width`; the type scale is its `typography`. THE DEFAULT IS THE MEASURED v1 VALUE, NOT THE BASE ONE: v1 capped this element from four rules at once (a 42rem in-block base, a .section--text-only override at --measure-centered, and a desktop `main > .section--text-only` override at 49rem), and the one that actually won on a page was the last. v2 has no layout-specific role defaults, so the four collapse into this single authorable value and 49rem is the one that keeps a default section body wrapping where it wraps today. NO WEIGHT DEFAULT: v1 set this to font-weight 430, which the udc font-weight grammar refuses — it accepts only the hundreds and the CSS keywords, and refuses the theme's own --font-weight-heading (650) even as a token reference. That is issue #988. With nothing declared the element takes the page's normal weight (400) instead of 430 until #988 widens the grammar; an author can set any of the hundreds today.",
+      "description": "The rich-text body container. Its measure is this role's `sizing.max-width`; the type scale is its `typography`. THE DEFAULT IS THE MEASURED v1 VALUE, NOT THE BASE ONE: v1 capped this element from four rules at once (a 42rem in-block base, a .section--text-only override at --measure-centered, and a desktop `main > .section--text-only` override at 49rem), and the one that actually won on a page was the last. v2 has no layout-specific role defaults, so the four collapse into this single authorable value and 49rem is the one that keeps a default section body wrapping where it wraps today.",
       "groups": [
         "typography",
         "spacing",
@@ -390,7 +391,8 @@
             "d": "1.76",
             "t": "1.76",
             "p": "1.65"
-          }
+          },
+          "weight": "430"
         },
         "sizing": {
           "max-width": "49rem"
@@ -438,7 +440,7 @@
     },
     "inline-items": {
       "selector": ".section__inline-items",
-      "description": "The short-items row rendered after the body (the \"trust strip\"). Its separator glyph is structural; how the row packs its lines is the `body_items_align` prop, because the taxonomy has no layout group. Its type matched the body's in v1 by reading the same two slots; the role carries the same values directly so a strip keeps its size and weight without the author repeating them. NO WEIGHT DEFAULT: v1 set this to font-weight 430, which the udc font-weight grammar refuses — it accepts only the hundreds and the CSS keywords, and refuses the theme's own --font-weight-heading (650) even as a token reference. That is issue #988. With nothing declared the element takes the page's normal weight (400) instead of 430 until #988 widens the grammar; an author can set any of the hundreds today.",
+      "description": "The short-items row rendered after the body (the \"trust strip\"). Its separator glyph is structural; how the row packs its lines is the `body_items_align` prop, because the taxonomy has no layout group. Its type matched the body's in v1 by reading the same two slots; the role carries the same values directly so a strip keeps its size and weight without the author repeating them.",
       "groups": [
         "typography",
         "spacing",
@@ -453,7 +455,8 @@
             "d": "1.065rem",
             "t": "1.065rem",
             "p": "1rem"
-          }
+          },
+          "weight": "430"
         },
         "spacing": {
           "column-gap": "@space-md",
