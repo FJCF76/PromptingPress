@@ -1,234 +1,383 @@
 {
   "component": "section",
-  "description": "Generic text section with an optional image or content panel. Supports five structural layouts: text-only, image-left, image-right, centered, text-panel.",
+  "description": "Generic content band: heading block plus rich-text body, with optional image column, inline-items strip, or a right-hand content panel. REBUILT ON THE UNIVERSAL DESIGN CONTRACT (v2): it declares no style slots. Every designable value — colour, type, spacing, border, shadow, size, motion — is set through the `udc` map on the band, per role. Structural props (`layout`, `body_items_align`) survive because the UDC taxonomy has no layout group, so removing them would delete a capability rather than move it. See docs/v2/BUILD-SPEC-sprint0.md §3.",
   "content_requirement": {
-    "any_of": ["body", "body_items", "panel_heading", "panel_body", "panel_items", "panel_cta_text", "panel_cta_url"],
-    "message": "needs at least one of: body, body_items, or panel content (panel_heading / panel_body / panel_items / a panel CTA)"
+    "any_of": ["title", "body", "body_items"],
+    "message": "A section band needs at least one of: title, body, or body_items."
   },
   "props": {
     "id": {
       "type": "string",
       "required": false,
       "default": "",
-      "description": "Optional HTML id attribute for anchor linking (e.g. navigation anchors)."
+      "description": "Optional HTML id attribute for anchor linking (e.g. navigation anchors). This is the author's anchor name and is NOT the band id that scopes this band's styling — that one is the top-level \"id\" on the composition item and the engine mints it."
     },
     "title": {
       "type": "string",
       "required": false,
       "default": "",
-      "description": "Section heading. Omit to render the body without a heading."
+      "description": "Section heading. Plain text — HTML is escaped."
     },
     "title_accent": {
       "type": "string",
       "required": false,
       "default": "",
-      "description": "Optional exact substring of title to render in an accent color. Must match title exactly (case-sensitive) or it is ignored."
+      "description": "Optional exact substring of title to render in an accent colour. Must match title exactly (case-sensitive) or it is ignored. Colour it through the `heading-accent` role."
     },
     "eyebrow": {
       "type": "string",
       "required": false,
       "default": "",
-      "description": "Optional short kicker/label rendered as a pill above the title."
+      "description": "Optional short kicker/label rendered above the title. Plain text — HTML is escaped. Its pill treatment (background, radius, padding, casing) is the `eyebrow` role's design, not a fixed style."
     },
     "subheading": {
       "type": "string",
       "required": false,
       "default": "",
-      "description": "Optional supporting line below the title (distinct from body, the section's main content)."
-    },
-    "title_align": {
-      "type": "enum", "strict": true,
-      "values": ["start", "center"],
-      "required": false,
-      "default": "start",
-      "description": "Alignment of the eyebrow/title/subheading header block. 'start' = left-aligned (default, unchanged historical behavior). 'center' = centered."
+      "description": "Optional supporting line below the title. Plain text — HTML is escaped."
     },
     "body": {
       "type": "string",
       "required": false,
       "default": "",
-      "description": "The section's main prose surface. Rich HTML (sanitized via wp_kses_post): block-level markup, lists, headings, and links are allowed. Optional (#488): omit it for a body_items-only 'trust strip' or a panel-only band. The section must still carry SOME renderable content — see content_requirement — so a fully-empty section is rejected."
+      "description": "Rich-text body. Block HTML allowed (p, ul, ol, h3, blockquote, a, strong, em); scripts and iframes are stripped. Links inside it are the `body-link` role, which carries its own hover state."
+    },
+    "body_items": {
+      "type": "array",
+      "item_type": "string",
+      "required": false,
+      "default": [],
+      "description": "Optional row of short plain-text items rendered after the body with a separator between them (the \"trust strip\" pattern). Plain strings only — HTML is escaped. The row itself is the `inline-items` role."
+    },
+    "body_items_align": {
+      "type": "enum",
+      "strict": true,
+      "values": ["start", "center"],
+      "required": false,
+      "default": "start",
+      "description": "How the body_items row packs its lines. 'start' (default) is a left-packed row whose line-leading separators are clipped, so no separator ever dangles at the start of a line. 'center' centres each line and moves the separator to a trailing position, which stays visible as a line-end dot. THIS IS SCAFFOLDING, NOT STYLING — it selects a wrap technique (a justify-content value plus the separator mechanism that technique requires), and the UDC taxonomy carries no layout group, which is why it is a prop rather than a role value. It replaces the v1 `--section-inline-items-align` style slot with the same two accepted values."
+    },
+    "layout": {
+      "type": "enum",
+      "strict": true,
+      "values": ["text-only", "image-left", "image-right", "centered", "text-panel"],
+      "required": false,
+      "default": "text-only",
+      "description": "Structural layout — scaffolding, not styling, which is why it is still a prop. 'text-only' is a single column; 'centered' is a single centred column; 'image-left'/'image-right' put the image column on that side and fall back to 'text-only' when there is no image; 'text-panel' adds a right-hand content panel and falls back to 'text-only' when the panel has no content. The image props are REFUSED on the three layouts that never render an image, and the panel props on the four layouts that never render a panel — see refuse_props_when."
     },
     "image_url": {
       "type": "string",
       "required": false,
       "default": "",
       "format": "image_url",
-      "description": "Image URL. Required for image-left and image-right layouts; ignored in text-only."
+      "description": "Image for the 'image-left' / 'image-right' layouts. This is the band's CONTENT image, rendered as an <img>; a band BACKGROUND image is the `_band` role's `background.image` instead."
     },
     "image_alt": {
       "type": "string",
       "required": false,
       "default": "",
-      "description": "Alt text for the image. Use empty string for decorative images."
+      "description": "Alt text for the image. Empty string only if the image is purely decorative."
     },
     "image_id": {
       "type": "number",
       "required": false,
       "default": 0,
-      "description": "Media Library attachment ID for the image (NOT a URL). When it resolves to a real attachment, the image renders responsively with srcset/sizes via wp_get_attachment_image() instead of a single fixed-size <img>. Falls back to image_url when unset or unresolvable. Get an attachment id via the import_media apply."
-    },
-    "layout": {
-      "type": "enum", "strict": true,
-      "values": ["text-only", "image-left", "image-right", "centered", "text-panel"],
-      "required": false,
-      "default": "text-only",
-      "description": "Column layout. 'centered' centers text with no image (image_url suppressed). 'text-panel' places the text column beside a styleable content panel (panel_heading/panel_body/panel_items + panel CTA) on the right at >=768px, stacked text-then-panel on mobile. Falls back to text-only if image_url is empty for image layouts, or if a text-panel layout has no panel content."
-    },
-    "theme": {
-      "type": "enum", "strict": true,
-      "values": ["default", "muted", "inverted"],
-      "required": false,
-      "default": "default",
-      "description": "Background color/tone for this band. 'default' = the band's own default background (no tone override). 'muted' = light tinted surface band (renders the --color-surface background with framing top and bottom borders). 'inverted' = inverted dark background for strong contrast; use 'inverted' for a genuinely dark band."
-    },
-    "background_image": {
-      "type": "string",
-      "required": false,
-      "default": "",
-      "format": "image_url",
-      "description": "Optional background image URL. When set, renders as a CSS background-image with a dark overlay for text readability. Combines with any theme. Text automatically uses light colors for contrast."
+      "description": "Media Library attachment ID (NOT a URL). When it resolves to a real attachment, the image renders responsively with srcset/sizes via wp_get_attachment_image() instead of a single fixed-size <img>. Falls back to image_url when unset or unresolvable. Get an attachment id via the import_media apply."
     },
     "panel_heading": {
       "type": "string",
       "required": false,
       "default": "",
-      "description": "text-panel layout only: heading of the right-hand content panel (rendered as an <h3>). Ignored by other layouts."
+      "description": "text-panel layout: heading of the right-hand panel. Plain text — HTML is escaped."
     },
     "panel_body": {
       "type": "string",
       "required": false,
       "default": "",
-      "description": "text-panel layout only: optional plain-text intro paragraph inside the panel, above the list. Escaped as text (no HTML). Distinct from panel_items, which renders as a bulleted list."
+      "description": "text-panel layout: supporting paragraph inside the panel. Plain text — HTML is escaped."
     },
     "panel_items": {
       "type": "array",
+      "item_type": "mixed",
       "required": false,
       "default": [],
-      "description": "text-panel layout only: array of panel list entries. Each entry is EITHER a plain-text string (rendered as a bulleted list item, unchanged) OR a paired-row object { label, value } (rendered as a two-part row: label on the left, value on the right at >=768px; below that the pair stacks label-above-value on one shared left edge with the label set smaller and tracked and the value carrying the weight, a fixed responsive default with no slot behind it, so a long value gets the panel's full measure instead of a narrow right-aligned column and the pair still reads as label-then-fact — for a spec sheet, pricing summary, stat readout, or config list). Both label and value are plain text, escaped like the string form; an entry with neither renders nothing. String and paired-row entries may be mixed in one array. A paired-row entry may carry an optional per-row `style` map (see items.style) to emphasise or de-emphasise that one row. Non-scalar or empty entries are skipped.",
+      "description": "text-panel layout: panel list entries. Each entry is EITHER a plain string (a bullet) OR a paired row { label, value }. Plain text — HTML is escaped.",
       "items": {
-        "label": { "type": "string", "required": false, "description": "Paired-row entry: the left-hand label (e.g. 'Plan', 'Uptime'). Plain text, escaped." },
-        "value": { "type": "string", "required": false, "description": "Paired-row entry: the right-hand value (e.g. 'Pro', '99.9%'). Plain text, escaped." },
-        "style": { "type": "object", "required": false, "description": "Optional per-row style overrides for THIS paired row only. Accepts ONLY the row-scoped style slots flagged item_eligible in styling.style_slots (today: --section-panel-text, the panel text colour), letting one row read in a different colour to emphasise or de-emphasise it against its siblings. No new colour grammar and no semantic enum — the same shared style engine validates it exactly like a component-level style (unknown or section-scoped slot names and invalid values are rejected). Rendered as inline custom properties on this row, so a per-row slot overrides the panel-level value by cascade proximity. Set via the composition (update_component / update_composition / create_page), not style_component (which is component-scoped). String entries do not take a style map." }
+        "label": {
+          "type": "string",
+          "required": false,
+          "description": "Paired-row entries only: the row's left-hand label."
+        },
+        "value": {
+          "type": "string",
+          "required": false,
+          "description": "Paired-row entries only: the row's right-hand value."
+        }
       }
+    },
+    "panel_items_marker": {
+      "type": "enum",
+      "strict": true,
+      "values": ["disc", "check", "dash", "arrow"],
+      "required": false,
+      "default": "disc",
+      "description": "text-panel layout: list marker glyph for the string entries of panel_items. 'disc' (default) is the plain bulleted list; 'check', 'dash' and 'arrow' render that glyph instead. THE GLYPH IS CONTENT, which is why this stays a prop. Its COLOUR is no longer authorable: the glyph is painted by a ::before pseudo-element, and ruling A3 defers pseudo-elements to their own ruling — see retired_props."
+    },
+    "body_marker": {
+      "type": "enum",
+      "strict": true,
+      "values": ["disc", "check", "dash", "arrow"],
+      "required": false,
+      "default": "disc",
+      "description": "List marker glyph for top-level <ul> lists in body. 'disc' (default) leaves body lists unchanged; 'check', 'dash' and 'arrow' render that glyph instead. Applies only to lists authored as a direct child of the body (nested lists keep their disc). Same pseudo-element deferral as panel_items_marker — the glyph is a prop, its colour is not authorable in v2."
     },
     "panel_cta_text": {
       "type": "string",
       "required": false,
       "default": "",
-      "description": "text-panel layout only: label of the panel's call-to-action button. The button renders only when both panel_cta_text and panel_cta_url are set."
+      "description": "text-panel layout: label of the panel's call-to-action button. The button renders only when BOTH this and panel_cta_url are set."
     },
     "panel_cta_url": {
       "type": "string",
       "required": false,
       "default": "",
       "format": "link_url",
-      "description": "text-panel layout only: destination URL of the panel's call-to-action button (passed through esc_url). Accepts an absolute URL, a site-relative /path, an #anchor, mailto:, or tel:; a disallowed protocol (javascript:, data:) is rejected at write time. The button renders only when both panel_cta_text and panel_cta_url are set."
+      "description": "text-panel layout: destination of the panel's call-to-action button."
+    }
+  },
+  "retired_props": {
+    "_note": "Props this component declared on 1.x that the v2 rebuild retired (#1023). Each value names the v2 surface that replaced it, so a refusal can offer a route instead of a list of live prop names. Guarded by SchemaValidationTest, which fails in BOTH directions: a key here that still exists in props, or a route naming a role this component does not declare, is a test failure rather than a message that lies.",
+    "theme": "the `_band` role's `background` group for the surface, plus `typography.color` on the text roles (`heading`, `subheading`, `body`, `panel`) — v2 has no single dark/light/muted switch, because every value is authorable",
+    "title_align": "the `header` role's `typography.align` in the `udc` map — it sets text-align on the header, which the eyebrow, heading and subheading inherit, exactly as the v1 modifier did",
+    "background_image": "the `_band` role's `background.image` — a Media Library attachment id (`import_media` returns it), paired with `background.overlay` for the scrim and `background.position` / `size` / `repeat` for placement. NARROWER THAN THE PROP IT REPLACES, deliberately: v1 took any URL string, and ruling A2 accepts an attachment id only, with external URLs, video backgrounds and per-breakpoint art direction each out of scope pending their own ruling. A band background hosted outside this install cannot be expressed in v2.",
+    "panel_cta_variant": "the `panel-cta` role's `udc` map — set `border`, `background` and `typography` there, or apply the `button` or `button-secondary` preset with `\"_preset\"`"
+  },
+  "refuse_props_when": [
+    {
+      "when": [{ "prop": "layout", "in": ["text-only", "centered", "text-panel"] }],
+      "props": ["image_url", "image_id", "image_alt"],
+      "message": "paints nothing on this layout: only \"image-left\" and \"image-right\" render the image column. Either set `layout` to one of those, or — if you meant the band's BACKGROUND rather than a content image — set `_band` -> `background` -> `image` to a Media Library attachment id, which paints on every layout."
     },
-    "panel_cta_variant": {
-      "type": "enum", "strict": true,
-      "values": ["primary", "secondary", "outline", "ghost"],
-      "required": false,
-      "default": "primary",
-      "description": "text-panel layout only: style of the panel CTA button (shares the .btn variants). 'primary' = filled accent, 'secondary' = muted surface fill, 'outline' = accent border, 'ghost' = borderless. On a dark panel, 'primary' (accent fill with light label) and 'outline' both read well."
+    {
+      "when": [{ "prop": "layout", "in": ["text-only", "centered", "image-left", "image-right"] }],
+      "props": ["panel_heading", "panel_body", "panel_items", "panel_items_marker", "panel_cta_text", "panel_cta_url"],
+      "message": "paints nothing on this layout: only \"text-panel\" renders the right-hand panel. Set `layout` to \"text-panel\" in the same write if you want the panel."
+    }
+  ],
+  "roles": {
+    "_band": {
+      "selector": "",
+      "description": "The band itself — the <section>. Set the band's own background here to make a dark or tinted band; the v1 `theme` prop is gone because a preset bundle of colours is exactly what the UDC expresses directly. A band background image is `background.image` (an attachment id) with `background.overlay` for the scrim.",
+      "groups": ["typography", "spacing", "border", "background", "sizing", "shadow", "motion"],
+      "defaults": {
+        "spacing": {
+          "padding-top": "@pp-band-padding",
+          "padding-bottom": "@pp-band-padding"
+        },
+        "background": {
+          "fill": "transparent",
+          "position": "center"
+        },
+        "border": {
+          "width": "0",
+          "style": "solid",
+          "color": "transparent",
+          "radius": "0"
+        },
+        "shadow": { "box": "none" }
+      }
     },
-    "panel_items_marker": {
-      "type": "enum", "strict": true,
-      "values": ["disc", "check", "dash", "arrow"],
-      "required": false,
-      "default": "disc",
-      "description": "text-panel layout only: list marker for the string entries of panel_items. 'disc' (default) is the plain bulleted list, unchanged. 'check' renders a check mark, 'dash' an en dash, 'arrow' a rightwards arrow. The marker colour is authorable via the --section-panel-marker-color style slot (defaults to the site accent), so a check-list on a dark panel can be re-coloured. Just a marker choice — not a distinct list type. Paired-row entries ({ label, value }) are not list bullets and never render a marker, regardless of this value."
+    "header": {
+      "selector": ".section__header",
+      "description": "The heading block wrapper (eyebrow + heading + subheading). Its `typography.align` is what the v1 `title_align` prop set: the eyebrow, heading and subheading inherit it.",
+      "groups": ["typography", "spacing", "border", "background", "sizing", "motion"],
+      "defaults": {}
     },
-    "body_marker": {
-      "type": "enum", "strict": true,
-      "values": ["disc", "check", "dash", "arrow"],
-      "required": false,
-      "default": "disc",
-      "description": "List marker for top-level <ul> lists in body. 'disc' (default) leaves body lists exactly as before. 'check' renders a check mark, 'dash' an en dash, 'arrow' a rightwards arrow. Applies only to lists authored as a direct child of the body (nested lists keep their disc). The marker colour is authorable via the --section-body-marker-color style slot (defaults to the site accent). Just a marker choice — not a distinct list type."
+    "eyebrow": {
+      "selector": ".section__eyebrow",
+      "description": "The kicker pill above the heading.",
+      "groups": ["typography", "spacing", "border", "background", "sizing", "motion"],
+      "defaults": {
+        "typography": {
+          "size": "0.8125rem",
+          "weight": "600",
+          "letter-spacing": "0.04em",
+          "transform": "uppercase",
+          "color": "@color-text"
+        },
+        "spacing": {
+          "padding": "0.35rem 0.85rem",
+          "margin-bottom": "@space-sm"
+        },
+        "border": {
+          "width": "0",
+          "style": "solid",
+          "color": "transparent",
+          "radius": "3px"
+        },
+        "background": { "fill": "@color-surface-accent" }
+      }
     },
-    "body_items": {
-      "type": "array",
-      "item_type": "string",
-      "max_items": 8,
-      "item_max_length": 80,
-      "required": false,
-      "default": [],
-      "description": "Optional row of short inline text items (a 'trust strip' or meta row) rendered as a single centered flex row below the body, with a CSS-generated middot separator between each item. Each entry is a plain-text string (escaped, no HTML); at most 8 items, each at most 80 characters — a write that exceeds either bound, or carries a non-string entry, is rejected. Renders only when non-empty; when both body and body_items are set the row renders after the body. The items inherit the section body type (--section-body-size / --section-body-weight), so a 15px/600 strip needs no extra typography slots. Colour the separator with the --section-separator-color style slot (defaults to the muted text colour; light on inverted/background-image bands like sibling text). Not for multi-line content — use body or panel_items for that."
+    "heading": {
+      "selector": ".section__title",
+      "description": "The band heading (an <h2>).",
+      "groups": ["typography", "spacing", "border", "background", "sizing", "motion"],
+      "defaults": {
+        "typography": {
+          "size": "@pp-band-heading-size",
+          "color": "@color-text"
+        },
+        "spacing": { "margin-bottom": "1.65rem" },
+        "sizing": { "max-width": "none" }
+      }
+    },
+    "heading-accent": {
+      "selector": ".section__title-accent",
+      "description": "The accented substring inside the heading, rendered only when title_accent matches.",
+      "groups": ["typography", "spacing", "border", "background", "sizing", "motion"],
+      "defaults": {
+        "typography": { "color": "@color-accent" }
+      }
+    },
+    "subheading": {
+      "selector": ".section__subheading",
+      "description": "The supporting line below the heading.",
+      "groups": ["typography", "spacing", "border", "background", "sizing", "motion"],
+      "defaults": {
+        "typography": { "color": "@color-muted" },
+        "spacing": { "margin-bottom": "@space-md" }
+      }
+    },
+    "body": {
+      "selector": ".section__content",
+      "description": "The rich-text body container. Its measure is this role's `sizing.max-width`; the type scale is its `typography`.",
+      "groups": ["typography", "spacing", "border", "background", "sizing", "motion"],
+      "defaults": {
+        "typography": {
+          "color": "@color-text-secondary",
+          "size": "1.065rem",
+          "weight": "430"
+        },
+        "sizing": { "max-width": "40rem" }
+      }
+    },
+    "body-link": {
+      "selector": ".section__content a",
+      "description": "Links inside the body rich text. STATES ARE PART OF THIS ROLE, not the stylesheet: its resting colour and its `hover` colour are both authored here, because moving one without the other is the cancellation trap docs/explanation-cascade-layers.md §1b describes.",
+      "groups": ["typography", "spacing", "border", "background", "sizing", "motion"],
+      "defaults": {
+        "typography": {
+          "color": "@color-accent",
+          "decoration": "underline"
+        },
+        "hover": {
+          "typography": { "color": "@color-accent-hover" }
+        }
+      }
+    },
+    "inline-items": {
+      "selector": ".section__inline-items",
+      "description": "The short-items row rendered after the body (the \"trust strip\"). Its separator glyph is structural; how the row packs its lines is the `body_items_align` prop, because the taxonomy has no layout group.",
+      "groups": ["typography", "spacing", "border", "background", "sizing", "motion"],
+      "defaults": {
+        "spacing": {
+          "column-gap": "@space-md",
+          "row-gap": "@space-xs",
+          "margin-top": "@space-md"
+        }
+      }
+    },
+    "media": {
+      "selector": ".section__image",
+      "description": "The content image on the image layouts. Its box is design, not structure: shape, ratio and how the picture sits inside its frame are all set here.",
+      "groups": ["spacing", "border", "background", "sizing", "shadow", "motion"],
+      "defaults": {
+        "border": { "radius": "@radius" },
+        "sizing": {
+          "aspect-ratio": "auto",
+          "object-position": "center"
+        }
+      }
+    },
+    "panel": {
+      "selector": ".section__panel",
+      "description": "The right-hand panel surface on the text-panel layout.",
+      "groups": ["typography", "spacing", "border", "background", "sizing", "shadow", "motion"],
+      "defaults": {
+        "typography": { "color": "@color-text" },
+        "spacing": { "padding": "@space-lg" },
+        "background": { "fill": "@color-surface" },
+        "border": {
+          "width": "0",
+          "style": "solid",
+          "color": "transparent",
+          "radius": "@radius"
+        },
+        "shadow": { "box": "none" }
+      }
+    },
+    "panel-heading": {
+      "selector": ".section__panel-heading",
+      "description": "The panel's heading (an <h3>).",
+      "groups": ["typography", "spacing", "border", "background", "sizing", "motion"],
+      "defaults": {}
+    },
+    "panel-body": {
+      "selector": ".section__panel-body",
+      "description": "The panel's supporting paragraph.",
+      "groups": ["typography", "spacing", "border", "background", "sizing", "motion"],
+      "defaults": {}
+    },
+    "panel-list": {
+      "selector": ".section__panel-list",
+      "description": "The panel's list container. The space between entries is design; the marker glyph is the panel_items_marker prop.",
+      "groups": ["typography", "spacing", "border", "background", "sizing", "motion"],
+      "defaults": {}
+    },
+    "panel-row": {
+      "selector": ".section__panel-row",
+      "description": "One paired { label, value } row inside the panel list. A rule between rows is this role's border.",
+      "groups": ["typography", "spacing", "border", "background", "sizing", "motion"],
+      "defaults": {}
+    },
+    "panel-cta": {
+      "selector": ".section__panel-cta",
+      "description": "The panel's call-to-action button. Its resting AND hover treatment both live here — apply the `button` or `button-secondary` preset, or set the groups directly.",
+      "groups": ["typography", "spacing", "border", "background", "sizing", "shadow", "motion"],
+      "defaults": {}
     }
   },
   "styling": {
     "root_class": "section",
-    "variant_classes": ["section--text-only", "section--image-left", "section--image-right", "section--centered", "section--text-panel", "section--has-bg-image", "pp-section--dark", "pp-section--inverted"],
-    "tokens": ["--space-xl", "--color-bg", "--color-bg-inverted", "--overlay-bg"],
-    "style_slots": {
-      "--section-padding-top": { "type": "length", "default": "var(--pp-band-padding)", "description": "Top padding of the band. Defaults to the shared symmetric band rhythm (fluid ~68-80px desktop, ~54px mobile); set an explicit length to override." },
-      "--section-padding-bottom": { "type": "length", "default": "var(--pp-band-padding)", "description": "Bottom padding of the band. Defaults to the shared symmetric band rhythm; set an explicit length to override." },
-      "--section-bg": { "type": "gradient", "default": "transparent", "description": "Background color or gradient" },
-      "--section-body-color": { "type": "color", "default": "var(--color-text-secondary)", "description": "Content text color. var(--color-text-secondary) is the effective default at desktop (>=768px); below 768px it is var(--color-text). The inverted and background-image variants supply their own light default." },
-      "--section-body-link-color": { "type": "color", "default": "var(--color-accent-on-inverted)", "description": "RESTING link color inside the body. This slot is only ever read on a DARK band, so its effective default is the dark-band accent: var(--color-accent-on-inverted) on the inverted theme, var(--color-accent-on-overlay) on a background_image band. Its positional twin is --section-body-link-hover-color: a colour set here and left unset there reverts to the default accent under the pointer, so set both or neither.", "conditionality_note": "the band is dark — theme: \"inverted\" OR a background_image is set, a disjunction the grammar cannot express; on a light band the body link keeps the site link colour, so this slot is never read" },
-      "--section-body-link-hover-color": { "type": "color", "default": "var(--color-accent-on-inverted-hover)", "description": "HOVER link color inside the body — var(--color-accent-on-inverted-hover) on the inverted theme, var(--color-accent-on-overlay-hover) on a background_image band — the positional twin of --section-body-link-color, which owns the resting colour. The hover MUST stay visually distinct from rest, so setting them to the same value erases the hover feedback.", "conditionality_note": "the band is dark — theme: \"inverted\" OR a background_image is set, a disjunction the grammar cannot express; on a light band the body link keeps the site link colour, so this slot is never read" },
-      "--section-heading-size": { "type": "length", "default": "var(--pp-band-heading-size)", "description": "Title font size. Defaults to the shared responsive band-heading scale (fluid ~28px mobile to ~42px desktop), which every band heading in the theme routes. LEAVE IT UNSET unless THIS band must differ from the rest of the site: the shared scale is not a design token and no action in the write path can retune it, so setting this slot changes THIS band only and never the others.", "applies_when": [{"prop": "title", "present": true}] },
-      "--section-heading-measure": { "type": "length-or-none", "role": "measure", "default": "none", "description": "Maximum width of the section TITLE. Default \"none\" (uncapped), and section is deliberately EXEMPT from the shared --measure-heading token: section is the most-used band in the product and its title has never carried a cap, so adopting the shared 40rem would re-wrap every stored section heading. Set a length to hold a long title to a reading measure on this band only; \"none\" restores the default.", "applies_when": [{"prop": "title", "present": true}] },
-      "--section-heading-color": { "type": "color", "default": "var(--color-text)", "description": "Title text color. Defaults to the theme text colour (the inverted and background-image variants supply their own light default). LEAVE IT UNSET unless THIS band must differ: recolouring every heading on the site is ONE update_design_token write on --color-text, not one slot write per band." },
-      "--section-heading-accent-color": { "type": "color", "default": "var(--color-accent)", "description": "Color of the title_accent substring within the title. Ignored unless title_accent is set AND occurs as a substring of title — no accent span is rendered otherwise, so this slot has nothing to colour.", "applies_when": [{"prop": "title", "present": true}] },
-      "--section-eyebrow-color": { "type": "color", "default": "var(--color-text)", "description": "Eyebrow pill text color", "applies_when": [{"prop": "eyebrow", "present": true}] },
-      "--section-eyebrow-bg": { "type": "color", "default": "var(--color-surface-accent)", "description": "Eyebrow pill background color", "applies_when": [{"prop": "eyebrow", "present": true}] },
-      "--section-eyebrow-radius": { "type": "length", "default": "3px", "description": "Eyebrow pill corner radius. Set a large value (e.g. 999px) for a fully rounded pill.", "applies_when": [{"prop": "eyebrow", "present": true}] },
-      "--section-eyebrow-border-width": { "type": "length", "default": "0", "description": "Eyebrow pill border width. Set a non-zero width (with --section-eyebrow-border-color) for an outlined pill; 0 (default) renders no border.", "applies_when": [{"prop": "eyebrow", "present": true}] },
-      "--section-eyebrow-border-color": { "type": "color", "default": "transparent", "description": "Eyebrow pill border color. Takes effect when --section-eyebrow-border-width is non-zero.", "applies_when": [{"prop": "eyebrow", "present": true}] },
-      "--section-eyebrow-text-transform": { "type": "text-transform", "default": "uppercase", "description": "Eyebrow pill letter-casing. Default uppercase renders the kicker in caps; set none to keep it as authored (e.g. sentence case), or lowercase / capitalize.", "applies_when": [{"prop": "eyebrow", "present": true}] },
-      "--section-subheading-color": { "type": "color", "default": "var(--color-muted)", "description": "Subheading text color", "applies_when": [{"prop": "subheading", "present": true}] },
-      "--section-subheading-margin-bottom": { "type": "length", "default": "var(--space-md)", "description": "Space between the subheading and the content below it", "applies_when": [{"prop": "subheading", "present": true}] },
-      "--section-heading-margin-bottom": { "type": "length", "default": "1.65rem", "description": "Space between the title and the subheading below it. 1.65rem is the effective default at desktop (>=768px); below 768px it is 1.25rem", "applies_when": [{"prop": "title", "present": true}] },
-      "--section-body-measure": { "type": "length", "role": "measure", "default": "40rem", "description": "Maximum width of the section body. 40rem is what actually BINDS when unset, at every layout and viewport: the slot caps BOTH the outer .section__body wrapper (40rem) and the inner .section__content column it contains (42rem base, 49rem on text-only at >=768px, var(--measure-centered) 56rem on text-only below 768px and on the centered layout), and the narrower outer cap always wins. Setting this slot replaces EVERY one of those branches at once with the single value you write, at every layout and viewport — which is also why setting it is the only way to widen the body past 40rem. Choose a value that reads well at 375 as well as at 1440." },
-      "--section-body-size": { "type": "length", "default": "1.065rem", "description": "Body text font size. 1.065rem is the effective default at desktop (>=768px); below 768px it is 1rem." },
-      "--section-body-weight": { "type": "number", "default": "430", "description": "Body text font weight. 430 at every viewport." },
-      "--section-border-color": { "type": "color", "default": "transparent", "description": "Top and bottom border color" },
-      "--section-border-width": { "type": "length", "default": "0", "description": "Top and bottom border width" },
-      "--section-radius": { "type": "length", "default": "0", "description": "Border radius" },
-      "--section-image-radius": { "type": "length", "default": "var(--radius)", "description": "Image border radius", "applies_when": [{"prop": "layout", "in": ["image-left", "image-right"]}, {"prop": "image_url", "present": true}] },
-      "--section-image-position": { "type": "position", "default": "center", "description": "image-left/image-right image focal point (object-position) — where the image crops from when its aspect ratio doesn't match --section-image-aspect-ratio", "applies_when": [{"prop": "layout", "in": ["image-left", "image-right"]}, {"prop": "image_url", "present": true}] },
-      "--section-image-aspect-ratio": { "type": "ratio", "default": "auto", "description": "image-left/image-right image aspect ratio (e.g. '16/9', '1'). Default 'auto' preserves the image's natural proportions", "applies_when": [{"prop": "layout", "in": ["image-left", "image-right"]}, {"prop": "image_url", "present": true}] },
-      "--section-bg-position": { "type": "position", "default": "center", "description": "background_image focal point", "applies_when": [{"prop": "background_image", "present": true}] },
-      "--section-overlay-bg": { "type": "gradient", "default": "var(--overlay-bg)", "description": "Background image overlay color or gradient (e.g. a transparent-to-dark scrim for text legibility over an image)", "applies_when": [{"prop": "background_image", "present": true}] },
-      "--section-shadow": { "type": "shadow", "default": "none", "description": "Box shadow of the section (preset var(--shadow-sm|md|lg) or a bounded box-shadow)" },
-      "--section-panel-bg": { "type": "gradient", "default": "var(--color-surface)", "description": "text-panel layout: background color or gradient of the right-hand content panel", "applies_when": [{"prop": "layout", "equals": "text-panel"}], "conditionality_note": "the panel column carries content (panel_heading, panel_body, panel_items or the panel CTA) — with none of them the text-panel layout degrades to text-only and the panel is never rendered" },
-      "--section-panel-border-color": { "type": "color", "default": "transparent", "description": "text-panel layout: border color of the content panel", "applies_when": [{"prop": "layout", "equals": "text-panel"}], "conditionality_note": "the panel column carries content (panel_heading, panel_body, panel_items or the panel CTA) — with none of them the text-panel layout degrades to text-only and the panel is never rendered" },
-      "--section-panel-border-width": { "type": "length", "default": "0", "description": "text-panel layout: border width of the content panel", "applies_when": [{"prop": "layout", "equals": "text-panel"}], "conditionality_note": "the panel column carries content (panel_heading, panel_body, panel_items or the panel CTA) — with none of them the text-panel layout degrades to text-only and the panel is never rendered" },
-      "--section-panel-radius": { "type": "length", "default": "var(--radius)", "description": "text-panel layout: corner radius of the content panel", "applies_when": [{"prop": "layout", "equals": "text-panel"}], "conditionality_note": "the panel column carries content (panel_heading, panel_body, panel_items or the panel CTA) — with none of them the text-panel layout degrades to text-only and the panel is never rendered" },
-      "--section-panel-padding": { "type": "length", "default": "var(--space-lg)", "description": "text-panel layout: inner padding of the content panel", "applies_when": [{"prop": "layout", "equals": "text-panel"}], "conditionality_note": "the panel column carries content (panel_heading, panel_body, panel_items or the panel CTA) — with none of them the text-panel layout degrades to text-only and the panel is never rendered" },
-      "--section-panel-text": { "item_eligible": true, "type": "color", "default": "var(--color-text)", "description": "text-panel layout: text color inside the content panel (heading, body, list, and paired rows) — set a light value for a dark panel. item_eligible: also settable per paired-row via panel_items[].style, where it recolours that single row to emphasise or de-emphasise it against its siblings.", "applies_when": [{"prop": "layout", "equals": "text-panel"}], "conditionality_note": "the panel column carries content (panel_heading, panel_body, panel_items or the panel CTA) — with none of them the text-panel layout degrades to text-only and the panel is never rendered" },
-      "--section-panel-font": { "type": "font-family", "default": "inherit", "description": "text-panel layout: font family of the content panel. Defaults to inherit (the panel uses the page font, unchanged). Set to var(--font-mono) for a monospace panel (spec sheets, config/stat readouts), or any comma-separated font stack.", "applies_when": [{"prop": "layout", "equals": "text-panel"}], "conditionality_note": "the panel column carries content (panel_heading, panel_body, panel_items or the panel CTA) — with none of them the text-panel layout degrades to text-only and the panel is never rendered" },
-      "--section-panel-marker-color": { "type": "color", "default": "var(--color-accent)", "description": "text-panel layout: marker (glyph) color of the panel list when panel_items_marker is check/dash/arrow. Mirrors grid's --grid-item-bullet-color. Set a light value for a check-list on a dark panel. Ignored while panel_items_marker is 'disc'.", "applies_when": [{"prop": "layout", "equals": "text-panel"}, {"prop": "panel_items", "present": true}, {"prop": "panel_items_marker", "in": ["check", "dash", "arrow"]}] },
-      "--section-panel-cta-bg": { "type": "color", "role": "fill", "default": "(premium accent gradient)", "description": "text-panel layout: RESTING fill color of the panel's FILLED (primary) call-to-action button. Set a flat color to replace the premium gradient with a solid brand fill — the gradient is a background-IMAGE, so only this slot (not a plain background color) can clear it. When --section-panel-cta-color is unset the ink stays the default light button text, so pick a fill dark enough to carry it, or set the ink slot too. The border FOLLOWS this fill when the global --btn-border-color is unset, so a fill-only recolor keeps a matching ring. Applies to panel_cta_variant 'primary' only: outline/ghost/secondary keep their transparent treatment. Governs the RESTING state only — a flat fill reverts to the premium gradient on hover, and the hover ring follows the theme accent rather than the fill. Ignored unless the panel renders a CTA (both panel_cta_text and panel_cta_url set).", "applies_when": [{"prop": "layout", "equals": "text-panel"}, {"prop": "panel_cta_text", "present": true}, {"prop": "panel_cta_url", "present": true}] },
-      "--section-panel-cta-border": { "type": "color", "default": "(theme accent)", "description": "text-panel layout: RESTING border color of the panel's FILLED (primary) call-to-action button. This is the panel CTA's own per-instance ring: unset, the ring falls to the site-wide --btn-border-color and then FOLLOWS --section-panel-cta-bg, so a fill-only recolor already rings itself; set this only when THIS button's ring should differ from its fill. Applies to panel_cta_variant 'primary' only. Ignored unless the panel renders a CTA (both panel_cta_text and panel_cta_url set).", "applies_when": [{"prop": "layout", "equals": "text-panel"}, {"prop": "panel_cta_text", "present": true}, {"prop": "panel_cta_url", "present": true}] },
-      "--section-panel-cta-hover-border": { "type": "color", "default": "(theme accent)", "description": "text-panel layout: HOVER border color of the panel's FILLED (primary) call-to-action button — the positional twin of --section-panel-cta-border, so a ring set at rest and left unset here would revert under the pointer. Unset, it falls to the site-wide --btn-hover-border-color and then the theme accent. There is deliberately no per-instance hover FILL slot on the panel CTA (it is resting-state-only by design), so this ring slot has no fill to follow on hover. Applies to panel_cta_variant 'primary' only. Ignored unless the panel renders a CTA (both panel_cta_text and panel_cta_url set).", "applies_when": [{"prop": "layout", "equals": "text-panel"}, {"prop": "panel_cta_text", "present": true}, {"prop": "panel_cta_url", "present": true}] },
-      "--section-panel-cta-color": { "type": "color", "default": "var(--color-bg)", "description": "text-panel layout: text (ink) color of the panel's FILLED (primary) call-to-action button. Pair with --section-panel-cta-bg to keep the label legible on a brand fill. Applies to panel_cta_variant 'primary' only. Ignored unless the panel renders a CTA.", "applies_when": [{"prop": "layout", "equals": "text-panel"}, {"prop": "panel_cta_text", "present": true}, {"prop": "panel_cta_url", "present": true}] },
-      "--section-panel-cta-shadow": { "type": "shadow", "default": "(premium bevel)", "description": "text-panel layout: box shadow of the panel's FILLED (primary) call-to-action button. Set to `none` for a FLAT button (removes the gradient bevel/drop shadow on rest AND hover); pair with --section-panel-cta-bg (a flat color) and --section-panel-cta-color (ink) for a fully flat panel CTA. Applies to panel_cta_variant 'primary' only. Ignored unless the panel renders a CTA.", "applies_when": [{"prop": "layout", "equals": "text-panel"}, {"prop": "panel_cta_text", "present": true}, {"prop": "panel_cta_url", "present": true}] },
-      "--section-body-marker-color": { "type": "color", "default": "var(--color-accent)", "description": "Marker (glyph) color of body lists when body_marker is check/dash/arrow. Ignored while body_marker is 'disc'.", "applies_when": [{"prop": "body_marker", "in": ["check", "dash", "arrow"]}], "conditionality_note": "the `body` rich text actually contains a top-level <ul> — the shared marker rules select `.section__content--marker-* > ul` only, never <ol>" },
-      "--section-separator-color": { "type": "color", "default": "var(--color-muted)", "description": "Colour of the CSS-generated middot separator between body_items entries. Defaults to the muted text colour; on inverted and background-image bands it follows the light on-inverted/on-overlay text colour like sibling text unless set. Ignored when body_items is empty. The COLOUR is what this slot reaches; the GLYPH is a stated default fixed to a middot, and there is no slot for it. Fixing the glyph is what lets the separator be a CSS-generated box of exactly var(--space-sm) — never a content character, so it can be slot-coloured and stays out of the accessibility tree (the `/ \"\"` alternative text empties its a11y name), and the left-pull is an exact token value independent of any glyph's advance width. Reopening condition: a composition needs a non-middot separator; cheap when it comes, because the box is deliberately glyph-independent and a swap would not move the layout.", "applies_when": [{"prop": "body_items", "present": true}] },
-      "--section-inline-items-align": { "type": "enum", "values": ["start", "center"], "default": "start", "description": "Per-line alignment of the body_items row when it wraps. 'start' (default, unchanged behaviour): each wrapped line packs from the left and the leading separator is clipped, so no middot ever dangles at the start of a line. 'center': each wrapped line is centred; the separator moves to a TRAILING middot after every item except the last. TRADE (documented, not a bug): a centred line ends mid-box, so the trailing middot at a wrap point stays VISIBLE as a subtle continuation dot at line ends — there is no pure-CSS centred-and-artifact-free option. Pick 'center' when the brand's art direction wants a centred strip at every width and accepts the subtle line-end dots; pick 'start' (default) for artifact-free left-packing. A single-line row reads centred in both modes. Ignored when body_items is empty.", "applies_when": [{"prop": "body_items", "present": true}] }
-    },
-    "recipes": {
-      "accent-panel": {
-        "description": "Accent-tinted background with subtle border framing",
-        "slots": {
-          "--section-bg": "#f0f4ff",
-          "--section-border-color": "#c8d6e5",
-          "--section-border-width": "1px",
-          "--section-radius": "1rem"
-        }
-      },
-      "spacious-editorial": {
-        "description": "Wide body with generous padding for long-form content",
-        "slots": {
-          "--section-padding-top": "5rem",
-          "--section-padding-bottom": "5rem",
-          "--section-body-measure": "52rem"
-        }
-      }
-    }
+    "variant_classes": [
+      "section--text-only",
+      "section--image-left",
+      "section--image-right",
+      "section--centered",
+      "section--text-panel"
+    ],
+    "tokens": [
+      "--pp-band-padding",
+      "--pp-band-heading-size",
+      "--color-text",
+      "--color-text-secondary",
+      "--color-muted",
+      "--color-accent",
+      "--color-accent-hover",
+      "--color-surface",
+      "--color-surface-accent",
+      "--radius",
+      "--space-xs",
+      "--space-sm",
+      "--space-md",
+      "--space-lg"
+    ]
   },
-  "safe_to_edit": ["section.php", "../../assets/css/components.css (COMPONENT: section section)"],
-  "do_not_touch": ["schema.json without updating this component's README.md and the repo-root AI_CONTEXT.md"]
+  "safe_to_edit": [
+    "section.php",
+    "../../assets/css/components.css (COMPONENT: section section — STRUCTURAL CSS ONLY: layout scaffolding, the marker/separator glyph mechanisms, and accessibility affordances. No colour, type, size, spacing, border or shadow value may be added there; every one of those belongs to a role above.)"
+  ],
+  "do_not_touch": [
+    "schema.json without updating this component's README.md and the repo-root AI_CONTEXT.md"
+  ]
 }

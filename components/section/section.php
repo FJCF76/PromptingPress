@@ -2,7 +2,8 @@
 /**
  * components/section/section.php
  *
- * Generic text + optional image section.
+ * Generic content band: heading block plus rich-text body, with an optional image
+ * column, inline-items strip, or right-hand content panel.
  * Props: see schema.json
  *
  * @var array $props
@@ -31,7 +32,6 @@ $raw_title_accent = $props['title_accent']     ?? '';
 $title_accent     = is_scalar($raw_title_accent) ? (string) $raw_title_accent : '';
 $eyebrow          = $props['eyebrow']          ?? '';
 $subheading       = $props['subheading']       ?? '';
-$title_align    = $props['title_align']    ?? 'start';
 // #730: guard the rich-text `body` before it reaches core's UNTYPED wp_kses_post(),
 // which fatals from the inside on both non-string shapes. Full reasoning for the
 // esc_url() half lives in components/cta/cta.php; this is the OTHER core sink, and its
@@ -67,8 +67,12 @@ $body             = is_scalar($raw_body) ? (string) $raw_body : '';
 // in components/logos/logos.php. Same STORED-data reachability as the image_id guard
 // below (#233 restore, pre-rule compositions, raw meta). Here a guarded-away image_url
 // makes the EXISTING image-layout fallback fire, so the band renders text-only — exactly
-// what an empty image_url already does. NOTE this guard covers image_url only:
-// `background_image` reaches pp_esc_image_src() and carries its own guard below (#705).
+// what an empty image_url already does.
+//
+// #1023: the v1 sibling of this guard covered `background_image`, which is GONE. A band
+// background is the `_band` role's `background.image` now (ruling A2), so the engine
+// resolves the attachment and builds the url() — this file never touches it, and the
+// pp_esc_image_src() call site it used to guard no longer exists.
 $raw_image_url    = $props['image_url']        ?? '';
 $image_url        = is_scalar($raw_image_url) ? (string) $raw_image_url : '';
 $raw_image_alt    = $props['image_alt']        ?? '';
@@ -79,33 +83,16 @@ $image_alt        = is_scalar($raw_image_alt) ? (string) $raw_image_alt : '';
 // discards the author's image_url. The write path rejects that shape now, but the
 // validator gates WRITES: restore_composition reports without blocking (#233), so a
 // composition authored before the rule still reaches this line. Same guard hero,
-// logos, grid and testimonials carry — 5/5.
+// logos, grid and testimonials carry.
 $raw_image_id     = $props['image_id'] ?? 0;
 $image_id         = is_numeric($raw_image_id) ? (int) $raw_image_id : 0;
 $layout           = $props['layout']           ?? 'text-only';
-$theme            = $props['theme']            ?? 'default';
-// #705: guard the raw-value argument of pp_esc_image_src() (`string $url`) before it
-// reaches the call below. A non-empty array is truthy, so the `if ($background_image)`
-// gate passes on one and the typed call raises a TypeError that no caller catches —
-// the whole PUBLIC PAGE 500s. Guarded at the READ because this prop drives three gates
-// (the --has-bg-image modifier, the inline background-image, and the overlay div) and
-// the read is upstream of all of them, so a guarded-away value renders the band exactly
-// as an empty background_image already does. is_scalar + (string), NOT is_string: only
-// non-scalars ever fataled (coercive mode), and the write path stores a scalar
-// background_image raw (#707), so is_string() would silently drop an accepted value.
-// Full reasoning in components/cta/cta.php. Same STORED-data reachability as the
-// image_url guard above (#233 restore, pre-rule compositions, raw meta). Distinct from
-// that guard: this one is about the band's BACKGROUND, so it never touches the
-// image-layout fallback — a section with a malformed background_image keeps its layout
-// and simply paints no background.
-$raw_background_image = $props['background_image'] ?? '';
-$background_image     = is_scalar($raw_background_image) ? (string) $raw_background_image : '';
 
 // Inline-items row (issue 475): an optional centered row of short plain-text
-// items with a CSS-generated, slot-colorable separator between them. Plain
-// strings only (no HTML, esc_html at render); the write-time validator caps the
-// count/length and rejects non-strings, so here we only drop empty strings for a
-// byte-identical unset path. Renders after the body when both are set.
+// items with a CSS-generated separator between them. Plain strings only (no HTML,
+// esc_html at render); the write-time validator caps the count/length and rejects
+// non-strings, so here we only drop empty strings for a byte-identical unset path.
+// Renders after the body when both are set.
 $body_items = is_array($props['body_items'] ?? null) ? $props['body_items'] : [];
 $body_items = array_values(array_filter(
     $body_items,
@@ -124,14 +111,20 @@ $panel_cta_text     = $props['panel_cta_text']     ?? '';
 // different, so read the $has_panel_cta note there before changing either line.
 $raw_panel_cta_url  = $props['panel_cta_url']      ?? '';
 $panel_cta_url      = is_scalar($raw_panel_cta_url) ? (string) $raw_panel_cta_url : '';
-$panel_cta_variant  = $props['panel_cta_variant']  ?? 'primary';
 $panel_items_marker = $props['panel_items_marker'] ?? 'disc';
 $body_marker        = $props['body_marker']        ?? 'disc';
+$body_items_align   = $props['body_items_align']   ?? 'start';
 
 // A panel entry is EITHER a plain string (a bullet, unchanged) OR a paired-row
-// object { label, value, style? } (issue 334). Keep non-empty strings and any
-// array that carries a scalar label or value; drop everything else (empty
-// strings, numbers, and shapeless arrays) exactly as the string-only form did.
+// object { label, value } (issue 334). Keep non-empty strings and any array that
+// carries a scalar label or value; drop everything else (empty strings, numbers,
+// and shapeless arrays) exactly as the string-only form did.
+//
+// #1023: the per-row `style` map is GONE with the rest of the slot system. Per-item
+// design addressing has no address in the v2 contract — roles are band-grain — and
+// giving it one is a contract question, staged as BUILD-SPEC Addendum B and gated on
+// issue #1024. Until that is ruled, a panel row is styled through the `panel-row`
+// role, which reaches every row in the band.
 $panel_items = array_values(array_filter(
     $panel_items,
     static function ($item) {
@@ -147,18 +140,13 @@ $panel_items = array_values(array_filter(
     }
 ));
 
-$allowed_panel_cta_variants = ['primary', 'secondary', 'outline', 'ghost'];
-if (!in_array($panel_cta_variant, $allowed_panel_cta_variants, true)) {
-    $panel_cta_variant = 'primary';
-}
-// primary is the bare .btn; other variants add a .btn--{variant} modifier.
-$panel_cta_variant_class = $panel_cta_variant !== 'primary' ? ' btn--' . $panel_cta_variant : '';
-
 // List-marker selection (issue 339). A list can carry a marker other than the
-// default disc — check / dash / arrow — with an authorable marker colour (the
-// --section-panel-marker-color / --section-body-marker-color slots). Generic
-// marker values only; nothing encodes a use-case. `disc` is the default and adds
-// NO class, so an un-opted list renders byte-identically to before.
+// default disc — check / dash / arrow. THE GLYPH IS CONTENT, which is why these
+// stay props; the marker COLOUR was a style slot and is not authorable in v2,
+// because the glyph is painted by a ::before pseudo-element and ruling A3 defers
+// pseudo-elements to their own ruling (recorded in schema.json's retired_props and
+// in the Addendum B draft's exclusion list). `disc` is the default and adds NO
+// class, so an un-opted list renders exactly as before.
 $allowed_markers = ['disc', 'check', 'dash', 'arrow'];
 if (!in_array($panel_items_marker, $allowed_markers, true)) {
     $panel_items_marker = 'disc';
@@ -185,20 +173,16 @@ $content_marker_class = $body_marker !== 'disc'
 //     the product (measured at the time: pp_validate_composition() returned ok=true with
 //     ZERO findings for panel_cta_url:false), so real pages hold it, and (string) false
 //     is '', which fails `!== ''`. #707 has since closed that door for NEW writes, which
-//     changes nothing here — the stored values are still stored, and D-B's "zero
-//     rendering change for well-formed data" still forbids the cast deciding this gate.
+//     changes nothing here — the stored values are still stored.
 //   gate on the RAW value ALONE -> an array passes `!== ''` (it is not the empty
 //     string), the gate opens, and the guarded '' renders `<a href="">Go</a>`. An
 //     empty-href anchor is not "the band renders without the affected fragment"; it is
 //     a broken button pointing at the current page. So the shape test has to be here.
 //
 // Together they give exactly the intended split: every SCALAR keeps its existing
-// behaviour byte-for-byte (including a stored `false`, which still renders its
-// empty-href button exactly as it does today — #707 stopped NEW ones being written but
-// deliberately migrated nothing, so the rendering of the stored ones is still this
-// guard's business), and only the shapes that used to FATAL change, to "no button", which
-// is what an empty panel_cta_url has always meant here. Pinned both ways in
-// tests/StoredLinkAndRichTextRenderGuardTest.php.
+// behaviour byte-for-byte, and only the shapes that used to FATAL change, to "no
+// button", which is what an empty panel_cta_url has always meant here. Pinned both ways
+// in tests/StoredLinkAndRichTextRenderGuardTest.php.
 //
 // "NO BUTTON" UNDERSTATES IT ON ONE BAND SHAPE, so state the second-order effect rather
 // than let a future reader trust the smaller claim. $has_panel_cta is one of the four
@@ -235,63 +219,63 @@ if ($layout === 'text-panel') {
     $layout = 'text-only';
 }
 
-$allowed_title_aligns = ['start', 'center'];
-if (!in_array($title_align, $allowed_title_aligns, true)) {
-    $title_align = 'start';
+// ── v2: what stayed a prop, and why ─────────────────────────────────────────
+//
+// `theme`, `title_align`, `background_image` and `panel_cta_variant` are GONE. Each
+// was a bundle of designable values — a set of band colours, a text alignment, a
+// painted background, a set of button colours — which is exactly what the UDC
+// expresses directly: the `_band` role's `background` group plus `typography.color`
+// on the text roles, the `header` role's `typography.align`, `_band` ->
+// `background.image` (ruling A2), and the `panel-cta` role or a button preset.
+//
+// What REMAINS a prop is what the UDC has no group for. `layout` selects grid
+// geometry and `body_items_align` selects a wrap technique (a justify-content value
+// plus the separator mechanism that technique requires); the taxonomy carries no
+// layout group, so removing them would delete the capability rather than move it —
+// the same reasoning that kept hero's `split_ratio` and `vertical_align`.
+$allowed_body_items_aligns = ['start', 'center'];
+if (!in_array($body_items_align, $allowed_body_items_aligns, true)) {
+    $body_items_align = 'start';
 }
-$header_align_class = $title_align === 'center' ? ' section__header--center' : '';
 
-// theme coercion lives in pp_theme_class(); `muted` emits the legacy `--dark` class (#570 DG-4).
-$theme_class = pp_theme_class($theme, 'pp-section');
-$bg_image_class = $background_image ? ' section--has-bg-image' : '';
-
-// Style slot overrides (per-instance visual customization).
-// #708: guard the raw `__pp_style` map before it reaches the typed
-// pp_render_style_vars(array $style, ...). A stored non-array raises a TypeError that
-// no caller catches, so the whole PUBLIC PAGE 500s. It arrives as `__pp_style` stored
-// INSIDE props: all four top-level `style` promotions are already is_array guarded, so
-// this read is the only reachable boundary and the only place a guard can help.
-// is_array, NOT is_scalar — an array IS the contract at this parameter. Degrades to no
-// inline custom properties and no `style` attribute at all, byte-identical to a band
-// that stored no style. Full reasoning in components/grid/grid.php.
-$raw_style = $props['__pp_style'] ?? null;
-$style     = is_array($raw_style) ? $raw_style : [];
-$slot_style = pp_render_style_vars($style, 'section');
-
-$inline_styles = [];
-if ($slot_style) {
-    $inline_styles[] = $slot_style;
-}
-if ($background_image) {
-    $inline_styles[] = 'background-image:url(' . pp_esc_image_src($background_image) . ')';
-}
-$style_attr = $inline_styles ? ' style="' . implode('; ', $inline_styles) . ';"' : '';
+// ── v2: the band's styling identity ─────────────────────────────────────────
+//
+// Where v1 read a `__pp_style` map of 47 slots and painted it into an inline
+// `style` attribute — plus an inline `background-image` built from
+// `background_image`, and a `.section__overlay` scrim element — this emits one
+// attribute and nothing else: `data-pp-band`. Every designable value for this band
+// is in a scoped block in the document head, keyed on that attribute (lib/udc.php).
+// No inline style means no specificity cliff — a band's rules and the stylesheet's
+// structural rules sit at comparable weight and resolve in source order, which is
+// what makes the cascade a cascade. The scrim is `background.overlay`, composed into
+// the same background layer list by the engine, so the extra element is gone too.
+//
+// An absent or malformed id emits NO attribute. That is the whole guard: the engine
+// mints ids on WRITE only, so a band that reached storage without one (raw meta, data
+// written before the rule, or restore_composition, which reports without blocking per
+// #233) must render structurally rather than be handed a fabricated id here. An EMPTY
+// attribute would be worse than none — it would make `[data-pp-band=""]` match every
+// other id-less band on the page and paint one band's design onto another.
+$raw_band  = $props['__pp_udc_band'] ?? '';
+$band_id   = (is_scalar($raw_band) && pp_udc_valid_band_id((string) $raw_band)) ? (string) $raw_band : '';
+$band_attr = $band_id !== '' ? ' data-pp-band="' . esc_attr($band_id) . '"' : '';
 
 // Build the inline-items row once (issue 475) and place it in each layout's body
 // scope, after .section__content. role="list" keeps list semantics while the
-// CSS-generated `li + li::before` separator stays out of the accessibility tree.
+// CSS-generated separator stays out of the accessibility tree.
 //
-// Flush-top margin (issue 488): the row carries a body-relative top margin
-// (var(--space-md)) only when body copy precedes it. On a body-less strip — the
-// primary #475 "trust strip" use case, now authorable without a `body:""`
-// placeholder (#488) — that margin would push the row below the band's optical
-// centre, so it zeroes when there is no body copy. Keyed on the SAME trimmed-body
-// notion the content requirement uses, not on the empty string, so a whitespace-
-// only body counts as no body. The empty .section__content wrapper still renders
-// (byte-identical markup), but it carries no margin/height, so zeroing the row's
-// top margin is the whole fix. Renders after body copy keep today's spacing.
-// is_string guard first: $body defaults to '' but a raw/legacy/restore snapshot
-// can carry a non-string here (write-time validation doesn't protect those paths),
-// and trim() on a non-string is a fatal in PHP 8 — keep the render defensive.
-// #730: keyed on the RAW body, and the `is_string` is now load-bearing in a way it was
-// not before. This flag drives the inline-items row's top margin, not whether the body
-// renders. If it read the GUARDED $body it would be testing is_string() against a value
-// the guard has already made a string, so it would be always-true for scalars, and a
-// stored `42` would flip from "no body copy" (today) to "has body copy" — a spacing
-// change for a value the write path accepts. Reading the raw value keeps every scalar
-// byte-identical. Degradation is unaffected either way: for a non-scalar, is_string()
-// is false and the guarded value is '', so both spellings agree on false — which is
-// also exactly what a stored empty body has always produced.
+// Flush-top margin (issue 488): the row carries a body-relative top margin only when
+// body copy precedes it. On a body-less strip — the primary #475 "trust strip" use
+// case — that margin would push the row below the band's optical centre, so it zeroes
+// when there is no body copy. Keyed on the SAME trimmed-body notion the content
+// requirement uses, not on the empty string, so a whitespace-only body counts as no
+// body.
+// #730: keyed on the RAW body, and the `is_string` is load-bearing. This flag drives
+// the row's top margin, not whether the body renders. If it read the GUARDED $body it
+// would be testing is_string() against a value the guard has already made a string, so
+// it would be always-true for scalars, and a stored `42` would flip from "no body copy"
+// to "has body copy" — a spacing change for a value the write path accepts. Reading the
+// raw value keeps every scalar byte-identical.
 $has_body_copy = is_string($raw_body) && trim($raw_body) !== '';
 $inline_items_html = '';
 if (!empty($body_items)) {
@@ -299,44 +283,29 @@ if (!empty($body_items)) {
     foreach ($body_items as $body_item) {
         $items_markup .= '<li class="section__inline-item">' . esc_html($body_item) . '</li>';
     }
-    // Per-line alignment (issue 510): the --section-inline-items-align style slot
-    // selects the wrap technique. 'start' (default/unset/anything-else) keeps the
-    // #489 hanging-separator clip — left-packed lines, byte-identical to before.
-    // 'center' derives the --center modifier, which switches the row to per-line
-    // centering with a trailing separator (see components.css). The value is read
-    // from the validated component style map (top-level `style` → __pp_style); the
-    // strict === 'center' check is fail-safe: any other/absent/malformed value
-    // falls through to the unchanged left-packed default. justify-content itself is
-    // driven by the slot's own custom property in CSS; the modifier only carries
-    // what a raw keyword cannot (the ::before→::after separator switch + margin).
-    // #708: reads the GUARDED local, not `$props['__pp_style']` again. This offset
-    // read never fataled on its own — `??` uses isset() semantics, and isset() on a
-    // non-numeric string offset is false, so a stored string `__pp_style` already
-    // yielded '' here and fell through to the left-packed default. It is folded onto
-    // the guarded local anyway so this prop is read exactly once in the file, which
-    // is what stops a future edit from reintroducing a raw read below the guard (and
-    // is what the drift catcher in tests/InvariantTest.php enforces). Identical for
-    // every well-formed style map: $style IS $props['__pp_style'] whenever that is an
-    // array, and [] otherwise, where this offset resolves to '' exactly as before.
-    $inline_items_align = $style['--section-inline-items-align'] ?? '';
+    // Per-line alignment (issue 510, repriced at #1023): 'start' keeps the #489
+    // hanging-separator clip — left-packed lines. 'center' derives the --center
+    // modifier, which switches the row to per-line centering with a trailing
+    // separator (see components.css). In v1 this came from a style slot read out of
+    // the `__pp_style` map; v2 has no slot map, and justify-content is a LAYOUT
+    // property the taxonomy carries no group for, so it is a declared prop now. The
+    // modifier carries what a raw keyword cannot (the separator switch + margin),
+    // which is why the class is derived here rather than left to a role value.
     $inline_items_class = 'section__inline-items'
         . ($has_body_copy ? '' : ' section__inline-items--flush-top')
-        . ($inline_items_align === 'center' ? ' section__inline-items--center' : '');
+        . ($body_items_align === 'center' ? ' section__inline-items--center' : '');
     $inline_items_html = '<ul class="' . $inline_items_class . '" role="list">' . $items_markup . '</ul>';
 }
 
 ?>
-<section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="section section--<?php echo esc_attr($layout); ?><?php echo esc_attr($theme_class); ?><?php echo esc_attr($bg_image_class); ?>" data-pp-component="section"<?php echo $style_attr; ?>>
-    <?php if ($background_image) : ?>
-        <div class="section__overlay" aria-hidden="true"></div>
-    <?php endif; ?>
+<section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="section section--<?php echo esc_attr($layout); ?>" data-pp-component="section"<?php echo $band_attr; ?>>
     <div class="container">
 
         <?php if ($layout === 'text-only' || $layout === 'centered') : ?>
 
             <div class="section__body">
                 <?php if ($title || $eyebrow || $subheading) : ?>
-                    <div class="section__header<?php echo esc_attr($header_align_class); ?>">
+                    <div class="section__header">
                         <?php if ($eyebrow) : ?>
                             <span class="section__eyebrow"><?php echo esc_html($eyebrow); ?></span>
                         <?php endif; ?>
@@ -359,7 +328,7 @@ if (!empty($body_items)) {
             <div class="section__grid">
                 <div class="section__body">
                     <?php if ($title || $eyebrow || $subheading) : ?>
-                        <div class="section__header<?php echo esc_attr($header_align_class); ?>">
+                        <div class="section__header">
                             <?php if ($eyebrow) : ?>
                                 <span class="section__eyebrow"><?php echo esc_html($eyebrow); ?></span>
                             <?php endif; ?>
@@ -390,17 +359,14 @@ if (!empty($body_items)) {
                                 <?php if (is_array($panel_item)) : ?>
                                     <?php
                                     // Paired-row entry (issue 334): label/value, not a bullet.
-                                    // Optional per-row style routes through the SAME shared
-                                    // engine + slots as grid's per-card style (issue 306); the
-                                    // renderer only echoes item_eligible slots (issue 323,
-                                    // actually enforced at render since #579).
-                                    $row_label      = isset($panel_item['label']) && is_scalar($panel_item['label']) ? (string) $panel_item['label'] : '';
-                                    $row_value      = isset($panel_item['value']) && is_scalar($panel_item['value']) ? (string) $panel_item['value'] : '';
-                                    $row_style      = is_array($panel_item['style'] ?? null) ? $panel_item['style'] : [];
-                                    $row_style_vars = pp_render_style_vars($row_style, 'section', true);
-                                    $row_style_attr = $row_style_vars ? ' style="' . $row_style_vars . ';"' : '';
+                                    // The v1 per-row `style` map is gone with the slot system
+                                    // (#1023); the row is styled through the `panel-row` role,
+                                    // which reaches every row in the band. Per-ROW addressing is
+                                    // the contract question staged as Addendum B (#1024).
+                                    $row_label = isset($panel_item['label']) && is_scalar($panel_item['label']) ? (string) $panel_item['label'] : '';
+                                    $row_value = isset($panel_item['value']) && is_scalar($panel_item['value']) ? (string) $panel_item['value'] : '';
                                     ?>
-                                    <li class="section__panel-row"<?php echo $row_style_attr; ?>>
+                                    <li class="section__panel-row">
                                         <span class="section__panel-row-label"><?php echo esc_html($row_label); ?></span>
                                         <span class="section__panel-row-value"><?php echo esc_html($row_value); ?></span>
                                     </li>
@@ -411,7 +377,7 @@ if (!empty($body_items)) {
                         </ul>
                     <?php endif; ?>
                     <?php if ($has_panel_cta) : ?>
-                        <a href="<?php echo esc_url($panel_cta_url); ?>" class="section__panel-cta btn<?php echo esc_attr($panel_cta_variant_class); ?>">
+                        <a href="<?php echo esc_url($panel_cta_url); ?>" class="section__panel-cta btn">
                             <?php echo esc_html($panel_cta_text); ?>
                         </a>
                     <?php endif; ?>
@@ -429,7 +395,7 @@ if (!empty($body_items)) {
 
                 <div class="section__body">
                     <?php if ($title || $eyebrow || $subheading) : ?>
-                        <div class="section__header<?php echo esc_attr($header_align_class); ?>">
+                        <div class="section__header">
                             <?php if ($eyebrow) : ?>
                                 <span class="section__eyebrow"><?php echo esc_html($eyebrow); ?></span>
                             <?php endif; ?>
