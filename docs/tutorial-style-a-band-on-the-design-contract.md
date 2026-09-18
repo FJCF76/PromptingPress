@@ -138,7 +138,7 @@ your dark band keeps its dark text.
 This is the step that makes the model concrete.
 
 ```bash
-curl -s "http://localhost:8889/?page_id=$PID" | grep -o '\[data-pp-band[^}]*}'
+curl -s "$(wp option get siteurl)/?page_id=$PID" | grep -o '\[data-pp-band[^}]*}'
 ```
 
 ```

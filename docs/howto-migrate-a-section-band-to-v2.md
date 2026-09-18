@@ -181,7 +181,7 @@ Clean means: no `retired_prop`, no `invalid_style_slot`, no `inert_prop`. Then c
 design actually paints, which is a different question from validating:
 
 ```bash
-curl -s "http://localhost:8889/?page_id=$PID" | grep -o '\[data-pp-band[^}]*}'
+curl -s "$(wp option get siteurl)/?page_id=$PID" | grep -o '\[data-pp-band[^}]*}'
 ```
 
 You should see one block per role you styled. **If you see nothing, the most likely cause
