@@ -437,11 +437,11 @@ class ComponentPropsTest extends TestCase
     public function testRenderStyleVarsBasic(): void
     {
         $result = pp_render_style_vars(
-            ['--section-bg' => '#1a1a2e', '--section-padding-top' => '8rem'],
-            'section'
+            ['--stats-bg' => '#1a1a2e', '--stats-padding-top' => '8rem'],
+            'stats'
         );
-        $this->assertStringContainsString('--section-bg: #1a1a2e', $result);
-        $this->assertStringContainsString('--section-padding-top: 8rem', $result);
+        $this->assertStringContainsString('--stats-bg: #1a1a2e', $result);
+        $this->assertStringContainsString('--stats-padding-top: 8rem', $result);
     }
 
     public function testRenderStyleVarsEmpty(): void
@@ -453,11 +453,11 @@ class ComponentPropsTest extends TestCase
     public function testRenderStyleVarsSkipsUnknownSlot(): void
     {
         $result = pp_render_style_vars(
-            ['--section-bg' => '#1a1a2e', '--section-display' => 'none'],
-            'section'
+            ['--stats-bg' => '#1a1a2e', '--stats-display' => 'none'],
+            'stats'
         );
-        $this->assertStringContainsString('--section-bg', $result);
-        $this->assertStringNotContainsString('--section-display', $result);
+        $this->assertStringContainsString('--stats-bg', $result);
+        $this->assertStringNotContainsString('--stats-display', $result);
     }
 
     public function testRenderStyleVarsEmitsKeywordAndVarReferenceUnchanged(): void
@@ -465,21 +465,21 @@ class ComponentPropsTest extends TestCase
         // #230: an accepted value must SURVIVE to CSS output — esc_attr touches
         // none of ( ) - so the reference reaches the browser intact.
         $result = pp_render_style_vars(
-            ['--section-panel-cta-bg' => 'transparent', '--section-panel-marker-color' => 'var(--color-accent)'],
-            'section'
+            ['--stats-bg' => 'transparent', '--stats-label-color' => 'var(--color-accent)'],
+            'stats'
         );
-        $this->assertStringContainsString('--section-panel-cta-bg: transparent', $result);
-        $this->assertStringContainsString('--section-panel-marker-color: var(--color-accent)', $result);
+        $this->assertStringContainsString('--stats-bg: transparent', $result);
+        $this->assertStringContainsString('--stats-label-color: var(--color-accent)', $result);
     }
 
     public function testRenderStyleVarsSkipsRecipeKey(): void
     {
         $result = pp_render_style_vars(
-            ['__recipe' => 'dark-spacious', '--section-bg' => '#1a1a2e'],
-            'section'
+            ['__recipe' => 'dark-spacious', '--stats-bg' => '#1a1a2e'],
+            'stats'
         );
         $this->assertStringNotContainsString('__recipe', $result);
-        $this->assertStringContainsString('--section-bg', $result);
+        $this->assertStringContainsString('--stats-bg', $result);
     }
 
     public function testRenderStyleVarsRejectsInjection(): void
@@ -513,10 +513,10 @@ class ComponentPropsTest extends TestCase
     public function testRenderStyleVarsGradientSurvivesUnmangledForSection(): void
     {
         $result = pp_render_style_vars(
-            ['--section-bg' => 'linear-gradient(to bottom, #f0f4ff, #ffffff)'],
-            'section'
+            ['--stats-bg' => 'linear-gradient(to bottom, #f0f4ff, #ffffff)'],
+            'stats'
         );
-        $this->assertStringContainsString('--section-bg: linear-gradient(to bottom, #f0f4ff, #ffffff)', $result);
+        $this->assertStringContainsString('--stats-bg: linear-gradient(to bottom, #f0f4ff, #ffffff)', $result);
     }
 
     public function testRenderStyleVarsGradientOverlayScrimSurvivesUnmangled(): void
@@ -524,10 +524,10 @@ class ComponentPropsTest extends TestCase
         // The primary practical motivation for gradient support: a
         // transparent-to-dark scrim over a background image for legibility.
         $result = pp_render_style_vars(
-            ['--section-overlay-bg' => 'linear-gradient(to bottom, transparent, rgba(0,0,0,0.7))'],
-            'section'
+            ['--stats-overlay-bg' => 'linear-gradient(to bottom, transparent, rgba(0,0,0,0.7))'],
+            'stats'
         );
-        $this->assertStringContainsString('--section-overlay-bg: linear-gradient(to bottom, transparent, rgba(0,0,0,0.7))', $result);
+        $this->assertStringContainsString('--stats-overlay-bg: linear-gradient(to bottom, transparent, rgba(0,0,0,0.7))', $result);
     }
 
     public function testRenderStyleVarsUnknownComponent(): void
@@ -1638,11 +1638,10 @@ class ComponentPropsTest extends TestCase
     public function testEveryComponentWithTitleAccentCanStyleIt(): void
     {
         $v1 = [
-            'grid'    => '--grid-heading-accent-color',
-            'section' => '--section-heading-accent-color',
-            'cta'     => '--cta-heading-accent-color',
-            'faq'     => '--faq-heading-accent-color',
-            'stats'   => '--stats-heading-accent-color',
+            'grid'  => '--grid-heading-accent-color',
+            'cta'   => '--cta-heading-accent-color',
+            'faq'   => '--faq-heading-accent-color',
+            'stats' => '--stats-heading-accent-color',
         ];
         foreach ($v1 as $component => $slot) {
             $schema = json_decode(file_get_contents(dirname(__DIR__) . "/components/{$component}/schema.json"), true);
@@ -1651,16 +1650,28 @@ class ComponentPropsTest extends TestCase
             $this->assertSame('color', $schema['styling']['style_slots'][$slot]['type']);
         }
 
-        // Hero keeps the PROP and answers the same question through a ROLE.
-        $hero = json_decode(file_get_contents(dirname(__DIR__) . '/components/hero/schema.json'), true);
-        $this->assertArrayHasKey('title_accent', $hero['props'], 'hero must still declare title_accent prop.');
-        $this->assertSame([], $hero['styling']['style_slots'] ?? [], 'hero declares no style slots on v2.');
-        $this->assertArrayHasKey('title-accent', $hero['roles'], 'hero must expose title-accent as a role.');
-        $this->assertContains(
-            'typography',
-            $hero['roles']['title-accent']['groups'],
-            'the title-accent role must permit typography so its colour is authorable.'
-        );
+        // The v2 components keep the PROP and answer the same question through a ROLE.
+        // The role NAME differs between them and that is deliberate, not drift: hero's
+        // heading element is `.hero__title` so its role is `title-accent`, section's is
+        // `.section__title` under a `heading` role family so its accent role is
+        // `heading-accent`. What the audit cares about is that every component declaring
+        // `title_accent` can colour it somewhere.
+        foreach (['hero' => 'title-accent', 'section' => 'heading-accent'] as $component => $role) {
+            $schema = json_decode(file_get_contents(dirname(__DIR__) . "/components/{$component}/schema.json"), true);
+            $this->assertArrayHasKey('title_accent', $schema['props'],
+                "{$component} must still declare the title_accent prop.");
+            $this->assertSame([], $schema['styling']['style_slots'] ?? [],
+                "{$component} declares no style slots on v2.");
+            $this->assertArrayHasKey($role, $schema['roles'],
+                "{$component} must expose {$role} as a role.");
+            $this->assertSame('@color-accent', $schema['roles'][$role]['defaults']['typography']['color'],
+                "{$component}'s accent role must default to the shared accent token.");
+            $this->assertContains(
+                'typography',
+                $schema['roles'][$role]['groups'],
+                "{$component}'s accent role must permit typography so its colour is authorable."
+            );
+        }
     }
 
     /**
@@ -1692,10 +1703,10 @@ class ComponentPropsTest extends TestCase
     public function testRenderStyleVarsGradientSurvivesUnmangled(): void
     {
         $result = pp_render_style_vars(
-            ['--section-bg' => 'linear-gradient(135deg, #1a1a2e, #16121f)'],
-            'section'
+            ['--stats-bg' => 'linear-gradient(135deg, #1a1a2e, #16121f)'],
+            'stats'
         );
-        $this->assertStringContainsString('--section-bg: linear-gradient(135deg, #1a1a2e, #16121f)', $result);
+        $this->assertStringContainsString('--stats-bg: linear-gradient(135deg, #1a1a2e, #16121f)', $result);
     }
 
     public function testHeroEyebrowRenders(): void
@@ -1798,15 +1809,20 @@ class ComponentPropsTest extends TestCase
         $this->assertStringNotContainsString('grid__header', $html);
     }
 
-    public function testSectionEyebrowSubheadingAndCenterAlignRenderTextOnly(): void
+    public function testSectionEyebrowAndSubheadingRenderTextOnly(): void
     {
+        // `title_align` left this test at #1023 with the prop. Alignment is the `header`
+        // role's `typography.align`, which the eyebrow, heading and subheading inherit —
+        // so there is no `--center` modifier to assert, and the header wrapper carries a
+        // single class. The two elements this test is actually about are unchanged.
         $html = $this->render('section', $this->sectionProps([
             'title' => 'Heading',
             'eyebrow' => 'KICKER',
             'subheading' => 'Supporting line',
-            'title_align' => 'center',
         ]));
-        $this->assertStringContainsString('class="section__header section__header--center"', $html);
+        $this->assertStringContainsString('class="section__header"', $html);
+        $this->assertStringNotContainsString('section__header--center', $html,
+            'the alignment modifier is retired — alignment is the header role typography.align.');
         $this->assertStringContainsString('class="section__eyebrow">KICKER<', $html);
         $this->assertStringContainsString('class="section__subheading">Supporting line<', $html);
     }
@@ -1870,13 +1886,24 @@ class ComponentPropsTest extends TestCase
         }
     }
 
-    public function testSectionSchemaDeclaresHeaderSlots(): void
+    /**
+     * Inverted at #1023. The three header slots became role defaults, so the audit is
+     * that the ROLES exist and carry the values, not that the slots do. Kept beside its
+     * cta sibling below so the two authoring systems read next to each other for as long
+     * as both ship.
+     */
+    public function testSectionSchemaDeclaresHeaderRoles(): void
     {
         $schema = json_decode(file_get_contents(dirname(__DIR__) . '/components/section/schema.json'), true);
-        $slots = $schema['styling']['style_slots'];
-        foreach (['--section-eyebrow-color', '--section-eyebrow-bg', '--section-subheading-color'] as $name) {
-            $this->assertArrayHasKey($name, $slots, "section must declare {$name}.");
-        }
+        $this->assertArrayNotHasKey('style_slots', $schema['styling'],
+            'section is on the UDC and declares no style slots.');
+        $roles = $schema['roles'];
+        $this->assertSame('@color-text', $roles['eyebrow']['defaults']['typography']['color'],
+            'the eyebrow keeps its ink as a role default.');
+        $this->assertSame('@color-surface-accent', $roles['eyebrow']['defaults']['background']['fill'],
+            'the eyebrow keeps its pill fill as a role default.');
+        $this->assertSame('@color-muted', $roles['subheading']['defaults']['typography']['color'],
+            'the subheading keeps its ink as a role default.');
     }
 
     public function testCtaSchemaDeclaresEyebrowSlots(): void
@@ -2201,12 +2228,12 @@ class ComponentPropsTest extends TestCase
     {
         $expected = [
             // hero's accent colour is the `title-accent` role's `typography.color` (#986),
-            // declared in its schema's roles block, not as a slot.
-            'grid'    => '--grid-heading-accent-color',
-            'section' => '--section-heading-accent-color',
-            'cta'     => '--cta-heading-accent-color',
-            'faq'     => '--faq-heading-accent-color',
-            'stats'   => '--stats-heading-accent-color',
+            // and section's is the `heading-accent` role's (#1023). Neither declares a
+            // slot, so neither belongs in this roster — four still do.
+            'grid'  => '--grid-heading-accent-color',
+            'cta'   => '--cta-heading-accent-color',
+            'faq'   => '--faq-heading-accent-color',
+            'stats' => '--stats-heading-accent-color',
         ];
         foreach ($expected as $component => $slot) {
             $schema = json_decode(file_get_contents(dirname(__DIR__) . "/components/{$component}/schema.json"), true);
@@ -3445,20 +3472,48 @@ class ComponentPropsTest extends TestCase
         );
     }
 
-    public function testSectionImagePositionAndAspectRatioOverrideRenders(): void
+    /**
+     * REBASED at #1023 from the two inline-custom-property pins above it.
+     *
+     * The three values are the same three; where they land is what moved. A v2 band
+     * emits NO style attribute, so an override cannot be asserted in the markup — it is
+     * emitted into the band's scoped block in the document head. So the pin follows the
+     * value to the engine: author a `udc` map and read the compiled CSS.
+     *
+     * The image pair is worth keeping together because `sizing.object-position` is the
+     * param section's rebuild ADDED to the taxonomy for exactly this value (it set
+     * `object-position` on the content image and no group emitted it), and
+     * `sizing.aspect-ratio` is the one hero's rebuild added for the same reason. The
+     * band-background position is ruling A2's companion to `background.image`.
+     */
+    public function testSectionMediaAndBandBackgroundOverridesCompileIntoTheBandBlock(): void
     {
+        $item = [
+            'component' => 'section',
+            'id'        => 'pp-1a2b3c4d',
+            'props'     => ['title' => 'T', 'body' => '<p>B</p>'],
+            'udc'       => [
+                'media'  => ['sizing' => ['object-position' => 'bottom', 'aspect-ratio' => '1']],
+                '_band'  => ['background' => ['position' => '20% 80%']],
+            ],
+        ];
+        $this->assertNull(pp_udc_validate_map($item['udc'], 'section'),
+            'all three values must validate against the shared grammar.');
+
+        $css = pp_udc_band_css($item);
+        $this->assertStringContainsString('[data-pp-band="pp-1a2b3c4d"] .section__image{', $css);
+        $this->assertStringContainsString('object-position:bottom', $css);
+        $this->assertStringContainsString('aspect-ratio:1', $css);
+        $this->assertStringContainsString('background-position:20% 80%', $css);
+
+        // And the markup carries the band attribute and nothing else.
         $html = $this->render('section', $this->sectionProps([
             'layout' => 'image-left', 'image_url' => 'https://example.com/photo.jpg',
-            '__pp_style' => ['--section-image-position' => 'bottom', '--section-image-aspect-ratio' => '1'],
+            '__pp_udc_band' => 'pp-1a2b3c4d',
         ]));
-        $this->assertStringContainsString('--section-image-position: bottom', $html);
-        $this->assertStringContainsString('--section-image-aspect-ratio: 1', $html);
-    }
-
-    public function testSectionBgPositionOverrideRenders(): void
-    {
-        $html = $this->render('section', $this->sectionProps(['background_image' => 'https://example.com/bg.jpg', '__pp_style' => ['--section-bg-position' => '20% 80%']]));
-        $this->assertStringContainsString('--section-bg-position: 20% 80%', $html);
+        $this->assertStringContainsString('data-pp-band="pp-1a2b3c4d"', $html);
+        $this->assertStringNotContainsString('style=', $html,
+            'a v2 band emits no inline custom properties at all.');
     }
 
     public function testCtaBgPositionOverrideRenders(): void
@@ -3475,7 +3530,9 @@ class ComponentPropsTest extends TestCase
 
     public function testSectionCtaStatsSchemaDeclareBgPositionSlot(): void
     {
-        foreach (['section' => '--section-bg-position', 'cta' => '--cta-bg-position', 'stats' => '--stats-bg-position'] as $component => $slot) {
+        // section left this roster at #1023: its band background position is the `_band`
+        // role's `background.position`, which ruling A2 pairs with `background.image`.
+        foreach (['cta' => '--cta-bg-position', 'stats' => '--stats-bg-position'] as $component => $slot) {
             $schema = json_decode(file_get_contents(dirname(__DIR__) . "/components/{$component}/schema.json"), true);
             $this->assertSame('position', $schema['styling']['style_slots'][$slot]['type'], "{$component} must declare {$slot} as type position.");
         }
@@ -3788,9 +3845,14 @@ class ComponentPropsTest extends TestCase
             $pattern = '#background-image:url\((?:https?://)?' . preg_quote((string) $scalar, '#') . '\)#';
 
             foreach ([
-                ['cta',     $this->ctaProps(['background_image' => $scalar]),     'cta'],
-                ['stats',   $this->statsProps(['background_image' => $scalar]),   'stats'],
-                ['section', $this->sectionProps(['background_image' => $scalar]), 'section'],
+                // section's row left these three #705 guards at #1023: the prop is
+                // retired, so there is no pp_esc_image_src() call site on section to
+                // guard. A band background is `_band` -> `background.image`, an
+                // attachment id the ENGINE resolves — the guarded-scalar class cannot
+                // arise there, because a non-numeric id is refused at write rather than
+                // cast at render. cta and stats still declare the prop and keep the pins.
+                ['cta',   $this->ctaProps(['background_image' => $scalar]),   'cta'],
+                ['stats', $this->statsProps(['background_image' => $scalar]), 'stats'],
             ] as [$component, $props, $prefix]) {
                 $html = $this->render($component, $props);
                 $this->assertMatchesRegularExpression($pattern, $html, "{$component} {$label}: the scalar still paints");
@@ -3808,9 +3870,8 @@ class ComponentPropsTest extends TestCase
     public function testAnOrdinaryBackgroundImageUrlIsUnchanged(): void
     {
         foreach ([
-            ['cta',     $this->ctaProps(['background_image' => 'https://example.com/bg.jpg']),     'cta'],
-            ['stats',   $this->statsProps(['background_image' => 'https://example.com/bg.jpg']),   'stats'],
-            ['section', $this->sectionProps(['background_image' => 'https://example.com/bg.jpg']), 'section'],
+            ['cta',   $this->ctaProps(['background_image' => 'https://example.com/bg.jpg']),   'cta'],
+            ['stats', $this->statsProps(['background_image' => 'https://example.com/bg.jpg']), 'stats'],
         ] as [$component, $props, $prefix]) {
             $html = $this->render($component, $props);
             $this->assertStringContainsString(
@@ -3885,9 +3946,8 @@ class ComponentPropsTest extends TestCase
         $scalars = [0, 0.0, -0, false, true, 42, 3.14, -1, '', '0', '0.0', '+0', 'x', '00', NAN, INF, -INF];
 
         $components = [
-            ['cta',     fn($v) => $this->ctaProps(['background_image' => $v]),     'cta'],
-            ['stats',   fn($v) => $this->statsProps(['background_image' => $v]),   'stats'],
-            ['section', fn($v) => $this->sectionProps(['background_image' => $v]), 'section'],
+            ['cta',   fn($v) => $this->ctaProps(['background_image' => $v]),   'cta'],
+            ['stats', fn($v) => $this->statsProps(['background_image' => $v]), 'stats'],
         ];
 
         foreach ($scalars as $scalar) {
