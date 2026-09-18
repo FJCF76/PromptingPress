@@ -653,6 +653,53 @@ function pp_find_duplicate_component_ids(array $composition): array {
  * @param  array $composition  Composition array.
  * @return array[]             Each entry: ['type' => string, 'message' => string, 'index' => int].
  */
+/**
+ * Does a `udc` parameter value carry real content, at ANY breakpoint or state?
+ *
+ * A parameter is a scalar, OR a map keyed by breakpoint (`d`/`t`/`p`) or state
+ * (`:hover`), possibly nested. "Does this band have a background" therefore cannot be
+ * answered by looking at the top level: `fill => "#111"` and
+ * `fill => ["d" => "#111", "p" => "#222"]` both paint, and the second is an array.
+ *
+ * This was wrong twice, in opposite directions, which is why it is a named function with
+ * a test rather than an inline expression:
+ *   - `!empty()` alone answered TRUE for a non-empty array, so a CORRUPT shape
+ *     (`image => ['a']`, reachable through a raw meta write or a #233 restore) suppressed
+ *     the warning.
+ *   - `is_scalar()` alone answered FALSE for a breakpoint map, so a band with a REAL
+ *     responsive fill — which the engine emits at both tiers — still counted as bare.
+ *
+ * THE ENGINE IS THE AUTHORITY, and it was asked rather than guessed. Feeding each shape
+ * to pp_udc_band_css() and reading the emitted CSS:
+ *
+ *   "#111111"                  -> PAINTS
+ *   {"d":"#111111","p":"#222"} -> PAINTS, at both tiers
+ *   ["a"]                      -> paints nothing (key 0 is not a breakpoint)
+ *   {":hover":"#111111"}       -> paints nothing (a hover fill is not a resting background)
+ *
+ * So this recurses into BREAKPOINT keys only. A bare scalar leaf test would have called
+ * the corrupt list and the hover-only map backgrounds, and both of those paint nothing —
+ * which is the direction that matters, because calling something a background is what
+ * SUPPRESSES the warning.
+ *
+ * @param  mixed $value  A raw stored parameter value.
+ * @return bool
+ */
+function _pp_udc_value_has_content($value): bool {
+    if (is_scalar($value)) {
+        return trim((string) $value) !== '';
+    }
+    if (!is_array($value)) {
+        return false;
+    }
+    foreach (array_keys(pp_udc_breakpoints()) as $tier) {
+        if (array_key_exists($tier, $value) && _pp_udc_value_has_content($value[$tier])) {
+            return true;
+        }
+    }
+    return false;
+}
+
 function pp_validate_composition_smells(array $composition): array {
     if (!pp_is_list($composition)) {
         return [];
@@ -777,8 +824,8 @@ function pp_validate_composition_smells(array $composition): array {
         // because the rule is advisory and warn-direction — a missed nudge on a band the
         // author did style deliberately, never a false accusation — and because
         // reproducing the engine's paints-nothing analysis here would duplicate it.
-        $has_band_bg = (is_scalar($band_bg['image'] ?? null) && !empty($band_bg['image']))
-            || (is_scalar($band_bg['fill'] ?? null) && !empty($band_bg['fill']));
+        $has_band_bg = _pp_udc_value_has_content($band_bg['image'] ?? null)
+            || _pp_udc_value_has_content($band_bg['fill'] ?? null);
 
         $layout = $props['layout'] ?? 'text-only';
         if ($component === 'section' && in_array($layout, ['text-only', 'centered'], true) && empty($image_url) && empty($props['background_image'] ?? '') && !$has_band_bg) {

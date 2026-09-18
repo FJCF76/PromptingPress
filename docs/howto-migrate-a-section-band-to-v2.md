@@ -99,14 +99,29 @@ that owns the property.
 | `--section-bg` | `_band` → `background.fill` |
 | `--section-padding-top` / `-bottom` | `_band` → `spacing.padding-top` / `-bottom` |
 | `--section-heading-color` / `-size` | `heading` → `typography.color` / `size` |
-| `--section-body-color` / `-size` / `-measure` | `body` → `typography.color` / `size`, `sizing.max-width` |
+| `--section-body-color` / `-size` | `body` → `typography.color` / `size` |
+| `--section-body-measure` | **four roles, not one** — see below |
 | `--section-panel-bg` / `-radius` / `-padding` | `panel` → `background.fill`, `border.radius`, `spacing.padding` |
 | `--section-image-radius` / `-aspect-ratio` / `-position` | `media` → `border.radius`, `sizing.aspect-ratio`, `sizing.object-position` |
 
 The full list is in [section's README](../components/section/README.md#retired-style-slots),
 and each retired slot carries its own migration note naming the role that replaced it.
 
-Two conversions to do deliberately rather than mechanically:
+Three conversions to do deliberately rather than mechanically:
+
+**`--section-body-measure` fed the WRAPPER, so it set the whole column.** `.section__body`
+held the header block, the prose and the trust strip, and capping it capped all three. The
+v2 `body` role is `.section__content` alone. To reproduce one slot you set four roles:
+
+```json
+{"heading":      {"sizing": {"max-width": "46rem"}},
+ "subheading":   {"sizing": {"max-width": "46rem"}},
+ "body":         {"sizing": {"max-width": "46rem"}},
+ "inline-items": {"sizing": {"max-width": "46rem"}}}
+```
+
+Set only `body` and your heading keeps the 40rem default while your prose widens, which
+reads as a mistake rather than a design.
 
 **A literal colour becomes a reference.** If the slot held `#0f172a`, write
 `"@color-bg-inverted"` instead. A literal will not follow a site retune; a reference will.

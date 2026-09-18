@@ -389,7 +389,11 @@
       ],
       "defaults": {
         "typography": {
-          "color": "@color-text-secondary",
+          "color": {
+            "d": "@color-text-secondary",
+            "t": "@color-text-secondary",
+            "p": "@color-text"
+          },
           "size": {
             "d": "1.065rem",
             "t": "1.065rem",

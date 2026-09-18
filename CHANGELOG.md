@@ -212,6 +212,30 @@ ruling. What you can reach today:
 - **The separator** follows its row's ink (below). The `inline-items` role's
   `typography.color` moves it, and moves the row's text with it.
 
+### ⚠️ Narrowed: a `centered` band's heading and subheading are 256px tighter
+
+This is the larger half of the measure change and the first draft disclosed only the
+smaller one. v1 gave `.section--centered .section__body` its own cap —
+`var(--section-body-measure, var(--measure-centered))`, **56rem / 896px** — and the
+heading and subheading inside it were themselves uncapped, so they rendered at 896px.
+Both roles default to **40rem / 640px** now. Measured at 1280 on a centred band:
+
+| | v1 | v2 |
+|---|---|---|
+| `.section__title` | 896px | **640px** |
+| `.section__subheading` | 896px | **640px** |
+| `.section__content` | 672px | 640px (the 32px below) |
+
+At the same copy the heading gains a line. **Route back:**
+`"heading": {"sizing": {"max-width": "56rem"}}`, and the same on `subheading`.
+
+**And if you stored a `--section-body-measure`, it now reaches one element instead of
+four.** That slot fed `.section__body`, the wrapper, so one value set the whole column.
+Its v2 replacement is `body` `sizing.max-width`, which is `.section__content` alone — the
+heading, subheading and trust strip keep their own 40rem default. The migration table
+says so now: set the value on `heading`, `subheading`, `body` and `inline-items` to
+reproduce what one slot used to do.
+
 ### ⚠️ Narrowed: a `centered` band's body measure is 32px tighter
 
 v1 capped the body from four rules at once, and the one that WON among them (`49rem`) was

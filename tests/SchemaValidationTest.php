@@ -3920,21 +3920,58 @@ class SchemaValidationTest extends TestCase
         ));
         $this->assertNotSame([], $sections, 'the seed must still carry section bands');
 
+        // ASSERTED ON THE EMITTED CSS, NOT ON THE STORED MAP. The first version of this
+        // test read `$border['width']` out of the seed array, which is one layer above
+        // the thing it is a claim about: the claim is "does a border PAINT, and on which
+        // SIDES", and only the emitted declaration answers that. Reading the map also
+        // made the test silently wrong the moment the seed moved to the side-specific
+        // parameters, because `width` simply stopped being present.
+        // Still needed for the PANEL, whose claim is "no border at all" rather than
+        // "which sides" — the panel is not full-bleed, so the shorthand is fine there and
+        // the only question is whether the width resolves to zero.
         $paints = static function (array $border): bool {
             $w = trim((string) ($border['width'] ?? '0'));
             return $w !== '' && $w !== '0' && $w !== '0px';
         };
 
-        $sawPanel = false;
+        $bandCss = static function (array $band): string {
+            $band['id'] = 'pp-11223344';
+            $css = pp_udc_band_css(pp_udc_normalize_band($band));
+            preg_match('/\[data-pp-band="pp-11223344"\]\{[^}]*\}/', $css, $m);
+            return $m[0] ?? '';
+        };
+
+        $sawPanel  = false;
+        $sawBand   = false;
         foreach ($sections as $band) {
             $udc = $band['udc'] ?? [];
 
-            // The BAND and the EYEBROW carried width+colour on v1, so they still paint.
+            // THE BAND PAINTS TOP AND BOTTOM ONLY. v1's `.section` rule declared
+            // `border-top` and `border-bottom` and never the sides, and `<section>` is
+            // full-bleed — so a four-sided `width` here draws 1px hairlines down both
+            // viewport edges of a fresh install that v1 never drew.
             if (isset($udc['_band']['border'])) {
-                $this->assertTrue($paints($udc['_band']['border']), 'the seed band border painted on v1');
+                $sawBand = true;
+                $root = $bandCss($band);
+                $this->assertStringContainsString('border-top-width:1px;', $root,
+                    'the seed band border painted top on v1');
+                $this->assertStringContainsString('border-bottom-width:1px;', $root,
+                    'the seed band border painted bottom on v1');
+                $this->assertStringNotContainsString('border-left-width:1px', $root,
+                    'v1 never drew a left band border; <section> is full-bleed so this is a viewport-edge hairline');
+                $this->assertStringNotContainsString('border-right-width:1px', $root,
+                    'v1 never drew a right band border; <section> is full-bleed so this is a viewport-edge hairline');
+                $this->assertDoesNotMatchRegularExpression('/[^-]border-width:1px/', $root,
+                    'the four-sided shorthand is what draws the two edges v1 did not');
             }
+
+            // THE EYEBROW IS FOUR-SIDED, and that IS the faithful port: v1's
+            // `.section__eyebrow` used the `border:` shorthand, which sets all four.
             if (isset($udc['eyebrow']['border'])) {
-                $this->assertTrue($paints($udc['eyebrow']['border']), 'the seed eyebrow border painted on v1');
+                $b = $udc['eyebrow']['border'];
+                $w = trim((string) ($b['width'] ?? '0'));
+                $this->assertNotSame('', $w, 'the seed eyebrow border painted on v1');
+                $this->assertNotSame('0', $w, 'the seed eyebrow border painted on v1');
             }
 
             // The PANEL carried colour only, so its width fell back to 0 and it painted none.
@@ -3948,6 +3985,7 @@ class SchemaValidationTest extends TestCase
             }
         }
         $this->assertTrue($sawPanel, 'the seed must still carry a text-panel band, or this pin is vacuous');
+        $this->assertTrue($sawBand, 'the seed must still carry a bordered band, or the side pins are vacuous');
     }
 
     public function testDefaultHomepageCompositionPassesValidation(): void

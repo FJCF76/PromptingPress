@@ -3444,7 +3444,9 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
    of four rules capping this element and not the one that won — the desktop
    `main > .section--text-only` override at 49rem was — so it could not be "moved" to a
    role without picking which of the four to keep. The `body` role's `sizing.max-width`
-   default is 49rem, the value that actually rendered. */
+   default is **40rem**, and 49rem is specifically the value that did NOT render:
+   `.section__content` sat inside `.section__body`, which capped at 40rem, so the 49rem
+   literal never bound. Winning rule vs rendered geometry — see MeasureSurfaceTest. */
 
 /* ==========================================================================
    SHARED: Section Centered Variant
@@ -3467,9 +3469,17 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
   margin-right: auto;
 }
 
-.section--centered .section__title {
-  text-align: center;
-}
+/* `.section--centered .section__title { text-align: center }` WAS DELETED AT #1023 REVIEW,
+   and deleting it is what makes the documented `title_align` replacement work.
+   It was redundant: `.section--centered .section__body` above sets `text-align: center`
+   and text-align INHERITS, so the title centres without a rule of its own. But a DIRECT
+   declaration beats an inherited one, so while it existed it silently blocked the route
+   `retired_props.title_align` points at — `header`'s `typography.align`, which emits on
+   `.section__header` and reaches the children by inheritance. Measured at 1280 on a
+   centred band with `header.typography.align: left`:
+       with the rule     title CENTER, subheading left, eyebrow left   <- three-way split
+       without it        title left,   subheading left, eyebrow left
+   and an unauthored centred band renders `center` on all three either way. */
 
 /* The centered layout centers the OUTER .section__body (max-width --measure-centered,
    56rem) but its inner .section__content carries a NARROWER cap (--section-body-measure,
@@ -3614,10 +3624,14 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
      `pp-v1`, so every one of them was outranked the moment section declared roles —
      rules that validate and paint nothing, which is the class a dead declaration
      belongs to. Their VALUES were not lost: they are the `body` role's defaults in
-     components/section/schema.json, including the 49rem measure, which is the value
-     that actually won here rather than the 42rem base further up. The `p + p` rhythm
+     components/section/schema.json, including the measure, which is 40rem. The `p + p` rhythm
      moved to the SHARED GLYPH AND PROSE MECHANISMS block, because it is authored-prose
-     rhythm rather than band design. */
+     rhythm rather than band design.
+     CORRECTION: the sentence above once said the measure default is "the 49rem measure,
+     which is the value that actually won here". It is 40rem. 49rem won among the rules
+     TARGETING this element, and never bound, because `.section__body` capped the whole
+     column at 40rem one level up. A port carries the rendered value, not the winning
+     declaration. */
 
   main > .grid .grid__item-title {
     color: var(--grid-item-title-color, var(--color-text));

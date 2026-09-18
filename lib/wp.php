@@ -8712,7 +8712,7 @@ function pp_default_homepage_composition(): array {
         ], 'udc' => [
             '_band'          => [
                 'background' => ['fill' => '#F2EEE5'],
-                'border'     => ['width' => '1px', 'style' => 'solid', 'color' => '#E8E2D4'],
+                'border'     => ['width-top' => '1px', 'width-bottom' => '1px', 'style' => 'solid', 'color' => '#E8E2D4'],
             ],
             'heading'        => ['typography' => ['size' => 'clamp(1.9rem, 3vw, 2.9rem)']],
             'heading-accent' => ['typography' => ['color' => '#FF5C2E']],
@@ -8748,7 +8748,7 @@ function pp_default_homepage_composition(): array {
         ], 'udc' => [
             '_band'          => [
                 'background' => ['fill' => '#FBF8F1'],
-                'border'     => ['width' => '1px', 'style' => 'solid', 'color' => '#E8E2D4'],
+                'border'     => ['width-top' => '1px', 'width-bottom' => '1px', 'style' => 'solid', 'color' => '#E8E2D4'],
             ],
             'heading'        => ['typography' => ['size' => 'clamp(1.9rem, 3vw, 2.9rem)']],
             'heading-accent' => ['typography' => ['color' => '#FF5C2E']],
@@ -8832,7 +8832,7 @@ function pp_default_homepage_composition(): array {
         ], 'udc' => [
             '_band'          => [
                 'background' => ['fill' => '#F2EEE5'],
-                'border'     => ['width' => '1px', 'style' => 'solid', 'color' => '#E8E2D4'],
+                'border'     => ['width-top' => '1px', 'width-bottom' => '1px', 'style' => 'solid', 'color' => '#E8E2D4'],
             ],
             'heading'        => ['typography' => ['size' => 'clamp(1.9rem, 3vw, 2.9rem)']],
             'heading-accent' => ['typography' => ['color' => '#FF5C2E']],

@@ -896,6 +896,44 @@ class GuardrailsTest extends TestCase
     }
 
     /**
+     * A RESPONSIVE FILL IS A FILL. A parameter may be a scalar OR a breakpoint map, and
+     * the engine emits a real background for both — so reading only the top level called
+     * a band with `{"d": ..., "p": ...}` bare, and fired the warning on a page that is
+     * not monotonous. `wp pp validate site` exits non-zero on any smell, so that was a
+     * hard failure on a legitimate design.
+     */
+    public function testAResponsiveBandFillBreaksTheTextOnlyRunAtEveryTier(): void
+    {
+        $fill = ['d' => '#111111', 'p' => '#222222'];
+        $composition = [
+            ['component' => 'section', 'props' => ['body' => 'A']],
+            ['component' => 'section', 'props' => ['body' => 'B'],
+             'udc' => ['_band' => ['background' => ['fill' => $fill]]]],
+            ['component' => 'section', 'props' => ['body' => 'C']],
+        ];
+        $types = array_column(pp_validate_composition_smells($composition), 'type');
+        $this->assertNotContains('consecutive_text_sections', $types);
+    }
+
+    /**
+     * A HOVER-ONLY FILL IS NOT A RESTING BACKGROUND, and the engine agrees: a
+     * `{":hover": ...}` map emits no resting declaration at all. The band looks bare
+     * until you point at it, so the run is still a run. This is the counter-case to the
+     * test above — the recursion must follow BREAKPOINTS and not simply any nested
+     * scalar, or every state map would suppress.
+     */
+    public function testAHoverOnlyFillIsNotABackgroundAndStillFires(): void
+    {
+        $composition = [];
+        for ($i = 0; $i < 3; $i++) {
+            $composition[] = ['component' => 'section', 'props' => ['body' => "B{$i}"],
+                'udc' => ['_band' => ['background' => ['fill' => [':hover' => '#111111']]]]];
+        }
+        $types = array_column(pp_validate_composition_smells($composition), 'type');
+        $this->assertContains('consecutive_text_sections', $types);
+    }
+
+    /**
      * HOSTILE STORED SHAPES. The read is three nested `is_array()` guards, written for
      * data that reached storage another way — a raw meta write, or a #233 restore, which
      * by rule never blocks. Each shape must neither fatal nor suppress: a corrupt map is
