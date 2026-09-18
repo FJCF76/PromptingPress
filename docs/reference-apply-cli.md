@@ -312,13 +312,13 @@ Before this, two same-type bands produced byte-identical rejections, so an agent
 
 **`create_page` is all-or-nothing once you hand it a composition (#719).** `create_page` creates the page row first and stores the composition second, and the second step can refuse: `pp_update_composition()` skips the write and returns `composition_lock_failed` when it cannot take that page's advisory write lock. That return used to be discarded, so the call reported `ok: true` with a `target.post_id` over a page that was silently EMPTY — and, since #687, `findings: []` beside it, certifying the very page that had lost its content. The verdict is now honoured: the page just created is removed again and the call is REFUSED with the writer's own `error_code`, in the ordinary rejection envelope (`target: []`, `index: null`, and no `findings` / `composition_version`, as on every rejection). **Retry the same call** — a refusal normally leaves no page and no reserved slug behind, so the retry is clean rather than a duplicate stacked beside an empty first attempt. Two branches do leave the page standing and the message says which: a cleanup delete that was itself refused names the survivor (`post 231 ... is still there and stores no composition`), and a page something else wrote to first is left alone (`is NOT empty — something else wrote to it`). This narrows nothing — every composition valid before is still valid and the success path is byte-identical; it is a false success becoming an honest failure. `composition_conflict` is not reachable here: `create_page` threads no `expected_version`, so `composition_lock_failed` is the only code this path adds **in practice**. Since 1.19.11 the writer has a second refusal, `composition_not_encodable` (#941), and this path honours it the same way — the page just created is removed and the call is refused rather than reported as success over an empty page. It is not reachable through `create_page` today because the composition is validated first; it is named here so the branch is not a surprise if that ever stops being true.
 
-**What the accepted write wrote (#687).** The mirror of the paragraph above, for the writes that SUCCEED. A composition write could validate, store, return `ok: true` and paint nothing — set `--section-panel-cta-bg` on a section with no panel CTA and the slot, which renders only under `layout: "text-panel"` with a panel CTA set, is stored, versioned, reported as applied and read by nothing. So every accepted envelope from a composition-mutating action, plus `create_page` and `operate patch`, carries `findings`: what current rules say about the composition that was just stored.
+**What the accepted write wrote (#687).** The mirror of the paragraph above, for the writes that SUCCEED. A composition write could validate, store, return `ok: true` and paint nothing — set `--cta-button2-bg` on a cta with no second button and the slot, which renders only when `button2_text` is set, is stored, versioned, reported as applied and read by nothing. So every accepted envelope from a composition-mutating action, plus `create_page` and `operate patch`, carries `findings`: what current rules say about the composition that was just stored.
 
 ```json
 { "ok": true, "action": "style_component", "composition_version": 2,
   "findings": [
     { "type": "inert_slot", "severity": "warning", "index": 0,
-      "message": "Style slot \"--section-panel-cta-bg\" on this \"section\" component has no effect as configured: it applies when layout = \"text-panel\" AND panel_cta_text is set AND panel_cta_url is set. Either set that up, or drop the slot — the value is stored and reported as applied, but nothing on the page reads it." }
+      "message": "Style slot \"--cta-button2-bg\" on this \"cta\" component has no effect as configured: it applies when button2_text is set. Either set that up, or drop the slot — the value is stored and reported as applied, but nothing on the page reads it." }
   ] }
 ```
 
@@ -927,15 +927,16 @@ Each entry carries **the schema's own keys and values, verbatim** — nothing in
 
 ```json
 {
-  "slot": "--section-panel-bg",
-  "type": "gradient",
-  "default": "soft surface gradient",
-  "description": "Background of the section's text-panel surface …",
+  "slot": "--grid-featured-shadow",
+  "type": "shadow",
+  "default": "var(--grid-item-shadow)",
+  "description": "Box shadow of the featured first card only …",
   "applies_when": [
-    { "prop": "layout", "equals": "text-panel" },
-    { "prop": "panel_heading", "present": true }
+    { "prop": "layout", "equals": "cards" },
+    { "prop": "card_emphasis", "equals": "featured" }
   ],
-  "applies_when_rendered": "layout = \"text-panel\" AND panel_heading is set"
+  "conditionality_note": "the component sits at the top level of a composed page …",
+  "applies_when_rendered": "layout = \"cards\" AND card_emphasis = \"featured\" AND the component sits at the top level of a composed page …"
 }
 ```
 
