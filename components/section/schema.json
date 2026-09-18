@@ -440,7 +440,7 @@
     },
     "inline-items": {
       "selector": ".section__inline-items",
-      "description": "The short-items row rendered after the body (the \"trust strip\"). Its separator glyph is structural; how the row packs its lines is the `body_items_align` prop, because the taxonomy has no layout group.",
+      "description": "The short-items row rendered after the body (the \"trust strip\"). Its separator glyph is structural; how the row packs its lines is the `body_items_align` prop, because the taxonomy has no layout group. Its type matched the body's in v1 by reading the same two slots; the role carries the same values directly so a strip keeps its size and weight without the author repeating them.",
       "groups": [
         "typography",
         "spacing",
@@ -450,6 +450,14 @@
         "motion"
       ],
       "defaults": {
+        "typography": {
+          "size": {
+            "d": "1.065rem",
+            "t": "1.065rem",
+            "p": "1rem"
+          },
+          "weight": "430"
+        },
         "spacing": {
           "column-gap": "@space-md",
           "row-gap": "@space-xs",

@@ -28,12 +28,19 @@ class SectionInlineItemsTest extends TestCase
 {
     private string $themeRoot;
     private string $componentsCss;
+    private string $cssDeclarations;
 
     protected function setUp(): void
     {
         parent::setUp();
         $this->themeRoot     = dirname(__DIR__);
         $this->componentsCss = file_get_contents($this->themeRoot . '/assets/css/components.css');
+        // Declarations, not prose. The retirement pins below assert that a slot name has
+        // left the stylesheet, and the shared-mechanisms banner NAMES the retired slots
+        // in its comment to explain why the colour is no longer authorable — so an
+        // assertion run against the raw bytes would read that explanation as the thing
+        // it forbids.
+        $this->cssDeclarations = preg_replace('#/\*.*?\*/#s', '', $this->componentsCss);
         $GLOBALS['_pp_test_store'] = [
             'post_meta' => [], 'posts' => [], 'options' => [], 'next_id' => 100, 'custom_css' => '',
         ];
@@ -147,68 +154,63 @@ class SectionInlineItemsTest extends TestCase
             'the row must render in the text-panel layout body scope.');
     }
 
-    // ── Flush-top margin on a body-less strip (issue 488) ─────────────────
+    // ── The flush-top strip: retired, and the same three cases inverted (#1023) ──
+    //
+    // #488 inferred the modifier from whether body copy preceded the row. The three
+    // cases below were its contract — body-less, with-body, whitespace-only — and they
+    // are kept as ONE test with the opposite expectation rather than deleted, because
+    // the inference is exactly what went away: the row's class is now the same on all
+    // three, and an author who wants the flush strip says so on the role.
 
-    public function testBodyLessStripGetsFlushTopModifier(): void
+    public function testTheRowsClassNoLongerDependsOnWhetherBodyCopyPrecedesIt(): void
     {
-        // body_items alone, no body — the primary #475 trust-strip use case, now
-        // authorable without a body:"" placeholder (#488). The row zeroes its
-        // body-relative top margin so the band padding centers it.
-        $html = $this->render('section', [
+        $base = '<ul class="section__inline-items" role="list">';
+
+        $bodyless = $this->render('section', [
             'layout'     => 'text-only',
             'body_items' => ['SOC 2 Type II', '99.99% uptime'],
         ]);
-        $this->assertStringContainsString(
-            '<ul class="section__inline-items section__inline-items--flush-top" role="list">',
-            $html,
-            'a body-less strip must carry the --flush-top modifier that zeroes the top margin.'
-        );
-    }
-
-    public function testStripWithBodyDoesNotGetFlushTopModifier(): void
-    {
-        $html = $this->render('section', [
+        $withBody = $this->render('section', [
             'layout'     => 'text-only',
             'body'       => '<p>Real body copy.</p>',
             'body_items' => ['Meta'],
         ]);
-        $this->assertStringContainsString('<ul class="section__inline-items" role="list">', $html,
-            'a strip WITH body copy keeps the base class (var(--space-md) top margin).');
-        $this->assertStringNotContainsString('section__inline-items--flush-top', $html,
-            'a strip following body copy must NOT get the flush-top modifier.');
-    }
-
-    public function testWhitespaceOnlyBodyIsTreatedAsBodyLess(): void
-    {
-        // The flush-top decision is keyed on trimmed body, matching the content
-        // requirement (#488): a whitespace-only body renders nothing, so the row
-        // is still the first visible content and must sit flush.
-        $html = $this->render('section', [
+        $whitespace = $this->render('section', [
             'layout'     => 'text-only',
             'body'       => "   \n\t ",
             'body_items' => ['Meta'],
         ]);
-        $this->assertStringContainsString('section__inline-items--flush-top', $html,
-            'a whitespace-only body must be treated as body-less (flush-top applies).');
+
+        foreach (['body-less' => $bodyless, 'with body' => $withBody, 'whitespace body' => $whitespace] as $label => $html) {
+            $this->assertStringContainsString($base, $html,
+                "the $label strip carries the base class and nothing inferred from the body.");
+            $this->assertStringNotContainsString('section__inline-items--flush-top', $html,
+                "the $label strip must not carry a modifier nothing on the page can act on.");
+        }
     }
 
-    public function testFlushTopModifierZeroesTopMarginInSource(): void
+    public function testTheFlushTopModifierIsRetiredRatherThanLeftDead(): void
     {
-        // PHPUnit does not execute CSS; assert the source declares the override.
-        // The computed 0-vs-16px cascade is pinned by the style-render e2e.
-        $this->assertMatchesRegularExpression(
-            '/\.section__inline-items--flush-top\s*\{[^}]*margin-top:\s*0/s',
+        // #488's automatic flush-top is GONE (#1023), and this pin is inverted rather
+        // than deleted, because the reason matters. Its rule lived in this stylesheet
+        // (`pp-v1`) while the `inline-items` role's `spacing.margin-top` default emits
+        // UNLAYERED, so it could never win again — the class of declaration that
+        // validates and paints nothing. A rule that cannot win is worse than an absent
+        // one, so both the rule and the modifier class went, together.
+        //
+        // THE CAPABILITY HAS AN AUTHOR IDIOM INSTEAD: set `spacing.margin-top: 0` on the
+        // `inline-items` role for a body-copy-less strip. Disclosed in the component
+        // README, the CHANGELOG, and the AI-facing authoring docs.
+        $this->assertStringNotContainsString(
+            'section__inline-items--flush-top',
             $this->componentsCss,
-            '.section__inline-items--flush-top must zero the top margin.'
+            'the dead --flush-top rule must not survive in the stylesheet.'
         );
-        // It must be declared AFTER the base rule so equal-specificity source
-        // order wins; a modifier placed before the base would no-op.
-        $basePos  = strpos($this->componentsCss, '.section__inline-items {');
-        $flushPos = strpos($this->componentsCss, '.section__inline-items--flush-top {');
-        $this->assertNotFalse($basePos);
-        $this->assertNotFalse($flushPos);
-        $this->assertGreaterThan($basePos, $flushPos,
-            'the --flush-top override must be declared after the base .section__inline-items rule.');
+        $this->assertStringNotContainsString(
+            'section__inline-items--flush-top',
+            file_get_contents($this->themeRoot . '/components/section/section.php'),
+            'the renderer must not emit a modifier class nothing styles.'
+        );
     }
 
     // ── CSS pins: the row layout, the separator, and slot routing ─────────
@@ -225,14 +227,17 @@ class SectionInlineItemsTest extends TestCase
             $this->componentsCss,
             '.section__inline-items must wrap (the responsive default, no mobile rule).'
         );
-        // justify-content reads the --section-inline-items-align slot (#510) and
-        // defaults to flex-start when unset — byte-identical to the historical
-        // left-packed row that lets the hanging-separator clip (#489) hide
-        // line-leading separators at the box edge.
+        // justify-content is `flex-start` outright since #1023. It used to read the
+        // --section-inline-items-align SLOT; alignment is the `body_items_align` PROP
+        // now (justify-content is a layout property and the taxonomy carries no layout
+        // group), and the prop derives the --center modifier rather than a raw keyword,
+        // because the modifier also switches the separator from ::before to ::after.
+        // flex-start is what an unset slot resolved to, so the default row is unchanged
+        // — and left-packing is what lets the #489 clip hide line-leading separators.
         $this->assertMatchesRegularExpression(
-            '/\.section__inline-items\s*\{[^}]*justify-content:\s*var\(--section-inline-items-align,\s*flex-start\)/s',
+            '/\.section__inline-items\s*\{[^}]*justify-content:\s*flex-start/s',
             $this->componentsCss,
-            '.section__inline-items justify-content must read var(--section-inline-items-align, flex-start) (default flex-start).'
+            '.section__inline-items justify-content must be flex-start (the default row is left-packed).'
         );
         // Centered as a BLOCK instead: shrink-to-fit width + auto side margins, so a
         // single-line row still reads centered.
@@ -241,8 +246,13 @@ class SectionInlineItemsTest extends TestCase
             $this->componentsCss,
             '.section__inline-items must shrink-wrap (width: fit-content) to center as a block.'
         );
+        // `margin: 0 auto` — the auto SIDE margins are the block-centering mechanism and
+        // stay structural; the row's TOP margin left this rule at #1023 and is the
+        // `inline-items` role's `spacing.margin-top` (@space-md, the same value). The
+        // boundary admits `0 auto` as geometry and would reject the old three-value
+        // form, which carried a real length.
         $this->assertMatchesRegularExpression(
-            '/\.section__inline-items\s*\{[^}]*margin:\s*var\(--space-md\)\s+auto\s+0/s',
+            '/\.section__inline-items\s*\{[^}]*margin:\s*0\s+auto/s',
             $this->componentsCss,
             '.section__inline-items must use auto side margins to center the shrink-wrapped block.'
         );
@@ -258,8 +268,13 @@ class SectionInlineItemsTest extends TestCase
             $this->componentsCss,
             '.section__inline-items must clip its overflow to hide line-leading separators (#489).'
         );
+        // The pull moved to the SHARED GLYPH AND PROSE MECHANISMS block with the
+        // separator it belongs to, and is spelled `margin-left` rather than the
+        // four-value shorthand — the arithmetic is identical. A NEGATIVE margin is
+        // admitted by the structural boundary precisely because it cannot express
+        // separation, only this kind of pull; a positive one still fails the lint.
         $this->assertMatchesRegularExpression(
-            '/\.section__inline-item\s*\{[^}]*margin:\s*0 0 0 calc\(-1 \* \(var\(--space-sm\) \+ var\(--space-xs\)\)\)/s',
+            '/\.section__inline-item\s*\{[^}]*margin-left:\s*calc\(-1 \* \(var\(--space-sm\) \+ var\(--space-xs\)\)\)/s',
             $this->componentsCss,
             '.section__inline-item must be pulled left by the separator occupied width (--space-sm + --space-xs).'
         );
@@ -275,19 +290,23 @@ class SectionInlineItemsTest extends TestCase
         );
     }
 
-    public function testInlineItemsInheritBodyTypeSlots(): void
+    public function testInlineItemsCarryTheBodyTypeAsRoleDefaults(): void
     {
-        // The row reads the SAME #470 slots as .section__content, so a 15px/600
-        // brand strip needs no extra typography slots.
-        $this->assertMatchesRegularExpression(
-            '/\.section__inline-items\s*\{[^}]*font-size:\s*var\(--section-body-size,/s',
-            $this->componentsCss,
-            '.section__inline-items must read --section-body-size (issue 470 scope).'
-        );
-        $this->assertMatchesRegularExpression(
-            '/\.section__inline-items\s*\{[^}]*font-weight:\s*var\(--section-body-weight,/s',
-            $this->componentsCss,
-            '.section__inline-items must read --section-body-weight (issue 470 scope).'
+        // v1 gave the row the body's size and weight by reading the SAME two slots
+        // .section__content read (#470), so a 15px/600 brand strip needed no extra
+        // slots. The row is a SIBLING of .section__content, not a descendant, so
+        // dropping those declarations would not have inherited the body's type — it
+        // would have fallen back to the band. The `inline-items` role therefore carries
+        // the same values directly, responsive like the body's.
+        $schema = json_decode(file_get_contents($this->themeRoot . '/components/section/schema.json'), true);
+        $type   = $schema['roles']['inline-items']['defaults']['typography'];
+        $this->assertSame('430', $type['weight'], 'the row keeps the body weight');
+        $this->assertSame('1.065rem', $type['size']['d'], 'the row keeps the desktop body size');
+        $this->assertSame('1rem', $type['size']['p'], 'the row keeps the phone body size');
+        $this->assertStringNotContainsString(
+            '--section-body-size',
+            $this->cssDeclarations,
+            'the retired body-size slot must not be referenced anywhere any more'
         );
     }
 
@@ -302,50 +321,59 @@ class SectionInlineItemsTest extends TestCase
         );
     }
 
-    public function testSeparatorColorRoutesThroughSlotWithMutedDefault(): void
+    public function testTheSeparatorColourIsNoLongerAuthorable(): void
     {
+        // THE NARROWING, PINNED RATHER THAN LEFT TO BE NOTICED (#1023). The separator is
+        // drawn with `content` on a `::before`, and ruling A3 defers pseudo-elements to
+        // their own ruling — so no role can address it at any value, and
+        // `--section-separator-color` has no v2 home. Its two rules (the base and the
+        // bg-image re-route) went with the slot.
+        //
+        // WHAT DID NOT CHANGE IS THE RENDERED COLOUR: the glyph reads
+        // `--pp-list-marker-color`, whose fallback is `var(--color-accent)` — the exact
+        // value the retired slot defaulted to on a default band. The bg-image re-route
+        // has nothing left to re-route, because `.section--has-bg-image` is not emitted.
+        $this->assertStringNotContainsString(
+            '--section-separator-color',
+            $this->cssDeclarations,
+            'the retired separator-colour slot must not be referenced in the stylesheet.'
+        );
+        $schema = json_decode(file_get_contents($this->themeRoot . '/components/section/schema.json'), true);
+        $this->assertArrayNotHasKey(
+            'style_slots',
+            $schema['styling'],
+            'section is on the UDC and declares no style slots at all.'
+        );
         $this->assertMatchesRegularExpression(
-            '/\.section__inline-items li::before\s*\{[^}]*color:\s*var\(--section-separator-color,\s*var\(--color-muted\)\)/s',
+            '/\.section__inline-items li::before\s*\{[^}]*color:\s*var\(--pp-list-marker-color,\s*var\(--color-accent\)\)/s',
             $this->componentsCss,
-            'the separator color must route through var(--section-separator-color, var(--color-muted)).'
+            'the separator keeps painting, through the shared marker variable.'
         );
     }
 
-    public function testSeparatorRoutesThroughOnOverlayRoleOnBgImageBand(): void
-    {
-        // .section--has-bg-image does not remap --color-muted, so the separator
-        // default is re-routed to the light on-overlay text color like sibling text.
-        $this->assertMatchesRegularExpression(
-            '/\.section--has-bg-image \.section__inline-items li::before\s*\{[^}]*color:\s*var\(--section-separator-color,\s*var\(--color-bg\)\)/s',
-            $this->componentsCss,
-            'on the bg-image band the separator default must route through var(--section-separator-color, var(--color-bg)).'
-        );
-    }
+    // ── Per-line alignment: a PROP since #1023 (issue 510's capability) ──────
+    //
+    // It was an enum STYLE SLOT. v2 components declare none, and this one could not
+    // become a role value either: it sets `justify-content`, a LAYOUT property, and the
+    // UDC taxonomy carries no layout group — the same reason hero kept `split_ratio`
+    // and `vertical_align` as props. It also has to derive a MODIFIER rather than emit a
+    // raw keyword, because the centred mode switches the separator from ::before to
+    // ::after; a role value could never do that. So it is `body_items_align`, with the
+    // same two accepted values and the same default.
 
-    public function testSeparatorColorSlotIsDeclaredInSchema(): void
-    {
-        $schema = json_decode(file_get_contents($this->themeRoot . '/components/section/schema.json'), true);
-        $slots  = $schema['styling']['style_slots'];
-        $this->assertArrayHasKey('--section-separator-color', $slots,
-            'schema must declare the --section-separator-color style slot.');
-        $this->assertSame('color', $slots['--section-separator-color']['type']);
-        $this->assertSame('var(--color-muted)', $slots['--section-separator-color']['default']);
-    }
-
-    // ── Per-line alignment slot (issue 510) ───────────────────────────────
-
-    public function testAlignSlotIsEnumStartCenterDefaultStartInSchema(): void
+    public function testAlignIsAPropWithTheSameTwoValuesAndDefault(): void
     {
         $schema = json_decode(file_get_contents($this->themeRoot . '/components/section/schema.json'), true);
-        $slots  = $schema['styling']['style_slots'];
-        $this->assertArrayHasKey('--section-inline-items-align', $slots,
-            'schema must declare the --section-inline-items-align style slot.');
-        $slot = $slots['--section-inline-items-align'];
-        $this->assertSame('enum', $slot['type'], 'the align slot must be an enum slot.');
-        $this->assertSame(['start', 'center'], $slot['values'],
-            'the align slot must accept exactly start | center.');
-        $this->assertSame('start', $slot['default'],
-            'the align slot must default to start (unchanged historical behavior).');
+        $this->assertArrayNotHasKey('style_slots', $schema['styling'],
+            'section declares no style slots at all, so the align slot cannot be one.');
+
+        $prop = $schema['props']['body_items_align'];
+        $this->assertSame('enum', $prop['type'], 'the align prop must be an enum prop.');
+        $this->assertTrue($prop['strict'], 'the enum must be strict, so an out-of-set value refuses at write.');
+        $this->assertSame(['start', 'center'], $prop['values'],
+            'the align prop must accept exactly start | center, as the slot did.');
+        $this->assertSame('start', $prop['default'],
+            'the align prop must default to start (unchanged historical behavior).');
     }
 
     public function testCenterAlignValueAddsCenterModifierClass(): void
@@ -353,10 +381,10 @@ class SectionInlineItemsTest extends TestCase
         // The renderer reads the validated component style map (top-level style →
         // __pp_style) and derives the --center modifier when the value is center.
         $html = $this->render('section', [
-            'layout'     => 'text-only',
-            'body'       => '<p>Hi</p>',
-            'body_items' => ['One', 'Two', 'Three'],
-            '__pp_style' => ['--section-inline-items-align' => 'center'],
+            'layout'           => 'text-only',
+            'body'             => '<p>Hi</p>',
+            'body_items'       => ['One', 'Two', 'Three'],
+            'body_items_align' => 'center',
         ]);
         $this->assertStringContainsString(
             '<ul class="section__inline-items section__inline-items--center" role="list">',
@@ -378,16 +406,16 @@ class SectionInlineItemsTest extends TestCase
         ]);
         $this->assertStringNotContainsString('section__inline-items--center', $unset,
             'an unset align must not add the --center modifier.');
-        $this->assertStringNotContainsString('--section-inline-items-align', $unset,
-            'an unset align must not emit the inline custom property (byte-identical to before).');
+        $this->assertStringNotContainsString('style=', $unset,
+            'a v2 band emits no style attribute at all — the whole slot map is gone.');
 
-        // Explicit start is a no-op mode: it emits the prop (resolving to flex-start,
-        // the fallback) but never the --center modifier, so it reads left-packed.
+        // Explicit start is a no-op mode: it never adds the --center modifier, so the
+        // row reads left-packed exactly as an unset align does.
         $start = $this->render('section', [
-            'layout'     => 'text-only',
-            'body'       => '<p>Hi</p>',
-            'body_items' => ['One', 'Two'],
-            '__pp_style' => ['--section-inline-items-align' => 'start'],
+            'layout'           => 'text-only',
+            'body'             => '<p>Hi</p>',
+            'body_items'       => ['One', 'Two'],
+            'body_items_align' => 'start',
         ]);
         $this->assertStringNotContainsString('section__inline-items--center', $start,
             'align:start must not add the --center modifier (left-packed).');
@@ -402,24 +430,28 @@ class SectionInlineItemsTest extends TestCase
             'layout'     => 'text-only',
             'body'       => '<p>Hi</p>',
             'body_items' => ['One', 'Two'],
-            '__pp_style' => ['--section-inline-items-align' => 'left'],
+            'body_items_align' => 'left',
         ]);
         $this->assertStringNotContainsString('section__inline-items--center', $html,
             'a non-center align value must not trigger the center modifier (fail-safe to start).');
     }
 
-    public function testFlushTopAndCenterModifiersCombineOnBodyLessCenteredStrip(): void
+    public function testACentredBodyLessStripCarriesOnlyTheCentreModifier(): void
     {
-        // A body-less centered strip carries BOTH derived modifiers.
+        // This case used to assert BOTH derived modifiers. Only one is derived now:
+        // #488's flush-top inference is retired (see the class test above), so a
+        // body-less centred strip is indistinguishable in markup from a centred strip
+        // that follows body copy. The centre modifier is still derived, because it
+        // carries the ::before -> ::after separator switch a role value could not.
         $html = $this->render('section', [
-            'layout'     => 'text-only',
-            'body_items' => ['SOC 2', '99.99% uptime'],
-            '__pp_style' => ['--section-inline-items-align' => 'center'],
+            'layout'           => 'text-only',
+            'body_items'       => ['SOC 2', '99.99% uptime'],
+            'body_items_align' => 'center',
         ]);
         $this->assertStringContainsString(
-            '<ul class="section__inline-items section__inline-items--flush-top section__inline-items--center" role="list">',
+            '<ul class="section__inline-items section__inline-items--center" role="list">',
             $html,
-            'a body-less centered strip must carry both --flush-top and --center modifiers.'
+            'a body-less centered strip carries the --center modifier and nothing else.'
         );
     }
 
@@ -427,16 +459,17 @@ class SectionInlineItemsTest extends TestCase
 
     public function testCenterAlignValidatesThroughComposition(): void
     {
-        // Author the slot through the REAL validate surface (pp_validate_composition
-        // → shared style-slot engine → enum membership check), not a raw meta write.
+        // Rule 14.1: author through the REAL validate surface, not a raw meta write.
+        // The gate is now the PROP enum rather than the style-slot engine's enum, which
+        // is the whole point of the conversion — one fewer authoring surface for the
+        // same capability.
         $composition = [[
             'component' => 'section',
-            'props'     => ['body' => '<p>x</p>', 'body_items' => ['A', 'B']],
-            'style'     => ['--section-inline-items-align' => 'center'],
+            'props'     => ['body' => '<p>x</p>', 'body_items' => ['A', 'B'], 'body_items_align' => 'center'],
         ]];
         $this->assertTrue(
             pp_validate_composition($composition),
-            'align:center must validate through the shared style-slot engine.'
+            'align:center must validate through the composition prop gate.'
         );
     }
 
@@ -444,45 +477,48 @@ class SectionInlineItemsTest extends TestCase
     {
         $composition = [[
             'component' => 'section',
-            'props'     => ['body' => '<p>x</p>', 'body_items' => ['A', 'B']],
-            'style'     => ['--section-inline-items-align' => 'start'],
+            'props'     => ['body' => '<p>x</p>', 'body_items' => ['A', 'B'], 'body_items_align' => 'start'],
         ]];
         $this->assertTrue(
             pp_validate_composition($composition),
-            'align:start must validate through the shared style-slot engine.'
+            'align:start must validate through the composition prop gate.'
         );
     }
 
     public function testOutOfSetAlignValueRejectedByComposition(): void
     {
         // Anything outside the bounded set is rejected at write time (nothing
-        // persists) — the enum slot rejects 'left' exactly as it rejects garbage.
+        // persists). The code changes from `invalid_style_value` to
+        // `invalid_prop_value` with the surface; the guarantee does not.
         $composition = [[
             'component' => 'section',
-            'props'     => ['body' => '<p>x</p>', 'body_items' => ['A', 'B']],
-            'style'     => ['--section-inline-items-align' => 'left'],
+            'props'     => ['body' => '<p>x</p>', 'body_items' => ['A', 'B'], 'body_items_align' => 'left'],
         ]];
         $result = pp_validate_composition($composition);
         $this->assertInstanceOf(\WP_Error::class, $result,
             'an out-of-set align value must be rejected by the authoring surface.');
-        $this->assertSame('invalid_style_value', $result->get_error_code());
+        $this->assertSame('invalid_prop_value', $result->get_error_code());
         $this->assertStringContainsString('start, center', $result->get_error_message(),
             'the rejection must name the accepted value set.');
     }
 
     public function testRenderBoundaryDropsOutOfSetAlignButEmitsValidOne(): void
     {
-        // #330 parity: the render boundary re-validates the enum value set, so a
-        // valid value is emitted as an inline custom property while an out-of-band
-        // value outside {start, center} is dropped (never reaches the DOM).
+        // #330 parity, restated for a prop. The boundary used to re-validate the enum
+        // and emit the survivor as an INLINE CUSTOM PROPERTY; a v2 band emits no style
+        // attribute at all, so the survivor is the derived modifier class instead. The
+        // guarantee is the one that mattered: an out-of-set value reaches the DOM as
+        // nothing, never as a half-applied mode.
         $valid = $this->render('section', [
-            'layout'     => 'text-only',
-            'body'       => '<p>Hi</p>',
-            'body_items' => ['One', 'Two'],
-            '__pp_style' => ['--section-inline-items-align' => 'center'],
+            'layout'           => 'text-only',
+            'body'             => '<p>Hi</p>',
+            'body_items'       => ['One', 'Two'],
+            'body_items_align' => 'center',
         ]);
-        $this->assertStringContainsString('--section-inline-items-align: center', $valid,
-            'a valid enum value must be emitted as an inline custom property.');
+        $this->assertStringContainsString('section__inline-items--center', $valid,
+            'a valid enum value must be emitted as the derived modifier class.');
+        $this->assertStringNotContainsString('style=', $valid,
+            'and never as an inline custom property — a v2 band emits no style attribute.');
 
         $rogue = $this->render('section', [
             'layout'     => 'text-only',
@@ -513,30 +549,28 @@ class SectionInlineItemsTest extends TestCase
         );
     }
 
-    public function testCenterModifierEmitsTrailingSeparatorWithSlotColor(): void
+    public function testCenterModifierEmitsTrailingSeparatorThroughTheSharedMarkerVariable(): void
     {
         // The centered separator is a TRAILING middot on every item except the last
-        // (:not(:last-child)), routed through the SAME --section-separator-color slot.
+        // (:not(:last-child)). Its colour used to route through the
+        // --section-separator-color slot; that slot is retired with the rest of them,
+        // so both modes now read the shared --pp-list-marker-color, whose fallback is
+        // the same accent the slot defaulted to. The BG-IMAGE re-route that mirrored
+        // this rule is gone outright, because `.section--has-bg-image` is not emitted.
         $this->assertMatchesRegularExpression(
             '/\.section__inline-items--center li:not\(:last-child\)::after\s*\{[^}]*content:\s*"\\\\00b7"\s*\/\s*""/s',
             $this->componentsCss,
             'the --center separator must be a trailing middot on li:not(:last-child)::after.'
         );
         $this->assertMatchesRegularExpression(
-            '/\.section__inline-items--center li:not\(:last-child\)::after\s*\{[^}]*color:\s*var\(--section-separator-color,\s*var\(--color-muted\)\)/s',
+            '/\.section__inline-items--center li:not\(:last-child\)::after\s*\{[^}]*color:\s*var\(--pp-list-marker-color,\s*var\(--color-accent\)\)/s',
             $this->componentsCss,
-            'the --center trailing separator color must route through --section-separator-color.'
+            'the --center trailing separator must paint through the shared marker variable.'
         );
-    }
-
-    public function testCenterModifierRoutesTrailingSeparatorOnBgImageBand(): void
-    {
-        // The overlay band remaps the trailing ::after default to the light on-overlay
-        // color, mirroring the ::before rule, so both modes behave identically there.
-        $this->assertMatchesRegularExpression(
-            '/\.section--has-bg-image \.section__inline-items--center li:not\(:last-child\)::after\s*\{[^}]*color:\s*var\(--section-separator-color,\s*var\(--color-bg\)\)/s',
-            $this->componentsCss,
-            'on the bg-image band the --center trailing separator default must route through var(--section-separator-color, var(--color-bg)).'
+        $this->assertStringNotContainsString(
+            'section--has-bg-image',
+            $this->cssDeclarations,
+            'the retired bg-image variant must leave no rule behind.'
         );
     }
 

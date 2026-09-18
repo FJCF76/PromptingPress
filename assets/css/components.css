@@ -3617,13 +3617,7 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
     margin-bottom: var(--faq-heading-margin-bottom, 1.25rem);
   }
 
-  /* Section body split out of the shared mobile type rule (issue 470) so its own
-     --section-body-size / --section-body-weight slots reach it here.
-     The fallback used to CHAIN through var(--cta-body-size, 1rem), so an unset section
-     body followed a CTA slot at this breakpoint — a cta authoring surface acting as a
-     section slot. That chain is severed (issue 578) and the literal is the fallback
-     directly. Byte-identical: --cta-body-size is declared on the CTA component root, so
-     it can never resolve on a .section subtree, and its unset result was always 1rem. */
+
   /* Section's mobile body rule was DELETED at #1023, the last of its four type rules.
      Its values are the `body` role's defaults, responsive, so the phone size (1rem) and
      line-height (1.65) survive alongside the desktop 1.065rem / 1.76 — v1 needed two

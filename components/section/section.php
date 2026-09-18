@@ -264,19 +264,21 @@ $band_attr = $band_id !== '' ? ' data-pp-band="' . esc_attr($band_id) . '"' : ''
 // scope, after .section__content. role="list" keeps list semantics while the
 // CSS-generated separator stays out of the accessibility tree.
 //
-// Flush-top margin (issue 488): the row carries a body-relative top margin only when
-// body copy precedes it. On a body-less strip — the primary #475 "trust strip" use
-// case — that margin would push the row below the band's optical centre, so it zeroes
-// when there is no body copy. Keyed on the SAME trimmed-body notion the content
-// requirement uses, not on the empty string, so a whitespace-only body counts as no
-// body.
-// #730: keyed on the RAW body, and the `is_string` is load-bearing. This flag drives
-// the row's top margin, not whether the body renders. If it read the GUARDED $body it
-// would be testing is_string() against a value the guard has already made a string, so
-// it would be always-true for scalars, and a stored `42` would flip from "no body copy"
-// to "has body copy" — a spacing change for a value the write path accepts. Reading the
-// raw value keeps every scalar byte-identical.
-$has_body_copy = is_string($raw_body) && trim($raw_body) !== '';
+// #488's AUTOMATIC FLUSH-TOP IS RETIRED (#1023), and the `$has_body_copy` flag that
+// drove it is gone with the modifier class. The behaviour was: a body-copy-less strip
+// got its top margin zeroed so the band's symmetric padding centred it optically.
+//
+// It could not survive the rebuild. The modifier's rule lives in `components.css`,
+// which is in `@layer pp-v1`, while the `inline-items` role's `spacing.margin-top`
+// default emits UNLAYERED — so the modifier could never win again whatever it declared.
+// Keeping it would have meant emitting a class in the markup that nothing on the page
+// can act on, which is the reported-success-without-effect class the UDC exists to end.
+//
+// THE CAPABILITY IS STILL REACHABLE, as an author idiom rather than an inference: set
+// `spacing.margin-top: 0` on the `inline-items` role for a strip with no body copy
+// above it. Named in this component's README, the CHANGELOG and the AI-facing authoring
+// docs, so the model teaches the idiom where it used to describe the automatic
+// behaviour.
 $inline_items_html = '';
 if (!empty($body_items)) {
     $items_markup = '';
@@ -292,7 +294,6 @@ if (!empty($body_items)) {
     // modifier carries what a raw keyword cannot (the separator switch + margin),
     // which is why the class is derived here rather than left to a role value.
     $inline_items_class = 'section__inline-items'
-        . ($has_body_copy ? '' : ' section__inline-items--flush-top')
         . ($body_items_align === 'center' ? ' section__inline-items--center' : '');
     $inline_items_html = '<ul class="' . $inline_items_class . '" role="list">' . $items_markup . '</ul>';
 }
