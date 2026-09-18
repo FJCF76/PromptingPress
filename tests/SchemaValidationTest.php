@@ -7041,7 +7041,15 @@ class SchemaValidationTest extends TestCase
      */
     public function testTheRetiredPropsNoteIsNotTreatedAsARetiredProp(): void
     {
-        foreach (['hero', 'testimonials'] as $component) {
+        // Derived, for the reason the sibling test above records: this branch added a THIRD
+        // `retired_props` block carrying a `_note`, and a hand-written roster would not have
+        // covered it.
+        $declaring = array_keys(array_filter(
+            pp_get_registered_components(),
+            static fn (array $schema): bool => isset($schema['retired_props']['_note'])
+        ));
+        $this->assertContains('section', $declaring, 'section declares a retired_props._note');
+        foreach ($declaring as $component) {
             $this->assertArrayNotHasKey('_note', pp_component_retired_props($component));
         }
         // And it IS present in the raw schema, or the docblock it carries is gone.
@@ -7214,18 +7222,42 @@ class SchemaValidationTest extends TestCase
      * A v2 component's slot refusal routes instead of dead-ending (#1007).
      *
      * "Available slots: (none)" read as "this component can no longer be styled", which is
-     * false for every component it fires on. Derived from pp_udc_is_v2_component(), so it
-     * covers each rebuild automatically and cannot drift the way a list of 76 retired slot
-     * names would.
+     * false for every component it fires on. The MESSAGE is derived from
+     * pp_udc_is_v2_component() and the component's own roles, so the refusal cannot drift.
+     *
+     * THE ROSTER IS NOW DERIVED TOO, and it was not (review finding, #1023). The docblock
+     * claimed the test "covers each rebuild automatically", while the loop was the literal
+     * `['hero', 'testimonials']` — so it drifted in exactly the way it said it could not,
+     * and section, the largest v2 surface in the theme at nineteen roles, went uncovered by
+     * the one test that proves this refusal routes. Deriving it means the next rebuild is
+     * covered on the day it lands rather than on the day someone remembers.
      */
     public function testAV2ComponentsSlotRefusalNamesItsRolesInsteadOfSayingNone(): void
     {
-        foreach (['hero', 'testimonials'] as $component) {
+        // Chrome is excluded because it is template-owned and not composable — a
+        // composition naming it is refused earlier, for a different reason.
+        $v2 = array_values(array_filter(
+            array_keys(pp_composable_components()),
+            static fn (string $name): bool => pp_udc_is_v2_component($name)
+        ));
+        $this->assertNotSame([], $v2, 'no v2 composable component found — this test would be vacuous');
+        $this->assertContains('section', $v2, 'section is a v2 component and must be covered here');
+
+        $minimal = [
+            'hero'         => ['title' => 'T'],
+            'testimonials' => ['items' => [['quote' => 'q', 'author' => 'a']]],
+            'section'      => ['body' => '<p>B</p>'],
+        ];
+
+        foreach ($v2 as $component) {
+            $this->assertArrayHasKey(
+                $component,
+                $minimal,
+                "a new v2 component needs a minimal fixture here so this test keeps covering it"
+            );
             $error = pp_validate_composition_item([
                 'component' => $component,
-                'props'     => $component === 'hero'
-                    ? ['title' => 'T']
-                    : ['items' => [['quote' => 'q', 'author' => 'a']]],
+                'props'     => $minimal[$component],
                 'style'     => ['--' . $component . '-bg' => '#fff'],
             ]);
 

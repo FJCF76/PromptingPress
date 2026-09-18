@@ -651,14 +651,14 @@
       "--color-text-secondary",
       "--color-muted",
       "--color-accent",
-      "--color-accent-hover",
       "--color-surface",
       "--color-surface-accent",
       "--radius",
       "--space-xs",
       "--space-sm",
       "--space-md",
-      "--space-lg"
+      "--space-lg",
+      "--space-xl"
     ]
   },
   "safe_to_edit": [

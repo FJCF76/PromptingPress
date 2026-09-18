@@ -1189,4 +1189,114 @@ class SectionTextPanelTest extends TestCase
             $this->sectionBlock()
         );
     }
+
+    /**
+     * SECTION'S TWO `refuse_props_when` RULES ACTUALLY FIRE (#1023).
+     *
+     * ADDED IN REVIEW, and the gap it closes is the interesting part: the rules are a
+     * headline feature of this rebuild — nine props refused on the layouts that render
+     * nothing for them — and before this test NOTHING asserted they fire. Every test that
+     * touches them WORKS AROUND them: WriteRenderGrammarTest, ContainerPropWriteEnforcement,
+     * StringPropWriteEnforcement and ObjectShapedPropWriteEnforcement each set
+     * `layout` explicitly so the refusal does not land on the case they are about, and
+     * SchemaValidationTest's `refusalPartitions()` helper exists to route around it too.
+     * The only positive `inert_prop` cases in the suite were hero's, and nothing grepped
+     * section's shipped refusal messages at all.
+     *
+     * So a typo in either rule's `props` list, or a `when` clause that stopped matching,
+     * would have silently reopened the accepted-but-dead class for all nine props with the
+     * whole suite green. That is exactly the class `inert_prop` exists to close.
+     *
+     * Asserted through the REAL authoring surface, and in BOTH directions: the refusal
+     * fires with its own code and names a route, AND the same prop is accepted on the
+     * layout that does render it — so the rules are proved to NARROW rather than to block.
+     */
+    public function testSectionsRefusePropsWhenRulesFireAndNameTheirRoute(): void
+    {
+        $panelItems = [['label' => 'A', 'value' => '1']];
+
+        // ── Rule 1: the image props, refused on the three layouts with no image column ──
+        foreach (['text-only', 'centered', 'text-panel'] as $layout) {
+            foreach (['image_url' => '/a.png', 'image_id' => 42, 'image_alt' => 'x'] as $prop => $value) {
+                $result = pp_execute_action('create_page', [
+                    'title'       => "Section {$layout} {$prop}",
+                    'composition' => [[
+                        'component' => 'section',
+                        'props'     => array_merge(
+                            ['body' => '<p>Body.</p>', 'layout' => $layout, $prop => $value],
+                            $layout === 'text-panel' ? ['panel_heading' => 'P'] : []
+                        ),
+                    ]],
+                ]);
+
+                $this->assertFalse($result['ok'], "{$prop} on {$layout} must be refused");
+                $this->assertSame('inert_prop', $result['error_code'], 'its own code, not a generic one');
+                $this->assertStringContainsString($prop, $result['error']);
+                // THE ROUTE: the refusal must say which layouts DO render the column, and
+                // must distinguish the content image from the band background — the two are
+                // easy to confuse and the message is the only place an author is told.
+                $this->assertStringContainsString('image-left', $result['error']);
+                $this->assertStringContainsString('background', $result['error']);
+            }
+        }
+
+        // ── Rule 2: the panel props, refused on the four layouts with no panel ──
+        foreach (['text-only', 'centered', 'image-left', 'image-right'] as $layout) {
+            foreach ([
+                'panel_heading'      => 'Plan',
+                'panel_body'         => 'Detail',
+                'panel_items'        => $panelItems,
+                'panel_items_marker' => 'check',
+                'panel_cta_text'     => 'Go',
+                'panel_cta_url'      => '/go',
+            ] as $prop => $value) {
+                $result = pp_execute_action('create_page', [
+                    'title'       => "Section {$layout} {$prop}",
+                    'composition' => [[
+                        'component' => 'section',
+                        'props'     => array_merge(
+                            ['body' => '<p>Body.</p>', 'layout' => $layout, $prop => $value],
+                            in_array($layout, ['image-left', 'image-right'], true)
+                                ? ['image_url' => '/a.png', 'image_alt' => 'x']
+                                : []
+                        ),
+                    ]],
+                ]);
+
+                $this->assertFalse($result['ok'], "{$prop} on {$layout} must be refused");
+                $this->assertSame('inert_prop', $result['error_code'], 'its own code, not a generic one');
+                $this->assertStringContainsString($prop, $result['error']);
+                $this->assertStringContainsString('text-panel', $result['error']);
+            }
+        }
+
+        // ── The other direction: each family is ACCEPTED where it renders ──
+        // Without this the rules could pass by refusing everything, which is the failure
+        // mode a refusal surface is most likely to have.
+        $ok = pp_execute_action('create_page', [
+            'title'       => 'Section image-left accepts its image props',
+            'composition' => [[
+                'component' => 'section',
+                'props'     => [
+                    'body' => '<p>Body.</p>', 'layout' => 'image-left',
+                    'image_url' => '/a.png', 'image_alt' => 'x', 'image_id' => 42,
+                ],
+            ]],
+        ]);
+        $this->assertTrue($ok['ok'], 'image props must be ACCEPTED on image-left: ' . ($ok['error'] ?? ''));
+
+        $ok = pp_execute_action('create_page', [
+            'title'       => 'Section text-panel accepts its panel props',
+            'composition' => [[
+                'component' => 'section',
+                'props'     => [
+                    'body' => '<p>Body.</p>', 'layout' => 'text-panel',
+                    'panel_heading' => 'Plan', 'panel_body' => 'Detail',
+                    'panel_items' => $panelItems, 'panel_items_marker' => 'check',
+                    'panel_cta_text' => 'Go', 'panel_cta_url' => '/go',
+                ],
+            ]],
+        ]);
+        $this->assertTrue($ok['ok'], 'panel props must be ACCEPTED on text-panel: ' . ($ok['error'] ?? ''));
+    }
 }

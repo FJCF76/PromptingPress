@@ -634,6 +634,19 @@ test.describe('Safe-surface rendered proof', () => {
         .locator('#pp-sec-marker .section__content--marker-check > ul > li')
         .first()
         .evaluate((el) => getComputedStyle(el).color);
+      // Asserted as the ACCENT, not merely as "different from the text" (review finding):
+      // an inequality would still pass if a future change dragged the marker onto
+      // --color-muted or --color-border, while the claim above says it kept the accent.
+      // Resolved through the token rather than a literal so a retheme moves both.
+      const accentRgb = await page.evaluate(() => {
+        const el = document.createElement('span');
+        el.style.color = getComputedStyle(document.documentElement).getPropertyValue('--color-accent').trim();
+        document.body.appendChild(el);
+        const rgb = getComputedStyle(el).color;
+        el.remove();
+        return rgb;
+      });
+      expect(marker, `marker keeps the accent @${width}`).toBe(accentRgb);
       expect(marker, `marker @${width}`).not.toBe(markerText);
     }
   });
@@ -8966,6 +8979,14 @@ test.describe('#424/#536/#551 the panel stays a light surface under an authored 
     for (const width of [1280, 768, 375]) {
       await page.setViewportSize({ width, height: 900 });
       await page.goto(`/?page_id=${pageId}`);
+      // Park the virtual pointer OFF the page before every rest read. Playwright's mouse
+      // keeps its coordinates across setViewportSize() and goto(), and step 5 below hovers
+      // the CTA — so without this, iterations 2 and 3 would assert the "at rest" ring while
+      // the pointer was still over it, and the test would pass or fail on cursor position
+      // rather than on the cascade. (Review finding: the sibling hover blocks in this file
+      // avoid it by putting the width in the test NAME, giving each width a fresh context;
+      // this test folds the widths into one body, so it has to park the mouse itself.)
+      await page.mouse.move(0, 0);
       await expect(page.locator('.section__panel')).toBeVisible({ timeout: 10000 });
 
       const read = await page.evaluate(() => {

@@ -181,5 +181,16 @@ class SectionBodyListTest extends TestCase
             $base,
             'base.css must still give every anchor an accent hover — the role relies on it'
         );
+        // THE THIRD FACT, added in review. The docblock above names three values the first
+        // cut of this role declared — colour, DECORATION and hover — and only two were
+        // pinned, so dropping `text-decoration: underline` from base.css would have removed
+        // the underline from every section prose link with this test still green. The point
+        // of the pin is that the role's silence is only safe while base.css carries ALL of
+        // what the role declined to declare.
+        $this->assertMatchesRegularExpression(
+            '/\ba\s*\{[^}]*text-decoration:\s*underline/s',
+            $base,
+            'base.css must still underline every anchor — the role relies on it'
+        );
     }
 }

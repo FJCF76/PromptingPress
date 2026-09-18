@@ -3057,7 +3057,13 @@ describe('CSS lint: v2 components keep NO designable value in their stylesheet',
     // Negative, by the argument above: an explicit leading `-`, or a calc() whose
     // result is negated (`calc(-1 * ...)`, `calc(-1 * (...))`). A calc() that merely
     // CONTAINS a minus — `calc(100% - 1rem)` — is positive and stays an offence.
-    const NEGATIVE_PULL = /^(-[\d.]|calc\(\s*-)/;
+    // Tightened in review. `calc(\s*-` admitted ANY calc() whose text merely STARTS with a
+// minus, so `calc(-0px + var(--space-lg))` and `calc(-1px + 3rem)` were waved through as
+// "geometry" while computing to real positive separation. The rationale above is
+// specifically that a NEGATIVE value cannot be separation — it can only pull a box out of
+// its own flow line — and a calc() that opens negative and adds its way positive is not
+// that. The negating form is what the argument covers.
+const NEGATIVE_PULL = /^(-[\d.]|calc\(\s*-\s*[\d.]+\s*\*)/;
     // A whole-value test FIRST, because a calc() carries spaces of its own and must
     // not be split into meaningless parts. Only a space-separated shorthand of simple
     // parts falls through to the per-part pass.
@@ -3182,6 +3188,11 @@ describe('CSS lint: v2 components keep NO designable value in their stylesheet',
         expect(designOffencesIn(centred)).toEqual([]);
 
         [
+            // A calc() that merely OPENS with a minus and adds its way positive is real
+            // separation, not a pull, and must still fail. The first cut of NEGATIVE_PULL
+            // matched `calc(\s*-` and waved both of these through (review finding).
+            '.section__inline-items { margin-top: calc(-0px + var(--space-lg)); }',
+            '.section__panel { padding: calc(-1px + 3rem); }',
             '.section__inline-items { margin-top: var(--space-md); }',
             '.section__panel { padding: var(--space-lg); }',
             '.section__content { margin: 0 0 1rem; }',
