@@ -167,6 +167,26 @@ unaffected: `body_marker` and `panel_items_marker` still work.
 **The two list markers do not move**: they defaulted to `var(--color-accent)` and the
 token falls back to `var(--color-accent)` for them.
 
+### ⚠️ Narrowed: a `centered` band's body measure is 32px tighter
+
+v1 capped the body from four rules at once, and the one that WON among them (`49rem`) was
+not the one that RENDERED: `.section__content` sits inside `.section__body`, which capped
+at `40rem`, so the 49rem literal never bound. Measured at 375/768/1280, a v1 band rendered
+**640px** on `text-only` and **672px** on `centered` (the image and `text-panel` layouts
+were narrower than either cap and are unaffected).
+
+A v2 role default is per component, not per layout, so one measure serves all five.
+**`40rem` is the default**, chosen so the band you get when you specify nothing is
+byte-identical to v1 — `text-only` is the component's own default `layout`. A `centered`
+band is therefore 32px narrower than it was. **Route back:**
+`"body": {"sizing": {"max-width": "42rem"}}` on that band.
+
+Related, and the same root cause: the `inline-items` strip declares **no type default**,
+because v1's declaration fell back to `inherit` rather than to a value. Copying the body's
+literals onto it rendered 17.04px/430 where v1 rendered 16px/400. And the two paired-row
+type steps (`panel-row-label`'s size and tracking, `panel-row-value`'s weight) are
+**phone-only** maps, because v1 declared them only inside `@media (max-width: 767px)`.
+
 **The separator does move slightly, and the release says so rather than rounding it off.**
 It defaulted to `var(--color-muted)` — not the accent — and that muted default existed to
 make the mark follow its sibling text, delivered by band-class remaps (`--color-muted`
@@ -178,6 +198,12 @@ the row, on every band. **The residual:** on a default light band the middot mov
 `#5e6677` → `#2d3648`, because the row inherits `@color-text-secondary`. Slightly heavier,
 still recessive. **To get the old grey back**, set `--pp-list-marker-color` to
 `@color-muted`.
+
+**Migration, if your separator was a DIFFERENT colour from your body copy.** A band that
+set `--section-separator-color` to an accent over muted text will not reproduce itself —
+`currentColor` makes the mark follow the row. Set `--pp-list-marker-color` to that accent
+instead. It is site-wide rather than per-band, so it covers the case where the contrast
+you wanted is the same across the site, and not the case where it differed band to band.
 
 ### ⚠️ Narrowed: a body-less trust strip no longer flushes its own top margin
 

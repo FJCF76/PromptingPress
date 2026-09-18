@@ -375,7 +375,7 @@
     },
     "body": {
       "selector": ".section__content",
-      "description": "The rich-text body container. Its measure is this role's `sizing.max-width`; the type scale is its `typography`. THE DEFAULT IS THE MEASURED v1 VALUE, NOT THE BASE ONE: v1 capped this element from four rules at once (a 42rem in-block base, a .section--text-only override at --measure-centered, and a desktop `main > .section--text-only` override at 49rem), and the one that actually won on a page was the last. v2 has no layout-specific role defaults, so the four collapse into this single authorable value and 49rem is the one that keeps a default section body wrapping where it wraps today.",
+      "description": "The rich-text body container. Its measure is this role's `sizing.max-width`; the type scale is its `typography`. THE DEFAULT IS THE MEASURED v1 VALUE, AND MEASURED IS THE OPERATIVE WORD. v1 capped this element from four rules at once, and an earlier cut of this rebuild picked 49rem by reading those four and taking the winner — which was wrong, because the winning rule among those targeting an element is not what the element renders. `.section__content` sits inside `.section__body`, which capped at 40rem, so the 49rem literal never bound and a default band rendered at 640px. Measured in a browser at 375/768/1280: text-only 640px, centered 672px, image and panel layouts narrower still. v2 has no layout-specific role defaults, so one value serves all five layouts; 40rem is chosen because `text-only` is this component's own default `layout`, which makes the band an agent gets when it specifies nothing byte-identical to v1. A `centered` band is 32px narrower than it was — set `sizing.max-width` to `42rem` on that band for the old width.",
       "groups": [
         "typography",
         "spacing",
@@ -400,7 +400,7 @@
           "weight": "430"
         },
         "sizing": {
-          "max-width": "49rem"
+          "max-width": "40rem"
         }
       }
     },
@@ -445,7 +445,7 @@
     },
     "inline-items": {
       "selector": ".section__inline-items",
-      "description": "The short-items row rendered after the body (the \"trust strip\"). How the row packs its lines is the `body_items_align` prop, because the taxonomy has no layout group. Its type matched the body's in v1 by reading the same two slots; the role carries the same values directly so a strip keeps its size and weight without the author repeating them. THE SEPARATOR: its GLYPH is a stated default fixed to a middot, and there is no role parameter for it. Fixing the glyph is what lets the separator be a CSS-generated box of exactly var(--space-sm) — never a content character, so it stays out of the accessibility tree (the `/ \"\"` alternative text empties its a11y name) and the left-pull is an exact token value independent of any glyph's advance width. Its COLOUR was the `--section-separator-color` slot and is now the site-wide `--pp-list-marker-color` design token, because the mark is drawn with `content` on a pseudo-element and ruling A3 defers pseudo-elements, so no role can reach it at any value; the token's fallback is this slot's own former default, so nothing moves visually. Reopening condition: a composition needs a non-middot separator, or per-band separator colour; cheap when it comes, because the box is deliberately glyph-independent and a swap would not move the layout.",
+      "description": "The short-items row rendered after the body (the \"trust strip\"). How the row packs its lines is the `body_items_align` prop, because the taxonomy has no layout group. THIS ROLE DELIBERATELY DECLARES NO TYPE DEFAULT, and that is the faithful port rather than an omission. v1 declared `font-size: var(--section-body-size, inherit)` on the row — the fallback is `inherit`, not a value — and the row is a SIBLING of `.section__content`, so the premium body rule never reached it and it inherited from its wrapper (measured 16px/400 at every tier, where copying the body's literals gave 17.04px/430). `inherit` cannot be carried forward as a value; a role that declines to default reproduces it exactly, and it restores the follow-the-body behaviour the shared slot pair used to give. Set `typography` on this role for a slimmer or bolder strip. Its `sizing.max-width` is 40rem for the same reason the `body` role's is: v1 gave both the same cap by sharing one wrapper, and the row's `max-width: 100%` was 100% OF THAT. THE SEPARATOR: its GLYPH is a stated default fixed to a middot, and there is no role parameter for it. Fixing the glyph is what lets the separator be a CSS-generated box of exactly var(--space-sm) — never a content character, so it stays out of the accessibility tree (the `/ \"\"` alternative text empties its a11y name) and the left-pull is an exact token value independent of any glyph's advance width. Its COLOUR was the `--section-separator-color` slot and is now the site-wide `--pp-list-marker-color` design token, because the mark is drawn with `content` on a pseudo-element and ruling A3 defers pseudo-elements, so no role can reach it at any value; the token's fallback is this slot's own former default, so nothing moves visually. Reopening condition: a composition needs a non-middot separator, or per-band separator colour; cheap when it comes, because the box is deliberately glyph-independent and a swap would not move the layout.",
       "groups": [
         "typography",
         "spacing",
@@ -455,18 +455,13 @@
         "motion"
       ],
       "defaults": {
-        "typography": {
-          "size": {
-            "d": "1.065rem",
-            "t": "1.065rem",
-            "p": "1rem"
-          },
-          "weight": "430"
-        },
         "spacing": {
           "column-gap": "@space-md",
           "row-gap": "@space-xs",
           "margin-top": "@space-md"
+        },
+        "sizing": {
+          "max-width": "40rem"
         }
       }
     },
@@ -591,7 +586,7 @@
     },
     "panel-row-label": {
       "selector": ".section__panel-row-label",
-      "description": "The label half of a paired panel row. A DISTINCT VISUAL JOB, which is why it is its own role rather than folded into `panel-row`: stacked on a phone, position no longer separates label from value, so the label is the small tracked one and the value carries the weight (#568, the theme's own stacked key/value idiom). The SIZE step is load-bearing — the theme ships no webfont, so a weight-only treatment renders pixel-identical in a bare font environment. RECORDED BECAUSE IT WAS REVERSED: an earlier cut of the v2 rebuild folded this role and `panel-row-value` into `panel-row` to keep the role count at the precedent ceiling. The rendered evidence overturned that — a count heuristic lost to a load-bearing visual distinction — so do not re-merge them on role-count grounds alone.",
+      "description": "The label half of a paired panel row. A DISTINCT VISUAL JOB, which is why it is its own role rather than folded into `panel-row`: stacked on a phone, position no longer separates label from value, so the label is the small tracked one and the value carries the weight (#568, the theme's own stacked key/value idiom). The SIZE step is load-bearing — the theme ships no webfont, so a weight-only treatment renders pixel-identical in a bare font environment. BOTH PARAMETERS ARE PHONE-ONLY MAPS (a `p` key with `d` and `t` silent), because v1 declared them ONLY inside `@media (max-width: 767px)`: at desktop and tablet the two halves of a row simply inherited, and position did the distinguishing. An earlier cut of this rebuild carried them unconditionally, which restyled the desktop panel — measured v1 at 1280 and 768 is 16px with normal tracking. Naming `d` in the map would reintroduce that: `d` carries no media query and emits in the base tier, so it paints at every width. RECORDED BECAUSE IT WAS REVERSED: an earlier cut of the v2 rebuild folded this role and `panel-row-value` into `panel-row` to keep the role count at the precedent ceiling. The rendered evidence overturned that — a count heuristic lost to a load-bearing visual distinction — so do not re-merge them on role-count grounds alone.",
       "groups": [
         "typography",
         "spacing",
@@ -602,14 +597,18 @@
       ],
       "defaults": {
         "typography": {
-          "size": "0.8125rem",
-          "letter-spacing": "0.04em"
+          "size": {
+            "p": "0.8125rem"
+          },
+          "letter-spacing": {
+            "p": "0.04em"
+          }
         }
       }
     },
     "panel-row-value": {
       "selector": ".section__panel-row-value",
-      "description": "The value half of a paired panel row. Carries the weight that distinguishes it from its label once the row stacks, and the right alignment that does the same job on desktop, where `justify-content: space-between` puts it at the far edge.",
+      "description": "The value half of a paired panel row. Carries the weight that distinguishes it from its label ONCE THE ROW STACKS — so `typography.weight` is a phone-only map (a `p` key with `d` and `t` silent), matching v1, where the rule lived only inside `@media (max-width: 767px)` and the value inherited its weight at wider viewports (measured 400 at 1280 and 768). `typography.align` is the map that does the same distinguishing job on desktop and tablet, where `justify-content: space-between` puts the value at the far edge; it flips to `left` on the phone tier, where the pair shares one left edge.",
       "groups": [
         "typography",
         "spacing",
@@ -620,7 +619,9 @@
       ],
       "defaults": {
         "typography": {
-          "weight": "600",
+          "weight": {
+            "p": "600"
+          },
           "align": {
             "d": "right",
             "t": "right",

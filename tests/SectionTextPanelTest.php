@@ -1062,20 +1062,29 @@ class SectionTextPanelTest extends TestCase
         // renders pixel-identical, which is why the weight is pinned here (where a
         // regex can see the declaration) rather than relied on as visual proof.
         // The label/value treatment is role defaults since #1023, so it is read from the
-        // schema rather than from the mobile at-rule. It is NOT scoped to the phone any
-        // more and that is a deliberate widening: v1 declared it only inside
-        // @media (max-width: 767px), which meant a desktop paired row got no label
-        // treatment at all even though the same distinction helps there. A role default
-        // applies at every width unless an author narrows it.
+        // schema rather than from the mobile at-rule — and it is PHONE-SCOPED, matching v1.
+        //
+        // CORRECTED. An earlier cut of this rebuild carried these three unconditionally and
+        // this comment called it "a deliberate widening", on the reasoning that the same
+        // label/value distinction helps at desktop too. That judgement was overruled on
+        // measurement: v1 declared them only inside @media (max-width: 767px), so a desktop
+        // paired row rendered 16px with normal tracking and an inherited 400 weight
+        // (measured at 1280 and 768), and shipping the phone treatment everywhere restyled
+        // every desktop panel in the theme. A rebuild carries what rendered; a widening is
+        // a product change and does not get to ride along inside one.
+        //
+        // The maps name `p` ONLY. Naming `d` would undo the whole thing — `d` carries no
+        // media query and emits in the base tier, so it paints at every width.
         $label = $schema['roles']['panel-row-label']['defaults']['typography'];
-        $this->assertSame('0.8125rem', $label['size'],
-            'The stacked label needs an explicit size step; weight alone is not guaranteed to render.');
-        $this->assertSame('0.04em', $label['letter-spacing'],
+        $this->assertSame(['p' => '0.8125rem'], $label['size'],
+            'The stacked label needs an explicit size step, and ONLY when stacked.');
+        $this->assertSame(['p' => '0.04em'], $label['letter-spacing'],
             'The stacked label uses the theme eyebrow tracking so it reads as a label.');
         $this->assertSame(
-            '600',
+            ['p' => '600'],
             $schema['roles']['panel-row-value']['defaults']['typography']['weight'],
-            'The stacked value carries the weight, mirroring .hero__surface-value.'
+            'The stacked value carries the weight, mirroring .hero__surface-value — and at '
+            . 'wider viewports it inherits, as it did on v1, because position distinguishes there.'
         );
         $this->assertSame(
             'left',

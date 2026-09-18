@@ -269,9 +269,13 @@ THE BRANCH-FALLBACK SLOTS ARE GONE, and what replaced them is better. `--section
 and viewport, and setting either replaced EVERY branch with one value at every layout and
 viewport. Both components are v2 now: a measure is the `body` / `content` role's
 `sizing.max-width`, which takes a `breakpoints` map, so a per-viewport measure is one value
-per tier instead of one value for all of them. Section's role default is `49rem` — the
-value that actually rendered on v1, which is not the one the old stylesheet read first (see
-components/section/README.md, "Stated defaults").
+per tier instead of one value for all of them. Section's role default is `40rem` — the
+width a v1 band actually RENDERED, which is not the same as the rule that won among those
+targeting the element: the 49rem override never bound, because the element's own wrapper
+capped it at 40rem first. What the branches encoded was a LAYOUT difference (a centered
+band got a wider cap), and a role default is per component, so one measure now serves all
+five layouts; a `centered` band is 32px tighter than it was and sets its own value if that
+matters. See components/section/README.md, "Stated defaults" and "What narrowed".
 
 **Stats display numbers follow the heading system only when you ask (#472).** The big
 metric values are the largest text in the component, but by default they take the page

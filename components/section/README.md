@@ -218,15 +218,24 @@ composition that could not be built — not a hypothesis.
 
 | Default | Why it is a default | What would reopen it |
 |---|---|---|
-| `body` measure: **`max-width: 49rem`** | This is the measure that actually rendered on v1, and it is not the number the old stylesheet read first. Four rules capped `.section__content`, and the desktop `main > .section--text-only` override at `49rem` was the winner; the `42rem` base merely came first in source. The role default carries the value that shipped, not the value that was easiest to read off the file. | A brand specification that needs a different measure — which is one `body` `sizing.max-width` away and needs nothing here to change. |
+| `body` measure: **`max-width: 40rem`** | This is the measure that actually RENDERED on v1, which is not the same as the rule that won. Four rules capped `.section__content` and the desktop `main > .section--text-only` override at `49rem` beat the others — but `.section__content` sits inside `.section__body`, which capped at `40rem`, so the 49rem literal never bound. Measured in a browser at 375/768/1280: a text-only band rendered **640px**, a centered band **672px**, and the image and panel layouts narrower still. v2 has no layout-specific role defaults, so one value serves all five layouts, and `40rem` is chosen because `text-only` is this component's own default `layout` — which makes the band you get when you specify nothing byte-identical to v1. | A brand specification that needs a different measure — one `body` `sizing.max-width` away, needing nothing here to change. |
+| `inline-items` declares **no type default** | v1 declared `font-size: var(--section-body-size, inherit)` on the strip. The fallback is `inherit`, not a value, and the row is a SIBLING of `.section__content`, so the premium body rule never reached it: it inherited from its wrapper and rendered 16px/400, where copying the body's literals gives 17.04px/430. `inherit` cannot be carried forward as a value, so the faithful port is a role that declines to default the parameter — which also restores the follow-the-parent behaviour the shared slot pair used to give. | Nothing: an author who wants a slimmer or bolder strip sets `typography` on the role, which is exactly the surface this default's absence leaves open. |
 | `heading` measure: **`none`** | The section title has never carried a cap, and `section` is the most-used band, so it stays uncapped rather than inheriting the shared `--measure-heading` token. | A composition whose long titles need a cap — again one role value away. |
 | The `body_items` separator **glyph** is fixed to a middot (`content: "\00b7" / ""`) | The separator is CSS-generated, never a content character, so it stays out of the accessibility tree (the `/ ""` alternative text empties its a11y name). Fixing the glyph is what lets the box be exactly `var(--space-sm)` wide, which is why the left-pull is an exact token value independent of any glyph's advance width. | A composition needs a non-middot separator. Cheap when it comes: the box is deliberately glyph-independent, so a swap would not move the layout. |
 | `.section__content p + p { margin-top: 1.05rem }` | A typographic value tuned against the composed-page body scale (`1.065rem` at `line-height: 1.76` on desktop), deliberately ~5% larger than `--space-md` so paragraph separation still reads against that loose leading. Snapping it to `--space-md` for tidiness would be a real 5% regression, not a cleanup. | A site retunes the `body` role's size or leading far from those values and paragraph rhythm stops reading. |
 
 ## What narrowed
 
-Two capabilities are smaller after the rebuild. Both are recorded as narrowings rather
-than moves, and neither is an oversight.
+Three capabilities are smaller after the rebuild. Each is recorded as a narrowing rather
+than a move, and none is an oversight.
+
+**0. A `centered` band's body measure is 32px narrower.** v1 gave `centered` its own
+wrapper cap (`--measure-centered`, 56rem) so it rendered **672px** where `text-only`
+rendered 640px. A v2 role default is per COMPONENT, not per layout, so one measure serves
+all five. `40rem` is the value that makes the default layout byte-identical, which leaves
+`centered` 32px tighter. **Route back:** `"body": {"sizing": {"max-width": "42rem"}}` on
+that band. The image and `text-panel` layouts are unaffected — their columns were already
+narrower than either cap.
 
 **1. Glyph colour is site-wide, not per-band.** `--section-separator-color`,
 `--section-body-marker-color` and `--section-panel-marker-color` were three authorable
@@ -249,10 +258,17 @@ easy. Its fallback is **`currentColor`** instead — the same intent in the mech
 inheritance — so the mark follows whatever colour you gave the row, on every band,
 including ones v1 could not express.
 
-The residual: on a **default light band** the middot moves `#5e6677` → `#2d3648`, because
-the row inherits `@color-text-secondary` rather than `--color-muted`. Slightly heavier,
-still recessive against the item text it sits between. **To get the old grey back**, set
-`--pp-list-marker-color` to `@color-muted` — it still leads the chain.
+The residual: on a **default light band** the middot follows the row's inherited text
+colour rather than `--color-muted`. Slightly heavier, still recessive against the item
+text it sits between. **To get the old grey back**, set `--pp-list-marker-color` to
+`@color-muted` — it still leads the chain.
+
+**If you set `--section-separator-color` to something OTHER than your body text colour,
+read this.** A band that deliberately contrasted its separator against its copy — an
+accent middot over muted text, say — will not reproduce itself: `currentColor` makes the
+mark follow the row. Set `--pp-list-marker-color` to that accent instead. It is a
+site-wide token rather than a per-band value, so this works when the contrast you wanted
+is the same everywhere, and does not when it differed band to band.
 
 **2. The body-less strip no longer flushes its own top margin.** On v1 the template
 inferred `$has_body_copy` and emitted a `--flush-top` modifier that zeroed the

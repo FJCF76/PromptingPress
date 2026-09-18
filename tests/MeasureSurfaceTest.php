@@ -558,7 +558,20 @@ class MeasureSurfaceTest extends TestCase
      * page. Picking the 42rem base — the one that reads first in the file — would have
      * narrowed every default section body by ~7rem.
      */
-    public function testTheSectionBodyMeasureCollapsedToTheBranchThatActuallyWon(): void
+    /**
+     * RENAMED AND CORRECTED (#1023). The previous name — "collapsed to the branch that
+     * actually won" — described the wrong analysis and asserted the wrong number.
+     *
+     * The branch that won among the rules TARGETING `.section__content` was the desktop
+     * `main > .section--text-only` override at 49rem. But that is not what the element
+     * rendered: `.section__content` sits inside `.section__body`, which capped at 40rem,
+     * so the 49rem literal never bound. Measured in a browser, v1 rendered 640px on a
+     * text-only band and 672px on a centered one.
+     *
+     * A winning rule is not a rendered value. The general form of that is recorded as the
+     * threefold-condition lesson (ancestors, media scope, inherit-vs-literal) in #1023.
+     */
+    public function testTheSectionBodyMeasureIsTheOneThatActuallyRendered(): void
     {
         $css = $this->stripComments($this->css());
         preg_match_all('/max-width:\s*var\(\s*--section-body-measure\s*,\s*([^;]+?)\)\s*;/', $css, $m);
@@ -567,10 +580,18 @@ class MeasureSurfaceTest extends TestCase
 
         $schema = json_decode(file_get_contents($this->themeRoot . '/components/section/schema.json'), true);
         $this->assertSame(
-            '49rem',
+            '40rem',
             $schema['roles']['body']['defaults']['sizing']['max-width'],
-            'The body measure must be 49rem — the desktop text-only value that actually '
-            . 'rendered, not the 42rem base that merely read first.'
+            'The body measure must be 40rem — the width a v1 text-only band actually '
+            . 'RENDERED (the .section__body wrapper capped it there), not the 49rem rule '
+            . 'that won among the rules targeting .section__content but never bound.'
+        );
+        // The strip shared that wrapper, so it shared the cap. Pinned together because
+        // they are one fact: `max-width: 100%` on the row meant 100% OF THIS.
+        $this->assertSame(
+            '40rem',
+            $schema['roles']['inline-items']['defaults']['sizing']['max-width'],
+            'the inline-items row must keep the cap its shared wrapper used to give it.'
         );
     }
 

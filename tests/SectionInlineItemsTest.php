@@ -290,19 +290,53 @@ class SectionInlineItemsTest extends TestCase
         );
     }
 
-    public function testInlineItemsCarryTheBodyTypeAsRoleDefaults(): void
+    /**
+     * INVERTED (#1023). The earlier version of this test asserted that the role carries
+     * the body's size and weight as its own defaults — and its own comment contained the
+     * fact that disproves it.
+     *
+     * The comment correctly observed that the row is a SIBLING of `.section__content`, so
+     * dropping the declarations "would have fallen back to the band". That is exactly what
+     * v1 DID: it declared `font-size: var(--section-body-size, inherit)`, whose fallback is
+     * `inherit`, not a value. With the slots unset the row fell back to the band and
+     * rendered 16px/400 — measured at 375/768/1280 — while copying the body's literals into
+     * the role gave 17.04px/430. The premise was right and the conclusion was backwards.
+     *
+     * So the role declares NO typography at all. A role legitimately declining to default
+     * a parameter is the faithful expression of `inherit`, and it restores the
+     * follow-the-parent behaviour the shared slot pair used to give: an author who sizes
+     * the `body` role and wants the strip to match sets the strip too, and one who wants
+     * the strip to follow the band leaves it alone — which is the same design principle as
+     * the separator's `currentColor` fallback.
+     */
+    public function testInlineItemsDeclineToDefaultTheirTypeSoTheRowInheritsAsItDid(): void
     {
-        // v1 gave the row the body's size and weight by reading the SAME two slots
-        // .section__content read (#470), so a 15px/600 brand strip needed no extra
-        // slots. The row is a SIBLING of .section__content, not a descendant, so
-        // dropping those declarations would not have inherited the body's type — it
-        // would have fallen back to the band. The `inline-items` role therefore carries
-        // the same values directly, responsive like the body's.
         $schema = json_decode(file_get_contents($this->themeRoot . '/components/section/schema.json'), true);
-        $type   = $schema['roles']['inline-items']['defaults']['typography'];
-        $this->assertSame('430', $type['weight'], 'the row keeps the body weight');
-        $this->assertSame('1.065rem', $type['size']['d'], 'the row keeps the desktop body size');
-        $this->assertSame('1rem', $type['size']['p'], 'the row keeps the phone body size');
+        $defaults = $schema['roles']['inline-items']['defaults'];
+
+        $this->assertArrayNotHasKey(
+            'typography',
+            $defaults,
+            'the row must declare NO type default: v1\'s fallback was `inherit`, which is '
+            . 'not a value that can be carried forward. Copying the body\'s literals here '
+            . 'renders 17.04px/430 where v1 rendered 16px/400.'
+        );
+
+        // `typography` must still be an ALLOWED group, or the author could not size the
+        // strip at all — declining a DEFAULT is not the same as withholding the surface.
+        $this->assertContains(
+            'typography',
+            $schema['roles']['inline-items']['groups'],
+            'the row must still be typeable by an author, just not defaulted by the theme'
+        );
+
+        // The cap its shared wrapper used to give it, restored on the role.
+        $this->assertSame(
+            '40rem',
+            $defaults['sizing']['max-width'],
+            'v1 capped the row at `max-width: 100%` of a 40rem wrapper; that wrapper is gone'
+        );
+
         $this->assertStringNotContainsString(
             '--section-body-size',
             $this->cssDeclarations,

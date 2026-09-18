@@ -340,7 +340,11 @@ put on `inline-items`. That is what the v1 muted default achieved through band-c
 remaps, which a v2 band has no class for — so set the row's colour on a dark band and the
 separator follows it automatically. Residual on a default light band: the middot is
 `#2d3648` (the row's inherited secondary text) where v1 painted `#5e6677`; set
-`--pp-list-marker-color` to `@color-muted` for the old grey.
+`--pp-list-marker-color` to `@color-muted` for the old grey. **And if a band set the
+separator to a colour DIFFERENT from its body copy** — an accent middot over muted text —
+that will not reproduce itself, because `currentColor` makes the mark follow the row: set
+`--pp-list-marker-color` to that accent instead. It is a site-wide token, so it covers a
+contrast that was the same everywhere and not one that differed band to band.
 
 Per-line alignment when the strip wraps is the **`body_items_align` prop** (`start` |
 `center`, default `start`) — a prop and not a role value, because it selects a wrap
