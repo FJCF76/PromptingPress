@@ -230,12 +230,28 @@ make `412.5` a legitimate weight on a `wght` axis. The keyword set (`normal`, `b
 `lighter`, `bolder`) is unchanged. One validator owns it. This unblocked section's own
 `560`/`430` defaults and the token for hero and testimonials too.
 
-### Fixed before anyone hit it: the starter homepage
+### Fixed before anyone hit it: the starter homepage, twice
 
 `pp_default_homepage_composition()` styled its three section bands with flat slot maps.
 Section has no slots, so **a fresh install's homepage would have failed validation** — a
 defect in the release artifact, not in anything an author writes. Converted to `udc` role
 maps; the seeded composition validates with zero findings.
+
+Converting it surfaced a second defect in the same seed: **the starter was painting a
+border on its panel that v1 never painted.** The v1 rule was
+`border: var(--section-panel-border-width, 0) solid var(--section-panel-border-color, transparent)`,
+and the seed set only the colour — so the width stayed at its `0` fallback and nothing drew.
+The first conversion carried a `1px solid` across, because it read the declaration instead
+of what the element rendered. The starter's panel is borderless again. The band and eyebrow
+keep theirs; v1 set both of those.
+
+### Also fixed here: a background smell that could not see a v2 background
+
+`consecutive_text_sections` warns when several text-only bands run together with nothing to
+break them up. It decided "text-only" from the retired `background_image` prop, which a
+rebuilt section cannot carry — so a v2 band with a real background image or fill still
+counted as bare, and the warning fired on pages that are not monotonous at all. It reads the
+band's `udc` background now. Nothing about the smell's threshold or message changed.
 
 ### Upgrading
 
@@ -263,7 +279,10 @@ refused and each refusal names its route. `wp pp check page` finds them.
 #### Fixed
 - `_pp_validate_font_weight()` accepts the real CSS range, 1–1000 inclusive, decimals
   included (#988).
-- The shipped starter homepage validates again.
+- The shipped starter homepage validates again, and no longer paints a panel border v1
+  never painted.
+- `consecutive_text_sections` reads a v2 band's `udc` background, so a section with a real
+  background image or fill no longer counts as a bare text band.
 
 #### Changed
 - `section`'s stylesheet block: 40,852 → 6,969 bytes. Four families deleted rather than
@@ -294,7 +313,18 @@ refused and each refusal names its route. `wp pp check page` finds them.
   declarer roster still named hero's retired slots.
 - `ai-instructions/style-component.md` named two recipes, `dark-spacious` and
   `accent-panel`, that **no shipped schema declares**. Pre-existing fiction, replaced with
-  cta's real ones.
+  cta's real ones. Its `--overlay-bg` example also named four components that list the
+  token; hero and section retired theirs, so it is two.
+- Counts that this rebuild falsified, re-measured rather than carried forward: the
+  "76 retired slot names" in `lib/wp.php`, `lib/admin.php` and
+  `docs/explanation-validation-scope.md` is **123** (hero 49, section 47, testimonials 27 —
+  nav and footer never had slots to retire), and the `no_style_slots` refusal fires on
+  **five** components, not four. The apply-CLI schema table gains section's four retired
+  props and two refuse rules.
+- The shared marker-colour note claimed all three retired glyph slots keep the value they
+  had. Two do; the separator does not, and the note now says which is which instead of
+  averaging them. Dead references to `.section--has-bg-image` — deleted with the slot map —
+  corrected in cta's scrim comment and in the focus-ring carve-out.
 
 #### Tests
 - The issue-305 subject parser was upgraded rather than worked around. It split selector
