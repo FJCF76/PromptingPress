@@ -5237,6 +5237,10 @@ test.describe('chrome UDC renders (ruling A1)', () => {
 
     // 4. THE RETIREMENT, at the write surface: a stored per-row `style` map is an
     //    undeclared field now and is refused, rather than accepted and silently ignored.
+    //    Back to the admin first — the loop above left us on the front end, where
+    //    `window.ppAiChat` (and so the nonce the write needs) does not exist.
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
     const refused = await updateComposition(page, pageId, [
       {
         component: 'section',
@@ -5440,11 +5444,24 @@ test.describe('chrome UDC renders (ruling A1)', () => {
       expect(r.labelColor).toBe(r.valueColor);
     }
 
-    // The per-row --section-panel-text override still recolours the WHOLE pair at
-    // mobile (the last row carries it), so the new label rule has not stolen the
-    // item_eligible slot from the label half.
-    expect(mobile.rows[mobile.rows.length - 1].labelColor).toBe('rgb(29, 78, 216)');
-    expect(mobile.rows[mobile.rows.length - 1].valueColor).toBe('rgb(29, 78, 216)');
+    // THE PER-ROW OVERRIDE IS RETIRED (#1023), and this pair of assertions is INVERTED
+    // rather than deleted, because the thing it was really guarding still matters.
+    //
+    // It used to prove that #568's new label rule had not stolen the item_eligible
+    // `--section-panel-text` slot from the label half — i.e. that BOTH halves of a
+    // per-row-styled pair took the override. There is no per-item styling in v2: the
+    // engine addresses roles, so a `style` map on a paired row is an undeclared field and
+    // the last row here (which still carries one in the fixture, deliberately) must render
+    // exactly like its siblings.
+    //
+    // The guard that replaces it is the same guard in the other direction: the label and
+    // the value of the LAST row must match the label and value of an ORDINARY row. If a
+    // per-item mechanism ever comes back through #1024, this is the assertion that will
+    // notice — and it notices whether the mechanism reaches one half or both.
+    const lastRow = mobile.rows[mobile.rows.length - 1];
+    const plainRow = mobile.rows[0];
+    expect(lastRow.labelColor, 'a stored per-row style must not recolour the label').toBe(plainRow.labelColor);
+    expect(lastRow.valueColor, 'a stored per-row style must not recolour the value').toBe(plainRow.valueColor);
 
     // 4: the inter-pair rhythm is 16px BETWEEN pairs, and nowhere else. Row 0 follows
     // the string bullet, so it keeps the list's own rhythm (accepted: the ruling is
@@ -8950,6 +8967,15 @@ test.describe('#424/#536/#551 the panel stays a light surface under an authored 
           const el = document.querySelector(sel) as HTMLElement | null;
           return el ? { color: getComputedStyle(el).color, bg: getComputedStyle(el).backgroundColor } : null;
         };
+        // The CTA needs its own reader. It is a BUTTON, so its label reads against the
+        // button's fill, not the panel — and that fill is a background-IMAGE (the shared
+        // premium gradient), so `backgroundColor` returns transparent. Reading the colour
+        // property alone is the exact inverse of the trap #536 documented: a gradient fill
+        // is invisible to a background-color read, the same way a background-colour is
+        // invisible under a gradient. Pull the gradient's stops so the ink can be compared
+        // against the surface it actually sits on.
+        const ctaEl = document.querySelector('.section__panel-cta') as HTMLElement | null;
+        const ctaCs = ctaEl ? getComputedStyle(ctaEl) : null;
         return {
           band: g('main > .section'),
           bandTitle: g('.section__title'),
@@ -8957,6 +8983,11 @@ test.describe('#424/#536/#551 the panel stays a light surface under an authored 
           heading: g('.section__panel-heading'),
           cta: g('.section__panel-cta'),
           item: g('.section__panel-item'),
+          ctaFillStops: ctaCs
+            ? (ctaCs.backgroundImage.match(/rgba?\([^)]*\)/g) ?? []).concat(
+                ctaCs.backgroundColor !== 'rgba(0, 0, 0, 0)' ? [ctaCs.backgroundColor] : [],
+              )
+            : [],
         };
       });
 
@@ -8977,9 +9008,16 @@ test.describe('#424/#536/#551 the panel stays a light surface under an authored 
       expect(read.heading!.color, `panel heading must not take the band title colour @${width}`)
         .not.toBe(read.bandTitle!.color);
 
-      // 3. #551's defect: the CTA's label must read against the panel too.
-      expect(ratio(read.cta!.color, read.panel!.bg), `panel CTA ink vs panel @${width}`)
-        .toBeGreaterThanOrEqual(4.5);
+      // 3. #551's defect, asked correctly: the CTA's label must read against WHATEVER IT
+      //    SITS ON. An unauthored `panel-cta` renders as the bare shared button, which is
+      //    filled by the premium gradient — so the control is every stop of that gradient,
+      //    and the WORST of them must still clear AA. Compared against the fill rather
+      //    than a literal so a retheme moves subject and control together.
+      expect(read.ctaFillStops!.length, `the panel CTA must be FILLED @${width} — an unfilled `
+        + 'button would put its label on the panel, which is #551 exactly')
+        .toBeGreaterThan(0);
+      const worstCta = Math.min(...read.ctaFillStops!.map((stop) => ratio(read.cta!.color, stop)));
+      expect(worstCta, `panel CTA ink vs its own fill @${width}`).toBeGreaterThanOrEqual(4.5);
 
       // 4. And a panel list item, which stayed legible even when #424 was live — kept so a
       //    regression that darkened the whole panel is distinguishable from one that only
