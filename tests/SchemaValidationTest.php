@@ -1452,7 +1452,10 @@ class SchemaValidationTest extends TestCase
         return [
             'body only'                => ['body only', ['body' => '<p>Hi</p>']],
             'body_items only (NEW)'    => ['body_items only', ['body_items' => ['No credit card', 'Cancel anytime']]],
-            'body_items only inverted' => ['body_items only inverted', ['theme' => 'inverted', 'body_items' => ['SOC 2']]],
+            // The dark-band case. `theme: "inverted"` retired with section's slot map
+            // (#1023), so the dark band is now the `_band` role's `background.fill` —
+            // which lives in the band's `udc` map, not in `props`, and is therefore
+            // asserted in testABodyItemsOnlyDarkBandValidates() rather than here.
             'panel_heading only'       => ['panel_heading only', ['layout' => 'text-panel', 'panel_heading' => 'Plan']],
             'panel_body only'          => ['panel_body only', ['layout' => 'text-panel', 'panel_body' => 'Details']],
             'panel_items only'         => ['panel_items only', ['layout' => 'text-panel', 'panel_items' => ['One']]],
@@ -1518,12 +1521,36 @@ class SchemaValidationTest extends TestCase
             'title'       => 'Trust strip page',
             'composition' => [
                 ['component' => 'section', 'props' => [
-                    'theme'      => 'inverted',
                     'body_items' => ['SOC 2 Type II', '99.99% uptime', 'GDPR compliant'],
                 ]],
             ],
         ]);
         $this->assertTrue($ok, 'a body_items-only section must author cleanly via create_page (no body:"" placeholder).');
+    }
+
+    /**
+     * The DARK half of the pin above, which used to ride on `theme: "inverted"` in the
+     * same fixture. #1023 retired that prop, and the replacement is not a prop at all:
+     * it is the `_band` role's `background.fill` in the band's `udc` map. Kept as its own
+     * test because the two now travel on DIFFERENT keys of the band, and a fixture that
+     * quietly dropped the dark case would have left #488's reported shape half-proven.
+     */
+    public function testABodyItemsOnlyDarkBandValidates(): void
+    {
+        $ok = pp_validate_action('create_page', [
+            'title'       => 'Trust strip page, dark',
+            'composition' => [
+                [
+                    'component' => 'section',
+                    'props'     => ['body_items' => ['SOC 2 Type II', '99.99% uptime']],
+                    'udc'       => [
+                        '_band'         => ['background' => ['fill' => '#101828']],
+                        'inline-items'  => ['typography' => ['color' => '#f7f8fa']],
+                    ],
+                ],
+            ],
+        ]);
+        $this->assertTrue($ok, 'a dark body_items-only band must author cleanly through create_page');
     }
 
     public function testFullyEmptySectionRejectedThroughCreatePage(): void
@@ -2163,6 +2190,20 @@ class SchemaValidationTest extends TestCase
      * Every composable component still validates when its item carries exactly its
      * declared schema props — the rule must not false-reject any real prop. This is
      * the acceptance criterion "all components' declared schema props still validate".
+     *
+     * PARTITIONED SINCE #1023, and the reason is a real property of the surface rather
+     * than a test convenience: a component declaring `refuse_props_when` has prop groups
+     * that are MUTUALLY EXCLUSIVE BY DESIGN. Section's `text-panel` layout renders no
+     * image column and its image layouts render no panel, so "all declared props in one
+     * band" is not an authorable state at all and asserting it would be asserting a
+     * defect. There is no single base layout that works — the base has to follow the
+     * props under test.
+     *
+     * So the sweep runs one composition PER GATE VALUE (each declared value of each
+     * gating prop), each carrying every prop that is live at that value, and then asserts
+     * the partition is EXHAUSTIVE: every declared prop was accepted in at least one of
+     * them. That is the original claim, kept whole, on a surface where one band can no
+     * longer hold it. A component with no refuse rules still runs exactly once.
      */
     public function testEveryComposableComponentAcceptsItsDeclaredSchemaProps(): void
     {
@@ -2216,16 +2257,94 @@ class SchemaValidationTest extends TestCase
                 }
             }
 
-            $result = pp_validate_composition([['component' => $name, 'props' => $props]]);
-            $this->assertTrue(
-                $result === true,
-                sprintf(
-                    'Component "%s" must validate with all its declared schema props set; got: %s',
-                    $name,
-                    $result === true ? 'true' : $result->get_error_message()
-                )
+            $accepted = [];
+            foreach ($this->refusalPartitions($schema) as $label => $gate) {
+                $subset = array_diff_key(array_merge($props, $gate), array_flip(
+                    $this->propsRefusedAt($schema, array_merge($props, $gate))
+                ));
+
+                $result = pp_validate_composition([['component' => $name, 'props' => $subset]]);
+                $this->assertTrue(
+                    $result === true,
+                    sprintf(
+                        'Component "%s" must validate with every prop live at %s; got: %s',
+                        $name,
+                        $label,
+                        $result === true ? 'true' : $result->get_error_message()
+                    )
+                );
+                $accepted += array_flip(array_keys($subset));
+            }
+
+            $this->assertSame(
+                [],
+                array_values(array_diff(array_keys($props), array_keys($accepted))),
+                sprintf('Component "%s": these declared props were accepted on NO layout', $name)
             );
         }
+    }
+
+    /**
+     * One prop map per group of mutually-exclusive props a schema declares (#1023).
+     *
+     * Keyed by a human label so a failure names the layout it happened on. A schema with
+     * no `refuse_props_when` yields exactly one empty partition, which is the pre-#1023
+     * behaviour unchanged.
+     *
+     * @return array<string,array<string,mixed>>
+     */
+    private function refusalPartitions(array $schema): array
+    {
+        $gates = [];
+        foreach (($schema['refuse_props_when'] ?? []) as $rule) {
+            foreach (($rule['when'] ?? []) as $clause) {
+                $gate = $clause['prop'] ?? null;
+                if ($gate !== null && !empty($schema['props'][$gate]['values'])) {
+                    $gates[$gate] = $schema['props'][$gate]['values'];
+                }
+            }
+        }
+        if ($gates === []) {
+            return ['every declared prop' => []];
+        }
+
+        $partitions = [];
+        foreach ($gates as $gate => $values) {
+            foreach ($values as $value) {
+                $partitions["{$gate} = \"{$value}\""] = [$gate => $value];
+            }
+        }
+        return $partitions;
+    }
+
+    /**
+     * The props a schema's own `refuse_props_when` rules refuse for these prop values.
+     *
+     * Reads the shipped clauses rather than a table, so the partition follows the schema:
+     * a rebuild that changes which props a layout refuses changes this automatically.
+     *
+     * @return list<string>
+     */
+    private function propsRefusedAt(array $schema, array $props): array
+    {
+        $refused = [];
+        foreach (($schema['refuse_props_when'] ?? []) as $rule) {
+            $met = ($rule['when'] ?? []) !== [];
+            foreach (($rule['when'] ?? []) as $clause) {
+                $value = $props[$clause['prop'] ?? ''] ?? null;
+                if (isset($clause['in'])) {
+                    $met = $met && in_array($value, $clause['in'], true);
+                } elseif (array_key_exists('equals', $clause)) {
+                    $met = $met && $value === $clause['equals'];
+                } else {
+                    $met = $met && ($value !== null && $value !== '' && $value !== []);
+                }
+            }
+            if ($met) {
+                $refused = array_merge($refused, $rule['props'] ?? []);
+            }
+        }
+        return array_values(array_unique($refused));
     }
 
     /**
@@ -2719,10 +2838,15 @@ class SchemaValidationTest extends TestCase
             'faq — all two' => [[
                 ['component' => 'faq', 'props' => ['items' => [['question' => 'Q?', 'answer' => 'A.']]]],
             ]],
-            'section.panel_items — all three' => [[
+            // "all two", not three: the per-row `style` field retired with the v2 rebuild
+            // (#1023) — the engine addresses roles, not items, so a row is styled by the
+            // `panel-row` / `panel-row-label` / `panel-row-value` roles. `layout` is set
+            // because `refuse_props_when` refuses panel props on every other layout and
+            // would land before the field contract this case is about.
+            'section.panel_items — all two' => [[
                 ['component' => 'section', 'props' => [
-                    'title' => 'T', 'body' => 'B',
-                    'panel_items' => [['label' => 'L', 'value' => 'V', 'style' => []]],
+                    'title' => 'T', 'body' => 'B', 'layout' => 'text-panel',
+                    'panel_items' => [['label' => 'L', 'value' => 'V']],
                 ]],
             ]],
         ];
@@ -2774,7 +2898,8 @@ class SchemaValidationTest extends TestCase
         // predicate, so "is this an object?" has exactly one answer.
         $errors = pp_validate_composition_errors([
             ['component' => 'section', 'props' => [
-                'title' => 'T', 'body' => 'B', 'panel_items' => [['L', 'V']],
+                'title' => 'T', 'body' => 'B', 'layout' => 'text-panel',
+                'panel_items' => [['L', 'V']],
             ]],
         ]);
 
@@ -2799,7 +2924,8 @@ class SchemaValidationTest extends TestCase
         // is_array() guard is what keeps rule 5 off it.
         $this->assertTrue(pp_validate_composition([
             ['component' => 'section', 'props' => [
-                'title' => 'T', 'body' => 'B', 'panel_items' => ['plain line', ['label' => 'L', 'value' => 'V']],
+                'title' => 'T', 'body' => 'B', 'layout' => 'text-panel',
+                'panel_items' => ['plain line', ['label' => 'L', 'value' => 'V']],
             ]],
         ]));
     }
@@ -3078,7 +3204,7 @@ class SchemaValidationTest extends TestCase
         // actually reaches the guard instead of being short-circuited earlier.
         $errors = pp_validate_composition_errors([
             ['component' => 'section', 'props' => [
-                'title' => 'T', 'body' => 'B',
+                'title' => 'T', 'body' => 'B', 'layout' => 'text-panel',
                 'panel_items' => [
                     ['L', 'V'],                                  // list entry: skipped, silently
                     ['label' => 'ok', 'vlaue' => 'typo'],        // must still be reported
@@ -5499,7 +5625,52 @@ class SchemaValidationTest extends TestCase
                 $props[$propName] = 'x';
             }
         }
-        return array_merge($props, $overrides);
+        return array_merge($props, $this->unrefusedBase($schema, $overrides), $overrides);
+    }
+
+    /**
+     * The base props a prop-under-test needs so `refuse_props_when` does not fire FIRST.
+     *
+     * Landed with #1023, and it is the generic form of a finding that cost this sprint
+     * several rounds: a sweep that builds "required props plus the one under test" gets an
+     * `inert_prop` refusal instead of the refusal it is asserting, because section's
+     * image and panel props each paint on only some layouts. There is no single base
+     * layout that works — `text-panel` renders no image column and the image layouts
+     * render no panel — so the BASE MUST FOLLOW THE PROP UNDER TEST.
+     *
+     * Derived from the schema's own clauses rather than a per-component table, so cta and
+     * grid inherit it when their rebuilds declare `refuse_props_when` too. Only the `in`
+     * and `equals` operators are answerable here: for `in` any value outside the refused
+     * set will do, and for `equals` any other declared enum value. A clause this cannot
+     * satisfy is left alone, and the caller's own overrides always win.
+     *
+     * @param  array<string,mixed> $overrides the props the caller is actually testing
+     * @return array<string,mixed>
+     */
+    private function unrefusedBase(array $schema, array $overrides): array
+    {
+        $base = [];
+        foreach (($schema['refuse_props_when'] ?? []) as $rule) {
+            if (array_intersect(array_keys($overrides), $rule['props'] ?? []) === []) {
+                continue;
+            }
+            foreach (($rule['when'] ?? []) as $clause) {
+                $gate = $clause['prop'] ?? null;
+                if ($gate === null || array_key_exists($gate, $overrides)) {
+                    continue;
+                }
+                $allowed = $schema['props'][$gate]['values'] ?? [];
+                $refused = $clause['in'] ?? (isset($clause['equals']) ? [$clause['equals']] : null);
+                if ($refused === null || $allowed === []) {
+                    continue;
+                }
+                $usable = array_values(array_diff($allowed, $refused));
+                if ($usable !== []) {
+                    $base[$gate] = $usable[0];
+                }
+            }
+        }
+        return $base;
     }
 
     // ── The definition surface (issue #575) ───────────────────────────────
@@ -5958,9 +6129,16 @@ class SchemaValidationTest extends TestCase
      * calls rejects it.
      *
      * All THREE surfaces that sweep walks, because `values` ships on all three and a
-     * props-only proof would quietly exempt the other two: style slots (today
-     * `section --section-inline-items-align`) and nested `items.<sub>` fields (today
-     * `grid.items[].text_role`) declare enums exactly as top-level props do.
+     * props-only proof would quietly exempt the other two: style slots and nested
+     * `items.<sub>` fields (today `grid.items[].text_role`) declare enums exactly as
+     * top-level props do.
+     *
+     * THE SLOT SURFACE HAS NO SHIPPED ENUM TODAY. `section --section-inline-items-align`
+     * was the last one and #1023 replaced it with the `body_items_align` PROP — which the
+     * sweep does reach, but as a prop, so the slot HALF of the three-surface claim would
+     * have gone unproven. It is pinned separately below against a synthetic slot
+     * declaration through the same entry point, and the count of live slot enums is
+     * asserted to be zero so the synthetic pin is retired the moment a real one ships.
      *
      * Discovered, not hard-coded: the guarantee is about whatever enums are shipped
      * today, so renaming or retiring one must not turn this proof into a no-op. The
@@ -5997,9 +6175,49 @@ class SchemaValidationTest extends TestCase
                 }
             }
         }
-        // 29, not 31: testimonials' `theme` and `title_align` enums went with the v2
-        // rebuild (both recorded in SCHEMA_RENAME_MIGRATION_NOTES).
-        $this->assertSame(25, $checked, 'the shipped `values` inventory changed — re-confirm the sweep reaches it');
+        // Shrinks one rebuild sprint at a time: testimonials' `theme` and `title_align`
+        // went in #958, and section's `theme`, `title_align` and
+        // `--section-inline-items-align` in #1023 — offset by the new
+        // `body_items_align` prop, so 25 -> 22. Every retirement is recorded in
+        // SCHEMA_RENAME_MIGRATION_NOTES / SLOT_RENAME_MIGRATION_NOTES.
+        $this->assertSame(22, $checked, 'the shipped `values` inventory changed — re-confirm the sweep reaches it');
+    }
+
+    /**
+     * The SLOT half of the three-surface claim above, which has no live example since
+     * #1023 retired `--section-inline-items-align`.
+     *
+     * A synthetic declaration is the honest instrument here: the claim is about the
+     * ENGINE reaching the `slot` kind, and the engine is the same entry point either way.
+     * The vacuity guard is the second assertion — the moment a real slot enum ships, this
+     * test fails and gets folded back into the discovered sweep, so the synthetic stand-in
+     * cannot quietly outlive its reason.
+     */
+    public function testTheValuesGuardStillReachesTheSlotSurfaceWithNoLiveSlotEnumShipped(): void
+    {
+        $this->assertNotEmpty(
+            \pp_schema_definition_errors(
+                ['type' => 'enum', 'strict' => true, 'default' => 'start',
+                 'values' => ['start", "forged', 'center'], 'description' => 'synthetic'],
+                'slot',
+                'synthetic --x-align'
+            ),
+            'a forged member on a SLOT declaration must fail the sweep'
+        );
+
+        $live = [];
+        foreach ($this->allSchemas() as $component => $schema) {
+            foreach (($schema['styling']['style_slots'] ?? []) as $name => $def) {
+                if (!empty($def['values'])) {
+                    $live[] = "{$component} {$name}";
+                }
+            }
+        }
+        $this->assertSame(
+            [],
+            $live,
+            'a slot enum ships again — drop this synthetic stand-in and let the discovered sweep cover it'
+        );
     }
 
     /**
@@ -6058,11 +6276,12 @@ class SchemaValidationTest extends TestCase
     {
         $expected = [
             'cta'     => ['--cta-button-bg', '--cta-button-hover-bg', '--cta-button2-bg', '--cta-button2-hover-bg'],
-            // hero's fill family is gone (#986): its CTAs are the `cta` /
-            // `cta-secondary` roles, whose fills are `background.fill` at rest and in
-            // the `:hover` state — no marker needed, because a role parameter is not
-            // a slot the advisory has to recognise by name.
-            'section' => ['--section-panel-cta-bg'],
+            // hero's fill family is gone (#986) and section's with it (#1023): on a v2
+            // component the button fill is the `cta` / `cta-secondary` / `panel-cta`
+            // role's `background.fill` at rest and in the `:hover` state — no marker
+            // needed, because a role parameter is not a slot the advisory has to
+            // recognise by name. cta is the last component that still needs one, and
+            // #1026 retires this row.
         ];
 
         $actual = [];
@@ -6114,9 +6333,20 @@ class SchemaValidationTest extends TestCase
             $this->assertStringNotContainsString('"dark"', $theme['description'] ?? '',
                 "{$component}.theme description must not advertise `dark` either");
         }
-        // Seven, not eight: testimonials dropped `theme` in the v2 rebuild (recorded in
-        // SCHEMA_RENAME_MIGRATION_NOTES). The other eleven components keep it.
-        $this->assertSame(7, $seen, 'all seven theme-bearing components must be checked');
+        // Six, not eight: testimonials dropped `theme` in #958 and section in #1023, both
+        // recorded in SCHEMA_RENAME_MIGRATION_NOTES. The count shrinks by one per rebuild
+        // sprint, so it is asserted against the notes register rather than restated —
+        // a component that loses `theme` without recording the retirement fails here.
+        $retired = array_keys(array_filter(
+            self::SCHEMA_RENAME_MIGRATION_NOTES,
+            static fn (array $notes): bool => isset($notes['theme'])
+        ));
+        $this->assertSame(
+            count($this->allSchemas()) - count($retired) - count(['nav', 'footer', 'table', 'hero']),
+            $seen,
+            'every component except the recorded retirements and the four that never had `theme`'
+        );
+        $this->assertSame(6, $seen, 'all six remaining theme-bearing components must be checked');
     }
 
     /**
@@ -6140,9 +6370,14 @@ class SchemaValidationTest extends TestCase
             'post_meta' => [], 'posts' => [], 'options' => [], 'next_id' => 100, 'custom_css' => '',
         ];
 
+        // RE-HOMED from section to stats (#1023): section has no `theme` prop any more, so
+        // a `theme: "dark"` band there is refused as a RETIRED prop, which proves nothing
+        // about the removed VALUE. stats still carries `theme` and is furthest down the
+        // rebuild queue.
+        $items       = [['number' => '10', 'label' => 'Sites']];
         $composition = [
-            ['component' => 'section', 'props' => ['theme' => 'dark', 'body' => 'Legacy band.']],
-            ['component' => 'section', 'props' => ['theme' => 'inverted', 'body' => 'Canonical band.']],
+            ['component' => 'stats', 'props' => ['theme' => 'dark', 'items' => $items]],
+            ['component' => 'stats', 'props' => ['theme' => 'inverted', 'items' => $items]],
         ];
 
         $result = \pp_validate_action('create_page', ['title' => 'Legacy theme page', 'composition' => $composition]);
@@ -6154,14 +6389,14 @@ class SchemaValidationTest extends TestCase
 
         // Storage route: bytes that predate the removal still render, as the default.
         ob_start();
-        \pp_get_component('section', ['theme' => 'dark', 'body' => 'Legacy band.']);
+        \pp_get_component('stats', ['theme' => 'dark', 'items' => $items]);
         $html = ob_get_clean();
-        $this->assertStringNotContainsString('pp-section--dark', $html, 'a stored `dark` no longer paints the tinted band');
-        $this->assertStringNotContainsString('pp-section--inverted', $html);
-        // The band still renders — it just renders as the DEFAULT band. Note the
-        // base class is `section`; `pp-section` is only the modifier prefix.
-        $this->assertStringContainsString('class="section section--text-only"', $html);
-        $this->assertStringContainsString('Legacy band.', $html);
+        $this->assertStringNotContainsString('stats--dark', $html, 'a stored `dark` no longer paints the tinted band');
+        $this->assertStringNotContainsString('stats--inverted', $html);
+        // The band still renders — it just renders as the DEFAULT band, with no theme
+        // modifier at all.
+        $this->assertStringContainsString('class="stats"', $html);
+        $this->assertStringContainsString('Sites', $html);
     }
 
     /**
@@ -6655,21 +6890,56 @@ class SchemaValidationTest extends TestCase
     }
 
     /**
-     * The `section` trap, pinned by name because it is the one place the two
-     * spellings diverge: the root class is `section` but pp_theme_class() is called
-     * with the `pp-section` prefix, so the theme classes are pp-section--*. A
-     * "consistency cleanup" that renames them to section--* would silently unstyle
+     * REPLACES testSectionThemeClassesKeepThePpSectionPrefix() (#1023).
+     *
+     * The old test pinned section's `pp-section--dark` / `pp-section--inverted` classes by
+     * name, because section was the ONE place the two spellings diverged: its root class
+     * is `section` but pp_theme_class() was called with the `pp-section` prefix, so a
+     * "consistency cleanup" renaming them to `section--*` would have silently unstyled
      * every muted and inverted section band.
+     *
+     * The v2 rebuild retired section's `theme` prop, so those two classes no longer exist
+     * and the by-name pin could only assert their absence — which is not what the test was
+     * protecting. What it was protecting is the DIVERGENCE HAZARD, and that is now pinned
+     * generically and derived from the templates: every component that calls
+     * pp_theme_class() must pass a prefix equal to its own declared root_class, so
+     * reintroducing the divergence anywhere fails here rather than only on section.
+     *
+     * Section's unprefixed root_class is asserted separately, because the structural CSS
+     * and the shared glyph block both select on `.section`.
      */
-    public function testSectionThemeClassesKeepThePpSectionPrefix(): void
+    public function testNoComponentPassesPpThemeClassAPrefixThatDiffersFromItsRootClass(): void
     {
-        $schema = json_decode(file_get_contents($this->themeRoot . '/components/section/schema.json'), true);
-        $declared = $schema['styling']['variant_classes'];
-        $this->assertContains('pp-section--dark', $declared);
-        $this->assertContains('pp-section--inverted', $declared);
-        $this->assertNotContains('section--dark', $declared);
-        $this->assertNotContains('section--inverted', $declared);
-        $this->assertSame('section', $schema['styling']['root_class'], 'the root class itself is unprefixed');
+        $checked = 0;
+
+        foreach ($this->allSchemas() as $component => $schema) {
+            $template = $this->themeRoot . "/components/{$component}/{$component}.php";
+            if (!is_file($template)) {
+                continue;
+            }
+            if (!preg_match_all('/pp_theme_class\(\s*\$?\w+\s*,\s*\'([^\']+)\'/', file_get_contents($template), $m)) {
+                continue;
+            }
+            foreach ($m[1] as $prefix) {
+                $checked++;
+                $this->assertSame(
+                    $schema['styling']['root_class'] ?? null,
+                    $prefix,
+                    "{$component} passes pp_theme_class() the prefix \"{$prefix}\", which is not its root class — "
+                    . 'that divergence is what made section\'s pp-section--* classes a trap before #1023'
+                );
+            }
+        }
+
+        $this->assertGreaterThanOrEqual(5, $checked, 'the theme-bearing templates must still be swept');
+
+        $section = json_decode(file_get_contents($this->themeRoot . '/components/section/schema.json'), true);
+        $this->assertSame('section', $section['styling']['root_class'], 'the root class itself is unprefixed');
+        $this->assertSame(
+            [],
+            preg_grep('/^pp-section--/', $section['styling']['variant_classes']),
+            'the pp-section--* theme classes retired with the `theme` prop (#1023)'
+        );
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────
