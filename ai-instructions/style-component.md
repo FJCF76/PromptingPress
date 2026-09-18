@@ -530,8 +530,7 @@ between two navy bands this exact way). Zeroing that margin closes the seam.
 | Component | Recipe | Description |
 |-----------|--------|-------------|
 | hero | — | No named recipe. `hero` is a v2 component: it has no style slots for a recipe to expand into. Style it through the `udc` map on the band — see the Universal Design Contract section. |
-| section | `accent-panel` | Accent-tinted background with border |
-| section | `spacious-editorial` | Wide body with generous padding |
+| section | — | No named recipe. `section` is a v2 component: it has no style slots for a recipe to expand into. Style it through the `udc` map on the band — see the Universal Design Contract section. The two recipes it used to ship, `accent-panel` and `spacious-editorial`, were bundles of slot values; a `udc` map says the same thing directly, and a custom preset (`save_preset`) is the reusable form. |
 | grid | `dark-showcase` | Dark background with light cards |
 | grid | `dense-cards` | Compact card layout with tight spacing |
 | grid | `uniform-cards` | Neutralize the featured first-card treatment (top bar, texture, glow) for a uniform row |

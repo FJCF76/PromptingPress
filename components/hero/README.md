@@ -171,9 +171,9 @@ forget to switch on — the same posture as the reduced-motion guard.
 
 `assets/css/components.css` keeps only layout scaffolding, wrapper geometry and
 accessibility affordances for this component: the flex/grid skeleton, the split tracks,
-`cover`'s `min-height`, the eyebrow's `align-self`, and the media box's `object-fit` /
-`object-position`. No colour, type, size, spacing, border, shadow or aspect-ratio value
-may be added there — `tests/js/css-lint.test.js` fails CI on one.
+`cover`'s `min-height`, the eyebrow's `align-self`, and the media box's `object-fit`. No
+colour, type, size, spacing, border, shadow, aspect-ratio or object-position value may be
+added there — `tests/js/css-lint.test.js` fails CI on one.
 
 Two helper families were retired with the slot map and are **absent**: the
 `.hero__surface-label` / `-list` / `-item` / `-key` / `-value` classes that used to style
@@ -213,10 +213,15 @@ a role default or structural geometry, so a band that disagrees can already say 
   tablet and phone), deliberately NOT the shared band tier — hero opts out of it, and on
   v2 that opt-out is one role default instead of a pair of stylesheet rules.
 - `title` declares **no colour and no weight**. Both inherit: the colour from the band,
-  the weight from `base.css`'s shared `h1`–`h6` rule. The weight is left there because
-  the theme's `--font-weight-heading` is `650`, which CSS Fonts 4 allows and this
-  engine's `font-weight` grammar does not yet accept — referencing it would ship a
-  default the validator refuses.
+  the weight from `base.css`'s shared `h1`–`h6` rule. THE STATED REASON HAS CHANGED: up
+  to #1023 the weight had to stay in the stylesheet because the theme's
+  `--font-weight-heading` is `650`, which CSS Fonts 4 allows and this engine's
+  `font-weight` grammar refused — referencing it would have shipped a default the
+  validator rejects. #988 fixed the grammar (it now accepts any number from 1 to 1000,
+  decimals included, because variable fonts make them legitimate), so `@font-weight-heading`
+  IS referenceable from a role today. The omission is now a plain inheritance choice
+  rather than a workaround, and setting it explicitly is a one-line change whenever a
+  reason to appears.
 - `title` size is responsive by default: `clamp(3rem, 4.5vw, 4.5rem)` on desktop,
   `clamp(2.5rem, 5vw, 4rem)` below. This is hero's documented exemption from the shared
   band heading scale — an opener is bigger.
@@ -241,10 +246,13 @@ layout now shares one opener rhythm, and a band that wants the compact one sets 
 here while the first v2 cut had moved alignment entirely to the roles, which turned the
 default layout into one that did not do what its name said.)
 
-**2. The media focal point.** `object-position` on the media box is a fixed `center` in
-the stylesheet now. It was the
-v1 `--hero-image-position` slot; the v2 boundary classifies `object-position` as
-structural, so it has a home — but it is no longer author-reachable. Recorded as a
-narrowing rather than a move. Its sibling, the crop RATIO, **is** authorable: it is the
-`media` role's `sizing.aspect-ratio`, a parameter the engine gained because of this
-rebuild.
+**2. The media focal point — NARROWING REVERSED IN #1023.** For one sprint,
+`object-position` on the media box was a fixed `center` in the stylesheet: it was the v1
+`--hero-image-position` slot, and the v2 boundary classified the property as structural,
+so it had a home but was not author-reachable. Section's rebuild carried the same
+property and the same need, and an engine gap is fixed in the engine rather than worked
+around locally — so #1023 added `sizing.object-position` to the taxonomy, moved the
+property out of the stylesheet, and gave hero's `media` role the `center` default it used
+to get from CSS. It is authorable again, on every v2 component, with one home. Its
+sibling the crop RATIO was always authorable: the `media` role's `sizing.aspect-ratio`,
+a parameter the engine gained because of the #986 rebuild.
