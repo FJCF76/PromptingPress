@@ -333,7 +333,14 @@ a strip keeps the band's size and weight without you repeating them; override
 `typography.size` / `.weight` / `.color` on the role for a slimmer or bolder strip. The
 separator's glyph is a fixed middot, and its COLOUR is the site-wide
 `--pp-list-marker-color` token rather than a per-band value — same pseudo-element reason
-as the list markers above.
+as the list markers above. **Its fallback differs from theirs on purpose:** the markers
+fall back to `var(--color-accent)`, which is what they always defaulted to, but the
+separator falls back to **`currentColor`**, so it follows whatever `typography.color` you
+put on `inline-items`. That is what the v1 muted default achieved through band-class
+remaps, which a v2 band has no class for — so set the row's colour on a dark band and the
+separator follows it automatically. Residual on a default light band: the middot is
+`#2d3648` (the row's inherited secondary text) where v1 painted `#5e6677`; set
+`--pp-list-marker-color` to `@color-muted` for the old grey.
 
 Per-line alignment when the strip wraps is the **`body_items_align` prop** (`start` |
 `center`, default `start`) — a prop and not a role value, because it selects a wrap

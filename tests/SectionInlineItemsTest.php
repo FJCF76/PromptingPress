@@ -329,10 +329,24 @@ class SectionInlineItemsTest extends TestCase
         // `--section-separator-color` has no v2 home. Its two rules (the base and the
         // bg-image re-route) went with the slot.
         //
-        // WHAT DID NOT CHANGE IS THE RENDERED COLOUR: the glyph reads
-        // `--pp-list-marker-color`, whose fallback is `var(--color-accent)` — the exact
-        // value the retired slot defaulted to on a default band. The bg-image re-route
-        // has nothing left to re-route, because `.section--has-bg-image` is not emitted.
+        // THE RENDERED COLOUR DOES CHANGE, AND THIS PIN SAYS SO — an earlier draft of this
+        // comment claimed byte-identity by carrying the LIST MARKERS' story onto the
+        // SEPARATOR, and it was wrong. The markers defaulted to `var(--color-accent)` and
+        // still paint it. The separator defaulted to `var(--color-muted)`, and that muted
+        // default existed to make it FOLLOW ITS SIBLING TEXT: on an inverted band
+        // `--color-muted` was remapped to the light on-inverted colour, and
+        // `.section--has-bg-image` carried an explicit re-route to `--color-bg`. Both were
+        // BAND-CLASS remaps; a v2 band has no class, so reusing the literal would have
+        // painted a fixed grey that vanishes on the dark bands v2 makes easy.
+        //
+        // So the fallback is `currentColor` — the same intent in the mechanism v2 has.
+        // Residual, disclosed in three places rather than rounded off: on a default light
+        // band the middot moves #5e6677 -> #2d3648, because the row inherits
+        // `@color-text-secondary`. `--pp-list-marker-color` still leads the chain, so
+        // setting it to `@color-muted` restores the old grey.
+        //
+        // The two halves are asserted separately below, because collapsing them is exactly
+        // the mistake this comment is correcting.
         $this->assertStringNotContainsString(
             '--section-separator-color',
             $this->cssDeclarations,
@@ -345,9 +359,24 @@ class SectionInlineItemsTest extends TestCase
             'section is on the UDC and declares no style slots at all.'
         );
         $this->assertMatchesRegularExpression(
-            '/\.section__inline-items li::before\s*\{[^}]*color:\s*var\(--pp-list-marker-color,\s*var\(--color-accent\)\)/s',
+            '/\.section__inline-items li::before\s*\{[^}]*color:\s*var\(--pp-list-marker-color,\s*currentColor\)/s',
             $this->componentsCss,
-            'the separator keeps painting, through the shared marker variable.'
+            'the separator keeps painting, through the shared marker variable, following its row.'
+        );
+        // The CENTRED mode's trailing glyph must carry the IDENTICAL colour contract, or
+        // `body_items_align` would change the separator's colour as well as its position.
+        $this->assertMatchesRegularExpression(
+            '/\.section__inline-items--center li:not\(:last-child\)::after\s*\{[^}]*color:\s*var\(--pp-list-marker-color,\s*currentColor\)/s',
+            $this->componentsCss,
+            'the centred trailing separator must share the leading one\'s colour contract.'
+        );
+        // …and the LIST MARKERS must NOT have been dragged along with it: their accent
+        // default is correct and unchanged, and conflating the two is what produced the
+        // false byte-identity claim this test now corrects.
+        $this->assertMatchesRegularExpression(
+            '/\.section__content--marker-arrow > ul > li::before\s*\{[^}]*color:\s*var\(--pp-list-marker-color,\s*var\(--color-accent\)\)/s',
+            $this->componentsCss,
+            'the body list marker keeps the accent fallback it always painted.'
         );
     }
 
@@ -553,19 +582,26 @@ class SectionInlineItemsTest extends TestCase
     {
         // The centered separator is a TRAILING middot on every item except the last
         // (:not(:last-child)). Its colour used to route through the
-        // --section-separator-color slot; that slot is retired with the rest of them,
-        // so both modes now read the shared --pp-list-marker-color, whose fallback is
-        // the same accent the slot defaulted to. The BG-IMAGE re-route that mirrored
-        // this rule is gone outright, because `.section--has-bg-image` is not emitted.
+        // --section-separator-color slot; that slot is retired with the rest of them, so
+        // both modes read the shared --pp-list-marker-color — falling back to
+        // `currentColor`, NOT to the accent the two list markers take. See
+        // testTheSeparatorColourIsNoLongerAuthorable() for why the separator's fallback
+        // differs from theirs, and for the residual that difference leaves.
+        //
+        // The point of asserting it HERE too is that the two modes must not diverge: if
+        // only one carried `currentColor`, `body_items_align` would silently change the
+        // separator's COLOUR as well as its position, which is not what the prop selects.
+        // The BG-IMAGE re-route that mirrored this rule is gone outright, because
+        // `.section--has-bg-image` is not emitted.
         $this->assertMatchesRegularExpression(
             '/\.section__inline-items--center li:not\(:last-child\)::after\s*\{[^}]*content:\s*"\\\\00b7"\s*\/\s*""/s',
             $this->componentsCss,
             'the --center separator must be a trailing middot on li:not(:last-child)::after.'
         );
         $this->assertMatchesRegularExpression(
-            '/\.section__inline-items--center li:not\(:last-child\)::after\s*\{[^}]*color:\s*var\(--pp-list-marker-color,\s*var\(--color-accent\)\)/s',
+            '/\.section__inline-items--center li:not\(:last-child\)::after\s*\{[^}]*color:\s*var\(--pp-list-marker-color,\s*currentColor\)/s',
             $this->componentsCss,
-            'the --center trailing separator must paint through the shared marker variable.'
+            'the --center trailing separator must paint through the shared marker variable, following its row.'
         );
         $this->assertStringNotContainsString(
             'section--has-bg-image',

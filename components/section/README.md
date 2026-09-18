@@ -233,10 +233,26 @@ than moves, and neither is an oversight.
 per-band colours. Every one of those marks is drawn with `content` on a `::before` or
 `::after`, and **ruling A3 defers pseudo-elements to their own ruling**, so no role can
 express them at any value — they are mechanism by construction, not by classification.
-Their colour now flows from the site-wide `--pp-list-marker-color` design token, whose
-fallback is `var(--color-accent)`: the exact value all three slots defaulted to, so
-nothing moves visually. What is lost is per-band control. Set the token to recolour every
-glyph in the site at once.
+Their colour now flows from the site-wide `--pp-list-marker-color` design token. Set it to
+recolour every glyph in the site at once; what is lost is per-band control.
+
+**The two LIST MARKERS are unchanged**: they defaulted to `var(--color-accent)` and the
+token's fallback for them is `var(--color-accent)`, so nothing moves.
+
+**The SEPARATOR is not, and this is stated rather than rounded off.** It defaulted to
+`var(--color-muted)`, not to the accent — and that muted default existed to make the mark
+FOLLOW ITS SIBLING TEXT: on an inverted band `--color-muted` was remapped to the light
+on-inverted colour, and a background-image band had an explicit rule routing it to
+`--color-bg`. Both were band-class remaps, and a v2 band has no class, so re-using the
+literal would have painted a fixed grey that vanishes on exactly the dark bands v2 makes
+easy. Its fallback is **`currentColor`** instead — the same intent in the mechanism v2 has,
+inheritance — so the mark follows whatever colour you gave the row, on every band,
+including ones v1 could not express.
+
+The residual: on a **default light band** the middot moves `#5e6677` → `#2d3648`, because
+the row inherits `@color-text-secondary` rather than `--color-muted`. Slightly heavier,
+still recessive against the item text it sits between. **To get the old grey back**, set
+`--pp-list-marker-color` to `@color-muted` — it still leads the chain.
 
 **2. The body-less strip no longer flushes its own top margin.** On v1 the template
 inferred `$has_body_copy` and emitted a `--flush-top` modifier that zeroed the

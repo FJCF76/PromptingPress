@@ -160,10 +160,24 @@ every row; a stored per-row `style` key is now an undeclared field and refused a
 `--section-panel-marker-color` were three per-band colours. Every one of those marks is
 drawn with `content` on a `::before`/`::after`, and pseudo-elements are deferred to their
 own ruling, so **no role can express them at any value.** Their colour now comes from the
-site-wide `--pp-list-marker-color` design token, whose fallback is `var(--color-accent)` —
-the exact value all three slots defaulted to, so **nothing moves visually.** What is lost
-is per-band control; set the token with `update_design_tokens` to recolour every glyph at
-once. The glyph CHOICE is unaffected: `body_marker` and `panel_items_marker` still work.
+site-wide `--pp-list-marker-color` design token; set it with `update_design_tokens` to
+recolour every glyph at once. What is lost is per-band control. The glyph CHOICE is
+unaffected: `body_marker` and `panel_items_marker` still work.
+
+**The two list markers do not move**: they defaulted to `var(--color-accent)` and the
+token falls back to `var(--color-accent)` for them.
+
+**The separator does move slightly, and the release says so rather than rounding it off.**
+It defaulted to `var(--color-muted)` — not the accent — and that muted default existed to
+make the mark follow its sibling text, delivered by band-class remaps (`--color-muted`
+became the light on-inverted colour on an inverted band; a background-image band routed it
+to `--color-bg`). A v2 band has no class, so reusing the literal would have painted a fixed
+grey that vanishes on the dark bands v2 makes easy. Its fallback is **`currentColor`**
+instead: the same intent in the mechanism v2 has, so the mark follows the colour you gave
+the row, on every band. **The residual:** on a default light band the middot moves
+`#5e6677` → `#2d3648`, because the row inherits `@color-text-secondary`. Slightly heavier,
+still recessive. **To get the old grey back**, set `--pp-list-marker-color` to
+`@color-muted`.
 
 ### ⚠️ Narrowed: a body-less trust strip no longer flushes its own top margin
 
