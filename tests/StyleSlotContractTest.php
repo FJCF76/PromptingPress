@@ -2226,7 +2226,7 @@ class StyleSlotContractTest extends TestCase
         // the weight the source-order check below depends on is unchanged.
         $chromeExclusion = ':not(:where([data-pp-chrome]))';
         $selects = false;
-        foreach (explode(',', $rule['selector']) as $part) {
+        foreach (self::splitTopLevel($rule['selector'], ',') as $part) {
             $part = trim($part);
             if ($part === $surface || $part === $surface . $chromeExclusion) {
                 $selects = true;
@@ -2876,7 +2876,7 @@ class StyleSlotContractTest extends TestCase
             preg_match_all('/([^{}]+)\{([^{}]*)\}/s', $css, $rules, PREG_SET_ORDER);
 
             foreach ($rules as $rule) {
-                foreach (explode(',', $rule[1]) as $part) {
+                foreach (self::splitTopLevel($rule[1], ',') as $part) {
                     $part = trim($part);
                     if ($part === '' || !$this->subjectIsAutomaticMatch($part)) {
                         continue;
@@ -2911,8 +2911,8 @@ class StyleSlotContractTest extends TestCase
      */
     private function subjectIsAutomaticMatch(string $selectorPart): bool
     {
-        $part      = trim(preg_replace('/\s*[>+~]\s*/', ' ', $selectorPart));
-        $compounds = preg_split('/\s+/', $part);
+        $part      = trim(self::flattenCombinators($selectorPart));
+        $compounds = self::splitTopLevel($part, ' ');
         $subject   = (string) end($compounds);
         if ($subject === '' || preg_match('/[.#\[]/', $subject)) {
             return false;
@@ -3095,10 +3095,135 @@ class StyleSlotContractTest extends TestCase
      * if present, so `.grid__item::before` is a different box than `.grid__item`.
      * Combinators are normalized to spaces first, so `a>b` and `a > b` agree.
      */
+    /**
+     * THE PARSER UPGRADE'S OWN PROOF, replacing the fail-fast guard that used to stand in
+     * for it inside slotBypassOffenders().
+     *
+     * Asserted in BOTH directions, because a permissive split would pass the old guard's
+     * job while quietly attributing nothing:
+     *
+     *   1. a comma inside :is()/:where()/:not() does NOT end a selector-list part;
+     *   2. a descendant space inside one does NOT end a compound;
+     *   3. `:nth-child(2n+1)`'s `+` is arithmetic and does NOT become a combinator;
+     *   4. real top-level delimiters still split; and
+     *   5. `.p :is(.a, .b)` yields BOTH subjects — the case the old parser could not
+     *      express at all, so the upgrade is a correctness fix and not a relaxation.
+     *
+     * The last one is the detection proof: the bypass guard can only police a subject it
+     * can name, so a list-valued subject silently reducing to zero subjects would make
+     * the whole check vacuous on exactly the rules v2 introduces.
+     */
+    public function testTheSubjectParserSplitsAtParenDepthZero(): void
+    {
+        $split = static fn (string $s, string $d): array => (function (string $s, string $d) {
+            $m = new \ReflectionMethod(self::class, 'splitTopLevel');
+            $m->setAccessible(true);
+            return $m->invoke(null, $s, $d);
+        })($s, $d);
+
+        $this->assertSame(
+            ['.section__content :is(ul, ol)'],
+            $split('.section__content :is(ul, ol)', ','),
+            'a comma inside :is() must not end a selector-list part'
+        );
+        $this->assertSame(
+            ['.a:not(.b, .c)', '.d'],
+            $split('.a:not(.b, .c), .d', ','),
+            'a real top-level comma must still split'
+        );
+        $this->assertSame(
+            ['.section__content', ':is(ul, ol)'],
+            $split('.section__content :is(ul, ol)', ' '),
+            'a descendant space inside :is() must not end a compound'
+        );
+        $this->assertSame(
+            ['.x:nth-child(2n+1)'],
+            $split('.x:nth-child(2n+1)', '>+~ '),
+            "nth-child's `+` is arithmetic, not a combinator"
+        );
+
+        $tokens = new \ReflectionMethod(self::class, 'subjectTokens');
+        $tokens->setAccessible(true);
+        $this->assertSame(
+            ['.a', '.b'],
+            $tokens->invoke(null, '.p :is(.a, .b)'),
+            'a list-valued subject must yield BOTH subjects — zero would make the bypass guard vacuous here'
+        );
+        // KNOWN BOUND, pinned so it is a recorded over-approximation rather than a
+        // surprise: subjectTokens() scans every `.class` in the subject compound, so a
+        // `:not()` argument is claimed as a subject too. That errs toward claiming MORE
+        // subjects than the selector really has, which makes the bypass guard stricter
+        // and therefore fail-loud. It predates #1023 and the parser upgrade does not
+        // change it — only the SPLIT moved, not what counts as a class token.
+        $this->assertSame(
+            ['.y', '.z'],
+            $tokens->invoke(null, '.x > .y:not(.z)'),
+            'the subject is the last compound, and every class in it is claimed'
+        );
+    }
+
+    /**
+     * THE ISSUE-305 PARSER UPGRADE that #1023's shared glyph block required.
+     *
+     * Every selector split in this file used `explode(',', ...)` for the selector list
+     * and `preg_split('/\s+/', ...)` for the compounds, and both are wrong the moment a
+     * functional pseudo-class carries a comma: `.section__content :is(ul, ol)` splits
+     * into `.section__content :is(ul` and ` ol)`, which mis-attributes every subject in
+     * the rule. A guard used to fail fast on any comma inside `:is()`/`:where()` with the
+     * note "must be upgraded first". v2 Sprint 2 is where that bill came due: the shared
+     * prose-list rule is written as `:is(ul, ol)` rather than as a comma list precisely so
+     * a scoping prefix cannot leave half the list unscoped, so the construct is now
+     * load-bearing and the parser is the thing that had to move.
+     *
+     * Splits on $delims only at PAREN DEPTH ZERO, so a comma (or a descendant space)
+     * inside `:is()`, `:where()`, `:not()` or `nth-child()` stays with its owner. The
+     * fix is correct rather than merely permissive: `.p :is(.a, .b)` now yields `.a` and
+     * `.b` as the two subjects it really has, which the old parser could not express at
+     * all. Empty parts are dropped so a trailing delimiter cannot produce a blank subject.
+     *
+     * @param  string $delims one or more single-character delimiters
+     * @return list<string>
+     */
+    private static function splitTopLevel(string $selector, string $delims): array
+    {
+        $parts = [];
+        $buf   = '';
+        $depth = 0;
+        $len   = strlen($selector);
+
+        for ($i = 0; $i < $len; $i++) {
+            $char = $selector[$i];
+            if ($char === '(') {
+                $depth++;
+            } elseif ($char === ')') {
+                $depth = max(0, $depth - 1);
+            }
+            if ($depth === 0 && strpos($delims, $char) !== false) {
+                $parts[] = $buf;
+                $buf     = '';
+                continue;
+            }
+            $buf .= $char;
+        }
+        $parts[] = $buf;
+
+        return array_values(array_filter(array_map('trim', $parts), static fn (string $p): bool => $p !== ''));
+    }
+
+    /**
+     * Combinators to descendant spaces, WITHOUT reaching inside a functional
+     * pseudo-class — `:nth-child(2n+1)` carries a `+` that is arithmetic, not a
+     * combinator, and the old blanket preg_replace turned it into a compound boundary.
+     */
+    private static function flattenCombinators(string $selectorPart): string
+    {
+        return implode(' ', self::splitTopLevel($selectorPart, '>+~ '));
+    }
+
     private static function subjectTokens(string $selectorPart): array
     {
-        $part      = trim(preg_replace('/\s*[>+~]\s*/', ' ', $selectorPart));
-        $compounds = preg_split('/\s+/', $part);
+        $part      = trim(self::flattenCombinators($selectorPart));
+        $compounds = self::splitTopLevel($part, ' ');
         $last      = end($compounds);
 
         $pseudo = '';
@@ -3147,19 +3272,14 @@ class StyleSlotContractTest extends TestCase
     {
         $strippedCss = $this->stripComments($css);
 
-        // The subject parser splits selector lists on commas, so a COMMA inside
-        // :is()/:where() would mis-attribute subjects. That comma is the hazard —
-        // not the construct. `:where()` without one parses correctly here and is
-        // load-bearing since v2 Sprint 0, where the shared adjacent-band rhythm
-        // rule is wrapped in it precisely so it contributes no specificity and an
-        // authored v2 band block outranks it. So the guard is scoped to the real
-        // failure mode: a comma-bearing functional pseudo-class still fails fast
-        // and forces the parser upgrade.
-        $this->assertDoesNotMatchRegularExpression(
-            '/:(?:is|where)\s*\([^()]*,/',
-            $strippedCss,
-            'components.css uses a COMMA inside :is()/:where() — the issue 305 subject parser splits selector lists on commas and must be upgraded first.'
-        );
+        // A COMMA inside :is()/:where() used to fail fast here with "the issue 305
+        // subject parser splits selector lists on commas and must be upgraded first".
+        // #1023 paid that bill — splitTopLevel() splits at paren depth zero only — so the
+        // construct is now parsed rather than refused, and the proof lives in
+        // testTheSubjectParserSplitsAtParenDepthZero() beside the helper's own contract.
+        // The guard is gone rather than relaxed: keeping an assertion that the CSS avoids
+        // a construct the parser now handles would forbid the correct spelling of the
+        // shared prose-list rule.
 
         $slotToComponent = [];
         foreach ($slotsByComponent as $component => $slots) {
@@ -3195,7 +3315,7 @@ class StyleSlotContractTest extends TestCase
                     if ($compatibleTypes !== null && !in_array($slotType, $compatibleTypes, true)) {
                         continue;
                     }
-                    foreach (explode(',', $selector) as $part) {
+                    foreach (self::splitTopLevel($selector, ',') as $part) {
                         foreach (self::subjectTokens($part) as $token) {
                             if (self::blockOf(preg_replace('/::.*$/', '', $token)) === $component) {
                                 // A SET of slots per (subject, property): a shorthand
@@ -3233,7 +3353,7 @@ class StyleSlotContractTest extends TestCase
             foreach ($rules as $rule) {
                 $selector = $rule[1];
                 $isSubject = false;
-                foreach (explode(',', $selector) as $part) {
+                foreach (self::splitTopLevel($selector, ',') as $part) {
                     if (in_array($token, self::subjectTokens($part), true)) {
                         $isSubject = true;
                         break;

@@ -57,7 +57,7 @@
       "item_max_length": 80,
       "required": false,
       "default": [],
-      "description": "Optional row of short plain-text items rendered after the body with a separator between them (the \"trust strip\" pattern). Each entry is a plain-text string (escaped, no HTML); at most 8 items, each at most 80 characters — a write that exceeds either bound, or carries a non-string entry, is rejected. Renders only when non-empty; when both body and body_items are set the row renders after the body. The row itself is the `inline-items` role, so its type, colour, gaps and separator colour are that role's `udc` values — and `body_items_align` selects the wrap technique. Not for multi-line content — use body or panel_items for that."
+      "description": "Optional row of short plain-text items rendered after the body with a separator between them (the \"trust strip\" pattern). Each entry is a plain-text string (escaped, no HTML); at most 8 items, each at most 80 characters — a write that exceeds either bound, or carries a non-string entry, is rejected. Renders only when non-empty; when both body and body_items are set the row renders after the body. The row itself is the `inline-items` role, so its type, colour and gaps are that role's `udc` values, and `body_items_align` selects the wrap technique. The SEPARATOR is not a role value: its glyph is a stated middot and its colour is the site-wide `--pp-list-marker-color` design token — see the `inline-items` role description for why. Not for multi-line content — use body or panel_items for that."
     },
     "body_items_align": {
       "type": "enum",
@@ -445,7 +445,7 @@
     },
     "inline-items": {
       "selector": ".section__inline-items",
-      "description": "The short-items row rendered after the body (the \"trust strip\"). Its separator glyph is structural; how the row packs its lines is the `body_items_align` prop, because the taxonomy has no layout group. Its type matched the body's in v1 by reading the same two slots; the role carries the same values directly so a strip keeps its size and weight without the author repeating them.",
+      "description": "The short-items row rendered after the body (the \"trust strip\"). How the row packs its lines is the `body_items_align` prop, because the taxonomy has no layout group. Its type matched the body's in v1 by reading the same two slots; the role carries the same values directly so a strip keeps its size and weight without the author repeating them. THE SEPARATOR: its GLYPH is a stated default fixed to a middot, and there is no role parameter for it. Fixing the glyph is what lets the separator be a CSS-generated box of exactly var(--space-sm) — never a content character, so it stays out of the accessibility tree (the `/ \"\"` alternative text empties its a11y name) and the left-pull is an exact token value independent of any glyph's advance width. Its COLOUR was the `--section-separator-color` slot and is now the site-wide `--pp-list-marker-color` design token, because the mark is drawn with `content` on a pseudo-element and ruling A3 defers pseudo-elements, so no role can reach it at any value; the token's fallback is this slot's own former default, so nothing moves visually. Reopening condition: a composition needs a non-middot separator, or per-band separator colour; cheap when it comes, because the box is deliberately glyph-independent and a swap would not move the layout.",
       "groups": [
         "typography",
         "spacing",
