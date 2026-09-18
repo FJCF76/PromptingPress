@@ -49,11 +49,38 @@ class MeasureSurfaceTest extends TestCase
     // shared token still governs it — through the engine rather than through a slot.
     private const ROUTED = ['cta', 'grid', 'faq', 'stats', 'table', 'embed', 'logos'];
 
-    /** The two exempt from it, both uncapped by default and for different reasons. */
-    // hero left this surface in #986: its heading measure is the `title` role's
-    // `sizing.max-width` and its content measure the `content` role's, both in
-    // components/hero/schema.json rather than as slots.
-    private const EXEMPT = ['section'];
+    /**
+     * EMPTY SINCE #1023, and kept rather than deleted because the emptiness is the fact.
+     *
+     * This held the components that declared a heading-measure slot but deliberately did
+     * NOT route the shared --measure-heading token — an intentional difference a later
+     * "consistency" pass must not quietly fold in. hero left the whole surface at #986,
+     * section at #1023, and they were the only two entries. Both now cap their heading
+     * through a role's `sizing.max-width` instead of a slot: hero's `title`, section's
+     * `heading` (declared `none`, the uncapped value section's slot defaulted to).
+     *
+     * The constant stays so the ROUTED-vs-EXEMPT distinction keeps a name, and so a
+     * component that needs the exemption again has somewhere to be declared. Every loop
+     * over it below is guarded by the emptiness pin directly under this comment, so an
+     * empty set cannot make a test pass vacuously.
+     */
+    private const EXEMPT = [];
+
+    /**
+     * The guard that stops EXEMPT's emptiness reading as "all clear" (#1023).
+     *
+     * Three tests below loop over EXEMPT, and a foreach over [] asserts nothing while
+     * reporting green. That is the vacuous-pass class, so the emptiness is asserted
+     * OUT LOUD here: if a component is ever added back, this fails and the reader is
+     * sent to the loops that then start doing work again.
+     */
+    public function testTheExemptRosterIsEmptyAndItsLoopsAreThereforeInert(): void
+    {
+        $this->assertSame([], self::EXEMPT,
+            'EXEMPT is empty since hero (#986) and section (#1023) left the slot surface. '
+            . 'If you add a component here, the three loops over EXEMPT below stop being '
+            . 'inert — read them before trusting a green run.');
+    }
 
     private string $themeRoot;
 
@@ -201,7 +228,9 @@ class MeasureSurfaceTest extends TestCase
     /** The four prose components declare a body measure; testimonials deliberately does not. */
     public function testTheFourProseComponentsDeclareABodyMeasure(): void
     {
-        foreach (['section', 'cta', 'faq', 'embed'] as $component) {
+        // section left this roster at #1023: its body measure is the `body` role's
+        // `sizing.max-width`. Three prose components still declare the slot.
+        foreach (['cta', 'faq', 'embed'] as $component) {
             $this->assertArrayHasKey(
                 "--{$component}-body-measure",
                 $this->slots($component),
@@ -301,8 +330,11 @@ class MeasureSurfaceTest extends TestCase
                 . 'plain `length` grammar rather than silently widening to accept `none`.'
             );
         }
+        // --section-heading-measure left this set at #1023: section's heading cap is the
+        // `heading` role's `sizing.max-width`, declared `none` — the same uncapped value,
+        // now a role default rather than a slot default.
         $this->assertSame(
-            ['--cta-body-measure', '--faq-body-measure', '--section-heading-measure'],
+            ['--cta-body-measure', '--faq-body-measure'],
             $this->sortedKeys($noneDefaulted),
             'The set of uncapped-by-default measure slots changed. That is a render decision, '
             . 'not a refactor — update this pin deliberately.'
@@ -323,7 +355,9 @@ class MeasureSurfaceTest extends TestCase
         foreach (array_merge(self::ROUTED, self::EXEMPT) as $component) {
             $expected[] = "--{$component}-heading-measure";
         }
-        foreach (['section', 'cta', 'faq', 'embed'] as $component) {
+        // section's body measure went with its slot map at #1023 (the `body` role's
+        // `sizing.max-width`), the way hero's content measure went at #986.
+        foreach (['cta', 'faq', 'embed'] as $component) {
             $expected[] = "--{$component}-body-measure";
         }
         // hero's measure used to be spelled --hero-content-width — the reason the engine
@@ -438,7 +472,17 @@ class MeasureSurfaceTest extends TestCase
         );
     }
 
-    /** .section__title gains NO cap — the ruling that was deleted from an earlier draft. */
+    /**
+     * .section__title gains NO cap — the ruling that was deleted from an earlier draft,
+     * now enforced one layer down (#1023).
+     *
+     * The ruling is unchanged: section is the most-used band in the product and a 40rem
+     * cap would re-wrap every stored section heading. What changed is where it is kept.
+     * The stylesheet declares no max-width on that element at all now — a v2 component
+     * may not — so this test asserts the ABSENCE there and the `none` on the role that
+     * replaced it. Inverted rather than deleted, because an implementer who re-adds a cap
+     * would most likely do it in the role, and that is the half this now guards.
+     */
     public function testSectionTitleStaysUncapped(): void
     {
         $css = $this->stripComments($this->css());
@@ -455,46 +499,78 @@ class MeasureSurfaceTest extends TestCase
                 }
             }
         }
-        // Non-vacuous: if the declaration vanished entirely the foreach below would pass
-        // with zero assertions, which is exactly the reversion this test exists to catch.
-        $this->assertNotEmpty(
-            $caps,
-            'The .section__title measure declaration disappeared — the slot is no longer consumed.'
+        $this->assertSame([], $caps,
+            'a v2 component declares no max-width in the stylesheet — the cap belongs to the role.');
+
+        $schema = json_decode(file_get_contents($this->themeRoot . '/components/section/schema.json'), true);
+        $this->assertSame(
+            'none',
+            $schema['roles']['heading']['defaults']['sizing']['max-width'],
+            'The section title must stay uncapped: section is the most-used band in the '
+            . 'product and a 40rem cap would re-wrap every stored section heading.'
         );
-        // The only max-width allowed on the section title is the slot, defaulting to none.
+    }
+
+    /** Kept for the components still on slots: their title cap must route the slot. */
+    public function testSlottedTitleCapsStillRouteTheirSlot(): void
+    {
+        $css = $this->stripComments($this->css());
+        preg_match_all('/([^{}]+)\{([^{}]*)\}/s', $css, $rules, PREG_SET_ORDER);
+
+        $caps = [];
+        foreach ($rules as [$whole, $selector, $body]) {
+            foreach (explode(',', $selector) as $part) {
+                if (!preg_match('/\.(grid__heading|cta__title|faq__heading)(?![-\w])\s*$/', trim($part))) {
+                    continue;
+                }
+                foreach ((array) (preg_match_all('/(?<![-a-z])max-width\s*:\s*([^;}]+)/i', $body, $m) ? $m[1] : []) as $v) {
+                    $caps[] = trim($v);
+                }
+            }
+        }
+        $this->assertNotEmpty($caps,
+            'the slotted components still declare a title cap — if none is found this scan has gone blind.');
         foreach ($caps as $value) {
             $this->assertMatchesRegularExpression(
-                '/^var\(\s*--section-heading-measure\s*,\s*none\s*\)$/',
+                '/^var\(\s*--(?:grid|cta|faq)-heading-measure\s*,/',
                 $value,
-                'The section title must stay uncapped: section is the most-used band in the '
-                . 'product and a 40rem cap would re-wrap every stored section heading.'
+                'a slotted title cap must route its own measure slot.'
             );
         }
     }
 
+
+
     /**
-     * --section-body-measure keeps ALL FOUR branch fallbacks. They are a layout x viewport
-     * measure system that renders correctly today, not a defect to be tidied away —
-     * collapsing them would change the rendered line length of the product's most-used
-     * prose surface on at least three of four branches.
+     * THE FOUR BRANCH FALLBACKS COLLAPSED INTO ONE ROLE DEFAULT (#1023), and this test is
+     * inverted rather than deleted because the collapse is a rendering decision.
+     *
+     * v1 capped `.section__content` from FIVE consumptions carrying FOUR distinct
+     * measures — 40rem on the outer `.section__body`, 42rem on the inner
+     * `.section__content`, `var(--measure-centered)` on the centered and text-only
+     * branches, and 49rem in the desktop `main > .section--text-only` override. The old
+     * pin existed to stop someone "tidying" them, because collapsing them changes the
+     * rendered line length.
+     *
+     * A v2 role has no layout-specific defaults, so the collapse was forced, and the
+     * choice of WHICH value survives is the whole decision: 49rem, because the desktop
+     * `main > .section--text-only` override is the one that actually WON on a rendered
+     * page. Picking the 42rem base — the one that reads first in the file — would have
+     * narrowed every default section body by ~7rem.
      */
-    public function testSectionBodyMeasureKeepsAllFourBranchFallbacks(): void
+    public function testTheSectionBodyMeasureCollapsedToTheBranchThatActuallyWon(): void
     {
         $css = $this->stripComments($this->css());
-        // Balanced capture: match to the end of the declaration and strip the ONE closing
-        // paren that belongs to the outer var(), so a nested var() fallback is pinned as the
-        // CSS actually spells it rather than as a regex artifact.
         preg_match_all('/max-width:\s*var\(\s*--section-body-measure\s*,\s*([^;]+?)\)\s*;/', $css, $m);
-        $fallbacks = array_map('trim', $m[1]);
-        sort($fallbacks);
+        $this->assertSame([], array_map('trim', $m[1]),
+            'the retired slot must have no consumption left in the stylesheet.');
 
-        // FIVE consumptions, FOUR distinct measures: the centered and text-only branches
-        // share var(--measure-centered), which is why it appears twice.
+        $schema = json_decode(file_get_contents($this->themeRoot . '/components/section/schema.json'), true);
         $this->assertSame(
-            ['40rem', '42rem', '49rem', 'var(--measure-centered)', 'var(--measure-centered)'],
-            $fallbacks,
-            'The four distinct --section-body-measure branch fallbacks (40rem outer, 42rem '
-            . 'inner, --measure-centered on centered/text-only, 49rem mobile) must all survive.'
+            '49rem',
+            $schema['roles']['body']['defaults']['sizing']['max-width'],
+            'The body measure must be 49rem — the desktop text-only value that actually '
+            . 'rendered, not the 42rem base that merely read first.'
         );
     }
 
@@ -537,7 +613,7 @@ class MeasureSurfaceTest extends TestCase
         foreach (self::EXEMPT as $component) {
             $cases["{$component} heading"] = [$component, "--{$component}-heading-measure", '30rem'];
         }
-        foreach (['section', 'cta', 'faq', 'embed'] as $component) {
+        foreach (['cta', 'faq', 'embed'] as $component) {
             $cases["{$component} body"] = [$component, "--{$component}-body-measure", '34rem'];
         }
         return $cases;
@@ -566,10 +642,14 @@ class MeasureSurfaceTest extends TestCase
 
     public static function noneDefaultedMeasureSlots(): array
     {
+        // 'section heading' left this provider at #1023 with the slot. Section's heading
+        // is uncapped by a ROLE default now (`heading` -> `sizing.max-width: none`), and
+        // A-30's "the declared default must be authorable" holds there by construction:
+        // `length-or-none` is the declared param type, so `none` is writable through the
+        // udc map exactly as it was through the slot.
         return [
-            'section heading' => ['section', '--section-heading-measure'],
-            'cta body'        => ['cta', '--cta-body-measure'],
-            'faq body'        => ['faq', '--faq-body-measure'],
+            'cta body' => ['cta', '--cta-body-measure'],
+            'faq body' => ['faq', '--faq-body-measure'],
         ];
     }
 
