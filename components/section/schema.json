@@ -268,10 +268,8 @@
       "defaults": {
         "typography": {
           "color": "@color-accent",
-          "decoration": "underline"
-        },
-        "hover": {
-          "typography": { "color": "@color-accent-hover" }
+          "decoration": "underline",
+          ":hover": { "color": "@color-accent-hover" }
         }
       }
     },
