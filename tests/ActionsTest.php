@@ -1174,21 +1174,18 @@ class ActionsTest extends TestCase
         // that do not validate the whole composition still work.
         $id = pp_create_page('Stale theme value, item-scoped actions', 'draft');
         pp_update_composition($id, [
-            ['component' => 'section', 'props' => ['title' => 'Legacy band', 'body' => 'B', 'theme' => 'dark']],
-        ]);
+            ['component' => 'stats', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'Legacy band', 'theme' => 'dark']]]);
 
         $added = pp_execute_action('add_component', [
             'post_id'   => $id,
-            'component' => 'section',
-            'props'     => ['title' => 'Fresh band', 'body' => 'C', 'theme' => 'muted'],
-        ]);
+            'component' => 'stats',
+            'props'     => ['title' => 'Fresh band', 'theme' => 'muted']]);
         $this->assertTrue($added['ok'], $added['error'] ?? 'add_component validates only the item it adds');
 
         $styled = pp_execute_action('style_component', [
             'post_id'         => $id,
             'component_index' => 0,
-            'style'           => ['--section-bg' => '#101014'],
-        ]);
+            'style'           => ['--stats-bg' => '#101014']]);
         $this->assertTrue($styled['ok'], $styled['error'] ?? 'style_component validates no props at all');
 
         // Both wrote the stale band back VERBATIM — never silently repaired.
@@ -3421,34 +3418,32 @@ class ActionsTest extends TestCase
     public function testAddComponentWithStyleWritesStyleOntoNewItem(): void
     {
         $id = pp_create_page('Add Style Test', 'draft');
-        pp_update_composition($id, [['component' => 'section', 'props' => ['title' => 'First', 'body' => 'Body text']]]);
+        pp_update_composition($id, [['component' => 'stats', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'First']]]);
 
         $result = pp_execute_action('add_component', [
             'post_id'   => $id,
-            'component' => 'section',
-            'props' => ['title' => 'Styled', 'body' => 'Body text'],
-            'style'     => ['--section-bg' => '#1a1a2e', '--section-padding-top' => '8rem'],
-        ]);
+            'component' => 'stats',
+            'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'Styled'],
+            'style'     => ['--stats-bg' => '#1a1a2e', '--stats-padding-top' => '8rem']]);
         $this->assertTrue($result['ok']);
         $comp = pp_get_composition($id);
         $this->assertCount(2, $comp);
-        $this->assertSame('#1a1a2e', $comp[1]['style']['--section-bg']);
-        $this->assertSame('8rem', $comp[1]['style']['--section-padding-top']);
+        $this->assertSame('#1a1a2e', $comp[1]['style']['--stats-bg']);
+        $this->assertSame('8rem', $comp[1]['style']['--stats-padding-top']);
     }
 
     public function testAddComponentRejectsInvalidStyleValue(): void
     {
         $id = pp_create_page('Add Bad Value', 'draft');
-        pp_update_composition($id, [['component' => 'section', 'props' => ['title' => 'First', 'body' => 'Body text']]]);
+        pp_update_composition($id, [['component' => 'stats', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'First']]]);
 
         // Same rejection (and same shared-engine error code) as items[].style /
         // style_component would give for a non-color value on a color slot.
         $result = pp_validate_action('add_component', [
             'post_id'   => $id,
-            'component' => 'section',
-            'props' => ['title' => 'Styled', 'body' => 'Body text'],
-            'style'     => ['--section-bg' => 'not-a-color'],
-        ]);
+            'component' => 'stats',
+            'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'Styled'],
+            'style'     => ['--stats-bg' => 'not-a-color']]);
         $this->assertInstanceOf(WP_Error::class, $result);
         $this->assertEquals('invalid_style_value', $result->get_error_code());
     }
@@ -3509,22 +3504,20 @@ class ActionsTest extends TestCase
     {
         $id = pp_create_page('Add Style Pos', 'draft');
         pp_update_composition($id, [
-            ['component' => 'section', 'props' => ['title' => 'First', 'body' => 'Body text']],
-            ['component' => 'section', 'props' => ['body' => 'Last']],
-        ]);
+            ['component' => 'stats', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'First']],
+            ['component' => 'stats', 'props' => ['items' => [['number' => '1', 'label' => 'One']]]]]);
 
         $result = pp_execute_action('add_component', [
             'post_id'   => $id,
-            'component' => 'section',
-            'props' => ['title' => 'Inserted', 'body' => 'Body text'],
-            'style'     => ['--section-bg' => '#123456'],
-            'position'  => 1,
-        ]);
+            'component' => 'stats',
+            'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'Inserted'],
+            'style'     => ['--stats-bg' => '#123456'],
+            'position'  => 1]);
         $this->assertTrue($result['ok']);
         $comp = pp_get_composition($id);
         $this->assertCount(3, $comp);
         $this->assertSame('Inserted', $comp[1]['props']['title']);
-        $this->assertSame('#123456', $comp[1]['style']['--section-bg']);
+        $this->assertSame('#123456', $comp[1]['style']['--stats-bg']);
         $this->assertArrayNotHasKey('style', $comp[0]);
         $this->assertArrayNotHasKey('style', $comp[2]);
     }
@@ -3536,27 +3529,25 @@ class ActionsTest extends TestCase
         // is HONORED (persisted onto the new item) and an invalid style is
         // REJECTED — never a silent ok:true with the styling gone.
         $id = pp_create_page('Regression 368', 'draft');
-        pp_update_composition($id, [['component' => 'section', 'props' => ['title' => 'First', 'body' => 'Body text']]]);
+        pp_update_composition($id, [['component' => 'stats', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'First']]]);
 
         // Valid style is honored, not dropped.
         $ok = pp_execute_action('add_component', [
             'post_id'   => $id,
-            'component' => 'section',
-            'props' => ['title' => 'Styled', 'body' => 'Body text'],
-            'style'     => ['--section-bg' => '#0d1117'],
-        ]);
+            'component' => 'stats',
+            'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'Styled'],
+            'style'     => ['--stats-bg' => '#0d1117']]);
         $this->assertTrue($ok['ok']);
         $comp = pp_get_composition($id);
         $this->assertArrayHasKey('style', $comp[1], 'Valid style must be persisted, not silently dropped.');
-        $this->assertSame('#0d1117', $comp[1]['style']['--section-bg']);
+        $this->assertSame('#0d1117', $comp[1]['style']['--stats-bg']);
 
         // Invalid style is rejected, not silently accepted behind ok:true.
         $bad = pp_execute_action('add_component', [
             'post_id'   => $id,
-            'component' => 'section',
-            'props' => ['title' => 'Bad', 'body' => 'Body text'],
-            'style'     => ['--section-bg' => 'not-a-color'],
-        ]);
+            'component' => 'stats',
+            'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'Bad'],
+            'style'     => ['--stats-bg' => 'not-a-color']]);
         $this->assertFalse($bad['ok'], 'Invalid style must be rejected, never silently accepted.');
         $this->assertCount(2, pp_get_composition($id), 'A rejected add must not append.');
     }
@@ -4662,13 +4653,13 @@ class ActionsTest extends TestCase
     {
         $post_id = pp_create_page('Style test');
         pp_update_composition($post_id, [
-            ['component' => 'section', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello']],
+            ['component' => 'stats', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'id' => 'pp-aabb1122', 'title' => 'Hello']],
         ]);
 
         $result = pp_validate_action('style_component', [
             'post_id'         => $post_id,
             'component_index' => 0,
-            'style'           => ['--section-bg' => '#1a1a2e', '--section-padding-top' => '8rem'],
+            'style'           => ['--stats-bg' => '#1a1a2e', '--stats-padding-top' => '8rem'],
         ]);
         $this->assertTrue($result);
     }
@@ -4677,13 +4668,13 @@ class ActionsTest extends TestCase
     {
         $post_id = pp_create_page('Style test');
         pp_update_composition($post_id, [
-            ['component' => 'section', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello']],
+            ['component' => 'stats', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'id' => 'pp-aabb1122', 'title' => 'Hello']],
         ]);
 
         $result = pp_validate_action('style_component', [
             'post_id'         => $post_id,
             'component_index' => 0,
-            'style'           => ['--section-display' => 'none'],
+            'style'           => ['--stats-display' => 'none'],
         ]);
         $this->assertInstanceOf(WP_Error::class, $result);
         $this->assertEquals('invalid_style_slot', $result->get_error_code());
@@ -4693,13 +4684,13 @@ class ActionsTest extends TestCase
     {
         $post_id = pp_create_page('Style test');
         pp_update_composition($post_id, [
-            ['component' => 'section', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello']],
+            ['component' => 'stats', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'id' => 'pp-aabb1122', 'title' => 'Hello']],
         ]);
 
         $result = pp_validate_action('style_component', [
             'post_id'         => $post_id,
             'component_index' => 0,
-            'style'           => ['--section-bg' => 'not-a-color'],
+            'style'           => ['--stats-bg' => 'not-a-color'],
         ]);
         $this->assertInstanceOf(WP_Error::class, $result);
         $this->assertEquals('invalid_style_value', $result->get_error_code());
@@ -4752,33 +4743,29 @@ class ActionsTest extends TestCase
         // The six components that could not execute band fusing. Zero is the value the
         // procedure actually asks for, so zero is the value authored here.
         $cases = [
-            'section'   => ['--section-heading-margin-bottom'   => '0'],
+            'stats'   => ['--stats-heading-margin-bottom'   => '0'],
             'cta'    => ['--cta-heading-margin-bottom'    => '0'],
             'stats'  => ['--stats-heading-margin-bottom'  => '0'],
             'table'  => ['--table-heading-margin-bottom'  => '1.5rem'],
             'embed'  => ['--embed-heading-margin-bottom'  => '0'],
-            'logos'  => ['--logos-heading-margin-bottom'  => '0'],
-        ];
+            'logos'  => ['--logos-heading-margin-bottom'  => '0']];
         $props = [
-            'section'  => ['title' => 'Hello'],
+            'stats'  => ['title' => 'Hello'],
             'cta'   => ['title' => 'Go', 'button_text' => 'Start', 'button_url' => '/start'],
             'stats' => ['title' => 'Numbers', 'items' => [['number' => '10', 'label' => 'x']]],
             'table' => ['title' => 'Plans', 'headers' => ['A'], 'rows' => [['1']]],
             'embed' => ['title' => 'Embed', 'content' => '[shortcode]'],
-            'logos' => ['title' => 'Clients', 'items' => [['image_url' => 'a.png', 'image_alt' => 'A']]],
-        ];
+            'logos' => ['title' => 'Clients', 'items' => [[]]]];
 
         foreach ($cases as $component => $style) {
             $post_id = pp_create_page("Heading rhythm {$component}");
             pp_update_composition($post_id, [
-                ['component' => $component, 'props' => $props[$component]],
-            ]);
+                ['component' => $component, 'props' => $props[$component]]]);
 
             $result = pp_execute_action('style_component', [
                 'post_id'         => $post_id,
                 'component_index' => 0,
-                'style'           => $style,
-            ]);
+                'style'           => $style]);
             $this->assertTrue($result['ok'], "style_component must accept {$component}'s heading-rhythm slot.");
 
             $comp = pp_get_composition($post_id);
@@ -4860,16 +4847,14 @@ class ActionsTest extends TestCase
     public function testStyleComponentRejectsTheUnadoptedBandAccentTier(): void
     {
         // The narrowing this issue committed to in writing: the panel CTA reaches its third
-        // tier through a ring slot, NOT through a --section-button-accent band-accent tier.
+        // tier through a ring slot, NOT through a --stats-button-accent band-accent tier.
         $post_id = pp_create_page('Band accent tier reject');
         pp_update_composition($post_id, [
-            ['component' => 'section', 'props' => ['body' => '<p>Body</p>']],
-        ]);
+            ['component' => 'stats', 'props' => ['items' => [['number' => '1', 'label' => 'One']]]]]);
         $result = pp_validate_action('style_component', [
             'post_id'         => $post_id,
             'component_index' => 0,
-            'style'           => ['--section-button-accent' => '#0f766e'],
-        ]);
+            'style'           => ['--stats-button-accent' => '#0f766e']]);
         $this->assertInstanceOf(WP_Error::class, $result);
         $this->assertSame('invalid_style_slot', $result->get_error_code());
     }
@@ -5177,68 +5162,68 @@ class ActionsTest extends TestCase
     {
         $post_id = pp_create_page('Style test');
         pp_update_composition($post_id, [
-            ['component' => 'section', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello']],
+            ['component' => 'stats', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'id' => 'pp-aabb1122', 'title' => 'Hello']],
         ]);
 
         // Set initial style.
         $result = pp_execute_action('style_component', [
             'post_id'         => $post_id,
             'component_index' => 0,
-            'style'           => ['--section-bg' => '#1a1a2e', '--section-padding-top' => '8rem'],
+            'style'           => ['--stats-bg' => '#1a1a2e', '--stats-padding-top' => '8rem'],
         ]);
         $this->assertTrue($result['ok']);
 
         $comp = pp_get_composition($post_id);
-        $this->assertSame('#1a1a2e', $comp[0]['style']['--section-bg']);
-        $this->assertSame('8rem', $comp[0]['style']['--section-padding-top']);
+        $this->assertSame('#1a1a2e', $comp[0]['style']['--stats-bg']);
+        $this->assertSame('8rem', $comp[0]['style']['--stats-padding-top']);
 
         // Patch: change one, add one, leave the other.
         $result = pp_execute_action('style_component', [
             'post_id'         => $post_id,
             'component_index' => 0,
-            'style'           => ['--section-bg' => '#0d1117', '--section-heading-color' => '#f0f0f0'],
+            'style'           => ['--stats-bg' => '#0d1117', '--stats-heading-color' => '#f0f0f0'],
         ]);
         $this->assertTrue($result['ok']);
 
         $comp = pp_get_composition($post_id);
-        $this->assertSame('#0d1117', $comp[0]['style']['--section-bg']);
-        $this->assertSame('#f0f0f0', $comp[0]['style']['--section-heading-color']);
-        $this->assertSame('8rem', $comp[0]['style']['--section-padding-top']); // preserved
+        $this->assertSame('#0d1117', $comp[0]['style']['--stats-bg']);
+        $this->assertSame('#f0f0f0', $comp[0]['style']['--stats-heading-color']);
+        $this->assertSame('8rem', $comp[0]['style']['--stats-padding-top']); // preserved
     }
 
     public function testStyleComponentNullRemovesSlot(): void
     {
         $post_id = pp_create_page('Style test');
         pp_update_composition($post_id, [
-            ['component' => 'section', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello'],
-             'style' => ['--section-bg' => '#1a1a2e', '--section-padding-top' => '8rem']],
+            ['component' => 'stats', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'id' => 'pp-aabb1122', 'title' => 'Hello'],
+             'style' => ['--stats-bg' => '#1a1a2e', '--stats-padding-top' => '8rem']],
         ]);
 
         $result = pp_execute_action('style_component', [
             'post_id'         => $post_id,
             'component_index' => 0,
-            'style'           => ['--section-bg' => null],
+            'style'           => ['--stats-bg' => null],
         ]);
         $this->assertTrue($result['ok']);
 
         $comp = pp_get_composition($post_id);
-        $this->assertArrayNotHasKey('--section-bg', $comp[0]['style']);
-        $this->assertSame('8rem', $comp[0]['style']['--section-padding-top']);
+        $this->assertArrayNotHasKey('--stats-bg', $comp[0]['style']);
+        $this->assertSame('8rem', $comp[0]['style']['--stats-padding-top']);
     }
 
     public function testStyleComponentNullPassesValidation(): void
     {
         $post_id = pp_create_page('Null validation test');
         pp_update_composition($post_id, [
-            ['component' => 'section', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello'],
-             'style' => ['--section-bg' => '#1a1a2e']],
+            ['component' => 'stats', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'id' => 'pp-aabb1122', 'title' => 'Hello'],
+             'style' => ['--stats-bg' => '#1a1a2e']],
         ]);
 
         // null should pass validation (not be treated as an invalid value).
         $result = pp_validate_action('style_component', [
             'post_id'         => $post_id,
             'component_index' => 0,
-            'style'           => ['--section-bg' => null],
+            'style'           => ['--stats-bg' => null],
         ]);
         $this->assertTrue($result);
     }
@@ -5283,18 +5268,18 @@ class ActionsTest extends TestCase
     {
         $post_id = pp_create_page('Style test');
         pp_update_composition($post_id, [
-            ['component' => 'section', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello']],
+            ['component' => 'stats', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'id' => 'pp-aabb1122', 'title' => 'Hello']],
         ]);
 
         $result = pp_execute_action('style_component', [
             'post_id'      => $post_id,
             'component_id' => 'pp-aabb1122',
-            'style'        => ['--section-bg' => '#1a1a2e'],
+            'style'        => ['--stats-bg' => '#1a1a2e'],
         ]);
         $this->assertTrue($result['ok']);
 
         $comp = pp_get_composition($post_id);
-        $this->assertSame('#1a1a2e', $comp[0]['style']['--section-bg']);
+        $this->assertSame('#1a1a2e', $comp[0]['style']['--stats-bg']);
     }
 
     // ── Recipe support ───────────────────────────────────────────────────
@@ -5303,44 +5288,41 @@ class ActionsTest extends TestCase
     {
         $post_id = pp_create_page('Recipe test');
         pp_update_composition($post_id, [
-            ['component' => 'section', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello', 'body' => 'Body text']],
-        ]);
+            ['component' => 'grid', 'props' => ['items' => [['title' => 'One']], 'id' => 'pp-aabb1122', 'title' => 'Hello']]]);
 
         $result = pp_execute_action('style_component', [
             'post_id'         => $post_id,
             'component_index' => 0,
-            'recipe'          => 'accent-panel',
-        ]);
+            'recipe'          => 'dark-showcase']);
         $this->assertTrue($result['ok']);
 
         $comp = pp_get_composition($post_id);
         $style = $comp[0]['style'];
-        $this->assertSame('#f0f4ff', $style['--section-bg']);
-        $this->assertSame('#c8d6e5', $style['--section-border-color']);
-        $this->assertSame('1rem', $style['--section-radius']);
-        $this->assertSame('accent-panel', $style['__recipe']);
+        $this->assertSame('#1a1a2e', $style['--grid-bg']);
+        $this->assertSame('#f0f0f0', $style['--grid-heading-color']);
+        $this->assertSame('1rem', $style['--grid-item-radius']);
+        $this->assertSame('dark-showcase', $style['__recipe']);
     }
 
     public function testRecipePlusOverride(): void
     {
         $post_id = pp_create_page('Recipe override test');
         pp_update_composition($post_id, [
-            ['component' => 'section', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello', 'body' => 'Body text']],
-        ]);
+            ['component' => 'grid', 'props' => ['items' => [['title' => 'One']], 'id' => 'pp-aabb1122', 'title' => 'Hello']]]);
 
         $result = pp_execute_action('style_component', [
             'post_id'         => $post_id,
             'component_index' => 0,
-            'recipe'          => 'accent-panel',
-            'style'           => ['--section-bg' => '#222222'], // override recipe's bg
+            'recipe'          => 'dark-showcase',
+            'style'           => ['--grid-bg' => '#222222'], // override recipe's bg
         ]);
         $this->assertTrue($result['ok']);
 
         $comp = pp_get_composition($post_id);
         $style = $comp[0]['style'];
-        $this->assertSame('#222222', $style['--section-bg']); // overridden
-        $this->assertSame('#c8d6e5', $style['--section-border-color']); // from recipe
-        $this->assertSame('accent-panel', $style['__recipe']);
+        $this->assertSame('#222222', $style['--grid-bg']); // overridden
+        $this->assertSame('#f0f0f0', $style['--grid-heading-color']); // from recipe
+        $this->assertSame('dark-showcase', $style['__recipe']);
     }
 
     public function testInvalidRecipeRejected(): void
@@ -5363,13 +5345,13 @@ class ActionsTest extends TestCase
     {
         $post_id = pp_create_page('Recipe inspect');
         pp_update_composition($post_id, [
-            ['component' => 'section', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello', 'body' => 'Body text']],
+            ['component' => 'grid', 'props' => ['items' => [['title' => 'One']], 'id' => 'pp-aabb1122', 'title' => 'Hello']],
         ]);
 
         $result = pp_inspect_composition($post_id);
         $this->assertArrayHasKey('available_recipes', $result[0]);
-        $this->assertCount(2, $result[0]['available_recipes']); // section has 2 recipes
-        $this->assertSame('accent-panel', $result[0]['available_recipes'][0]['name']);
+        $this->assertCount(3, $result[0]['available_recipes']); // grid has 3 recipes
+        $this->assertSame('dark-showcase', $result[0]['available_recipes'][0]['name']);
     }
 
     // ── Misspelled Style Slots Are Rejected, Never Repaired (#607) ────────
@@ -5392,21 +5374,21 @@ class ActionsTest extends TestCase
     {
         $post_id = pp_create_page('Reject test');
         pp_update_composition($post_id, [
-            ['component' => 'section', 'props' => ['title' => 'Hi']],
+            ['component' => 'stats', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'Hi']],
         ]);
 
-        // --section-bgs is one edit from --section-bg: exactly the case the removed
+        // --stats-bgs is one edit from --stats-bg: exactly the case the removed
         // repair used to substitute silently. It is now simply invalid.
         $result = pp_preview_action('style_component', [
             'post_id'         => $post_id,
             'component_index' => 0,
-            'style'           => ['--section-bgs' => '#1a1a2e'],
+            'style'           => ['--stats-bgs' => '#1a1a2e'],
         ]);
 
         $this->assertInstanceOf(WP_Error::class, $result, 'A misspelled slot must not preview.');
         $this->assertSame('invalid_style_slot', $result->get_error_code());
         $this->assertStringContainsString(
-            '--section-bgs',
+            '--stats-bgs',
             $result->get_error_message(),
             'The validator names the slot the author actually wrote.'
         );
@@ -5420,13 +5402,13 @@ class ActionsTest extends TestCase
         // unchanged by the removal.
         $post_id = pp_create_page('Reject test');
         pp_update_composition($post_id, [
-            ['component' => 'section', 'props' => ['title' => 'Hi']],
+            ['component' => 'stats', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'Hi']],
         ]);
 
         $params = [
             'post_id'         => $post_id,
             'component_index' => 0,
-            'style'           => ['--section-bgs' => '#1a1a2e'],
+            'style'           => ['--stats-bgs' => '#1a1a2e'],
         ];
         $error  = pp_preview_action('style_component', $params);
         $this->assertInstanceOf(WP_Error::class, $error);
@@ -5435,16 +5417,16 @@ class ActionsTest extends TestCase
 
         $this->assertSame('invalid_style_slot', $friendly['error_code']);
         $this->assertStringContainsString(
-            '--section-bgs',
+            '--stats-bgs',
             $friendly['raw_error'],
             'The rejected slot name must reach the author verbatim.'
         );
         $this->assertSame(
-            array_keys(pp_get_style_slots('section')),
+            array_keys(pp_get_style_slots('stats')),
             $friendly['alternatives'],
             'The alternatives list is the declared slot set, unchanged by #607.'
         );
-        $this->assertContains('--section-bg', $friendly['alternatives']);
+        $this->assertContains('--stats-bg', $friendly['alternatives']);
     }
 
     public function testDeclaredStyleSlotStillPreviews(): void
@@ -5457,13 +5439,13 @@ class ActionsTest extends TestCase
         // testPreviewStyleComponentBranchOnlyReportsTheValidatorVerdict.
         $post_id = pp_create_page('Happy path test');
         pp_update_composition($post_id, [
-            ['component' => 'section', 'props' => ['title' => 'Hi']],
+            ['component' => 'stats', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'Hi']],
         ]);
 
         $preview = pp_preview_action('style_component', [
             'post_id'         => $post_id,
             'component_index' => 0,
-            'style'           => ['--section-bg' => '#1a1a2e'],
+            'style'           => ['--stats-bg' => '#1a1a2e'],
         ]);
 
         $this->assertNotInstanceOf(WP_Error::class, $preview, 'A declared slot must still preview.');
@@ -5544,37 +5526,37 @@ class ActionsTest extends TestCase
     {
         $post_id = pp_create_page('Error test');
         pp_update_composition($post_id, [
-            ['component' => 'section', 'props' => ['title' => 'Hi']],
+            ['component' => 'stats', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'Hi']],
         ]);
 
-        $error  = new WP_Error('invalid_style_slot', 'Component "section" has no style slot "--section-display". Available: --section-bg, ...');
+        $error  = new WP_Error('invalid_style_slot', 'Component "stats" has no style slot "--stats-display". Available: --stats-bg, ...');
         $result = _pp_build_friendly_error($error, [
             'post_id'         => $post_id,
             'component_index' => 0,
         ]);
 
         $this->assertSame('invalid_style_slot', $result['error_code']);
-        $this->assertStringNotContainsString('Component "section" has no style slot', $result['user_message']);
-        $this->assertStringContainsString('section', $result['user_message']);
+        $this->assertStringNotContainsString('Component "stats" has no style slot', $result['user_message']);
+        $this->assertStringContainsString('stats', $result['user_message']);
         $this->assertNotEmpty($result['alternatives']);
-        $this->assertContains('--section-bg', $result['alternatives']);
+        $this->assertContains('--stats-bg', $result['alternatives']);
     }
 
     public function testFriendlyErrorForInvalidValueShowsFormatHint(): void
     {
         $post_id = pp_create_page('Error test');
         pp_update_composition($post_id, [
-            ['component' => 'section', 'props' => ['title' => 'Hi']],
+            ['component' => 'stats', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'Hi']],
         ]);
 
-        $error  = new WP_Error('invalid_style_value', 'Style slot "--section-bg": Value must be a valid CSS color...');
+        $error  = new WP_Error('invalid_style_value', 'Style slot "--stats-bg": Value must be a valid CSS color...');
         $result = _pp_build_friendly_error($error, [
             'post_id'         => $post_id,
             'component_index' => 0,
         ]);
 
         $this->assertSame('invalid_style_value', $result['error_code']);
-        $this->assertStringContainsString('--section-bg', $result['user_message']);
+        $this->assertStringContainsString('--stats-bg', $result['user_message']);
         $this->assertStringContainsString('hex', $result['user_message']);
         $this->assertStringNotContainsString('Value must be a valid CSS color', $result['user_message']);
     }
@@ -5627,20 +5609,20 @@ class ActionsTest extends TestCase
         $post_id = pp_create_page('Id Error test');
         pp_update_composition($post_id, [
             ['component' => 'nav', 'props' => []],
-            ['component' => 'section', 'props' => ['id' => 'pp-a1b2c3d4', 'title' => 'Hi']],
+            ['component' => 'stats', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'id' => 'pp-a1b2c3d4', 'title' => 'Hi']],
         ]);
 
-        $error  = new WP_Error('invalid_style_slot', 'Component "section" has no style slot "--section-bgg". Available: --section-bg, ...');
+        $error  = new WP_Error('invalid_style_slot', 'Component "stats" has no style slot "--stats-bgg". Available: --stats-bg, ...');
         $result = _pp_build_friendly_error($error, [
             'post_id'      => $post_id,
             'component_id' => 'pp-a1b2c3d4',
-            'style'        => ['--section-bgg' => '#1a1a2e'],
+            'style'        => ['--stats-bgg' => '#1a1a2e'],
         ]);
 
         $this->assertSame('invalid_style_slot', $result['error_code']);
-        $this->assertStringContainsString('section', $result['user_message']);
+        $this->assertStringContainsString('stats', $result['user_message']);
         $this->assertNotEmpty($result['alternatives'], 'Should list hero slots, not fail as if nav (index 0) had none.');
-        $this->assertContains('--section-bg', $result['alternatives']);
+        $this->assertContains('--stats-bg', $result['alternatives']);
     }
 
     public function testFriendlyErrorPrefersComponentIdOverStaleComponentIndex(): void
@@ -5653,20 +5635,20 @@ class ActionsTest extends TestCase
         $post_id = pp_create_page('Precedence test');
         pp_update_composition($post_id, [
             ['component' => 'nav', 'props' => []],
-            ['component' => 'section', 'props' => ['id' => 'pp-a1b2c3d4', 'title' => 'Hi']],
+            ['component' => 'stats', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'id' => 'pp-a1b2c3d4', 'title' => 'Hi']],
         ]);
 
-        $error  = new WP_Error('invalid_style_slot', 'Component "section" has no style slot "--section-bgs". Available: --section-bg, ...');
+        $error  = new WP_Error('invalid_style_slot', 'Component "stats" has no style slot "--stats-bgs". Available: --stats-bg, ...');
         $result = _pp_build_friendly_error($error, [
             'post_id'         => $post_id,
             'component_id'    => 'pp-a1b2c3d4',
             'component_index' => 0, // stale: points at nav, id points at hero
-            'style'           => ['--section-bgs' => '#1a1a2e'],
+            'style'           => ['--stats-bgs' => '#1a1a2e'],
         ]);
 
         $this->assertSame('invalid_style_slot', $result['error_code']);
         $this->assertContains(
-            '--section-bg',
+            '--stats-bg',
             $result['alternatives'],
             'component_id must win over a conflicting component_index.'
         );
@@ -5737,17 +5719,17 @@ class ActionsTest extends TestCase
         $post_id = pp_create_page('Id Value Error test');
         pp_update_composition($post_id, [
             ['component' => 'nav', 'props' => []],
-            ['component' => 'section', 'props' => ['id' => 'pp-a1b2c3d4', 'title' => 'Hi']],
+            ['component' => 'stats', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'id' => 'pp-a1b2c3d4', 'title' => 'Hi']],
         ]);
 
-        $error  = new WP_Error('invalid_style_value', 'Style slot "--section-bg": Value must be a valid CSS color...');
+        $error  = new WP_Error('invalid_style_value', 'Style slot "--stats-bg": Value must be a valid CSS color...');
         $result = _pp_build_friendly_error($error, [
             'post_id'      => $post_id,
             'component_id' => 'pp-a1b2c3d4',
         ]);
 
         $this->assertSame('invalid_style_value', $result['error_code']);
-        $this->assertStringContainsString('section', $result['user_message']);
+        $this->assertStringContainsString('stats', $result['user_message']);
         $this->assertStringContainsString('hex', $result['user_message']);
     }
 
@@ -5835,7 +5817,7 @@ class ActionsTest extends TestCase
     {
         $post_id = pp_create_page('Cross-comp desc test');
         pp_update_composition($post_id, [
-            ['component' => 'section', 'props' => ['title' => 'Hi']],
+            ['component' => 'stats', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'Hi']],
         ]);
 
         // No cross-hint, and no stamped context either — the fallback path, answering
@@ -5846,21 +5828,21 @@ class ActionsTest extends TestCase
         $result = _pp_build_friendly_error($error, [
             'post_id'         => $post_id,
             'component_index' => 0,
-            'style'           => ['--section-zindex' => '10'],
+            'style'           => ['--stats-zindex' => '10'],
         ]);
 
         // No stamped context, so the rejection is second-hand and the message must NOT
         // quote a single rejected name — the fallback set is not recipe-expanded, so it
         // cannot know the name it would be quoting is the one that was refused.
         $this->assertStringNotContainsString('I tried to set "', $result['user_message']);
-        $this->assertStringContainsString('section', $result['user_message']);
+        $this->assertStringContainsString('stats', $result['user_message']);
 
         // Computed, not hard-coded: a future section slot would otherwise break this
         // test for a reason unrelated to what it pins.
-        $declared = pp_get_style_slots('section');
+        $declared = pp_get_style_slots('stats');
         $this->assertStringContainsString('It has ' . count($declared) . ' style settings', $result['user_message']);
         $this->assertGreaterThan(PP_FRIENDLY_SLOT_SAMPLE_MAX, count($declared), 'Premise: section declares more than the message samples.');
-        $this->assertStringContainsString('--section-bg', $result['user_message']);
+        $this->assertStringContainsString('--stats-bg', $result['user_message']);
 
         // Bounded: the descriptions this used to concatenate are not in it.
         $descriptions = array_column($declared, 'description');
@@ -5967,13 +5949,13 @@ class ActionsTest extends TestCase
     {
         $post_id = pp_create_page('Bounds baseline');
         pp_update_composition($post_id, [
-            ['component' => 'section', 'props' => ['title' => 'Hi']],
+            ['component' => 'stats', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'Hi']],
         ]);
 
         $params = [
             'post_id'         => $post_id,
             'component_index' => 0,
-            'style'           => ['--section-bgs' => '#1a1a2e'],
+            'style'           => ['--stats-bgs' => '#1a1a2e'],
         ];
         $error    = pp_preview_action('style_component', $params);
         $friendly = _pp_build_friendly_error($error, $params);
@@ -5983,7 +5965,7 @@ class ActionsTest extends TestCase
             $friendly['raw_error'],
             'A single mistyped slot is the common case and must pass through untouched.'
         );
-        $this->assertStringContainsString('--section-bgs', $friendly['raw_error']);
+        $this->assertStringContainsString('--stats-bgs', $friendly['raw_error']);
         $this->assertArrayNotHasKey(
             'unknown_slots_unscanned',
             $friendly,
@@ -6299,14 +6281,14 @@ class ActionsTest extends TestCase
     {
         $post_id = pp_create_page('CSS keyword test');
         pp_update_composition($post_id, [
-            ['component' => 'section', 'props' => ['title' => 'Hi']],
+            ['component' => 'stats', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'Hi']],
         ]);
 
-        $error  = new WP_Error('invalid_style_value', 'Style slot "--section-bg": Value must be a valid CSS color...');
+        $error  = new WP_Error('invalid_style_value', 'Style slot "--stats-bg": Value must be a valid CSS color...');
         $result = _pp_build_friendly_error($error, [
             'post_id'         => $post_id,
             'component_index' => 0,
-            'style'           => ['--section-bg' => 'initial'],
+            'style'           => ['--stats-bg' => 'initial'],
         ]);
 
         $this->assertStringContainsString('initial', $result['user_message']);
@@ -6317,15 +6299,15 @@ class ActionsTest extends TestCase
     {
         $post_id = pp_create_page('Non-keyword test');
         pp_update_composition($post_id, [
-            ['component' => 'section', 'props' => ['title' => 'Hi']],
+            ['component' => 'stats', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'Hi']],
         ]);
 
         // "red" is not a CSS keyword like none/unset — it's just an invalid color format.
-        $error  = new WP_Error('invalid_style_value', 'Style slot "--section-bg": Value must be a valid CSS color...');
+        $error  = new WP_Error('invalid_style_value', 'Style slot "--stats-bg": Value must be a valid CSS color...');
         $result = _pp_build_friendly_error($error, [
             'post_id'         => $post_id,
             'component_index' => 0,
-            'style'           => ['--section-bg' => 'red'],
+            'style'           => ['--stats-bg' => 'red'],
         ]);
 
         // Non-keyword values should still get the format hint, not the keyword path.

@@ -334,7 +334,7 @@
     },
     "panel-row": {
       "selector": ".section__panel-row",
-      "description": "One paired { label, value } row inside the panel list. A rule between rows is this role's border.",
+      "description": "One paired { label, value } row inside the panel list. A rule between rows is this role's border. NARROWER THAN v1, deliberately: the label and the value were separately styleable and are now one role, because a role name is a permanent authoring surface and `.section__panel-row-label` / `-value` describe this component's markup rather than a visual job. Style the pair together here; a label that must read differently from its value is a case for the future item-grain contract (#1024), not for two markup-shaped roles. This role reaches EVERY row in the band — per-row addressing is what the v1 per-row `style` map did, and it has no v2 address yet.",
       "groups": ["typography", "spacing", "border", "background", "sizing", "motion"],
       "defaults": {}
     },
