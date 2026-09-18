@@ -242,15 +242,18 @@ final class AppliesWhenTest extends TestCase
 
     public function testAnInertSlotWarnsAndNamesTheUnmetCondition(): void
     {
+        // Re-homed from section to stats in #1023: section's slot map left with the v2
+        // rebuild. `--stats-overlay-bg` carries the identical clause shape section's
+        // `--section-overlay-bg` did (`background_image is set`), so the pin is unchanged.
         $smells = $this->inertSmells([
-            ['component' => 'section', 'props' => ['id' => 'h', 'title' => 'T', 'body' => 'Body text'],
-             'style' => ['--section-overlay-bg' => '#fff']],
+            ['component' => 'stats', 'props' => ['id' => 'h', 'items' => [['number' => '10', 'label' => 'Sites']]],
+             'style' => ['--stats-overlay-bg' => '#fff']],
         ]);
 
         $this->assertCount(1, $smells);
         $this->assertSame('h', $smells[0]['id']);
         $this->assertSame(0, $smells[0]['index']);
-        $this->assertStringContainsString('--section-overlay-bg', $smells[0]['message']);
+        $this->assertStringContainsString('--stats-overlay-bg', $smells[0]['message']);
         $this->assertStringContainsString('applies when background_image is set', $smells[0]['message']);
     }
 
@@ -271,14 +274,16 @@ final class AppliesWhenTest extends TestCase
     /** ...and one warning PER SLOT, so a band that defeats six slots reports six. */
     public function testEveryInertSlotOnOneComponentGetsItsOwnWarning(): void
     {
+        // Re-homed to stats (#1023). Two slots, one unmet clause each: both heading slots
+        // condition on `title is set`, and this band has no title.
         $smells = $this->inertSmells([
-            ['component' => 'section', 'props' => ['title' => 'T', 'layout' => 'cover'],
-             'style' => ['--section-overlay-bg' => '#fff', '--section-panel-padding' => '2rem']],
+            ['component' => 'stats', 'props' => ['items' => [['number' => '10', 'label' => 'Sites']]],
+             'style' => ['--stats-heading-size' => '2rem', '--stats-heading-color' => '#fff']],
         ]);
 
         $this->assertCount(2, $smells, 'one warning per SLOT, not one per component');
-        $this->assertStringContainsString('--section-overlay-bg', $smells[0]['message']);
-        $this->assertStringContainsString('--section-panel-padding', $smells[1]['message']);
+        $this->assertStringContainsString('--stats-heading-size', $smells[0]['message']);
+        $this->assertStringContainsString('--stats-heading-color', $smells[1]['message']);
     }
 
     /**
@@ -290,8 +295,8 @@ final class AppliesWhenTest extends TestCase
     {
         $smells = $this->inertSmells([
             ['component' => 'section', 'props' => ['title' => 'A', 'body' => '<p>x</p>']],
-            ['component' => 'section', 'props' => ['title' => 'T', 'layout' => 'cover'],
-             'style' => ['--section-overlay-bg' => '#fff']],
+            ['component' => 'stats', 'props' => ['items' => [['number' => '10', 'label' => 'Sites']]],
+             'style' => ['--stats-overlay-bg' => '#fff']],
         ]);
 
         $this->assertCount(1, $smells);
@@ -301,18 +306,18 @@ final class AppliesWhenTest extends TestCase
     public function testAMetConditionIsSilent(): void
     {
         $this->assertSame([], $this->inertSmells([
-            // The condition on `--section-overlay-bg` is `background_image is set`, so
+            // The condition on `--stats-overlay-bg` is `background_image is set`, so
             // setting it is what makes the advisory silent.
-            ['component' => 'section', 'props' => ['title' => 'T', 'body' => '<p>x</p>',
-                                                  'background_image' => 'https://example.com/bg.png'],
-             'style' => ['--section-overlay-bg' => '#fff']],
+            ['component' => 'stats', 'props' => ['items' => [['number' => '10', 'label' => 'Sites']],
+                                                 'background_image' => 'https://example.com/bg.png'],
+             'style' => ['--stats-overlay-bg' => '#fff']],
         ]));
     }
 
     public function testASlotWithNoAppliesWhenIsSilent(): void
     {
         $this->assertSame([], $this->inertSmells([
-            ['component' => 'section', 'props' => ['title' => 'T', 'body' => '<p>x</p>'], 'style' => ['--section-bg' => '#101010']],
+            ['component' => 'stats', 'props' => ['items' => [['number' => '10', 'label' => 'Sites']]], 'style' => ['--stats-bg' => '#101010']],
         ]));
     }
 
@@ -325,8 +330,12 @@ final class AppliesWhenTest extends TestCase
     public function testAProseOnlyConditionIsSilent(): void
     {
         $this->assertSame([], $this->inertSmells([
-            ['component' => 'section', 'props' => ['title' => 'T', 'body' => '<p>x</p>'],
-             'style' => ['--section-body-link-color' => '#09f']],
+            // Re-homed to faq (#1023): `--faq-question-open-color` is the interaction-state
+            // class section's `--section-body-link-color` used to represent. Its clause
+            // (`items is set`) is MET here, and the prose half — the question being OPEN —
+            // is the unevaluable part that must not produce an advisory.
+            ['component' => 'faq', 'props' => ['items' => [['question' => 'Q?', 'answer' => 'A']]],
+             'style' => ['--faq-question-open-color' => '#09f']],
         ]));
     }
 
@@ -637,16 +646,18 @@ final class AppliesWhenTest extends TestCase
     {
         $prompt = pp_ai_system_prompt();
 
-        // A clause list, ANDed, on the slot catalog.
+        // A clause list, ANDed, on the slot catalog. Section's surface slots carried this
+        // before the v2 rebuild (#1023); `--stats-overlay-bg` carries the same clause now.
         $this->assertStringContainsString(
             'applies when background_image is set',
             $prompt,
-            '--section-surface-* must advertise its condition to the agent BEFORE the write'
+            'a background-conditional slot must advertise its condition to the agent BEFORE the write'
         );
-        // An `in` set.
-        $this->assertStringContainsString('layout is one of "image-left", "image-right"', $prompt);
-        // Prose-only conditionality (the disjunction class).
-        $this->assertStringContainsString('the band is dark — theme: "inverted" OR a background_image is set', $prompt);
+        // Prose-only conditionality. Re-pointed in #1023: the DISJUNCTION example was
+        // section's link-colour pair and left with its slot map, so the class pinned here
+        // is INTERACTION STATE — faq's open question — which is live and reaches the
+        // catalog. See SchemaValidationTest's prose-class census for the full live set.
+        $this->assertStringContainsString('the question is OPEN', $prompt);
         // A clause list AND a note, joined as ONE condition.
         $this->assertStringContainsString(
             'applies when layout = "cards" AND card_emphasis = "featured" AND the component sits at the top level',
@@ -654,6 +665,48 @@ final class AppliesWhenTest extends TestCase
         );
         // The condensed PROP catalog carries it too, not only the slot catalog.
         $this->assertStringContainsString('the height cap applied to a logo image is chosen by that item', $prompt);
+    }
+
+    /**
+     * RETIREMENT NOTE (#1023), replacing the `in`-set assertion the test above carried.
+     *
+     * Section's `--section-*` slots were the only `in` clauses in any LIVE slot catalog,
+     * and the v2 rebuild retired the whole map. Asserting the rendering against a catalog
+     * that no longer has a producer would have been a vacuous pass, so the claim splits in
+     * two and both halves are proven against real surface:
+     *
+     *   1. the emitter still renders an `in` set, pinned directly on the renderer; and
+     *   2. the `in` OPERATOR still has a live declaring surface — it moved from
+     *      `applies_when` to section's `refuse_props_when`, which reuses this same clause
+     *      grammar (#1011). So the grammar is still exercised by shipped schema, just on
+     *      the write-refusal channel rather than the advisory one.
+     *
+     * The pair fails if either half rots: a renderer regression, or the last `in` clause
+     * leaving the shipped schemas entirely.
+     */
+    public function testTheInSetRenderingAndItsLiveDeclaringSurfaceBothSurvivedTheV2Rebuild(): void
+    {
+        $this->assertSame(
+            'layout is one of "image-left", "image-right"',
+            pp_ai_format_applies_when_clause(
+                ['prop' => 'layout', 'in' => ['image-left', 'image-right']]
+            ),
+            'the `in` renderer is the half that has no live catalog producer left'
+        );
+
+        $clauses = [];
+        foreach (pp_get_registered_components() as $name => $schema) {
+            foreach (($schema['refuse_props_when'] ?? []) as $rule) {
+                foreach (($rule['when'] ?? []) as $clause) {
+                    if (is_array($clause) && array_key_exists('in', $clause)) {
+                        $clauses[] = $name;
+                    }
+                }
+            }
+        }
+
+        $this->assertNotSame([], $clauses, 'no shipped schema declares an `in` clause any more');
+        $this->assertContains('section', $clauses, 'section is where the `in` operator now lives');
     }
 
     /**

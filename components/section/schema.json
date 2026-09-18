@@ -3,11 +3,15 @@
   "description": "Generic content band: heading block plus rich-text body, with optional image column, inline-items strip, or a right-hand content panel. REBUILT ON THE UNIVERSAL DESIGN CONTRACT (v2): it declares no style slots. Every designable value — colour, type, spacing, border, shadow, size, motion — is set through the `udc` map on the band, per role. Structural props (`layout`, `body_items_align`) survive because the UDC taxonomy has no layout group, so removing them would delete a capability rather than move it. See docs/v2/BUILD-SPEC-sprint0.md §3.",
   "content_requirement": {
     "any_of": [
-      "title",
       "body",
-      "body_items"
+      "body_items",
+      "panel_heading",
+      "panel_body",
+      "panel_items",
+      "panel_cta_text",
+      "panel_cta_url"
     ],
-    "message": "A section band needs at least one of: title, body, or body_items."
+    "message": "needs at least one of: body, body_items, or panel content (panel_heading / panel_body / panel_items / a panel CTA)"
   },
   "props": {
     "id": {
@@ -44,14 +48,16 @@
       "type": "string",
       "required": false,
       "default": "",
-      "description": "Rich-text body. Block HTML allowed (p, ul, ol, h3, blockquote, a, strong, em); scripts and iframes are stripped. Links inside it are the `body-link` role, which carries its own hover state."
+      "description": "The section's main prose surface. Rich HTML (sanitized via wp_kses_post): block-level markup, lists, headings, and links are allowed. Optional (#488): omit it for a body_items-only 'trust strip' or a panel-only band. The section must still carry SOME renderable content — see content_requirement — so a fully-empty section is rejected. Links inside it are the `body-link` role, which carries its own `:hover` alongside its resting colour."
     },
     "body_items": {
       "type": "array",
       "item_type": "string",
+      "max_items": 8,
+      "item_max_length": 80,
       "required": false,
       "default": [],
-      "description": "Optional row of short plain-text items rendered after the body with a separator between them (the \"trust strip\" pattern). Plain strings only — HTML is escaped. The row itself is the `inline-items` role."
+      "description": "Optional row of short plain-text items rendered after the body with a separator between them (the \"trust strip\" pattern). Each entry is a plain-text string (escaped, no HTML); at most 8 items, each at most 80 characters — a write that exceeds either bound, or carries a non-string entry, is rejected. Renders only when non-empty; when both body and body_items are set the row renders after the body. The row itself is the `inline-items` role, so its type, colour, gaps and separator colour are that role's `udc` values — and `body_items_align` selects the wrap technique. Not for multi-line content — use body or panel_items for that."
     },
     "body_items_align": {
       "type": "enum",
@@ -111,10 +117,9 @@
     },
     "panel_items": {
       "type": "array",
-      "item_type": "mixed",
       "required": false,
       "default": [],
-      "description": "text-panel layout: panel list entries. Each entry is EITHER a plain string (a bullet) OR a paired row { label, value }. Plain text — HTML is escaped.",
+      "description": "text-panel layout: panel list entries. Each entry is EITHER a plain string (a bullet) OR a paired row { label, value }. Plain text — HTML is escaped. Deliberately declares NO `item_type`: the two accepted entry shapes are checked by the object-or-string path in lib/admin.php, which is gated on the key being absent. RETIRED IN THE v2 REBUILD (#1023): an entry could also carry a per-row `style` object on 1.x. The v2 engine addresses roles, not individual items, so there is no per-item replacement today — the whole `panel-row`/`panel-row-label`/`panel-row-value` family is styled once for every row. Per-item addressing is the subject of #1024.",
       "items": {
         "label": {
           "type": "string",

@@ -79,8 +79,15 @@ class SectionBodyListTest extends TestCase
     public function testSectionContentRestoresIndentViaSpacingToken(): void
     {
         // Indent must come back (marker room) and use a spacing token, not a literal.
+        //
+        // The selector is `:is(ul, ol)` since #1023, not a comma pair — a ROLE selector is
+        // scoped by prefixing `[data-pp-band="…"]`, and a top-level comma would leave the
+        // second half UNSCOPED and paint every band on the page. This rule is not a role
+        // (it lives in the shared glyph-and-prose block, because restoring markers to
+        // authored HTML is normalize rather than per-band design), but keeping one
+        // selector is the habit that makes the mistake impossible to make by copying.
         $this->assertMatchesRegularExpression(
-            '/\.section__content ul,\s*\n?\s*\.section__content ol\s*\{[^}]*padding-left:\s*var\(--space-/s',
+            '/\.section__content :is\(ul, ol\)\s*\{[^}]*padding-left:\s*var\(--space-/s',
             $this->componentsCss,
             '.section__content ul/ol must restore padding-left through a var(--space-*) token (issue 295).'
         );

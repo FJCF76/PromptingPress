@@ -461,25 +461,31 @@ final class UdcTruthSpineTest extends TestCase
     {
         $result = pp_execute_action('create_page', [
             'title'       => 'Legacy still works',
+            // `grid` since #1023: the point of this case is that a component still on the
+            // LEGACY styling system keeps its whole round trip — write, read back
+            // verbatim, no band id minted, and the style map painted as inline custom
+            // properties. Section joined the engine, so asking it would assert the
+            // opposite of what the name promises. grid is the widest component still on
+            // slots, and the next one due to move.
             'composition' => [[
-                'component' => 'section',
-                'props'     => ['title' => 'Still here', 'body' => 'Body text'],
-                'style'     => ['--section-bg' => '#1a1a2e'],
+                'component' => 'grid',
+                'props'     => ['title' => 'Still here', 'items' => [['title' => 'One', 'text' => 'a']]],
+                'style'     => ['--grid-bg' => '#1a1a2e'],
             ]],
         ]);
         $this->assertTrue($result['ok']);
 
         $stored = pp_get_composition((int) $result['target']['post_id']);
-        $this->assertSame('#1a1a2e', $stored[0]['style']['--section-bg'], 'stored as authored');
+        $this->assertSame('#1a1a2e', $stored[0]['style']['--grid-bg'], 'stored as authored');
         $this->assertArrayNotHasKey('id', $stored[0], 'and no band id was minted onto a legacy component');
 
         ob_start();
         try {
-            pp_get_component('section', array_merge($stored[0]['props'], ['__pp_style' => $stored[0]['style']]));
+            pp_get_component('grid', array_merge($stored[0]['props'], ['__pp_style' => $stored[0]['style']]));
         } finally {
             $html = ob_get_clean();
         }
-        $this->assertStringContainsString('--section-bg: #1a1a2e', $html, 'the inline style path is untouched');
+        $this->assertStringContainsString('--grid-bg: #1a1a2e', $html, 'the inline style path is untouched');
         $this->assertStringNotContainsString('data-pp-band', $html, 'and a legacy band carries no v2 scope attribute');
     }
 
