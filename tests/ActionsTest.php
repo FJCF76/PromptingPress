@@ -5100,8 +5100,25 @@ class ActionsTest extends TestCase
         $role = $schema['roles']['panel-cta'];
         $this->assertContains('typography', $role['groups'], 'the ink is authorable on the role');
         $this->assertContains('background', $role['groups']);
-        $this->assertSame([], $role['defaults'],
-            'and ships no default that would guess a contrast pairing for the author');
+        // WHAT THIS GUARDS IS THE CONTRAST PAIRING, NOT AN EMPTY MAP. The first draft
+        // asserted `defaults === []`, which reads as the same thing and is not: it also
+        // forbade the SPACING port, and the review found the role had silently lost v1's
+        // `.section__panel-cta { margin-top: var(--space-sm) }` with the rule that carried
+        // it. Retiring the variant enum means no ink/fill pairing is guessed for the
+        // author; it never meant the button may not be positioned.
+        foreach (['typography', 'background', 'border', 'shadow'] as $group) {
+            $this->assertArrayNotHasKey(
+                $group,
+                $role['defaults'],
+                "panel-cta must ship no {$group} default — that would guess a contrast "
+                . 'pairing the retired variant enum used to make explicit'
+            );
+        }
+        $this->assertSame(
+            ['spacing' => ['margin-top' => '@space-sm']],
+            $role['defaults'],
+            'the only default is the v1 separation this role renders with'
+        );
     }
 
     /** Value rejection on a button fill slot, re-homed to cta (#1023). */

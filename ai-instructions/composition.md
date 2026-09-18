@@ -341,7 +341,9 @@ from them on purpose, and that difference is the knob:** the markers land on
 That is what the v1 muted default achieved through band-class remaps, which a v2 band has
 no class for — so set the row's colour on a dark band and the separator follows it
 automatically, with nothing else to set. Residual on a default light band: the middot is
-`#2d3648` (the row's inherited secondary text) where v1 painted `#5e6677`. To get the old
+`#101828` — the row is a SIBLING of `.section__content`, so it inherits `--color-text` and
+not the `body` role's colour, which means the mark is the SAME ink as the item text beside
+it, where v1 painted it one step lighter. To get the old
 grey, grey the row: `"inline-items": {"typography": {"color": "@color-muted"}}` moves the
 mark and the item text together. **A band that set the separator to a colour DIFFERENT
 from its body copy** — an accent middot over muted text — does not reproduce, and there is

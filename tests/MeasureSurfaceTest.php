@@ -472,17 +472,24 @@ class MeasureSurfaceTest extends TestCase
     }
 
     /**
-     * .section__title gains NO cap — the ruling that was deleted from an earlier draft,
-     * now enforced one layer down (#1023).
+     * .section__title CARRIES THE MEASURE IT RENDERED AT, and the stylesheet carries none
+     * (#1023, corrected at review).
      *
-     * The ruling is unchanged: section is the most-used band in the product and a 40rem
-     * cap would re-wrap every stored section heading. What changed is where it is kept.
-     * The stylesheet declares no max-width on that element at all now — a v2 component
-     * may not — so this test asserts the ABSENCE there and the `none` on the role that
-     * replaced it. Inverted rather than deleted, because an implementer who re-adds a cap
-     * would most likely do it in the role, and that is the half this now guards.
+     * THIS TEST PINNED THE WRONG VALUE WITH A BACKWARDS REASON, and that is worth keeping
+     * on the record rather than quietly swapping. It asserted `none` because "a 40rem cap
+     * would re-wrap every stored section heading". The opposite is true: v1 capped
+     * `.section__body` — the wrapper holding the header block, the prose and the trust
+     * strip — at `var(--section-body-measure, 40rem)`, and that rule's own comment said
+     * "The remaining headings keep 40rem". Every stored section heading was ALREADY
+     * wrapping at 640px, so `none` is what re-wraps them, on the most-used band in the
+     * product, at every width above 640px.
+     *
+     * It is the same ancestor fact that produced the `body` role's 40rem, checked for one
+     * child of that wrapper and asserted away for another — a winning-rule reading where a
+     * rendered-geometry reading was required. The stylesheet half of the pin was always
+     * right and is unchanged: a v2 component declares no max-width in CSS at all.
      */
-    public function testSectionTitleStaysUncapped(): void
+    public function testSectionTitleCarriesTheMeasureItAlwaysRenderedAt(): void
     {
         $css = $this->stripComments($this->css());
         preg_match_all('/([^{}]+)\{([^{}]*)\}/s', $css, $rules, PREG_SET_ORDER);
@@ -502,11 +509,25 @@ class MeasureSurfaceTest extends TestCase
             'a v2 component declares no max-width in the stylesheet — the cap belongs to the role.');
 
         $schema = json_decode(file_get_contents($this->themeRoot . '/components/section/schema.json'), true);
+
+        // Both children of the v1 wrapper, pinned together, because splitting them is how
+        // the first draft capped one and freed the other.
+        foreach (['heading', 'subheading'] as $role) {
+            $this->assertSame(
+                '40rem',
+                $schema['roles'][$role]['defaults']['sizing']['max-width'],
+                "The section {$role} renders at the measure v1's .section__body gave it. "
+                . 'Freeing it re-wraps every stored section heading above 640px.'
+            );
+        }
+
+        // And it agrees with the token the other eight band components route through, so
+        // section is consistent rather than the one band whose heading runs the container.
+        $tokens = pp_design_tokens();
         $this->assertSame(
-            'none',
-            $schema['roles']['heading']['defaults']['sizing']['max-width'],
-            'The section title must stay uncapped: section is the most-used band in the '
-            . 'product and a 40rem cap would re-wrap every stored section heading.'
+            '40rem',
+            $tokens['--measure-heading']['value'] ?? $tokens['--measure-heading'] ?? null,
+            'the section heading measure and --measure-heading must not drift apart silently'
         );
     }
 

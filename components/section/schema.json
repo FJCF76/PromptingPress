@@ -304,7 +304,7 @@
     },
     "heading": {
       "selector": ".section__title",
-      "description": "The band heading (an <h2>).",
+      "description": "The band heading (an <h2>). Its `sizing.max-width` is 40rem because that is what v1 RENDERED, not because a rule said so: v1 capped `.section__body`, the wrapper holding the header block, the prose and the trust strip, at `var(--section-body-measure, 40rem)`, and that rule's own comment said in terms that 'the remaining headings keep 40rem'. The rebuild's first cut declared `none` here on the claim that 'the section title has never carried a cap' — the SAME ancestor fact that produced the `body` role's 40rem, checked for one child and asserted away for another two rows later in the same table. 40rem also happens to be `--measure-heading`, which the other eight band components already route their headings through, so this makes section consistent rather than exceptional. Corrected at #1023 review.",
       "groups": [
         "typography",
         "spacing",
@@ -332,7 +332,7 @@
           }
         },
         "sizing": {
-          "max-width": "none"
+          "max-width": "40rem"
         }
       }
     },
@@ -355,7 +355,7 @@
     },
     "subheading": {
       "selector": ".section__subheading",
-      "description": "The supporting line below the heading.",
+      "description": "The supporting line below the heading. Its `sizing.max-width` is 40rem for the same reason the `heading` role's is: v1 capped `.section__body`, the wrapper holding the header, the content and the trust strip, so all three rendered inside one 40rem measure.",
       "groups": [
         "typography",
         "spacing",
@@ -370,6 +370,9 @@
         },
         "spacing": {
           "margin-bottom": "@space-md"
+        },
+        "sizing": {
+          "max-width": "40rem"
         }
       }
     },
@@ -513,7 +516,7 @@
     },
     "panel-heading": {
       "selector": ".section__panel-heading",
-      "description": "The panel's heading (an <h3>).",
+      "description": "The panel's heading (an <h3>). Its `spacing.margin-bottom` default is the SEPARATION FROM WHATEVER FOLLOWS IT, and it is a faithful port, not a taste call: v1's `.section__panel-heading` rule set `color` and `margin-bottom: var(--space-md)` together, and the rebuild's first cut read the colour (which the `panel` role now supplies by inheritance) and dropped the margin with the rule. base.css zeroes every margin, so the heading rendered flush against the panel body — the panel's first structural relationship, gone at role defaults. Restored at #1023 review.",
       "groups": [
         "typography",
         "spacing",
@@ -522,7 +525,11 @@
         "sizing",
         "motion"
       ],
-      "defaults": {}
+      "defaults": {
+        "spacing": {
+          "margin-bottom": "@space-md"
+        }
+      }
     },
     "panel-body": {
       "selector": ".section__panel-body",
@@ -624,7 +631,7 @@
     },
     "panel-cta": {
       "selector": ".section__panel-cta",
-      "description": "The panel's call-to-action button. Its resting AND hover treatment both live here — apply the `button` or `button-secondary` preset, or set the groups directly.",
+      "description": "The panel's call-to-action button. Its resting AND hover treatment both live here — apply the `button` or `button-secondary` preset, or set the groups directly. Its `spacing.margin-top` default is a faithful port of v1's `.section__panel-cta { margin-top: var(--space-sm) }`, which the rebuild dropped with that rule; without it the button's only separation from the list above is that list's own bottom margin.",
       "groups": [
         "typography",
         "spacing",
@@ -634,7 +641,11 @@
         "shadow",
         "motion"
       ],
-      "defaults": {}
+      "defaults": {
+        "spacing": {
+          "margin-top": "@space-sm"
+        }
+      }
     }
   },
   "styling": {

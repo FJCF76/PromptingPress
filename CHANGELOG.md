@@ -218,7 +218,10 @@ to `--color-bg`). A v2 band has no class, so reusing the literal would have pain
 grey that vanishes on the dark bands v2 makes easy. Its fallback is **`currentColor`**
 instead: the same intent in the mechanism v2 has, so the mark follows the colour you gave
 the row, on every band. **The residual:** on a default light band the middot moves
-`#5e6677` → `#2d3648`, because the row inherits `@color-text-secondary`. Slightly heavier,
+`#5e6677` → `#101828`, because the row is a SIBLING of `.section__content` and so inherits
+`--color-text`, not the `body` role's `@color-text-secondary`. That is the SAME ink as the
+item text beside it — which is what `currentColor` means — where v1 painted the mark one
+step lighter than its row. So the mark is no longer recessive; it matches. Slightly heavier,
 still recessive. **The old grey is not recoverable on its own** — `currentColor` is the
 whole mechanism, so the only way to move the mark is to move the row's ink with it:
 `"inline-items": {"typography": {"color": "@color-muted"}}` greys the mark and the item

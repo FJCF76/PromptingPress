@@ -1089,8 +1089,10 @@
    inheritance. The mark follows whatever colour the author gave the row, on every band,
    including ones v1 could not express — and nothing is baked in.
    RESIDUAL, stated rather than denied: on a default light band the middot moves
-   #5e6677 -> #2d3648, because the row inherits `@color-text-secondary` instead of
-   `--color-muted`. Slightly heavier, still recessive against the item text it sits
+   #5e6677 -> #101828, because the row is a SIBLING of `.section__content` and inherits
+   `--color-text`, NOT the `body` role's `@color-text-secondary`. That is the same ink as
+   the item text beside it — the definition of currentColor — where v1 painted the mark one
+   step lighter than its row. The mark matches its text now instead of receding from it
    between. THE OLD GREY IS NOT RECOVERABLE ON ITS OWN (#1028): `--pp-list-marker-color`
    is internal plumbing that is declared nowhere and registered as no design token, so
    nothing can write it. `currentColor` is the whole mechanism — grey the ROW

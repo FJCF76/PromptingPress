@@ -385,8 +385,12 @@ class SectionInlineItemsTest extends TestCase
         //
         // So the fallback is `currentColor` — the same intent in the mechanism v2 has.
         // Residual, disclosed in three places rather than rounded off: on a default light
-        // band the middot moves #5e6677 -> #2d3648, because the row inherits
-        // `@color-text-secondary`. There is no knob that restores the old grey on its own
+        // band the middot moves #5e6677 -> #101828: the row is a SIBLING of
+        // `.section__content`, so it inherits `--color-text` and NOT the `body` role's
+        // `@color-text-secondary` — the same sibling fact this file's own header cites for
+        // the row's TYPE, applied to its COLOUR. The mark therefore matches the item text
+        // beside it exactly, which is what currentColor means, where v1 painted it one step
+        // lighter. There is no knob that restores the old grey on its own
         // (#1028) — greying the ROW greys the mark with it, and that is the whole lever.
         //
         // The two halves are asserted separately below, because collapsing them is exactly
