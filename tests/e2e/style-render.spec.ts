@@ -11816,101 +11816,24 @@ test.describe('#577 dead and defeated style slots render', () => {
     }
   });
 
-  // ── A-2 / register row 2 — section theme bg + borders ──────────────────────
+  // ── A-2 / register row 2 — RETIRED IN #1023 ────────────────────────────────
   //
-  // `.pp-section--dark` and `.pp-section--inverted` set background-color and border-*
-  // as BARE LITERALS at [0,1,0], AFTER `.section`'s slot-routed declarations at equal
-  // specificity — so --section-bg / --section-border-* were dead on any themed section,
-  // while tests/AiContextTest.php already promised an author the override wins.
-
-  for (const [theme, themeBg] of [
-    ['muted', SURFACE],
-    ['inverted', INVERTED_BG],
-  ] as [string, string][]) {
-    test(`#577 row 2: --section-bg and the border slots win on a ${theme} section @smoke`, async ({
-      page,
-    }) => {
-      pageId = createPage(`E2E 577 section ${theme} slots`);
-      setComposition(pageId, [
-        { component: 'section', props: { id: 'pp-sec-themed', theme, title: 'Themed', body: '<p>Body.</p>' } },
-      ]);
-
-      // UNSET first: the theme literal must still be exactly what it always was.
-      await page.setViewportSize({ width: 1280, height: 900 });
-      await page.goto(`/?page_id=${pageId}`);
-      await expect(page.locator('#pp-sec-themed')).toBeVisible({ timeout: 10000 });
-      const before = await computed(page, '#pp-sec-themed', [
-        'background-color',
-        'border-top-width',
-        'border-top-color',
-        'border-bottom-width',
-        'border-bottom-color',
-      ]);
-      expect(before['background-color'], `${theme} unset background`).toBe(themeBg);
-      // Unset borders too, per theme. muted (.pp-section--dark) frames the band with
-      // 1px --color-border; inverted declares no border of its own, so it keeps
-      // .section's own 0/transparent. Both must survive the routing untouched.
-      const expectedBorder = theme === 'muted'
-        ? { width: '1px', color: BORDER }
-        : { width: '0px', color: 'rgba(0, 0, 0, 0)' };
-      expect(before['border-top-width'], `${theme} unset border-top-width`).toBe(expectedBorder.width);
-      expect(before['border-bottom-width'], `${theme} unset border-bottom-width`).toBe(expectedBorder.width);
-      expect(before['border-top-color'], `${theme} unset border-top-color`).toBe(expectedBorder.color);
-      expect(before['border-bottom-color'], `${theme} unset border-bottom-color`).toBe(expectedBorder.color);
-
-      // Now author all three slots through the real write path.
-      await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
-      await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
-      const res = await styleComponent(page, pageId, {
-        '--section-bg': LOUD_HEX,
-        '--section-border-width': LOUD_PX,
-        '--section-border-color': LOUD_HEX,
-      });
-      expect(res.success).toBe(true);
-
-      for (const width of [1280, 375]) {
-        await page.setViewportSize({ width, height: 900 });
-        await page.goto(`/?page_id=${pageId}`);
-        await expect(page.locator('#pp-sec-themed')).toBeVisible({ timeout: 10000 });
-        const after = await computed(page, '#pp-sec-themed', [
-          'background-color',
-          'border-top-width',
-          'border-top-color',
-          'border-bottom-width',
-          'border-bottom-color',
-        ]);
-        expect(after['background-color'], `${theme} --section-bg @${width}`).toBe(LOUD_COLOR);
-        expect(after['border-top-width'], `${theme} --section-border-width top @${width}`).toBe(LOUD_PX);
-        expect(after['border-bottom-width'], `${theme} --section-border-width bottom @${width}`).toBe(LOUD_PX);
-        expect(after['border-top-color'], `${theme} --section-border-color top @${width}`).toBe(LOUD_COLOR);
-        expect(after['border-bottom-color'], `${theme} --section-border-color bottom @${width}`).toBe(LOUD_COLOR);
-      }
-    });
-  }
-
-  test('#577 A-2: an unset MUTED section still paints the surface literal and its 1px framing borders', async ({
-    page,
-  }) => {
-    pageId = createPage('E2E 577 section muted byte-identical');
-    setComposition(pageId, [
-      { component: 'section', props: { id: 'pp-sec-muted', theme: 'muted', title: 'Muted', body: '<p>Body.</p>' } },
-    ]);
-    await page.setViewportSize({ width: 1280, height: 900 });
-    await page.goto(`/?page_id=${pageId}`);
-    await expect(page.locator('#pp-sec-muted')).toBeVisible({ timeout: 10000 });
-    const cs = await computed(page, '#pp-sec-muted', [
-      'background-color',
-      'border-top-width',
-      'border-top-color',
-      'border-bottom-width',
-      'border-bottom-color',
-    ]);
-    expect(cs['background-color']).toBe(SURFACE);
-    expect(cs['border-top-width']).toBe('1px');
-    expect(cs['border-bottom-width']).toBe('1px');
-    expect(cs['border-top-color']).toBe(BORDER);
-    expect(cs['border-bottom-color']).toBe(BORDER);
-  });
+  // Two tests stood here. They proved that `--section-bg` and `--section-border-*` beat
+  // `.pp-section--dark` / `.pp-section--inverted`, which set background-color and border-*
+  // as BARE LITERALS at [0,1,0] AFTER `.section`'s slot-routed declarations at equal
+  // specificity — so before #577 those slots were dead on any themed section while
+  // AiContextTest already promised an author the override wins.
+  //
+  // BOTH SIDES OF THAT CONFLICT ARE GONE, not one of them. There is no `theme` prop and no
+  // `.pp-section--*` class to emit a literal, and there are no `--section-*` slots to be
+  // defeated: a band's surface is the `_band` role's `background` and `border`, emitted
+  // UNLAYERED and band-scoped, so it cannot lose to a stylesheet rule at all. A test
+  // asserting one beats the other has nothing left to compare.
+  //
+  // The register row itself is still covered for a v1 component by row 3 below (cta's
+  // border slots against its bg-image shorthand), and the v2 side — an authored `_band`
+  // outranking every structural rule — is pinned by
+  // "#431/I35 no structural CSS outranks any declaration a v2 band block makes".
 
   // ── A-3 / register row 3 — bg-image cta borders ────────────────────────────
   //
@@ -11993,11 +11916,12 @@ test.describe('#577 dead and defeated style slots render', () => {
     page,
   }) => {
     pageId = createPage('E2E 577 inverted title accent');
+    // SECTION'S BAND LEFT THIS ROW IN #1023. The on-inverted accent routing is a
+    // band-class mechanism (`.pp-section--inverted` re-pointing the accent token), and a
+    // v2 band has no class: `theme` is retired, an author darkens a band with `_band`
+    // `background.fill`, and colours the `heading-accent` role themselves. The register
+    // row stays covered by cta until its own rebuild.
     setComposition(pageId, [
-      {
-        component: 'section',
-        props: { id: 'pp-sec-inv', theme: 'inverted', title: 'Ship faster today', title_accent: 'faster', body: '<p>Body.</p>' },
-      },
       {
         component: 'cta',
         props: {
@@ -12014,35 +11938,77 @@ test.describe('#577 dead and defeated style slots render', () => {
     for (const width of [1280, 375]) {
       await page.setViewportSize({ width, height: 900 });
       await page.goto(`/?page_id=${pageId}`);
-      await expect(page.locator('#pp-sec-inv .section__title-accent')).toBeVisible({ timeout: 10000 });
+      await expect(page.locator('#pp-cta-inv .cta__title-accent')).toBeVisible({ timeout: 10000 });
 
-      const sec = await computed(page, '#pp-sec-inv .section__title-accent', ['color']);
       const cta = await computed(page, '#pp-cta-inv .cta__title-accent', ['color']);
-      expect(sec.color, `inverted section title_accent @${width}`).toBe(ACCENT_ON_INVERTED);
       expect(cta.color, `inverted cta title_accent @${width}`).toBe(ACCENT_ON_INVERTED);
       // The defect this replaces: the bare light-surface accent on a dark band.
-      expect(sec.color).not.toBe(ACCENT);
       expect(cta.color).not.toBe(ACCENT);
     }
   });
 
+  // RE-HOMED FROM SECTION TO CTA (#1023), same reason as row 4 above: the claim is that a
+  // per-instance value outranks the BAND-CLASS on-inverted routing, and section has no
+  // band class to outrank any more. cta keeps both halves until its own rebuild.
   test('#577 A-4: a per-instance heading-accent slot still wins on an inverted band', async ({ page }) => {
     pageId = createPage('E2E 577 inverted title accent slot wins');
     setComposition(pageId, [
       {
-        component: 'section',
-        props: { id: 'pp-sec-inv', theme: 'inverted', title: 'Ship faster today', title_accent: 'faster', body: '<p>Body.</p>' },
+        component: 'cta',
+        props: { id: 'pp-cta-inv', theme: 'inverted', title: 'Ship faster today', title_accent: 'faster', button_text: 'Go', button_url: '/go' },
       },
     ]);
     await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
     await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
-    const res = await styleComponent(page, pageId, { '--section-heading-accent-color': LOUD_HEX });
+    const res = await styleComponent(page, pageId, { '--cta-heading-accent-color': LOUD_HEX });
     expect(res.success).toBe(true);
 
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto(`/?page_id=${pageId}`);
-    const cs = await computed(page, '#pp-sec-inv .section__title-accent', ['color']);
+    const cs = await computed(page, '#pp-cta-inv .cta__title-accent', ['color']);
     expect(cs.color).toBe(LOUD_COLOR);
+  });
+
+  /**
+   * THE v2 COUNTERPART of the two rows above, so the capability is proved rather than
+   * only its v1 mechanism retired.
+   *
+   * On v1 a dark band re-pointed the accent token through its band class, and a
+   * per-instance slot outranked that. v2 has neither: an author darkens the band with
+   * `_band` `background.fill` and colours `heading-accent` themselves — YOU own the
+   * contrast. What has to be true is that the authored role value actually reaches the
+   * accent span over the authored background, which is the half a CSS-text pin cannot
+   * show.
+   */
+  test('#1023 an authored heading-accent reaches the accent span on an authored dark band @smoke', async ({ page }) => {
+    pageId = createPage('E2E 1023 authored accent on dark band');
+    setComposition(pageId, [{ component: 'section', props: { id: 'pp-seed', body: '<p>Seed.</p>' } }]);
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+    const res = await updateComposition(page, pageId, [
+      {
+        component: 'section',
+        props: { id: 'pp-sec-dark', title: 'Ship faster today', title_accent: 'faster', body: '<p>Body.</p>' },
+        udc: {
+          _band: { background: { fill: '#0b1020' } },
+          heading: { typography: { color: '#ffffff' } },
+          'heading-accent': { typography: { color: LOUD_HEX } },
+        },
+      },
+    ]);
+    expect(res.success, `udc write: ${JSON.stringify(res)}`).toBe(true);
+
+    for (const width of [1280, 375]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`/?page_id=${pageId}`);
+      await expect(page.locator('#pp-sec-dark .section__title-accent')).toBeVisible({ timeout: 10000 });
+      const accent = await computed(page, '#pp-sec-dark .section__title-accent', ['color']);
+      const title = await computed(page, '#pp-sec-dark .section__title', ['color']);
+      expect(accent.color, `authored accent @${width}`).toBe(LOUD_COLOR);
+      // …and it is genuinely distinct from the heading it sits inside, so a role that
+      // silently inherited the heading colour would fail rather than look plausible.
+      expect(accent.color).not.toBe(title.color);
+    }
   });
 
   test('#577 A-4: a PLAIN (non-inverted) band still renders the bare accent', async ({ page }) => {
