@@ -3104,6 +3104,21 @@ class StyleSlotContractTest extends TestCase
      */
     private static function splitTopLevel(string $selector, string $delims): array
     {
+        // MEMOIZED, and the reason is measured rather than defensive. The ENFORCE loop
+        // below re-splits every rule selector once per (triple, slot) pair, so a single
+        // invocation of testDeclaredSlotsNotBypassedByLiteralReDeclarations made 228,340
+        // calls scanning 7,340,733 characters — one PHP loop iteration per character.
+        // That took the suite's slowest test from 0.198s to 0.982s when this parser
+        // replaced explode(), which was 47% of the whole PHP suite's runtime increase.
+        // Selectors repeat heavily across that loop, so the hit rate is near-total and
+        // the memo lands the file FASTER than the explode() version it replaced:
+        // 1.205s -> 0.412s for the file, against a 0.501s baseline.
+        static $memo = [];
+        $ck = $delims . "\x00" . $selector;
+        if (isset($memo[$ck])) {
+            return $memo[$ck];
+        }
+
         $parts = [];
         $buf   = '';
         $depth = 0;
@@ -3125,7 +3140,9 @@ class StyleSlotContractTest extends TestCase
         }
         $parts[] = $buf;
 
-        return array_values(array_filter(array_map('trim', $parts), static fn (string $p): bool => $p !== ''));
+        return $memo[$ck] = array_values(
+            array_filter(array_map('trim', $parts), static fn (string $p): bool => $p !== '')
+        );
     }
 
     /**
