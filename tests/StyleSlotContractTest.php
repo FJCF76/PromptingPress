@@ -591,136 +591,36 @@ class StyleSlotContractTest extends TestCase
     // RETIRED (#986): hero's button fill slots are the `cta` / `cta-secondary` roles'
     // `background.fill` (and its `:hover`), covered by ActionsTest's UDC contract test.
 
-    /**
-     * Section panel-CTA fill slots (issue 536): the last member of the #514 masked-fill class.
-     *
-     * `.section__panel-cta` has NO .hero / .cta ancestor, so the shared premium
-     * `main .btn:not(...)` cascade is its ONLY fill winner — a background-COLOR set anywhere
-     * in the section block sits under that rule's gradient background-IMAGE and is invisible.
-     * The fix mirrors #514/#526: the three slots lead the premium chains (pinned in
-     * testIssue514HeroButtonFillSlotFallbacks, which now asserts the section links too), and
-     * the section block carries the keystone consumptions this test pins.
-     *
-     * One shape is load-bearing and easy to "tidy" into a regression: ALL THREE slots share
-     * the single [0,4,0] variant carve-out. The obvious-looking simplification — wiring the
-     * elevation slot on the bare `.section__panel-cta` rule — is a shipped contract lie: at
-     * [0,1,0] it outranks the shared `.btn` box-shadow (later in source) on EVERY variant, so
-     * `--section-panel-cta-shadow` would paint a drop shadow on a transparent outline/ghost
-     * panel CTA that schema.json promises it never reaches (caught in review, verified in a
-     * browser: an outline panel CTA took the slot's shadow at rest).
-     */
-    public function testIssue536SectionPanelCtaFillSlotKeystone(): void
-    {
-        $block = $this->stripComments($this->componentBlock('section'));
-
-        // The bare rule carries spacing ONLY — no slot may be wired at [0,1,0], where it
-        // would escape the variant carve-out.
-        $this->assertMatchesRegularExpression(
-            '/\.section__panel-cta\s*\{\s*margin-top:\s*var\(--space-sm\);\s*\}/',
-            $block,
-            'The bare .section__panel-cta rule must stay spacing-only (issue 536): a slot wired '
-            . 'there reaches outline/ghost/secondary, contradicting the primary-only contract '
-            . 'in components/section/schema.json.'
-        );
-
-        // Fill/ink/border/elevation keystone, carved away from the transparent variants.
-        $this->assertMatchesRegularExpression(
-            '/\.section__panel-cta:not\(\.btn--outline\):not\(\.btn--ghost\):not\(\.btn--secondary\)\s*\{\s*'
-            . 'background-color:\s*var\(--section-panel-cta-bg,\s*var\(--btn-bg,\s*var\(--color-accent\)\)\);\s*'
-            . 'border-color:\s*var\(--section-panel-cta-border,\s*var\(--btn-border-color,\s*var\(--section-panel-cta-bg,\s*var\(--btn-bg,\s*var\(--color-accent\)\)\)\)\);\s*'
-            . 'color:\s*var\(--section-panel-cta-color,\s*var\(--btn-text,\s*var\(--color-bg\)\)\);\s*'
-            . 'box-shadow:\s*var\(--section-panel-cta-shadow,\s*none\);\s*\}/',
-            $block,
-            'The section block must wire ALL THREE panel-CTA slots on ONE variant-carved [0,4,0] '
-            . 'rule, with the border FOLLOWING the fill when --btn-border-color is unset (issue '
-            . '536, the #526 border-follows-fill convention) and the `none` elevation default '
-            . 'mirroring .hero__cta:not(...).'
-        );
-
-        // The premium LIVE border must reach the fill slot too, so a fill-only recolor keeps a
-        // matching ring instead of the stray --color-accent-strong outline.
-        $css = $this->stripComments($this->css);
-        $this->assertStringContainsString(
-            'border-color: var(--section-panel-cta-border, var(--cta-button-border, var(--cta-accent, '
-            . 'var(--btn-border-color, var(--section-panel-cta-bg, var(--color-accent-strong))))))',
-            $css,
-            'The premium primary border must LEAD with --section-panel-cta-border (issue 584 — this '
-            . 'rule is the panel CTA\'s only border winner at [0,4,1] over the section block\'s '
-            . '[0,4,0] keystone, so the head is the only position where a per-instance ring slot '
-            . 'can act) and still fall through to --section-panel-cta-bg before its literal, so a '
-            . 'flat panel CTA keeps a matching ring (issue 536).'
-        );
-
-        // The hover twin (issue 584). #536 shipped the panel CTA resting-state-only for the
-        // FILL and that is unchanged; the RING gets its positional twin, or a ring set at rest
-        // would dissolve under the pointer (the #535 defect). No fill link here on purpose:
-        // there is no --section-panel-cta-hover-bg for the border to follow.
-        $this->assertStringContainsString(
-            'border-color: var(--section-panel-cta-hover-border, var(--cta-button-hover-border, '
-            . 'var(--cta-accent-hover, var(--btn-hover-border-color, var(--color-accent)))))',
-            $css,
-            'The premium HOVER border must lead with --section-panel-cta-hover-border (issue 584), '
-            . 'the positional twin of --section-panel-cta-border on the rest rule.'
-        );
-
-        // ...and the section block carries the hover keystone that makes the slot discoverable
-        // there (check 1: every declared slot is consumed inside its own component block). It is
-        // [0,5,0] against the premium hover winner's [0,5,1], so like the rest keystone it never
-        // decides a composed panel CTA's ring. Unset it resolves --btn-hover-border-color then
-        // --color-accent-hover, exactly what `.btn:hover` computes, so it is byte-identical even
-        // in the one context where it WOULD win: a panel CTA rendered outside `main`.
-        $this->assertMatchesRegularExpression(
-            '/\.section__panel-cta:not\(\.btn--outline\):not\(\.btn--ghost\):not\(\.btn--secondary\):hover\s*\{\s*'
-            . 'border-color:\s*var\(--section-panel-cta-hover-border,\s*var\(--btn-hover-border-color,\s*'
-            . 'var\(--color-accent-hover\)\)\);\s*\}/',
-            $block,
-            'The section block must carry the panel-CTA hover keystone wiring '
-            . '--section-panel-cta-hover-border on the SAME variant carve-out the rest keystone '
-            . 'uses, so the slot never reaches an outline/ghost/secondary panel CTA (issue 584). '
-            . 'No hover FILL slot is created: #536\'s resting-only posture stands.'
-        );
-
-        // Elevation contract: `none` must flatten hover as well as rest (the #514 contract).
-        $this->assertMatchesRegularExpression(
-            // `--hero-button-shadow` left the chain in #986 (hero owns no button slots),
-            // so the chain is one level shorter and closes one paren earlier. The
-            // contract this pins is unchanged: `--section-panel-cta-shadow` still LEADS,
-            // so `none` on it still flattens hover as well as rest.
-            '/box-shadow:\s*var\(--section-panel-cta-shadow,\s*var\(--cta-button-shadow,\s*'
-            . 'inset 0 1px 0 rgba\(255, 255, 255, 0\.18\),\s*'
-            . '0 14px 30px color-mix\(in srgb, var\(--color-accent-strong\) 20%, transparent\)\)\)/',
-            $css,
-            'The premium HOVER elevation must route --section-panel-cta-shadow too, so `none` '
-            . 'flattens rest AND hover instead of re-growing a bevel mid-interaction (issue 536).'
-        );
-    }
-
-    /**
-     * The panel-CTA hover keystone is the ONE new RULE in this issue, not a head-of-chain
-     * addition, so its byte-identity is not true by construction: it rests on computing the
-     * same value `.btn:hover` would for a panel CTA rendered outside `main` (inside `main` the
-     * premium winner masks it). Derive the primitive's chain and compare, rather than restating
-     * it — a future edit to `.btn:hover` would otherwise split the two silently.
-     */
-    public function testIssue584PanelCtaHoverKeystoneMatchesTheBarePrimitive(): void
-    {
-        $css = $this->stripComments($this->css);
-        $this->assertMatchesRegularExpression(
-            '/(?:^|\})\s*\.btn:hover\s*\{[^}]*?border-color:\s*([^;]+);/s',
-            $css,
-            '.btn:hover must declare border-color — it is the primitive this keystone mirrors.'
-        );
-        preg_match('/(?:^|\})\s*\.btn:hover\s*\{[^}]*?border-color:\s*([^;]+);/s', $css, $m);
-        $primitive = trim($m[1]); // var(--btn-hover-border-color, var(--color-accent-hover))
-
-        $this->assertStringContainsString(
-            'border-color: var(--section-panel-cta-hover-border, ' . $primitive . ')',
-            $css,
-            'The panel-CTA hover keystone must be `.btn:hover`\'s own chain with the per-instance '
-            . 'ring slot prepended. That equivalence — not the literal text — is what makes this '
-            . 'NEW rule byte-identical unset in the one context where it wins.'
-        );
-    }
+    // RETIRED (#1023), and this pair is retired TOGETHER because they pinned two halves
+    // of one mechanism: the panel CTA's variant-carved fill keystone (#536) and the hover
+    // ring twin (#584) that kept a rest-state ring from dissolving under the pointer.
+    //
+    // Section's panel CTA is the `panel-cta` role now. Everything both tests protected is
+    // gone WITH ITS CAUSE rather than merely relocated, which is why nothing replaces
+    // them here:
+    //
+    //   - The masked-fill class (#514/#526/#536) existed because `.section__panel-cta`
+    //     has no .hero/.cta ancestor, so the shared premium `main .btn:not(...)` gradient
+    //     was its only fill winner and a background-COLOR set in the section block sat
+    //     invisibly beneath it. A role's block is emitted UNLAYERED and band-scoped, so
+    //     it beats every layer including pp-v1 — there is no masking rule left to lead.
+    //
+    //   - The load-bearing shape was that all three slots had to share ONE [0,4,0]
+    //     variant carve-out, because wiring the elevation slot on the bare [0,1,0] rule
+    //     would have painted a drop shadow on a transparent outline/ghost CTA that
+    //     schema.json promised it never reached. That contract cannot be contradicted
+    //     any more: `panel_cta_variant` is retired, so there is no variant set to carve
+    //     away from. An author puts `"_preset": "button"` on the role and overrides
+    //     beside it, and whatever they set is what paints — the promise and the
+    //     behaviour became the same statement.
+    //
+    //   - The hover ring's positional twin is the role's `':hover'` state nested inside
+    //     `border`, which the engine emits from the same map as the resting value, so
+    //     the two cannot split the way `.btn:hover` and a hand-written keystone could.
+    //
+    // The v2 replacements are covered by UdcEngineTest (every role selector matches an
+    // element the component actually renders, and `panel-cta` is one of section's
+    // nineteen) and by the cascade contract in docs/explanation-cascade-layers.md.
 
     /**
      * Heading rhythm completes its family (issue 584, A-41).
@@ -2433,8 +2333,15 @@ class StyleSlotContractTest extends TestCase
      * NestedButtonSlotIsolationTest::testEveryRendererThatEmitsAButtonIsExcluded forces), and a
      * one-character selector edit should not read as 26 unexpected plus 26 missing entries.
      */
+    // `:not(.section__panel-cta)` DROPPED in #1023, and it is the selector that had to
+    // change rather than just the ledger: the carve-out existed so the neutraliser would
+    // leave section's panel-CTA slots alone, and there are no such slots any more. The
+    // panel CTA is the `panel-cta` role, whose block is emitted unlayered and band-scoped
+    // and therefore outranks this rule outright — so excluding the class would only stop
+    // the neutraliser from deadening the CTA slots on a panel button, which is exactly
+    // what issue 545 wants it to do.
     private const NESTED_BTN_ISOLATION_SELECTOR =
-        'main .btn:not(.hero__cta):not(.cta__button):not(.section__panel-cta)';
+        'main .btn:not(.hero__cta):not(.cta__button)';
 
     private const NESTED_BTN_ISOLATION_SLOTS = [
         '--cta-button-bg',
@@ -2450,11 +2357,7 @@ class StyleSlotContractTest extends TestCase
         '--cta-button2-hover-bg',
         '--cta-button2-hover-border',
         '--cta-button2-hover-color',
-        '--section-panel-cta-bg',
-        '--section-panel-cta-border',
-        '--section-panel-cta-color',
-        '--section-panel-cta-hover-border',
-        '--section-panel-cta-shadow',
+        // section's five panel-CTA entries retired with its slot map (#1023).
     ];
 
     /** The full exemption ledger: the hand-listed entries plus the issue 545 rule's. */
