@@ -280,7 +280,7 @@ final class CompositionFindingsBoundsTest extends TestCase
     {
         $id = $this->pathologicalPage();
         pp_execute_action('style_component', [
-            'post_id' => $id, 'component_index' => 0, 'style' => ['--section-bg' => '#101014'],
+            'post_id' => $id, 'component_index' => 0, 'style' => ['--stats-bg' => '#101014'],
         ]);
 
         $preview = pp_preview_action('restore_composition', ['post_id' => $id, 'steps_back' => 1]);
@@ -591,7 +591,7 @@ final class CompositionFindingsBoundsTest extends TestCase
     {
         $id     = $this->pathologicalPage();
         $result = pp_execute_action('style_component', [
-            'post_id' => $id, 'component_index' => 0, 'style' => ['--section-bg' => '#101014'],
+            'post_id' => $id, 'component_index' => 0, 'style' => ['--stats-bg' => '#101014'],
         ]);
 
         $this->assertTrue($result['ok']);
@@ -666,8 +666,8 @@ final class CompositionFindingsBoundsTest extends TestCase
         // whose value is stored but never read (advisory).
         $id = pp_create_page('Both kinds', 'draft');
         pp_update_composition($id, [
-            ['component' => 'section', 'props' => ['id' => 'h1', 'title' => 'T', 'zzUndeclared' => 1],
-             'style' => ['--section-overlay-bg' => 'rgba(0,0,0,.5)']],
+            ['component' => 'stats', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'id' => 'h1', 'title' => 'T', 'zzUndeclared' => 1],
+             'style' => ['--stats-overlay-bg' => 'rgba(0,0,0,.5)']],
         ]);
 
         $findings = _pp_composition_findings(pp_get_composition($id));

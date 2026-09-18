@@ -147,24 +147,22 @@ class FriendlyErrorSlotContextTest extends TestCase
     public function testRejectionCarriesTheComponentAndSlotsItWasJudgedAgainst(): void
     {
         $post_id = $this->authorPage('Judged context', [
-            ['component' => 'section', 'props' => ['title' => 'Hi', 'body' => 'Body text']],
-        ]);
+            ['component' => 'stats', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'Hi']]]);
 
         [$error] = $this->rejectThenReport([
             'post_id'         => $post_id,
             'component_index' => 0,
-            'style'           => ['--section-bgs' => '#1a1a2e'],
-        ]);
+            'style'           => ['--stats-bgs' => '#1a1a2e']]);
 
         $data = $error->get_error_data();
         $this->assertIsArray($data, 'The rejection must carry its context as error data.');
-        $this->assertSame('section', $data['component_name']);
+        $this->assertSame('stats', $data['component_name']);
         $this->assertSame(
-            pp_get_style_slots('section'),
+            pp_get_style_slots('stats'),
             $data['available_slots'],
             'The declared slot map travels with the error, descriptions and all.'
         );
-        $this->assertSame(['--section-bgs'], $data['candidate_slots']);
+        $this->assertSame(['--stats-bgs'], $data['candidate_slots']);
     }
 
     public function testCandidateSlotsAreRecipeExpandedAndSkipTheTrackingKeyAndRemovals(): void
@@ -174,22 +172,20 @@ class FriendlyErrorSlotContextTest extends TestCase
         // undeclared name — never `__recipe` (a tracking key, not a CSS property),
         // never the null (a removal the validator passes over).
         $post_id = $this->authorPage('Judged set', [
-            ['component' => 'section', 'props' => ['title' => 'Hi', 'body' => 'Body text']],
-        ]);
+            ['component' => 'stats', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'Hi']]]);
 
         [$error] = $this->rejectThenReport([
             'post_id'         => $post_id,
             'component_index' => 0,
             'recipe'          => 'accent-panel',
-            'style'           => ['--section-heading-color' => null, '--section-bgs' => '#1a1a2e'],
-        ]);
+            'style'           => ['--stats-heading-color' => null, '--stats-bgs' => '#1a1a2e']]);
 
         $candidates = $error->get_error_data()['candidate_slots'];
 
         $this->assertNotContains('__recipe', $candidates, 'The recipe tracking key is not a slot.');
-        $this->assertNotContains('--section-heading-color', $candidates, 'A null is a removal, not a value to judge.');
-        $this->assertContains('--section-bgs', $candidates, 'The undeclared name the author wrote is judged.');
-        foreach (array_keys(pp_get_style_recipes('section')['accent-panel']['slots']) as $recipe_slot) {
+        $this->assertNotContains('--stats-heading-color', $candidates, 'A null is a removal, not a value to judge.');
+        $this->assertContains('--stats-bgs', $candidates, 'The undeclared name the author wrote is judged.');
+        foreach (array_keys(pp_get_style_recipes('stats')['accent-panel']['slots']) as $recipe_slot) {
             $this->assertContains($recipe_slot, $candidates, 'Every slot the recipe contributed is judged.');
         }
     }
@@ -203,16 +199,14 @@ class FriendlyErrorSlotContextTest extends TestCase
         // declare. Answering from a second read would tell the author the setting
         // is available on a component that never saw their proposal.
         $post_id = $this->authorPage('Retyped target', [
-            ['component' => 'section', 'props' => ['title' => 'Hi', 'body' => 'Body text']],
-        ]);
+            ['component' => 'stats', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'Hi']]]);
 
         $params = [
             'post_id'         => $post_id,
             'component_index' => 0,
             // A slot that belongs to `cta`, not `section`: invalid here (so the preview
             // rejects) and hintable (so the report can name where it does live).
-            'style'           => ['--cta-button-bg' => '#1a1a2e'],
-        ];
+            'style'           => ['--cta-button-bg' => '#1a1a2e']];
         $error = pp_preview_action('style_component', $params);
         $this->assertInstanceOf(WP_Error::class, $error);
 
@@ -220,19 +214,18 @@ class FriendlyErrorSlotContextTest extends TestCase
         // the very slot the hero rejected.
         $swapped = pp_execute_action('update_composition', [
             'post_id'     => $post_id,
-            'composition' => [['component' => 'section', 'props' => ['title' => 'Swapped', 'body' => 'Replacement copy.']]],
-        ]);
+            'composition' => [['component' => 'stats', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'Swapped']]]]);
         $this->assertTrue($swapped['ok']);
-        $this->assertArrayHasKey('--section-bg', pp_get_style_slots('section'));
+        $this->assertArrayHasKey('--stats-bg', pp_get_style_slots('stats'));
 
         $friendly = _pp_build_friendly_error($error, $params);
 
         $this->assertSame(
-            array_keys(pp_get_style_slots('section')),
+            array_keys(pp_get_style_slots('stats')),
             $friendly['alternatives'],
             'The alternatives are the rejecting component\'s slots, not the current occupant\'s.'
         );
-        $this->assertStringContainsString('section', $friendly['user_message']);
+        $this->assertStringContainsString('stats', $friendly['user_message']);
         // The hint itself is the proof that the rejected name was still judged as
         // unknown: judged against `section` it is a declared slot and would have
         // produced no hint at all. Which component the scan names first is registry
@@ -241,39 +234,36 @@ class FriendlyErrorSlotContextTest extends TestCase
         $hints = (array) $friendly['cross_component_hints'];
         $this->assertArrayHasKey('--cta-button-bg', $hints, 'The rejected slot is real elsewhere, and the hint says where.');
         $hint = $hints['--cta-button-bg'];
-        $this->assertNotSame('section', $hint['component'], 'A hint points away from the component that rejected.');
+        $this->assertNotSame('stats', $hint['component'], 'A hint points away from the component that rejected.');
         $this->assertArrayHasKey($hint['slot'], pp_get_style_slots($hint['component']));
     }
 
     public function testReportSurvivesTheTargetBeingRemovedBetweenValidateAndReport(): void
     {
         $post_id = $this->authorPage('Removed target', [
-            ['component' => 'section', 'props' => ['title' => 'Hi', 'body' => 'Body text']],
-            ['component' => 'section', 'props' => ['title' => 'Second', 'body' => 'Second band copy.']],
-        ]);
+            ['component' => 'stats', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'Hi']],
+            ['component' => 'stats', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'Second']]]);
 
         $params = [
             'post_id'         => $post_id,
             'component_index' => 0,
-            'style'           => ['--section-bgs' => '#1a1a2e'],
-        ];
+            'style'           => ['--stats-bgs' => '#1a1a2e']];
         $error = pp_preview_action('style_component', $params);
         $this->assertInstanceOf(WP_Error::class, $error);
 
         $removed = pp_execute_action('remove_component', [
             'post_id'         => $post_id,
-            'component_index' => 0,
-        ]);
+            'component_index' => 0]);
         $this->assertTrue($removed['ok']);
 
         $friendly = _pp_build_friendly_error($error, $params);
 
         $this->assertSame(
-            array_keys(pp_get_style_slots('section')),
+            array_keys(pp_get_style_slots('stats')),
             $friendly['alternatives'],
             'A component that is gone by report time still gets its own slot list reported.'
         );
-        $this->assertStringContainsString('section', $friendly['user_message']);
+        $this->assertStringContainsString('stats', $friendly['user_message']);
         $this->assertStringNotContainsString('(none)', $friendly['user_message']);
     }
 
@@ -283,29 +273,26 @@ class FriendlyErrorSlotContextTest extends TestCase
         // removes that id used to flip a real slot rejection into "I couldn't find
         // that component" — an answer that contradicts the rejection in hand.
         $post_id = $this->authorPage('Id target', [
-            ['component' => 'section', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hi', 'body' => 'Body text']],
-        ]);
+            ['component' => 'stats', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'id' => 'pp-aabb1122', 'title' => 'Hi']]]);
 
         $params = [
             'post_id'      => $post_id,
             'component_id' => 'pp-aabb1122',
-            'style'        => ['--section-bgs' => '#1a1a2e'],
-        ];
+            'style'        => ['--stats-bgs' => '#1a1a2e']];
         $error = pp_preview_action('style_component', $params);
         $this->assertInstanceOf(WP_Error::class, $error);
 
         $replaced = pp_execute_action('update_composition', [
             'post_id'     => $post_id,
-            'composition' => [['component' => 'section', 'props' => ['id' => 'pp-ccdd3344', 'title' => 'Replaced', 'body' => 'Body text']]],
-        ]);
+            'composition' => [['component' => 'stats', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'id' => 'pp-ccdd3344', 'title' => 'Replaced']]]]);
         $this->assertTrue($replaced['ok']);
         $this->assertSame(-1, _pp_resolve_component_index_for_error($params), 'The targeted id is gone by report time.');
 
         $friendly = _pp_build_friendly_error($error, $params);
 
         $this->assertStringNotContainsString('couldn\'t find that component', $friendly['user_message']);
-        $this->assertSame(array_keys(pp_get_style_slots('section')), $friendly['alternatives']);
-        $this->assertStringContainsString('--section-bgs', $friendly['raw_error']);
+        $this->assertSame(array_keys(pp_get_style_slots('stats')), $friendly['alternatives']);
+        $this->assertStringContainsString('--stats-bgs', $friendly['raw_error']);
     }
 
     public function testPhantomKeysNeverReachTheCrossComponentScan(): void
@@ -315,8 +302,7 @@ class FriendlyErrorSlotContextTest extends TestCase
         // will examine, they are visible in the one place that counts what the scan
         // did not reach: a phantom key would push the count above zero.
         $post_id = $this->authorPage('Phantom keys', [
-            ['component' => 'section', 'props' => ['title' => 'Hi', 'body' => 'Body text']],
-        ]);
+            ['component' => 'stats', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'Hi']]]);
 
         $style = ['__recipe' => 'dark-spacious', '--section-removed-thing' => null];
         for ($i = 0; $i < PP_CROSS_COMPONENT_HINT_MAX; $i++) {
@@ -326,8 +312,7 @@ class FriendlyErrorSlotContextTest extends TestCase
         [$error, $friendly] = $this->rejectThenReport([
             'post_id'         => $post_id,
             'component_index' => 0,
-            'style'           => $style,
-        ]);
+            'style'           => $style]);
 
         $candidates = $error->get_error_data()['candidate_slots'];
         $this->assertNotContains('__recipe', $candidates);
@@ -350,8 +335,7 @@ class FriendlyErrorSlotContextTest extends TestCase
         // against a rejection the validator actually produced, not a hand-built one.
         $overflow = 7;
         $post_id  = $this->authorPage('Scan bound', [
-            ['component' => 'section', 'props' => ['title' => 'Hi', 'body' => 'Body text']],
-        ]);
+            ['component' => 'stats', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'Hi']]]);
 
         $style = ['__recipe' => 'dark-spacious'];
         for ($i = 0; $i < PP_CROSS_COMPONENT_HINT_MAX + $overflow; $i++) {
@@ -361,8 +345,7 @@ class FriendlyErrorSlotContextTest extends TestCase
         [$error, $friendly] = $this->rejectThenReport([
             'post_id'         => $post_id,
             'component_index' => 0,
-            'style'           => $style,
-        ]);
+            'style'           => $style]);
 
         $this->assertNotNull(pp_rejected_slot_context($error), 'This is the authoritative path.');
         $this->assertSame(
@@ -569,19 +552,17 @@ class FriendlyErrorSlotContextTest extends TestCase
         // Half a context is worse than none: an empty available_slots would render
         // as "It has no style settings" on a component declaring dozens.
         $post_id = $this->authorPage('Malformed context', [
-            ['component' => 'section', 'props' => ['title' => 'Hi', 'body' => 'Body text']],
-        ]);
+            ['component' => 'stats', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'Hi']]]);
 
-        $error = new WP_Error('invalid_style_slot', 'Component "section" has no style slot "--section-bgs".', $data);
+        $error = new WP_Error('invalid_style_slot', 'Component "stats" has no style slot "--stats-bgs".', $data);
         $this->assertNull(pp_rejected_slot_context($error), 'A partial payload is not a context.');
 
         $friendly = _pp_build_friendly_error($error, [
             'post_id'         => $post_id,
             'component_index' => 0,
-            'style'           => ['--section-bgs' => '#111'],
-        ]);
+            'style'           => ['--stats-bgs' => '#111']]);
 
-        $this->assertSame(array_keys(pp_get_style_slots('section')), $friendly['alternatives']);
+        $this->assertSame(array_keys(pp_get_style_slots('stats')), $friendly['alternatives']);
         $this->assertNotEmpty($friendly['alternatives']);
     }
 
