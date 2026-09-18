@@ -1761,9 +1761,11 @@ function pp_component_retired_props(string $component_name): array {
  * comment "the renderer only echoes item_eligible slots (issue 323)" describing
  * behaviour it did not have.
  *
- * Grid is the larger surface by an order of magnitude — 20 of its 37 slots are
- * item-eligible against section's 1 — so fixing section alone would have left the
- * component the feature was built for still leaking.
+ * Grid is the larger surface by an order of magnitude — 21 of its 38 slots are
+ * item-eligible, against the single one section carried at the time — so fixing
+ * section alone would have left the component the feature was built for still
+ * leaking. Section declares no slots at all since #1023, so grid is the whole
+ * surface this function guards today.
  *
  * @param  array $slots  A component's declared style_slots.
  * @return array         The subset carrying `item_eligible`; empty when none do.

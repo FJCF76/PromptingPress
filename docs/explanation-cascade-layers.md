@@ -166,7 +166,7 @@ still wins, and `solid` at zero width paints nothing.
 
 The baseline was NOT hoisted out of the layer to restore the old mechanism. Unlayered, it
 would outrank every layered component rule that legitimately draws a border (`.cta--dark`,
-`.grid--dark`, `.section--bordered`, ...) and erase all of them.
+`.grid--dark`, `.logos--dark`, ...) and erase all of them.
 
 `.site-footer` used to head that list and no longer belongs to it: since #994 the footer's
 top border is a `_band` role default, which is the very thing section 1c is about — the

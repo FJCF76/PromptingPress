@@ -179,7 +179,7 @@ The panel falls back to a plain `text-only` section when it has no content (no h
 body, no list items, and no complete CTA).
 
 **Style the panel through roles, not slots. `section` is a v2 component: it has no style
-slots.** The panel is six roles, one per visual job:
+slots.** The panel is eight roles, one per visual job — the seven in this table, plus the `panel-cta` role described just below it:
 
 | Role | What to set on it |
 |---|---|

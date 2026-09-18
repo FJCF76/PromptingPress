@@ -1656,7 +1656,7 @@ class StyleSlotContractTest extends TestCase
      * instead") arriving from the other direction. It is ALSO the reason the baseline
      * was not hoisted out of the layer to restore the old mechanism: an unlayered
      * baseline would outrank every layered component rule that legitimately draws a
-     * border (`.cta--dark`, `.grid--dark`, `.section--bordered`, …) and erase all of
+     * border (`.cta--dark`, `.grid--dark`, `.logos--dark`, …) and erase all of
      * them. The rendered pin remains the proof that matters.
      *
      * `.site-footer` is NOT one of those rules any more, and the docblock immediately

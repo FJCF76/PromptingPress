@@ -280,7 +280,7 @@ wp pp action execute add_component \
   --params='{"post_id":74,"component":"section","props":{"body":"<p>New.</p>"}}'
 ```
 
-20 typed actions cover page lifecycle, composition edits, component operations, styling, navigation menus, SEO metadata, and site options. The apply layer handles design token and file mutations with automatic backup (keeps last 5), post-write contract verification, and auto-restore on failure.
+26 typed actions cover page lifecycle, composition edits, component operations, styling, navigation menus, SEO metadata, and site options. The apply layer handles design token and file mutations with automatic backup (keeps last 5), post-write contract verification, and auto-restore on failure.
 
 **Why this matters:** AI agents can't accidentally produce invalid state. The system validates inputs, shows a preview diff, and rolls back on failure — all through the same interface regardless of how the edit was initiated.
 
@@ -430,7 +430,7 @@ Enforced by `AI_RULES.md` and verified by automated tests:
 
 ## ✅ Tests
 
-**PHP unit tests** — component loader, WP abstraction, schema validation, 20 typed actions, apply layer, batch atomicity/rollback, token family derivation, AI context, proposal parsing, capability model, style slots, cross-component hints, surface classification, font management, media import, SEO metadata, navigation menus, integrity, upgrade-safety guardrails, operating loop, server-driven destructive-action warnings:
+**PHP unit tests** — component loader, WP abstraction, schema validation, 26 typed actions, apply layer, batch atomicity/rollback, token family derivation, AI context, proposal parsing, capability model, style slots, cross-component hints, surface classification, font management, media import, SEO metadata, navigation menus, integrity, upgrade-safety guardrails, operating loop, server-driven destructive-action warnings:
 
 ```bash
 composer install && composer test
