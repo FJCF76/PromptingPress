@@ -80,17 +80,26 @@ final class WriteEnvelopeFindingsTest extends TestCase
      * validates, stores, reports applied, and paints nothing. section's eyebrow family
      * declares `applies_when: eyebrow present`, so omitting `eyebrow` reproduces it.
      */
+    /**
+     * The inert-slot trap band. Re-homed from section to stats at #1023: section is a v2
+     * component and declares no style slots, so it can no longer hold an inert one. stats
+     * is the host chosen for every re-homed slot fixture in this sprint — 17 slots, 12 of
+     * them conditional, and zero live bands on the owner's site, so it is furthest down
+     * the usage-ordered rebuild queue (#1025 records why this keeps happening).
+     *
+     * `background_image` is deliberately UNSET: that is what makes `--stats-overlay-bg`
+     * inert, which is the whole subject of the trap.
+     */
     private function trapPage(): int
     {
-        $id = pp_create_page('Inert eyebrow trap', 'draft');
+        $id = pp_create_page('Inert overlay trap', 'draft');
         pp_update_composition($id, [
             [
-                'component' => 'section',
+                'component' => 'stats',
                 'props'     => [
-                    'id'    => 'section-1',
+                    'id'    => 'stats-1',
                     'title' => 'Ship faster',
-                    'body'  => 'Body text',
-                    'body'  => 'Body text',
+                    'items' => [['number' => '99%', 'label' => 'Uptime']],
                 ],
             ],
         ]);
@@ -99,11 +108,17 @@ final class WriteEnvelopeFindingsTest extends TestCase
     }
 
     /** A page whose bands are all clean under current rules. */
+    /**
+     * A page whose bands are all clean under current rules. Band 0 is a `stats` since
+     * #1023 because callers style index 0 through the v1 slot surface; band 1 stays a
+     * `section` so the fixture still exercises a MIXED page, which is the ordinary shape
+     * mid-rebuild and the one most likely to surprise the report assembler.
+     */
     private function cleanPage(string $title = 'Clean page'): int
     {
         $id = pp_create_page($title, 'draft');
         pp_update_composition($id, [
-            ['component' => 'section', 'props' => ['id' => 's1', 'title' => 'One', 'body' => 'Body copy.']],
+            ['component' => 'stats', 'props' => ['id' => 's1', 'title' => 'One', 'items' => [['number' => '1', 'label' => 'One']]]],
             ['component' => 'section', 'props' => ['id' => 's2', 'title' => 'Two', 'body' => 'Body copy.']],
         ]);
 
@@ -286,7 +301,7 @@ final class WriteEnvelopeFindingsTest extends TestCase
             'composition' => [
                 [
                     'component' => 'stats',
-                    'props'     => ['id' => 'h', 'title' => 'T'],
+                    'props'     => ['id' => 'h', 'title' => 'T', 'items' => [['number' => '1', 'label' => 'One']]],
                     'style'     => ['--stats-overlay-bg' => 'rgba(0,0,0,.5)']]]]);
 
         $this->assertTrue($result['ok'], $result['error'] ?? '');
@@ -359,7 +374,10 @@ final class WriteEnvelopeFindingsTest extends TestCase
             'style'           => ['--stats-overlay-bg' => 'rgba(0,0,0,.5)'],
         ]);
 
-        $result = pp_patch_composition($id, 'section.title', 'Patched');
+        // The trap band is a `stats` since #1023, so the patch path addresses it by that
+        // component name — the subject here is the ENVELOPE carrying findings, not which
+        // component the patch happens to name.
+        $result = pp_patch_composition($id, 'stats.title', 'Patched');
 
         $this->assertIsArray($result);
         $this->assertTrue($result['ok'], $result['error'] ?? '');
@@ -499,9 +517,22 @@ final class WriteEnvelopeFindingsTest extends TestCase
     // ── 5. THE BUDGET (D1 clause 3, on this surface only) ───────────────────────
 
     /** A composition whose report is longer than the budget. */
+    /**
+     * A page whose every band carries four undeclared props, so the whole-page report
+     * comfortably exceeds the findings budget. The VOLUME is what these tests need.
+     *
+     * The LEAD band is a `stats` since #1023, because the tests style index 0 through the
+     * v1 slot surface and section is a v2 component now. The rest stay `section` bands:
+     * an undeclared prop is reported for a v2 component exactly as for a v1 one, so they
+     * still supply the volume — this fixture never needed slots for that, only for the
+     * band it styles.
+     */
     private function pathologicalPage(int $bands = 40): int
     {
-        $composition = [];
+        $composition = [['component' => 'stats', 'props' => [
+            'id' => 'lead', 'title' => 'Lead', 'items' => [['number' => '1', 'label' => 'One']],
+            'zzA' => 1, 'zzB' => 2, 'zzC' => 3, 'zzD' => 4,
+        ]]];
         for ($i = 0; $i < $bands; $i++) {
             $composition[] = ['component' => 'section', 'props' => [
                 'id' => "s$i", 'title' => "T$i", 'body' => 'B',
@@ -750,12 +781,15 @@ final class WriteEnvelopeFindingsTest extends TestCase
      */
     private function bulkyPage(int $bands): int
     {
-        // The lead band is a `section`, not a hero: hero is a v2 component (#986) and
-        // carries no `style` map, and these tests style index 0 through the v1 surface.
+        // The lead band is a `stats`: these tests style index 0 through the v1 slot
+        // surface, and both hero (#986) and section (#1023) are v2 components carrying no
+        // `style` map. stats is the host every re-homed slot fixture in this sprint uses.
+        // The BULK below still comes from section bands — the bytes are what matters
+        // there, not the styling surface.
         $composition = [[
-            'component' => 'section',
-            'props'     => ['id' => 'h', 'title' => 'T', 'body' => 'Body text'],
-            'style'     => ['--section-overlay-bg' => 'rgba(0,0,0,.5)'],
+            'component' => 'stats',
+            'props'     => ['id' => 'h', 'title' => 'T', 'items' => [['number' => '1', 'label' => 'One']]],
+            'style'     => ['--stats-overlay-bg' => 'rgba(0,0,0,.5)'],
         ]];
         $body = str_repeat('lorem ipsum dolor sit amet ', 420);
         for ($i = 0; $i < $bands; $i++) {
@@ -1159,7 +1193,7 @@ final class WriteEnvelopeFindingsTest extends TestCase
             $added = pp_execute_action('add_component', [
                 'post_id'   => $id,
                 'component' => 'stats',
-                'props'     => ['id' => 'same', 'title' => "T$i"]]);
+                'props'     => ['items' => [['number' => '1', 'label' => 'One']], 'id' => 'same', 'title' => "T$i"]]);
             $this->assertTrue($added['ok'], 'add_component validates only the item it adds, so a colliding id is accepted');
         }
 
