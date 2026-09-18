@@ -267,8 +267,8 @@ figure {
   --max-width:  72rem;      /* length: 1152px — content column max width */
   --measure-body:      70ch;      /* length: Text body measure — section content, readable prose */
   --measure-body-wide: 75ch;      /* length: Wider measure — standalone text sections, centered intros */
-  --measure-centered:  56rem;     /* length: Centered section body — preserves current layout width */
-  --measure-heading:   40rem;     /* length: Band heading measure — display type, shorter than prose. Eight band components route their heading cap through this (hero and section are exempt: both are uncapped by design). Retune it to change every routed band heading in one write. */
+  --measure-centered:  56rem;     /* length: Centered-band body measure. NO STYLESHEET RULE READS THIS SINCE #1023 — section's centred cap moved onto the `heading`/`subheading`/`body` roles at 40rem, and section was its only consumer. Kept because `hero` still lists it in styling.tokens and a site may reference it; retire it with hero's next pass if that reference goes too. */
+  --measure-heading:   40rem;     /* length: Band heading measure — display type, shorter than prose. Eight band components route their heading cap through this. Section is not one of them, but it is not exempt either: its `heading` role defaults to this same 40rem, reached as a role literal rather than through this token, because that is the width v1's `.section__body` wrapper actually gave it (#1023). Hero is genuinely uncapped by design. Retune this to change every routed band heading in one write — and section's role default alongside it, or the two drift. */
   --transition: 150ms ease; /* raw: Default transition for interactive states */
   --overlay-bg: rgba(0, 0, 0, 0.55); /* color: Dark scrim over background images for text readability */
 

@@ -83,15 +83,16 @@ class StyleSlotContractTest extends TestCase
     public function testDiscoveryFindsTheKnownStyledComponents(): void
     {
         $found = $this->styledComponents();
-        // FIVE, not seven: testimonials left the style-slot system in #958 and hero in
-        // #986, both rebuilt on the Universal Design Contract. Their authoring surface
-        // is roles, and the contract that replaced this one is the UDC engine's own.
-        foreach (['cta', 'faq', 'grid', 'section', 'stats'] as $known) {
+        // FOUR, not seven: testimonials left the style-slot system in #958, hero in #986
+        // and section in #1023, all rebuilt on the Universal Design Contract. Their
+        // authoring surface is roles, and the contract that replaced this one is the UDC
+        // engine's own.
+        foreach (['cta', 'faq', 'grid', 'stats'] as $known) {
             $this->assertContains($known, $found, "Schema discovery lost the {$known} component.");
         }
-        // …and the two v2 components must NOT be discovered here, or this suite would
+        // …and the three v2 components must NOT be discovered here, or this suite would
         // start asserting a slot contract against a component that has none.
-        foreach (['hero', 'testimonials'] as $v2) {
+        foreach (['hero', 'section', 'testimonials'] as $v2) {
             $this->assertNotContains($v2, $found, "{$v2} is a v2 component: it declares no style slots.");
         }
     }
@@ -590,136 +591,36 @@ class StyleSlotContractTest extends TestCase
     // RETIRED (#986): hero's button fill slots are the `cta` / `cta-secondary` roles'
     // `background.fill` (and its `:hover`), covered by ActionsTest's UDC contract test.
 
-    /**
-     * Section panel-CTA fill slots (issue 536): the last member of the #514 masked-fill class.
-     *
-     * `.section__panel-cta` has NO .hero / .cta ancestor, so the shared premium
-     * `main .btn:not(...)` cascade is its ONLY fill winner — a background-COLOR set anywhere
-     * in the section block sits under that rule's gradient background-IMAGE and is invisible.
-     * The fix mirrors #514/#526: the three slots lead the premium chains (pinned in
-     * testIssue514HeroButtonFillSlotFallbacks, which now asserts the section links too), and
-     * the section block carries the keystone consumptions this test pins.
-     *
-     * One shape is load-bearing and easy to "tidy" into a regression: ALL THREE slots share
-     * the single [0,4,0] variant carve-out. The obvious-looking simplification — wiring the
-     * elevation slot on the bare `.section__panel-cta` rule — is a shipped contract lie: at
-     * [0,1,0] it outranks the shared `.btn` box-shadow (later in source) on EVERY variant, so
-     * `--section-panel-cta-shadow` would paint a drop shadow on a transparent outline/ghost
-     * panel CTA that schema.json promises it never reaches (caught in review, verified in a
-     * browser: an outline panel CTA took the slot's shadow at rest).
-     */
-    public function testIssue536SectionPanelCtaFillSlotKeystone(): void
-    {
-        $block = $this->stripComments($this->componentBlock('section'));
-
-        // The bare rule carries spacing ONLY — no slot may be wired at [0,1,0], where it
-        // would escape the variant carve-out.
-        $this->assertMatchesRegularExpression(
-            '/\.section__panel-cta\s*\{\s*margin-top:\s*var\(--space-sm\);\s*\}/',
-            $block,
-            'The bare .section__panel-cta rule must stay spacing-only (issue 536): a slot wired '
-            . 'there reaches outline/ghost/secondary, contradicting the primary-only contract '
-            . 'in components/section/schema.json.'
-        );
-
-        // Fill/ink/border/elevation keystone, carved away from the transparent variants.
-        $this->assertMatchesRegularExpression(
-            '/\.section__panel-cta:not\(\.btn--outline\):not\(\.btn--ghost\):not\(\.btn--secondary\)\s*\{\s*'
-            . 'background-color:\s*var\(--section-panel-cta-bg,\s*var\(--btn-bg,\s*var\(--color-accent\)\)\);\s*'
-            . 'border-color:\s*var\(--section-panel-cta-border,\s*var\(--btn-border-color,\s*var\(--section-panel-cta-bg,\s*var\(--btn-bg,\s*var\(--color-accent\)\)\)\)\);\s*'
-            . 'color:\s*var\(--section-panel-cta-color,\s*var\(--btn-text,\s*var\(--color-bg\)\)\);\s*'
-            . 'box-shadow:\s*var\(--section-panel-cta-shadow,\s*none\);\s*\}/',
-            $block,
-            'The section block must wire ALL THREE panel-CTA slots on ONE variant-carved [0,4,0] '
-            . 'rule, with the border FOLLOWING the fill when --btn-border-color is unset (issue '
-            . '536, the #526 border-follows-fill convention) and the `none` elevation default '
-            . 'mirroring .hero__cta:not(...).'
-        );
-
-        // The premium LIVE border must reach the fill slot too, so a fill-only recolor keeps a
-        // matching ring instead of the stray --color-accent-strong outline.
-        $css = $this->stripComments($this->css);
-        $this->assertStringContainsString(
-            'border-color: var(--section-panel-cta-border, var(--cta-button-border, var(--cta-accent, '
-            . 'var(--btn-border-color, var(--section-panel-cta-bg, var(--color-accent-strong))))))',
-            $css,
-            'The premium primary border must LEAD with --section-panel-cta-border (issue 584 — this '
-            . 'rule is the panel CTA\'s only border winner at [0,4,1] over the section block\'s '
-            . '[0,4,0] keystone, so the head is the only position where a per-instance ring slot '
-            . 'can act) and still fall through to --section-panel-cta-bg before its literal, so a '
-            . 'flat panel CTA keeps a matching ring (issue 536).'
-        );
-
-        // The hover twin (issue 584). #536 shipped the panel CTA resting-state-only for the
-        // FILL and that is unchanged; the RING gets its positional twin, or a ring set at rest
-        // would dissolve under the pointer (the #535 defect). No fill link here on purpose:
-        // there is no --section-panel-cta-hover-bg for the border to follow.
-        $this->assertStringContainsString(
-            'border-color: var(--section-panel-cta-hover-border, var(--cta-button-hover-border, '
-            . 'var(--cta-accent-hover, var(--btn-hover-border-color, var(--color-accent)))))',
-            $css,
-            'The premium HOVER border must lead with --section-panel-cta-hover-border (issue 584), '
-            . 'the positional twin of --section-panel-cta-border on the rest rule.'
-        );
-
-        // ...and the section block carries the hover keystone that makes the slot discoverable
-        // there (check 1: every declared slot is consumed inside its own component block). It is
-        // [0,5,0] against the premium hover winner's [0,5,1], so like the rest keystone it never
-        // decides a composed panel CTA's ring. Unset it resolves --btn-hover-border-color then
-        // --color-accent-hover, exactly what `.btn:hover` computes, so it is byte-identical even
-        // in the one context where it WOULD win: a panel CTA rendered outside `main`.
-        $this->assertMatchesRegularExpression(
-            '/\.section__panel-cta:not\(\.btn--outline\):not\(\.btn--ghost\):not\(\.btn--secondary\):hover\s*\{\s*'
-            . 'border-color:\s*var\(--section-panel-cta-hover-border,\s*var\(--btn-hover-border-color,\s*'
-            . 'var\(--color-accent-hover\)\)\);\s*\}/',
-            $block,
-            'The section block must carry the panel-CTA hover keystone wiring '
-            . '--section-panel-cta-hover-border on the SAME variant carve-out the rest keystone '
-            . 'uses, so the slot never reaches an outline/ghost/secondary panel CTA (issue 584). '
-            . 'No hover FILL slot is created: #536\'s resting-only posture stands.'
-        );
-
-        // Elevation contract: `none` must flatten hover as well as rest (the #514 contract).
-        $this->assertMatchesRegularExpression(
-            // `--hero-button-shadow` left the chain in #986 (hero owns no button slots),
-            // so the chain is one level shorter and closes one paren earlier. The
-            // contract this pins is unchanged: `--section-panel-cta-shadow` still LEADS,
-            // so `none` on it still flattens hover as well as rest.
-            '/box-shadow:\s*var\(--section-panel-cta-shadow,\s*var\(--cta-button-shadow,\s*'
-            . 'inset 0 1px 0 rgba\(255, 255, 255, 0\.18\),\s*'
-            . '0 14px 30px color-mix\(in srgb, var\(--color-accent-strong\) 20%, transparent\)\)\)/',
-            $css,
-            'The premium HOVER elevation must route --section-panel-cta-shadow too, so `none` '
-            . 'flattens rest AND hover instead of re-growing a bevel mid-interaction (issue 536).'
-        );
-    }
-
-    /**
-     * The panel-CTA hover keystone is the ONE new RULE in this issue, not a head-of-chain
-     * addition, so its byte-identity is not true by construction: it rests on computing the
-     * same value `.btn:hover` would for a panel CTA rendered outside `main` (inside `main` the
-     * premium winner masks it). Derive the primitive's chain and compare, rather than restating
-     * it — a future edit to `.btn:hover` would otherwise split the two silently.
-     */
-    public function testIssue584PanelCtaHoverKeystoneMatchesTheBarePrimitive(): void
-    {
-        $css = $this->stripComments($this->css);
-        $this->assertMatchesRegularExpression(
-            '/(?:^|\})\s*\.btn:hover\s*\{[^}]*?border-color:\s*([^;]+);/s',
-            $css,
-            '.btn:hover must declare border-color — it is the primitive this keystone mirrors.'
-        );
-        preg_match('/(?:^|\})\s*\.btn:hover\s*\{[^}]*?border-color:\s*([^;]+);/s', $css, $m);
-        $primitive = trim($m[1]); // var(--btn-hover-border-color, var(--color-accent-hover))
-
-        $this->assertStringContainsString(
-            'border-color: var(--section-panel-cta-hover-border, ' . $primitive . ')',
-            $css,
-            'The panel-CTA hover keystone must be `.btn:hover`\'s own chain with the per-instance '
-            . 'ring slot prepended. That equivalence — not the literal text — is what makes this '
-            . 'NEW rule byte-identical unset in the one context where it wins.'
-        );
-    }
+    // RETIRED (#1023), and this pair is retired TOGETHER because they pinned two halves
+    // of one mechanism: the panel CTA's variant-carved fill keystone (#536) and the hover
+    // ring twin (#584) that kept a rest-state ring from dissolving under the pointer.
+    //
+    // Section's panel CTA is the `panel-cta` role now. Everything both tests protected is
+    // gone WITH ITS CAUSE rather than merely relocated, which is why nothing replaces
+    // them here:
+    //
+    //   - The masked-fill class (#514/#526/#536) existed because `.section__panel-cta`
+    //     has no .hero/.cta ancestor, so the shared premium `main .btn:not(...)` gradient
+    //     was its only fill winner and a background-COLOR set in the section block sat
+    //     invisibly beneath it. A role's block is emitted UNLAYERED and band-scoped, so
+    //     it beats every layer including pp-v1 — there is no masking rule left to lead.
+    //
+    //   - The load-bearing shape was that all three slots had to share ONE [0,4,0]
+    //     variant carve-out, because wiring the elevation slot on the bare [0,1,0] rule
+    //     would have painted a drop shadow on a transparent outline/ghost CTA that
+    //     schema.json promised it never reached. That contract cannot be contradicted
+    //     any more: `panel_cta_variant` is retired, so there is no variant set to carve
+    //     away from. An author puts `"_preset": "button"` on the role and overrides
+    //     beside it, and whatever they set is what paints — the promise and the
+    //     behaviour became the same statement.
+    //
+    //   - The hover ring's positional twin is the role's `':hover'` state nested inside
+    //     `border`, which the engine emits from the same map as the resting value, so
+    //     the two cannot split the way `.btn:hover` and a hand-written keystone could.
+    //
+    // The v2 replacements are covered by UdcEngineTest (every role selector matches an
+    // element the component actually renders, and `panel-cta` is one of section's
+    // nineteen) and by the cascade contract in docs/explanation-cascade-layers.md.
 
     /**
      * Heading rhythm completes its family (issue 584, A-41).
@@ -774,10 +675,13 @@ class StyleSlotContractTest extends TestCase
         // Fail-closed: the six must be the ONLY margin-bottom literals left on a band heading.
         // The four that already had the slot keep it; a seventh bare literal appearing on a
         // band title is the exact regression this row exists to prevent from recurring.
-        foreach (['section' => '.section__title', 'grid' => '.grid__heading', 'faq' => '.faq__heading',
-                  // testimonials is absent: its heading rhythm is the `heading` role's
-                  // `spacing.margin-bottom` default, not a --<comp>-heading-margin-bottom
-                  // slot, so there is no slot for this guard to route.
+        foreach (['grid' => '.grid__heading', 'faq' => '.faq__heading',
+                  // testimonials, hero and section are absent: their heading rhythm is the
+                  // `heading` role's `spacing.margin-bottom` default, not a
+                  // --<comp>-heading-margin-bottom slot, so there is no slot for this
+                  // guard to route. section's responsive tiers (1.65rem desktop/tablet,
+                  // 1.25rem phone) are that default's breakpoint map since #1023, which is
+                  // more than the single slot could express.
                   ] as $component => $_selector) {
             $this->assertStringContainsString(
                 "var(--{$component}-heading-margin-bottom,",
@@ -1589,13 +1493,16 @@ class StyleSlotContractTest extends TestCase
      */
     private const CROSS_BLOCK_SLOT_CONTRACT = [
         '.grid__heading'     => ['--grid-heading-color', 'color'],
-        '.section__title'    => ['--section-heading-color', 'color'],
+        // section's two rows retired in #1023: both slots went with its slot map, and the
+        // four `main > .section` premium-typography rules that made them cross-block
+        // reachable were DELETED in the same change (they were dead code — pp-v1 loses to
+        // the unlayered role defaults the engine emits). So the cross-block hazard this
+        // map exists for no longer has a mechanism on section, not merely no slot.
         // Body/content + card text slots are ALSO re-declared in the desktop
         // "premium typography" media rules. The original #86 fix only covered
         // the two heading slots above; these four were left clobbered (desktop
         // hardcoded a token, ignoring the per-instance slot) until caught by a
         // dev smoke test against a dark-band benchmark. Same cross-block class.
-        '.section__content'  => ['--section-body-color', 'color'],
         '.grid__item-title'  => ['--grid-item-title-color', 'color'],
         '.grid__item-text'   => ['--grid-item-text-color', 'color'],
         '.cta__body'         => ['--cta-body-color', 'color'],
@@ -1749,7 +1656,7 @@ class StyleSlotContractTest extends TestCase
      * instead") arriving from the other direction. It is ALSO the reason the baseline
      * was not hoisted out of the layer to restore the old mechanism: an unlayered
      * baseline would outrank every layered component rule that legitimately draws a
-     * border (`.cta--dark`, `.grid--dark`, `.section--bordered`, …) and erase all of
+     * border (`.cta--dark`, `.grid--dark`, `.logos--dark`, …) and erase all of
      * them. The rendered pin remains the proof that matters.
      *
      * `.site-footer` is NOT one of those rules any more, and the docblock immediately
@@ -1798,12 +1705,17 @@ class StyleSlotContractTest extends TestCase
     {
         $triggerSlots = $this->borderTriggerSlots();
 
-        // Fail-closed floor: 13 such slots exist today (issue 332). If discovery breaks,
-        // every assertion below would pass over an empty list.
+        // Fail-closed floor: 11 such slots exist today. 13 at issue 332, minus section's
+        // two (`--section-border-width` and `--section-panel-border-width`), which went
+        // with its slot map in #1023 — a v2 band's border width is the `_band` / `panel`
+        // role's `border.width`, emitted by the engine into a band-scoped rule rather
+        // than an inline style attribute, so it never meets WP core's 3px trigger this
+        // immunity baseline exists to defeat. If discovery breaks, every assertion below
+        // would pass over an empty list.
         $this->assertGreaterThanOrEqual(
-            13,
+            11,
             count($triggerSlots),
-            'Discovery found fewer border-trigger slots than the 13 known at issue 332 — '
+            'Discovery found fewer border-trigger slots than the 11 known today — '
             . 'the schema scan is broken and this guard would pass vacuously.'
         );
 
@@ -1881,13 +1793,16 @@ class StyleSlotContractTest extends TestCase
             }
         }
 
-        // Fail-closed: 7 styled components render a root style attr, grid renders a
-        // per-card one, and section renders a per-row one (issue 334). If the scan
-        // finds nothing, the loop above proved nothing.
+        // Fail-closed: 6 styled components render a root style attr and grid renders a
+        // per-card one, so 7. Two left in #1023 with section's rebuild: its root
+        // attribute, and the per-row one issue 334 added — the panel rows are the
+        // `panel-row` / `panel-row-label` / `panel-row-value` roles now, and the engine
+        // emits no inline attribute at all. If the scan finds nothing, the loop above
+        // proved nothing.
         $this->assertGreaterThanOrEqual(
-            9,
+            7,
             $emitted,
-            'Found fewer inline slot surfaces than the 9 known today — the template scan is broken.'
+            'Found fewer inline slot surfaces than the 7 known today — the template scan is broken.'
         );
 
         // Every pp_render_style_vars() call must reach an emit site the loop above actually
@@ -2226,7 +2141,7 @@ class StyleSlotContractTest extends TestCase
         // the weight the source-order check below depends on is unchanged.
         $chromeExclusion = ':not(:where([data-pp-chrome]))';
         $selects = false;
-        foreach (explode(',', $rule['selector']) as $part) {
+        foreach (self::splitTopLevel($rule['selector'], ',') as $part) {
             $part = trim($part);
             if ($part === $surface || $part === $surface . $chromeExclusion) {
                 $selects = true;
@@ -2418,8 +2333,15 @@ class StyleSlotContractTest extends TestCase
      * NestedButtonSlotIsolationTest::testEveryRendererThatEmitsAButtonIsExcluded forces), and a
      * one-character selector edit should not read as 26 unexpected plus 26 missing entries.
      */
+    // `:not(.section__panel-cta)` DROPPED in #1023, and it is the selector that had to
+    // change rather than just the ledger: the carve-out existed so the neutraliser would
+    // leave section's panel-CTA slots alone, and there are no such slots any more. The
+    // panel CTA is the `panel-cta` role, whose block is emitted unlayered and band-scoped
+    // and therefore outranks this rule outright — so excluding the class would only stop
+    // the neutraliser from deadening the CTA slots on a panel button, which is exactly
+    // what issue 545 wants it to do.
     private const NESTED_BTN_ISOLATION_SELECTOR =
-        'main .btn:not(.hero__cta):not(.cta__button):not(.section__panel-cta)';
+        'main .btn:not(.hero__cta):not(.cta__button)';
 
     private const NESTED_BTN_ISOLATION_SLOTS = [
         '--cta-button-bg',
@@ -2435,11 +2357,7 @@ class StyleSlotContractTest extends TestCase
         '--cta-button2-hover-bg',
         '--cta-button2-hover-border',
         '--cta-button2-hover-color',
-        '--section-panel-cta-bg',
-        '--section-panel-cta-border',
-        '--section-panel-cta-color',
-        '--section-panel-cta-hover-border',
-        '--section-panel-cta-shadow',
+        // section's five panel-CTA entries retired with its slot map (#1023).
     ];
 
     /** The full exemption ledger: the hand-listed entries plus the issue 545 rule's. */
@@ -2876,7 +2794,7 @@ class StyleSlotContractTest extends TestCase
             preg_match_all('/([^{}]+)\{([^{}]*)\}/s', $css, $rules, PREG_SET_ORDER);
 
             foreach ($rules as $rule) {
-                foreach (explode(',', $rule[1]) as $part) {
+                foreach (self::splitTopLevel($rule[1], ',') as $part) {
                     $part = trim($part);
                     if ($part === '' || !$this->subjectIsAutomaticMatch($part)) {
                         continue;
@@ -2911,8 +2829,8 @@ class StyleSlotContractTest extends TestCase
      */
     private function subjectIsAutomaticMatch(string $selectorPart): bool
     {
-        $part      = trim(preg_replace('/\s*[>+~]\s*/', ' ', $selectorPart));
-        $compounds = preg_split('/\s+/', $part);
+        $part      = trim(self::flattenCombinators($selectorPart));
+        $compounds = self::splitTopLevel($part, ' ');
         $subject   = (string) end($compounds);
         if ($subject === '' || preg_match('/[.#\[]/', $subject)) {
             return false;
@@ -3095,10 +3013,152 @@ class StyleSlotContractTest extends TestCase
      * if present, so `.grid__item::before` is a different box than `.grid__item`.
      * Combinators are normalized to spaces first, so `a>b` and `a > b` agree.
      */
+    /**
+     * THE PARSER UPGRADE'S OWN PROOF, replacing the fail-fast guard that used to stand in
+     * for it inside slotBypassOffenders().
+     *
+     * Asserted in BOTH directions, because a permissive split would pass the old guard's
+     * job while quietly attributing nothing:
+     *
+     *   1. a comma inside :is()/:where()/:not() does NOT end a selector-list part;
+     *   2. a descendant space inside one does NOT end a compound;
+     *   3. `:nth-child(2n+1)`'s `+` is arithmetic and does NOT become a combinator;
+     *   4. real top-level delimiters still split; and
+     *   5. `.p :is(.a, .b)` yields BOTH subjects — the case the old parser could not
+     *      express at all, so the upgrade is a correctness fix and not a relaxation.
+     *
+     * The last one is the detection proof: the bypass guard can only police a subject it
+     * can name, so a list-valued subject silently reducing to zero subjects would make
+     * the whole check vacuous on exactly the rules v2 introduces.
+     */
+    public function testTheSubjectParserSplitsAtParenDepthZero(): void
+    {
+        $split = static fn (string $s, string $d): array => (function (string $s, string $d) {
+            $m = new \ReflectionMethod(self::class, 'splitTopLevel');
+            $m->setAccessible(true);
+            return $m->invoke(null, $s, $d);
+        })($s, $d);
+
+        $this->assertSame(
+            ['.section__content :is(ul, ol)'],
+            $split('.section__content :is(ul, ol)', ','),
+            'a comma inside :is() must not end a selector-list part'
+        );
+        $this->assertSame(
+            ['.a:not(.b, .c)', '.d'],
+            $split('.a:not(.b, .c), .d', ','),
+            'a real top-level comma must still split'
+        );
+        $this->assertSame(
+            ['.section__content', ':is(ul, ol)'],
+            $split('.section__content :is(ul, ol)', ' '),
+            'a descendant space inside :is() must not end a compound'
+        );
+        $this->assertSame(
+            ['.x:nth-child(2n+1)'],
+            $split('.x:nth-child(2n+1)', '>+~ '),
+            "nth-child's `+` is arithmetic, not a combinator"
+        );
+
+        $tokens = new \ReflectionMethod(self::class, 'subjectTokens');
+        $tokens->setAccessible(true);
+        $this->assertSame(
+            ['.a', '.b'],
+            $tokens->invoke(null, '.p :is(.a, .b)'),
+            'a list-valued subject must yield BOTH subjects — zero would make the bypass guard vacuous here'
+        );
+        // KNOWN BOUND, pinned so it is a recorded over-approximation rather than a
+        // surprise: subjectTokens() scans every `.class` in the subject compound, so a
+        // `:not()` argument is claimed as a subject too. That errs toward claiming MORE
+        // subjects than the selector really has, which makes the bypass guard stricter
+        // and therefore fail-loud. It predates #1023 and the parser upgrade does not
+        // change it — only the SPLIT moved, not what counts as a class token.
+        $this->assertSame(
+            ['.y', '.z'],
+            $tokens->invoke(null, '.x > .y:not(.z)'),
+            'the subject is the last compound, and every class in it is claimed'
+        );
+    }
+
+    /**
+     * THE ISSUE-305 PARSER UPGRADE that #1023's shared glyph block required.
+     *
+     * Every selector split in this file used `explode(',', ...)` for the selector list
+     * and `preg_split('/\s+/', ...)` for the compounds, and both are wrong the moment a
+     * functional pseudo-class carries a comma: `.section__content :is(ul, ol)` splits
+     * into `.section__content :is(ul` and ` ol)`, which mis-attributes every subject in
+     * the rule. A guard used to fail fast on any comma inside `:is()`/`:where()` with the
+     * note "must be upgraded first". v2 Sprint 2 is where that bill came due: the shared
+     * prose-list rule is written as `:is(ul, ol)` rather than as a comma list precisely so
+     * a scoping prefix cannot leave half the list unscoped, so the construct is now
+     * load-bearing and the parser is the thing that had to move.
+     *
+     * Splits on $delims only at PAREN DEPTH ZERO, so a comma (or a descendant space)
+     * inside `:is()`, `:where()`, `:not()` or `nth-child()` stays with its owner. The
+     * fix is correct rather than merely permissive: `.p :is(.a, .b)` now yields `.a` and
+     * `.b` as the two subjects it really has, which the old parser could not express at
+     * all. Empty parts are dropped so a trailing delimiter cannot produce a blank subject.
+     *
+     * @param  string $delims one or more single-character delimiters
+     * @return list<string>
+     */
+    private static function splitTopLevel(string $selector, string $delims): array
+    {
+        // MEMOIZED, and the reason is measured rather than defensive. The ENFORCE loop
+        // below re-splits every rule selector once per (triple, slot) pair, so a single
+        // invocation of testDeclaredSlotsNotBypassedByLiteralReDeclarations made 228,340
+        // calls scanning 7,340,733 characters — one PHP loop iteration per character.
+        // That took the suite's slowest test from 0.198s to 0.982s when this parser
+        // replaced explode(), which was 47% of the whole PHP suite's runtime increase.
+        // Selectors repeat heavily across that loop, so the hit rate is near-total and
+        // the memo lands the file FASTER than the explode() version it replaced:
+        // 1.205s -> 0.412s for the file, against a 0.501s baseline.
+        static $memo = [];
+        $ck = $delims . "\x00" . $selector;
+        if (isset($memo[$ck])) {
+            return $memo[$ck];
+        }
+
+        $parts = [];
+        $buf   = '';
+        $depth = 0;
+        $len   = strlen($selector);
+
+        for ($i = 0; $i < $len; $i++) {
+            $char = $selector[$i];
+            if ($char === '(') {
+                $depth++;
+            } elseif ($char === ')') {
+                $depth = max(0, $depth - 1);
+            }
+            if ($depth === 0 && strpos($delims, $char) !== false) {
+                $parts[] = $buf;
+                $buf     = '';
+                continue;
+            }
+            $buf .= $char;
+        }
+        $parts[] = $buf;
+
+        return $memo[$ck] = array_values(
+            array_filter(array_map('trim', $parts), static fn (string $p): bool => $p !== '')
+        );
+    }
+
+    /**
+     * Combinators to descendant spaces, WITHOUT reaching inside a functional
+     * pseudo-class — `:nth-child(2n+1)` carries a `+` that is arithmetic, not a
+     * combinator, and the old blanket preg_replace turned it into a compound boundary.
+     */
+    private static function flattenCombinators(string $selectorPart): string
+    {
+        return implode(' ', self::splitTopLevel($selectorPart, '>+~ '));
+    }
+
     private static function subjectTokens(string $selectorPart): array
     {
-        $part      = trim(preg_replace('/\s*[>+~]\s*/', ' ', $selectorPart));
-        $compounds = preg_split('/\s+/', $part);
+        $part      = trim(self::flattenCombinators($selectorPart));
+        $compounds = self::splitTopLevel($part, ' ');
         $last      = end($compounds);
 
         $pseudo = '';
@@ -3147,19 +3207,14 @@ class StyleSlotContractTest extends TestCase
     {
         $strippedCss = $this->stripComments($css);
 
-        // The subject parser splits selector lists on commas, so a COMMA inside
-        // :is()/:where() would mis-attribute subjects. That comma is the hazard —
-        // not the construct. `:where()` without one parses correctly here and is
-        // load-bearing since v2 Sprint 0, where the shared adjacent-band rhythm
-        // rule is wrapped in it precisely so it contributes no specificity and an
-        // authored v2 band block outranks it. So the guard is scoped to the real
-        // failure mode: a comma-bearing functional pseudo-class still fails fast
-        // and forces the parser upgrade.
-        $this->assertDoesNotMatchRegularExpression(
-            '/:(?:is|where)\s*\([^()]*,/',
-            $strippedCss,
-            'components.css uses a COMMA inside :is()/:where() — the issue 305 subject parser splits selector lists on commas and must be upgraded first.'
-        );
+        // A COMMA inside :is()/:where() used to fail fast here with "the issue 305
+        // subject parser splits selector lists on commas and must be upgraded first".
+        // #1023 paid that bill — splitTopLevel() splits at paren depth zero only — so the
+        // construct is now parsed rather than refused, and the proof lives in
+        // testTheSubjectParserSplitsAtParenDepthZero() beside the helper's own contract.
+        // The guard is gone rather than relaxed: keeping an assertion that the CSS avoids
+        // a construct the parser now handles would forbid the correct spelling of the
+        // shared prose-list rule.
 
         $slotToComponent = [];
         foreach ($slotsByComponent as $component => $slots) {
@@ -3195,7 +3250,7 @@ class StyleSlotContractTest extends TestCase
                     if ($compatibleTypes !== null && !in_array($slotType, $compatibleTypes, true)) {
                         continue;
                     }
-                    foreach (explode(',', $selector) as $part) {
+                    foreach (self::splitTopLevel($selector, ',') as $part) {
                         foreach (self::subjectTokens($part) as $token) {
                             if (self::blockOf(preg_replace('/::.*$/', '', $token)) === $component) {
                                 // A SET of slots per (subject, property): a shorthand
@@ -3233,7 +3288,7 @@ class StyleSlotContractTest extends TestCase
             foreach ($rules as $rule) {
                 $selector = $rule[1];
                 $isSubject = false;
-                foreach (explode(',', $selector) as $part) {
+                foreach (self::splitTopLevel($selector, ',') as $part) {
                     if (in_array($token, self::subjectTokens($part), true)) {
                         $isSubject = true;
                         break;

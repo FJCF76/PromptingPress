@@ -263,17 +263,26 @@ class AiContextTest extends TestCase
         $this->assertStringContainsString('A `length-or-none`-typed slot', $prompt);
         $this->assertStringContainsString('PLUS the keyword `none`', $prompt);
         $this->assertStringContainsString(
-            'A plain `length` slot (padding, font-size, radius, and every measure with a real length default, e.g. `--section-body-measure` or `--cta-heading-measure`) still rejects it.',
+            'A plain `length` slot (padding, font-size, radius, and every measure with a real length default, e.g. `--cta-heading-measure`) still rejects it.',
             $prompt,
             'the widening must be stated as bounded, or the AI will try `none` everywhere'
         );
-        // #578 widened the type from one band-geometry cap to five slots. The prompt
-        // must name the four uncapped measures, or an agent reading it will believe
-        // `none` is never valid on a measure and cannot restore their declared default.
+        // #578 widened the type from one band-geometry cap to five slots. The prompt must
+        // name the uncapped measures that are still SLOTS, or an agent reading it will
+        // believe `none` is never valid on a measure and cannot restore their declared
+        // default. The set shrinks one rebuild sprint at a time — --hero-heading-measure
+        // left in #986, --section-heading-measure in #1023 — so the prompt must also say
+        // what the v2 route is, or an agent on a rebuilt component reads a list it is not
+        // on and concludes the capability is gone.
         $this->assertStringContainsString(
-            'the three text measures that ship uncapped (`--section-heading-measure`, `--cta-body-measure`, `--faq-body-measure`)',
+            'the two text measures that ship uncapped (`--cta-body-measure`, `--faq-body-measure`)',
             $prompt,
             'the length-or-none carrier set must be stated, not just --stats-max-width'
+        );
+        $this->assertStringContainsString(
+            'an uncapped measure is the role\'s `sizing.max-width` set to `none`',
+            $prompt,
+            'the v2 route must be stated beside the shrinking slot list'
         );
         $this->assertStringContainsString(
             'use the slot\'s own removal value when its type has one',
@@ -281,24 +290,26 @@ class AiContextTest extends TestCase
         );
     }
 
-    public function testSystemPromptSurfacesEnumSlotValues(): void
-    {
-        // An enum style slot must surface its bounded value set in the slot list,
-        // mirroring the prop-enum format, so the chat AI knows exactly which values
-        // are accepted (issue 510: --section-inline-items-align is start|center).
-        //
-        // The trailing `; applies when body_items is set` arrived with #580, which
-        // populated the slot's `applies_when`. Asserted here rather than trimmed off:
-        // the value set and the condition are ONE catalog line, and an agent that
-        // reads the values without the condition writes an alignment onto a band with
-        // no inline-items row — the exact inert write #580 exists to prevent.
-        $prompt = pp_ai_system_prompt();
-        $this->assertStringContainsString(
-            '--section-inline-items-align (enum: "start"|"center", default: start; applies when body_items is set)',
-            $prompt,
-            'the slot catalog must surface an enum slot\'s value set, not just its type.'
-        );
-    }
+    /**
+     * RETIRED AT #1023, AND IT LEFT A DEAD BRANCH BEHIND — recorded rather than removed
+     * silently, because the branch is the interesting part.
+     *
+     * This asserted that the slot catalog surfaces an ENUM slot's value set and its
+     * applies_when condition together, so an agent cannot read the values without the
+     * condition and write an alignment onto a band with no inline-items row (#580).
+     *
+     * `--section-inline-items-align` was the ONLY enum-typed style slot in the shipped
+     * registry, and it retired with section's slot map — the capability is the
+     * `body_items_align` PROP now, whose value set the catalog advertises through the
+     * ordinary prop path (asserted in testCatalogAdvertisesTheAcceptedItemFields...
+     * above, as `body_items_align?: "start"|"center"`).
+     *
+     * So the enum arm of the SLOT formatter has no shipped caller. It is left in place:
+     * it is correct code, a future slotted component could declare an enum slot, and the
+     * whole slot formatter dies when the last legacy component is rebuilt. Not filed as a
+     * defect for that reason — but named here so a reader who greps for enum-slot
+     * coverage finds out why there is none rather than assuming it was forgotten.
+     */
 
     // ── Schema Condensing ─────────────────────────────────────────────────
 
@@ -397,8 +408,13 @@ class AiContextTest extends TestCase
         // strings are illegal makes it wrap each line as {label: "..."}, which validates,
         // reports ok:true, and renders a paired row with an empty value span instead of a
         // bullet. The catalog may not claim more than the gate enforces.
+        // `style?` left the advertised set at #1023 with the per-item style map. The
+        // qualification this case is actually about — that a plain STRING entry is legal
+        // too — is unchanged, and is the half that matters: telling the model strings are
+        // illegal makes it wrap each line as {label: "..."}, which validates, reports
+        // ok:true, and renders a paired row with an empty value span instead of a bullet.
         $this->assertStringContainsString(
-            '[entry fields, for an OBJECT entry: label?, value?, style?'
+            '[entry fields, for an OBJECT entry: label?, value?'
                 . ' — no other field is accepted; a plain string entry is also allowed]',
             pp_ai_condense_schema($read('section')),
             'panel_items must not be advertised as objects-only'
@@ -834,8 +850,12 @@ class AiContextTest extends TestCase
     public function testSystemPromptContainsStyleSlotsForStyledComponents(): void
     {
         $prompt = pp_ai_system_prompt();
-        $this->assertStringContainsString('--section-bg', $prompt);
+        // `--grid-bg` since #1023: section declares no slots, so the catalog must not
+        // advertise any for it. grid is the widest component still on the slot system.
+        $this->assertStringContainsString('--grid-bg', $prompt);
         $this->assertStringContainsString('Style slots:', $prompt);
+        $this->assertStringNotContainsString('--section-bg', $prompt,
+            'and a v2 component must advertise no slots at all');
     }
 
     public function testSystemPromptContainsGridHeadingMaxWidthSlot(): void
@@ -847,7 +867,9 @@ class AiContextTest extends TestCase
     public function testSystemPromptContainsRecipesForStyledComponents(): void
     {
         $prompt = pp_ai_system_prompt();
-        $this->assertStringContainsString('accent-panel', $prompt);
+        // `dark-showcase` since #1023: `accent-panel` was section's, and recipes are
+        // declared per component — only grid and cta still have any.
+        $this->assertStringContainsString('dark-showcase', $prompt);
         $this->assertStringContainsString('Recipes:', $prompt);
     }
 

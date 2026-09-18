@@ -1967,7 +1967,10 @@ class OperateTest extends TestCase
         // section — body is schema type:string (retired the private 'html').
         $section = $this->fieldMap('section');
         $this->assertSame('string', $section['body']);
-        $this->assertSame('enum', $section['theme']);
+        // `theme` retired at #1023; `body_items_align` is section's enum now — the align
+        // capability that was a style slot before the rebuild.
+        $this->assertArrayNotHasKey('theme', $section);
+        $this->assertSame('enum', $section['body_items_align']);
         $this->assertSame('string', $section['image_url']);
         $this->assertArrayNotHasKey('panel_items', $section);    // array prop, not a scalar
         $this->assertArrayNotHasKey('body_items', $section);     // string-array, not addressable
@@ -2855,14 +2858,16 @@ class OperateTest extends TestCase
     public function testInspectCompositionIncludesStyleSlots(): void
     {
         $post_id = pp_create_page('Style inspect test');
+        // `cta` since #1023: inspect must report the slot catalog for a band that HAS
+        // one, and section declares none now. cta is the widest component still on slots.
         pp_update_composition($post_id, [
-            ['component' => 'section', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello', 'body' => 'Body text']],
+            ['component' => 'cta', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello', 'button_text' => 'Go', 'button_url' => '/x']],
         ]);
 
         $result = pp_inspect_composition($post_id);
         $this->assertCount(1, $result);
         $this->assertArrayHasKey('style_slots', $result[0]);
-        $this->assertCount(47, $result[0]['style_slots']); // hero has 49 slots (41 + 3 primary-button fill slots, issue 514; + the hover fill slot, issue 530; + --section-heading-measure, issue 578; + --section-heading-margin-bottom and the two primary ring slots --cta-button-border / --cta-button-hover-border, issue 584)
+        $this->assertCount(40, $result[0]['style_slots'], 'cta declares 40 slots');
 
         // Verify slot structure.
         $first_slot = $result[0]['style_slots'][0];
@@ -2877,24 +2882,27 @@ class OperateTest extends TestCase
     {
         $post_id = pp_create_page('Style inspect test');
         pp_update_composition($post_id, [
-            ['component' => 'section', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello', 'body' => 'Body text'],
-             'style' => ['--section-bg' => '#1a1a2e']],
+            // `cta` since #1023: `current` vs `default` is a SLOT report, and section
+            // declares no slots. cta's `--cta-bg` is the same shape of assertion, with
+            // its own declared default.
+            ['component' => 'cta', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello', 'button_text' => 'Go', 'button_url' => '/x'],
+             'style' => ['--cta-bg' => '#1a1a2e']],
         ]);
 
         $result = pp_inspect_composition($post_id);
         $slots = $result[0]['style_slots'];
 
-        // Find the --section-bg slot.
+        // Find the --cta-bg slot.
         $bg_slot = null;
         foreach ($slots as $s) {
-            if ($s['slot'] === '--section-bg') {
+            if ($s['slot'] === '--cta-bg') {
                 $bg_slot = $s;
                 break;
             }
         }
         $this->assertNotNull($bg_slot);
         $this->assertSame('#1a1a2e', $bg_slot['current']);
-        $this->assertSame("transparent", $bg_slot['default']);
+        $this->assertSame('var(--color-surface)', $bg_slot['default']);
     }
 
     public function testInspectCompositionShowsActiveRecipe(): void

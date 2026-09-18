@@ -63,13 +63,17 @@ leave it unpinned; a pinned on-inverted override that diverges from that derivat
 surfaced by the same `stale_warnings` / `masked_derived_override` machinery as every
 other derived token (see below), so you are told when a base change may not reach it.
 
-**Surface-paired accent (the bg-image band).** A section/cta/stats band WITH a
-`background_image` — and a v2 hero whose `_band` `udc` map sets `background.image` plus
-`background.overlay` (on v2 a `cover` hero carrying `image_url` or `image_id` is REFUSED
-at write with `inert_prop`; do not author that pair) — lays a dark
-`rgba(0,0,0,.55)` overlay over an ARBITRARY image, so EVERY accent surface on that band
-(section/cta links, stats numbers, the `title_accent` substring on all four, section
-body list markers, the `outline`/`ghost` buttons on a cta or cover hero — including
+**Surface-paired accent (the bg-image band).** A **cta/stats** band WITH a
+`background_image` — and a v2 **hero or section** whose `_band` `udc` map sets
+`background.image` plus `background.overlay` (on v2 a `cover` hero carrying `image_url`
+or `image_id` is REFUSED at write with `inert_prop`; do not author that pair) — lays a
+dark `rgba(0,0,0,.55)` overlay over an ARBITRARY image.
+**THE ROUTING BELOW IS v1 ONLY.** It works by band CLASS, and a v2 band has no class:
+on hero and section YOU own the contrast, setting a `typography.color` on each text role
+over the image (see this file's v2 note further down). So on a cta or stats band, EVERY
+accent surface
+(cta links, stats numbers, the `title_accent` substring, the
+`outline`/`ghost` buttons on a cta or cover hero — including
 the hero's second CTA, whose variant DEFAULTS to `outline` — and the FOCUS RING of
 EVERY button variant on a bg-image cta or cover hero — drawn outside the button, so it
 lands on the scrim, and applying to any `cover` hero whether or not it has an
@@ -133,19 +137,28 @@ an `outline` / `ghost` / `secondary` `panel_cta` keeps the ordinary light-surfac
 (or `--color-text` for `secondary`) on EVERY band, because it is read against the panel,
 never against the band behind it. So a retheme that makes a band darker does not need a
 matching panel-CTA adjustment — keep `--color-accent` legible against
-`--color-surface`, which is the surface that button actually sits on. A dark band you produce yourself with `--cta-bg` /
-`--section-bg` rather than `theme: "inverted"` or a `background_image` carries no band
-class, so it gets no routing at all; keep `--color-accent` legible against any band
-colour you author, and note the reverse also holds — if you LIGHTEN a scrim with
-`--cta-overlay-bg` the band keeps its class and keeps the near-white routing.
+`--color-surface`, which is the surface that button actually sits on. A dark band you produce yourself with
+`--cta-bg` rather than `theme: "inverted"` or a `background_image` carries no band class,
+so it gets no routing at all; keep `--color-accent` legible against any band colour you
+author, and note the reverse also holds — if you LIGHTEN a scrim with `--cta-overlay-bg`
+the band keeps its class and keeps the near-white routing.
 
-**Since #577 the same trap has a second door on `section`.** `--section-bg` now wins over
-the `muted` / `inverted` theme paint (before, the theme literal silently defeated it). So
-an `inverted` section whose `--section-bg` you set to a LIGHT colour keeps its
-`pp-section--inverted` class — and therefore its near-white heading, body and link
-routing — while painting light. That is light-on-light. If you want a light band, change
-the `theme`; reach for `--section-bg` to adjust a band's shade WITHIN its theme, not to
-invert it.
+**ON A v2 COMPONENT THIS WHOLE TRAP IS GONE, and the reason is worth knowing because it
+is the shape of every future sprint.** `hero`, `section` and `testimonials` have no
+`theme` prop, no band class, and no dark-band ROUTING: a band you make dark with `_band`
+`background.fill` (or `background.image` + `overlay`) does not silently recolour its text
+for you, so there is no class-versus-literal conflict to fall into. The trade is that YOU
+own the contrast — set a `typography.color` on every text role over the background. There
+is no light-on-light failure mode left, because nothing infers "this band is dark" from
+anything.
+
+The retired trap, recorded because a retheme touching a 1.x site still meets it: `#577`
+made `--section-bg` win over the `muted` / `inverted` theme paint (before, the theme
+literal silently defeated it), which meant an `inverted` section painted light by
+`--section-bg` kept its `pp-section--inverted` class and therefore its near-white heading,
+body and link routing — light-on-light. Both the slot and the class retired with #1023.
+The same trap is still live on `cta`, `grid`, `faq`, `stats`, `logos` and `embed` until
+their own rebuilds.
 
 Example retheme — warm neutral:
 ```css
@@ -230,16 +243,19 @@ it rounds every card and panel too, and no longer reaches the button at all.
 
 ### The global button color tokens (the site-wide button surface)
 
-> **HERO IS NOT ON THIS SURFACE ANY MORE (#986).** Everything in this section describes the
-> v1 per-instance STYLE SLOT cascade, which still governs cta, section, grid, faq, stats,
-> logos, embed and table. `hero` and `testimonials` are v2 components with no style slots:
-> their buttons and text are ROLES, styled through the band's `udc` map. Any
-> `--hero-button-*`, `--hero-button2-*` or `--hero-accent*` name below is HISTORY — writing
-> one is refused with `no_style_slots`. Read them as "the cta equivalent"; to restyle a
-> hero button, set `background.fill`, `typography.color` and `border.color` (plus a
-> `:hover` map) on its `cta` / `cta-secondary` role, or apply the `button` /
-> `button-secondary` preset. A role value beats every tier described here, because
-> authored band blocks are unlayered and this stylesheet lives in `@layer pp-v1`.
+> **HERO AND SECTION ARE NOT ON THIS SURFACE ANY MORE (#986, #1023).** Everything in this
+> section describes the v1 per-instance STYLE SLOT cascade, which still governs cta, grid,
+> faq, stats, logos, embed and table. `hero`, `section` and `testimonials` are v2
+> components with no style slots: their buttons and text are ROLES, styled through the
+> band's `udc` map. Any `--hero-button-*`, `--hero-button2-*`, `--hero-accent*` or
+> `--section-*` name below is HISTORY — writing one is refused with `no_style_slots`. Read
+> them as "the cta equivalent"; to restyle a hero button set `background.fill`,
+> `typography.color` and `border.color` (plus a `':hover'` map) on its `cta` /
+> `cta-secondary` role, and a section's panel button the same way on its `panel-cta` role,
+> or apply the `button` / `button-secondary` preset. A role value beats every tier
+> described here, because authored band blocks are unlayered and this stylesheet lives in
+> `@layer pp-v1`. The list of components this section governs shrinks by one per rebuild
+> sprint; when it empties, the section goes with it.
 
 The shared button system carries four registered color tokens, the button analog of
 `--btn-radius`, set via `update_design_token`. They are a REAL site-wide restyle knob: the
@@ -257,22 +273,23 @@ renders byte-identically to today.
 | `--btn-shadow` | change every button's elevation (a `--shadow-*` preset, or `none` to flatten) | bare `.btn`, premium primary | `none` (bare) / premium bevel (composed primary) |
 
 **Per-component slots still win.** `--btn-*` sits BETWEEN the per-component slots
-(`--cta-button-*`, `--cta-button2-*`, `--cta-accent`, `--section-panel-cta-*`) and the literal
-fallback. HERO IS NOT ON THAT LIST ANY MORE: it is a v2 component with no style slots, so its
-two buttons are the `cta` and `cta-secondary` ROLES in the band's `udc` map. A role value
-outranks every tier here — authored band blocks are unlayered and this stylesheet is in
-`@layer pp-v1` — so a `--btn-*` retheme moves every button EXCEPT one a hero band has
-authored, which is the intended reading of "the author's value wins". A component that sets its own slot keeps
+(`--cta-button-*`, `--cta-button2-*`, `--cta-accent`) and the literal
+fallback. NEITHER HERO NOR SECTION IS ON THAT LIST ANY MORE: both are v2 components with no
+style slots, so hero's two buttons are the `cta` and `cta-secondary` ROLES and section's
+panel button is the `panel-cta` ROLE, in the band's `udc` map. A role value outranks every
+tier here — authored band blocks are unlayered and this stylesheet is in `@layer pp-v1` —
+so a `--btn-*` retheme moves every button EXCEPT one a hero or section band has authored,
+which is the intended reading of "the author's value wins". A component that sets its own slot keeps
 overriding the global token, so a site-wide `--btn-bg` recolors every button that has not
 been individually restyled.
 (A cta SECOND button has its own family — `--cta-button2-*` — which the
 primary's slots never reach in rest OR hover, so restyling the primary alone leaves the second
 button on the global token. Since #554 it routes `--btn-bg` / `--btn-hover-bg` through its own
-chain, so it is not an exception any more. The section's `text-panel` CTA has its own family too —
-`--section-panel-cta-bg` / `--section-panel-cta-color` / `--section-panel-cta-shadow`, plus the
-ring pair `--section-panel-cta-border` / `--section-panel-cta-hover-border` (#584) — which is the
-only way to give one section's panel button a flat brand fill, or its own ring, without moving
-the site-wide token. See `ai-instructions/style-component.md`.)
+chain, so it is not an exception any more. The section's `text-panel` CTA is the `panel-cta`
+ROLE since #1023, which is how one section's panel button gets a flat brand fill, its own
+ring, or its own hover without moving the site-wide token — and unlike the five slots it
+replaced it reaches the hover FILL too, and is not restricted to a `primary` variant. See
+`ai-instructions/style-component.md`.)
 
 **The global tier has hover twins for fill and border.** `--btn-hover-bg` and
 `--btn-hover-border-color` are the hover counterparts of `--btn-bg` and `--btn-border-color`,
@@ -337,11 +354,13 @@ every accented element in the band. One consequence worth planning for: because 
 knob no longer reaches these bands, a ring correction that used to be a single global edit is
 now per band.
 
-The **section-panel CTA** has no per-instance hover FILL slot of its own
-(`--section-panel-cta-bg` is resting-state only), so the global knob is the only way to move
-its hover fill. That is intended, not an oversight. The RING is the exception since #584:
-`--section-panel-cta-hover-border` is a real per-instance hover slot, so a chosen ring survives
-the hover even though the fill reverts to the premium gradient.
+The **section-panel CTA** used to be the sharpest case of this: it had no per-instance hover
+FILL slot at all, so the global knob was the ONLY way to move its hover fill, and only the
+RING got a per-instance hover twin (#584). **#1023 removed that limit rather than documenting
+it further.** The panel button is the `panel-cta` role, and a `':hover'` nested inside
+`background` is a per-instance hover fill — so a flat panel button holds its colour through
+the hover instead of reverting to the premium gradient, and the global knob is no longer the
+only route. The remaining v1 button families keep the old behaviour until their own rebuilds.
 
 **The hero's second CTA is no longer an exception (#554).** It used to be the one filled
 surface on the theme whose OWN chains never routed the global tier, so a site-wide button
@@ -369,16 +388,18 @@ hover ink slots (`--cta-button-hover-color`, `--hero-button2-hover-color`,
 `--cta-button2-hover-color`).
 
 **There is no global hover ELEVATION token either.** `--btn-shadow: none` flattens rest and
-the premium bevel returns on hover. Use the per-instance shadow slots
-(`--hero-button-shadow` / `--cta-button-shadow` / `--section-panel-cta-shadow`), which each
-cover rest AND hover.
+the premium bevel returns on hover. On a v1 component use the per-instance shadow slot
+(`--cta-button-shadow`), which covers rest AND hover; on a v2 component set `shadow.box` on
+the button's role (`cta` / `cta-secondary` on hero, `panel-cta` on section), with a
+`':hover'` nested inside `shadow` if the two should differ — which the single slot could
+not express.
 
 **`--btn-hover-border-color` also rings the `outline` variant.** `.btn--outline:hover` paints
 its own fill but declares no border, so the global hover ring reaches it — exactly as
 `--btn-border-color` reaches its resting border. Its hover FILL is not routed by any global
 knob, so an outline button hovers to the theme accent wearing your ring. Set
-`--cta-button-hover-border` / `--hero-button2-hover-border` per instance if that pairing matters
-on a given button.
+`--cta-button-hover-border` per instance if that pairing matters on a given button (hero's
+equivalent is the `cta-secondary` role's `':hover'` inside `border`, since #986).
 
 **Fill and border are independent knobs.** `--btn-bg` recolors the fill; `--btn-border-color`
 recolors the border. On `.cta`/`.hero` primaries an unset border follows the fill (so a

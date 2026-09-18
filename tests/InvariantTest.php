@@ -1305,12 +1305,21 @@ class InvariantTest extends TestCase
         }
 
         // Non-vacuity: if this ever finds nothing, the regex above is silently passing.
+        // The list SHRINKS one rebuild sprint at a time: section left in #1023, where the
+        // band background became the `_band` role's `background.image` — an attachment ID
+        // resolved by the engine, so there is no URL string for a template to escape and
+        // therefore nothing for this guard to protect. cta is next (#1026).
         sort($readers);
         $this->assertSame(
-            ['cta', 'section', 'stats'],
+            ['cta', 'stats'],
             $readers,
             'the set of components reading background_image changed — a new reader must carry'
             . ' the #705 guard (add it, then update this list)'
+        );
+        $this->assertStringNotContainsString(
+            "\$props['background_image']",
+            file_get_contents($this->themeRoot . '/components/section/section.php'),
+            'section retired background_image in #1023 — a reader coming back needs the guard'
         );
     }
 
@@ -1557,11 +1566,11 @@ class InvariantTest extends TestCase
             // at all: a v2 component emits no inline style attribute, so there is no
             // guarded-local contract left for it to satisfy here. It still appears in
             // the heading-helper roster above — it renders a title exactly as before.
-            // hero joined testimonials outside this roster in #986: a v2 component
-            // emits no inline style attribute, so it has no guarded-local contract here.
-            // Both still appear in the heading-helper roster above — they render a title
-            // exactly as before.
-            ['cta', 'embed', 'faq', 'grid', 'logos', 'section', 'stats', 'table'],
+            // hero joined testimonials outside this roster in #986 and section in #1023,
+            // each for the same reason: a v2 component emits no inline style attribute,
+            // so it has no guarded-local contract here. All three still appear in the
+            // heading-helper roster above — they render a title exactly as before.
+            ['cta', 'embed', 'faq', 'grid', 'logos', 'stats', 'table'],
             $callers,
             'the set of components calling pp_render_style_vars() changed — a new caller must'
             . ' carry the #708 guard (add it, then update this list)'

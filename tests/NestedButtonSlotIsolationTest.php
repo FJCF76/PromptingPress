@@ -182,6 +182,11 @@ class NestedButtonSlotIsolationTest extends TestCase
                 'button_text' => 'A', 'button_url' => '/a',
                 'button2_text' => 'B', 'button2_url' => '/b',
             ], ['cta__button']],
+            // Section still RENDERS a button, and the sweep still checks it — what
+            // changed at #1023 is that the button is no longer slot-styled, so it is not
+            // in the neutralisation chain. Kept in this case list on purpose: the
+            // question here is which surfaces can hold a nested `.btn` at all, and
+            // section's body still can.
             ['section', [
                 'layout' => 'text-panel', 'title' => 'T', 'body' => 'x',
                 'panel_heading' => 'P', 'panel_cta_text' => 'C', 'panel_cta_url' => '/c',
@@ -265,10 +270,32 @@ class NestedButtonSlotIsolationTest extends TestCase
         $excluded = $m[1];
         sort($excluded);
 
+        // ONE DOCUMENTED DEPARTURE FROM "EXACTLY THE OWNED SET" (#1023).
+        //
+        // Section still RENDERS `.section__panel-cta`, so it stays in the derived owner
+        // set — the derivation reads the templates, which is the point of it. But that
+        // button left the exclusion chain, because it is the `panel-cta` ROLE now: its
+        // declarations emit UNLAYERED and outrank this `pp-v1` neutraliser at any
+        // specificity, so excluding it could no longer do anything for that class.
+        //
+        // Removing it is rendering-neutral, and the reason is worth stating because it is
+        // not obvious: the neutraliser sets the family to `initial`, which makes a custom
+        // property GUARANTEED-INVALID, and `var(--x, fallback)` takes the fallback for an
+        // invalid value exactly as it does for an unset one. A section panel button is
+        // never inside a cta band, so `--cta-button-*` was unset there anyway — the chain
+        // falls through to the same link either way.
+        //
+        // `.hero__cta` is a RESIDUAL, not a departure this task introduced: by the same
+        // argument it has been a no-op exclusion since hero's rebuild at #986, and the
+        // wider cleanup of these inert `--hero-button-*` / `--*-panel-cta-*` chain links
+        // belongs to cta's rebuild (#1026), which owns the chain's spine. It is left in
+        // place here rather than tidied by a task that does not own it.
+        $expected = array_values(array_diff($owners, ['.section__panel-cta']));
         $this->assertSame(
-            $owners,
+            $expected,
             $excluded,
-            'the #545 exclusion list must name exactly the button elements the renderers own.'
+            'the #545 exclusion list must name exactly the button elements the renderers own '
+            . 'AND still style through the slot family.'
         );
     }
 
@@ -277,10 +304,16 @@ class NestedButtonSlotIsolationTest extends TestCase
         preg_match_all('/:not\((\.[a-z0-9_-]+)\)/', $this->neutralisationSelector(), $m);
         $excluded = $m[1];
         sort($excluded);
+        // TWO since #1023, not three. `.section__panel-cta` left the exclusion chain
+        // because section's panel button is the `panel-cta` ROLE now: whatever it is
+        // given emits UNLAYERED and outranks this `pp-v1` neutraliser at any
+        // specificity, so keeping it excluded would have been a rule that can no longer
+        // do anything for that class. Zeroing cta's slots on it is also the honest
+        // default — a section panel button reads none of cta's custom properties.
         $this->assertSame(
-            ['.cta__button', '.hero__cta', '.section__panel-cta'],
+            ['.cta__button', '.hero__cta'],
             $excluded,
-            'the rule must exclude exactly the three renderer-owned button elements.'
+            'the rule must exclude exactly the two renderer-owned button elements still on slots.'
         );
     }
 
@@ -331,7 +364,11 @@ class NestedButtonSlotIsolationTest extends TestCase
                 'panel_cta_text' => 'Book a call',
                 'panel_cta_url'  => '/contact',
             ],
-            'style'     => ['--section-panel-cta-bg' => '#7c3aed'],
+            // The panel button's fill is the `panel-cta` role since #1023, not a slot.
+            // The invariant this case is about is unchanged and is the interesting half:
+            // an author-written `.btn` inside the rich-text `body` must not be repainted
+            // by the band's own button design.
+            'udc'       => ['panel-cta' => ['background' => ['fill' => '#7c3aed']]],
         ]];
         $this->assertTrue(
             pp_validate_composition($composition),

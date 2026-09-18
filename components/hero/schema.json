@@ -427,7 +427,7 @@
     },
     "media": {
       "selector": ".hero__image",
-      "description": "The split layout's image. Its crop is design, not structure: `sizing.aspect-ratio` takes `auto`, a number, or `16/9`.",
+      "description": "The split layout's image. Its crop is design, not structure: `sizing.aspect-ratio` takes `auto`, a number, or `16/9`, and `sizing.object-position` places the picture inside that box (it was a structural declaration in components.css until the param shipped in #1023).",
       "groups": [
         "spacing",
         "border",
@@ -439,6 +439,9 @@
       "defaults": {
         "border": {
           "radius": "@radius"
+        },
+        "sizing": {
+          "object-position": "center"
         }
       }
     }

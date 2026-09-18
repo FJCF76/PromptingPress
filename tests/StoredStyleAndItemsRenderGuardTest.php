@@ -157,8 +157,11 @@ class StoredStyleAndItemsRenderGuardTest extends TestCase
         // testimonials is out: the v1 STYLE-SLOT roster; testimonials left it when it was rebuilt on the Universal Design Contract (v2) and now declares roles instead of slots, so it paints no stored style map and
         // has no __pp_style read to guard. Its v2 equivalent — a hostile `udc` map
         // reaching the emitter — is guarded in UdcEngineTest.
-        // hero left this roster in #986 (v2: no __pp_style read to guard).
-        'grid', 'section', 'cta', 'stats', 'faq', 'logos', 'table', 'embed',
+        // hero left this roster in #986 and section at #1023, both for the same reason:
+        // a v2 component has no `__pp_style` read to guard, because it paints no stored
+        // style map at all. Section's v2 equivalent — a hostile `udc` map reaching the
+        // emitter — is guarded in UdcEngineTest alongside testimonials' and hero's.
+        'grid', 'cta', 'stats', 'faq', 'logos', 'table', 'embed',
     ];
 
     /**
@@ -383,7 +386,9 @@ class StoredStyleAndItemsRenderGuardTest extends TestCase
             );
         }
         $this->assertStringContainsString('Card one', $html, 'the grid cards still render');
-        $this->assertStringContainsString('<p>Section body</p>', $html, 'the section body still renders');
+        // The section band left STYLE_COMPONENTS at #1023 (a v2 component paints no
+        // stored style map), so it is no longer in the sweep and there is no section
+        // body in this page to assert on.
         $this->assertStringContainsString('40+', $html, 'the stats numbers still render');
         $this->assertStringContainsString('Q one', $html, 'the faq questions still render');
         // testimonials is no longer in STYLE_COMPONENTS (it is v2 and paints no stored
@@ -529,33 +534,43 @@ class StoredStyleAndItemsRenderGuardTest extends TestCase
     }
 
     /**
-     * SECTION'S THIRD READ of the same prop, folded onto the guarded local. It never
-     * fataled — `??` uses isset() semantics and isset() on a non-numeric string offset is
-     * false — so the only thing to prove is that folding it changed nothing for a
-     * well-formed map.
+     * WHAT THIS GUARDED IS NOW UNREACHABLE, so the case is inverted rather than deleted.
+     *
+     * It was section's THIRD read of `__pp_style`, folded onto the guarded local: the
+     * renderer pulled the inline-items alignment out of the stored slot map, and the
+     * question was whether folding the read changed anything for a well-formed map.
+     *
+     * Section reads no `__pp_style` at all now (#1023) and the alignment is the
+     * `body_items_align` PROP. So the two halves the old case proved — a well-formed map
+     * still derives the modifier, a malformed one falls through to the left-packed
+     * default — become: the PROP derives it, and a stored style map cannot derive
+     * anything, well-formed or not. The second half is the one worth keeping, because a
+     * stored map is exactly what a pre-rebuild page holds.
      */
-    public function testSectionInlineItemsAlignStillReadsAWellFormedMap(): void
+    public function testAStoredStyleMapCanNoLongerDeriveSectionsInlineAlignment(): void
     {
+        // The prop is the only route now.
         $id = pp_create_page('Section inline align', 'draft');
         pp_update_composition($id, [[
             'component' => 'section',
-            'props'     => ['title' => 'Section heading', 'body' => '<p>b</p>', 'layout' => 'text-only', 'body_items' => ['One', 'Two']],
-            'style'     => ['--section-inline-items-align' => 'center'],
+            'props'     => ['title' => 'Section heading', 'body' => '<p>b</p>', 'layout' => 'text-only', 'body_items' => ['One', 'Two'], 'body_items_align' => 'center'],
         ]]);
+        $this->assertStringContainsString('section__inline-items--center', $this->renderStored($id),
+            'the centering modifier derives from the prop');
 
-        $html = $this->renderStored($id);
-        $this->assertStringContainsString('section__inline-items--center', $html, 'the centering modifier still derives from the slot');
-
-        // And a malformed map falls through to the unchanged left-packed default.
-        $bad_id = pp_create_page('Section inline align bad', 'draft');
-        pp_update_composition($bad_id, [[
+        // A pre-rebuild page's stored slot map derives nothing, and paints nothing.
+        $stale_id = pp_create_page('Section inline align stale', 'draft');
+        pp_update_composition($stale_id, [[
             'component' => 'section',
-            'props'     => ['title' => 'Section heading', 'body' => '<p>b</p>', 'layout' => 'text-only', 'body_items' => ['One', 'Two'], '__pp_style' => 'center'],
+            'props'     => ['title' => 'Section heading', 'body' => '<p>b</p>', 'layout' => 'text-only', 'body_items' => ['One', 'Two'], '__pp_style' => ['--section-inline-items-align' => 'center']],
         ]]);
 
-        $bad_html = $this->renderStored($bad_id);
-        $this->assertStringContainsString('section__inline-items', $bad_html, 'the row still renders');
-        $this->assertStringNotContainsString('section__inline-items--center', $bad_html, 'without deriving the modifier from a malformed map');
+        $stale_html = $this->renderStored($stale_id);
+        $this->assertStringContainsString('section__inline-items', $stale_html, 'the row still renders');
+        $this->assertStringNotContainsString('section__inline-items--center', $stale_html,
+            'but a stored slot map cannot derive the modifier any more');
+        $this->assertStringNotContainsString('style=', $stale_html,
+            'and nothing from the stale map reaches the markup');
     }
 
     /**
@@ -665,7 +680,7 @@ class StoredStyleAndItemsRenderGuardTest extends TestCase
     public function testACombinedCorruptBandSurvivesEveryLandedAxisAtOnce(): void
     {
         $corrupt = ['en' => 'Our services', 'es' => 'Nuestros servicios'];
-        $takes_background = ['section', 'cta', 'stats'];
+        $takes_background = ['cta', 'stats'];
         // The #706 set: the components that pass `title` into pp_render_heading_with_accent().
         $guarded_title = ['hero', 'grid', 'section', 'cta', 'stats', 'faq', 'testimonials'];
 
@@ -701,7 +716,9 @@ class StoredStyleAndItemsRenderGuardTest extends TestCase
 
         // Everything that is not one of the three corrupt axes survived.
         $this->assertStringContainsString('Card one', $html, 'the grid cards still render');
-        $this->assertStringContainsString('<p>Section body</p>', $html, 'the section body still renders');
+        // The section band left STYLE_COMPONENTS at #1023 (a v2 component paints no
+        // stored style map), so it is no longer in the sweep and there is no section
+        // body in this page to assert on.
         $this->assertStringContainsString('40+', $html, 'the stats numbers still render');
 
         // And nothing was coerced into the page.
@@ -747,6 +764,11 @@ class StoredStyleAndItemsRenderGuardTest extends TestCase
                 'title' => 'Grid heading',
                 'items' => [['title' => 'Card one', 'text' => 'One', 'style' => 'not-an-array']],
             ]],
+            // Section's panel row keeps its place in this sweep even though the per-row
+            // `style` map retired at #1023: a STORED one is exactly what a pre-rebuild
+            // page holds, and the question this case asks — does a non-array per-item
+            // style fatal the page — is still worth asking of it. The renderer now
+            // ignores the key rather than guarding it, which is a stronger answer.
             ['component' => 'section', 'props' => [
                 'title'       => 'Section heading',
                 'layout'      => 'text-panel',
@@ -801,8 +823,10 @@ class StoredStyleAndItemsRenderGuardTest extends TestCase
         // style attribute. There is therefore no merged `style=""` for a malformed map
         // to leave residue in, which is exactly what this test measures.
         $background_props = [
+            // section left this control set at #1023, the way hero left at #986: it
+            // retired `background_image`, so it paints no background to merge a malformed
+            // style map against.
             'cta'     => ['background_image' => '/bg.png'],
-            'section' => ['background_image' => '/bg.png'],
             'stats'   => ['background_image' => '/bg.png'],
         ];
 
@@ -845,36 +869,37 @@ class StoredStyleAndItemsRenderGuardTest extends TestCase
      * of either gate fails a test instead of quietly painting attacker-shaped CSS.
      */
     /**
-     * RE-POINTED FROM HERO TO SECTION (#986). The adversarial map is unchanged in
-     * shape and intent — one valid declaration, a separator-carrying key, an undeclared
-     * slot, two injection attempts and another component's slot — but it has to be
-     * aimed at a component that still HAS a style-slot sink. A v2 hero reads no
-     * `__pp_style` at all, so the same map paints nothing there for a reason that has
-     * nothing to do with the render boundary this test measures; that inertness is
+     * RE-POINTED TWICE: hero -> section at #986, section -> grid at #1023. The
+     * adversarial map is unchanged in shape and intent — one valid declaration, a
+     * separator-carrying key, an undeclared slot, two injection attempts and another
+     * component's slot — but it has to be aimed at a component that still HAS a
+     * style-slot sink. A v2 component reads no `__pp_style` at all, so the same map
+     * paints nothing there for a reason that has nothing to do with the render boundary
+     * this test measures; that inertness is
      * pinned separately by the sweep above.
      */
     public function testAnArrayPpStyleInPropsCannotPaintMoreThanAValidStyleMap(): void
     {
         $id = pp_create_page('Adversarial style map', 'draft');
         pp_update_composition($id, [[
-            'component' => 'section',
-            'props'     => array_merge(self::bandProps('section'), ['__pp_style' => [
-                '--section-bg'              => '#123456',            // declared + valid: must paint
-                '--section-bg; background'  => 'red',                // slot name carrying a separator
+            'component' => 'grid',
+            'props'     => array_merge(self::bandProps('grid'), ['__pp_style' => [
+                '--grid-bg'                 => '#123456',            // declared + valid: must paint
+                '--grid-bg; background'     => 'red',                // slot name carrying a separator
                 '--not-a-declared-slot'     => 'red',                // undeclared slot
-                '--section-padding-top'     => 'red; background-image:url(//evil/x)',
-                '--section-padding-bottom'  => 'url(//evil/x.png)',
-                '--grid-bg'                 => '#000000',            // another component's slot
+                '--grid-padding-top'        => 'red; background-image:url(//evil/x)',
+                '--grid-padding-bottom'     => 'url(//evil/x.png)',
+                '--cta-bg'                  => '#000000',            // another component's slot
             ]]),
         ]]);
 
         $html = $this->renderStored($id);
 
-        $this->assertStringContainsString('--section-bg: #123456', $html, 'the one declared, valid declaration paints');
+        $this->assertStringContainsString('--grid-bg: #123456', $html, 'the one declared, valid declaration paints');
         $this->assertStringNotContainsString('evil', $html, 'no injected url survives the render boundary');
         $this->assertStringNotContainsString('background-image:url(//', $html, 'no smuggled declaration is emitted');
         $this->assertStringNotContainsString('--not-a-declared-slot', $html, 'an undeclared slot is dropped');
-        $this->assertStringNotContainsString('--grid-bg', $html, "another component's slot is dropped");
+        $this->assertStringNotContainsString('--cta-bg', $html, "another component's slot is dropped");
     }
 
     /**

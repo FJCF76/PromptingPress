@@ -912,7 +912,11 @@ class WriteRejectionLocatorTest extends TestCase
      */
     public function testTheRejectedSlotContextStillComposes(): void
     {
-        $this->seedPage(200, [['component' => 'section', 'props' => ['title' => 'T', 'body' => 'Body text']]]);
+        // `grid` since #1023: `invalid_style_slot` is the refusal for an UNDECLARED slot
+        // name on a component that HAS a slot set. A v2 component refuses earlier and
+        // differently with `no_style_slots`, which is a different code carrying a
+        // different context and is pinned separately.
+        $this->seedPage(200, [['component' => 'grid', 'props' => ['title' => 'T', 'items' => [['title' => 'One', 'text' => 'a']]]]]);
 
         $error = pp_validate_action('style_component', [
             'post_id'         => 200,

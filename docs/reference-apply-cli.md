@@ -312,13 +312,13 @@ Before this, two same-type bands produced byte-identical rejections, so an agent
 
 **`create_page` is all-or-nothing once you hand it a composition (#719).** `create_page` creates the page row first and stores the composition second, and the second step can refuse: `pp_update_composition()` skips the write and returns `composition_lock_failed` when it cannot take that page's advisory write lock. That return used to be discarded, so the call reported `ok: true` with a `target.post_id` over a page that was silently EMPTY — and, since #687, `findings: []` beside it, certifying the very page that had lost its content. The verdict is now honoured: the page just created is removed again and the call is REFUSED with the writer's own `error_code`, in the ordinary rejection envelope (`target: []`, `index: null`, and no `findings` / `composition_version`, as on every rejection). **Retry the same call** — a refusal normally leaves no page and no reserved slug behind, so the retry is clean rather than a duplicate stacked beside an empty first attempt. Two branches do leave the page standing and the message says which: a cleanup delete that was itself refused names the survivor (`post 231 ... is still there and stores no composition`), and a page something else wrote to first is left alone (`is NOT empty — something else wrote to it`). This narrows nothing — every composition valid before is still valid and the success path is byte-identical; it is a false success becoming an honest failure. `composition_conflict` is not reachable here: `create_page` threads no `expected_version`, so `composition_lock_failed` is the only code this path adds **in practice**. Since 1.19.11 the writer has a second refusal, `composition_not_encodable` (#941), and this path honours it the same way — the page just created is removed and the call is refused rather than reported as success over an empty page. It is not reachable through `create_page` today because the composition is validated first; it is named here so the branch is not a surprise if that ever stops being true.
 
-**What the accepted write wrote (#687).** The mirror of the paragraph above, for the writes that SUCCEED. A composition write could validate, store, return `ok: true` and paint nothing — set `--section-panel-cta-bg` on a section with no panel CTA and the slot, which renders only under `layout: "text-panel"` with a panel CTA set, is stored, versioned, reported as applied and read by nothing. So every accepted envelope from a composition-mutating action, plus `create_page` and `operate patch`, carries `findings`: what current rules say about the composition that was just stored.
+**What the accepted write wrote (#687).** The mirror of the paragraph above, for the writes that SUCCEED. A composition write could validate, store, return `ok: true` and paint nothing — set `--cta-button2-bg` on a cta with no second button and the slot, which renders only when `button2_text` is set, is stored, versioned, reported as applied and read by nothing. So every accepted envelope from a composition-mutating action, plus `create_page` and `operate patch`, carries `findings`: what current rules say about the composition that was just stored.
 
 ```json
 { "ok": true, "action": "style_component", "composition_version": 2,
   "findings": [
     { "type": "inert_slot", "severity": "warning", "index": 0,
-      "message": "Style slot \"--section-panel-cta-bg\" on this \"section\" component has no effect as configured: it applies when layout = \"text-panel\" AND panel_cta_text is set AND panel_cta_url is set. Either set that up, or drop the slot — the value is stored and reported as applied, but nothing on the page reads it." }
+      "message": "Style slot \"--cta-button2-bg\" on this \"cta\" component has no effect as configured: it applies when button2_text is set. Either set that up, or drop the slot — the value is stored and reported as applied, but nothing on the page reads it." }
   ] }
 ```
 
@@ -372,9 +372,9 @@ A page whose stored composition already carries a collision (written before this
 
 > `Component 0 ("hero") no longer has a prop "button_variant": it was retired when hero moved to the v2 styling system. The replacement is the \`cta\` role's \`udc\` map ... To clear the stored key, send it as null — update_component with {"button_variant": null} removes it, and this band can be repaired on its own. Available props: ... [retired_prop]`
 
-**If you key on error codes, this is the migration:** the six keys each component declares in its schema's `retired_props` block — hero's `button_variant`, `button2_variant`, `spacing`, `width` and testimonials' `theme`, `title_align` — moved from `unknown_prop` to `retired_prop`. Every other undeclared key still returns `unknown_prop`. The distinction exists so a caller can tell "you typo'd" from "this moved, and here is where" without string-matching prose, exactly as `retired_option` does for the chrome site options.
+**If you key on error codes, this is the migration:** the ten keys each component declares in its schema's `retired_props` block — hero's `button_variant`, `button2_variant`, `spacing`, `width`; testimonials' `theme`, `title_align`; and section's `theme`, `title_align`, `background_image`, `panel_cta_variant` (#1023) — moved from `unknown_prop` to `retired_prop`. Every other undeclared key still returns `unknown_prop`. The distinction exists so a caller can tell "you typo'd" from "this moved, and here is where" without string-matching prose, exactly as `retired_option` does for the chrome site options.
 
-**Props that paint nothing where they sit (#1006).** A prop that is declared, well-typed and stored, but inert in the configuration the band is actually in, is refused with `inert_prop` rather than accepted and ignored. One rule ships today: a hero on `layout: "cover"` carrying `image_url` or `image_id`. `cover` is still a live layout; the pair is what is dead, because a band background on v2 is the band's `udc` map (`_band` -> `background` -> `image`, a Media Library attachment id) and not a prop. The props stay live on `layout: "split"`, and an EMPTY value is not a request for a background and is not refused. The rule is declared per component in its schema's `refuse_props_when` block, so it is data rather than a branch in the engine.
+**Props that paint nothing where they sit (#1006).** A prop that is declared, well-typed and stored, but inert in the configuration the band is actually in, is refused with `inert_prop` rather than accepted and ignored. Three rules ship today: a hero on `layout: "cover"` carrying `image_url` or `image_id`; a section on `text-only`, `centered` or `text-panel` carrying `image_url`, `image_id` or `image_alt`; and a section on `text-only`, `centered`, `image-left` or `image-right` carrying any of the six `panel_*` props (#1023). `cover` is still a live layout; the pair is what is dead, because a band background on v2 is the band's `udc` map (`_band` -> `background` -> `image`, a Media Library attachment id) and not a prop. The props stay live on `layout: "split"`, and an EMPTY value is not a request for a background and is not refused. The rule is declared per component in its schema's `refuse_props_when` block, so it is data rather than a branch in the engine.
 
 **Unknown component props (#147).** Each component declares its full prop contract in `components/<name>/schema.json` under `props`. A composition whose component carries a prop key not in that contract is rejected at write time by `pp_validate_composition()`, so `create_page`, `update_composition`, `add_component`, `update_component`, and the dashboard editor's save all fail with:
 
@@ -422,7 +422,7 @@ A nested array field declaring `item_type: "string"` (`grid.items[].bullets`) li
 
 The renderer's own allowlist is unchanged and still load-bearing: a value that reaches storage through a non-validating path (a raw database write, or a `restore_composition` of an old snapshot — which by rule never blocks) is still coerced to the default rather than emitted as a class name. What changed is only that the write path names the problem instead of reporting success. The cost is the one every write-path tightening here carries: a page that already stores an out-of-set role blocks edits to its *other* bands until that item is repaired through the ordinary authoring surface (set the field to a declared value, or drop the key). No alias, no migration, no coercion.
 
-**Nested container types (#744).** A nested field declaring `type: "array"` or `type: "object"` and handed a present **scalar** is rejected, through the same shared predicate the top-level pass uses (`_pp_schema_container_value_is_valid()`) and with the same `null` / `""` sentinels. Until #744 it was accepted at this depth and rejected one level up: the `item_type: "string"` rule above walks a bullets array's *entries* and a scalar never enters that loop, and the #614 declared-type rule fenced itself to `string` and `number`. So `bullets: "one, two"` persisted behind an `ok:true` and the card rendered with no checklist, while the same annotation on a top-level prop (`section.body_items`) was refused. Declared on three fields today — `grid.items[].bullets` (`array`), `grid.items[].style` and `section.panel_items[].style` (`object`):
+**Nested container types (#744).** A nested field declaring `type: "array"` or `type: "object"` and handed a present **scalar** is rejected, through the same shared predicate the top-level pass uses (`_pp_schema_container_value_is_valid()`) and with the same `null` / `""` sentinels. Until #744 it was accepted at this depth and rejected one level up: the `item_type: "string"` rule above walks a bullets array's *entries* and a scalar never enters that loop, and the #614 declared-type rule fenced itself to `string` and `number`. So `bullets: "one, two"` persisted behind an `ok:true` and the card rendered with no checklist, while the same annotation on a top-level prop (`section.body_items`) was refused. Declared on two fields today — `grid.items[].bullets` (`array`) and `grid.items[].style` (`object`). It was three until #1023 retired `section.panel_items[].style` with the rest of section's styling surface; a `panel_items` entry now declares `label` and `value` only, and a stored `style` on one is refused as `unknown_prop` naming those two fields:
 
 > `Component "grid" prop "items" item 0 field "bullets" must be an array; got string. [invalid_prop_value]`
 
@@ -446,7 +446,7 @@ The render path was fixed in the same change and independently: grid's card loop
 
 > `Component "grid" prop "items" item 0 field "style" must be an object, but this one is a JSON list (1 entry). Send it as an object with keys ({...}), not an array ([...]). [invalid_prop_value]`
 
-The rule covers the two `object` declarations in the registry, `grid.items[].style` and `section.panel_items[].style`, plus any future `object` prop at either depth.
+The rule covers the one `object` declaration left in the registry, `grid.items[].style`, plus any future `object` prop at either depth. (`section.panel_items[].style` was the second until #1023 retired it.)
 
 **What actually changes for the two shipped fields is the error code, not what is accepted.** A list reaching either was already refused a few rules later by the shared style-slot engine, which reads a list's integer keys as slot names (`item 0 has no style slot "0". Available slots: ...`) — a populated list always carries integer key `0`, so the set of refused writes is identical before and after. If you key on error codes, `invalid_style_slot` becomes `invalid_prop_value` for this shape; that is the migration.
 
@@ -916,8 +916,8 @@ wp pp schema hero
 | `description` | string\|null | `null` when the schema declares none |
 | `composable` | bool | False for `nav` and `footer` |
 | `content_requirement` | object | **Present only when declared.** Today only `section` (#488) |
-| `retired_props` | object | **Present only when declared.** A map of `prop name` => the v2 surface that replaced it, plus a `_note` describing the block for a human reading the schema. Drives the `retired_prop` refusal (#1007). Today `hero` (4 keys) and `testimonials` (2) |
-| `refuse_props_when` | array | **Present only when declared.** One object per rule: `when` (a list of `applies_when` clauses), `props` (the prop names refused when every clause is met), and `message` (the route the refusal names). Drives the `inert_prop` refusal (#1006). Today `hero` (1 rule) |
+| `retired_props` | object | **Present only when declared.** A map of `prop name` => the v2 surface that replaced it, plus a `_note` describing the block for a human reading the schema. Drives the `retired_prop` refusal (#1007). Today `hero` (4 keys), `section` (4) and `testimonials` (2) |
+| `refuse_props_when` | array | **Present only when declared.** One object per rule: `when` (a list of `applies_when` clauses), `props` (the prop names refused when every clause is met), and `message` (the route the refusal names). Drives the `inert_prop` refusal (#1006). Today `hero` (1 rule) and `section` (2 rules) |
 | `malformed` | bool | **Present only when** `schema.json` could not be decoded, so an empty report is never mistaken for an empty contract |
 | `props` | array | One object per declared prop, in declaration order |
 | `style_slots` | array | One object per declared style slot, in declaration order |
@@ -927,15 +927,16 @@ Each entry carries **the schema's own keys and values, verbatim** — nothing in
 
 ```json
 {
-  "slot": "--section-panel-bg",
-  "type": "gradient",
-  "default": "soft surface gradient",
-  "description": "Background of the section's text-panel surface …",
+  "slot": "--grid-featured-shadow",
+  "type": "shadow",
+  "default": "var(--grid-item-shadow)",
+  "description": "Box shadow of the featured first card only …",
   "applies_when": [
-    { "prop": "layout", "equals": "text-panel" },
-    { "prop": "panel_heading", "present": true }
+    { "prop": "layout", "equals": "cards" },
+    { "prop": "card_emphasis", "equals": "featured" }
   ],
-  "applies_when_rendered": "layout = \"text-panel\" AND panel_heading is set"
+  "conditionality_note": "the component sits at the top level of a composed page …",
+  "applies_when_rendered": "layout = \"cards\" AND card_emphasis = \"featured\" AND the component sits at the top level of a composed page …"
 }
 ```
 

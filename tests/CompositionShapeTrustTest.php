@@ -104,11 +104,11 @@ class CompositionShapeTrustTest extends TestCase
     private function fiveBands(): array
     {
         return [
-            ['component' => 'section', 'props' => ['id' => 'band-1', 'title' => 'One', 'body' => 'Body text']],
-            ['component' => 'section', 'props' => ['id' => 'band-2', 'title' => 'Two', 'body' => 'Body text']],
-            ['component' => 'section', 'props' => ['id' => 'band-3', 'title' => 'Three', 'body' => 'Body text']],
-            ['component' => 'section', 'props' => ['id' => 'band-4', 'title' => 'Four', 'body' => 'Body text']],
-            ['component' => 'section', 'props' => ['id' => 'band-5', 'title' => 'Five', 'body' => 'Body text']],
+            ['component' => 'section', 'id' => 'pp-7c4d1001', 'props' => ['id' => 'band-1', 'title' => 'One', 'body' => 'Body text']],
+            ['component' => 'section', 'id' => 'pp-7c4d1002', 'props' => ['id' => 'band-2', 'title' => 'Two', 'body' => 'Body text']],
+            ['component' => 'section', 'id' => 'pp-7c4d1003', 'props' => ['id' => 'band-3', 'title' => 'Three', 'body' => 'Body text']],
+            ['component' => 'section', 'id' => 'pp-7c4d1004', 'props' => ['id' => 'band-4', 'title' => 'Four', 'body' => 'Body text']],
+            ['component' => 'section', 'id' => 'pp-7c4d1005', 'props' => ['id' => 'band-5', 'title' => 'Five', 'body' => 'Body text']],
         ];
     }
 
@@ -120,8 +120,8 @@ class CompositionShapeTrustTest extends TestCase
     private function objectShapedPayload(): array
     {
         return [
-            1 => ['component' => 'section', 'props' => ['id' => 'kept-1', 'title' => 'Kept one', 'body' => 'Body text']],
-            3 => ['component' => 'section', 'props' => ['id' => 'kept-3', 'title' => 'Kept three', 'body' => 'Body text']],
+            1 => ['component' => 'section', 'id' => 'pp-7c4d1006', 'props' => ['id' => 'kept-1', 'title' => 'Kept one', 'body' => 'Body text']],
+            3 => ['component' => 'section', 'id' => 'pp-7c4d1007', 'props' => ['id' => 'kept-3', 'title' => 'Kept three', 'body' => 'Body text']],
         ];
     }
 
@@ -166,7 +166,7 @@ class CompositionShapeTrustTest extends TestCase
         // Not every non-list has numeric keys. The rule is "not a list", and the message
         // must not narrow that to a claim about key ordering.
         $errors = pp_validate_composition_errors([
-            'section' => ['component' => 'section', 'props' => ['title' => 'Hi', 'body' => 'Body text']],
+            'section' => ['component' => 'section', 'id' => 'pp-7c4d1008', 'props' => ['title' => 'Hi', 'body' => 'Body text']],
         ]);
 
         $this->assertCount(1, $errors);
@@ -201,7 +201,7 @@ class CompositionShapeTrustTest extends TestCase
         // The guard must gate ONLY the container. A list whose bands are broken still gets
         // the full per-item treatment, with its band locators intact.
         $errors = pp_validate_composition_errors([
-            ['component' => 'section', 'props' => ['title' => 'Fine', 'body' => 'Body text']],
+            ['component' => 'section', 'id' => 'pp-7c4d1009', 'props' => ['title' => 'Fine', 'body' => 'Body text']],
             ['props' => ['title' => 'No component key', 'body' => 'Body text']],
         ]);
 
@@ -430,7 +430,7 @@ class CompositionShapeTrustTest extends TestCase
     public function testRestoreStillReplaysAListSnapshotTodaysRulesWouldRejectAndReportsIt(): void
     {
         $post_id = pp_create_page('Aged list page', 'draft');
-        pp_update_composition($post_id, [['component' => 'section', 'props' => ['id' => 'aged', 'title' => 'Aged', 'body' => 'Body text']]]);
+        pp_update_composition($post_id, [['component' => 'section', 'id' => 'pp-7c4d100a', 'props' => ['id' => 'aged', 'title' => 'Aged', 'body' => 'Body text']]]);
         // A band whose `items` is an OBJECT: a list container, an illegal interior.
         update_post_meta($post_id, '_pp_composition', (string) wp_json_encode(
             [['component' => 'faq', 'props' => ['id' => 'legacy', 'items' => ['aa' => ['q' => 'Q']]]]]
@@ -787,7 +787,7 @@ class CompositionShapeTrustTest extends TestCase
         // ONE band, not fiveBands(): the patch selector below must resolve to a single
         // component or it fails with multiple_components AFTER the gate — which would pass
         // this test for the wrong reason.
-        pp_update_composition($post_id, [['component' => 'section', 'props' => ['id' => 'band-1', 'title' => 'One', 'body' => 'Body text']]]);
+        pp_update_composition($post_id, [['component' => 'section', 'id' => 'pp-7c4d100b', 'props' => ['id' => 'band-1', 'title' => 'One', 'body' => 'Body text']]]);
 
         foreach (['add_component', 'remove_component', 'reorder_components', 'update_component', 'style_component'] as $name) {
             $this->assertTrue(

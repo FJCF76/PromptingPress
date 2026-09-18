@@ -653,6 +653,53 @@ function pp_find_duplicate_component_ids(array $composition): array {
  * @param  array $composition  Composition array.
  * @return array[]             Each entry: ['type' => string, 'message' => string, 'index' => int].
  */
+/**
+ * Does a `udc` parameter value carry real content, at ANY breakpoint or state?
+ *
+ * A parameter is a scalar, OR a map keyed by breakpoint (`d`/`t`/`p`) or state
+ * (`:hover`), possibly nested. "Does this band have a background" therefore cannot be
+ * answered by looking at the top level: `fill => "#111"` and
+ * `fill => ["d" => "#111", "p" => "#222"]` both paint, and the second is an array.
+ *
+ * This was wrong twice, in opposite directions, which is why it is a named function with
+ * a test rather than an inline expression:
+ *   - `!empty()` alone answered TRUE for a non-empty array, so a CORRUPT shape
+ *     (`image => ['a']`, reachable through a raw meta write or a #233 restore) suppressed
+ *     the warning.
+ *   - `is_scalar()` alone answered FALSE for a breakpoint map, so a band with a REAL
+ *     responsive fill — which the engine emits at both tiers — still counted as bare.
+ *
+ * THE ENGINE IS THE AUTHORITY, and it was asked rather than guessed. Feeding each shape
+ * to pp_udc_band_css() and reading the emitted CSS:
+ *
+ *   "#111111"                  -> PAINTS
+ *   {"d":"#111111","p":"#222"} -> PAINTS, at both tiers
+ *   ["a"]                      -> paints nothing (key 0 is not a breakpoint)
+ *   {":hover":"#111111"}       -> paints nothing (a hover fill is not a resting background)
+ *
+ * So this recurses into BREAKPOINT keys only. A bare scalar leaf test would have called
+ * the corrupt list and the hover-only map backgrounds, and both of those paint nothing —
+ * which is the direction that matters, because calling something a background is what
+ * SUPPRESSES the warning.
+ *
+ * @param  mixed $value  A raw stored parameter value.
+ * @return bool
+ */
+function _pp_udc_value_has_content($value): bool {
+    if (is_scalar($value)) {
+        return trim((string) $value) !== '';
+    }
+    if (!is_array($value)) {
+        return false;
+    }
+    foreach (array_keys(pp_udc_breakpoints()) as $tier) {
+        if (array_key_exists($tier, $value) && _pp_udc_value_has_content($value[$tier])) {
+            return true;
+        }
+    }
+    return false;
+}
+
 function pp_validate_composition_smells(array $composition): array {
     if (!pp_is_list($composition)) {
         return [];
@@ -743,9 +790,45 @@ function pp_validate_composition_smells(array $composition): array {
             ];
         }
 
-        // Track consecutive text-only sections (no image, no visual anchor)
+        // Track consecutive text-only sections (no image, no visual anchor).
+        //
+        // THE BAND BACKGROUND IS READ FROM BOTH SYSTEMS (#1023). This test used to ask
+        // `empty($props['background_image'])`, which is a v1 prop section retired — so on
+        // a v2 band the term was unconditionally true and a band carrying a real
+        // photographic background counted as bare text. Three of those in a row raised a
+        // "wall of text" warning about a page with background variety, which is the
+        // opposite of what the smell is for. `wp pp check page` halts on any smell, so a
+        // false positive here is not cosmetic.
+        //
+        // Same defensive posture as the rest of this loop: a corrupt row can hold any
+        // shape at each level, and these smells also run over arbitrary history-ring
+        // snapshots (#233), so every step is array-guarded rather than indexed.
+        $udc       = is_array($item['udc'] ?? null) ? $item['udc'] : [];
+        $band      = is_array($udc['_band'] ?? null) ? $udc['_band'] : [];
+        $band_bg   = is_array($band['background'] ?? null) ? $band['background'] : [];
+        // `is_scalar()` AND `!empty()`, and BOTH halves are load-bearing.
+        //
+        // `!empty()` rather than `isset()` because this smell asks "does the band have
+        // something to look at", and `""`/`null` are the engine's unset sentinels.
+        //
+        // `is_scalar()` because `!empty()` alone answers TRUE for a non-empty ARRAY, and
+        // these values reach here from storage — a raw meta write, or a #233 restore,
+        // which by rule never blocks — so `image => ['a']` is reachable and is not a
+        // background. Without the scalar test a corrupt map SUPPRESSES the warning, which
+        // is the one direction a suppression term must never fail in. Caught by
+        // testAHostileUdcShapeNeitherFatalsNorSuppresses(), which was written for exactly
+        // this and found it.
+        //
+        // The known remaining imprecision is `fill: "transparent"`: a present scalar that
+        // paints nothing and therefore suppresses a warning it should not. Left as-is
+        // because the rule is advisory and warn-direction — a missed nudge on a band the
+        // author did style deliberately, never a false accusation — and because
+        // reproducing the engine's paints-nothing analysis here would duplicate it.
+        $has_band_bg = _pp_udc_value_has_content($band_bg['image'] ?? null)
+            || _pp_udc_value_has_content($band_bg['fill'] ?? null);
+
         $layout = $props['layout'] ?? 'text-only';
-        if ($component === 'section' && in_array($layout, ['text-only', 'centered'], true) && empty($image_url) && empty($props['background_image'] ?? '')) {
+        if ($component === 'section' && in_array($layout, ['text-only', 'centered'], true) && empty($image_url) && empty($props['background_image'] ?? '') && !$has_band_bg) {
             $consecutive_text_only++;
         } else {
             $consecutive_text_only = 0;

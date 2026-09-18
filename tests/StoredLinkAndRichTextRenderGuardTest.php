@@ -1075,49 +1075,56 @@ class StoredLinkAndRichTextRenderGuardTest extends TestCase
     }
 
     /**
-     * section's `body` also drives the inline-items row's top margin through
-     * $has_body_copy, which tests is_string(). Guarding `body` at the read makes the
-     * guarded local a string for every scalar, so keying that flag on the guarded value
-     * would flip a stored `42` from "no body copy" to "has body copy" — a spacing change
-     * for a stored value that renders fine today. It is keyed on the raw value instead;
-     * this pins that.
+     * INVERTED AT #1023, and the inversion is the honest record of a narrowing.
+     *
+     * This pinned that `$has_body_copy` was keyed on the RAW body rather than the guarded
+     * one: the #730 guard casts every scalar to a string, so `is_string()` on the guarded
+     * value would be always-true and a stored `42` would flip from "no body copy" to "has
+     * body copy" — a spacing change for a value the write path accepts. The flag drove the
+     * inline-items row's `--flush-top` modifier, which is what the assertions read.
+     *
+     * BOTH THE FLAG AND THE MODIFIER ARE GONE. #488's automatic flush-top could not
+     * survive the rebuild: its rule lives in `components.css` (`@layer pp-v1`) while the
+     * `inline-items` role's `spacing.margin-top` default emits UNLAYERED, so it could
+     * never win again whatever it declared. An author sets `spacing.margin-top: 0` on that
+     * role instead.
+     *
+     * So there is no longer anything that reads the body's "copy-ness", and the class of
+     * bug this test guarded cannot arise. What is asserted instead is the STRONGER
+     * property the removal bought: the row's markup is identical for every body shape —
+     * integer, float, bool, zero, string, empty string, and a non-scalar the guard blanks
+     * — so no inference from the body can go wrong, because none is made. The #730 guard
+     * itself is unaffected and pinned by its own cases in this file.
      */
-    public function testSectionBodySpacingIsUnchangedForEveryScalar(): void
+    public function testTheInlineItemsRowIsIdenticalForEveryBodyShape(): void
     {
-        foreach ([42, 3.14, true, 0, 0.0] as $value) {
-            $props = ['title' => 'T', 'layout' => 'text-only', 'body' => $value,
-                      'body_items' => ['One', 'Two']];
-            $html  = $this->renderJson('section', $props);
+        $row = static fn (string $html): string =>
+            preg_match('/<ul class="[^"]*section__inline-items[^"]*"[^>]*>/', $html, $m) ? $m[0] : 'NO ROW';
 
-            // A non-string scalar body must NOT be treated as body copy, exactly as before
-            // the guard: the inline-items row keeps its flush-top modifier, which is the
-            // class $has_body_copy actually drives.
-            $this->assertStringContainsString(
-                'section__inline-items--flush-top',
-                $html,
-                'a stored ' . gettype($value) . ' body must keep its pre-guard spacing.'
-                . ' Keying $has_body_copy on the guarded (already-cast) value would flip it,'
-                . ' because the guard makes every scalar a string and is_string() would then'
-                . ' always be true.'
-            );
+        $shapes = [
+            'integer'      => 42,
+            'float'        => 3.14,
+            'bool true'    => true,
+            'zero'         => 0,
+            'float zero'   => 0.0,
+            'real copy'    => '<p>Real body copy.</p>',
+            'empty string' => '',
+            'non-scalar'   => ['x'],
+        ];
+
+        $rows = [];
+        foreach ($shapes as $label => $body) {
+            $html = $this->renderJson('section', [
+                'title' => 'T', 'layout' => 'text-only', 'body' => $body, 'body_items' => ['One', 'Two'],
+            ]);
+            $rows[$label] = $row($html);
+            $this->assertNotSame('NO ROW', $rows[$label], "the row must render for a {$label} body");
+            $this->assertStringNotContainsString('section__inline-items--flush-top', $html,
+                "no modifier may be inferred from a {$label} body — the inference is retired");
         }
 
-        // ...and a genuine string body still counts as body copy, so the row is NOT flush.
-        $withCopy = $this->renderJson('section', [
-            'title' => 'T', 'layout' => 'text-only', 'body' => '<p>Real copy</p>',
-            'body_items' => ['One', 'Two'],
-        ]);
-        $this->assertStringNotContainsString('section__inline-items--flush-top', $withCopy);
-
-        // ...and a NON-SCALAR body degrades to the same spacing an empty body produces,
-        // which is what makes the raw-keyed flag safe rather than merely conservative.
-        $degraded = $this->renderJson('section', [
-            'title' => 'T', 'layout' => 'text-only', 'body' => ['x'], 'body_items' => ['One'],
-        ]);
-        $control = $this->renderJson('section', [
-            'title' => 'T', 'layout' => 'text-only', 'body' => '', 'body_items' => ['One'],
-        ]);
-        $this->assertSame($control, $degraded);
+        $this->assertCount(1, array_unique($rows),
+            'the row markup must be identical for every body shape, so no inference can be wrong');
     }
 
     /**

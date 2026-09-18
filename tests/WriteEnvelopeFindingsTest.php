@@ -71,26 +71,25 @@ final class WriteEnvelopeFindingsTest extends TestCase
     }
 
     /**
-     * A band whose eyebrow slot is inert: it paints only when `eyebrow` is set.
+     * The inert-slot trap band. Re-homed from section to stats at #1023: section is a v2
+     * component and declares no style slots, so it can no longer hold an inert one. stats
+     * is the host chosen for every re-homed slot fixture in this sprint — 17 slots, 12 of
+     * them conditional, and zero live bands on the owner's site, so it is furthest down
+     * the usage-ordered rebuild queue (#1025 records why this keeps happening).
      *
-     * RE-POINTED FROM HERO (#986). The original trap was `--section-overlay-bg` on a
-     * `split` hero — the slot paints only under `layout: "cover"` — and hero is a v2
-     * component now with no slots at all, so that exact trap cannot be built. The
-     * DEFECT CLASS is unchanged and is what these tests are about: a value that
-     * validates, stores, reports applied, and paints nothing. section's eyebrow family
-     * declares `applies_when: eyebrow present`, so omitting `eyebrow` reproduces it.
+     * `background_image` is deliberately UNSET: that is what makes `--stats-overlay-bg`
+     * inert, which is the whole subject of the trap.
      */
     private function trapPage(): int
     {
-        $id = pp_create_page('Inert eyebrow trap', 'draft');
+        $id = pp_create_page('Inert overlay trap', 'draft');
         pp_update_composition($id, [
             [
-                'component' => 'section',
+                'component' => 'stats',
                 'props'     => [
-                    'id'    => 'section-1',
+                    'id'    => 'stats-1',
                     'title' => 'Ship faster',
-                    'body'  => 'Body text',
-                    'body'  => 'Body text',
+                    'items' => [['number' => '99%', 'label' => 'Uptime']],
                 ],
             ],
         ]);
@@ -99,11 +98,17 @@ final class WriteEnvelopeFindingsTest extends TestCase
     }
 
     /** A page whose bands are all clean under current rules. */
+    /**
+     * A page whose bands are all clean under current rules. Band 0 is a `stats` since
+     * #1023 because callers style index 0 through the v1 slot surface; band 1 stays a
+     * `section` so the fixture still exercises a MIXED page, which is the ordinary shape
+     * mid-rebuild and the one most likely to surprise the report assembler.
+     */
     private function cleanPage(string $title = 'Clean page'): int
     {
         $id = pp_create_page($title, 'draft');
         pp_update_composition($id, [
-            ['component' => 'section', 'props' => ['id' => 's1', 'title' => 'One', 'body' => 'Body copy.']],
+            ['component' => 'stats', 'props' => ['id' => 's1', 'title' => 'One', 'items' => [['number' => '1', 'label' => 'One']]]],
             ['component' => 'section', 'props' => ['id' => 's2', 'title' => 'Two', 'body' => 'Body copy.']],
         ]);
 
@@ -148,7 +153,7 @@ final class WriteEnvelopeFindingsTest extends TestCase
         $result = pp_execute_action('style_component', [
             'post_id'         => $id,
             'component_index' => 0,
-            'style'           => ['--section-overlay-bg' => 'rgba(0,0,0,.5)'],
+            'style'           => ['--stats-overlay-bg' => 'rgba(0,0,0,.5)'],
         ]);
 
         $this->assertTrue($result['ok'], 'the write is ACCEPTED — findings never block');
@@ -158,7 +163,7 @@ final class WriteEnvelopeFindingsTest extends TestCase
         $this->assertCount(1, $inert);
         $this->assertSame('warning', $inert[0]['severity']);
         $this->assertSame(0, $inert[0]['index'], 'the advisory names the band it belongs to');
-        $this->assertStringContainsString('--section-overlay-bg', $inert[0]['message']);
+        $this->assertStringContainsString('--stats-overlay-bg', $inert[0]['message']);
         $this->assertStringContainsString('background_image is set', $inert[0]['message'], 'it names the unmet condition');
         $this->assertStringContainsString('nothing on the page reads it', $inert[0]['message']);
     }
@@ -173,12 +178,12 @@ final class WriteEnvelopeFindingsTest extends TestCase
         pp_execute_action('style_component', [
             'post_id'         => $id,
             'component_index' => 0,
-            'style'           => ['--section-overlay-bg' => 'rgba(0,0,0,.5)'],
+            'style'           => ['--stats-overlay-bg' => 'rgba(0,0,0,.5)'],
         ]);
 
         $this->assertSame(
             'rgba(0,0,0,.5)',
-            pp_get_composition($id)[0]['style']['--section-overlay-bg'],
+            pp_get_composition($id)[0]['style']['--stats-overlay-bg'],
             'report-only: the advisory describes the write, it does not undo it'
         );
     }
@@ -220,9 +225,8 @@ final class WriteEnvelopeFindingsTest extends TestCase
         $result = pp_execute_action('update_component', [
             'post_id'         => $id,
             'component_index' => 0,
-            'props'           => ['title' => 'Renamed', 'body' => 'Body text'],
-            'style'           => ['--section-overlay-bg' => 'rgba(0,0,0,.5)'],
-        ]);
+            'props'           => ['title' => 'Renamed'],
+            'style'           => ['--stats-overlay-bg' => 'rgba(0,0,0,.5)']]);
 
         $this->assertTrue($result['ok'], $result['error'] ?? '');
         $this->assertContains('inert_slot', self::findingTypes($result));
@@ -272,7 +276,7 @@ final class WriteEnvelopeFindingsTest extends TestCase
         $result = pp_execute_action('style_component', [
             'post_id'         => $id,
             'component_index' => 0,
-            'style'           => ['--section-bg' => '#101014'],
+            'style'           => ['--stats-bg' => '#101014'],
         ]);
 
         $this->assertTrue($result['ok'], $result['error'] ?? '');
@@ -286,12 +290,9 @@ final class WriteEnvelopeFindingsTest extends TestCase
             'title'       => 'Seeded with an inert slot',
             'composition' => [
                 [
-                    'component' => 'section',
-                    'props'     => ['id' => 'h', 'title' => 'T', 'body' => 'Body text'],
-                    'style'     => ['--section-overlay-bg' => 'rgba(0,0,0,.5)'],
-                ],
-            ],
-        ]);
+                    'component' => 'stats',
+                    'props'     => ['id' => 'h', 'title' => 'T', 'items' => [['number' => '1', 'label' => 'One']]],
+                    'style'     => ['--stats-overlay-bg' => 'rgba(0,0,0,.5)']]]]);
 
         $this->assertTrue($result['ok'], $result['error'] ?? '');
         $this->assertContains('inert_slot', self::findingTypes($result));
@@ -324,10 +325,9 @@ final class WriteEnvelopeFindingsTest extends TestCase
     {
         $other = pp_create_page('Someone else\'s page', 'draft');
         pp_update_composition($other, [[
-            'component' => 'section',
-            'props'     => ['id' => 'h', 'title' => 'T', 'body' => 'Body text'],
-            'style'     => ['--section-overlay-bg' => 'rgba(0,0,0,.5)'],
-        ]]);
+            'component' => 'stats',
+            'props'     => ['id' => 'h', 'title' => 'T'],
+            'style'     => ['--stats-overlay-bg' => 'rgba(0,0,0,.5)']]]);
         $this->assertContains(
             'inert_slot',
             array_column(_pp_composition_findings(pp_get_composition($other)), 'type'),
@@ -361,10 +361,13 @@ final class WriteEnvelopeFindingsTest extends TestCase
         pp_execute_action('style_component', [
             'post_id'         => $id,
             'component_index' => 0,
-            'style'           => ['--section-overlay-bg' => 'rgba(0,0,0,.5)'],
+            'style'           => ['--stats-overlay-bg' => 'rgba(0,0,0,.5)'],
         ]);
 
-        $result = pp_patch_composition($id, 'section.title', 'Patched');
+        // The trap band is a `stats` since #1023, so the patch path addresses it by that
+        // component name — the subject here is the ENVELOPE carrying findings, not which
+        // component the patch happens to name.
+        $result = pp_patch_composition($id, 'stats.title', 'Patched');
 
         $this->assertIsArray($result);
         $this->assertTrue($result['ok'], $result['error'] ?? '');
@@ -487,15 +490,13 @@ final class WriteEnvelopeFindingsTest extends TestCase
     {
         $id = pp_create_page('Stale sibling band', 'draft');
         pp_update_composition($id, [
-            ['component' => 'section', 'props' => ['id' => 's1', 'title' => 'One', 'body' => 'B']],
-            ['component' => 'section', 'props' => ['id' => 's2', 'title' => 'Two', 'body' => 'B', 'retired_key' => 'x']],
-        ]);
+            ['component' => 'stats', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'id' => 's1', 'title' => 'One']],
+            ['component' => 'stats', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'id' => 's2', 'title' => 'Two', 'retired_key' => 'x']]]);
 
         $result = pp_execute_action('style_component', [
             'post_id'         => $id,
             'component_index' => 0,
-            'style'           => ['--section-bg' => '#101014'],
-        ]);
+            'style'           => ['--stats-bg' => '#101014']]);
 
         $this->assertTrue($result['ok'], 'style_component validates only its own slots');
         $errors = self::findingsOfSeverity($result, 'error');
@@ -505,10 +506,22 @@ final class WriteEnvelopeFindingsTest extends TestCase
 
     // ── 5. THE BUDGET (D1 clause 3, on this surface only) ───────────────────────
 
-    /** A composition whose report is longer than the budget. */
+    /**
+     * A page whose every band carries four undeclared props, so the whole-page report
+     * comfortably exceeds the findings budget. The VOLUME is what these tests need.
+     *
+     * The LEAD band is a `stats` since #1023, because the tests style index 0 through the
+     * v1 slot surface and section is a v2 component now. The rest stay `section` bands:
+     * an undeclared prop is reported for a v2 component exactly as for a v1 one, so they
+     * still supply the volume — this fixture never needed slots for that, only for the
+     * band it styles.
+     */
     private function pathologicalPage(int $bands = 40): int
     {
-        $composition = [];
+        $composition = [['component' => 'stats', 'props' => [
+            'id' => 'lead', 'title' => 'Lead', 'items' => [['number' => '1', 'label' => 'One']],
+            'zzA' => 1, 'zzB' => 2, 'zzC' => 3, 'zzD' => 4,
+        ]]];
         for ($i = 0; $i < $bands; $i++) {
             $composition[] = ['component' => 'section', 'props' => [
                 'id' => "s$i", 'title' => "T$i", 'body' => 'B',
@@ -534,7 +547,7 @@ final class WriteEnvelopeFindingsTest extends TestCase
         $result = pp_execute_action('style_component', [
             'post_id'         => $id,
             'component_index' => 0,
-            'style'           => ['--section-bg' => '#101014'],
+            'style'           => ['--stats-bg' => '#101014'],
         ]);
 
         $this->assertTrue($result['ok'], 'a long report never blocks the write');
@@ -586,7 +599,7 @@ final class WriteEnvelopeFindingsTest extends TestCase
     {
         $id = $this->pathologicalPage();
         $result = pp_execute_action('style_component', [
-            'post_id' => $id, 'component_index' => 0, 'style' => ['--section-bg' => '#101014'],
+            'post_id' => $id, 'component_index' => 0, 'style' => ['--stats-bg' => '#101014'],
         ]);
         $tail = end($result['findings']);
 
@@ -682,7 +695,7 @@ final class WriteEnvelopeFindingsTest extends TestCase
     {
         $id     = $this->pathologicalPage();
         $result = pp_execute_action('style_component', [
-            'post_id' => $id, 'component_index' => 0, 'style' => ['--section-bg' => '#101014'],
+            'post_id' => $id, 'component_index' => 0, 'style' => ['--stats-bg' => '#101014'],
         ]);
         $tail = end($result['findings']);
 
@@ -712,20 +725,16 @@ final class WriteEnvelopeFindingsTest extends TestCase
     {
         $id = pp_create_page('Errors drown the advisory', 'draft');
         $composition = [[
-            'component' => 'section',
-            'props'     => ['id' => 'h', 'title' => 'T', 'layout' => 'split', 'image_url' => 'https://example.com/x.png'],
-        ]];
+            'component' => 'stats',
+            'props'     => ['id' => 'h', 'title' => 'T']]];
         for ($i = 0; $i < 40; $i++) {
-            $composition[] = ['component' => 'section', 'props' => [
-                'id' => "s$i", 'title' => "T$i", 'body' => 'B',
-                'zzA' => 1, 'zzB' => 2, 'zzC' => 3, 'zzD' => 4,
-            ]];
+            $composition[] = ['component' => 'stats', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 
+                'id' => "s$i", 'title' => "T$i", 'zzA' => 1, 'zzB' => 2, 'zzC' => 3, 'zzD' => 4]];
         }
         pp_update_composition($id, $composition);
 
         $result = pp_execute_action('style_component', [
-            'post_id' => $id, 'component_index' => 0, 'style' => ['--section-overlay-bg' => 'rgba(0,0,0,.5)'],
-        ]);
+            'post_id' => $id, 'component_index' => 0, 'style' => ['--stats-overlay-bg' => 'rgba(0,0,0,.5)']]);
 
         $this->assertTrue($result['ok']);
         $this->assertContains(
@@ -761,12 +770,15 @@ final class WriteEnvelopeFindingsTest extends TestCase
      */
     private function bulkyPage(int $bands): int
     {
-        // The lead band is a `section`, not a hero: hero is a v2 component (#986) and
-        // carries no `style` map, and these tests style index 0 through the v1 surface.
+        // The lead band is a `stats`: these tests style index 0 through the v1 slot
+        // surface, and both hero (#986) and section (#1023) are v2 components carrying no
+        // `style` map. stats is the host every re-homed slot fixture in this sprint uses.
+        // The BULK below still comes from section bands — the bytes are what matters
+        // there, not the styling surface.
         $composition = [[
-            'component' => 'section',
-            'props'     => ['id' => 'h', 'title' => 'T', 'body' => 'Body text'],
-            'style'     => ['--section-overlay-bg' => 'rgba(0,0,0,.5)'],
+            'component' => 'stats',
+            'props'     => ['id' => 'h', 'title' => 'T', 'items' => [['number' => '1', 'label' => 'One']]],
+            'style'     => ['--stats-overlay-bg' => 'rgba(0,0,0,.5)'],
         ]];
         $body = str_repeat('lorem ipsum dolor sit amet ', 420);
         for ($i = 0; $i < $bands; $i++) {
@@ -807,14 +819,14 @@ final class WriteEnvelopeFindingsTest extends TestCase
         );
 
         $result = pp_execute_action('style_component', [
-            'post_id' => $id, 'component_index' => 0, 'style' => ['--section-overlay-bg' => 'rgba(0,0,0,.6)'],
+            'post_id' => $id, 'component_index' => 0, 'style' => ['--stats-overlay-bg' => 'rgba(0,0,0,.6)'],
         ]);
 
         // The write is untouched by the gate: it landed, exactly as authored.
         $this->assertTrue($result['ok'], $result['error'] ?? '');
         $stored = pp_get_composition($id);
         $this->assertCount(101, $stored);
-        $this->assertSame('rgba(0,0,0,.6)', $stored[0]['style']['--section-overlay-bg']);
+        $this->assertSame('rgba(0,0,0,.6)', $stored[0]['style']['--stats-overlay-bg']);
 
         // Exactly one entry, and it is the skip.
         $this->assertCount(1, $result['findings']);
@@ -834,7 +846,7 @@ final class WriteEnvelopeFindingsTest extends TestCase
         $id      = $this->bulkyPage(100);
         $bytes   = self::storedBytes($id);
         $result  = pp_execute_action('style_component', [
-            'post_id' => $id, 'component_index' => 0, 'style' => ['--section-overlay-bg' => 'rgba(0,0,0,.6)'],
+            'post_id' => $id, 'component_index' => 0, 'style' => ['--stats-overlay-bg' => 'rgba(0,0,0,.6)'],
         ]);
         $message = $result['findings'][0]['message'];
 
@@ -863,7 +875,7 @@ final class WriteEnvelopeFindingsTest extends TestCase
             'precondition: the engines DO have something to say about this page');
 
         $result = pp_execute_action('style_component', [
-            'post_id' => $id, 'component_index' => 0, 'style' => ['--section-overlay-bg' => 'rgba(0,0,0,.6)'],
+            'post_id' => $id, 'component_index' => 0, 'style' => ['--stats-overlay-bg' => 'rgba(0,0,0,.6)'],
         ]);
 
         $this->assertSame(['findings_skipped'], self::findingTypes($result));
@@ -891,7 +903,7 @@ final class WriteEnvelopeFindingsTest extends TestCase
         );
 
         $result = pp_execute_action('style_component', [
-            'post_id' => $id, 'component_index' => 0, 'style' => ['--section-overlay-bg' => 'rgba(0,0,0,.6)'],
+            'post_id' => $id, 'component_index' => 0, 'style' => ['--stats-overlay-bg' => 'rgba(0,0,0,.6)'],
         ]);
 
         $this->assertNotContains('findings_skipped', self::findingTypes($result));
@@ -930,7 +942,7 @@ final class WriteEnvelopeFindingsTest extends TestCase
         $id = $this->pathologicalPage();
         // Give the ring a prior state to restore, then restore it.
         pp_execute_action('style_component', [
-            'post_id' => $id, 'component_index' => 0, 'style' => ['--section-bg' => '#101014'],
+            'post_id' => $id, 'component_index' => 0, 'style' => ['--stats-bg' => '#101014'],
         ]);
 
         $result = pp_execute_action('restore_composition', ['post_id' => $id, 'steps_back' => 1]);
@@ -994,7 +1006,7 @@ final class WriteEnvelopeFindingsTest extends TestCase
     {
         $id = $this->trapPage();
         $result = pp_execute_action('style_component', [
-            'post_id' => $id, 'component_index' => 0, 'style' => ['--section-overlay-bg' => 'rgba(0,0,0,.5)'],
+            'post_id' => $id, 'component_index' => 0, 'style' => ['--stats-overlay-bg' => 'rgba(0,0,0,.5)'],
         ]);
 
         $this->assertSame(
@@ -1053,15 +1065,11 @@ final class WriteEnvelopeFindingsTest extends TestCase
 
         $batch = pp_ai_execute_batch([
             ['type' => 'action', 'name' => 'update_component', 'params' => [
-                'post_id' => $id, 'component_index' => 0, 'props' => ['title' => 'Step one', 'body' => 'Body text'],
-            ]],
+                'post_id' => $id, 'component_index' => 0, 'props' => ['title' => 'Step one']]],
             ['type' => 'action', 'name' => 'style_component', 'params' => [
-                'post_id' => $id, 'component_index' => 0, 'style' => ['--section-overlay-bg' => 'rgba(0,0,0,.5)'],
-            ]],
+                'post_id' => $id, 'component_index' => 0, 'style' => ['--stats-overlay-bg' => 'rgba(0,0,0,.5)']]],
             ['type' => 'action', 'name' => 'update_component', 'params' => [
-                'post_id' => $id, 'component_index' => 0, 'props' => ['title' => 'Step three', 'body' => 'Body text'],
-            ]],
-        ]);
+                'post_id' => $id, 'component_index' => 0, 'props' => ['title' => 'Step three']]]]);
 
         $this->assertTrue($batch['ok'], 'precondition: the batch lands');
         $this->assertNotContains('inert_slot', self::findingTypes($batch['steps'][0]),
@@ -1081,7 +1089,7 @@ final class WriteEnvelopeFindingsTest extends TestCase
     {
         $id = $this->trapPage();
         $result = pp_execute_action('style_component', [
-            'post_id' => $id, 'component_index' => 0, 'style' => ['--section-overlay-bg' => 'rgba(0,0,0,.5)'],
+            'post_id' => $id, 'component_index' => 0, 'style' => ['--stats-overlay-bg' => 'rgba(0,0,0,.5)'],
         ]);
 
         $decoded = json_decode(
@@ -1116,7 +1124,7 @@ final class WriteEnvelopeFindingsTest extends TestCase
             'params' => [
                 'post_id'          => $id,
                 'component_index'  => 0,
-                'style'            => ['--section-overlay-bg' => 'rgba(0,0,0,.5)'],
+                'style'            => ['--stats-overlay-bg' => 'rgba(0,0,0,.5)'],
                 'expected_version' => $version,
             ],
         ]);
@@ -1138,7 +1146,7 @@ final class WriteEnvelopeFindingsTest extends TestCase
 
         $batch = pp_ai_execute_batch([
             ['type' => 'action', 'name' => 'style_component', 'params' => [
-                'post_id' => $id, 'component_index' => 0, 'style' => ['--section-overlay-bg' => 'rgba(0,0,0,.5)'],
+                'post_id' => $id, 'component_index' => 0, 'style' => ['--stats-overlay-bg' => 'rgba(0,0,0,.5)'],
             ]],
             ['type' => 'action', 'name' => 'update_component', 'params' => [
                 'post_id' => $id, 'component_index' => 0, 'props' => ['no_such_prop' => 'x'],
@@ -1168,21 +1176,18 @@ final class WriteEnvelopeFindingsTest extends TestCase
     {
         $id = pp_create_page('Colliding ids', 'draft');
         pp_update_composition($id, [
-            ['component' => 'section', 'props' => ['id' => 'same', 'title' => 'T', 'body' => 'B']],
-        ]);
+            ['component' => 'stats', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'id' => 'same', 'title' => 'T']]]);
 
         for ($i = 0; $i < 60; $i++) {
             $added = pp_execute_action('add_component', [
                 'post_id'   => $id,
-                'component' => 'section',
-                'props'     => ['id' => 'same', 'title' => "T$i", 'body' => 'B'],
-            ]);
+                'component' => 'stats',
+                'props'     => ['items' => [['number' => '1', 'label' => 'One']], 'id' => 'same', 'title' => "T$i"]]);
             $this->assertTrue($added['ok'], 'add_component validates only the item it adds, so a colliding id is accepted');
         }
 
         $result = pp_execute_action('style_component', [
-            'post_id' => $id, 'component_index' => 0, 'style' => ['--section-bg' => '#101014'],
-        ]);
+            'post_id' => $id, 'component_index' => 0, 'style' => ['--stats-bg' => '#101014']]);
         $this->assertTrue($result['ok']);
 
         $dupes = self::findingsOfType($result, 'duplicate_component_id');
@@ -1210,13 +1215,11 @@ final class WriteEnvelopeFindingsTest extends TestCase
     {
         $id = pp_create_page('Duplicate ids', 'draft');
         pp_update_composition($id, [
-            ['component' => 'section', 'props' => ['id' => 'dupe', 'title' => 'One', 'body' => 'B']],
-            ['component' => 'section', 'props' => ['id' => 'dupe', 'title' => 'Two', 'body' => 'B']],
-        ]);
+            ['component' => 'stats', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'id' => 'dupe', 'title' => 'One']],
+            ['component' => 'stats', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'id' => 'dupe', 'title' => 'Two']]]);
 
         $result = pp_execute_action('style_component', [
-            'post_id' => $id, 'component_index' => 0, 'style' => ['--section-bg' => '#101014'],
-        ]);
+            'post_id' => $id, 'component_index' => 0, 'style' => ['--stats-bg' => '#101014']]);
 
         $this->assertTrue($result['ok'], $result['error'] ?? '');
         $dupes = self::findingsOfType($result, 'duplicate_component_id');

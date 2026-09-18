@@ -4,7 +4,7 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
-## [Unreleased — v2.0.0-alpha.2] — v2 Sprint 2: the chrome CSS retirement — the header and footer join the design contract, and styling one part of them stops cancelling another (#994, #992, #995)
+## [Unreleased — v2.0.0-alpha.2] — v2 Sprint 2: the chrome CSS retirement, and `section` rebuilt on the design contract (#994, #992, #995, #1023, #988)
 
 **The last two components still painted by the old stylesheet are on the engine.** The site header and footer declared roles you could author, while `assets/css/components.css` quietly owned how they actually looked. That split is what made styling a nav link silently erase its own hover. 88 declarations moved into role defaults, the CSS rules are gone, and the three bugs the split was causing are fixed.
 
@@ -62,6 +62,11 @@ Nothing to do unless you have a stored `pp_site_udc` map with a `"_preset"` on a
 
 - The header and footer now emit ~4.6 KB of inline CSS per request (+710 gzipped) that was previously served from the cacheable stylesheet, and `components.css` itself grew because the change is heavily commented. #1021 tracks stripping comments at package time.
 - An unstyled page pays ~2.4 ms of compile on routes that warm nothing else (404, search, archives). #1020 tracks the available win.
+- **Section's 19 roles roughly double the head-compile, and the numbers are worth seeing.** Measured on a nine-band page (PHP 8.3, median of five cold processes): the UDC portion of `wp_head` goes **1.30 ms → 2.09 ms warm**, and cold TTFB **3.57 ms → 4.50 ms (+0.93 ms)** against a 43-45 ms baseline. Section's own default block is **0.447 ms and 3,060 bytes**, paid on every page carrying a section band whether or not it is styled. The compile is a pure function of repo content — the emitted CSS holds only `var()` references, never resolved token values — so ~1.9 ms of it is cacheable and nothing in the engine caches it yet. #1020.
+- **The byte trade goes the other way, and it depends on your traffic.** Per request that same page's inline head CSS grows **8,870 → 13,669 bytes** (+443 gzipped), while the markup *loses* 1,230 bytes of per-band `style` attributes. Against that, `assets/css/components.css` drops **252,287 → 233,231 bytes** (−5,197 gzipped) and is cached once. Break-even is roughly **12-17 page views per cached-stylesheet lifetime**. A site with warm caches and repeat visitors pays the inline tax on every request; a site with mostly first-time visitors comes out ahead.
+- **A prose link on a dark band you author is an AA failure until you colour it.** `body-link` ships no colour default, so it renders `@color-accent` `#3157f4`: **5.43:1** on the default light band, **3.23:1** on `@color-bg-inverted` `#0f172a`. v1 remapped that automatically because an inverted band carried a CLASS; a v2 band carries none, which is exactly what lets any background be a band, so nothing can guess. Set `body-link`'s `typography.color` and its `":hover"` whenever you darken a band — `@color-accent-on-inverted` is the token v1 used. This is the v2 posture rather than section's alone; section is where prose links are common. #1028's sibling problem, filed separately where it is not authorable at all.
+- **The default panel has no visible edge.** `panel` defaults to `@color-surface` `#f4f7fb` with `border.width: 0` and no shadow — **1.06:1** against the page ground `#fcfdff`. A faithful port of v1, and on a default light band the card reads only because the band happens to match the page. Give the panel a `border` or a `background.fill` with more separation if the band is not the page colour. Reconsidering the default is #1031.
+- Two of `panel_cta_variant`'s four values (`outline`, `ghost`) have no system preset and must be written out on the `panel-cta` role. See the breaking note for the JSON.
 
 ### Itemized changes
 
@@ -86,6 +91,370 @@ Nothing to do unless you have a stored `pp_site_udc` map with a `"_preset"` on a
 - Chrome joins the structural-CSS boundary lint; the carve-out is removed and its lapse pinned.
 - The #992 characterization test is inverted rather than deleted: same fixture, same authored input, opposite expectations.
 - New pins: role defaults frozen value-for-value, breakpoint maps refused when they name only `d`, every role's defaults proved to reach the page, every shipped selector proved well-formed, and the chevron's negative margin pinned to the token it mirrors.
+
+---
+
+## `section` is on the design contract (#1023)
+
+**The most-used band in the theme is rebuilt.** `section` declared 47 style slots and
+40,852 bytes of stylesheet; it declares **19 roles and zero slots**, and its stylesheet
+block is 6,969 bytes of pure layout scaffolding. Every designable value — colour, type,
+spacing, border, shadow, size, crop, motion — is now a role parameter in the band's `udc`
+map, per breakpoint and per state.
+
+### What changes for you
+
+**Nineteen roles, because the panel is a component inside a component.** `_band`, `header`,
+`eyebrow`, `heading`, `heading-accent`, `subheading`, `body`, `body-link`, `columns`,
+`inline-items`, `media`, `panel`, `panel-heading`, `panel-body`, `panel-list`, `panel-row`,
+`panel-row-label`, `panel-row-value`, `panel-cta`. A spec-sheet panel wants its label small
+and tracked and its value carrying the weight, so the label and the value are separate
+roles — a single `panel` role could not express the composition the panel exists for.
+
+**Three limits on the panel CTA are gone, not moved.** It used to need a dedicated fill
+slot to defeat the shared premium gradient (a plain background colour lost to a
+background-image), the slots reached the `primary` variant only, and there was no
+per-instance hover fill at all — a flat panel button reverted to the gradient under the
+pointer. The `panel-cta` role is emitted unlayered and band-scoped, so `background.fill`
+simply paints; `panel_cta_variant` is retired, so there is no variant set to contradict;
+and a `':hover'` nested inside `background` is a real hover fill.
+
+**Section links are reachable on every band.** `--section-body-link-color` and its hover
+twin were consumed on `inverted` and `background_image` bands only — a dark-band correction
+rather than the general way to colour a link. The `body-link` role paints on every band.
+
+**Per-viewport values where there used to be one.** A measure, a heading rhythm or a body
+size took a single value at every layout and viewport; each is a role parameter with a
+breakpoint map now.
+
+### ⚠️ Breaking: four props are retired
+
+`theme`, `title_align`, `background_image` and `panel_cta_variant` are **refused at write**
+with `retired_prop`, and the refusal names the replacement. All 47 style slots are refused
+with `no_style_slots`.
+
+| Retired | Write this instead |
+|---|---|
+| `theme: "muted"` / `"inverted"` | `_band` `background.fill`, **plus** a `typography.color` on every text role over it |
+| `title_align: "center"` | `typography.align` on `heading` / `eyebrow` / `subheading`, with `spacing.margin-left`/`margin-right` set to `auto` |
+| `background_image: "<url>"` | `_band` `background.image` — **a Media Library attachment id, not a URL** — with `background.overlay` and `background.position` |
+| `panel_cta_variant: "primary"` / `"secondary"` | `"_preset": "button"` / `"button-secondary"` on `panel-cta`, overridden beside it |
+| `panel_cta_variant: "outline"` / `"ghost"` | **no preset — build it on the role.** See the narrowing below |
+| any `--section-*` slot | the role and parameter named in that slot's migration note |
+
+**`background_image` is a narrowing as well as a move:** it took a URL string, and
+`background.image` takes an attachment id, which is what lets the theme resolve responsive
+sources and the attachment's own alt text. Run `import_media` first and pass the
+`attachment_id` it returns.
+
+**`panel_cta_variant` is a narrowing too, and only half of it is a rename.** The prop took
+four values — `primary`, `secondary`, `outline`, `ghost` — and the system ships two button
+presets. `primary` and `secondary` map onto `button` and `button-secondary` exactly.
+**`outline` and `ghost` have no preset and must be written out on the role:**
+
+```json
+{"panel-cta": {"background": {"fill": "transparent"},
+               "border": {"width": "1px", "style": "solid", "color": "@color-accent"},
+               "typography": {"color": "@color-accent"}}}
+```
+
+(that is `outline`; `ghost` is the same without the `border`). More verbose than an enum
+value, and more capable — a `":hover"` nests inside either group, which the variant could
+not express — but it is a real loss of convenience on the two least-used values, and it is
+the author's contrast to own once the enum is not choosing the pairing.
+
+**`theme: "inverted"` did your contrast for you; a `udc` map does not.** Set a colour on
+`heading`, `subheading`, `body`, `inline-items` and `body-link` — and give `body-link` a
+`':hover'`, or a link you recolour at rest still hovers to the theme accent. The trade is
+that you can now build a band the three-value bundle could not express.
+
+### ⚠️ Breaking: section's two style recipes are gone
+
+`accent-panel` and `spacious-editorial` were section's shipped recipes — named bundles of
+slot values you could apply with `style_component --recipe=<name>`. A recipe is a bundle of
+STYLE SLOTS, and section has none, so both are deleted with the slot map.
+
+**What a caller sees.** `style_component` on a section now returns `no_style_slots` — not
+`invalid_recipe` — whatever the recipe name, because the refusal fires before the recipe is
+looked up. The message names all 19 roles and the `udc` route.
+
+**The replacement is `_preset` or an explicit role map**, and it is strictly more capable: a
+recipe was a fixed bundle on one component, while a role map is per role, per breakpoint and
+per state. A stored `style: {"__recipe": "accent-panel"}` on an existing band still
+validates — the tracking key is not a slot — so nothing already stored is stranded.
+
+### ⚠️ Breaking: per-row panel styling is retired
+
+A `panel_items` paired row could carry its own `"style"` map to emphasise one row. The
+engine addresses **roles, not individual items**, so `panel-row-value` is styled once for
+every row; a stored per-row `style` key is now an undeclared field and refused at write.
+**A single emphasised row is not expressible today.** Per-item addressing is tracked as
+**#1024**; until it lands, the way to draw the eye is the row's own content.
+
+### ⚠️ Narrowed: glyph colour is not authorable at all (#1028)
+
+`--section-separator-color`, `--section-body-marker-color` and
+`--section-panel-marker-color` were three per-band colours. Every one of those marks is
+drawn with `content` on a `::before`/`::after`, and pseudo-elements are deferred to their
+own ruling, so **no role can express them at any value.** The glyph CHOICE is unaffected:
+`body_marker` and `panel_items_marker` still work.
+
+**State it plainly: there is no replacement knob.** An earlier draft of these notes said
+the colour "comes from the site-wide `--pp-list-marker-color` design token". It does not —
+that property is internal plumbing, declared nowhere and registered as no token, so
+`update_design_token` refuses it. It is tracked as #1028 and blocked on the pseudo-element
+ruling. What you can reach today:
+
+- **The two list markers** render `var(--color-accent)` — the same value their slots
+  defaulted to, so nothing moves. `--color-accent` IS a registered design token, so
+  `update_design_token` recolours them, but it moves the whole accent site-wide. There is
+  no glyph-only and no per-band control.
+- **The separator** follows its row's ink (below). The `inline-items` role's
+  `typography.color` moves it, and moves the row's text with it.
+
+### ⚠️ Narrowed: a `centered` band's heading and subheading are 256px tighter
+
+This is the larger half of the measure change and the first draft disclosed only the
+smaller one. v1 gave `.section--centered .section__body` its own cap —
+`var(--section-body-measure, var(--measure-centered))`, **56rem / 896px** — and the
+heading and subheading inside it were themselves uncapped, so they rendered at 896px.
+Both roles default to **40rem / 640px** now. Measured at 1280 on a centred band:
+
+| | v1 | v2 |
+|---|---|---|
+| `.section__title` | 896px | **640px** |
+| `.section__subheading` | 896px | **640px** |
+| `.section__content` | 672px | 640px (the 32px below) |
+
+At the same copy the heading gains a line. **Route back:**
+`"heading": {"sizing": {"max-width": "56rem"}}`, and the same on `subheading`.
+
+**And if you stored a `--section-body-measure`, it now reaches one element instead of
+four.** That slot fed `.section__body`, the wrapper, so one value set the whole column.
+Its v2 replacement is `body` `sizing.max-width`, which is `.section__content` alone — the
+heading, subheading and trust strip keep their own 40rem default. The migration table
+says so now: set the value on `heading`, `subheading`, `body` and `inline-items` to
+reproduce what one slot used to do.
+
+### ⚠️ Narrowed: a `centered` band's body measure is 32px tighter
+
+v1 capped the body from four rules at once, and the one that WON among them (`49rem`) was
+not the one that RENDERED: `.section__content` sits inside `.section__body`, which capped
+at `40rem`, so the 49rem literal never bound. Measured at 375/768/1280, a v1 band rendered
+**640px** on `text-only` and **672px** on `centered` (the image and `text-panel` layouts
+were narrower than either cap and are unaffected).
+
+A v2 role default is per component, not per layout, so one measure serves all five.
+**`40rem` is the default**, chosen so the band you get when you specify nothing is
+byte-identical to v1 — `text-only` is the component's own default `layout`. A `centered`
+band is therefore 32px narrower than it was. **Route back:**
+`"body": {"sizing": {"max-width": "42rem"}}` on that band.
+
+Related, and the same root cause: the `inline-items` strip declares **no type default**,
+because v1's declaration fell back to `inherit` rather than to a value. Copying the body's
+literals onto it rendered 17.04px/430 where v1 rendered 16px/400. And the two paired-row
+type steps (`panel-row-label`'s size and tracking, `panel-row-value`'s weight) are
+**phone-only** maps, because v1 declared them only inside `@media (max-width: 767px)`.
+
+**The separator does move slightly, and the release says so rather than rounding it off.**
+It defaulted to `var(--color-muted)` — not the accent — and that muted default existed to
+make the mark follow its sibling text, delivered by band-class remaps (`--color-muted`
+became the light on-inverted colour on an inverted band; a background-image band routed it
+to `--color-bg`). A v2 band has no class, so reusing the literal would have painted a fixed
+grey that vanishes on the dark bands v2 makes easy. Its fallback is **`currentColor`**
+instead: the same intent in the mechanism v2 has, so the mark follows the colour you gave
+the row, on every band. **The residual:** on a default light band the middot moves
+`#5e6677` → `#101828`, because the row is a SIBLING of `.section__content` and so inherits
+`--color-text`, not the `body` role's `@color-text-secondary`. That is the SAME ink as the
+item text beside it — which is what `currentColor` means — where v1 painted the mark one
+step lighter than its row. So the mark is no longer recessive; it matches. Slightly heavier,
+still recessive. **The old grey is not recoverable on its own** — `currentColor` is the
+whole mechanism, so the only way to move the mark is to move the row's ink with it:
+`"inline-items": {"typography": {"color": "@color-muted"}}` greys the mark and the item
+text together.
+
+**Migration, if your separator was a DIFFERENT colour from your body copy.** That case
+does not reproduce, and nothing in this release reproduces it. A band that set
+`--section-separator-color` to an accent over muted text gets a muted mark now, because
+the mark follows the row. **This is the one v1 capability with no v2 equivalent**, and it
+is #1028 rather than something to work around: a mark that differs from its sibling text
+needs a role that can address a pseudo-element, which is the A3 deferral.
+
+### ⚠️ Narrowed: a wide `text-only` band centres its trust strip on the band, not on the prose
+
+v1 capped `.section__body` — the wrapper holding the header block, the prose and the strip —
+at 40rem, and the strip is `margin: 0 auto; width: fit-content`, so it centred **inside the
+prose measure**. Each of that wrapper's three children now carries its own 40rem, which
+reproduces all three WIDTHS; the strip's containing block is full width, so the strip
+centres **on the band**.
+
+On a `text-only` band at 1280 a short strip's centre moves about 230px to the right, and the
+prose above it is still 640px and left-aligned, so the strip reads as detached from its
+column. Below 768px nothing moves (the container is narrower than the cap), and the image
+and panel layouts are unaffected (their text column was always narrower than the cap).
+
+**Route back:** `"inline-items": {"spacing": {"margin-left": "0"}}` left-aligns the strip
+under the prose, which is closer to v1 than centring on the band is. Restoring v1's exact
+origin needs a role on the wrapper itself, which is #1032 — filed rather than guessed at,
+because it is a question about the role count and not about this band.
+
+### ⚠️ Narrowed: a body-less trust strip no longer flushes its own top margin
+
+The template used to infer that no body copy preceded a `body_items` row and zero its top
+margin automatically, so a strip sat optically centred in the band's own symmetric padding.
+A role default is per component, not per content shape, and inferring design intent from
+whether a prop is empty is the kind of hidden rule the contract removes. **Say it instead:**
+
+```json
+"inline-items": { "spacing": { "margin-top": "0" } }
+```
+
+Without it a body-less strip carries `@space-md` above it and sits slightly below the
+band's optical centre. The same line is in `components/section/README.md` and in
+`ai-instructions/composition.md`, next to a worked example that uses it.
+
+### Also fixed here: `--font-weight-heading` was unreachable from the engine (#988)
+
+The theme's own heading weight is `650`, which CSS Fonts 4 allows and the engine's
+`font-weight` grammar refused — so referencing `@font-weight-heading` from any v2
+component shipped a value the validator rejected. The grammar now accepts the range CSS
+actually defines: **a number from 1 to 1000, decimals included**, because variable fonts
+make `412.5` a legitimate weight on a `wght` axis. The keyword set (`normal`, `bold`,
+`lighter`, `bolder`) is unchanged. One validator owns it. This unblocked section's own
+`560`/`430` defaults and the token for hero and testimonials too.
+
+### Fixed before anyone hit it: the starter homepage, twice
+
+`pp_default_homepage_composition()` styled its three section bands with flat slot maps.
+Section has no slots, so **a fresh install's homepage would have failed validation** — a
+defect in the release artifact, not in anything an author writes. Converted to `udc` role
+maps; the seeded composition validates with zero findings.
+
+Converting it surfaced a second defect in the same seed: **the starter was painting a
+border on its panel that v1 never painted.** The v1 rule was
+`border: var(--section-panel-border-width, 0) solid var(--section-panel-border-color, transparent)`,
+and the seed set only the colour — so the width stayed at its `0` fallback and nothing drew.
+The first conversion carried a `1px solid` across, because it read the declaration instead
+of what the element rendered. The starter's panel is borderless again. The band and eyebrow
+keep theirs; v1 set both of those.
+
+### Also fixed here: a background smell that could not see a v2 background
+
+`consecutive_text_sections` warns when several text-only bands run together with nothing to
+break them up. It decided "text-only" from the retired `background_image` prop, which a
+rebuilt section cannot carry — so a v2 band with a real background image or fill still
+counted as bare, and the warning fired on pages that are not monotonous at all. It reads the
+band's `udc` background now. Nothing about the smell's threshold or message changed.
+
+### Upgrading
+
+An unstyled section renders identically: the values moved, the pixels did not — with the
+narrowings above as the exceptions, and an unstyled site notices none of them (the two list
+markers land on the value they already had; the separator follows its row; the flush-top
+margin affects only a body-less strip; the measure is v1's rendered width). If you have
+stored `--section-*` slots, a `theme`, a `title_align`, a `background_image`, a
+`panel_cta_variant` or a per-row panel `style`, those writes are refused and each refusal
+names its route. `wp pp check page` finds them.
+
+**If you script `style_component` against a section**, that call now fails with
+`no_style_slots` whichever slots or recipe it carried — including `--recipe=accent-panel`
+and `--recipe=spacious-editorial`, which no longer exist. Send the design as a `udc` role
+map on the band instead.
+
+**One thing gets quietly worse and this release says so rather than hiding it.** Setting
+`body_items_align` on a band that has no `body_items` used to be accepted WITH a warning
+that named the reason — the slot it replaced declared `applies_when`. The prop does not
+carry that, and `refuse_props_when` has no way to say "this other prop is absent", so the
+value is now stored, paints nothing, and nothing tells you. It is #1029, with the two
+candidate fixes written up. Until then: set `body_items_align` only alongside `body_items`.
+
+### Itemized changes
+
+#### Added
+- `sizing.object-position` joins the engine's taxonomy. Section's rebuild needed it, an
+  engine gap is fixed in the engine rather than worked around locally — and adding it
+  **reverses hero's #986 narrowing** of the same property. One property, one home, on
+  every v2 component.
+- `body_items_align` (`start` | `center`), replacing the `--section-inline-items-align`
+  slot with the same two values. A prop and not a role value because it selects a wrap
+  TECHNIQUE — a `justify-content` plus the separator mechanism that technique needs — and
+  the taxonomy has no layout group.
+- `refuse_props_when` on section: the image props are refused on the three layouts that
+  render no image column, and the six panel props on the four that render no panel.
+
+#### Fixed
+- `_pp_validate_font_weight()` accepts the real CSS range, 1–1000 inclusive, decimals
+  included (#988).
+- The shipped starter homepage validates again, and no longer paints a panel border v1
+  never painted.
+- `consecutive_text_sections` reads a v2 band's `udc` background, so a section with a real
+  background image or fill no longer counts as a bare text band.
+
+#### Changed
+- `section`'s stylesheet block: 40,852 → 6,969 bytes. Four families deleted rather than
+  moved — the theme variants, the background-image variant and its overlay element, the
+  band-padding rules, and the two measure caps — plus the four `main > .section` premium
+  typography rules, which were **dead code**: they live in the `pp-v1` cascade layer and a
+  role's block is emitted unlayered, so they had stopped painting the moment roles took
+  over. That is #989's stylesheet audit intersecting this component.
+- The authored-prose mechanisms (list markers and indent restored after the base reset, the
+  `p + p` rhythm, the panel list's item rhythm, the mobile inter-pair margin, the
+  inline-items separator) moved into a shared `GLYPH AND PROSE MECHANISMS` block. They are
+  shared by every component carrying rich text, and the boundary lint judges a component's
+  block as that component's stylesheet.
+- The issue-545 nested-button neutraliser no longer carves out `.section__panel-cta`: the
+  carve-out existed to protect slots that no longer exist, and the role outranks the rule
+  outright.
+
+#### Docs
+- `components/section/README.md` rebuilt: 19 props, 19 roles, a worked dark-band example,
+  the contrast rule, and every narrowing stated with its route.
+- Every AI-facing surface swept for `--section-*`: the runtime prompt, `composition.md`,
+  `style-component.md`, `retheme.md`, `AI_CONTEXT.md`, `README.md` and two `docs/`
+  references. The slot total is restated 185 → 138 across 7 components.
+- Three corrections that were stale since #986, found by the sweep: hero's README claimed
+  the font-weight grammar could not accept the theme's heading weight, listed
+  `object-position` as structural CSS it keeps, and recorded the media focal point as a
+  narrowing — all three now false. Two `length-or-none` rosters and the `role: "fill"`
+  declarer roster still named hero's retired slots.
+- `ai-instructions/style-component.md` named two recipes, `dark-spacious` and
+  `accent-panel`, as examples. Only the first was pre-existing fiction — hero's, stranded
+  by #986. `accent-panel` was section's REAL recipe and **this release deletes it** (see
+  the breaking note above); the doc now names cta's, which still ship. Its `--overlay-bg`
+  example also named four components that list the
+  token; hero and section retired theirs, so it is two.
+- Counts that this rebuild falsified, re-measured rather than carried forward: the
+  "76 retired slot names" in `lib/wp.php`, `lib/admin.php` and
+  `docs/explanation-validation-scope.md` is **123** (hero 49, section 47, testimonials 27 —
+  nav and footer never had slots to retire), and the `no_style_slots` refusal fires on
+  **five** components, not four. The apply-CLI schema table gains section's four retired
+  props and two refuse rules.
+- The shared marker-colour note claimed all three retired glyph slots keep the value they
+  had. Two do; the separator does not, and the note now says which is which instead of
+  averaging them. Dead references to `.section--has-bg-image` — deleted with the slot map —
+  corrected in cta's scrim comment and in the focus-ring carve-out.
+
+#### Tests
+- The issue-305 subject parser was upgraded rather than worked around. It split selector
+  lists on every comma, so `:is(ul, ol)` mis-attributed every subject in the rule, and a
+  guard failed fast with "must be upgraded first". Splitting at paren depth zero is also a
+  correctness fix: `.p :is(.a, .b)` now yields the two subjects it really has, where the
+  old parser yielded none — and the bypass guard can only police a subject it can name.
+- The all-declared-props sweep is partitioned by refusal gate. "Every prop in one band" is
+  not an authorable state for a component whose prop groups are mutually exclusive by
+  design, so the sweep runs one composition per gate value and then asserts the partition
+  is exhaustive. Same claim, on a surface where one band cannot hold it.
+- 47 slot migration notes and 4 prop notes, each naming the role and parameter that owns
+  the value today.
+- All 19 role selectors verified against rendered markup — which needs two fixtures,
+  because `media` only renders on an image layout and the `panel*` family only on
+  `text-panel`.
+- Retirements are named replacements, not deletions: the prose-only condition census was
+  WIDENED when its disjunction example left (it now pins five live classes including two
+  that were never pinned anywhere), the `in`-operator claim split into a renderer pin plus
+  a proof that the operator still has a live declaring surface, and the `pp-section--*`
+  prefix trap became a derived guard that catches the hazard on every component instead of
+  by name on one.
 
 ---
 

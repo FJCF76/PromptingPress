@@ -119,21 +119,23 @@ test.describe('Post-Apply Validation', () => {
   test('broken media: missing image triggers validation error', async ({
     page,
   }) => {
-    // 1. Create a page with a band whose background image URL is unresolvable.
-    //    `section`, not a cover hero (#986): a v2 hero no longer paints `image_url` as a
-    //    band background, and `style_component` refuses a v2 component outright — so the
-    //    old fixture could no longer reach either half of what this test measures.
-    //    section keeps `background_image` and its style slots, so the broken-media signal
-    //    and the styling write are both still exercised.
+    // 1. Create a page with a band whose image URL is unresolvable.
+    //    `stats`, not section (#1023) and not a cover hero (#986). This fixture needs BOTH
+    //    halves from ONE band: an unresolvable image so `missing_local_media` fires, and a
+    //    `style_component` write that succeeds. `style_component` refuses a v2 component
+    //    outright, so each rebuild sprint evicts this fixture from its host — hero in
+    //    #986, section here. stats is chosen rather than the next-largest slot map because
+    //    it is furthest down the usage-ordered rebuild queue, so this should be the last
+    //    move. (The broken-media signal itself is component-agnostic; it reads image URLs
+    //    wherever a schema declares them.)
     pageId = createPage('E2E Validation Broken Media');
     setComposition(pageId, [
       {
-        component: 'section',
+        component: 'stats',
         props: {
           title: 'Band With Bad Image',
-          body: '<p>Body.</p>',
-          layout: 'image-left',
-          image_url: 'http://localhost:8889/wp-content/uploads/2026/06/nonexistent-image.jpg',
+          items: [{ number: '42', label: 'Metric' }],
+          background_image: 'http://localhost:8889/wp-content/uploads/2026/06/nonexistent-image.jpg',
         },
       },
     ]);
@@ -160,7 +162,7 @@ test.describe('Post-Apply Validation', () => {
       data.append('name', 'style_component');
       data.append('params[post_id]', String(pid));
       data.append('params[component_index]', '0');
-      data.append('params[style]', JSON.stringify({ '--section-padding-top': '4rem' }));
+      data.append('params[style]', JSON.stringify({ '--stats-padding-top': '4rem' }));
       if (baseline && baseline.success && baseline.data) {
         data.append('params[expected_version]', String(baseline.data.version));
       }

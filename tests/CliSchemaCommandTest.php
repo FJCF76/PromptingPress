@@ -676,7 +676,11 @@ class CliSchemaCommandTest extends TestCase
             }
         }
 
-        $this->assertGreaterThan(150, $seen, 'discovery is not vacuous');
+        // 150 -> 130 at #1023: section's 47 slots left the registry, so the shipped total
+        // dropped below the old floor. The floor stays a FLOOR rather than an exact count
+        // so a component adding a slot does not fail this, while a walk that stops
+        // discovering them still does.
+        $this->assertGreaterThan(130, $seen, 'discovery is not vacuous');
     }
 
     public function testEveryRecipeEntryIsTheDeclaredDefinitionVerbatim(): void
@@ -698,7 +702,9 @@ class CliSchemaCommandTest extends TestCase
             }
         }
 
-        $this->assertGreaterThan(5, $seen, 'discovery is not vacuous');
+        // 5 -> 4 at #1023: section's two recipes went with its slot map, leaving grid's
+        // three and cta's two.
+        $this->assertGreaterThan(4, $seen, 'discovery is not vacuous');
     }
 
     public function testAnUnregisteredDeclarationKeyStillReachesTheReport(): void

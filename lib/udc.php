@@ -643,6 +643,36 @@ function pp_udc_groups(): array {
             // refused on both sides of the slash, because a zero denominator paints an
             // inert declaration the browser silently drops (the I19 class).
             'aspect-ratio' => ['property' => 'aspect-ratio', 'type' => 'ratio', 'signed' => false, 'max_values' => 1, 'keywords' => []],
+            // OBJECT-POSITION (#1023). The same shape as `aspect-ratio` above, found by
+            // section's rebuild for the same reason: `--section-image-position` set
+            // `object-position` on the v1 `.section__image` rule, no group
+            // emitted that property, and the structural-CSS lint is fail-closed on
+            // unlisted properties — so the moment section declares roles, the value could
+            // be neither authored here nor kept in the stylesheet. That is the capability
+            // DELETION the #901 class names, so the param joins the group exactly as
+            // `aspect-ratio` did rather than the capability being dropped.
+            //
+            // NO NEW GRAMMAR, which is what makes this a repricing rather than a widening.
+            // `position` is the v1 slot type already owned by _pp_validate_position()
+            // (`_pp_validate_position()`) and already dispatched by _pp_validate_token_value()'s
+            // `case 'position'` in that dispatcher — it is the same type
+            // `background.position` has carried since Sprint 0. Only the property string
+            // differs, and that is looked up from this table, never from author input.
+            //
+            // It sits in `sizing` rather than `background` deliberately: this property
+            // positions a REPLACED ELEMENT's own content inside its box (an <img>), where
+            // `background-position` places a painted layer behind any element. A role that
+            // permits one does not thereby want the other, and the two are emitted on
+            // different boxes.
+            // `signed` is INERT on a non-length type and is `false` here only to match
+            // `aspect-ratio`'s precedent above. `type: position` dispatches to
+            // `_pp_validate_position()`, which sets `signed => true` for its own token
+            // grammar, so NEGATIVE offsets ARE accepted (`-10px 50%`, `-5% -5%`) — which is
+            // correct: they are valid CSS, they pull the crop, and the v1
+            // `--section-image-position` slot accepted them too. Verified by probe rather
+            // than read off the flag. Do not infer a constraint from this key on a
+            // non-length param; the type's validator owns the grammar.
+            'object-position' => ['property' => 'object-position', 'type' => 'position', 'signed' => false, 'max_values' => 1, 'keywords' => []],
         ]],
         // MOTION (Addendum A, ruling A3). Exactly two params, by the ruling.
         //

@@ -248,12 +248,15 @@ class ContainerPropWriteEnforcementTest extends TestCase
         sort($checked);
         $this->assertSame(
             [
+                // `section.panel_items[].style` left this set at #1023: per-item style
+                // maps went with section's slot system, and v2 has no address for one
+                // (roles are band-grain). The contract question is BUILD-SPEC Addendum B,
+                // gated on #1024 — when it is ruled this entry comes back at item grain.
                 'grid.items[].bullets',
                 'grid.items[].style',
-                'section.panel_items[].style',
             ],
             $checked,
-            'the shipped schemas declare exactly three nested container fields; update this pin deliberately'
+            'the shipped schemas declare exactly two nested container fields; update this pin deliberately'
         );
     }
 
@@ -394,9 +397,14 @@ class ContainerPropWriteEnforcementTest extends TestCase
             'title'       => 'Accepted at creation',
             'composition' => [
                 ['component' => 'grid', 'props' => $decoded],
+                // The section band keeps its place — a well-formed container write must
+                // still be accepted on a v2 component — but the per-item `style` map went
+                // at #1023, and `layout` is explicit because the panel props are now
+                // refused as `inert_prop` on a layout that renders no panel.
                 ['component' => 'section', 'props' => [
                     'body'        => 'Body copy',
-                    'panel_items' => [['label' => 'Uptime', 'value' => '99%', 'style' => ['--section-panel-text' => '#222222']]],
+                    'layout'      => 'text-panel',
+                    'panel_items' => [['label' => 'Uptime', 'value' => '99%']],
                 ]],
             ],
         ]);
@@ -405,7 +413,8 @@ class ContainerPropWriteEnforcementTest extends TestCase
         $stored = pp_get_composition($result['target']['post_id']);
         $this->assertSame(['Fast', 'Honest'], $stored[0]['props']['items'][0]['bullets']);
         $this->assertSame(['--grid-item-bg' => '#111111'], $stored[0]['props']['items'][0]['style']);
-        $this->assertSame(['--section-panel-text' => '#222222'], $stored[1]['props']['panel_items'][0]['style']);
+        $this->assertSame([['label' => 'Uptime', 'value' => '99%']], $stored[1]['props']['panel_items'],
+            'the section container round-trips, without a per-item style map to carry');
     }
 
     /**
@@ -648,8 +657,9 @@ class ContainerPropWriteEnforcementTest extends TestCase
         // purpose — reading the accept above alone would suggest a list quietly
         // persists. Since #883 the refusal carries the SHAPE rule's code and message.
         foreach ([
+            // section's row is gone with its per-item style map (#1023); grid's is the
+            // remaining shipped instance of the shape rule.
             ['grid',    ['items' => [['title' => 'Card', 'style' => ['#fff']]]]],
-            ['section', ['body' => 'B', 'panel_items' => [['label' => 'L', 'style' => ['#fff']]]]],
         ] as [$component, $props]) {
             $rejected = pp_validate_composition([['component' => $component, 'props' => $props]]);
             $this->assertInstanceOf(WP_Error::class, $rejected, "a list-shaped {$component} style must not persist");
@@ -1019,7 +1029,11 @@ class ContainerPropWriteEnforcementTest extends TestCase
             'grid'         => ['items' => [['title' => 'Card', 'text' => 'Text']]],
             'hero'         => ['title' => 'Real title'],
             'logos'        => ['items' => [['image_url' => '/a.png', 'image_alt' => 'Acme']]],
-            'section'      => ['body' => 'Body copy'],
+            // `layout: text-panel` since #1023, so the panel props are not INERT. Section
+            // refuses `panel_*` as `inert_prop` on a layout that renders no panel, and
+            // that refusal lands BEFORE the type rule — so a well-formed base without the
+            // layout would make this sweep assert the wrong refusal for `panel_items`.
+            'section'      => ['body' => 'Body copy', 'layout' => 'text-panel', 'panel_heading' => 'Panel'],
             'stats'        => ['items' => [['number' => '99%', 'label' => 'Uptime']]],
             'table'        => ['headers' => ['A'], 'rows' => [['1']]],
             'testimonials' => ['items' => [['quote' => 'Great']]],

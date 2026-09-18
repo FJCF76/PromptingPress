@@ -1018,19 +1018,55 @@ final class UdcEngineTest extends TestCase
 
     // ── The component's own boundary ────────────────────────────────────────
 
+    /**
+     * THE UNBLOCKING HALF OF #988, pinned where it actually bit (fixed inside #1023).
+     *
+     * `_pp_udc_reference_check()` judges a reference by the type the registry DECLARES
+     * (#972) and then validates the RESOLVED value through the shared grammar. While
+     * font-weight accepted only the 100..900 ladder, `@font-weight-heading` was therefore
+     * refused with a message quoting its own value — so no v2 component could reference
+     * the theme's own heading weight. The filed issue recorded the literal-value half;
+     * this is the half that made it a blocker, and it is asserted across EVERY v2
+     * component rather than on section alone, because the defect never belonged to one.
+     */
+    public function testTheThemesOwnHeadingWeightIsReferenceableFromEveryV2Component(): void
+    {
+        $this->assertSame(
+            '650',
+            pp_design_tokens()['--font-weight-heading']['value'],
+            'fixture premise: the shipped token sits off the old 100..900 ladder'
+        );
+
+        $roles = ['hero' => 'title', 'section' => 'heading', 'testimonials' => 'heading'];
+        foreach ($roles as $component => $role) {
+            $this->assertNull(
+                pp_udc_validate_map([$role => ['typography' => ['weight' => '@font-weight-heading']]], $component),
+                "{$component}.{$role} must be able to reference the theme's own heading weight"
+            );
+        }
+
+        // Non-vacuous: the roles named above must really be the heading roles, or this
+        // would pass against three typos.
+        foreach ($roles as $component => $role) {
+            $this->assertArrayHasKey($role, pp_udc_component_roles($component));
+        }
+    }
+
     public function testALegacyComponentAcceptsNoUdcMapAtAll(): void
     {
-        // `section`, not hero: hero joined the UDC in #986, so asking it this question
-        // now tests the opposite of what the name promises (I40). section is the largest
-        // component still on the v1 slot system.
-        $error = pp_udc_validate_map(['quote' => ['typography' => ['size' => '1rem']]], 'section');
+        // THE HOST HAS MOVED TWICE, and the comment is kept because the trap is real: ask
+        // this question of a component that has since joined the UDC and the test asserts
+        // the opposite of what its name promises (I40). It was hero until #986, section
+        // until #1023, and is `grid` now — the largest component still on the v1 slot
+        // system, and the next one due to move, so expect to re-point this again.
+        $error = pp_udc_validate_map(['quote' => ['typography' => ['size' => '1rem']]], 'grid');
         $this->assertInstanceOf(WP_Error::class, $error);
         $this->assertSame('unknown_udc_role', $error->get_error_code());
         $this->assertStringContainsString('not on the UDC styling system', $error->get_error_message());
 
         // …and a legacy component emits no band block, whatever it stores.
         $this->assertSame('', pp_udc_band_css([
-            'component' => 'section',
+            'component' => 'grid',
             'id'        => 'pp-aabbccdd',
             'udc'       => ['quote' => ['typography' => ['size' => '1rem']]],
         ]));
@@ -1220,8 +1256,8 @@ final class UdcEngineTest extends TestCase
 
         // A legacy component says NOTHING, so an absent key is never mistaken for
         // "declared empty".
-        $this->assertArrayNotHasKey('roles', pp_component_schema_report('section'));
-        $this->assertArrayNotHasKey('udc_groups', pp_component_schema_report('section'));
+        $this->assertArrayNotHasKey('roles', pp_component_schema_report('grid'));
+        $this->assertArrayNotHasKey('udc_groups', pp_component_schema_report('grid'));
     }
 
     // ── The schema side of the contract ─────────────────────────────────────
@@ -1436,6 +1472,39 @@ final class UdcEngineTest extends TestCase
     public function testEveryRoleSelectorMatchesAnElementTheComponentActuallyRenders(): void
     {
         $fixtures = [
+            // SECTION NEEDS TWO FIXTURES (#1023), for the reason hero needs three: some
+            // of its roles cannot coexist in one render. `media` only appears on an image
+            // layout, and the whole `panel*` family only on `text-panel` — so one fixture
+            // covers the text/media roles and the other the panel ones, and the sweep
+            // checks the union.
+            'section' => [
+                [
+                    'title'            => 'Section heading',
+                    'title_accent'     => 'heading',
+                    'eyebrow'          => 'KICKER',
+                    'subheading'       => 'A supporting line',
+                    'body'             => '<p>Body copy with a <a href="/x">link</a> and a list.</p><ul><li>One</li></ul>',
+                    'body_items'       => ['First', 'Second'],
+                    'body_items_align' => 'center',
+                    'layout'           => 'image-left',
+                    'image_url'        => '/wp-content/uploads/photo.png',
+                    'image_alt'        => 'A photo',
+                ],
+                [
+                    'title'              => 'Panel band',
+                    'body'               => '<p>Left column copy.</p>',
+                    'layout'             => 'text-panel',
+                    'panel_heading'      => 'What lives where',
+                    'panel_body'         => 'A supporting line inside the panel.',
+                    'panel_items'        => [
+                        'A plain bullet',
+                        ['label' => 'Templates', 'value' => 'Theme files'],
+                    ],
+                    'panel_items_marker' => 'check',
+                    'panel_cta_text'     => 'Book a call',
+                    'panel_cta_url'      => '/contact',
+                ],
+            ],
             'testimonials' => [
                 'title'        => 'What they say',
                 'title_accent' => 'they',
@@ -1632,8 +1701,9 @@ final class UdcEngineTest extends TestCase
         $this->assertSame('pp-33333333', $out[0]['id']);
         $this->assertNotSame('pp-33333333', $out[1]['id'], 'a claimed id must not be carried onto a second band');
 
-        // 5. A legacy component is never minted one at all.
-        $out = pp_udc_assign_band_ids([$band('section')]);
+        // 5. A legacy component is never minted one at all. (`grid` since #1023 — section
+        // joined the engine, so asking it this would assert the opposite of the clause.)
+        $out = pp_udc_assign_band_ids([$band('grid')]);
         $this->assertArrayNotHasKey('id', $out[0]);
 
         // 6. THE POST-CONDITION, which is what all of the above is for.
@@ -1752,14 +1822,17 @@ final class UdcEngineTest extends TestCase
                 $legacy[] = $name;
             }
         }
-        // Nine now, not eleven: testimonials was rebuilt in Sprint 0, and nav and
-        // footer joined the engine as the CHROME container in Sprint 1 (ruling A1).
-        // The number is asserted rather than loosened so that a component quietly
-        // falling OFF the engine still trips this.
-        $this->assertCount(8, $legacy, 'eight components stay on the legacy system');
+        // SEVEN now: testimonials was rebuilt in Sprint 0, nav and footer joined as the
+        // CHROME container in Sprint 1 (ruling A1), hero in Sprint 1 (#986) and section
+        // in Sprint 2 (#1023). The number is asserted rather than loosened so that a
+        // component quietly falling OFF the engine still trips this — and so that each
+        // rebuild has to come here and say which one moved.
+        $this->assertCount(7, $legacy, 'seven components stay on the legacy system');
         $this->assertNotContains('testimonials', $legacy);
         $this->assertNotContains('nav', $legacy);
         $this->assertNotContains('footer', $legacy);
+        $this->assertNotContains('hero', $legacy);
+        $this->assertNotContains('section', $legacy);
 
         foreach ($legacy as $name) {
             $this->assertSame([], pp_udc_component_roles($name));
@@ -2150,5 +2223,109 @@ final class UdcEngineTest extends TestCase
         $this->assertStringNotContainsString('background-size', $css);
         $this->assertStringNotContainsString('background-repeat', $css);
         $this->assertStringNotContainsString('background-position', $css);
+    }
+
+    // ── sizing.object-position, the param section's rebuild added (#1023) ─────
+
+    /**
+     * THE PRECEDENT IS aspect-ratio, AND IT IS THE REASON THESE THREE EXIST.
+     *
+     * `sizing.aspect-ratio` was added by hero's rebuild for the same reason
+     * `sizing.object-position` is added by section's: the engine grows rather than
+     * the component keeping a local hack. That one arrived with a hostile-write
+     * sweep, a stored-hostile proof and a shared-grammar agreement pin. This one
+     * arrived with a single happy-path assertion, and a security review found the
+     * asymmetry — the boundary held under every payload it fired, but nothing in
+     * CI held it there. These are those three tests with the param swapped, so the
+     * newest param is pinned the way the last new param was.
+     *
+     * The write gate. Every value here must be refused BEFORE storage.
+     */
+    public function testAMalformedOrHostileObjectPositionIsRefusedAtWrite(): void
+    {
+        $cases = [
+            // shape failures the position grammar owns
+            '', '  ', 'centre', 'top left bottom', '50', 'top 50px left 20px extra',
+            // the injection classes, one representative each
+            '}', '{', 'center} body{display:none} .x{color:red', 'center;color:red',
+            'center</style><script>alert(1)</script>', 'center/*x*/', 'center*/',
+            'url(javascript:alert(1))', 'expression(alert(1))', '@import url(//evil)',
+            'var(--x)', 'var(--x, }body{color:red)', 'calc(50% + 10px) calc(1px',
+            "center\n;color:red", "center\r\ncolor:red", "center\tcolor:red",
+            'center"', 'center)', 'center\\', '--x: red',
+        ];
+
+        foreach ($cases as $value) {
+            $error = pp_udc_validate_map(
+                ['media' => ['sizing' => ['object-position' => $value]]],
+                'section'
+            );
+            $this->assertInstanceOf(
+                WP_Error::class,
+                $error,
+                sprintf('object-position %s must be refused at write', json_encode($value))
+            );
+        }
+    }
+
+    /**
+     * The emitter re-rejects a stored position the write gate would have refused,
+     * so data that reached storage another way (a raw meta write, or a restore,
+     * which by rule never blocks per #233) drops its OWN declaration and leaves
+     * its siblings painting. The proof is the siblings: an emitter that bailed on
+     * the whole role would also pass a "does not contain object-position" check.
+     */
+    public function testAStoredHostileObjectPositionDropsOnlyItsOwnDeclaration(): void
+    {
+        $band = [
+            'component' => 'section',
+            'id'        => 'pp-3f9a1c2e',
+            'props'     => ['body' => '<p>Body.</p>', 'image_url' => '/x.png', 'layout' => 'image-left'],
+            'udc'       => [
+                'media' => [
+                    'sizing' => [
+                        'object-position' => 'center}body{display:none} .z{color:red',
+                        'aspect-ratio'    => '16/9',
+                        'max-width'       => '40rem',
+                    ],
+                ],
+            ],
+        ];
+
+        $css = pp_udc_band_css(pp_udc_normalize_band($band));
+
+        $this->assertStringNotContainsString('object-position', $css);
+        $this->assertStringNotContainsString('display:none', $css);
+        $this->assertStringNotContainsString('body{', $css);
+        $this->assertStringContainsString('aspect-ratio:16/9;', $css, 'the sibling declaration must survive');
+        $this->assertStringContainsString('max-width:40rem;', $css, 'the sibling declaration must survive');
+    }
+
+    /**
+     * ONE OWNER. The position grammar is _pp_validate_position() in lib/apply.php,
+     * reached through _pp_validate_token_value()'s `case 'position'` — the same
+     * route a v1 `position`-typed style slot takes, and the same one `_band`'s
+     * `background.position` takes. If this param ever grew its own validator the
+     * surfaces could drift, which is the forked-grammar the architecture forbids;
+     * so the pin is that both routes agree, value for value, in both directions.
+     */
+    public function testTheObjectPositionParamUsesTheSharedPositionGrammarAndNotASecondOne(): void
+    {
+        $param = pp_udc_groups()['sizing']['params']['object-position'];
+        $this->assertSame('position', $param['type']);
+        $this->assertSame('object-position', $param['property']);
+
+        $values = [
+            'center', 'top', 'bottom right', '50% 50%', '-10px 50%', 'left 10px top 20px',
+            '', 'centre', '}', 'url(x)', 'var(--p)', 'calc(1px)', '@import url(//e)', '50',
+        ];
+
+        foreach ($values as $value) {
+            $this->assertSame(
+                _pp_validate_token_value($value, 'position') === true,
+                pp_udc_validate_value($value, $param) === true,
+                sprintf('the udc param and the shared position grammar must agree on %s', json_encode($value))
+            );
+        }
     }
 }

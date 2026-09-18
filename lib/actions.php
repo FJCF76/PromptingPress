@@ -6682,7 +6682,7 @@ pp_register_action('style_component', [
 
         if (empty($available_slots)) {
             // NAMES THE ROUTE, NOT JUST THE ABSENCE (#1007). The bare sentence was true
-            // and useless: the four components this fires on are the ones that moved to
+            // and useless: the five components this fires on are the ones that moved to
             // the `udc` map, so "no style slots" is the START of the answer, not the end.
             // Derived from the same predicate the engine uses, so it cannot drift.
             return new WP_Error('no_style_slots', sprintf(

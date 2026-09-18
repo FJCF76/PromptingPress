@@ -280,7 +280,8 @@ more than that: it also requires a JSON LIST, so a keyed object is rejected too,
 depths and through a second shared predicate (`grid.items[].bullets` is the shipped
 nested case). Since #883 an `object` declaration buys the mirror of it: a populated JSON
 LIST is rejected too, through a third shared predicate, at both depths (`grid.items[]
-.style` and `section.panel_items[].style` are the shipped nested cases). PHP decodes
+.style` is the shipped nested case; `section.panel_items[].style` was the other until
+#1023 retired it). PHP decodes
 both JSON containers to an array, so neither shape rule is free — each is a real
 predicate on top of the container check, and each has its own message. (Before #744 a
 nested container declaration bought nothing at all — `item_type` checks a nested array's
@@ -304,7 +305,7 @@ declare, nothing to populate, nothing to resolve.
 
 | Surface | Resolves at | Consequence |
 |---|---|---|
-| prop **key** names | nowhere | there is no prop-key alias surface (#604). A retired prop name is rejected at write and unread at render — one answer on both paths, at both depths: top-level props (#147) and nested `items[]` fields (#643). The CODE depends on whether the component declares the name in its `retired_props` block: the six v2-rebuild keys (hero's `button_variant`, `button2_variant`, `spacing`, `width`; testimonials' `theme`, `title_align`) return `retired_prop` with a message naming the `udc` surface that replaced them and the `null` clear; every other undeclared key returns `unknown_prop`. |
+| prop **key** names | nowhere | there is no prop-key alias surface (#604). A retired prop name is rejected at write and unread at render — one answer on both paths, at both depths: top-level props (#147) and nested `items[]` fields (#643). The CODE depends on whether the component declares the name in its `retired_props` block: the ten v2-rebuild keys (hero's `button_variant`, `button2_variant`, `spacing`, `width`; section's `theme`, `title_align`, `background_image`, `panel_cta_variant`; testimonials' `theme`, `title_align`) return `retired_prop` with a message naming the `udc` surface that replaced them and the `null` clear; every other undeclared key returns `unknown_prop`. |
 | style **slot** names | nowhere | there is no slot alias surface (#603). An undeclared slot name is rejected at write with `invalid_style_slot` and dropped at render. |
 | prop **values** | nowhere | there is no value-alias surface (#605 took the last entry, #606 took the field). An unadvertised value is rejected at write with `invalid_prop_value`, at both depths — top-level props (#579) and nested `items[]` enum fields (#600). |
 | the `variant` prop | nowhere | retired in #69. Rejected on every write path (#388) and, since #604, not decoded on any read path either. |

@@ -90,7 +90,12 @@ class ChatBatchCorruptRepairCarveOutTest extends TestCase
     /** The valid one-band composition a repair sends. */
     private function repairComposition(): array
     {
-        return [['component' => 'section', 'props' => ['id' => 'repaired', 'title' => 'Recovered', 'body' => 'Body text']]];
+        // Carries its own top-level band id: section is a v2 component since #1023, so the
+        // writer mints `pp-<hex8>` onto any v2 band arriving without one, and a minted id
+        // would show up in every repaired-composition comparison for a reason unrelated to
+        // corrupt-state repair. An authored valid id is honoured and never overwritten
+        // (§3.1), so the fixture stays byte-exact.
+        return [['component' => 'section', 'id' => 'pp-9a8b7c6d', 'props' => ['id' => 'repaired', 'title' => 'Recovered', 'body' => 'Body text']]];
     }
 
     /**

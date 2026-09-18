@@ -13,7 +13,7 @@
 [![JavaScript](https://img.shields.io/badge/JavaScript-Vanilla-F7DF1E?style=flat-square&logo=javascript&logoColor=black)](https://developer.mozilla.org/en-US/docs/Web/JavaScript)
 [![Vitest](https://img.shields.io/badge/Vitest-Tests-6E9F18?style=flat-square&logo=vitest&logoColor=white)](https://vitest.dev)
 [![Tests](https://img.shields.io/badge/Tests-passing-22C55E?style=flat-square)](tests/)
-[![Version](https://img.shields.io/badge/version-2.0.0-alpha.1-6366F1?style=flat-square)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-2.0.0-alpha.2-6366F1?style=flat-square)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/License-GPL--2.0-blue?style=flat-square)](LICENSE)
 
 </div>
@@ -245,9 +245,9 @@ No build step. No transpilation. No bundler. What you write is what ships.
 
 A single layer of CSS custom properties controls the entire visual system: colors, typography (including mono/meta/label/kicker roles), spacing, borders, shadows, measures. Product defaults live in `assets/css/base.css`. Site-specific overrides are stored in the database and **survive theme updates** — no file to lose when the theme ZIP gets replaced.
 
-185 per-instance style slots let AI make this page's band dark and spacious while that page's is tight, accent-bordered, and lifted with a drop shadow — all through composition data, no CSS edits. 7 named recipes expand to multiple slot values at once. `hero` and `testimonials` have moved past slots entirely: they are on the v2 Universal Design Contract, where named roles carry every designable value, per breakpoint and per state.
+138 per-instance style slots let AI make this page's band dark and spacious while that page's is tight, accent-bordered, and lifted with a drop shadow — all through composition data, no CSS edits. 5 named recipes expand to multiple slot values at once. `hero`, `section` and `testimonials` have moved past slots entirely: they are on the v2 Universal Design Contract, where named roles carry every designable value, per breakpoint and per state.
 
-Those two are on the **Universal Design Contract** (v2) — `testimonials` first, `hero` second. Instead of a fixed list of slots someone had to think of in advance, a v2 component declares ROLES — testimonials' quote, card and attribution; hero's title, subtitle, media, surface and its two CTAs — and every role accepts the full design vocabulary (typography, spacing, border, shadow, background, sizing, motion), per breakpoint and in three states (`:hover`, `:focus-visible`, `:active`). Shared looks are named `presets` a band applies by name. That is how a brand's serif-italic pull-quote in a white 1px-bordered card became expressible at all.
+Those three are on the **Universal Design Contract** (v2) — `testimonials` first, `hero` second, `section` third. Instead of a fixed list of slots someone had to think of in advance, a v2 component declares ROLES — testimonials' quote, card and attribution; hero's title, subtitle, media, surface and its two CTAs; section's nineteen, from the band itself down to a panel row's label and value — and every role accepts the full design vocabulary (typography, spacing, border, shadow, background, sizing, motion), per breakpoint and in three states (`:hover`, `:focus-visible`, `:active`). Shared looks are named `presets` a band applies by name. That is how a brand's serif-italic pull-quote in a white 1px-bordered card became expressible at all.
 
 ```bash
 # Preview a token change without applying
@@ -280,7 +280,7 @@ wp pp action execute add_component \
   --params='{"post_id":74,"component":"section","props":{"body":"<p>New.</p>"}}'
 ```
 
-20 typed actions cover page lifecycle, composition edits, component operations, styling, navigation menus, SEO metadata, and site options. The apply layer handles design token and file mutations with automatic backup (keeps last 5), post-write contract verification, and auto-restore on failure.
+26 typed actions cover page lifecycle, composition edits, component operations, styling, navigation menus, SEO metadata, and site options. The apply layer handles design token and file mutations with automatic backup (keeps last 5), post-write contract verification, and auto-restore on failure.
 
 **Why this matters:** AI agents can't accidentally produce invalid state. The system validates inputs, shows a preview diff, and rolls back on failure — all through the same interface regardless of how the edit was initiated.
 
@@ -351,6 +351,8 @@ the HANDOFF report.
 → Why a DB write can't land before the safety gate (the design): [docs/operating-loop-safety.md](docs/operating-loop-safety.md)
 → Every `wp pp apply` command, flag, and error (reference): [docs/reference-apply-cli.md](docs/reference-apply-cli.md)
 → Apply a token change and roll it back, step by step (how-to): [docs/howto-apply-and-rollback.md](docs/howto-apply-and-rollback.md)
+→ Style a band on the design contract, start to finish (tutorial): [docs/tutorial-style-a-band-on-the-design-contract.md](docs/tutorial-style-a-band-on-the-design-contract.md)
+→ Migrate a page off the retired `--section-*` slots (how-to): [docs/howto-migrate-a-section-band-to-v2.md](docs/howto-migrate-a-section-band-to-v2.md)
 → Why a value you wrote beats the theme's own stylesheet (the design): [docs/explanation-cascade-layers.md](docs/explanation-cascade-layers.md)
 → What a write is allowed to refuse on behalf of, and why an edit to one band no longer blocks on another (the design): [docs/explanation-validation-scope.md](docs/explanation-validation-scope.md)
 
@@ -428,7 +430,7 @@ Enforced by `AI_RULES.md` and verified by automated tests:
 
 ## ✅ Tests
 
-**PHP unit tests** — component loader, WP abstraction, schema validation, 20 typed actions, apply layer, batch atomicity/rollback, token family derivation, AI context, proposal parsing, capability model, style slots, cross-component hints, surface classification, font management, media import, SEO metadata, navigation menus, integrity, upgrade-safety guardrails, operating loop, server-driven destructive-action warnings:
+**PHP unit tests** — component loader, WP abstraction, schema validation, 26 typed actions, apply layer, batch atomicity/rollback, token family derivation, AI context, proposal parsing, capability model, style slots, cross-component hints, surface classification, font management, media import, SEO metadata, navigation menus, integrity, upgrade-safety guardrails, operating loop, server-driven destructive-action warnings:
 
 ```bash
 composer install && composer test
@@ -456,6 +458,8 @@ npm run env:stop
 
 | For | Start here |
 |---|---|
+| **Styling a band for the first time** | [`docs/tutorial-style-a-band-on-the-design-contract.md`](docs/tutorial-style-a-band-on-the-design-contract.md) — zero to a published, authored band in five steps |
+| **Moving a page off the v1 style slots** | [`docs/howto-migrate-a-section-band-to-v2.md`](docs/howto-migrate-a-section-band-to-v2.md) — every retired name and the route that replaced it |
 | **AI agents operating a site** | [`AI_CONTEXT.md`](AI_CONTEXT.md) — the complete operating contract — and [`AI_RULES.md`](AI_RULES.md) |
 | **CLI reference** | [`docs/reference-apply-cli.md`](docs/reference-apply-cli.md) — every command, envelope, and refusal |
 | **Step-by-step guides** | [`docs/howto-apply-and-rollback.md`](docs/howto-apply-and-rollback.md) and the [`ai-instructions/`](ai-instructions/) playbooks (create a page, revise a section, style a component, validate a site) |
@@ -474,7 +478,7 @@ of this file carries the current version; this section is deliberately version-f
 does not go stale between releases.
 
 **What exists today:**
-- 12 components with schema contracts and 185 per-instance style slots, plus named recipes — and `hero` + `testimonials` on the v2 Universal Design Contract, where roles replace slots
+- 12 components with schema contracts and 138 per-instance style slots, plus named recipes — and `hero`, `section` + `testimonials` on the v2 Universal Design Contract, where roles replace slots
 - A contract-test suite that enforces the style-slot contract: every declared slot must be consumed by the CSS, and literal re-declarations that would defeat a slot fail the build — including cross-stylesheet clobbers, where an automatic-match rule in `base.css`/`utilities.css` outranks a component slot (issue [#342](https://github.com/FJCF76/PromptingPress/issues/342)). Known exceptions live in shrink-only ledgers (issues [#309](https://github.com/FJCF76/PromptingPress/issues/309), [#342](https://github.com/FJCF76/PromptingPress/issues/342)); the static guards account for every clobber candidate, and the rendered computed-style checks own the true cascade proof
 - Typed action/apply layer with validation, preview, and rollback
 - Bounded presentation controls — button variants, typography roles, shadow/border/radius slots

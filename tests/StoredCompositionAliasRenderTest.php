@@ -328,23 +328,18 @@ class StoredCompositionAliasRenderTest extends TestCase
     public function testAFreshCanonicalCompositionWritesValidatesReadsBackAndRenders(): void
     {
         $authored = [
-            ['component' => 'cta', 'props' => ['title' => 'Fresh', 'body' => 'B', 'button_text' => 'Go', 'button_url' => '/'], 'style' => [
+            ['component' => 'cta', 'props' => ['title' => 'Fresh', 'button_text' => 'Go', 'button_url' => '/'], 'style' => [
                 '--cta-heading-color' => '#f0f0f0',
-                '--cta-heading-size'  => '4rem',
-            ]],
+                '--cta-heading-size'  => '4rem']],
             ['component' => 'grid', 'props' => ['title' => 'Cards', 'items' => [
-                ['title' => 'One', 'text' => 'a', 'style' => ['--grid-item-bg' => '#101014']],
-            ]], 'style' => ['--grid-heading-measure' => '40rem']],
-            ['component' => 'section', 'props' => ['title' => 'Band', 'body' => 'Copy.'], 'style' => [
-                '--section-body-color' => '#334455',
-            ]],
-        ];
+                ['title' => 'One', 'text' => 'a', 'style' => ['--grid-item-bg' => '#101014']]]], 'style' => ['--grid-heading-measure' => '40rem']],
+            ['component' => 'stats', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'Band'], 'style' => [
+                '--stats-label-color' => '#334455']]];
 
         $id     = pp_create_page('Fresh canonical page', 'draft');
         $result = pp_execute_action('update_composition', [
             'post_id'     => $id,
-            'composition' => $authored,
-        ]);
+            'composition' => $authored]);
         $this->assertTrue($result['ok'], (string) ($result['error'] ?? ''));
 
         // Read back: every authored style map survives the round trip untouched.
@@ -364,7 +359,7 @@ class StoredCompositionAliasRenderTest extends TestCase
         $this->assertStringContainsString('--cta-heading-size: 4rem', $html);
         $this->assertStringContainsString('--grid-heading-measure: 40rem', $html);
         $this->assertStringContainsString('--grid-item-bg: #101014', $html);
-        $this->assertStringContainsString('--section-body-color: #334455', $html);
+        $this->assertStringContainsString('--stats-label-color: #334455', $html);
 
         // And validation is clean — no findings on a canonically authored document.
         $this->assertSame([], pp_validate_composition_errors($stored));
@@ -515,7 +510,10 @@ class StoredCompositionAliasRenderTest extends TestCase
         $id = pp_create_page('Fresh canonical', 'draft');
         $canonical = [
             ['component' => 'hero',         'props' => ['title' => 'Hero title', 'subheading' => 'Hero sub', 'button_text' => 'Go', 'button_url' => '/go', 'layout' => 'split']],
-            ['component' => 'section',      'props' => ['title' => 'Section title', 'body' => 'Section copy.', 'title_align' => 'center', 'theme' => 'muted']],
+            // section carries content props only now: `title_align` and `theme` both
+            // retired at #1023. The band still renders in this every-component sweep —
+            // that is the point of it — just without the two styling props.
+            ['component' => 'section',      'props' => ['title' => 'Section title', 'body' => 'Section copy.']],
             ['component' => 'cta',          'props' => ['title' => 'CTA title', 'body' => 'CTA copy.', 'button_text' => 'Join', 'button_url' => '/join', 'layout' => 'inline']],
             ['component' => 'grid',         'props' => ['title' => 'Grid title', 'title_align' => 'center', 'layout' => 'cards', 'items' => [['title' => 'One', 'text' => 'a']]]],
             // testimonials carries neither `title_align` nor `theme` now: it is the first
@@ -556,28 +554,41 @@ class StoredCompositionAliasRenderTest extends TestCase
     // ── Authoring-path coverage (Section 14.1) ───────────────────────────────
 
     /**
-     * `--section-body-link-hover-color` is a NEW declaration, not a rename: it was
-     * consumed at components.css:1853/:1947 and declared in no schema, so it was
-     * unreachable from every authoring path — a real intended surface hiding in plain
-     * sight. Authored through the REAL surface (style_component -> the shared style
-     * engine), not a raw meta write, because raw seeding is exactly what cannot tell a
-     * declared slot from an undeclared one.
+     * The section body-link HOVER colour is still reachable from the authoring path —
+     * through the `body-link` role's `:hover`, not a slot (#1023).
+     *
+     * The slot pair this replaces is the clearest illustration of why the rebuild moved
+     * states and resting values together: `--section-body-link-color` and
+     * `--section-body-link-hover-color` were separate names that had to be kept in step
+     * by discipline, and docs/explanation-cascade-layers.md §1b records what happens when
+     * one tier moves without the other (the #992 chrome defect). One role, one map, both
+     * values — they cannot be set apart now.
+     *
+     * Still the REAL authoring surface (rule 14.1): the write goes through
+     * update_composition's validation, and the assertion reads the compiled band block,
+     * because a v2 band emits its design there rather than as an inline custom property.
      */
-    public function testNewSectionLinkHoverSlotIsReachableFromTheAuthoringPath(): void
+    public function testTheSectionBodyLinkHoverIsReachableFromTheAuthoringPath(): void
     {
-        $id = pp_create_page('Link hover slot', 'draft');
-        pp_update_composition($id, [
-            ['component' => 'section', 'props' => ['title' => 'Band', 'body' => 'Copy.']],
-        ]);
+        $id = pp_create_page('Link hover role', 'draft');
+        $composition = [[
+            'component' => 'section',
+            'id'        => 'pp-4b5c6d7e',
+            'props'     => ['title' => 'Band', 'body' => '<p>Copy with a <a href="/x">link</a>.</p>'],
+            'udc'       => ['body-link' => ['typography' => [
+                'color'  => '#cc4400',
+                ':hover' => ['color' => '#ff6600'],
+            ]]],
+        ]];
+        $this->assertTrue(pp_validate_composition($composition),
+            'the role map must validate through the shared engine');
+        pp_update_composition($id, $composition);
 
-        $result = pp_execute_action('style_component', [
-            'post_id'         => $id,
-            'component_index' => 0,
-            'style'           => ['--section-body-link-hover-color' => '#ff6600'],
-        ]);
-
-        $this->assertTrue($result['ok'], (string) ($result['error'] ?? ''));
-        $this->assertStringContainsString('--section-body-link-hover-color: #ff6600', $this->renderStored($id));
+        $css = pp_udc_page_authored_css(pp_get_composition($id));
+        $this->assertStringContainsString('[data-pp-band="pp-4b5c6d7e"] .section__content a{', $css);
+        $this->assertStringContainsString('color:#cc4400', $css);
+        $this->assertStringContainsString('[data-pp-band="pp-4b5c6d7e"] .section__content a:hover{', $css);
+        $this->assertStringContainsString('color:#ff6600', $css);
     }
 
     /**
@@ -590,14 +601,12 @@ class StoredCompositionAliasRenderTest extends TestCase
     {
         $id = pp_create_page('Rejected slot', 'draft');
         pp_update_composition($id, [
-            ['component' => 'section', 'props' => ['title' => 'Band', 'body' => 'Copy.']],
-        ]);
+            ['component' => 'stats', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'Band']]]);
 
         $result = pp_execute_action('style_component', [
             'post_id'         => $id,
             'component_index' => 0,
-            'style'           => ['--section-accent-hover' => '#ff6600'],
-        ]);
+            'style'           => ['--section-accent-hover' => '#ff6600']]);
 
         $this->assertFalse($result['ok'], 'an undeclared, unaliased slot name must still be rejected');
         $this->assertStringContainsString('--section-accent-hover', (string) ($result['error'] ?? ''));
@@ -622,14 +631,13 @@ class StoredCompositionAliasRenderTest extends TestCase
     {
         $id = pp_create_page('Legacy slot write boundary', 'draft');
         pp_update_composition($id, [
-            ['component' => 'section', 'props' => ['title' => 'Band', 'body' => 'Copy.'],
-             'style' => ['--section-text' => '#334455']],
-        ]);
+            ['component' => 'stats', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'Band'],
+             'style' => ['--section-text' => '#334455']]]);
 
         // STORED: paints nothing, under either name.
         $html = $this->renderStored($id);
         $this->assertStringNotContainsString('#334455', $html, 'the stored legacy declaration is dead');
-        $this->assertStringNotContainsString('--section-body-color', $html, 'and nothing renames it');
+        $this->assertStringNotContainsString('--stats-label-color', $html, 'and nothing renames it');
         $this->assertStringNotContainsString('--section-text', $html);
 
         // The band can no longer be edited at all — the stale declaration is visible
@@ -638,8 +646,7 @@ class StoredCompositionAliasRenderTest extends TestCase
         $blocked = pp_execute_action('update_component', [
             'post_id'         => $id,
             'component_index' => 0,
-            'props'           => ['title' => 'Renamed'],
-        ]);
+            'props'           => ['title' => 'Renamed']]);
         $this->assertFalse($blocked['ok'], 'the dead slot fails the write it sits on');
         $this->assertSame('invalid_style_slot', $blocked['error_code'] ?? null);
         $this->assertStringContainsString(
@@ -652,8 +659,7 @@ class StoredCompositionAliasRenderTest extends TestCase
         $rejected = pp_execute_action('style_component', [
             'post_id'         => $id,
             'component_index' => 0,
-            'style'           => ['--section-title-size' => '3rem'],
-        ]);
+            'style'           => ['--section-title-size' => '3rem']]);
         $this->assertFalse($rejected['ok'], 'authoring a legacy slot name was never accepted and still is not');
         $this->assertStringContainsString('--section-title-size', (string) ($rejected['error'] ?? ''));
     }
@@ -758,17 +764,25 @@ class StoredCompositionAliasRenderTest extends TestCase
     {
         // #570 DG-4, pinned on real stored bytes through the render loop: this is the
         // proof the input-value removal did not touch the emitted class NAME.
+        // Re-homed to `grid` at #1023: section retired `theme` and with it the one
+        // component whose modifier prefix differed from its name. The DG-4 guarantee this
+        // pins is the emitted class NAME, which is a property of the theme prop rather
+        // than of any component, so grid proves it just as well — and grid is one of the
+        // four that still declare the prop.
         $id = pp_create_page('Canonical muted band', 'draft');
         pp_update_composition($id, [
-            ['component' => 'section', 'props' => ['title' => 'Muted', 'body' => 'canonical', 'theme' => 'muted']],
+            ['component' => 'grid', 'props' => ['title' => 'Muted', 'items' => [['title' => 'One', 'text' => 'a']], 'theme' => 'muted']],
         ]);
 
-        $this->assertStringContainsString('pp-section--dark', $this->renderStored($id));
+        $this->assertStringContainsString('grid--dark', $this->renderStored($id));
     }
 
     public function testANewWriteOfTheRemovedThemeValueIsRejected(): void
     {
-        $composition = [['component' => 'section', 'props' => ['title' => 'A', 'body' => 'B', 'theme' => 'dark']]];
+        // `grid` since #1023: the removed INPUT value (`dark`, replaced by `muted` at
+        // #605) is what this refusal is about, and it is the prop's contract rather than
+        // section's — so it moves to a component that still declares the prop.
+        $composition = [['component' => 'grid', 'props' => ['title' => 'A', 'items' => [['title' => 'One', 'text' => 'a']], 'theme' => 'dark']]];
 
         $result = pp_validate_action('create_page', ['title' => 'Removed theme value', 'composition' => $composition]);
 
@@ -785,23 +799,24 @@ class StoredCompositionAliasRenderTest extends TestCase
         // class — `muted` under the legacy `--dark` name, `inverted` under its own,
         // `default` under none.
         $bands = [
-            'section'      => ['title' => 'S', 'body' => 'b'],
             'grid'         => ['title' => 'G', 'items' => [['title' => 'One', 'text' => 'a']]],
             'cta'          => ['title' => 'C', 'button_text' => 'Go', 'button_url' => '/'],
             'stats'        => ['title' => 'St', 'items' => [['number' => '10', 'label' => 'Customers']]],
             // testimonials is absent: the v2 rebuild removed its `theme` prop, whose
-            // entire effect was value-styling the structural-CSS boundary forbids. The
-            // roster is SEVEN bands now and still means the same thing — every component
-            // that declares `theme` round-trips its canonical values.
+            // entire effect was value-styling the structural-CSS boundary forbids.
+            // section is absent since #1023 for the same reason, and it took the one
+            // naming oddity with it: it was the only component whose modifier prefix
+            // (`pp-section--`) differed from its name, so the $prefixes map that existed
+            // solely for it is gone too. The roster is SIX bands now and still means the
+            // same thing — every component that declares `theme` round-trips its
+            // canonical values.
             'faq'          => ['title' => 'F', 'items' => [['question' => 'q', 'answer' => 'a']]],
             'embed'        => ['title' => 'E', 'content' => '<p>hi</p>'],
             'logos'        => ['title' => 'L', 'items' => [['image_url' => 'https://example.com/a.png', 'image_alt' => 'A']]],
         ];
-        // `section` is the one component whose modifier prefix differs from its name.
-        $prefixes = ['section' => 'pp-section'];
 
         foreach ($bands as $component => $props) {
-            $prefix = $prefixes[$component] ?? $component;
+            $prefix = $component;
             foreach (['default' => null, 'muted' => 'dark', 'inverted' => 'inverted'] as $theme => $slug) {
                 $composition = [['component' => $component, 'props' => $props + ['theme' => $theme]]];
 
@@ -837,13 +852,15 @@ class StoredCompositionAliasRenderTest extends TestCase
         // proves: restore RESTORES and REPORTS, never blocks. A snapshot carrying the
         // removed `theme` value is exactly the case an operator hits after #605.
         $id = pp_create_page('Restore removed theme value', 'draft');
+        // `grid` since #1023, same reason as the refusal pin above: the #233
+        // restore-and-report contract is the subject, not the component.
         // v1: a snapshot as a pre-#605 install holds it.
         pp_update_composition($id, [
-            ['component' => 'section', 'props' => ['title' => 'Legacy', 'body' => 'b', 'theme' => 'dark']],
+            ['component' => 'grid', 'props' => ['title' => 'Legacy', 'items' => [['title' => 'One', 'text' => 'a']], 'theme' => 'dark']],
         ]);
         // v2: pushes v1 onto the history ring.
         pp_update_composition($id, [
-            ['component' => 'section', 'props' => ['title' => 'Now', 'body' => 'current']],
+            ['component' => 'grid', 'props' => ['title' => 'Now', 'items' => [['title' => 'One', 'text' => 'a']]]],
         ]);
 
         $preview = pp_preview_action('restore_composition', ['post_id' => $id, 'steps_back' => 1]);

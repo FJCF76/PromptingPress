@@ -1515,11 +1515,21 @@ class CompositionHistoryRawPreservationTest extends TestCase
             restore_error_handler();
         }
         $this->assertTrue($accepted, 'premise: the writer does not raise on props:false');
-        $this->assertSame(
-            [['component' => 'section', 'props' => ['id' => pp_get_composition($probe)[0]['props']['id']]]],
-            pp_get_composition($probe),
-            'premise: it rewrites false into a generated-id band'
-        );
+
+        // TWO ids are generated here since #1023, and keeping them apart is the point.
+        // `props.id` is the author's HTML anchor name, which is what this premise is
+        // about — the writer rewriting `false` into a band carrying a generated one. The
+        // TOP-LEVEL `id` is the band's styling handle, minted because section is a v2
+        // component now, and it is asserted by SHAPE rather than by value because it is
+        // random. Comparing the whole band against a literal would have coupled this
+        // premise to a minting rule it says nothing about.
+        $stored = pp_get_composition($probe);
+        $this->assertCount(1, $stored);
+        $this->assertSame('section', $stored[0]['component']);
+        $this->assertSame(['id' => $stored[0]['props']['id']], $stored[0]['props'],
+            'premise: it rewrites false into a band whose only prop is a generated anchor id');
+        $this->assertTrue(pp_udc_valid_band_id($stored[0]['id']),
+            'and the v2 band id is minted alongside it');
 
         // null is the unset sentinel: replayable.
         $this->assertTrue(_pp_history_payload_is_snapshot([['component' => 'section', 'props' => null]]));

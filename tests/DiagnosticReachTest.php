@@ -634,8 +634,7 @@ class DiagnosticReachTest extends TestCase
     {
         foreach ([['a' => 1], new \stdClass()] as $bad) {
             $errors = pp_validate_composition_errors([
-                ['component' => 'section', 'props' => ['title' => 'x', 'body' => 'Body text'], 'style' => ['--section-bg' => $bad]],
-            ]);
+                ['component' => 'stats', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'x'], 'style' => ['--stats-bg' => $bad]]]);
 
             $this->assertCount(1, $errors);
             $this->assertSame('invalid_style_value', $errors[0]->get_error_code());
@@ -647,8 +646,7 @@ class DiagnosticReachTest extends TestCase
     public function testCheckPageSurvivesANonScalarStyleSlotValue(): void
     {
         $this->seedPage(311, [
-            ['component' => 'section', 'props' => ['title' => 'x', 'body' => 'Body text'], 'style' => ['--section-bg' => ['a' => 1]]],
-        ]);
+            ['component' => 'stats', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'x'], 'style' => ['--stats-bg' => ['a' => 1]]]]);
 
         (new PP_Check_Command())->page([], ['post_id' => 311]);
 

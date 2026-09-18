@@ -282,7 +282,12 @@ test.describe('AI Chat — streaming & apply (mock SSE)', () => {
         proposal: {
           steps: [
             { type: 'action', name: 'update_component', description: 'Update band title', params: { post_id: pageId, component_index: 0, props: { title: 'A' } } },
-            { type: 'action', name: 'style_component', description: 'Add band shadow', params: { post_id: pageId, component_index: 0, style: { '--section-shadow': 'var(--shadow-md)' } } },
+            // A cta slot, not a section one (#1023): section is on the UDC and
+            // `style_component` refuses it. The AJAX call is mocked here — this test is
+            // about Apply All batching the steps into ONE request — so the fixture only has
+            // to be a WELL-FORMED action, but naming a retired slot would still be false
+            // test data that reads as guidance.
+            { type: 'action', name: 'style_component', description: 'Add band shadow', params: { post_id: pageId, component_index: 0, style: { '--cta-shadow': 'var(--shadow-md)' } } },
           ],
         },
       },
@@ -896,7 +901,7 @@ test.describe('AI Chat — preview-error card typography and overflow (#662, #66
       payload: {
         error_code: 'invalid_style_slot',
         user_message: `I tried to set "${LONG_SLOT}" on the hero component, but it doesn't support that style setting. The full list is in the details below.`,
-        alternatives: ['--section-bg', '--section-heading-color'],
+        alternatives: ['--cta-bg', '--cta-heading-color'],
         cross_component_hints: { '--grid-gap': { component: 'grid', slot: '--grid-gap', match: 'exact' } },
         raw_error: `Component "hero" has no style slot "${LONG_SLOT}".`,
       },

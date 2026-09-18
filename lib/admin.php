@@ -203,8 +203,11 @@ function pp_prop_definition_keys(): array {
  * a `-bg` / `-hover-bg` name convention: a naming convention is not machine-readable
  * without a second source of truth, which is the defect this whole contract fixes
  * one layer down. #575 landed the field one gate ahead of its consumer; #579 wired
- * that consumer, the `transparent_fill` composition smell, and the hero/cta button
- * fills plus `--section-panel-cta-bg` are the slots that declare it today.
+ * that consumer, the `transparent_fill` composition smell, and cta's four button fills
+ * are the slots that declare it today. The roster shrinks one rebuild sprint at a time:
+ * hero's left in #986 and section's `--section-panel-cta-bg` in #1023, because a v2
+ * button fill is a role's `background.fill` and the advisory recognises slots by their
+ * declared `role: "fill"` marker, which a role parameter does not carry or need.
  *
  * `measure` marks a slot as a TEXT MEASURE — the max-width of a heading, a prose
  * column, or a content column — so the advisory engine can tell one from any other
@@ -883,13 +886,13 @@ function _pp_entry_is_object_shape($entry): bool {
  * What to say when a component declares NO style slots at all (#1007).
  *
  * "Available slots: (none)" was a dead end that read as "this component can no longer be
- * styled", which is false for the four components it actually fires on — they are the
+ * styled", which is false for the five components it actually fires on — they are the
  * MOST styleable components in the theme, and the only reason they declare no slots is
  * that every designable value moved to the `udc` map.
  *
  * DERIVED, NOT LISTED. `pp_udc_is_v2_component()` already answers "is this component on
  * the new system", and the roles come from the same schema the refusal is about, so this
- * route cannot drift the way a hand-maintained list of 76 retired slot names would. That
+ * route cannot drift the way a hand-maintained list of 123 retired slot names would. That
  * is why the props needed a registry and the slots did not: every retired slot is
  * replaced by the same thing, and each retired prop by a different one.
  *

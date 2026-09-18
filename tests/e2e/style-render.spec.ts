@@ -508,37 +508,79 @@ test.describe('Safe-surface rendered proof', () => {
     }
   });
 
-  // #475: section.body_items renders a row of short items with a CSS-generated
-  // `li::before` middot separator (on EVERY item since #489's hanging-separator
-  // clip; the 2nd item read below is a mid-line item whose separator is visible).
-  // The separator color routes
-  // through --section-separator-color (default --color-muted); on the inverted band
-  // the default follows the light on-inverted text like sibling text (--color-muted
-  // is remapped to --color-bg there). PHP/CSS pins prove the routing declarations;
-  // only getComputedStyle('::before') proves the browser paints the middot the right
-  // color once the cascade applies. The items also inherit the #470 body type slots,
-  // so the brand strip (15px/600 + a lime middot) is fully expressible. Per the
-  // #86/#349 mobile-hid-it lesson, assert at 1280 AND 375.
-  test('#475 body_items separator honors --section-separator-color + inverted routing + brand type @smoke', async ({
+  // #475/#1023: section.body_items renders a row of short items with a CSS-generated
+  // `li::before` middot separator (on EVERY item since #489's hanging-separator clip;
+  // the 2nd item read below is a mid-line item whose separator is visible).
+  //
+  // REBUILT FOR v2 (#1023) AND IT IS NOT A MECHANICAL RE-POINT — the ruled fix to a
+  // defect this rebuild introduced lives here, because it is the browser-only half.
+  //
+  // WHAT THE v1 TEST ASSERTED: the separator routed through `--section-separator-color`
+  // (default `var(--color-muted)`), and on an inverted band the default followed the
+  // light sibling text because `--color-muted` was REMAPPED by the band class.
+  //
+  // WHAT CHANGED: the slot retired with section's slot map, and the mark is drawn with
+  // `content` on a `::before`, which ruling A3 defers — so no role can address it. The
+  // first cut pointed it at `--pp-list-marker-color` with the LIST MARKERS' accent
+  // fallback, and the rebuild's own disclosure claimed "nothing moves visually". That was
+  // false: the markers defaulted to accent, the SEPARATOR defaulted to muted, and the
+  // muted default existed precisely to make the mark follow its sibling text via those
+  // band-class remaps. A v2 band has no class, so reusing the literal would have painted a
+  // fixed grey that vanishes on the dark bands v2 makes easy.
+  //
+  // RULED: the separator falls back to `currentColor` — the same intent in the mechanism
+  // v2 has, inheritance — while the two list markers keep `var(--color-accent)`.
+  //
+  // THIS TEST IS THE RENDERED PROOF, at THREE widths rather than two (the ruling asked for
+  // 375/768/1280), on a light band AND an authored dark band. CSS-text pins can show the
+  // declaration; only a browser resolves `currentColor` through the cascade and proves the
+  // mark actually follows the row on a band that carries no class at all.
+  test('#1023 the body_items separator follows its row on every band, and the markers keep the accent @smoke', async ({
     page,
   }) => {
-    pageId = createPage('E2E Section Inline Items Separator');
-    const LIME = '#84cc16'; // rgb(132, 204, 22) — the brand strip's colored middot
-    setComposition(pageId, [
-      // 0: default separator (unset slot) — muted default.
-      { component: 'section', props: { id: 'pp-sec-default', body: '<p>Body.</p>', body_items: ['One', 'Two', 'Three'] } },
-      // 1: explicit var(--color-muted) — must be byte-identical to the unset default.
-      { component: 'section', props: { id: 'pp-sec-explicit', body: '<p>Body.</p>', body_items: ['One', 'Two', 'Three'] }, style: { '--section-separator-color': 'var(--color-muted)' } },
-      // 2: overridden separator color — the slot genuinely changes the middot.
-      { component: 'section', props: { id: 'pp-sec-override', body: '<p>Body.</p>', body_items: ['One', 'Two', 'Three'] }, style: { '--section-separator-color': LIME } },
-      // 3: inverted band, unset separator — routes like sibling text (light).
-      { component: 'section', props: { id: 'pp-sec-inverted', theme: 'inverted', body: '<p>Body.</p>', body_items: ['One', 'Two', 'Three'] } },
-      // 4: the brand strip — 15px/600 body type + a lime middot.
-      { component: 'section', props: { id: 'pp-sec-brand', body: '<p>Body.</p>', body_items: ['One', 'Two', 'Three'] }, style: { '--section-body-size': '15px', '--section-body-weight': '600', '--section-separator-color': LIME } },
-    ]);
+    const MUTED = 'rgb(94, 102, 119)'; // #5e6677 — what v1 painted on a light band
+    const LIGHT_INK = 'rgb(226, 232, 240)'; // #e2e8f0 — the dark band's authored row ink
 
-    // The 2nd <li> is a mid-line item; its ::before separator is visible (not
-    // clipped). Read its ::before color.
+    pageId = createPage('E2E Section Separator Follows Its Row');
+    setComposition(pageId, [{ component: 'section', props: { id: 'pp-seed', body: '<p>Seed.</p>' } }]);
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+
+    // Authored through the REAL path, not raw meta: a `udc` map only scopes to a band
+    // whose id the engine minted, and raw meta mints nothing (Section 14.1).
+    const res = await updateComposition(page, pageId, [
+      // 0 — default light band, nothing authored. The separator must equal the row's own
+      //     colour, which is what `currentColor` MEANS and what v1 achieved by remap.
+      { component: 'section', props: { id: 'pp-sec-default', body: '<p>Body.</p>', body_items: ['One', 'Two', 'Three'] } },
+      // 1 — the documented ROUTE BACK to the old recessive grey: the token still leads
+      //     the chain, so setting it to the muted token restores exactly what v1 painted.
+      {
+        component: 'section',
+        props: { id: 'pp-sec-muted', body: '<p>Body.</p>', body_items: ['One', 'Two', 'Three'] },
+        udc: { 'inline-items': { typography: { color: '@color-muted' } } },
+      },
+      // 2 — an authored DARK band. v1 could not express this at all without its theme
+      //     prop; the separator must follow the light ink with NO band class in play.
+      {
+        component: 'section',
+        props: { id: 'pp-sec-dark', body: '<p>Body.</p>', body_items: ['One', 'Two', 'Three'] },
+        udc: {
+          _band: { background: { fill: '#0b1020' } },
+          'inline-items': { typography: { color: '#e2e8f0' } },
+        },
+      },
+      // 3 — the brand strip: 15px/600 from the role, no extra typography surface needed.
+      {
+        component: 'section',
+        props: { id: 'pp-sec-brand', body: '<p>Body.</p>', body_items: ['One', 'Two', 'Three'] },
+        udc: { 'inline-items': { typography: { size: '15px', weight: '600', color: '#84cc16' } } },
+      },
+      // 4 — a body list, so the MARKERS can be proved NOT to have moved with the
+      //     separator. Conflating the two is the exact mistake this test corrects.
+      { component: 'section', props: { id: 'pp-sec-marker', body: '<ul><li>Item</li></ul>', body_marker: 'check' } },
+    ]);
+    expect(res.success, `udc write: ${JSON.stringify(res)}`).toBe(true);
+
     const sepColor = (id: string) =>
       page.locator(`#${id} .section__inline-item`).nth(1).evaluate((el) => getComputedStyle(el, '::before').color);
     const itemColor = (id: string) =>
@@ -549,34 +591,63 @@ test.describe('Safe-surface rendered proof', () => {
         return { size: cs.fontSize, weight: cs.fontWeight };
       });
 
-    for (const width of [1280, 375]) {
+    for (const width of [1280, 768, 375]) {
       await page.setViewportSize({ width, height: 900 });
       await page.goto(`/?page_id=${pageId}`);
-      await expect(page.locator('.section__inline-items')).toHaveCount(5, { timeout: 10000 });
+      await expect(page.locator('.section__inline-items')).toHaveCount(4, { timeout: 10000 });
 
-      // Default separator == explicit var(--color-muted): #475 changed no default.
-      const def = await sepColor('pp-sec-default');
-      const explicit = await sepColor('pp-sec-explicit');
-      expect(def).toBe(explicit);
+      // THE RULING, rendered: the separator equals its own row's colour. Asserted as an
+      // equality rather than against a literal, so it stays true through a retheme —
+      // which is the whole point of `currentColor` over a baked value.
+      for (const id of ['pp-sec-default', 'pp-sec-muted', 'pp-sec-dark', 'pp-sec-brand']) {
+        expect(await sepColor(id), `${id} @${width}`).toBe(await itemColor(id));
+      }
 
-      // The override slot genuinely repaints the middot lime, and differs from muted.
-      expect(await sepColor('pp-sec-override')).toBe('rgb(132, 204, 22)');
-      expect(await sepColor('pp-sec-override')).not.toBe(def);
+      // The DARK band is the case v1 could not express, and the one a re-used
+      // `--color-muted` literal would have made invisible. The separator is the light
+      // ink, and it is NOT what the light bands paint.
+      const dark = await sepColor('pp-sec-dark');
+      expect(dark, `dark band separator @${width}`).toBe(LIGHT_INK);
+      expect(dark).not.toBe(await sepColor('pp-sec-default'));
 
-      // Inverted routing: the separator follows the light sibling text (both resolve
-      // through the band's remapped --color-muted → --color-bg), and it is NOT the
-      // dark default muted the light bands paint.
-      const invSep = await sepColor('pp-sec-inverted');
-      expect(invSep).toBe(await itemColor('pp-sec-inverted'));
-      expect(invSep).not.toBe(def);
+      // THE ROUTE BACK, rendered: the old recessive grey is one authored value away.
+      expect(await sepColor('pp-sec-muted'), `muted route-back @${width}`).toBe(MUTED);
 
-      // Brand strip: the items inherit the #470 body type slots (15px / 600) and the
-      // separator is lime — the full original symptom, expressible with zero new
-      // typography slots.
+      // THE RESIDUAL, pinned rather than left implicit: an UNAUTHORED light band no
+      // longer paints v1's muted grey — it paints the row's inherited secondary text.
+      // If this ever equals MUTED again, the disclosure in three surfaces is stale.
+      expect(await sepColor('pp-sec-default'), `residual @${width}`).not.toBe(MUTED);
+
+      // The brand strip's type comes from the role, and its separator follows its ink.
       const brand = await itemType('pp-sec-brand');
       expect(brand.size).toBe('15px');
       expect(brand.weight).toBe('600');
       expect(await sepColor('pp-sec-brand')).toBe('rgb(132, 204, 22)');
+
+      // THE NON-CONFLATION PIN: the body list MARKER keeps the accent it always painted.
+      // It must NOT have been dragged onto `currentColor` with the separator.
+      const marker = await page
+        .locator('#pp-sec-marker .section__content--marker-check > ul > li')
+        .first()
+        .evaluate((el) => getComputedStyle(el, '::before').color);
+      const markerText = await page
+        .locator('#pp-sec-marker .section__content--marker-check > ul > li')
+        .first()
+        .evaluate((el) => getComputedStyle(el).color);
+      // Asserted as the ACCENT, not merely as "different from the text" (review finding):
+      // an inequality would still pass if a future change dragged the marker onto
+      // --color-muted or --color-border, while the claim above says it kept the accent.
+      // Resolved through the token rather than a literal so a retheme moves both.
+      const accentRgb = await page.evaluate(() => {
+        const el = document.createElement('span');
+        el.style.color = getComputedStyle(document.documentElement).getPropertyValue('--color-accent').trim();
+        document.body.appendChild(el);
+        const rgb = getComputedStyle(el).color;
+        el.remove();
+        return rgb;
+      });
+      expect(marker, `marker keeps the accent @${width}`).toBe(accentRgb);
+      expect(marker, `marker @${width}`).not.toBe(markerText);
     }
   });
 
@@ -675,16 +746,23 @@ test.describe('Safe-surface rendered proof', () => {
     // re-derived rather than patched — that is the mistake #696 cleaned up. Resolved
     // against the root font size instead of a hardcoded "640px": the value is 40rem,
     // and this file already resolves rems that way (see the #470 body-size pin).
+    //
+    // READ FROM THE ROW ITSELF SINCE #1023, not from `.section__body`. v1 capped the
+    // WRAPPER and the row inherited the constraint through `max-width: 100%`; the wrapper
+    // caps were deleted with the slot map, so the row carries its own
+    // `sizing.max-width` — deliberately the SAME 40rem, because sharing a wrapper is what
+    // gave the two the same cap in the first place. The number this test's expectations
+    // are derived from is therefore unchanged; only the element that declares it moved.
     const measure = async () =>
       page
-        .locator('#pp-sec-wrap .section__body')
+        .locator('#pp-sec-wrap .section__inline-items')
         .first()
         .evaluate((el) => {
           const rootPx = parseFloat(getComputedStyle(document.documentElement).fontSize);
           return { maxWidth: getComputedStyle(el).maxWidth, expected: `${40 * rootPx}px` };
         });
     const cap = await measure();
-    expect(cap.maxWidth, 'section body measure (40rem, issue 302) governs the row width').toBe(
+    expect(cap.maxWidth, 'the inline-items row keeps the 40rem measure that governs its wrapping').toBe(
       cap.expected,
     );
 
@@ -883,8 +961,14 @@ test.describe('Safe-surface rendered proof', () => {
     }
   });
 
-  // #510: the --section-inline-items-align style slot ('start' | 'center', default
-  // 'start') gives the author a lever over the wrap alignment. 'start' keeps the
+  // #510/#1023: the `body_items_align` PROP ('start' | 'center', default 'start') gives
+  // the author a lever over the wrap alignment. It was the --section-inline-items-align
+  // style SLOT until section's rebuild, and it could not become a role value: it sets
+  // `justify-content`, a LAYOUT property, and the UDC taxonomy carries no layout group —
+  // the same reason hero kept `split_ratio` and `vertical_align`. It also has to derive a
+  // MODIFIER rather than emit a raw keyword, because the centred mode switches the
+  // separator from ::before to ::after, which no role value could do. Same two accepted
+  // values, same default, same rendered behaviour — which is what this test proves. 'start' keeps the
   // #489 hanging-clip left-packing (its own test above). 'center' switches to
   // per-line centering with a TRAILING separator (li:not(:last-child)::after): the
   // leading ::before is suppressed (content: none) so a wrapped line NEVER opens
@@ -903,13 +987,14 @@ test.describe('Safe-surface rendered proof', () => {
   }, testInfo) => {
     pageId = createPage('E2E Section Inline Items Center');
     setComposition(pageId, [
-      // A centered strip long enough to wrap to 2-3 lines at mobile. Top-level
-      // `style` sets the align slot (component-level style, not props.style).
+      // A centered strip long enough to wrap to 2-3 lines at mobile. The align value is a
+      // PROP now, so it rides in `props` rather than a component-level `style` map.
       {
         component: 'section',
         props: {
           id: 'pp-sec-center',
           body: '<p>Body.</p>',
+          body_items_align: 'center',
           body_items: [
             'Recuperación incluida',
             'Copias diarias',
@@ -918,13 +1003,11 @@ test.describe('Safe-surface rendered proof', () => {
             '99,9% de disponibilidad',
           ],
         },
-        style: { '--section-inline-items-align': 'center' },
       },
       // A short centered strip that fits one line even at 320 — still block-centered.
       {
         component: 'section',
-        props: { id: 'pp-sec-center-oneline', body: '<p>Body.</p>', body_items: ['Rápido', 'Seguro', 'Fiable'] },
-        style: { '--section-inline-items-align': 'center' },
+        props: { id: 'pp-sec-center-oneline', body: '<p>Body.</p>', body_items_align: 'center', body_items: ['Rápido', 'Seguro', 'Fiable'] },
       },
     ]);
 
@@ -1005,38 +1088,70 @@ test.describe('Safe-surface rendered proof', () => {
     }
   });
 
-  // #488: a body_items-only band (no body copy) is a first-class strip. Its
-  // top margin — a body-relative separation — zeroes so the band's symmetric
-  // padding centers the row, while a strip WITH body copy keeps var(--space-md).
-  // Computed-style pins (0 vs 16px) at both viewports, plus a body-less WRAPPING
-  // strip to prove the #489 hanging-separator clip still holds without a body.
-  test('#488 body-less body_items strip zeroes its top margin and keeps the #489 clip @smoke', async ({
+  // #488/#1023: a body_items-only band (no body copy) is a first-class strip, and it
+  // still is — but the AUTOMATIC top-margin zeroing that #488 shipped is RETIRED, and
+  // this test is inverted rather than deleted because the narrowing is the thing that
+  // now needs proving.
+  //
+  // WHAT #488 DID: the template inferred `$has_body_copy` and emitted a `--flush-top`
+  // modifier that zeroed the row's body-relative top margin, so a body-less strip sat
+  // optically centred in the band's own symmetric padding.
+  //
+  // WHY IT IS GONE: a v2 role default is per COMPONENT, not per content shape. Inferring
+  // design intent from whether a prop happens to be empty is exactly the hidden-rule class
+  // the contract removes — and there is no legal place left to say it, because the modifier
+  // was a value decision the structural-CSS boundary keeps out of the stylesheet.
+  //
+  // WHAT REPLACES IT: the author says so, in one line the docs give verbatim —
+  // `"inline-items": { "spacing": { "margin-top": "0" } }`. Bands 0 and 1 below are the
+  // rendered proof that the route WORKS and that the default is what the disclosure says
+  // it is, so a reader who followed the CHANGELOG gets the result it promises.
+  //
+  // The #489 hanging-separator clip is unchanged and still pinned on a body-less wrapping
+  // strip, because that half was never about the margin.
+  test('#1023 a body-less strip keeps its default top margin, and the documented route zeroes it @smoke', async ({
     page,
   }, testInfo) => {
     pageId = createPage('E2E Section Body-less Strip');
-    setComposition(pageId, [
-      // A body-less strip: no body key, body_items only. This is the exact shape
-      // #488 reports as previously unauthorable (it needed a body:"" placeholder).
+    setComposition(pageId, [{ component: 'section', props: { id: 'pp-seed', body: '<p>Seed.</p>' } }]);
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+
+    const DARK = { _band: { background: { fill: '#0b1020' } }, 'inline-items': { typography: { color: '#e2e8f0' } } };
+    const seedRes = await updateComposition(page, pageId, [
+      // 0 — a body-less strip, UNAUTHORED margin. This is the narrowing: it now keeps
+      //     var(--space-md), where #488 zeroed it automatically.
       {
         component: 'section',
-        props: { id: 'pp-sec-bodyless', theme: 'inverted', body_items: ['SOC 2 Type II', '99.99% uptime', 'GDPR compliant'] },
+        props: { id: 'pp-sec-bodyless', body_items: ['SOC 2 Type II', '99.99% uptime', 'GDPR compliant'] },
+        udc: DARK,
       },
-      // A strip WITH body copy: keeps the base var(--space-md) top margin.
+      // 1 — the same strip with the DOCUMENTED ROUTE applied, verbatim from the README,
+      //     the CHANGELOG and composition.md. It must render what #488 used to give free.
+      {
+        component: 'section',
+        props: { id: 'pp-sec-bodyless-flush', body_items: ['SOC 2 Type II', '99.99% uptime', 'GDPR compliant'] },
+        udc: { ...DARK, 'inline-items': { ...DARK['inline-items'], spacing: { 'margin-top': '0' } } },
+      },
+      // 2 — a strip WITH body copy: keeps the base var(--space-md) top margin, exactly as
+      //     it always did. Unchanged by the narrowing, which only ever touched the
+      //     body-LESS case.
       {
         component: 'section',
         props: { id: 'pp-sec-withbody', body: '<p>Everything you need to launch.</p>', body_items: ['SOC 2 Type II', '99.99% uptime', 'GDPR compliant'] },
       },
-      // A body-less strip long enough to wrap at mobile: the #489 clip must still
-      // hide the line-leading separator on every wrapped line even with flush-top.
+      // 3 — a body-less strip long enough to wrap at mobile: the #489 clip must still
+      //     hide the line-leading separator on every wrapped line.
       {
         component: 'section',
         props: {
           id: 'pp-sec-bodyless-wrap',
-          theme: 'inverted',
           body_items: ['Recuperación incluida', 'Copias diarias', 'Sin permanencia', 'Soporte en español', '99,9% de disponibilidad'],
         },
+        udc: DARK,
       },
     ]);
+    expect(seedRes.success, `udc write: ${JSON.stringify(seedRes)}`).toBe(true);
 
     const marginTop = (rowId: string) =>
       page.locator(`#${rowId} .section__inline-items`).evaluate(
@@ -1064,10 +1179,17 @@ test.describe('Safe-surface rendered proof', () => {
       await page.goto(`/?page_id=${pageId}`);
       await expect(page.locator('#pp-sec-bodyless .section__inline-item')).toHaveCount(3, { timeout: 10000 });
 
-      // Core #488 assertion: body-less strip zeroes its top margin; a strip WITH
-      // body keeps var(--space-md) (16px). Same at every width.
-      expect(await marginTop('pp-sec-bodyless')).toBe(0);
-      expect(await marginTop('pp-sec-withbody')).toBe(16);
+      // THE NARROWING, RENDERED. A body-less strip no longer zeroes itself: it keeps
+      // var(--space-md) (16px), the same as a strip that has body copy above it. If this
+      // ever reads 0 again, something has reintroduced a rule that infers design intent
+      // from an empty prop, and three disclosure surfaces are wrong.
+      expect(await marginTop('pp-sec-bodyless'), `body-less default @${width}`).toBe(16);
+      expect(await marginTop('pp-sec-withbody'), `with-body default @${width}`).toBe(16);
+
+      // THE ROUTE BACK, RENDERED. The one line the docs hand the author does exactly what
+      // #488's automatic behaviour did — this is what makes the narrowing disclosable
+      // rather than a regression.
+      expect(await marginTop('pp-sec-bodyless-flush'), `documented route @${width}`).toBe(0);
 
       // #489 clip holds on the body-less wrapping strip: the leading item of every
       // visual line hangs into the clip zone (its ::before is clipped, no dangling
@@ -1980,36 +2102,49 @@ test.describe('Safe-surface rendered proof', () => {
    */
 
   // Padding axis (#302): the premium clamp() re-declaration used to beat the slot.
-  test('#305 section honors --section-padding-top at 1280px desktop @smoke', async ({
+  //
+  // RE-AUTHORED FOR v2 (#1023), same axis and same incident. The value moved from the
+  // `--section-padding-top` slot to the `_band` role's `spacing.padding-top`, and the
+  // question the pin asks is unchanged: does the browser render the author's value once
+  // the premium clamp() rules, the media queries and the adjacent-band rhythm all apply?
+  //
+  // The v2 answer is stronger than the slot's was, and the fixture proves the stronger
+  // claim rather than the old one: a role block is emitted UNLAYERED and band-scoped, so
+  // it outranks `@layer pp-v1` outright — including the `main > .section` premium rules
+  // this pin was born to catch, which is why those four rules were deletable as dead code
+  // in the same change. And because the parameter takes a breakpoint map, the pin now
+  // covers all three tiers with DIFFERENT values, which the single slot could never hold.
+  test('#1023 section honors an authored _band padding at all three tiers @smoke', async ({
     page,
   }) => {
-    pageId = createPage('E2E Section Padding Slot');
-    setComposition(pageId, [
-      {
-        component: 'section',
-        props: {
-          id: 'pp-sec01',
-          title: 'Slot contract',
-          body: '<p>Padding must be controllable per instance.</p>',
-        },
-      },
-    ]);
+    pageId = createPage('E2E Section Band Padding');
+    setComposition(pageId, [{ component: 'section', props: { id: 'pp-seed', body: '<p>Seed.</p>' } }]);
 
     await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
     await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
 
-    // A pixel value no token resolves to, so a premium clamp() clobber is unmistakable.
-    const res = await styleComponent(page, pageId, { '--section-padding-top': '77px' });
-    expect(res.success).toBe(true);
+    // Pixel values no token resolves to, so a premium clamp() clobber is unmistakable —
+    // and three DISTINCT ones, so a breakpoint map that collapsed to a single tier would
+    // fail here rather than pass on the desktop value.
+    const res = await updateComposition(page, pageId, [
+      {
+        component: 'section',
+        props: { id: 'pp-sec01', title: 'Role contract', body: '<p>Padding must be controllable per band.</p>' },
+        udc: { _band: { spacing: { 'padding-top': { d: '77px', t: '55px', p: '33px' } } } },
+      },
+    ]);
+    expect(res.success, `udc write: ${JSON.stringify(res)}`).toBe(true);
 
-    await page.setViewportSize({ width: 1280, height: 900 });
-    await page.goto(`/?page_id=${pageId}`);
+    for (const [width, expected] of [[1280, '77px'], [768, '55px'], [375, '33px']] as const) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`/?page_id=${pageId}`);
 
-    const section = page.locator('main > .section');
-    await expect(section).toBeVisible({ timeout: 10000 });
+      const section = page.locator('main > .section');
+      await expect(section).toBeVisible({ timeout: 10000 });
 
-    const paddingTop = await section.evaluate((el) => getComputedStyle(el).paddingTop);
-    expect(paddingTop).toBe('77px');
+      const paddingTop = await section.evaluate((el) => getComputedStyle(el).paddingTop);
+      expect(paddingTop, `@${width}`).toBe(expected);
+    }
   });
 
   // Type-scale axis (#302): the shared premium heading rule used to beat the slot.
@@ -2516,53 +2651,84 @@ test.describe('Safe-surface rendered proof', () => {
   // .section__content — a shape the static guard's own docblock says no
   // same-subject textual scan can prove. This rendered pin is the layer that owns
   // it: if any ancestor cap returns, the inner box cannot reach the slot value.
-  test('#305 section body honors --section-body-measure past its wrapper at 1280px @smoke', async ({
+  // RE-AUTHORED FOR v2 (#1023). The measure is the `body` role's `sizing.max-width`, and
+  // the ancestor-cap question is the same one — only a rendered box can show that no
+  // wrapper is capping the content the author sized.
+  //
+  // TWO THINGS THIS PIN NOW CARRIES THAT THE SLOT VERSION COULD NOT:
+  //
+  //  1. THE UNAUTHORED DEFAULT IS 40rem, and that is the number a v1 band actually
+  //     RENDERED — which is NOT the rule that won among those targeting the element. Four
+  //     rules capped `.section__content` and the desktop `main > .section--text-only`
+  //     override at 49rem beat the others, but `.section__content` sits inside
+  //     `.section__body`, which capped at 40rem, so the 49rem literal never bound.
+  //     Measured v1 at 375/768/1280: text-only 640px, centered 672px. An earlier cut of
+  //     this very test asserted 784px on the winning-rule reasoning and was wrong; band 1
+  //     below is the rendered proof of the corrected value.
+  //  2. Section's four measure BRANCHES collapsed to one role parameter with a breakpoint
+  //     map, so the pin reads the authored value at three tiers rather than one.
+  test('#1023 the section body measure reaches the rendered box, and the unauthored default is 40rem @smoke', async ({
     page,
   }) => {
-    pageId = createPage('E2E Section Body Width Slot');
-    setComposition(pageId, [
-      {
-        component: 'section',
-        props: {
-          id: 'pp-sec01',
-          title: 'Width is controllable',
-          body: '<p>The body width slot must reach the rendered content box.</p>',
-        },
-      },
-    ]);
+    pageId = createPage('E2E Section Body Measure');
+    setComposition(pageId, [{ component: 'section', props: { id: 'pp-seed', body: '<p>Seed.</p>' } }]);
 
     await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
     await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
 
-    // Wider than the 40rem (640px) wrapper default, so a re-introduced ancestor
-    // cap fails this loudly instead of hiding inside the old limit.
-    const res = await styleComponent(page, pageId, { '--section-body-measure': '700px' });
-    expect(res.success).toBe(true);
+    // 700px is wider than the old 640px wrapper default, so a re-introduced ancestor cap
+    // fails loudly instead of hiding inside the old limit.
+    const res = await updateComposition(page, pageId, [
+      {
+        component: 'section',
+        props: { id: 'pp-sec01', title: 'Width is controllable', body: '<p>The measure must reach the rendered content box.</p>' },
+        udc: { body: { sizing: { 'max-width': { d: '700px', t: '600px', p: '300px' } } } },
+      },
+      {
+        component: 'section',
+        props: { id: 'pp-sec02', title: 'Unauthored', body: '<p>The role default must still be 49rem.</p>' },
+      },
+    ]);
+    expect(res.success, `udc write: ${JSON.stringify(res)}`).toBe(true);
 
+    for (const [width, expected] of [[1280, '700px'], [768, '600px'], [375, '300px']] as const) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`/?page_id=${pageId}`);
+
+      const content = page.locator('#pp-sec01 .section__content');
+      await expect(content).toBeVisible({ timeout: 10000 });
+
+      const box = await content.evaluate((el) => {
+        const wrapper = el.closest('.section__body') as Element | null;
+        return {
+          content: getComputedStyle(el).maxWidth,
+          wrapperCap: wrapper ? getComputedStyle(wrapper).maxWidth : null,
+          rendered: Math.round(el.getBoundingClientRect().width),
+        };
+      });
+
+      // The authored value reaches the content box…
+      expect(box.content, `authored measure @${width}`).toBe(expected);
+      // …and nothing above it is capping narrower than that. `none` is the v2 answer:
+      // the wrapper caps were deleted, so the only cap in the chain is the role's own.
+      if (box.wrapperCap !== 'none') {
+        expect(parseFloat(box.wrapperCap as string), `ancestor cap @${width}`).toBeGreaterThanOrEqual(parseFloat(expected));
+      }
+      // The rendered box must actually be able to USE it where the viewport allows.
+      if (width >= 768) expect(box.rendered).toBeGreaterThan(400);
+    }
+
+    // The unauthored default, read at desktop where 49rem (784px) fits.
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto(`/?page_id=${pageId}`);
-
-    const content = page.locator('.section__content');
-    await expect(content).toBeVisible({ timeout: 10000 });
-
-    const widths = await content.evaluate((el) => {
-      const wrapper = el.closest('.section__body') as Element;
-      return {
-        content: getComputedStyle(el).maxWidth,
-        wrapper: wrapper ? getComputedStyle(wrapper).maxWidth : null,
-        rendered: el.getBoundingClientRect().width,
-      };
-    });
-
-    // The wrapper must carry the slot value, and the rendered box must actually
-    // exceed the old 640px wrapper default — the rendered proof, not just the
-    // computed property. The INNER .section__content now honors the slot too:
-    // issue 309 routed the text-only 49rem literal (main > .section--text-only
-    // .section__content) through var(--section-body-measure, 49rem), so the inner
-    // content box that used to cap dead at 784px now follows the slot to 700px.
-    expect(widths.content).toBe('700px');
-    expect(widths.wrapper).toBe('700px');
-    expect(widths.rendered).toBeGreaterThan(640);
+    const unauthored = page.locator('#pp-sec02 .section__content');
+    await expect(unauthored).toBeVisible({ timeout: 10000 });
+    expect(
+      await unauthored.evaluate((el) => getComputedStyle(el).maxWidth),
+      'the unauthored body measure must be 40rem — the width a v1 text-only band actually '
+        + 'RENDERED, not the 49rem rule that won among those targeting .section__content but '
+        + 'never bound because the .section__body wrapper capped it first',
+    ).toBe('640px');
   });
 
   // #470: the section body text size + weight are authorable via --section-body-size
@@ -2573,33 +2739,42 @@ test.describe('Safe-surface rendered proof', () => {
   // lesson), and an UNSET section must render byte-identically to today: weight 430 at
   // both, size 1.065rem (desktop) / 1rem (mobile) resolved against the page's own root.
   // Two sections prove both halves in one render: section 0 SET, section 1 UNSET.
-  test('#470 section body honors --section-body-size / --section-body-weight at both breakpoints; unset byte-identical @smoke', async ({
+  // RE-AUTHORED FOR v2 (#1023). The two slots are the `body` role's `typography.size` and
+  // `typography.weight`, and the claim is unchanged in both halves: an authored band gets
+  // the deliberate type step #470 asked for, and an UNAUTHORED band is byte-identical to
+  // what shipped — weight 430 at every tier, size 1.065rem desktop/tablet and 1rem phone.
+  //
+  // THE UNSET HALF IS THE LOAD-BEARING ONE and it is why this is not a mechanical
+  // re-point: those literals used to live in the desktop premium and mobile stylesheet
+  // rules, and the rebuild moved them into role defaults. "The values moved, the pixels
+  // did not" is the promise the whole release makes, and this is the rendered proof of it
+  // for the most-used band in the theme — read at the SAME three tiers as the padding and
+  // measure pins, because the phone tier is where the 1.065 -> 1 step lives and the #86/#349
+  // lesson is that a mobile-only regression hides from a desktop-only read.
+  test('#1023 the section body type is authorable per band, and an unauthored band is byte-identical @smoke', async ({
     page,
   }) => {
-    pageId = createPage('E2E Section Body Type Slots');
-    setComposition(pageId, [
+    pageId = createPage('E2E Section Body Type Roles');
+    setComposition(pageId, [{ component: 'section', props: { id: 'pp-seed', body: '<p>Seed.</p>' } }]);
+
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+
+    // Distinctive, unambiguous values: 22px is no theme literal, 850 is no default weight
+    // — and 850 is only expressible at all because #988 widened the font-weight grammar
+    // to the real CSS range, which this rebuild needed for its own 560/430 defaults.
+    const res = await updateComposition(page, pageId, [
       {
         component: 'section',
         props: { id: 'pp-sec01', title: 'Set body type', body: '<p>Deliberate size and weight.</p>' },
+        udc: { body: { typography: { size: '22px', weight: '850' } } },
       },
       {
         component: 'section',
         props: { id: 'pp-sec02', title: 'Default body type', body: '<p>Unchanged defaults.</p>' },
       },
     ]);
-
-    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
-    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
-
-    // Distinctive, unambiguous values: 22px is no theme literal, 850 is no default weight.
-    const res = await styleComponent(
-      page,
-      pageId,
-      { '--section-body-size': '22px', '--section-body-weight': '850' },
-      undefined,
-      0,
-    );
-    expect(res.success).toBe(true);
+    expect(res.success, `udc write: ${JSON.stringify(res)}`).toBe(true);
 
     const bodyType = (i: number) =>
       page.locator('.section__content').nth(i).locator('p').first().evaluate((el) => {
@@ -2608,23 +2783,23 @@ test.describe('Safe-surface rendered proof', () => {
         return { fontSize: cs.fontSize, fontWeight: cs.fontWeight, rootPx };
       });
 
-    for (const width of [1280, 375]) {
+    for (const width of [1280, 768, 375]) {
       await page.setViewportSize({ width, height: 900 });
       await page.goto(`/?page_id=${pageId}`);
       await expect(page.locator('.section__content')).toHaveCount(2, { timeout: 10000 });
 
-      // Set slot reaches the body at BOTH breakpoints — the issue's case.
+      // The authored role value reaches the body at every tier — the issue's case.
       const set = await bodyType(0);
-      expect(set.fontSize).toBe('22px');
-      expect(set.fontWeight).toBe('850');
+      expect(set.fontSize, `authored size @${width}`).toBe('22px');
+      expect(set.fontWeight, `authored weight @${width}`).toBe('850');
 
-      // Unset renders byte-identically to today: weight 430 at both breakpoints,
-      // size 1.065rem (desktop) / 1rem (mobile) resolved against the page's own root
-      // font-size — the exact historical literal, and NOT the set section's value.
+      // Unset renders byte-identically to v1: weight 430 at every tier, size 1.065rem at
+      // desktop AND tablet, 1rem at phone, resolved against the page's own root font-size
+      // — the exact historical literals, and NOT the authored band's value.
       const unset = await bodyType(1);
-      expect(unset.fontWeight).toBe('430');
+      expect(unset.fontWeight, `default weight @${width}`).toBe('430');
       const remFactor = width >= 768 ? 1.065 : 1;
-      expect(unset.fontSize).toBe(`${remFactor * unset.rootPx}px`);
+      expect(unset.fontSize, `default size @${width}`).toBe(`${remFactor * unset.rootPx}px`);
       expect(unset.fontSize).not.toBe('22px');
     }
   });
@@ -2714,19 +2889,8 @@ test.describe('Safe-surface rendered proof', () => {
         '--cta-eyebrow-border-color': 'transparent',
       },
     },
-    {
-      component: 'section',
-      props: { id: 'pp-sec01', body: '<p>Panel body.</p>' },
-      slots: {
-        '--section-border-width': '0px',
-        '--section-border-color': 'transparent',
-        '--section-panel-border-width': '0px',
-        '--section-panel-border-color': 'transparent',
-        '--section-eyebrow-border-width': '0px',
-        '--section-eyebrow-border-color': 'transparent',
-      },
-    },
-    // HERO'S ROW IS RETIRED, AND THE CASE IS INAPPLICABLE RATHER THAN UNPINNED (#986).
+    // HERO'S AND SECTION'S ROWS ARE RETIRED, AND THE CASE IS INAPPLICABLE RATHER THAN
+    // UNPINNED (#986, #1023).
     //
     // It was left here with an EMPTY slot map during the repricing, which made it vacuous:
     // `styleComponent()` refuses a v2 component with `no_style_slots`, so the row failed on
@@ -2736,10 +2900,20 @@ test.describe('Safe-surface rendered proof', () => {
     // Why hero cannot come back to this list: issue 332 is WP core injecting
     // `border-style: solid` through `:where([style*="border-width"])`, which matches on the
     // INLINE STYLE ATTRIBUTE. A v2 component emits none, so core's selector has nothing to
-    // match and the trigger class is unreachable for it. Hero is covered by the v2
-    // border-sink pin below, which asserts exactly that — a stronger statement than this
-    // row made, because it holds for every trigger core might add rather than the slots
+    // match and the trigger class is unreachable for it. Both are covered by the v2
+    // border-sink pin below, which asserts exactly that — a stronger statement than these
+    // rows made, because it holds for every trigger core might add rather than the slots
     // that happened to exist.
+    //
+    // Section's row left the same way at #1023, and its departure is the one that makes
+    // the #1026 landmine concrete: the issue-332 immunity baseline still forces
+    // `border-style: none; border-width: 0` on `.section__panel-row`, whose stated premise
+    // is "every element that can carry inline slot custom properties". That premise is now
+    // FALSE — section emits no style attribute anywhere. The baseline is deliberately NOT
+    // narrowed here: section's `_band` border default is zero-width/transparent, which is
+    // byte-identical to what the baseline forces, so the collision is invisible and the
+    // trap does not bite. Narrowing it needs its own before/after Chromium read, which is
+    // #1026's to do when grid follows.
   ];
 
   // Guard the guard. Derived from schema.json, NOT compared to a hardcoded count: a
@@ -2764,8 +2938,11 @@ test.describe('Safe-surface rendered proof', () => {
 
     const covered = new Set(BORDER_TRIGGER_CASES.flatMap((c) => Object.keys(c.slots)));
 
-    // Fail-closed floor: 13 trigger slots existed at issue 332.
-    expect(declared.size).toBeGreaterThanOrEqual(13);
+    // Fail-closed floor: 13 trigger slots existed at issue 332; 11 remain after section's
+    // `--section-border-width` and `--section-panel-border-width` left with its slot map
+    // (#1023). The floor tracks the v1 surface, which shrinks one rebuild sprint at a
+    // time — it is NOT a statement that the theme has fewer borders.
+    expect(declared.size).toBeGreaterThanOrEqual(11);
     expect([...covered].sort()).toEqual([...declared].sort());
   });
 
@@ -2871,6 +3048,26 @@ test.describe('Safe-surface rendered proof', () => {
       props: { id: 'pp-hero01', layout: 'split', title: 'Hero', image_url: '/x.png', image_alt: 'x' },
       udc: {
         media: { border: { width: '2px', style: 'solid', color: '#345678' } },
+        eyebrow: { border: { width: '3px', style: 'solid', color: '#876543' } },
+      },
+    },
+    {
+      // #1023. The `text-panel` layout is chosen deliberately: `.section__panel-row` is
+      // one of the three selectors the issue-332 immunity baseline still names, so this
+      // row renders the element whose premise the rebuild falsified and proves the sink
+      // is absent on it too — not only on the band root.
+      component: 'section',
+      rootSel: 'main > .section',
+      innerSel: '.section__panel',
+      props: {
+        id: 'pp-sec01',
+        layout: 'text-panel',
+        body: '<p>Body.</p>',
+        panel_heading: 'Panel',
+        panel_items: [{ label: 'A', value: '1' }],
+      },
+      udc: {
+        panel: { border: { width: '2px', style: 'solid', color: '#345678' } },
         eyebrow: { border: { width: '3px', style: 'solid', color: '#876543' } },
       },
     },
@@ -3406,8 +3603,10 @@ test.describe('Safe-surface rendered proof', () => {
   // (0,1,0), and the subheading is always the header's last child — so the
   // declared `margin-bottom: var(--space-lg)` computed to 0px on every page.
   // All three subheading-bearing components shared the bug.
+  // REPRICED AGAIN (#1023): section left this loop with its slots, exactly as
+  // testimonials did in Sprint 0. Its two header-rhythm halves are pinned on the roles in
+  // the v2 test below, which now covers both v2 components rather than one.
   for (const { component, slot, expected } of [
-    { component: 'section', slot: '--section-subheading-margin-bottom', expected: '16px' },
     { component: 'grid', slot: '--grid-subheading-margin-bottom', expected: '32px' },
   ]) {
     test(`#336 ${component} subheading keeps its bottom rhythm as the header's last child @smoke`, async ({
@@ -3481,12 +3680,11 @@ test.describe('Safe-surface rendered proof', () => {
   // a declaration-level assertion would not prove the slot survives the premium
   // override — only computed style does. 1.65rem @ 16px root = 26.4px.
   //
-  // REPRICED (v2 Sprint 0): testimonials left this loop with its slots. The header
-  // rhythm it pinned is not gone — it moved onto the UDC roles, where the same two
-  // halves are pinned in the v2 test that follows this loop.
+  // REPRICED (v2 Sprint 0, then #1023): testimonials left this loop with its slots, and
+  // section followed. The header rhythm they pinned is not gone — it moved onto the UDC
+  // roles, where the same two halves are pinned in the v2 test that follows this loop.
   // Pinned twice: unset -> the real rendered default, and set -> the operator wins.
   for (const { component, locator, slot, expected } of [
-    { component: 'section', locator: '.section__title', slot: '--section-heading-margin-bottom', expected: '26.4px' },
     { component: 'grid', locator: '.grid__heading', slot: '--grid-heading-margin-bottom', expected: '26.4px' },
   ]) {
     test(`#343 ${component} title keeps its slot-driven gap above the subheading @smoke`, async ({
@@ -3606,6 +3804,86 @@ test.describe('Safe-surface rendered proof', () => {
     expect(res.success, `udc header rhythm write: ${JSON.stringify(res)}`).toBe(true);
 
     await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+    expect(await sub.evaluate((el) => getComputedStyle(el).marginBottom)).toBe('61px');
+    expect(await head.evaluate((el) => getComputedStyle(el).marginBottom)).toBe('62px');
+  });
+
+  // The SECTION twin of the pair above (#1023). Written as its own test rather than
+  // parameterised over the two v2 components, because the two do not share the numbers
+  // that make the pin meaningful: testimonials rhythms at a flat 32px, and section's
+  // heading carries a BREAKPOINT MAP — 1.65rem at desktop and tablet, 1.25rem at phone.
+  //
+  // That map is the part worth a rendered pin. On v1 the value came from a base rule plus
+  // TWO premium breakpoint overrides (the #302 split), and #343's whole point was that a
+  // declaration-level assertion could not prove the slot survived the premium override.
+  // The role default replaces all three with one map, so the phone tier is read here
+  // explicitly — a collapse to a single tier would pass a desktop-only read.
+  test('#336/#343 the section header rhythm holds on its UDC roles, at every tier and when set @smoke', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E Section v2 Header Rhythm');
+    setComposition(pageId, [
+      {
+        component: 'section',
+        props: {
+          id: 'pp-sec01',
+          title: 'Title',
+          eyebrow: 'Kicker',
+          subheading: 'The title must not collide with the sub-heading below it.',
+          body: '<p>Body copy.</p>',
+        },
+      },
+    ]);
+
+    const head = page.locator('.section__title');
+    const sub = page.locator('.section__subheading');
+
+    // Unset -> the documented defaults, carried by the role-defaults block.
+    for (const [width, headingMb] of [[1280, '26.4px'], [768, '26.4px'], [375, '20px']] as const) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`/?page_id=${pageId}`);
+      await expect(sub).toBeVisible({ timeout: 10000 });
+
+      expect(
+        await head.evaluate((el) => getComputedStyle(el).marginBottom),
+        `title gap above the subheading @${width}`,
+      ).toBe(headingMb);
+      expect(
+        await sub.evaluate((el) => getComputedStyle(el).marginBottom),
+        `subheading keeps its bottom rhythm as the header's last child @${width}`,
+      ).toBe('16px');
+      expect(
+        await sub.evaluate((el) => el === el.parentElement?.lastElementChild),
+        'and it really is the last child — the condition that broke it in #336',
+      ).toBe(true);
+    }
+
+    // Set -> the author wins, through the validated v2 write path. Values no token
+    // resolves to, so a default leaking through is unmistakable.
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+    const res = await updateComposition(page, pageId, [
+      {
+        component: 'section',
+        props: {
+          id: 'pp-sec01',
+          title: 'Title',
+          eyebrow: 'Kicker',
+          subheading: 'The title must not collide with the sub-heading below it.',
+          body: '<p>Body copy.</p>',
+        },
+        udc: {
+          subheading: { spacing: { 'margin-bottom': '61px' } },
+          heading: { spacing: { 'margin-bottom': '62px' } },
+        },
+      },
+    ]);
+    expect(res.success, `udc header rhythm write: ${JSON.stringify(res)}`).toBe(true);
+
+    // Read at the PHONE tier deliberately: the authored flat value must override every
+    // tier of the default's map, not just the one that happens to match the viewport.
+    await page.setViewportSize({ width: 375, height: 900 });
     await page.goto(`/?page_id=${pageId}`);
     expect(await sub.evaluate((el) => getComputedStyle(el).marginBottom)).toBe('61px');
     expect(await head.evaluate((el) => getComputedStyle(el).marginBottom)).toBe('62px');
@@ -4636,7 +4914,20 @@ test.describe('chrome UDC renders (ruling A1)', () => {
    * (robust); the ::before content is checked tolerantly (CSSOM quotes `content`
    * inconsistently across engines).
    */
-  test('#339 text-panel check marker paints over the disc rule + honors its colour slot @smoke', async ({
+  // REPRICED FOR v2 (#1023). The GLYPH half is unchanged and still the point of #339:
+  // `panel_items_marker` beats the disc rule and paints a check. The COLOUR half moved —
+  // `--section-panel-marker-color` retired with section's slot map, because the mark is a
+  // `::before` and ruling A3 defers pseudo-elements, so no role can reach it. The colour
+  // is not authorable at all now (#1028): the rule reads `--pp-list-marker-color`, which
+  // is declared nowhere and registered as no design token, so the read's fallback for the
+  // MARKERS — `var(--color-accent)` — IS the rendered value, and it is the exact value
+  // this slot defaulted to. So the marker's rendered colour is unchanged and asserted as
+  // such; what is lost is any way to move it on its own.
+  //
+  // The narrowing is proved at the WRITE surface instead: the retired slot is refused,
+  // which is the half an author actually meets. (The separator is the one glyph whose
+  // fallback is NOT the accent — see the #1023 separator test for why it differs.)
+  test('#339/#1023 the panel check marker still beats the disc rule, and its colour slot is refused @smoke', async ({
     page,
   }) => {
     pageId = createPage('E2E Panel Check Marker');
@@ -4658,9 +4949,10 @@ test.describe('chrome UDC renders (ruling A1)', () => {
     await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
     await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
 
-    // A vivid colour no theme token uses, so a failure to reach the marker is obvious.
-    const res = await styleComponent(page, pageId, { '--section-panel-marker-color': '#ff0080' });
-    expect(res.success).toBe(true);
+    // THE NARROWING, at the surface an author meets: the retired slot is refused rather
+    // than accepted and silently ignored.
+    const refused = await styleComponent(page, pageId, { '--section-panel-marker-color': '#ff0080' });
+    expect(refused.success, 'a retired slot must be REFUSED, not stored and ignored').toBe(false);
 
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto(`/?page_id=${pageId}`);
@@ -4668,18 +4960,30 @@ test.describe('chrome UDC renders (ruling A1)', () => {
     const list = page.locator('.section__panel-list');
     await expect(list).toBeVisible({ timeout: 10000 });
 
-    // The disc rule is beaten: the <ul> renders no native marker.
+    // The disc rule is still beaten: the <ul> renders no native marker.
     const listStyle = await list.evaluate((el) => getComputedStyle(el).listStyleType);
     expect(listStyle).toBe('none');
 
-    // The glyph paints, in the operator's chosen colour.
+    // The glyph still paints, and in the SAME colour it always did — the markers' token
+    // fallback is the accent this slot defaulted to, so nothing moved for them.
     const marker = await page.locator('.section__panel-item').first().evaluate((el) => {
       const b = getComputedStyle(el, '::before');
-      return { content: b.content, color: b.color };
+      const accent = getComputedStyle(document.documentElement).getPropertyValue('--color-accent').trim();
+      return { content: b.content, color: b.color, accent };
     });
     expect(marker.content).not.toBe('none');
     expect(marker.content).not.toBe('normal');
-    expect(marker.color).toBe('rgb(255, 0, 128)');
+    // Compared against the token's own resolved value rather than a literal, so a retheme
+    // does not break the pin — the claim is "unchanged", not "this exact pink".
+    const probe = await page.evaluate((accent) => {
+      const el = document.createElement('span');
+      el.style.color = accent;
+      document.body.appendChild(el);
+      const rgb = getComputedStyle(el).color;
+      el.remove();
+      return rgb;
+    }, marker.accent);
+    expect(marker.color, 'the panel marker keeps the accent it always painted').toBe(probe);
   });
 
   test('#339 body check marker paints on the top-level list + honors its colour slot @smoke', async ({
@@ -4701,8 +5005,10 @@ test.describe('chrome UDC renders (ruling A1)', () => {
     await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
     await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
 
-    const res = await styleComponent(page, pageId, { '--section-body-marker-color': '#ff0080' });
-    expect(res.success).toBe(true);
+    // Same repricing as the panel marker above: the colour slot is refused at write, and
+    // the glyph keeps the accent it always painted.
+    const refused = await styleComponent(page, pageId, { '--section-body-marker-color': '#ff0080' });
+    expect(refused.success, 'a retired slot must be REFUSED, not stored and ignored').toBe(false);
 
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto(`/?page_id=${pageId}`);
@@ -4719,7 +5025,15 @@ test.describe('chrome UDC renders (ruling A1)', () => {
     });
     expect(marker.content).not.toBe('none');
     expect(marker.content).not.toBe('normal');
-    expect(marker.color).toBe('rgb(255, 0, 128)');
+    const accentRgb = await page.evaluate(() => {
+      const el = document.createElement('span');
+      el.style.color = getComputedStyle(document.documentElement).getPropertyValue('--color-accent').trim();
+      document.body.appendChild(el);
+      const rgb = getComputedStyle(el).color;
+      el.remove();
+      return rgb;
+    });
+    expect(marker.color, 'the body marker keeps the accent it always painted').toBe(accentRgb);
   });
 
   test('#339 an unstyled body list is unchanged — still a disc, no marker class @smoke', async ({
@@ -4851,17 +5165,28 @@ test.describe('chrome UDC renders (ruling A1)', () => {
     expect(arrow).toContain('→');
   });
 
-  test('#334 paired rows: mono font + per-row accent paint, row marker suppressed @smoke', async ({
+  test('#334/#1023 paired rows: mono panel + independent label/value type, row marker suppressed @smoke', async ({
     page,
   }) => {
-    // Cross-sheet PAINT proof (the #342 gap: a slot can validate yet never
-    // render). One page exercises all three parts of the capability:
-    //   - --section-panel-font: var(--font-mono) actually reaches the panel font;
-    //   - a per-row style recolours ONE row via the item_eligible --section-panel-text;
-    //   - a paired row shows NO marker glyph while a string bullet in the same
-    //     list still does (mixed list, marker on the <ul>).
+    // Cross-sheet PAINT proof (the #342 gap: a value can validate yet never render).
+    // Repriced for v2 (#1023) and the capability it proves CHANGED SHAPE — one part was
+    // retired and one part is new, so this is not a re-point:
+    //   - the mono panel is the `panel` role's `typography.family` (was a slot);
+    //   - THE PER-ROW ACCENT IS RETIRED. The engine addresses roles, not items, so a
+    //     `style` map on a paired row is an undeclared field now. What replaces it is
+    //     NOT a narrower version of the same thing: `panel-row-label` and
+    //     `panel-row-value` are INDEPENDENT roles, so the label and the value can be
+    //     typed differently on EVERY row — the spec-sheet composition the old
+    //     item_eligible slot could only approximate one row at a time. That is what is
+    //     asserted here instead, because it is what an author can now do;
+    //   - a paired row shows NO marker glyph while a string bullet in the same list
+    //     still does (mixed list, marker on the <ul>) — unchanged.
     pageId = createPage('E2E Panel Paired Rows');
-    setComposition(pageId, [
+    setComposition(pageId, [{ component: 'section', props: { id: 'pp-seed', body: '<p>Seed.</p>' } }]);
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+
+    const res = await updateComposition(page, pageId, [
       {
         component: 'section',
         props: {
@@ -4874,17 +5199,22 @@ test.describe('chrome UDC renders (ruling A1)', () => {
           panel_items: [
             'All checks passing',
             { label: 'WordPress', value: '6.7.1' },
-            { label: 'Uptime', value: '99.9%', style: { '--section-panel-text': '#22d3ee' } },
+            { label: 'Uptime', value: '99.9%' },
           ],
         },
-        style: { '--section-panel-font': 'var(--font-mono)' },
+        udc: {
+          panel: { typography: { family: '@font-mono' } },
+          'panel-row-label': { typography: { color: '#94a3b8' } },
+          'panel-row-value': { typography: { color: '#22d3ee' } },
+        },
       },
     ]);
+    expect(res.success, `udc write: ${JSON.stringify(res)}`).toBe(true);
 
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto(`/?page_id=${pageId}`);
 
-    // 1. The mono font slot reaches the panel.
+    // 1. The mono family reaches the panel through the role.
     const panel = page.locator('.section__panel');
     await expect(panel).toBeVisible({ timeout: 10000 });
     const font = await panel.evaluate((el) => getComputedStyle(el).fontFamily);
@@ -4904,12 +5234,41 @@ test.describe('chrome UDC renders (ruling A1)', () => {
       .evaluate((el) => getComputedStyle(el, '::before').content);
     expect(rowMarker).toBe('none');
 
-    // 3. The per-row accent recolours only the styled row (last row = Uptime).
-    const rowColor = await page
-      .locator('.section__panel-row')
-      .last()
-      .evaluate((el) => getComputedStyle(el).color);
-    expect(rowColor).toBe('rgb(34, 211, 238)');
+    // 3. THE REPLACEMENT CAPABILITY, rendered: the two halves of a row are typed
+    //    independently, on every row rather than one. The old per-row slot could recolour
+    //    a whole row; this distinguishes label from value, which is the composition the
+    //    panel exists for — and it is why the five panel-* text roles were NOT collapsed
+    //    into one `panel` role during the rebuild.
+    const rows = page.locator('.section__panel-row');
+    const rowCount = await rows.count();
+    expect(rowCount, 'both paired rows render').toBe(2);
+    for (let i = 0; i < rowCount; i++) {
+      const label = await rows.nth(i).locator('.section__panel-row-label').evaluate((el) => getComputedStyle(el).color);
+      const value = await rows.nth(i).locator('.section__panel-row-value').evaluate((el) => getComputedStyle(el).color);
+      expect(label, `row ${i} label`).toBe('rgb(148, 163, 184)');
+      expect(value, `row ${i} value`).toBe('rgb(34, 211, 238)');
+      expect(label).not.toBe(value);
+    }
+
+    // 4. THE RETIREMENT, at the write surface: a stored per-row `style` map is an
+    //    undeclared field now and is refused, rather than accepted and silently ignored.
+    //    Back to the admin first — the loop above left us on the front end, where
+    //    `window.ppAiChat` (and so the nonce the write needs) does not exist.
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+    const refused = await updateComposition(page, pageId, [
+      {
+        component: 'section',
+        props: {
+          id: 'pp-sec01',
+          layout: 'text-panel',
+          body: '<p>Left.</p>',
+          panel_heading: 'Runtime',
+          panel_items: [{ label: 'Uptime', value: '99.9%', style: { '--section-panel-text': '#22d3ee' } }],
+        },
+      },
+    ]);
+    expect(refused.success, 'a per-row style map must be REFUSED (#1024 owns the replacement)').toBe(false);
   });
 
   // #568 — a paired row had NO mobile rule: it kept its two-column geometry at every
@@ -4970,7 +5329,11 @@ test.describe('chrome UDC renders (ruling A1)', () => {
           panel_items: [
             'All checks passing',
             { label: 'Timeline', value: 'Six to eight weeks from kickoff to launch' },
-            { label: 'Included', value: 'Discovery, design, build, QA and a handover session' },
+            // LONG ENOUGH THAT THE WRAP COMPARISON BELOW CANNOT SATURATE. At the old
+            // 50-character length this value took 2 lines at the stacked measure and 3 at
+            // 170px on some faces, and 3 at BOTH on others — a one-step gap that a font
+            // change closes. See the assertion at the end of this test.
+            { label: 'Included', value: 'Discovery, design, build, QA and a handover session with the whole delivery team' },
             { label: 'Support and maintenance retainer', value: 'Optional' },
             { label: 'Docs', value: 'https://example.com/a-very-long-unbreakable-documentation-path' },
             // Half-rows: the renderer emits BOTH spans even when one side is empty
@@ -5100,11 +5463,24 @@ test.describe('chrome UDC renders (ruling A1)', () => {
       expect(r.labelColor).toBe(r.valueColor);
     }
 
-    // The per-row --section-panel-text override still recolours the WHOLE pair at
-    // mobile (the last row carries it), so the new label rule has not stolen the
-    // item_eligible slot from the label half.
-    expect(mobile.rows[mobile.rows.length - 1].labelColor).toBe('rgb(29, 78, 216)');
-    expect(mobile.rows[mobile.rows.length - 1].valueColor).toBe('rgb(29, 78, 216)');
+    // THE PER-ROW OVERRIDE IS RETIRED (#1023), and this pair of assertions is INVERTED
+    // rather than deleted, because the thing it was really guarding still matters.
+    //
+    // It used to prove that #568's new label rule had not stolen the item_eligible
+    // `--section-panel-text` slot from the label half — i.e. that BOTH halves of a
+    // per-row-styled pair took the override. There is no per-item styling in v2: the
+    // engine addresses roles, so a `style` map on a paired row is an undeclared field and
+    // the last row here (which still carries one in the fixture, deliberately) must render
+    // exactly like its siblings.
+    //
+    // The guard that replaces it is the same guard in the other direction: the label and
+    // the value of the LAST row must match the label and value of an ORDINARY row. If a
+    // per-item mechanism ever comes back through #1024, this is the assertion that will
+    // notice — and it notices whether the mechanism reaches one half or both.
+    const lastRow = mobile.rows[mobile.rows.length - 1];
+    const plainRow = mobile.rows[0];
+    expect(lastRow.labelColor, 'a stored per-row style must not recolour the label').toBe(plainRow.labelColor);
+    expect(lastRow.valueColor, 'a stored per-row style must not recolour the value').toBe(plainRow.valueColor);
 
     // 4: the inter-pair rhythm is 16px BETWEEN pairs, and nowhere else. Row 0 follows
     // the string bullet, so it keeps the list's own rhythm (accepted: the ruling is
@@ -5125,25 +5501,46 @@ test.describe('chrome UDC renders (ruling A1)', () => {
     expect(gap).toBe(4);
     expect(gap).toBeLessThan(mobile.rows[1].marginTop);
 
-    // The reported defect, measured: the longest value takes FEWER lines at the full
-    // stacked measure than it did in the old ~170px column. Measured as a difference
-    // against the SAME text in the SAME font at the two widths, not as an absolute
-    // line count — the theme ships no webfont, so an absolute count is a hostage to
-    // whichever face `system-ui` resolves to on the machine running the suite, and
-    // would go red on a font change that has nothing to do with this CSS.
+    // The reported defect, measured two ways — and the second one exists because the
+    // first is not as font-independent as it looks.
+    //
+    // THE ORIGINAL COMPARISON WAS A STEP FUNCTION WITH ONE STEP OF HEADROOM. Comparing
+    // the SAME text at two widths was meant to cancel the font out, since the theme ships
+    // no webfont and `system-ui` resolves to whatever the running machine has. It does not
+    // cancel: a line COUNT is quantised, so when the text needs 3 lines at BOTH widths the
+    // comparison collapses to `3 < 3` and goes red on a CSS change that never happened.
+    // Measured on the old 50-character value at the stacked 223px: the drop to 3 lines
+    // came at 210px under Liberation Sans, a 13px margin, and this machine resolves
+    // `system-ui` to WenQuanYi Zen Hei while CI resolves it to a Latin face — so the local
+    // run was never checking the same thing as CI. The value is longer now, which puts a
+    // whole line between the two widths on every face tried (WenQuanYi, DejaVu, Liberation,
+    // Verdana, Times, serif, monospace: 3-vs-4 or better, Liberation 3-vs-5).
+    //
+    // AND THE CLAIM ITSELF IS A WIDTH, so it is now asserted as one. "Gives the value the
+    // full measure" is continuous and font-independent; the wrap count is the consequence.
     const wrap = await page
       .locator('#pp-sec-stack .section__panel-row-value')
-      .nth(1) // "Discovery, design, build, QA and a handover session" — the longest
+      .nth(1) // the "Included" value — the longest
       .evaluate((el: HTMLElement) => {
         const lh = parseFloat(getComputedStyle(el).lineHeight);
         const lines = () => Math.round(el.getBoundingClientRect().height / lh);
+        const naturalWidth = el.getBoundingClientRect().width;
         const atFullMeasure = lines();
         const prior = el.style.width;
         el.style.width = '170px'; // the pre-#568 column this value was squeezed into
         const atOldColumn = lines();
         el.style.width = prior;
-        return { atFullMeasure, atOldColumn };
+        return { atFullMeasure, atOldColumn, naturalWidth };
       });
+
+    // The fix itself: the stacked value gets the row's whole content box, not the ~170px
+    // column #568 reported. 223px at 375 (343 viewport-minus-page-padding, less the
+    // panel's 2 x --space-lg, less the list's --space-lg indent, less the row's 1.5rem
+    // marker indent). Asserted as a floor rather than an equality so a padding-token
+    // retune does not fail it, and well above 170 so a regression to the old column does.
+    expect(wrap.naturalWidth).toBeGreaterThan(200);
+
+    // The consequence, now with a full line of headroom on every face.
     expect(wrap.atFullMeasure).toBeLessThan(wrap.atOldColumn);
 
     // The single-row panel: nothing to follow, so no margin-top, and no trailing gap
@@ -7935,24 +8332,46 @@ test.describe('#437 inverted link contrast (rendered)', () => {
     mode: 'contrast' | 'staysAccent';
     minRatio?: number;
     openDetails?: boolean;
+    /**
+     * A v2 band's design (#1023). Its presence switches the fixture to the REAL write
+     * path: a `udc` map only scopes to a band whose id the engine minted, and raw meta
+     * mints nothing.
+     */
+    udc?: Record<string, unknown>;
   };
   const ACCENT_RGB = [49, 87, 244]; // --color-accent #3157f4, default palette
 
   const cases: Case[] = [
     {
-      name: 'section body link on the dark band → on-inverted (AA)',
+      // REPRICED (#1023). The v1 case asserted that `theme: "inverted"` ROUTED the link
+      // to an on-inverted colour automatically — a band-class mechanism section no longer
+      // has, and deliberately: v2 makes the author own contrast, which is the trade for
+      // being able to build a band the three-value theme bundle could not express.
+      //
+      // The claim worth keeping is the OUTCOME, not the mechanism: a dark section band's
+      // body link clears AA. So the band is authored dark the v2 way and the link colour
+      // is set on the `body-link` role, and the SAME 4.5:1 assertion runs against it. What
+      // this now proves is that the authored route actually reaches the rendered anchor —
+      // which is the thing an author following the migration table needs to be true, and
+      // the one a CSS-text pin cannot show.
+      name: 'section body link on an authored dark band → AA',
       composition: [
         {
           component: 'section',
           props: {
             id: 'pp-sec01',
-            theme: 'inverted',
-            title: 'Inverted section',
+            title: 'Dark section',
             body: '<p>Body copy with an inline <a href="/somewhere">text link</a> to prove contrast.</p>',
+          },
+          udc: {
+            _band: { background: { fill: '#0b1020' } },
+            heading: { typography: { color: '#ffffff' } },
+            body: { typography: { color: 'rgba(255, 255, 255, 0.82)' } },
+            'body-link': { typography: { color: '#9ec5ff', ':hover': { color: '#ffffff' } } },
           },
         },
       ],
-      linkSelector: '.pp-section--inverted .section__content a',
+      linkSelector: '.section__content a',
       mode: 'contrast',
       minRatio: 4.5,
     },
@@ -8086,7 +8505,16 @@ test.describe('#437 inverted link contrast (rendered)', () => {
   for (const c of cases) {
     test(`${c.name} @375 + @1280`, async ({ page }) => {
       pageId = createPage(`E2E 437 ${c.name}`);
-      setComposition(pageId, c.composition);
+      if (c.composition.some((b) => (b as { udc?: unknown }).udc)) {
+        // v2 bands need the validated write path so the engine mints a band id.
+        setComposition(pageId, [{ component: 'section', props: { id: 'pp-seed', body: '<p>Seed.</p>' } }]);
+        await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+        await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+        const res = await updateComposition(page, pageId, c.composition);
+        expect(res.success, `udc write for "${c.name}": ${JSON.stringify(res)}`).toBe(true);
+      } else {
+        setComposition(pageId, c.composition);
+      }
 
       for (const width of [375, 1280]) {
         await page.setViewportSize({ width, height: 900 });
@@ -8172,16 +8600,19 @@ test.describe('#461 bg-image band accent contrast (rendered)', () => {
   const WHITE_PNG =
     'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAACXBIWXMAAA7EAAAOxAGVKw4bAAAAFklEQVQImWP8//8/AwMDEwMDAwMDAwAkBgMBmjCi+wAAAABJRU5ErkJggg==';
 
+  // SECTION'S BAND LEFT THIS FIXTURE IN #1023, and the capability it tested left with it
+  // rather than moving. The scrim-plus-routing recipe was a band-class mechanism:
+  // `.section--has-bg-image` re-routed the accent surfaces to an on-overlay colour so an
+  // author who set a photograph got legible text without asking. A v2 band has no class,
+  // `background_image` is retired, and the author sets the colours — so there is no
+  // automatic routing left to measure a contrast ratio against.
+  //
+  // What replaced the GUARANTEE is not another automatic route; it is a disclosure ("YOU
+  // own the contrast", in section's README, the CHANGELOG and composition.md) plus the
+  // authored-dark-band AA pin in the #437 block above, which proves the authored route
+  // actually reaches the rendered anchor. cta and stats keep their rows until their own
+  // rebuilds, and this test keeps its full value for them.
   const bands = () => [
-    {
-      component: 'section',
-      props: {
-        id: 'pp-ov-sec',
-        background_image: WHITE_PNG,
-        title: 'Overlay section',
-        body: '<p>Body copy with an inline <a href="/somewhere">text link</a> on the image band.</p>',
-      },
-    },
     {
       component: 'cta',
       props: {
@@ -8206,12 +8637,11 @@ test.describe('#461 bg-image band accent contrast (rendered)', () => {
 
   // Each accent surface + the overlay element whose rendered rgba() sits behind it.
   const SURFACES = [
-    { name: 'section link', accent: '.section--has-bg-image .section__content a', overlay: '.section--has-bg-image .section__overlay' },
     { name: 'cta body link', accent: '.cta--has-bg-image .cta__body a', overlay: '.cta--has-bg-image .cta__overlay' },
     { name: 'stats number', accent: '.stats--has-bg-image .stats__number', overlay: '.stats--has-bg-image .stats__overlay' },
   ];
 
-  test('all three bg-image accent surfaces clear AA (4.5:1) over the overlay-over-white worst case @375 + @1280', async ({
+  test('every remaining bg-image accent surface clears AA (4.5:1) over the overlay-over-white worst case @375 + @1280', async ({
     page,
   }) => {
     pageId = createPage('E2E 461 overlay accent contrast');
@@ -8270,9 +8700,18 @@ test.describe('#461 bg-image band accent contrast (rendered)', () => {
     const SLOT = '#00e5ff'; // vivid cyan no token uses — a leak or clobber is obvious
     const b = bands();
     // Attach the per-instance style slot that each band's accent rule reads first.
-    (b[0].props as Record<string, unknown>).__pp_style = { '--section-body-link-color': SLOT };
-    (b[1].props as Record<string, unknown>).__pp_style = { '--cta-body-color': SLOT };
-    (b[2].props as Record<string, unknown>).__pp_style = { '--stats-number-color': SLOT };
+    // Indices moved when section's band left this fixture in #1023 — bound to the
+    // component name rather than the position so the next departure cannot silently
+    // attach a slot to the wrong band (which is what a positional edit would do).
+    const SLOTS: Record<string, string> = {
+      cta: '--cta-body-color',
+      stats: '--stats-number-color',
+    };
+    for (const band of b) {
+      const slot = SLOTS[band.component as string];
+      expect(slot, `no per-instance slot mapped for "${band.component}"`).toBeTruthy();
+      (band.props as Record<string, unknown>).__pp_style = { [slot]: SLOT };
+    }
     setComposition(pageId, b);
 
     for (const width of [375, 1280]) {
@@ -8312,18 +8751,18 @@ test.describe('#463 bg-image band title-accent + markers contrast (rendered)', (
   const WHITE_PNG =
     'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAACXBIWXMAAA7EAAAOxAGVKw4bAAAAFklEQVQImWP8//8/AwMDEwMDAwMDAwAkBgMBmjCi+wAAAABJRU5ErkJggg==';
 
+  // SECTION'S BAND AND ITS TWO SURFACES LEFT IN #1023, for the reason recorded on the
+  // #461 block above: the on-overlay routing was a band-class mechanism and a v2 band has
+  // no class. One of the two is worth naming separately, because it is a genuine
+  // capability loss rather than a transfer of responsibility — the LIST MARKER. Its
+  // colour is not authorable at all any more: the glyph is drawn with `content` on a
+  // `::before`, ruling A3 defers pseudo-elements, and the `--pp-list-marker-color` the
+  // rule reads is plumbing nothing can write (#1028). It renders `var(--color-accent)`.
+  // So on a dark v2 band an author who needs a legible marker has exactly one move —
+  // `update_design_token` on `--color-accent` itself, which recolours every accent on the
+  // site. That is disclosed in section's README, the CHANGELOG and composition.md, and it
+  // is the sharp edge #1024's per-item work should look at.
   const bands = () => [
-    {
-      component: 'section',
-      props: {
-        id: 'pp-ov463-sec',
-        background_image: WHITE_PNG,
-        title: 'Overlay accent heading',
-        title_accent: 'accent',
-        body_marker: 'check',
-        body: '<p>Body copy on the image band.</p><ul><li>First point</li><li>Second point</li></ul>',
-      },
-    },
     {
       component: 'cta',
       props: {
@@ -8361,8 +8800,7 @@ test.describe('#463 bg-image band title-accent + markers contrast (rendered)', (
   // Each accent surface: the selector, an optional ::before pseudo (list marker glyph),
   // the per-instance slot the rule reads first, and the overlay whose rgba() sits behind it.
   const SURFACES = [
-    { name: 'section title-accent', accent: '.section--has-bg-image .section__title-accent', pseudo: '', slot: '--section-heading-accent-color', overlay: '.section--has-bg-image .section__overlay' },
-    { name: 'section list marker', accent: '.section--has-bg-image .section__content--marker-check > ul > li', pseudo: '::before', slot: '--section-body-marker-color', overlay: '.section--has-bg-image .section__overlay' },
+
     { name: 'cta title-accent', accent: '.cta--has-bg-image .cta__title-accent', pseudo: '', slot: '--cta-heading-accent-color', overlay: '.cta--has-bg-image .cta__overlay' },
     { name: 'stats heading-accent', accent: '.stats--has-bg-image .stats__heading-accent', pseudo: '', slot: '--stats-heading-accent-color', overlay: '.stats--has-bg-image .stats__overlay' },
   ];
@@ -8477,190 +8915,182 @@ test.describe('#439 cta body link renders as an anchor (rendered)', () => {
 });
 
 /*
- * #424 — inverted text-panel heading legibility (rendered proof).
+ * RETIRED TOGETHER IN #1023 — #424, #536 and #551, and one replacement below.
  *
- * A `theme: inverted` + `layout: text-panel` section renders a LIGHT panel box on the
- * dark band. The panel heading is `<h3 class="section__panel-heading">`, whose own rule
- * routes color through --section-panel-text (the panel's dark text). But the inverted
- * band's `h3` rule (0,1,1) outranked it and painted the panel heading in the band's
- * LIGHT title color — light-on-light, invisible on the light panel, while the panel LIST
- * items (not headings) stayed dark and legible. The css-lint pin proves the carve-out
- * selector shape; only getComputedStyle after the full cascade proves the browser
- * actually renders the panel heading in the panel's dark text at BOTH breakpoints, and
- * that the two color slots stay independently authorable.
+ * The three blocks that stood here pinned three cascade-reach defects on section's panel:
+ *
+ *   #424  a `theme: inverted` band's `h3` rule (0,1,1) outranked the panel heading's own
+ *         rule and painted it in the band's LIGHT title colour — light-on-light on the
+ *         panel's light surface.
+ *   #536  `.section__panel-cta` has no .hero/.cta ancestor, so the shared premium
+ *         `main .btn:not(...)` gradient was its only fill winner and a background-COLOUR
+ *         set on the band sat invisibly beneath it.
+ *   #551  the band's near-white overlay/on-inverted roles reached the panel CTA's label,
+ *         painting it onto the near-white panel at 1.04:1 and 1.99:1.
+ *
+ * ALL THREE HAD THE SAME CAUSE, and it is gone rather than relocated: a band-level rule
+ * reaching INTO the panel and outranking the panel's own. v2 emits a role's block
+ * unlayered and band-scoped, `theme` and `background_image` are retired so no band class
+ * exists to carry such a rule, and `panel_cta_variant` is retired so there is no variant
+ * set for a carve-out to contradict. There is nothing left to outrank the panel.
+ *
+ * WHAT IS NOT GONE is the user-facing guarantee all three protected: the panel is a
+ * self-contained light surface, and its heading and its CTA stay legible against IT no
+ * matter how dark the band behind it is. That guarantee is delivered by role defaults now
+ * (`panel` keeps v1's `@color-surface` fill and `@color-text` ink; `panel-heading` and
+ * `panel-cta` inherit from it) instead of by three carve-outs — so it is pinned once,
+ * below, on the case that used to break it.
+ *
+ * The v1 mechanisms' own retirement is pinned in the PHP suite: StyleSlotContractTest
+ * (the #536/#584 keystones) and SectionTextPanelTest.
  */
-test.describe('#424 inverted text-panel heading legibility (rendered)', () => {
+test.describe('#424/#536/#551 the panel stays a light surface under an authored dark band (rendered)', () => {
   let pageId = 0;
 
   test.afterEach(async () => {
-    if (pageId) {
-      try {
-        deletePage(pageId);
-      } catch {
-        /* already cleaned */
-      }
-      pageId = 0;
-    }
+    if (pageId) deletePage(pageId);
+    pageId = 0;
   });
 
-  // One inverted text-panel section: an on-band title plus a panel with a heading and
-  // list items. Reused by every case below (styled variants restyle component 0).
-  const invertedTextPanel = (extra: Record<string, unknown> = {}) => [
-    {
-      component: 'section',
-      props: {
-        id: 'pp-sec01',
-        theme: 'inverted',
-        layout: 'text-panel',
-        title: 'Included in every plan',
-        panel_heading: 'Included, no exceptions',
-        panel_items: ['First perk', 'Second perk', 'Third perk'],
-        ...extra,
+  test('panel surface, heading and CTA stay legible on a dark band @375 + @768 + @1280 @smoke', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E v2 Panel On Dark Band');
+    setComposition(pageId, [{ component: 'section', props: { id: 'pp-seed', body: '<p>Seed.</p>' } }]);
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+
+    // The band is authored as dark as v1's `inverted` was, and NOTHING is said about the
+    // panel — which is the whole point. An author who darkens a band must not have to know
+    // that the panel exists in order for it to stay readable.
+    const res = await updateComposition(page, pageId, [
+      {
+        component: 'section',
+        props: {
+          id: 'pp-sec01',
+          layout: 'text-panel',
+          title: 'Dark band',
+          body: '<p>Left column copy.</p>',
+          panel_heading: 'Included',
+          panel_items: ['First perk', { label: 'Uptime', value: '99.9%' }],
+          panel_cta_text: 'Get started',
+          panel_cta_url: '/signup',
+        },
+        udc: {
+          _band: { background: { fill: '#0b1020' } },
+          heading: { typography: { color: '#ffffff' } },
+          body: { typography: { color: 'rgba(255, 255, 255, 0.82)' } },
+          // The RING, authored at rest and on hover from ONE map. This is the v2
+          // replacement for #584's panel-CTA ring pair, which needed a positional twin
+          // slot so a chosen ring would survive the pointer. A `':hover'` nested inside
+          // `border` is emitted from the same map as the resting value, so the two cannot
+          // split — asserted rendered, below.
+          'panel-cta': { border: { color: '#7c3aed', ':hover': { color: '#ddd6fe' } } },
+        },
       },
-    },
-  ];
+    ]);
+    expect(res.success, `udc write: ${JSON.stringify(res)}`).toBe(true);
 
-  // Computed `color` of the first match of a selector, as the browser resolves it.
-  const colorOf = (page: any, selector: string) =>
-    page.locator(selector).first().evaluate((el: Element) => getComputedStyle(el).color);
-
-  // WCAG relative-luminance contrast of an element's text color against its first
-  // painted (opaque) ancestor background — the light panel surface here.
-  const contrastOf = (page: any, selector: string) =>
-    page.evaluate((sel: string) => {
-      const parseRgb = (s: string): number[] => (s.match(/[\d.]+/g) || []).map(Number);
-      const lum = (rgb: number[]): number => {
-        const f = (v: number) => {
-          v /= 255;
-          return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
-        };
-        return 0.2126 * f(rgb[0]) + 0.7152 * f(rgb[1]) + 0.0722 * f(rgb[2]);
+    const lum = (rgb: string) => {
+      const [r, g, b] = (rgb.match(/[\d.]+/g) ?? ['0', '0', '0']).slice(0, 3).map(Number);
+      const f = (c: number) => {
+        const s = c / 255;
+        return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
       };
-      const el = document.querySelector(sel);
-      if (!el) return 0;
-      const fg = parseRgb(getComputedStyle(el).color);
-      let node: Element | null = el;
-      let bg: number[] | null = null;
-      while (node) {
-        const p = parseRgb(getComputedStyle(node).backgroundColor);
-        if (p.length >= 3 && (p.length < 4 || p[3] > 0.5)) {
-          bg = p;
-          break;
-        }
-        node = node.parentElement;
-      }
-      if (!bg) bg = [255, 255, 255];
-      const L1 = lum(fg);
-      const L2 = lum(bg);
-      return (Math.max(L1, L2) + 0.05) / (Math.min(L1, L2) + 0.05);
-    }, selector);
+      return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
+    };
+    const ratio = (a: string, b: string) => {
+      const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p);
+      return (x + 0.05) / (y + 0.05);
+    };
 
-  // The regression itself: panel heading must render the panel's dark text (same color
-  // as the panel list items) and NOT the light on-band title color, at both breakpoints.
-  test('panel heading takes panel dark text, band title stays light @375 + @1280', async ({
-    page,
-  }) => {
-    pageId = createPage('E2E 424 base');
-    setComposition(pageId, invertedTextPanel());
-
-    for (const width of [375, 1280]) {
+    for (const width of [1280, 768, 375]) {
       await page.setViewportSize({ width, height: 900 });
       await page.goto(`/?page_id=${pageId}`);
+      // Park the virtual pointer OFF the page before every rest read. Playwright's mouse
+      // keeps its coordinates across setViewportSize() and goto(), and step 5 below hovers
+      // the CTA — so without this, iterations 2 and 3 would assert the "at rest" ring while
+      // the pointer was still over it, and the test would pass or fail on cursor position
+      // rather than on the cascade. (Review finding: the sibling hover blocks in this file
+      // avoid it by putting the width in the test NAME, giving each width a fresh context;
+      // this test folds the widths into one body, so it has to park the mouse itself.)
+      await page.mouse.move(0, 0);
+      await expect(page.locator('.section__panel')).toBeVisible({ timeout: 10000 });
 
-      await expect(page.locator('.section__panel-heading')).toBeVisible({ timeout: 10000 });
+      const read = await page.evaluate(() => {
+        const g = (sel: string) => {
+          const el = document.querySelector(sel) as HTMLElement | null;
+          return el ? { color: getComputedStyle(el).color, bg: getComputedStyle(el).backgroundColor } : null;
+        };
+        // The CTA needs its own reader. It is a BUTTON, so its label reads against the
+        // button's fill, not the panel — and that fill is a background-IMAGE (the shared
+        // premium gradient), so `backgroundColor` returns transparent. Reading the colour
+        // property alone is the exact inverse of the trap #536 documented: a gradient fill
+        // is invisible to a background-color read, the same way a background-colour is
+        // invisible under a gradient. Pull the gradient's stops so the ink can be compared
+        // against the surface it actually sits on.
+        const ctaEl = document.querySelector('.section__panel-cta') as HTMLElement | null;
+        const ctaCs = ctaEl ? getComputedStyle(ctaEl) : null;
+        return {
+          band: g('main > .section'),
+          bandTitle: g('.section__title'),
+          panel: g('.section__panel'),
+          heading: g('.section__panel-heading'),
+          cta: g('.section__panel-cta'),
+          item: g('.section__panel-item'),
+          ctaFillStops: ctaCs
+            ? (ctaCs.backgroundImage.match(/rgba?\([^)]*\)/g) ?? []).concat(
+                ctaCs.backgroundColor !== 'rgba(0, 0, 0, 0)' ? [ctaCs.backgroundColor] : [],
+              )
+            : [],
+        };
+      });
 
-      const heading = await colorOf(page, '.section__panel-heading');
-      const item = await colorOf(page, '.section__panel-item');
-      const title = await colorOf(page, '.pp-section--inverted .section__title');
-      const ratio = await contrastOf(page, '.section__panel-heading');
+      // 1. The panel is its own opaque LIGHT surface, not the dark band showing through.
+      //    This is the fact every one of the three retired blocks depended on.
+      expect(read.panel!.bg, `panel fill @${width}`).not.toBe('rgba(0, 0, 0, 0)');
+      expect(lum(read.panel!.bg), `panel must be lighter than the band @${width}`)
+        .toBeGreaterThan(lum(read.band!.bg));
 
-      // Heading routes through the SAME panel slot as the list items (both dark).
-      expect(heading, `@${width}: panel heading ${heading} != panel item ${item}`).toBe(item);
-      // Heading is NOT the light on-band title color (the exact pre-fix bug).
-      expect(heading, `@${width}: panel heading ${heading} must differ from band title ${title}`).not.toBe(title);
-      // And it is actually legible on the light panel.
-      expect(ratio, `@${width}: panel heading contrast ${ratio.toFixed(2)} on the light panel`).toBeGreaterThanOrEqual(4.5);
-    }
-  });
+      // 2. #424's defect: the heading must read against the PANEL, not take the band's
+      //    light title colour. Asserted as a ratio rather than a hex so a retheme moves
+      //    subject and control together.
+      expect(ratio(read.heading!.color, read.panel!.bg), `panel heading vs panel @${width}`)
+        .toBeGreaterThanOrEqual(4.5);
+      // Compared against the BAND TITLE's own rendered colour rather than a literal: #424
+      // was precisely "the panel heading took the band title's colour", so the control is
+      // that colour, whatever a retheme makes it.
+      expect(read.heading!.color, `panel heading must not take the band title colour @${width}`)
+        .not.toBe(read.bandTitle!.color);
 
-  // Slot independence, half 1: an explicit --section-panel-text moves the panel heading
-  // and must NOT bleed into the on-band title.
-  test('--section-panel-text moves the panel heading only @375 + @1280', async ({ page }) => {
-    pageId = createPage('E2E 424 panel-text slot');
-    setComposition(pageId, invertedTextPanel());
+      // 3. #551's defect, asked correctly: the CTA's label must read against WHATEVER IT
+      //    SITS ON. An unauthored `panel-cta` renders as the bare shared button, which is
+      //    filled by the premium gradient — so the control is every stop of that gradient,
+      //    and the WORST of them must still clear AA. Compared against the fill rather
+      //    than a literal so a retheme moves subject and control together.
+      expect(read.ctaFillStops!.length, `the panel CTA must be FILLED @${width} — an unfilled `
+        + 'button would put its label on the panel, which is #551 exactly')
+        .toBeGreaterThan(0);
+      const worstCta = Math.min(...read.ctaFillStops!.map((stop) => ratio(read.cta!.color, stop)));
+      expect(worstCta, `panel CTA ink vs its own fill @${width}`).toBeGreaterThanOrEqual(4.5);
 
-    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
-    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+      // 4. And a panel list item, which stayed legible even when #424 was live — kept so a
+      //    regression that darkened the whole panel is distinguishable from one that only
+      //    hit the heading.
+      expect(ratio(read.item!.color, read.panel!.bg), `panel item vs panel @${width}`)
+        .toBeGreaterThanOrEqual(4.5);
 
-    // A vivid color no theme token resolves to, so a leak is unmistakable.
-    const res = await styleComponent(page, pageId, { '--section-panel-text': '#ff0080' });
-    expect(res.success).toBe(true);
-
-    for (const width of [375, 1280]) {
-      await page.setViewportSize({ width, height: 900 });
-      await page.goto(`/?page_id=${pageId}`);
-      await expect(page.locator('.section__panel-heading')).toBeVisible({ timeout: 10000 });
-
-      const heading = await colorOf(page, '.section__panel-heading');
-      const item = await colorOf(page, '.section__panel-item');
-      const title = await colorOf(page, '.pp-section--inverted .section__title');
-      expect(heading, `@${width}: panel heading should honor --section-panel-text`).toBe('rgb(255, 0, 128)');
-      // The heading must move WITH the rest of the panel (the slot is the panel's,
-      // not a heading-only override), so the list items track it too.
-      expect(item, `@${width}: panel items should track the same --section-panel-text`).toBe('rgb(255, 0, 128)');
-      expect(title, `@${width}: --section-panel-text must not bleed into the band title`).not.toBe('rgb(255, 0, 128)');
-    }
-  });
-
-  // The parallel dark surface: a text-panel on a background-image section. The
-  // .section--has-bg-image class is added whenever background_image is set
-  // (independent of theme/layout), so its bare h2,h3 rule defeated the panel slot
-  // exactly like the inverted band. The image itself need not load — the class,
-  // overlay, and the panel's own opaque light surface are what drive the cascade.
-  test('bg-image text-panel: panel heading takes panel dark text, band title stays light @375 + @1280', async ({
-    page,
-  }) => {
-    pageId = createPage('E2E 424 bg-image');
-    setComposition(pageId, invertedTextPanel({ theme: 'default', background_image: '/pp-424-probe.jpg' }));
-
-    for (const width of [375, 1280]) {
-      await page.setViewportSize({ width, height: 900 });
-      await page.goto(`/?page_id=${pageId}`);
-
-      await expect(page.locator('.section--has-bg-image .section__panel-heading')).toBeVisible({ timeout: 10000 });
-
-      const heading = await colorOf(page, '.section--has-bg-image .section__panel-heading');
-      const item = await colorOf(page, '.section--has-bg-image .section__panel-item');
-      const title = await colorOf(page, '.section--has-bg-image .section__title');
-      const ratio = await contrastOf(page, '.section--has-bg-image .section__panel-heading');
-
-      expect(heading, `@${width}: bg-image panel heading ${heading} != panel item ${item}`).toBe(item);
-      expect(heading, `@${width}: bg-image panel heading ${heading} must differ from band title ${title}`).not.toBe(title);
-      expect(ratio, `@${width}: bg-image panel heading contrast ${ratio.toFixed(2)} on the light panel`).toBeGreaterThanOrEqual(4.5);
-    }
-  });
-
-  // Slot independence, half 2: an explicit --section-heading-color moves the on-band title
-  // and must NOT reach into the self-contained panel heading.
-  test('--section-heading-color moves the band title only @375 + @1280', async ({ page }) => {
-    pageId = createPage('E2E 424 title-color slot');
-    setComposition(pageId, invertedTextPanel());
-
-    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
-    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
-
-    const res = await styleComponent(page, pageId, { '--section-heading-color': '#00e5ff' });
-    expect(res.success).toBe(true);
-
-    for (const width of [375, 1280]) {
-      await page.setViewportSize({ width, height: 900 });
-      await page.goto(`/?page_id=${pageId}`);
-      await expect(page.locator('.section__panel-heading')).toBeVisible({ timeout: 10000 });
-
-      const title = await colorOf(page, '.pp-section--inverted .section__title');
-      const heading = await colorOf(page, '.section__panel-heading');
-      expect(title, `@${width}: band title should honor --section-heading-color`).toBe('rgb(0, 229, 255)');
-      expect(heading, `@${width}: --section-heading-color must not reach the panel heading`).not.toBe('rgb(0, 229, 255)');
+      // 5. THE RING SURVIVES THE POINTER (#584's contract, v2 mechanism). The authored
+      //    resting colour paints, and hovering moves it to the authored hover colour
+      //    rather than reverting to the theme accent — which is what the slot era needed
+      //    a separate positional twin to achieve.
+      const cta = page.locator('.section__panel-cta');
+      expect(await cta.evaluate((el) => getComputedStyle(el).borderTopColor), `ring at rest @${width}`)
+        .toBe('rgb(124, 58, 237)');
+      await cta.hover();
+      await expect
+        .poll(async () => cta.evaluate((el) => getComputedStyle(el).borderTopColor), { timeout: 2000 })
+        .toBe('rgb(221, 214, 254)');
     }
   });
 });
@@ -9700,340 +10130,7 @@ test.describe('#543 filled second button is ringed on overlay bands (real WP)', 
   });
 });
 
-/**
- * #536 — the section's panel CTA is the last member of the #514 masked-fill class, and its
- * three new per-instance slots actually paint.
- *
- * `.section__panel-cta` has no .hero / .cta ancestor, so the shared premium
- * `main .btn:not(...)` cascade is its ONLY fill winner. That rule paints a `background:`
- * SHORTHAND carrying a gradient background-IMAGE, which sits above any background-COLOR the
- * section block sets — so before this change a branded section simply could not carry a
- * filled accent button through composition style slots. The defect class is invisible to
- * CSS-TEXT pins (a background-color under a gradient is present in the text and absent on
- * screen), so getComputedStyle in a real browser is the acceptance surface. Premium literals
- * are probe-resolved (the #458 idiom) rather than hardcoded, so the byte-identical-when-unset
- * assertions compare against the browser's own resolution of today's gradient.
- */
-test.describe('#536 section panel-CTA fill slots paint (real WP)', () => {
-  let pageId = 0;
 
-  const PANEL_PURPLE = '#7c3aed';
-  const PANEL_CTA = '.section__panel-cta';
-
-  test.afterEach(async () => {
-    if (pageId) {
-      deletePage(pageId);
-      pageId = 0;
-    }
-  });
-
-  // A text-panel section whose panel renders a CTA — the only shape in which the slots apply.
-  function panelPage(title: string, style?: Record<string, string>, variant?: string): number {
-    const id = createPage(title);
-    setComposition(id, [
-      {
-        component: 'section',
-        props: {
-          id: 'pp-536-section',
-          layout: 'text-panel',
-          title: 'Plans',
-          body: 'Pick the plan that fits.',
-          panel_heading: 'Starter',
-          panel_body: 'Everything you need to launch.',
-          panel_cta_text: 'Book a call',
-          panel_cta_url: '/contact',
-          ...(variant ? { panel_cta_variant: variant } : {}),
-        },
-        ...(style ? { style } : {}),
-      },
-    ]);
-    return id;
-  }
-
-  async function readPanelCta(page: any) {
-    return page.evaluate(() => {
-      const resolve = (prop: string, value: string) => {
-        const el = document.createElement('div');
-        el.style.setProperty(prop, value);
-        document.body.appendChild(el);
-        const out = getComputedStyle(el).getPropertyValue(prop);
-        el.remove();
-        return out.trim();
-      };
-      const el = document.querySelector('.section__panel-cta') as HTMLElement;
-      const cs = getComputedStyle(el);
-      return {
-        bgColor: cs.backgroundColor,
-        bgImage: cs.backgroundImage,
-        borderColor: cs.borderTopColor,
-        color: cs.color,
-        shadow: cs.boxShadow,
-        premiumGradient: resolve(
-          'background-image',
-          'linear-gradient(180deg, var(--color-accent-strong) 0%, var(--color-accent-hover) 100%)',
-        ),
-        purple: resolve('background-color', '#7c3aed'),
-        accentStrong: resolve('background-color', 'var(--color-accent-strong)'),
-        colorBg: resolve('background-color', 'var(--color-bg)'),
-      };
-    });
-  }
-
-  for (const width of [1280, 375]) {
-    test(`--section-panel-cta-bg clears the premium gradient and paints (${width}px) @smoke`, async ({
-      page,
-    }) => {
-      pageId = panelPage('E2E 536 fill', {
-        '--section-panel-cta-bg': PANEL_PURPLE,
-        '--section-panel-cta-color': '#fffbe6',
-        '--section-panel-cta-shadow': 'none',
-      });
-
-      await page.setViewportSize({ width, height: 900 });
-      await page.goto(`/?page_id=${pageId}`);
-      await expect(page.locator(PANEL_CTA)).toBeVisible({ timeout: 10000 });
-
-      const got = await readPanelCta(page);
-
-      expect(got.bgImage, `@${width}: the gradient must be cleared, not covering the slot`).toBe(
-        'none',
-      );
-      expect(got.bgColor, `@${width}: the panel CTA must paint --section-panel-cta-bg`).toBe(
-        got.purple,
-      );
-      // Border FOLLOWS the fill when --btn-border-color is unset (the #526 convention), so a
-      // fill-only recolor keeps a matching ring instead of a stray accent-strong outline.
-      expect(got.borderColor, `@${width}: the border must follow the fill`).toBe(got.purple);
-      expect(got.color, `@${width}: the panel CTA must paint the ink slot`).toBe(
-        'rgb(255, 251, 230)',
-      );
-      expect(got.shadow, `@${width}: `+'`none` must flatten the button').toBe('none');
-
-      // The elevation contract is rest AND hover (the #514 contract this slot mirrors):
-      // without --section-panel-cta-shadow in the premium HOVER chain the bevel re-grows
-      // mid-interaction, which a rest-only computed pin cannot see.
-      await page.addStyleTag({ content: '*,*::before,*::after{transition:none !important;}' });
-      await page.locator(PANEL_CTA).hover();
-      const hovered = await readPanelCta(page);
-      expect(hovered.shadow, `@${width}: `+'`none` must flatten hover too').toBe('none');
-    });
-  }
-
-  // Byte-identical when unset: the whole chain must bottom out at today's premium literals.
-  test('an unset panel CTA renders byte-identically @smoke', async ({ page }) => {
-    pageId = panelPage('E2E 536 unset');
-
-    await page.setViewportSize({ width: 1280, height: 900 });
-    await page.goto(`/?page_id=${pageId}`);
-    await expect(page.locator(PANEL_CTA)).toBeVisible({ timeout: 10000 });
-
-    const got = await readPanelCta(page);
-
-    expect(got.bgImage, 'unset panel CTA must keep the premium gradient').toBe(
-      got.premiumGradient,
-    );
-    expect(got.shadow, 'unset panel CTA must keep the premium bevel').not.toBe('none');
-    // The border and ink chains gained a link too (#536 routes --section-panel-cta-bg into
-    // the premium border chain and --section-panel-cta-color into the ink chain), so both
-    // need their own unset proof: a dropped fallback or a mis-nested paren there would leave
-    // the resting ring or label unpinned at the rendered level.
-    expect(got.borderColor, 'unset panel CTA must keep the premium accent ring').toBe(
-      got.accentStrong,
-    );
-    expect(got.color, 'unset panel CTA must keep the premium ink').toBe(got.colorBg);
-  });
-
-  // Variant carve-out: the fill slot must not flatten a transparent panel CTA into a
-  // look-alike filled button (the secondary-contrast defect class the premium :not() chain
-  // exists to prevent).
-  // All three transparent variants are named in the carve-out, so all three get a proof.
-  // The ELEVATION slot is asserted here too: wiring it one specificity tier lower (on the
-  // bare .section__panel-cta rule) escapes the carve-out and paints a drop shadow on a
-  // transparent button, which is exactly the contract lie schema.json would then be telling.
-  for (const variant of ['outline', 'ghost', 'secondary']) {
-    test(`the fill and elevation slots never reach a ${variant} panel CTA @smoke`, async ({
-      page,
-    }) => {
-      pageId = panelPage(
-        `E2E 536 ${variant}`,
-        { '--section-panel-cta-bg': PANEL_PURPLE, '--section-panel-cta-shadow': '0 8px 20px #000' },
-        variant,
-      );
-
-      await page.setViewportSize({ width: 1280, height: 900 });
-      await page.goto(`/?page_id=${pageId}`);
-      await expect(page.locator(PANEL_CTA)).toBeVisible({ timeout: 10000 });
-
-      const got = await readPanelCta(page);
-
-      expect(got.bgImage, `a ${variant} panel CTA must have no fill layer`).toBe('none');
-      expect(got.bgColor, `a ${variant} panel CTA must not take the fill slot`).not.toBe(
-        got.purple,
-      );
-      expect(got.shadow, `a ${variant} panel CTA must not take the elevation slot`).not.toContain(
-        '8px 20px',
-      );
-    });
-  }
-});
-
-/**
- * #551 — a transparent/light panel CTA on a DARK band must take its ink from the panel,
- * not from the band.
- *
- * `.section--has-bg-image a` [0,1,1] and `.pp-section--inverted a` [0,1,1] are band-WIDE,
- * and they outranked `.btn--outline` / `.btn--ghost` / `.btn--secondary` [0,1,0]. But the
- * only anchor those selectors reach inside the band is `.section__panel-cta`, which sits on
- * `.section__panel` — a self-contained LIGHT surface (--color-surface). So the band's
- * near-white overlay role (or the pale on-inverted tint) painted the button label onto a
- * near-white panel:
- *
- *   bg-image band   #fafbff on #f4f7fb = 1.04:1     inverted band  #9dafee on #f4f7fb = 1.99:1
- *
- * This is a CASCADE-REACH defect, so CSS-text pins can pass while the rendered button stays
- * invisible. getComputedStyle in a real browser is the acceptance surface (the same reason
- * #536 and #424 assert here). Assertions are written against the DEFAULT band as the control
- * rather than hardcoded hexes: the whole contract is "the panel CTA renders the same ink on
- * every band", so a theme retint moves control and subject together.
- */
-test.describe('#551 panel CTA ink resolves against the light panel, not the band (rendered)', () => {
-  const pageIds: number[] = [];
-
-  // Worst case for the overlay role: the scrim over a pure-WHITE image.
-  const WHITE_PNG =
-    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII=';
-
-  test.afterEach(async () => {
-    while (pageIds.length) deletePage(pageIds.pop() as number);
-  });
-
-  // One text-panel section: a band link in the body (the byte-identity control) and a
-  // panel CTA in the panel (the subject).
-  function bandPage(title: string, variant: string, band: 'default' | 'inverted' | 'bgimage'): number {
-    const id = createPage(title);
-    pageIds.push(id);
-    setComposition(id, [
-      {
-        component: 'section',
-        props: {
-          id: 'pp-551-section',
-          layout: 'text-panel',
-          title: 'Plans',
-          body: '<p>Body copy with an <a href="/pricing">on-band link</a>.</p>',
-          panel_heading: 'Starter',
-          panel_body: 'Everything a small team needs.',
-          panel_cta_text: 'Book a strategy call with our solutions team',
-          panel_cta_url: '/contact',
-          panel_cta_variant: variant,
-          ...(band === 'inverted' ? { theme: 'inverted' } : {}),
-          ...(band === 'bgimage' ? { background_image: WHITE_PNG } : {}),
-        },
-      },
-    ]);
-    return id;
-  }
-
-  const colorOf = (page: any, selector: string) =>
-    page.locator(selector).first().evaluate((el: Element) => getComputedStyle(el).color);
-
-  // Contrast of an element's ink against the first opaque painted ancestor background.
-  const contrastOf = (page: any, selector: string) =>
-    page.evaluate((sel: string) => {
-      const parseRgb = (s: string): number[] => (s.match(/[\d.]+/g) || []).map(Number);
-      const lum = (rgb: number[]): number => {
-        const f = (v: number) => {
-          v /= 255;
-          return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
-        };
-        return 0.2126 * f(rgb[0]) + 0.7152 * f(rgb[1]) + 0.0722 * f(rgb[2]);
-      };
-      const el = document.querySelector(sel);
-      if (!el) return 0;
-      const fg = parseRgb(getComputedStyle(el).color);
-      let node: Element | null = el;
-      let bg = [255, 255, 255];
-      while (node) {
-        const c = parseRgb(getComputedStyle(node).backgroundColor);
-        if (c.length >= 3 && (c.length < 4 || c[3] > 0)) {
-          bg = c.slice(0, 3);
-          break;
-        }
-        node = node.parentElement;
-      }
-      const [l1, l2] = [lum(fg), lum(bg)];
-      return (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05);
-    }, selector);
-
-  // The transparent/light variants are the ones the band rule broke. `primary` is the
-  // control: the premium chain [0,4,1] always outranked the band rule, so it never moved.
-  for (const variant of ['outline', 'ghost', 'secondary']) {
-    for (const width of [1280, 375]) {
-      // One case is promoted to @smoke so this accessibility defect is guarded on EVERY
-      // PR, not only in the nightly full run: `ghost` at 1280 is the worst of the set —
-      // it has no border either, so before the fix the button disappeared completely
-      // (1.04:1 label on a transparent fill). The remaining variants and the 375 width
-      // stay in the full suite to keep the smoke subset fast.
-      const smoke = variant === 'ghost' && width === 1280 ? ' @smoke' : '';
-      test(`${variant} panel CTA takes panel ink on every band (${width}px)${smoke}`, async ({ page }) => {
-        await page.setViewportSize({ width, height: 900 });
-
-        // Control: the DEFAULT band, where no band ink rule applies at all.
-        const defaultId = bandPage(`E2E 551 ${variant} default ${width}`, variant, 'default');
-        await page.goto(`/?page_id=${defaultId}`);
-        await expect(page.locator('.section__panel-cta')).toBeVisible({ timeout: 10000 });
-        const controlInk = await colorOf(page, '.section__panel-cta');
-
-        for (const band of ['inverted', 'bgimage'] as const) {
-          const id = bandPage(`E2E 551 ${variant} ${band} ${width}`, variant, band);
-          await page.goto(`/?page_id=${id}`);
-          await expect(page.locator('.section__panel-cta')).toBeVisible({ timeout: 10000 });
-
-          const ink = await colorOf(page, '.section__panel-cta');
-          const ratio = await contrastOf(page, '.section__panel-cta');
-
-          expect(
-            ink,
-            `@${width} ${band}/${variant}: panel CTA ink ${ink} must match the default-band control ${controlInk} — the panel is a LIGHT surface on every band`,
-          ).toBe(controlInk);
-          expect(
-            ratio,
-            `@${width} ${band}/${variant}: panel CTA contrast ${ratio.toFixed(2)} on the light panel (was 1.04 bg-image / 1.99 inverted before #551)`,
-          ).toBeGreaterThanOrEqual(4.5);
-        }
-      });
-    }
-  }
-
-  // BYTE-IDENTITY CONTROL. The carve-out narrows the band rule's REACH and must not touch
-  // its behaviour where it still applies: an on-band link keeps the band role, and that
-  // role must remain visibly different from the panel CTA's panel-resolved ink.
-  for (const band of ['inverted', 'bgimage'] as const) {
-    test(`${band} band link keeps its on-band ink after the carve-out`, async ({ page }) => {
-      await page.setViewportSize({ width: 1280, height: 900 });
-
-      const defaultId = bandPage(`E2E 551 bandlink default ${band}`, 'outline', 'default');
-      await page.goto(`/?page_id=${defaultId}`);
-      await expect(page.locator('.section__content a')).toBeVisible({ timeout: 10000 });
-      const defaultBandLink = await colorOf(page, '.section__content a');
-
-      const id = bandPage(`E2E 551 bandlink ${band}`, 'outline', band);
-      await page.goto(`/?page_id=${id}`);
-      await expect(page.locator('.section__content a')).toBeVisible({ timeout: 10000 });
-
-      const bandLink = await colorOf(page, '.section__content a');
-      const panelCta = await colorOf(page, '.section__panel-cta');
-
-      expect(
-        bandLink,
-        `${band}: the on-band link must still take the dark-band accent role, not the light-surface accent ${defaultBandLink}`,
-      ).not.toBe(defaultBandLink);
-      expect(
-        bandLink,
-        `${band}: the band link and the panel CTA must resolve against DIFFERENT surfaces`,
-      ).not.toBe(panelCta);
-    });
-  }
-});
 
 /**
  * Per-instance button slots never reach an author-written nested `.btn` (#545, real WP).
@@ -10061,6 +10158,35 @@ test.describe('#545 per-instance button slots stay off nested author buttons (re
       pageId = 0;
     }
   });
+
+  /**
+   * The v2 half (#1023): author the panel CTA through its ROLE, via the validated write
+   * path, because a `udc` map only scopes to a band whose id the engine minted. Returns
+   * the page id so the caller reads it exactly as it reads `sectionPage()`'s.
+   */
+  async function sectionPageUdc(page: any, title: string, udc: Record<string, unknown>): Promise<number> {
+    const id = sectionPage(title);
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+    const res = await updateComposition(page, id, [
+      {
+        component: 'section',
+        props: {
+          id: 'pp-545-section',
+          layout: 'text-panel',
+          title: 'Plans',
+          body: '<p>Pick a plan. <a class="btn" href="/x">Inline CTA</a> '
+            + '<a class="btn btn--outline" href="/y">Outline CTA</a></p>',
+          panel_heading: 'Starter',
+          panel_cta_text: 'Book a call',
+          panel_cta_url: '/contact',
+        },
+        udc,
+      },
+    ]);
+    expect(res.success, `udc write: ${JSON.stringify(res)}`).toBe(true);
+    return id;
+  }
 
   function sectionPage(title: string, style?: Record<string, string>): number {
     const id = createPage(title);
@@ -10151,10 +10277,18 @@ test.describe('#545 per-instance button slots stay off nested author buttons (re
     test(`section: the panel fill slots paint the panel CTA and not the body button (${width}px) @smoke`, async ({
       page,
     }) => {
-      pageId = sectionPage('E2E 545 section', {
-        '--section-panel-cta-bg': PURPLE,
-        '--section-panel-cta-color': INK,
-        '--section-panel-cta-shadow': 'none',
+      // The three retired fill slots are the `panel-cta` role's three parameters now.
+      // The CONTRACT this test exists for is unchanged and is the reason it was repriced
+      // rather than retired: an authored button design must reach the button the component
+      // OWNS and must not leak onto an author-written `.btn` inside `body`. A role selector
+      // is narrower than the old premium cascade, so the isolation should hold by
+      // construction — "should" is what this proves.
+      pageId = await sectionPageUdc(page, 'E2E 545 section', {
+        'panel-cta': {
+          background: { fill: PURPLE },
+          typography: { color: INK },
+          shadow: { box: 'none' },
+        },
       });
 
       await page.setViewportSize({ width, height: 900 });
@@ -10163,8 +10297,8 @@ test.describe('#545 per-instance button slots stay off nested author buttons (re
 
       const got = await readButtons(page, '.section__panel-cta', '.section__content .btn');
 
-      // The slot still does its job (#536 stays green).
-      expect(got.owned.bgColor, `@${width}: the panel CTA must still paint the fill slot`).toBe(
+      // The role still does its job (what #536 proved for the slot).
+      expect(got.owned.bgColor, `@${width}: the panel CTA must still paint the authored fill`).toBe(
         got.purple,
       );
       expect(got.owned.shadow, `@${width}: the panel CTA must still flatten`).toBe('none');
@@ -10262,7 +10396,9 @@ test.describe('#545 per-instance button slots stay off nested author buttons (re
   // The GLOBAL tier is deliberately NOT neutralised: a site-wide button retheme must still
   // reach an author-written button, exactly as it reaches every composed one.
   test('a site-wide --btn-bg still repaints a nested author button @smoke', async ({ page }) => {
-    pageId = sectionPage('E2E 545 global tier', { '--section-panel-cta-bg': PURPLE });
+    pageId = await sectionPageUdc(page, 'E2E 545 global tier', {
+      'panel-cta': { background: { fill: PURPLE } },
+    });
 
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto(`/?page_id=${pageId}`);
@@ -10289,8 +10425,10 @@ test.describe('#545 per-instance button slots stay off nested author buttons (re
 
     expect(got.nested.bgColor, 'the global tier must still reach the nested button').toBe(teal);
     expect(got.nested.bgImage, 'a flat global fill clears the gradient there too').toBe('none');
-    // The per-instance slot still outranks the global tier on the button that owns it.
-    expect(got.owned.bgColor, 'the panel CTA keeps its per-instance fill').toBe(got.purple);
+    // The authored ROLE still outranks the global tier on the button that owns it — and by
+    // a cleaner route than the slot did: a role block is unlayered, so it does not depend
+    // on leading a fallback chain the way `--section-panel-cta-bg` had to.
+    expect(got.owned.bgColor, 'the panel CTA keeps its authored fill').toBe(got.purple);
   });
 });
 
@@ -11727,101 +11865,24 @@ test.describe('#577 dead and defeated style slots render', () => {
     }
   });
 
-  // ── A-2 / register row 2 — section theme bg + borders ──────────────────────
+  // ── A-2 / register row 2 — RETIRED IN #1023 ────────────────────────────────
   //
-  // `.pp-section--dark` and `.pp-section--inverted` set background-color and border-*
-  // as BARE LITERALS at [0,1,0], AFTER `.section`'s slot-routed declarations at equal
-  // specificity — so --section-bg / --section-border-* were dead on any themed section,
-  // while tests/AiContextTest.php already promised an author the override wins.
-
-  for (const [theme, themeBg] of [
-    ['muted', SURFACE],
-    ['inverted', INVERTED_BG],
-  ] as [string, string][]) {
-    test(`#577 row 2: --section-bg and the border slots win on a ${theme} section @smoke`, async ({
-      page,
-    }) => {
-      pageId = createPage(`E2E 577 section ${theme} slots`);
-      setComposition(pageId, [
-        { component: 'section', props: { id: 'pp-sec-themed', theme, title: 'Themed', body: '<p>Body.</p>' } },
-      ]);
-
-      // UNSET first: the theme literal must still be exactly what it always was.
-      await page.setViewportSize({ width: 1280, height: 900 });
-      await page.goto(`/?page_id=${pageId}`);
-      await expect(page.locator('#pp-sec-themed')).toBeVisible({ timeout: 10000 });
-      const before = await computed(page, '#pp-sec-themed', [
-        'background-color',
-        'border-top-width',
-        'border-top-color',
-        'border-bottom-width',
-        'border-bottom-color',
-      ]);
-      expect(before['background-color'], `${theme} unset background`).toBe(themeBg);
-      // Unset borders too, per theme. muted (.pp-section--dark) frames the band with
-      // 1px --color-border; inverted declares no border of its own, so it keeps
-      // .section's own 0/transparent. Both must survive the routing untouched.
-      const expectedBorder = theme === 'muted'
-        ? { width: '1px', color: BORDER }
-        : { width: '0px', color: 'rgba(0, 0, 0, 0)' };
-      expect(before['border-top-width'], `${theme} unset border-top-width`).toBe(expectedBorder.width);
-      expect(before['border-bottom-width'], `${theme} unset border-bottom-width`).toBe(expectedBorder.width);
-      expect(before['border-top-color'], `${theme} unset border-top-color`).toBe(expectedBorder.color);
-      expect(before['border-bottom-color'], `${theme} unset border-bottom-color`).toBe(expectedBorder.color);
-
-      // Now author all three slots through the real write path.
-      await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
-      await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
-      const res = await styleComponent(page, pageId, {
-        '--section-bg': LOUD_HEX,
-        '--section-border-width': LOUD_PX,
-        '--section-border-color': LOUD_HEX,
-      });
-      expect(res.success).toBe(true);
-
-      for (const width of [1280, 375]) {
-        await page.setViewportSize({ width, height: 900 });
-        await page.goto(`/?page_id=${pageId}`);
-        await expect(page.locator('#pp-sec-themed')).toBeVisible({ timeout: 10000 });
-        const after = await computed(page, '#pp-sec-themed', [
-          'background-color',
-          'border-top-width',
-          'border-top-color',
-          'border-bottom-width',
-          'border-bottom-color',
-        ]);
-        expect(after['background-color'], `${theme} --section-bg @${width}`).toBe(LOUD_COLOR);
-        expect(after['border-top-width'], `${theme} --section-border-width top @${width}`).toBe(LOUD_PX);
-        expect(after['border-bottom-width'], `${theme} --section-border-width bottom @${width}`).toBe(LOUD_PX);
-        expect(after['border-top-color'], `${theme} --section-border-color top @${width}`).toBe(LOUD_COLOR);
-        expect(after['border-bottom-color'], `${theme} --section-border-color bottom @${width}`).toBe(LOUD_COLOR);
-      }
-    });
-  }
-
-  test('#577 A-2: an unset MUTED section still paints the surface literal and its 1px framing borders', async ({
-    page,
-  }) => {
-    pageId = createPage('E2E 577 section muted byte-identical');
-    setComposition(pageId, [
-      { component: 'section', props: { id: 'pp-sec-muted', theme: 'muted', title: 'Muted', body: '<p>Body.</p>' } },
-    ]);
-    await page.setViewportSize({ width: 1280, height: 900 });
-    await page.goto(`/?page_id=${pageId}`);
-    await expect(page.locator('#pp-sec-muted')).toBeVisible({ timeout: 10000 });
-    const cs = await computed(page, '#pp-sec-muted', [
-      'background-color',
-      'border-top-width',
-      'border-top-color',
-      'border-bottom-width',
-      'border-bottom-color',
-    ]);
-    expect(cs['background-color']).toBe(SURFACE);
-    expect(cs['border-top-width']).toBe('1px');
-    expect(cs['border-bottom-width']).toBe('1px');
-    expect(cs['border-top-color']).toBe(BORDER);
-    expect(cs['border-bottom-color']).toBe(BORDER);
-  });
+  // Two tests stood here. They proved that `--section-bg` and `--section-border-*` beat
+  // `.pp-section--dark` / `.pp-section--inverted`, which set background-color and border-*
+  // as BARE LITERALS at [0,1,0] AFTER `.section`'s slot-routed declarations at equal
+  // specificity — so before #577 those slots were dead on any themed section while
+  // AiContextTest already promised an author the override wins.
+  //
+  // BOTH SIDES OF THAT CONFLICT ARE GONE, not one of them. There is no `theme` prop and no
+  // `.pp-section--*` class to emit a literal, and there are no `--section-*` slots to be
+  // defeated: a band's surface is the `_band` role's `background` and `border`, emitted
+  // UNLAYERED and band-scoped, so it cannot lose to a stylesheet rule at all. A test
+  // asserting one beats the other has nothing left to compare.
+  //
+  // The register row itself is still covered for a v1 component by row 3 below (cta's
+  // border slots against its bg-image shorthand), and the v2 side — an authored `_band`
+  // outranking every structural rule — is pinned by
+  // "#431/I35 no structural CSS outranks any declaration a v2 band block makes".
 
   // ── A-3 / register row 3 — bg-image cta borders ────────────────────────────
   //
@@ -11904,11 +11965,12 @@ test.describe('#577 dead and defeated style slots render', () => {
     page,
   }) => {
     pageId = createPage('E2E 577 inverted title accent');
+    // SECTION'S BAND LEFT THIS ROW IN #1023. The on-inverted accent routing is a
+    // band-class mechanism (`.pp-section--inverted` re-pointing the accent token), and a
+    // v2 band has no class: `theme` is retired, an author darkens a band with `_band`
+    // `background.fill`, and colours the `heading-accent` role themselves. The register
+    // row stays covered by cta until its own rebuild.
     setComposition(pageId, [
-      {
-        component: 'section',
-        props: { id: 'pp-sec-inv', theme: 'inverted', title: 'Ship faster today', title_accent: 'faster', body: '<p>Body.</p>' },
-      },
       {
         component: 'cta',
         props: {
@@ -11925,35 +11987,77 @@ test.describe('#577 dead and defeated style slots render', () => {
     for (const width of [1280, 375]) {
       await page.setViewportSize({ width, height: 900 });
       await page.goto(`/?page_id=${pageId}`);
-      await expect(page.locator('#pp-sec-inv .section__title-accent')).toBeVisible({ timeout: 10000 });
+      await expect(page.locator('#pp-cta-inv .cta__title-accent')).toBeVisible({ timeout: 10000 });
 
-      const sec = await computed(page, '#pp-sec-inv .section__title-accent', ['color']);
       const cta = await computed(page, '#pp-cta-inv .cta__title-accent', ['color']);
-      expect(sec.color, `inverted section title_accent @${width}`).toBe(ACCENT_ON_INVERTED);
       expect(cta.color, `inverted cta title_accent @${width}`).toBe(ACCENT_ON_INVERTED);
       // The defect this replaces: the bare light-surface accent on a dark band.
-      expect(sec.color).not.toBe(ACCENT);
       expect(cta.color).not.toBe(ACCENT);
     }
   });
 
+  // RE-HOMED FROM SECTION TO CTA (#1023), same reason as row 4 above: the claim is that a
+  // per-instance value outranks the BAND-CLASS on-inverted routing, and section has no
+  // band class to outrank any more. cta keeps both halves until its own rebuild.
   test('#577 A-4: a per-instance heading-accent slot still wins on an inverted band', async ({ page }) => {
     pageId = createPage('E2E 577 inverted title accent slot wins');
     setComposition(pageId, [
       {
-        component: 'section',
-        props: { id: 'pp-sec-inv', theme: 'inverted', title: 'Ship faster today', title_accent: 'faster', body: '<p>Body.</p>' },
+        component: 'cta',
+        props: { id: 'pp-cta-inv', theme: 'inverted', title: 'Ship faster today', title_accent: 'faster', button_text: 'Go', button_url: '/go' },
       },
     ]);
     await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
     await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
-    const res = await styleComponent(page, pageId, { '--section-heading-accent-color': LOUD_HEX });
+    const res = await styleComponent(page, pageId, { '--cta-heading-accent-color': LOUD_HEX });
     expect(res.success).toBe(true);
 
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto(`/?page_id=${pageId}`);
-    const cs = await computed(page, '#pp-sec-inv .section__title-accent', ['color']);
+    const cs = await computed(page, '#pp-cta-inv .cta__title-accent', ['color']);
     expect(cs.color).toBe(LOUD_COLOR);
+  });
+
+  /**
+   * THE v2 COUNTERPART of the two rows above, so the capability is proved rather than
+   * only its v1 mechanism retired.
+   *
+   * On v1 a dark band re-pointed the accent token through its band class, and a
+   * per-instance slot outranked that. v2 has neither: an author darkens the band with
+   * `_band` `background.fill` and colours `heading-accent` themselves — YOU own the
+   * contrast. What has to be true is that the authored role value actually reaches the
+   * accent span over the authored background, which is the half a CSS-text pin cannot
+   * show.
+   */
+  test('#1023 an authored heading-accent reaches the accent span on an authored dark band @smoke', async ({ page }) => {
+    pageId = createPage('E2E 1023 authored accent on dark band');
+    setComposition(pageId, [{ component: 'section', props: { id: 'pp-seed', body: '<p>Seed.</p>' } }]);
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+    const res = await updateComposition(page, pageId, [
+      {
+        component: 'section',
+        props: { id: 'pp-sec-dark', title: 'Ship faster today', title_accent: 'faster', body: '<p>Body.</p>' },
+        udc: {
+          _band: { background: { fill: '#0b1020' } },
+          heading: { typography: { color: '#ffffff' } },
+          'heading-accent': { typography: { color: LOUD_HEX } },
+        },
+      },
+    ]);
+    expect(res.success, `udc write: ${JSON.stringify(res)}`).toBe(true);
+
+    for (const width of [1280, 375]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`/?page_id=${pageId}`);
+      await expect(page.locator('#pp-sec-dark .section__title-accent')).toBeVisible({ timeout: 10000 });
+      const accent = await computed(page, '#pp-sec-dark .section__title-accent', ['color']);
+      const title = await computed(page, '#pp-sec-dark .section__title', ['color']);
+      expect(accent.color, `authored accent @${width}`).toBe(LOUD_COLOR);
+      // …and it is genuinely distinct from the heading it sits inside, so a role that
+      // silently inherited the heading colour would fail rather than look plausible.
+      expect(accent.color).not.toBe(title.color);
+    }
   });
 
   test('#577 A-4: a PLAIN (non-inverted) band still renders the bare accent', async ({ page }) => {
@@ -12688,30 +12792,35 @@ test.describe('#584 slot families, as rendered', () => {
   // ── A-38: the four new ring slots actually paint, and outrank the global knob ──────
 
   const RING_CASES = [
-    // HERO'S TWO RING ROWS ARE GONE (#986). They authored `--hero-button-border` /
-    // `--hero-button-hover-border` on a hero band; hero owns no button slots now, and its
-    // CTA ring is whatever the `cta` role (or the `button` preset) sets. The panel-CTA
-    // rows below keep this block's coverage of the ring-slot contract.
+    // HERO'S TWO RING ROWS ARE GONE (#986) AND SECTION'S PANEL-CTA ROW WITH THEM (#1023).
+    // Both components own no button slots now: hero's CTA ring is whatever the `cta` role
+    // (or the `button` preset) sets, and section's panel CTA is the `panel-cta` role's
+    // `border.color` with a `':hover'` nested in the same group — which is a STRONGER
+    // contract than the slot pair, because it needs no positional twin to survive the
+    // hover and no premium rule has to be led.
+    //
+    // cta keeps this block's coverage of the v1 ring-slot contract until its own rebuild
+    // (#1026), and it is the honest host: the slots this loop reads are cta's own, so
+    // nothing here is reading one component's slot through another's rule.
+    //
+    // The v2 replacement is pinned as RENDERED hover in the
+    // "#424/#536/#551 the panel stays a light surface" block, and as CSS text in
+    // SectionTextPanelTest.
     {
-      // The panel CTA's ring is decided by the SHARED premium rule, not by the section
-      // block's keystone. If the slot had only been routed in the keystone (the literal
-      // reading of the issue's single citation), this case would read the theme accent.
-      name: 'section panel CTA',
-      sel: '.section__panel-cta',
+      name: 'cta primary button',
+      sel: '.cta__button',
       component: (style: Record<string, string>) => ({
-        component: 'section',
+        component: 'cta',
         props: {
-          id: 'pp-s584',
-          layout: 'text-panel',
-          body: '<p>Body copy for the text panel band.</p>',
-          panel_heading: 'Panel',
-          panel_cta_text: 'Book a call',
-          panel_cta_url: '/call',
-          panel_cta_variant: 'primary',
+          id: 'pp-c584',
+          title: 'Ring contract',
+          body: 'Body copy for the cta band.',
+          button_text: 'Book a call',
+          button_url: '/call',
         },
         style,
       }),
-      slots: { rest: '--section-panel-cta-border', hover: '--section-panel-cta-hover-border' },
+      slots: { rest: '--cta-button-border', hover: '--cta-button-hover-border' },
     },
   ];
 

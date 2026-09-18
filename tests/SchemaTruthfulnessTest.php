@@ -151,7 +151,10 @@ class SchemaTruthfulnessTest extends TestCase
         // testimonials is absent: its heading size is the `heading` role's
         // `typography.size` default, which carries the shared scale's clamp() literal
         // directly rather than routing --pp-band-heading-size through a slot.
-        $bands = ['section', 'grid', 'cta', 'faq', 'stats', 'table', 'logos', 'embed'];
+        // section is absent since #1023 for the mirror-image reason: its `heading` role
+        // DOES route the shared scale, as `@pp-band-heading-size`, so the token still
+        // governs it — through the engine rather than through a slot.
+        $bands = ['grid', 'cta', 'faq', 'stats', 'table', 'logos', 'embed'];
         foreach ($bands as $component) {
             $slot = "--{$component}-heading-size";
             $slots = $this->slots($component);
@@ -265,16 +268,27 @@ class SchemaTruthfulnessTest extends TestCase
     public static function correctedEffectiveDefaults(): array
     {
         return [
-            ['section', '--section-heading-size', 'var(--pp-band-heading-size)'],
+            // Section's six rows left this provider at #1023. Every one of those
+            // corrected defaults survives as a ROLE default, which is where the
+            // correction now has to stay corrected:
+            //   --section-heading-size            -> heading.typography.size (@pp-band-heading-size)
+            //   --section-body-size / -weight     -> body.typography.size / .weight
+            //   --section-body-color              -> body.typography.color
+            //   --section-heading-margin-bottom   -> heading.spacing.margin-bottom
+            //   --section-body-measure            -> body.sizing.max-width, at 40rem
+            // THE MEASURE IS 40rem, AND AN EARLIER DRAFT OF THIS COMMENT SAID 49rem.
+            // v1 capped that element from four rules and 49rem is the one that WON among
+            // them — but `.section__content` sits inside `.section__body`, which capped at
+            // 40rem, so the 49rem literal never bound and 640px is what every v1 band
+            // actually rendered. Winning-rule reading vs rendered geometry; the rendered
+            // value is the one a port carries. The same wrapper capped the heading, the
+            // subheading and the trust strip, which is why all four roles default to
+            // 40rem. Role-side pins: MeasureSurfaceTest and SectionRoleDefaultsEmitTest.
             ['cta', '--cta-heading-size', 'var(--pp-band-heading-size)'],
             ['grid', '--grid-heading-size', 'var(--pp-band-heading-size)'],
             ['faq', '--faq-heading-size', 'var(--pp-band-heading-size)'],
             ['stats', '--stats-heading-size', 'var(--pp-band-heading-size)'],
-            ['section', '--section-body-size', '1.065rem'],
-            ['section', '--section-body-weight', '430'],
-            ['section', '--section-body-measure', '40rem'],
-            ['section', '--section-body-color', 'var(--color-text-secondary)'],
-            ['section', '--section-heading-margin-bottom', '1.65rem'],
+
             ['cta', '--cta-bg', 'var(--color-surface)'],
             ['cta', '--cta-border-width', '1px'],
             ['cta', '--cta-border-color', 'var(--color-border)'],
@@ -592,6 +606,76 @@ class SchemaTruthfulnessTest extends TestCase
             . 'the name and keeping the promise — that leaves the same false claim with nothing '
             . 'to catch it. A property no action can write (--pp-band-padding, '
             . '--pp-band-heading-size) is explained in ai-instructions/, not offered here.'
+        );
+    }
+
+    /**
+     * THE SAME FALSEHOOD WITHOUT THE ACTION NAME (#1028).
+     *
+     * The scan above keys on `update_design_token`, and the docblock says so honestly: it
+     * catches a NAME beside an ACTION. #1023 proved the seam that leaves. Section's rebuild
+     * retired three glyph-colour slots and its schema told an agent the colour "is the
+     * site-wide `--pp-list-marker-color` design token". Every word of the promise was there
+     * — site-wide, design token, a property name to write — and the action name was not, so
+     * the scan walked straight past it. The property is declared on no `:root` and
+     * registered as no token, so `update_design_token` refuses it; the route was fiction
+     * from the moment it was written, and it shipped through four review rounds.
+     *
+     * So this pin keys on the CLAIM VOCABULARY instead. A schema string that says "design
+     * token" is making a promise about a site-wide surface, and every `--name` in that
+     * string had better be one this component can actually reach. It is deliberately the
+     * same reachability set as the scan above — registry plus own slots plus chrome
+     * properties — so the two tests disagree about the TRIGGER and never about the answer.
+     *
+     * What it does not do, same honesty as its sibling: a string that makes the promise
+     * while naming no property at all still passes. That is prose comprehension. What it
+     * does buy is that the house's own phrasing for this promise cannot name a property
+     * that does not exist — which is the shape the real defect took, twice, in one schema.
+     *
+     * The "design token" phrasing is also why a retired slot name must not appear in such a
+     * sentence: `--section-separator-color` was never a design token, and a description
+     * that explains what it USED to be belongs in prose that does not make the promise.
+     */
+    public function testNoSchemaCallsAnUnregisteredPropertyADesignToken(): void
+    {
+        $scanned   = 0;
+        $claims    = 0;
+        $offenders = [];
+
+        foreach ($this->allSchemas() as $component => $schema) {
+            $reachable = $this->namesThisComponentCanReach($schema);
+            foreach ($this->everyString($schema) as $text) {
+                $scanned++;
+                if (stripos($text, 'design token') === false) {
+                    continue;
+                }
+                $claims++;
+                preg_match_all('/(--[a-z0-9-]+)/i', $text, $m);
+                foreach (array_unique($m[1]) as $name) {
+                    if (!isset($reachable[$name])) {
+                        $offenders[] = "{$component} calls {$name} a design token";
+                    }
+                }
+            }
+        }
+
+        // Two floors, for the two ways this pin can go quietly inert. The walk floor is the
+        // sibling scan's, measured the same way. The CLAIM floor proves the phrase is still
+        // house vocabulary — if every schema stopped saying "design token" tomorrow this
+        // test would pass on an empty set and tell nobody.
+        $this->assertGreaterThanOrEqual(1000, $scanned, 'the schema string walk collapsed');
+        $this->assertGreaterThanOrEqual(5, $claims, 'no schema string makes a design-token claim any more; this pin is inert');
+
+        $this->assertSame(
+            [],
+            array_unique($offenders),
+            'A schema calls a property a "design token" that pp_design_tokens() does not '
+            . 'register, so an agent reading it is told a site-wide retune exists that no '
+            . 'action can perform. This is the #1028 defect: the promise is what misleads, '
+            . 'and it misleads whether or not the sentence names update_design_token. State '
+            . 'what is actually reachable — a registered token, or this component\'s own '
+            . 'slot — or say plainly that the value is not authorable and explain the '
+            . 'mechanism in ai-instructions/ instead.'
         );
     }
 
@@ -922,9 +1006,13 @@ class SchemaTruthfulnessTest extends TestCase
         // contributor that a sibling element counts as a hover twin, which is exactly the
         // miss that leaves a real hover slot undeclared.
         $positionalTwins = [
-            'grid'    => ['--grid-item-link-color', '--grid-item-link-hover-color'],
-            'section' => ['--section-body-link-color', '--section-body-link-hover-color'],
-            'faq'     => ['--faq-question-color', '--faq-question-open-color'],
+            'grid' => ['--grid-item-link-color', '--grid-item-link-hover-color'],
+            // section's pair left at #1023, and it is the clearest case for why the
+            // twin discipline exists: rest and hover are now ONE role (`body-link`), so
+            // its `typography.color` and its `:hover` typography.color sit in the same
+            // map and cannot be set apart by accident. docs/explanation-cascade-layers.md
+            // §1b is the reason they had to move together.
+            'faq' => ['--faq-question-color', '--faq-question-open-color'],
         ];
         $perButtonCounterparts = [
             'cta'     => ['--cta-button-shadow', '--cta-button2-shadow'],
@@ -1378,16 +1466,29 @@ class SchemaTruthfulnessTest extends TestCase
      */
     public function testTheRedundantTextOnlyTitleRuleIsGone(): void
     {
+        // A-28 deleted the higher-specificity twin and kept the base rule. #1023 deleted
+        // the BASE rule too, because section is a v2 component and its heading size is
+        // the `heading` role's `typography.size`. Both halves of the original assertion
+        // therefore hold more strongly than before: neither rule exists, and the
+        // structural-CSS boundary in tests/js/css-lint.test.js is what keeps it that way
+        // — a font-size on any section selector in this file is now an outright offence,
+        // not merely a duplicate.
         $css = file_get_contents($this->themeRoot . '/assets/css/components.css');
         $this->assertStringNotContainsString(
             ".section--text-only .section__title {\n  font-size:",
             $css,
             'The deleted rule re-declared the base rule verbatim at higher specificity.'
         );
-        $this->assertStringContainsString(
-            ".section__title {\n  font-size: var(--section-heading-size, var(--pp-band-heading-size));",
-            $css,
-            'The base rule is the one that now carries every text-only section title.'
+        $this->assertStringNotContainsString(
+            '--section-heading-size',
+            preg_replace('#/\*.*?\*/#s', '', $css),
+            'The base rule went too: a v2 component declares no font-size in this file.'
+        );
+        $schema = json_decode(file_get_contents($this->themeRoot . '/components/section/schema.json'), true);
+        $this->assertSame(
+            '@pp-band-heading-size',
+            $schema['roles']['heading']['defaults']['typography']['size'],
+            'Every section title, on every layout, now takes its size from the one role default.'
         );
     }
 }

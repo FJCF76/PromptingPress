@@ -173,7 +173,7 @@ class ListShapedPropWriteEnforcementTest extends TestCase
             // The tested prop is the ONLY defect: every other required prop of the
             // component is supplied valid, or the missing-required-prop rule (which runs
             // first) would answer instead and the sweep would assert nothing.
-            $props = self::requiredSiblings($component);
+            $props = self::requiredSiblings($component) + self::sectionContext($component, $prop);
             $props[$prop] = ['aa' => $entry];
             $result = pp_validate_composition([['component' => $component, 'props' => $props]]);
             $this->assertInstanceOf(
@@ -271,6 +271,31 @@ class ListShapedPropWriteEnforcementTest extends TestCase
      * with the rule under test. Derived from the schema rather than hard-coded per
      * component, so a new required prop does not silently break the sweep.
      */
+    /**
+     * What a SECTION band needs beyond its required props so the tested prop is the only
+     * defect (#1023). Two rules run ahead of the shape rule and would answer instead:
+     *
+     *   - section declares no required prop but carries a `content_requirement`, so a
+     *     band with neither title, body nor body_items is refused for that instead;
+     *   - `refuse_props_when` refuses the panel props as `inert_prop` on a layout that
+     *     renders no panel, which is the rule section's rebuild added.
+     *
+     * Returned as a supplement rather than folded into requiredSiblings(), because
+     * neither of these is a REQUIRED prop and pretending otherwise would misdescribe the
+     * schema this sweep reads.
+     */
+    private static function sectionContext(string $component, string $prop): array
+    {
+        if ($component !== 'section') {
+            return [];
+        }
+        $context = ['title' => 'Content requirement satisfied'];
+        if (str_starts_with($prop, 'panel_')) {
+            $context['layout'] = 'text-panel';
+        }
+        return $context;
+    }
+
     private static function requiredSiblings(string $component): array
     {
         $schema = json_decode(
