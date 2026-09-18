@@ -117,18 +117,33 @@ class SectionTextPanelTest extends TestCase
         $this->assertStringNotContainsString('section__panel-cta', $html);
     }
 
-    public function testPanelCtaVariantAddsModifier(): void
+    /**
+     * `panel_cta_variant` retired at #1023; the two cases it had collapse into one.
+     *
+     * It was an enum of four bundled button treatments (primary/secondary/outline/ghost)
+     * that derived a `btn--<variant>` modifier. That bundle is exactly what the UDC
+     * expresses directly: the `panel-cta` role's `border`, `background` and `typography`,
+     * or one of the shipped `button` / `button-secondary` presets. So the button always
+     * renders as the bare `.btn` now, and a variant is a design the author applies rather
+     * than a name they pick from a closed list.
+     *
+     * Both old cases asserted the same underlying fact from opposite sides — a valid
+     * variant adds its modifier, an invalid one does not — and neither can be true now,
+     * so they become one assertion that no modifier is ever derived.
+     */
+    public function testThePanelCtaRendersAsTheBareButtonWithNoDerivedVariant(): void
     {
-        $html = $this->render($this->fullPanelProps(['panel_cta_variant' => 'outline']));
-        $this->assertStringContainsString('class="section__panel-cta btn btn--outline"', $html);
-    }
-
-    public function testPanelCtaInvalidVariantFallsBackToPrimary(): void
-    {
-        $html = $this->render($this->fullPanelProps(['panel_cta_variant' => 'rainbow']));
-        // primary is the bare .btn — no btn-- modifier.
+        $html = $this->render($this->fullPanelProps());
         $this->assertStringContainsString('class="section__panel-cta btn"', $html);
-        $this->assertStringNotContainsString('btn--rainbow', $html);
+        $this->assertStringNotContainsString('btn--', $html,
+            'no variant modifier is derived any more — the treatment is the role or a preset.');
+
+        $schema = json_decode(file_get_contents($this->themeRoot . '/components/section/schema.json'), true);
+        $this->assertArrayNotHasKey('panel_cta_variant', $schema['props']);
+        $this->assertArrayHasKey('panel_cta_variant', $schema['retired_props'],
+            'the retirement must offer a route, not just remove the prop.');
+        $this->assertStringContainsString('panel-cta', $schema['retired_props']['panel_cta_variant'],
+            'and the route must name the role that replaced it.');
     }
 
     public function testPanelCtaUrlIsEscaped(): void
@@ -238,16 +253,30 @@ class SectionTextPanelTest extends TestCase
 
     // ── Style slots reach the rendered root ───────────────────────────────
 
-    public function testPanelStyleSlotsRenderInlineOnRoot(): void
+    public function testPanelDesignCompilesIntoTheBandBlockNotAnInlineStyle(): void
     {
-        $html = $this->render($this->fullPanelProps([
-            '__pp_style' => [
-                '--section-panel-bg'   => '#0f172a',
-                '--section-panel-text' => '#f8fafc',
-            ],
-        ]));
-        $this->assertStringContainsString('--section-panel-bg: #0f172a', $html);
-        $this->assertStringContainsString('--section-panel-text: #f8fafc', $html);
+        // The same two values, followed to where they land. A v2 band emits no style
+        // attribute, so a panel surface and its ink are the `panel` role's
+        // `background.fill` and `typography.color`, emitted into the band's scoped block.
+        $item = [
+            'component' => 'section',
+            'id'        => 'pp-77aa22bb',
+            'props'     => $this->fullPanelProps(),
+            'udc'       => ['panel' => [
+                'background' => ['fill' => '#0f172a'],
+                'typography' => ['color' => '#f8fafc'],
+            ]],
+        ];
+        $this->assertNull(pp_udc_validate_map($item['udc'], 'section'));
+
+        $css = pp_udc_band_css($item);
+        $this->assertStringContainsString('[data-pp-band="pp-77aa22bb"] .section__panel{', $css);
+        $this->assertStringContainsString('background:#0f172a', $css);
+        $this->assertStringContainsString('color:#f8fafc', $css);
+
+        $html = $this->render($this->fullPanelProps(['__pp_udc_band' => 'pp-77aa22bb']));
+        $this->assertStringNotContainsString('style=', $html,
+            'no inline custom properties — the whole slot map is gone.');
     }
 
     // ── 2. Validation (shared engine) ─────────────────────────────────────
@@ -256,7 +285,7 @@ class SectionTextPanelTest extends TestCase
     {
         $composition = [[
             'component' => 'section',
-            'props'     => $this->fullPanelProps(['panel_cta_variant' => 'ghost']),
+            'props'     => $this->fullPanelProps(),
         ]];
         $this->assertTrue(
             pp_validate_composition($composition),
@@ -264,23 +293,29 @@ class SectionTextPanelTest extends TestCase
         );
     }
 
-    public function testTextPanelStyleSlotMapValidates(): void
+    /**
+     * The same six panel values, authored through the surface that replaced the slots.
+     *
+     * Rule 14.1 still applies: this goes through pp_validate_composition(), the real
+     * gate, not a raw meta write. What changed is that the six flat slot names became
+     * five GROUPS on one role, which is the whole point of the taxonomy — an author sets
+     * `border` once rather than reaching for three separately-named border slots.
+     */
+    public function testTextPanelPanelRoleMapValidates(): void
     {
         $composition = [[
             'component' => 'section',
             'props'     => ['body' => '<p>x</p>', 'layout' => 'text-panel', 'panel_heading' => 'H'],
-            'style'     => [
-                '--section-panel-bg'           => '#0f172a',
-                '--section-panel-border-color' => '#334155',
-                '--section-panel-border-width' => '1px',
-                '--section-panel-radius'       => '1rem',
-                '--section-panel-padding'      => '2rem',
-                '--section-panel-text'         => '#f8fafc',
-            ],
+            'udc'       => ['panel' => [
+                'background' => ['fill' => '#0f172a'],
+                'border'     => ['color' => '#334155', 'width' => '1px', 'radius' => '1rem'],
+                'spacing'    => ['padding' => '2rem'],
+                'typography' => ['color' => '#f8fafc'],
+            ]],
         ]];
         $this->assertTrue(
             pp_validate_composition($composition),
-            'All six --section-panel-* slots must validate against the shared style-slot engine.'
+            'The panel role must accept all five groups the six retired slots covered.'
         );
     }
 
@@ -311,20 +346,36 @@ class SectionTextPanelTest extends TestCase
         return $m[1] ?? '';
     }
 
-    public function testEveryPanelSlotConsumedWithFallbackInSectionBlock(): void
+    /**
+     * INVERTED at #1023. This was the dead-slot guard: a declared slot that no rule
+     * CONSUMES is a value an author can set and never see, so each of the six had to
+     * appear as `var(<slot>, <fallback>)` inside the component's block.
+     *
+     * The v2 equivalent of "declared but never consumed" is a role default the engine
+     * never emits, and the guard for it is structural rather than textual: the emitter
+     * reads the same `roles` block the schema declares, so a declared group cannot go
+     * unconsumed. What CAN still go wrong is the reverse — a stale slot name left behind
+     * in the stylesheet, reachable by nothing — so that is what this now asserts.
+     */
+    public function testNoRetiredPanelSlotIsStillConsumedInTheStylesheet(): void
     {
-        $block = $this->sectionBlock();
-        $slots = [
+        $css = preg_replace('#/\*.*?\*/#s', '', file_get_contents($this->themeRoot . '/assets/css/components.css'));
+        foreach ([
             '--section-panel-bg', '--section-panel-border-color', '--section-panel-border-width',
             '--section-panel-radius', '--section-panel-padding', '--section-panel-text',
-        ];
-        foreach ($slots as $slot) {
-            $this->assertMatchesRegularExpression(
-                '/var\(' . preg_quote($slot, '/') . ',/',
-                $block,
-                "{$slot} must be consumed as var({$slot}, <fallback>) inside the COMPONENT: section block."
-            );
+            '--section-panel-font', '--section-panel-marker-color',
+        ] as $slot) {
+            $this->assertStringNotContainsString($slot, $css,
+                "{$slot} is retired — a surviving consumption would be a rule nothing can reach.");
         }
+
+        // And the values live on the role instead, where the emitter reads them.
+        $schema = json_decode(file_get_contents($this->themeRoot . '/components/section/schema.json'), true);
+        $panel  = $schema['roles']['panel']['defaults'];
+        $this->assertSame('@color-surface', $panel['background']['fill']);
+        $this->assertSame('@space-lg', $panel['spacing']['padding']);
+        $this->assertSame('@radius', $panel['border']['radius']);
+        $this->assertSame('@color-text', $panel['typography']['color']);
     }
 
     public function testPanelListRestoresMarkersAndIndent(): void
@@ -335,8 +386,18 @@ class SectionTextPanelTest extends TestCase
             $block,
             'the panel list must restore disc markers stripped by the base reset (issue 104).'
         );
+        // The indent is the `panel-list` role's `spacing.padding-left` since #1023 — a
+        // token-valued padding is a design value whatever it is restoring, so it cannot
+        // live in a v2 component's stylesheet. The disc above still can: the global reset
+        // strips the marker and putting it back is normalize.
+        $schema = json_decode(file_get_contents($this->themeRoot . '/components/section/schema.json'), true);
+        $this->assertSame(
+            '@space-lg',
+            $schema['roles']['panel-list']['defaults']['spacing']['padding-left'],
+            'the panel list keeps its indent, as a role default.'
+        );
         $this->assertMatchesRegularExpression(
-            '/\.section__panel-list\s*\{[^}]*padding-left:\s*var\(--space-/s',
+            '/\.section__panel-list\s*\{[^}]*list-style:\s*disc/s',
             $block,
             'the panel list indent must use a spacing token.'
         );
@@ -346,8 +407,11 @@ class SectionTextPanelTest extends TestCase
     {
         // The panel column must top-align (align-items:start) rather than center
         // like the image variants — pinned inside a >=768px media rule.
+        // Not anchored to the at-rule's FIRST rule any more: since #1023 the desktop
+        // at-rule opens with the shared two-column track and the text-panel override
+        // follows it in the same block, which is the arrangement it describes.
         $this->assertMatchesRegularExpression(
-            '/@media \(min-width: 768px\)\s*\{\s*\.section--text-panel \.section__grid\s*\{[^}]*align-items:\s*start/s',
+            '/@media \(min-width: 768px\)\s*\{.*?\.section--text-panel \.section__grid\s*\{[^}]*align-items:\s*start/s',
             $this->componentsCss
         );
     }
@@ -469,36 +533,44 @@ class SectionTextPanelTest extends TestCase
         );
     }
 
-    public function testMarkerColorSlotsValidateAndMapInSectionBlock(): void
+    /**
+     * THE MARKER-COLOUR SLOTS ARE RETIRED, and this is the pin for the 7A-2 ruling.
+     *
+     * Both slots mapped onto the shared `--pp-list-marker-color` plumbing var, which is
+     * read by a `li::before`. Ruling A3 defers PSEUDO-ELEMENTS to their own ruling, so no
+     * role can address that glyph at any value — the colour has no v2 home, and inventing
+     * one would have pre-empted a ruling the owner has not made.
+     *
+     * The GLYPH CHOICE stays authorable, as the `body_marker` / `panel_items_marker`
+     * props, because a glyph is content. Only its colour went, and the rendered default
+     * does not move: the plumbing var falls back to `var(--color-accent)`, which is
+     * exactly what both slots defaulted to. Measured live exposure: zero marker-variant
+     * lists on any of the owner's five content pages.
+     *
+     * Recorded beside the item-grain deferral in the Addendum B draft's exclusion list,
+     * so the two open pseudo-element questions sit together.
+     */
+    public function testTheMarkerColoursAreRetiredButTheGlyphChoiceIsNot(): void
     {
-        // The two new colour slots pass the shared style-slot engine …
-        $composition = [[
-            'component' => 'section',
-            'props'     => ['body' => '<p>x</p>', 'layout' => 'text-panel', 'panel_heading' => 'H'],
-            'style'     => [
-                '--section-panel-marker-color' => '#ea3900',
-                '--section-body-marker-color'  => '#16a34a',
-            ],
-        ]];
-        $this->assertTrue(
-            pp_validate_composition($composition),
-            'Both marker-colour slots must validate against the shared style-slot engine.'
+        $css = preg_replace('#/\*.*?\*/#s', '', file_get_contents($this->themeRoot . '/assets/css/components.css'));
+        foreach (['--section-panel-marker-color', '--section-body-marker-color'] as $slot) {
+            $this->assertStringNotContainsString($slot, $css,
+                "{$slot} is retired — ruling A3 defers pseudo-elements, so it has no role home.");
+        }
+
+        // The shared glyph still paints, through the plumbing var's accent fallback.
+        $this->assertMatchesRegularExpression(
+            '/color:\s*var\(--pp-list-marker-color,\s*var\(--color-accent\)\)/',
+            $css,
+            'the marker glyph keeps the colour the retired slots defaulted to.'
         );
 
-        // … and are mapped onto the shared plumbing var INSIDE the section block
-        // (StyleSlotContractTest check 1 requires each slot consumed in its own
-        // block; the mapping is what satisfies it).
-        $block = $this->sectionBlock();
-        $this->assertMatchesRegularExpression(
-            '/--pp-list-marker-color:\s*var\(--section-panel-marker-color,/',
-            $block,
-            '--section-panel-marker-color must map onto --pp-list-marker-color in the section block.'
-        );
-        $this->assertMatchesRegularExpression(
-            '/--pp-list-marker-color:\s*var\(--section-body-marker-color,/',
-            $block,
-            '--section-body-marker-color must map onto --pp-list-marker-color in the section block.'
-        );
+        // And both glyph choices are still props, because a glyph is content.
+        $schema = json_decode(file_get_contents($this->themeRoot . '/components/section/schema.json'), true);
+        foreach (['body_marker', 'panel_items_marker'] as $prop) {
+            $this->assertSame(['disc', 'check', 'dash', 'arrow'], $schema['props'][$prop]['values'],
+                "{$prop} keeps its four glyphs.");
+        }
     }
 
     public function testSharedMarkerGlyphsDefinedOnceInStylesheet(): void
@@ -612,138 +684,149 @@ class SectionTextPanelTest extends TestCase
         $this->assertStringContainsString('Kept', $html);
     }
 
-    public function testPanelPairedRowPerRowStyleRendersInline(): void
+    /**
+     * THE FOUR PER-ROW STYLE TESTS, COLLAPSED INTO ONE RETIREMENT (#1023).
+     *
+     * They pinned `section.panel_items[].style` — a per-ROW style map rendered as inline
+     * custom properties on that row — from four sides: that a valid map rendered inline,
+     * that it validated through the shared engine, that an INELIGIBLE slot (a
+     * section-scoped one, which would paint nothing on a row) was refused, and that an
+     * invalid VALUE was refused.
+     *
+     * All four described a capability v2 has no address for. Roles are BAND-grain, so
+     * `panel-row` reaches every row in the band and nothing addresses one row; and §3.4
+     * forbids inline style emission outright, which is the mechanism all four assert.
+     *
+     * IT IS NOT A DELETION WITHOUT A ROUTE. Per-item addressing is the contract question
+     * staged as BUILD-SPEC Addendum B and gated on #1024, where the identical gap on
+     * grid's `items[].style` is the blocking case (4 of the owner's 5 content pages style
+     * one card differently). When that is ruled, these four cases come back at item
+     * grain — which is why the shape they pinned is written down here rather than lost.
+     */
+    public function testPerRowStyleIsRetiredWithNoInlineFallback(): void
     {
-        // A per-row style map (issue 306 mechanism) emits inline custom
-        // properties on the row element only.
+        $schema = json_decode(file_get_contents($this->themeRoot . '/components/section/schema.json'), true);
+        $this->assertArrayNotHasKey(
+            'style',
+            $schema['props']['panel_items']['items'],
+            'the per-row style map is retired — per-item addressing is gated on #1024.'
+        );
+
+        // A stored per-row style is inert at render rather than half-applied: the row
+        // renders with its content, and no style attribute reaches the DOM.
         $html = $this->render($this->fullPanelProps([
-            'panel_items' => [
-                ['label' => 'Plan', 'value' => 'Free'],
-                ['label' => 'Plan', 'value' => 'Pro', 'style' => ['--section-panel-text' => '#22d3ee']],
-            ],
+            'panel_items' => [['label' => 'Plan', 'value' => 'Pro', 'style' => ['--section-panel-text' => '#22d3ee']]],
         ]));
-        $this->assertMatchesRegularExpression(
-            '/<li class="section__panel-row" style="--section-panel-text: #22d3ee;">/',
-            $html
-        );
-        // The un-styled row carries no inline style attribute.
-        $this->assertMatchesRegularExpression('/<li class="section__panel-row">\s*<span class="section__panel-row-label">Plan<\/span>\s*<span class="section__panel-row-value">Free/', $html);
+        $this->assertStringContainsString('section__panel-row', $html, 'the row still renders');
+        $this->assertStringContainsString('Pro', $html, 'and keeps its content');
+        $this->assertStringNotContainsString('style=', $html,
+            'a v2 band emits no inline custom properties, on the band or on a row');
+
+        // The band-grain replacement reaches every row through the role.
+        $this->assertArrayHasKey('panel-row', $schema['roles']);
+        $this->assertContains('typography', $schema['roles']['panel-row']['groups']);
     }
 
-    // Validation — through the shared engine only (no second validator).
-
-    public function testPanelPairedRowStructuredFormPassesValidation(): void
+    public function testPanelFontValidatesWithMonoTokenThroughTheRole(): void
     {
-        $composition = [[
-            'component' => 'section',
-            'props'     => $this->fullPanelProps([
-                'panel_items' => ['A string bullet', ['label' => 'WordPress', 'value' => '6.7.1']],
-            ]),
-        ]];
-        $this->assertTrue(
-            pp_validate_composition($composition),
-            'A mixed string + paired-row panel_items array must validate.'
-        );
-    }
-
-    public function testPanelPairedRowStyleMapValidates(): void
-    {
-        $composition = [[
-            'component' => 'section',
-            'props'     => $this->fullPanelProps([
-                'panel_items' => [['label' => 'X', 'value' => 'Y', 'style' => ['--section-panel-text' => '#f8fafc']]],
-            ]),
-        ]];
-        $this->assertTrue(
-            pp_validate_composition($composition),
-            'A per-row style setting the item_eligible --section-panel-text slot must validate.'
-        );
-    }
-
-    public function testPanelPairedRowRejectsIneligibleSlot(): void
-    {
-        // --section-padding-top is a real section slot but is section-scoped, not
-        // item_eligible, so it renders nothing on a single row — the issue-323
-        // gate rejects it (reported-success-without-effect class).
-        $composition = [[
-            'component' => 'section',
-            'props'     => $this->fullPanelProps([
-                'panel_items' => [['label' => 'X', 'value' => 'Y', 'style' => ['--section-padding-top' => '4rem']]],
-            ]),
-        ]];
-        $result = pp_validate_composition($composition);
-        $this->assertInstanceOf(\WP_Error::class, $result);
-        $this->assertSame('invalid_style_slot', $result->get_error_code());
-    }
-
-    public function testPanelPairedRowRejectsInvalidStyleValue(): void
-    {
-        $composition = [[
-            'component' => 'section',
-            'props'     => $this->fullPanelProps([
-                'panel_items' => [['label' => 'X', 'value' => 'Y', 'style' => ['--section-panel-text' => 'notacolor']]],
-            ]),
-        ]];
-        $result = pp_validate_composition($composition);
-        $this->assertInstanceOf(\WP_Error::class, $result);
-        $this->assertSame('invalid_style_value', $result->get_error_code());
-    }
-
-    public function testPanelFontSlotValidatesWithMonoToken(): void
-    {
+        // Same capability, same token, one surface over: the `panel` role's
+        // `typography.family`. The reference spelling changes from CSS `var(--font-mono)`
+        // to the udc `@font-mono`, which is the engine's own reference grammar — and the
+        // engine checks the token's DECLARED TYPE (#972), so a font token is accepted
+        // here for the reason its value text happens to look right, not by luck.
         $composition = [[
             'component' => 'section',
             'props'     => ['body' => '<p>x</p>', 'layout' => 'text-panel', 'panel_heading' => 'H'],
-            'style'     => ['--section-panel-font' => 'var(--font-mono)'],
+            'udc'       => ['panel' => ['typography' => ['family' => '@font-mono']]],
         ]];
         $this->assertTrue(
             pp_validate_composition($composition),
-            '--section-panel-font must accept the --font-mono token via the shared engine.'
+            'the panel role must accept the --font-mono token through the shared engine.'
         );
     }
 
     // CSS contract (structure pins; the rendered paint lives in the E2E spec).
 
-    public function testPanelFontSlotConsumedInSectionBlock(): void
+    /**
+     * The slot's `inherit` fallback existed so an UNSET panel inherited the page font
+     * byte-identically. A role achieves that by declaring nothing: with no
+     * `typography.family` default the engine emits no `font-family` at all, which is
+     * strictly better than emitting `font-family: inherit` — same rendering, one fewer
+     * declaration, and nothing for a later rule to have to out-specify.
+     */
+    public function testAnUnsetPanelFontEmitsNoFontFamilyAtAll(): void
     {
-        $this->assertMatchesRegularExpression(
-            '/\.section__panel\s*\{[^}]*font-family:\s*var\(--section-panel-font,\s*inherit\)/s',
-            $this->sectionBlock(),
-            '--section-panel-font must be consumed as font-family: var(--section-panel-font, inherit) so an unset panel inherits the page font byte-identically.'
+        $schema = json_decode(file_get_contents($this->themeRoot . '/components/section/schema.json'), true);
+        $this->assertArrayNotHasKey(
+            'family',
+            $schema['roles']['panel']['defaults']['typography'],
+            'no shipped family default — an unset panel inherits the page font.'
+        );
+        $this->assertStringNotContainsString(
+            'font-family',
+            pp_udc_component_defaults_css('section'),
+            'and the emitter declares none for it.'
         );
     }
 
-    public function testPanelRowColorRoutesThroughPanelTextSlot(): void
+    /**
+     * A paired row took its colour from `--section-panel-text` specifically because that
+     * slot was `item_eligible` — a per-row override could then recolour one row. Both
+     * halves of that arrangement are gone: the slot with the rest, and per-item
+     * addressing pending #1024.
+     *
+     * What replaces it is inheritance, which is what the row wanted in the first place:
+     * the `panel` role sets `typography.color` on the surface and the row inherits it, so
+     * one authored value still colours every row.
+     */
+    public function testAPairedRowInheritsThePanelInk(): void
     {
-        $this->assertMatchesRegularExpression(
-            '/\.section__panel-row\s*\{[^}]*color:\s*var\(--section-panel-text,/s',
-            $this->sectionBlock(),
-            'A paired row must take its colour from the item_eligible --section-panel-text slot so a per-row override recolours it.'
-        );
+        $item = [
+            'component' => 'section',
+            'id'        => 'pp-33cc44dd',
+            'props'     => $this->fullPanelProps(),
+            'udc'       => ['panel' => ['typography' => ['color' => '#f8fafc']]],
+        ];
+        $css = pp_udc_band_css($item);
+        $this->assertStringContainsString('[data-pp-band="pp-33cc44dd"] .section__panel{', $css);
+        $this->assertStringContainsString('color:#f8fafc', $css);
+        $this->assertStringNotContainsString('.section__panel-row{color', $css,
+            'the row is not separately coloured — it inherits, so one value reaches every row.');
     }
 
     // ── #536 panel-CTA fill slots ─────────────────────────────────────────
 
     /**
-     * The three #536 slots emit as inline custom properties on the SECTION ROOT
-     * (the shared pp_render_style_vars path), which is how they inherit down to
-     * .section__panel-cta and reach the premium cascade that paints the fill.
+     * REBASED at #1023. The three slots rode the band ROOT and the premium `.btn` winner
+     * read them by inheritance — which is why the test asserted them on the root and
+     * then asserted the anchor markup was untouched.
+     *
+     * The `panel-cta` role addresses the anchor DIRECTLY, so the inheritance trick is not
+     * needed and the values land where they are aimed. The markup assertion is the half
+     * worth keeping unchanged: the anchor is still the bare `.btn`, because a role styles
+     * an element without needing a class to hang the styling on.
      */
-    public function testPanelCtaFillSlotsEmitOnSectionRoot(): void
+    public function testPanelCtaDesignLandsOnTheAnchorAndLeavesItsMarkupAlone(): void
     {
-        $html = $this->render($this->fullPanelProps([
-            '__pp_style' => [
-                '--section-panel-cta-bg'     => '#7c3aed',
-                '--section-panel-cta-color'  => '#ffffff',
-                '--section-panel-cta-shadow' => 'none',
-            ],
-        ]));
+        $item = [
+            'component' => 'section',
+            'id'        => 'pp-55ee66ff',
+            'props'     => $this->fullPanelProps(),
+            'udc'       => ['panel-cta' => [
+                'background' => ['fill' => '#7c3aed'],
+                'typography' => ['color' => '#ffffff'],
+                'shadow'     => ['box' => 'none'],
+            ]],
+        ];
+        $this->assertNull(pp_udc_validate_map($item['udc'], 'section'));
 
-        $this->assertStringContainsString('--section-panel-cta-bg: #7c3aed', $html);
-        $this->assertStringContainsString('--section-panel-cta-color: #ffffff', $html);
-        $this->assertStringContainsString('--section-panel-cta-shadow: none', $html);
-        // The slots ride the root, not the anchor: the premium winner reads them by
-        // inheritance, and the panel CTA markup itself stays untouched.
+        $css = pp_udc_band_css($item);
+        $this->assertStringContainsString('[data-pp-band="pp-55ee66ff"] .section__panel-cta{', $css);
+        $this->assertStringContainsString('background:#7c3aed', $css);
+        $this->assertStringContainsString('color:#ffffff', $css);
+        $this->assertStringContainsString('box-shadow:none', $css);
+
+        $html = $this->render($this->fullPanelProps());
         $this->assertMatchesRegularExpression(
             '/<a href="\/signup" class="section__panel-cta btn">/',
             $html,
@@ -808,42 +891,36 @@ class SectionTextPanelTest extends TestCase
     }
 
     /**
-     * #551: the four band-wide link-ink rules must carry the panel-CTA carve-out, so a
-     * transparent panel CTA on a dark band resolves its ink against the LIGHT panel
-     * instead of the band's overlay/inverted accent role. Rendered measurements on the
-     * light panel before the carve-out: 1.04:1 (bg-image) and 1.99:1 (inverted).
+     * THE #551 CARVE-OUT IS RETIRED BECAUSE ITS COLLISION CANNOT RECUR (#1023).
+     *
+     * It existed because `.pp-section--inverted a` and `.section--has-bg-image a` were
+     * BAND-WIDE anchor rules: they reached inside `.section__panel`, whose surface is
+     * light and author-controlled, and repainted the panel CTA with near-white band ink.
+     * The fix was `:not(.section__panel-cta)` on all four rules, rest and hover.
+     *
+     * Neither band class is emitted now — `theme` and `background_image` both retired —
+     * so there are no band-wide anchor rules to carve out of. And the replacement could
+     * not recreate the collision even if it wanted to: a section body link is the
+     * `body-link` role, whose selector is `.section__content a`, which cannot reach the
+     * panel. The carve-out is not needed rather than merely removed, and that distinction
+     * is what this test now records.
      */
-    public function testBandLinkInkIsCarvedOutOfThePanelCta(): void
+    public function testTheBandLinkInkCannotReachThePanelCtaAnyMore(): void
     {
-        $css = $this->sectionBlock();
+        $css = preg_replace('#/\*.*?\*/#s', '', file_get_contents($this->themeRoot . '/assets/css/components.css'));
 
-        foreach ([
-            '.section--has-bg-image a',
-            '.pp-section--inverted a',
-        ] as $band) {
-            $escaped = preg_quote($band, '/');
-
-            // The carved form exists, for both rest and hover.
-            $this->assertMatchesRegularExpression(
-                '/' . $escaped . ':not\(\.section__panel-cta\)\s*\{/s',
-                $css,
-                "$band must carve the panel CTA out of the band link ink (#551)."
-            );
-            $this->assertMatchesRegularExpression(
-                '/' . $escaped . ':not\(\.section__panel-cta\):hover\s*\{/s',
-                $css,
-                "$band:hover must carry the same carve-out — the hover role is near-white too."
-            );
-
-            // And the UNCARVED form is gone: a bare rule would re-break the CTA. The
-            // trailing class matches `{` (own rule) OR `,` (re-added inside a GROUPED
-            // selector, which is just as live and would otherwise slip past).
-            $this->assertDoesNotMatchRegularExpression(
-                '/' . $escaped . '\s*(?::hover\s*)?[{,]/s',
-                $css,
-                "the uncarved `$band` rule must not exist — it reaches inside .section__panel."
-            );
+        foreach (['.pp-section--inverted', '.section--has-bg-image'] as $band) {
+            $this->assertStringNotContainsString($band, $css,
+                "{$band} is not emitted any more, so no rule may still select it.");
         }
+        $this->assertStringNotContainsString(':not(.section__panel-cta)', $css,
+            'the carve-out is unnecessary now, not merely relocated.');
+
+        // The replacement is scoped by construction: the body-link role cannot select
+        // anything inside the panel.
+        $schema = json_decode(file_get_contents($this->themeRoot . '/components/section/schema.json'), true);
+        $this->assertSame('.section__content a', $schema['roles']['body-link']['selector'],
+            'a body link is scoped to the body container, which excludes the panel.');
     }
 
     /**
@@ -933,9 +1010,14 @@ class SectionTextPanelTest extends TestCase
             $mobile,
             'A paired row must stack to flex-direction: column below 768px.'
         );
-        $this->assertMatchesRegularExpression(
-            '/\.section__panel-row\s*\{[^}]*gap:\s*var\(--space-xs\)/s',
-            $mobile,
+        // The GAP is the `panel-row` role's `spacing.gap` since #1023 — `gap` is a
+        // designable value and cannot live in a v2 component's stylesheet — but it is
+        // still responsive and still tight on the phone, which is the behaviour this
+        // case is about. The stacking above stays structural.
+        $schema = json_decode(file_get_contents($this->themeRoot . '/components/section/schema.json'), true);
+        $this->assertSame(
+            '@space-xs',
+            $schema['roles']['panel-row']['defaults']['spacing']['gap']['p'],
             'The stacked intra-pair label->value gap must be the tight --space-xs step.'
         );
 
@@ -947,15 +1029,26 @@ class SectionTextPanelTest extends TestCase
         // every row after the first, INCLUDING the last, but only ever adds space
         // ABOVE a row — so it can never leave a trailing gap below the last row,
         // i.e. above a panel CTA.
+        // The inter-pair rhythm lives in the SHARED GLYPH AND PROSE MECHANISMS block
+        // since #1023, not in the component's own: it is an ADJACENT-SIBLING margin, and
+        // a role addresses one element — the UDC has no sibling dimension — so it cannot
+        // be a role default, and a token-valued margin cannot be in a v2 component's
+        // block. It is still scoped to the mobile at-rule, which is what this case cares
+        // about, so the assertion reads the whole stylesheet rather than section's slice.
         $this->assertMatchesRegularExpression(
-            '/\.section__panel-row\s*\+\s*\.section__panel-row\s*\{[^}]*margin-top:\s*var\(--space-md\)/s',
-            $mobile,
+            '/@media \(max-width: 767px\)\s*\{\s*\.section__panel-row \+ \.section__panel-row\s*\{[^}]*margin-top:\s*var\(--space-md\)/s',
+            file_get_contents($this->themeRoot . '/assets/css/components.css'),
             'The inter-pair rhythm must be a --space-md margin-top on a row that follows a row.'
         );
 
         // 2: one shared left edge — the desktop `text-align: right` is the half of
         // the defect that survives stacking, so it must be answered explicitly.
-        $this->assertMatchesRegularExpression(
+        // The value's mobile left-alignment went with the label/value role merge
+        // (#1023, review finding A4) — a stacked column inherits left alignment anyway,
+        // so this one was a no-op restatement even in v1. Its desktop sibling
+        // (text-align: right) is the half that actually changed rendering, and that cost
+        // is stated in testPanelRowDesktopPresentationIsUnchanged.
+        $this->assertDoesNotMatchRegularExpression(
             '/\.section__panel-row-value\s*\{[^}]*text-align:\s*left/s',
             $mobile,
             'The stacked value must be left-aligned so label and value share one left edge.'
@@ -968,28 +1061,38 @@ class SectionTextPanelTest extends TestCase
         // ships no webfont, so in a bare font environment a weight-only treatment
         // renders pixel-identical, which is why the weight is pinned here (where a
         // regex can see the declaration) rather than relied on as visual proof.
-        $this->assertMatchesRegularExpression(
-            '/\.section__panel-row-label\s*\{[^}]*font-size:\s*0\.8125rem/s',
-            $mobile,
-            'The stacked label needs an explicit size step; weight alone is not guaranteed to render.'
-        );
-        $this->assertMatchesRegularExpression(
-            '/\.section__panel-row-label\s*\{[^}]*letter-spacing:\s*0\.04em/s',
-            $mobile,
-            'The stacked label uses the theme eyebrow tracking so it reads as a label.'
-        );
-        $this->assertMatchesRegularExpression(
-            '/\.section__panel-row-value\s*\{[^}]*font-weight:\s*600/s',
-            $mobile,
+        // The label/value treatment is role defaults since #1023, so it is read from the
+        // schema rather than from the mobile at-rule. It is NOT scoped to the phone any
+        // more and that is a deliberate widening: v1 declared it only inside
+        // @media (max-width: 767px), which meant a desktop paired row got no label
+        // treatment at all even though the same distinction helps there. A role default
+        // applies at every width unless an author narrows it.
+        $label = $schema['roles']['panel-row-label']['defaults']['typography'];
+        $this->assertSame('0.8125rem', $label['size'],
+            'The stacked label needs an explicit size step; weight alone is not guaranteed to render.');
+        $this->assertSame('0.04em', $label['letter-spacing'],
+            'The stacked label uses the theme eyebrow tracking so it reads as a label.');
+        $this->assertSame(
+            '600',
+            $schema['roles']['panel-row-value']['defaults']['typography']['weight'],
             'The stacked value carries the weight, mirroring .hero__surface-value.'
+        );
+        $this->assertSame(
+            'left',
+            $schema['roles']['panel-row-value']['defaults']['typography']['align']['p'],
+            'and shares the label\'s left edge once the row stacks.'
         );
 
         // The label must NOT be recoloured: row colour routes through the
         // item_eligible --section-panel-text slot and the panel background is
         // author-controlled (and may be dark).
-        $this->assertDoesNotMatchRegularExpression(
-            '/\.section__panel-row-label\s*\{[^}]*color:/s',
-            $mobile,
+        // The label must NOT be recoloured by DEFAULT: the panel background is
+        // author-controlled and may be dark, so a shipped label colour would be a
+        // contrast guess. An AUTHOR may still set one — the role permits typography —
+        // which is the difference between a default and a prohibition.
+        $this->assertArrayNotHasKey(
+            'color',
+            $schema['roles']['panel-row-label']['defaults']['typography'],
             'The stacked label distinction is typographic, never colour (#568).'
         );
     }
@@ -1017,13 +1120,29 @@ class SectionTextPanelTest extends TestCase
         $desktop = str_replace($mobile, '', $block);
 
         $this->assertMatchesRegularExpression(
-            '/\.section__panel-row\s*\{[^}]*justify-content:\s*space-between[^}]*gap:\s*var\(--space-md\)/s',
+            '/\.section__panel-row\s*\{[^}]*justify-content:\s*space-between/s',
             $desktop,
-            'The desktop paired row keeps space-between and the --space-md gap.'
+            'The desktop paired row keeps space-between.'
         );
-        $this->assertMatchesRegularExpression(
-            '/\.section__panel-row-value\s*\{\s*text-align:\s*right;\s*\}/s',
-            $desktop,
+        $schema = json_decode(file_get_contents($this->themeRoot . '/components/section/schema.json'), true);
+        $this->assertSame(
+            '@space-md',
+            $schema['roles']['panel-row']['defaults']['spacing']['gap']['d'],
+            'The desktop paired row keeps the --space-md gap, as a role default.'
+        );
+        // The value's right alignment survives, as the `panel-row-value` role's
+        // `typography.align` — responsive, so the desktop `right` and the stacked-phone
+        // `left` both keep the exact behaviour this test and its mobile sibling pin.
+        //
+        // AN EARLIER CUT OF #1023 MERGED THIS ROLE INTO `panel-row` on review finding
+        // A4's role-count argument, and this suite is what reversed it: the label and
+        // value carry DISTINCT named visual jobs (the label is small and tracked, the
+        // value carries the weight), which is exactly the bar A4 sets for a role above
+        // the precedent count. A4 was right about `.section__panel-row-label` being a
+        // markup-shaped NAME and wrong that the job was markup trivia.
+        $this->assertSame(
+            'right',
+            $schema['roles']['panel-row-value']['defaults']['typography']['align']['d'],
             'The desktop value stays right-aligned — #568 changes nothing at >=768px.'
         );
         $this->assertDoesNotMatchRegularExpression(

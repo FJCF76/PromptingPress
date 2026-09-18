@@ -911,6 +911,15 @@
   }
 }
 
+/* The panel's own list. The global reset (base.css `ul, ol { list-style: none }`) strips
+   the marker, so restoring the disc is normalize — the same category as the authored-body
+   list rules in the shared block below, and structural for the same reason. The INDENT and
+   the bottom rhythm are the `panel-list` role's spacing, because a token-valued
+   padding-left is a design value whatever it is restoring. */
+.section__panel-list {
+  list-style: disc;
+}
+
 /* A paired row is not a bullet: suppress the list glyph the shared marker rules would
    otherwise draw on it. */
 .section__panel-list > .section__panel-row::before {
@@ -1009,6 +1018,31 @@
 
 .section__content li:last-child {
   margin-bottom: 0;
+}
+
+/* The panel list's item rhythm, here for the same reason as the body list's: it is list
+   rhythm rather than band design, and both the renderer's own <ul> and an authored one
+   want it. */
+.section__panel-list li {
+  margin-bottom: var(--space-xs);
+}
+
+.section__panel-list li:last-child {
+  margin-bottom: 0;
+}
+
+/* The LOOSE inter-pair rhythm between paired rows (#568). It is here rather than on the
+   `panel-row` role because it is an ADJACENT-SIBLING relationship, and a role addresses
+   one element — the UDC has no sibling dimension, deliberately.
+   `+` was chosen over margin-bottom for a reason worth keeping: `.section__panel-list li`
+   owns margin-bottom and its `:last-child` companion zeroes it, so a margin-bottom answer
+   would have to out-specify both AND re-implement the last-child zero. margin-top fires on
+   every row after the first, including the last, but only ever adds space ABOVE a row — so
+   it can never leave a trailing gap above a panel CTA. */
+@media (max-width: 767px) {
+  .section__panel-row + .section__panel-row {
+    margin-top: var(--space-md);
+  }
 }
 
 /* Paragraph rhythm inside authored prose. It lived in the desktop `main > .section`
