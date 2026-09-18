@@ -14,7 +14,8 @@ $id           = $props['id']           ?? '';
 // stats, faq and testimonials carry the same four-line guard with a pointer back to
 // this block; keep the reasoning in one place so a correction lands once. It is the
 // same idiom components/logos/logos.php documents for image_url (#641) and
-// components/cta/cta.php for background_image (#705), ratified as the family
+// components/stats/stats.php for background_image (#705, whose canonical block moved
+// there from cta at #1026 when cta's prop retired), ratified as the family
 // standard at gate D-B.
 //
 // BOTH of the helper's text arguments are typed:

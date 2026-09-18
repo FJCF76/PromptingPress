@@ -8855,27 +8855,58 @@ function pp_default_homepage_composition(): array {
             'body'          => 'PromptingPress is on GitHub for WordPress teams that want an AI-first theme built around inspectable composition, bounded edits, validation, and review evidence.',
             'button_text'   => 'View theme on GitHub',
             'button_url'    => 'https://github.com/FJCF76/PromptingPress',
-            'button_variant' => 'primary',
             'layout'        => 'full-width',
-        ], 'style' => [
-            '--cta-bg'                  => '#0A0A12',
-            '--cta-heading-color'                => '#F2EEE5',
-            '--cta-body-color'          => '#E8E2D4',
-            '--cta-padding-top'         => '5.5rem',
-            '--cta-padding-bottom'      => '5.5rem',
-            '--cta-heading-measure'       => '48rem',
-            '--cta-heading-size'          => 'clamp(2rem, 3vw, 3.1rem)',
-            '--cta-heading-accent-color'  => '#FF5C2E',
-            '--cta-accent'              => '#FF5C2E',
-            '--cta-accent-hover'        => '#C73310',
-            '--cta-button-bg'           => '#FF5C2E',
-            '--cta-button-color'        => '#0A0A12',
-            '--cta-button-hover-bg'     => '#C73310',
-            '--cta-button-hover-color'  => '#F2EEE5',
-            '--cta-eyebrow-color'       => '#FF5C2E',
-            '--cta-eyebrow-bg'          => '#14141F',
-            '--cta-eyebrow-border-color' => '#3A2A1E',
-            '--cta-eyebrow-border-width' => '1px',
+        ], 'udc' => [
+            // The v2 shape of the branded dark closing band (#1026). Where the v1 seed
+            // set 18 style slots plus `button_variant`, this sets values on named roles.
+            //
+            // THE `_band` BORDER IS SET EXPLICITLY, and it is the one line here that a
+            // reader might think is redundant. It is not: the role now DEFAULTS to the
+            // 1px rule v1's full-width layout drew in `--color-border`, which is a light
+            // grey. On this near-black band that default would draw two visible light
+            // lines the v1 seed never had, because v1's `--cta-bg` slot left the border
+            // slots alone and the band's own borders were the same light grey — invisible
+            // against a light page, obvious against this one. Zeroing it here is what
+            // keeps the seed byte-identical, and it is exactly the migration step the
+            // `theme` retirement note tells every dark band to take.
+            '_band' => [
+                'background' => ['fill' => '#0A0A12'],
+                'spacing'    => ['padding-top' => '5.5rem', 'padding-bottom' => '5.5rem'],
+                'border'     => ['width' => '0', 'radius' => '0'],
+            ],
+            // `--cta-heading-measure` fed TWO elements on v1 — the heading and the
+            // full-width text block — so reproducing it takes both roles, the same way
+            // `--section-body-measure` took four at #1023. Setting only `heading` would
+            // widen the body past the title and read as a mistake rather than a design.
+            'heading' => [
+                'typography' => ['color' => '#F2EEE5', 'size' => 'clamp(2rem, 3vw, 3.1rem)'],
+                'sizing'     => ['max-width' => '48rem'],
+            ],
+            'text'           => ['sizing' => ['max-width' => '48rem']],
+            'heading-accent' => ['typography' => ['color' => '#FF5C2E']],
+            'body'           => ['typography' => ['color' => '#E8E2D4']],
+            'eyebrow'        => [
+                'typography' => ['color' => '#FF5C2E'],
+                'background' => ['fill' => '#14141F'],
+                'border'     => ['color' => '#3A2A1E', 'width' => '1px'],
+            ],
+            // The filled brand button. On v1 this took FIVE slots — the band accent pair
+            // plus three button slots — because the accent had to be set alongside the
+            // button fill to keep the ring matching it. Here the ring is simply the
+            // border, stated once per state, and the hover ink the v1 seed could only
+            // reach through `--cta-button-hover-color` is an ordinary state map.
+            'button' => [
+                'typography' => ['color' => '#0A0A12', 'weight' => '600', 'decoration' => 'none',
+                                 ':hover' => ['color' => '#F2EEE5']],
+                'background' => ['fill' => '#FF5C2E', ':hover' => ['fill' => '#C73310']],
+                'border'     => ['width' => '2px', 'style' => 'solid', 'color' => '#FF5C2E',
+                                 ':hover' => ['color' => '#C73310']],
+                'spacing'    => ['padding-top' => '@btn-padding-y', 'padding-bottom' => '@btn-padding-y',
+                                 'padding-left' => '@btn-padding-x', 'padding-right' => '@btn-padding-x'],
+                'sizing'     => ['min-height' => '44px'],
+                'shadow'     => ['box' => 'none'],
+                'motion'     => ['transition-duration' => '150ms', 'timing-function' => 'ease'],
+            ],
         ]],
     ];
 }
