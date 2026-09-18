@@ -151,7 +151,10 @@ class SchemaTruthfulnessTest extends TestCase
         // testimonials is absent: its heading size is the `heading` role's
         // `typography.size` default, which carries the shared scale's clamp() literal
         // directly rather than routing --pp-band-heading-size through a slot.
-        $bands = ['section', 'grid', 'cta', 'faq', 'stats', 'table', 'logos', 'embed'];
+        // section is absent since #1023 for the mirror-image reason: its `heading` role
+        // DOES route the shared scale, as `@pp-band-heading-size`, so the token still
+        // governs it — through the engine rather than through a slot.
+        $bands = ['grid', 'cta', 'faq', 'stats', 'table', 'logos', 'embed'];
         foreach ($bands as $component) {
             $slot = "--{$component}-heading-size";
             $slots = $this->slots($component);
@@ -265,16 +268,22 @@ class SchemaTruthfulnessTest extends TestCase
     public static function correctedEffectiveDefaults(): array
     {
         return [
-            ['section', '--section-heading-size', 'var(--pp-band-heading-size)'],
+            // Section's six rows left this provider at #1023. Every one of those
+            // corrected defaults survives as a ROLE default, which is where the
+            // correction now has to stay corrected:
+            //   --section-heading-size            -> heading.typography.size (@pp-band-heading-size)
+            //   --section-body-size / -weight     -> body.typography.size / .weight
+            //   --section-body-color              -> body.typography.color
+            //   --section-heading-margin-bottom   -> heading.spacing.margin-bottom
+            //   --section-body-measure            -> body.sizing.max-width, at 49rem
+            // The measure is the one that changed value, and deliberately: v1 capped
+            // that element from four rules and 49rem is the one that actually won. The
+            // role-side pins live in MeasureSurfaceTest and the component's own suite.
             ['cta', '--cta-heading-size', 'var(--pp-band-heading-size)'],
             ['grid', '--grid-heading-size', 'var(--pp-band-heading-size)'],
             ['faq', '--faq-heading-size', 'var(--pp-band-heading-size)'],
             ['stats', '--stats-heading-size', 'var(--pp-band-heading-size)'],
-            ['section', '--section-body-size', '1.065rem'],
-            ['section', '--section-body-weight', '430'],
-            ['section', '--section-body-measure', '40rem'],
-            ['section', '--section-body-color', 'var(--color-text-secondary)'],
-            ['section', '--section-heading-margin-bottom', '1.65rem'],
+
             ['cta', '--cta-bg', 'var(--color-surface)'],
             ['cta', '--cta-border-width', '1px'],
             ['cta', '--cta-border-color', 'var(--color-border)'],
@@ -922,9 +931,13 @@ class SchemaTruthfulnessTest extends TestCase
         // contributor that a sibling element counts as a hover twin, which is exactly the
         // miss that leaves a real hover slot undeclared.
         $positionalTwins = [
-            'grid'    => ['--grid-item-link-color', '--grid-item-link-hover-color'],
-            'section' => ['--section-body-link-color', '--section-body-link-hover-color'],
-            'faq'     => ['--faq-question-color', '--faq-question-open-color'],
+            'grid' => ['--grid-item-link-color', '--grid-item-link-hover-color'],
+            // section's pair left at #1023, and it is the clearest case for why the
+            // twin discipline exists: rest and hover are now ONE role (`body-link`), so
+            // its `typography.color` and its `:hover` typography.color sit in the same
+            // map and cannot be set apart by accident. docs/explanation-cascade-layers.md
+            // §1b is the reason they had to move together.
+            'faq' => ['--faq-question-color', '--faq-question-open-color'],
         ];
         $perButtonCounterparts = [
             'cta'     => ['--cta-button-shadow', '--cta-button2-shadow'],
@@ -1378,16 +1391,29 @@ class SchemaTruthfulnessTest extends TestCase
      */
     public function testTheRedundantTextOnlyTitleRuleIsGone(): void
     {
+        // A-28 deleted the higher-specificity twin and kept the base rule. #1023 deleted
+        // the BASE rule too, because section is a v2 component and its heading size is
+        // the `heading` role's `typography.size`. Both halves of the original assertion
+        // therefore hold more strongly than before: neither rule exists, and the
+        // structural-CSS boundary in tests/js/css-lint.test.js is what keeps it that way
+        // — a font-size on any section selector in this file is now an outright offence,
+        // not merely a duplicate.
         $css = file_get_contents($this->themeRoot . '/assets/css/components.css');
         $this->assertStringNotContainsString(
             ".section--text-only .section__title {\n  font-size:",
             $css,
             'The deleted rule re-declared the base rule verbatim at higher specificity.'
         );
-        $this->assertStringContainsString(
-            ".section__title {\n  font-size: var(--section-heading-size, var(--pp-band-heading-size));",
-            $css,
-            'The base rule is the one that now carries every text-only section title.'
+        $this->assertStringNotContainsString(
+            '--section-heading-size',
+            preg_replace('#/\*.*?\*/#s', '', $css),
+            'The base rule went too: a v2 component declares no font-size in this file.'
+        );
+        $schema = json_decode(file_get_contents($this->themeRoot . '/components/section/schema.json'), true);
+        $this->assertSame(
+            '@pp-band-heading-size',
+            $schema['roles']['heading']['defaults']['typography']['size'],
+            'Every section title, on every layout, now takes its size from the one role default.'
         );
     }
 }

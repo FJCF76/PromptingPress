@@ -596,8 +596,6 @@
       "section--text-panel"
     ],
     "tokens": [
-      "--pp-band-padding",
-      "--pp-band-heading-size",
       "--color-text",
       "--color-text-secondary",
       "--color-muted",
