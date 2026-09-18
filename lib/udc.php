@@ -664,6 +664,14 @@ function pp_udc_groups(): array {
             // `background-position` places a painted layer behind any element. A role that
             // permits one does not thereby want the other, and the two are emitted on
             // different boxes.
+            // `signed` is INERT on a non-length type and is `false` here only to match
+            // `aspect-ratio`'s precedent above. `type: position` dispatches to
+            // `_pp_validate_position()`, which sets `signed => true` for its own token
+            // grammar, so NEGATIVE offsets ARE accepted (`-10px 50%`, `-5% -5%`) — which is
+            // correct: they are valid CSS, they pull the crop, and the v1
+            // `--section-image-position` slot accepted them too. Verified by probe rather
+            // than read off the flag. Do not infer a constraint from this key on a
+            // non-length param; the type's validator owns the grammar.
             'object-position' => ['property' => 'object-position', 'type' => 'position', 'signed' => false, 'max_values' => 1, 'keywords' => []],
         ]],
         // MOTION (Addendum A, ruling A3). Exactly two params, by the ruling.
