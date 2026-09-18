@@ -471,7 +471,10 @@ class ActionsTest extends TestCase
         // specific rule path — and never blocks on it.
         $post_id = pp_create_page('Dangling var snapshot');
         pp_update_composition($post_id, [
-            ['component' => 'section', 'props' => ['title' => 'A'], 'style' => ['--section-panel-cta-bg' => 'var(--nonexistent-token)']],
+            // `cta` since #1023: the subject is a DANGLING var() reference surviving a
+            // restore without blocking (#233), which is the slot engine's behaviour on
+            // whichever component still has slots.
+            ['component' => 'cta', 'props' => ['title' => 'A', 'button_text' => 'Go', 'button_url' => '/x'], 'style' => ['--cta-button-bg' => 'var(--nonexistent-token)']],
         ]);
         pp_update_composition($post_id, [['component' => 'section', 'props' => ['title' => 'B']]]);
 
@@ -479,7 +482,7 @@ class ActionsTest extends TestCase
 
         // The write succeeds and the snapshot is preserved verbatim.
         $this->assertTrue($result['ok'], $result['error'] ?? 'restore failed');
-        $this->assertSame('var(--nonexistent-token)', pp_get_composition($post_id)[0]['style']['--section-panel-cta-bg']);
+        $this->assertSame('var(--nonexistent-token)', pp_get_composition($post_id)[0]['style']['--cta-button-bg']);
 
         // ...and the dangling reference is reported as a blocking-class finding.
         $errors = array_values(array_filter(
@@ -504,7 +507,7 @@ class ActionsTest extends TestCase
         // not var() acceptance.
         $post_id = pp_create_page('Valid var snapshot');
         pp_update_composition($post_id, [
-            ['component' => 'section', 'props' => ['title' => 'A', 'body' => 'Body text', 'layout' => 'text-panel', 'panel_cta_text' => 'Go', 'panel_cta_url' => '/x'], 'style' => ['--section-panel-cta-color' => 'transparent', '--section-heading-accent-color' => 'var(--color-accent)']],
+            ['component' => 'cta', 'props' => ['title' => 'A', 'button_text' => 'Go', 'button_url' => '/x'], 'style' => ['--cta-button-color' => 'transparent', '--cta-heading-accent-color' => 'var(--color-accent)']],
         ]);
         pp_update_composition($post_id, [['component' => 'section', 'props' => ['title' => 'B', 'body' => 'Body text']]]);
 
@@ -832,7 +835,10 @@ class ActionsTest extends TestCase
         // prop NAMES; a retired VALUE lands in the same place.
         $id = pp_create_page('Stale theme value', 'draft');
         pp_update_composition($id, [
-            ['component' => 'section', 'props' => ['title' => 'Legacy band', 'body' => 'B', 'theme' => 'dark']],
+            // `grid` since #1023: section retired `theme`, and what these cases pin is the
+            // REMOVED INPUT VALUE (`dark`, replaced by `muted` at #605) and the
+            // band-scoped repair path around it — the prop's contract, not section's.
+            ['component' => 'grid', 'props' => ['title' => 'Legacy band', 'items' => [['title' => 'One', 'text' => 'a']], 'theme' => 'dark']],
             ['component' => 'section', 'props' => ['title' => 'Other band', 'body' => 'C']],
         ]);
 
@@ -1179,7 +1185,7 @@ class ActionsTest extends TestCase
         $added = pp_execute_action('add_component', [
             'post_id'   => $id,
             'component' => 'stats',
-            'props'     => ['title' => 'Fresh band', 'theme' => 'muted']]);
+            'props'     => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'Fresh band', 'theme' => 'muted']]);
         $this->assertTrue($added['ok'], $added['error'] ?? 'add_component validates only the item it adds');
 
         $styled = pp_execute_action('style_component', [
@@ -1201,7 +1207,10 @@ class ActionsTest extends TestCase
         // what keeps the author from writing more into a band they have not fixed.
         $id = pp_create_page('Repairable stale theme value', 'draft');
         pp_update_composition($id, [
-            ['component' => 'section', 'props' => ['title' => 'Legacy band', 'body' => 'B', 'theme' => 'dark']],
+            // `grid` since #1023: section retired `theme`, and what these cases pin is the
+            // REMOVED INPUT VALUE (`dark`, replaced by `muted` at #605) and the
+            // band-scoped repair path around it — the prop's contract, not section's.
+            ['component' => 'grid', 'props' => ['title' => 'Legacy band', 'items' => [['title' => 'One', 'text' => 'a']], 'theme' => 'dark']],
             ['component' => 'section', 'props' => ['title' => 'Other band', 'body' => 'C']],
         ]);
 
@@ -1715,8 +1724,10 @@ class ActionsTest extends TestCase
     public function testUpdateComponentRejectsTheRemovedThemeValueWrittenDirectly(): void
     {
         // The removed value is rejected at WRITE, on the surface an agent actually uses.
+        // `grid` since #1023: the subject is the removed VALUE's refusal, and section no
+        // longer declares the prop to refuse a value for.
         $id = pp_create_page('Direct removed-value write', 'draft');
-        pp_update_composition($id, [['component' => 'section', 'props' => ['title' => 'A', 'body' => 'B']]]);
+        pp_update_composition($id, [['component' => 'grid', 'props' => ['title' => 'A', 'items' => [['title' => 'One', 'text' => 'a']]]]]);
 
         $result = pp_execute_action('update_component', [
             'post_id'         => $id,
@@ -1734,7 +1745,7 @@ class ActionsTest extends TestCase
         // Since #605 there is no alias tier at all: `dark` and `darkish` are both
         // simply unadvertised values, and both are rejected the same way.
         $id = pp_create_page('Undeclared theme', 'draft');
-        pp_update_composition($id, [['component' => 'section', 'props' => ['title' => 'A', 'body' => 'B']]]);
+        pp_update_composition($id, [['component' => 'grid', 'props' => ['title' => 'A', 'items' => [['title' => 'One', 'text' => 'a']]]]]);
 
         $result = pp_execute_action('update_component', [
             'post_id'         => $id,
@@ -3812,8 +3823,11 @@ class ActionsTest extends TestCase
             }
         }
         // Guard the guard: if the enumeration ever finds nothing, the test would
-        // pass vacuously. We know there are 8 image-URL props today.
-        $this->assertGreaterThanOrEqual(8, $checked, 'Image-prop enumeration found too few props — the drift-catcher is not actually running.');
+        // pass vacuously. There are 7 image-URL props today — section's
+        // `background_image` retired at #1023, because a band background is the `_band`
+        // role's `background.image`, an ATTACHMENT ID rather than a URL, so it is not an
+        // image-URL prop for this drift-catcher to check the format of.
+        $this->assertGreaterThanOrEqual(7, $checked, 'Image-prop enumeration found too few props — the drift-catcher is not actually running.');
     }
 
     /**
@@ -4700,15 +4714,18 @@ class ActionsTest extends TestCase
     {
         // #230: the issue's style-slot examples — a transparent outline-button
         // background, and a slot that follows the brand accent via var().
+        // The band is a `cta` since #1023, matching the slots the values are aimed at:
+        // the #230 examples are a transparent outline-button background and an accent
+        // that follows the brand token, both of which cta still declares.
         $post_id = pp_create_page('Style test');
         pp_update_composition($post_id, [
-            ['component' => 'section', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello']],
+            ['component' => 'cta', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello', 'button_text' => 'Go', 'button_url' => '/x']],
         ]);
 
         $result = pp_validate_action('style_component', [
             'post_id'         => $post_id,
             'component_index' => 0,
-            'style'           => ['--section-panel-cta-bg' => 'transparent', '--section-heading-accent-color' => 'var(--color-accent)'],
+            'style'           => ['--cta-button-bg' => 'transparent', '--cta-heading-accent-color' => 'var(--color-accent)'],
         ]);
         $this->assertTrue($result);
     }
@@ -4717,13 +4734,13 @@ class ActionsTest extends TestCase
     {
         $post_id = pp_create_page('Style test');
         pp_update_composition($post_id, [
-            ['component' => 'section', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello']],
+            ['component' => 'cta', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello', 'button_text' => 'Go', 'button_url' => '/x']],
         ]);
 
         $result = pp_validate_action('style_component', [
             'post_id'         => $post_id,
             'component_index' => 0,
-            'style'           => ['--section-panel-cta-bg' => 'var(--nonexistent-token)'],
+            'style'           => ['--cta-button-bg' => 'var(--nonexistent-token)'],
         ]);
         $this->assertInstanceOf(WP_Error::class, $result);
         $this->assertEquals('invalid_style_value', $result->get_error_code());
@@ -4793,55 +4810,74 @@ class ActionsTest extends TestCase
         $this->assertSame('invalid_style_value', $result->get_error_code());
     }
 
-    public function testStyleComponentPersistsThePanelCtaRingSlots(): void
+    /**
+     * Re-homed from section's panel CTA to cta's own button at #1023. What #584 pinned is
+     * that a BUTTON's ring slots persist independently of its fill — rest and hover — and
+     * cta is the component that still declares button slots, so it carries the pin.
+     */
+    public function testStyleComponentPersistsAButtonsRingSlots(): void
     {
-        $post_id = pp_create_page('Panel CTA ring slots');
+        $post_id = pp_create_page('Button ring slots');
         pp_update_composition($post_id, [
-            ['component' => 'section', 'props' => [
-                'layout'            => 'text-panel',
-                'body'              => '<p>Body</p>',
-                'panel_heading'     => 'Panel',
-                'panel_cta_text'    => 'Book a call',
-                'panel_cta_url'     => '/call',
-                'panel_cta_variant' => 'primary',
+            ['component' => 'cta', 'props' => [
+                'id'          => 'pp-eeff5566',
+                'title'       => 'Plans',
+                'button_text' => 'Book a call',
+                'button_url'  => '/call',
             ]],
         ]);
         $result = pp_execute_action('style_component', [
             'post_id'         => $post_id,
             'component_index' => 0,
             'style'           => [
-                '--section-panel-cta-bg'           => '#0f766e',
-                '--section-panel-cta-border'       => '#134e4a',
-                '--section-panel-cta-hover-border' => '#115e59',
+                '--cta-button-bg'           => '#0f766e',
+                '--cta-button-border'       => '#134e4a',
+                '--cta-button-hover-border' => '#115e59',
             ],
         ]);
         $this->assertTrue($result['ok']);
         $comp = pp_get_composition($post_id);
-        $this->assertSame('#134e4a', $comp[0]['style']['--section-panel-cta-border']);
-        $this->assertSame('#115e59', $comp[0]['style']['--section-panel-cta-hover-border']);
+        $this->assertSame('#134e4a', $comp[0]['style']['--cta-button-border']);
+        $this->assertSame('#115e59', $comp[0]['style']['--cta-button-hover-border']);
     }
 
-    public function testStyleComponentStillRejectsAPanelCtaHoverFillSlot(): void
+    /**
+     * INVERTED at #1023: what was a REFUSAL is now a CAPABILITY, and that is the point.
+     *
+     * #536 shipped the panel CTA's fill resting-state-only and #584 gave only the RING a
+     * hover twin, so an agent inferring `--section-panel-cta-hover-bg` from the new hover
+     * ring had to be rejected. That asymmetry was an artifact of slots being hand-declared
+     * one at a time: a hover fill needed someone to add a slot for it.
+     *
+     * On the UDC every group is state-able by construction (ruling A3), so the panel CTA
+     * can carry a hover fill, a hover ring and a hover ink without anyone declaring three
+     * more names. The inference the old test had to refuse is now simply correct — which
+     * is a better answer than a clearer refusal message.
+     */
+    public function testThePanelCtaCanNowCarryAHoverFillItUsedToRefuse(): void
     {
-        // #536 shipped the panel CTA resting-state-only for the FILL and #584 did not revisit
-        // that: the RING gained a hover twin, the fill did not. An agent that infers
-        // --section-panel-cta-hover-bg from the new hover ring must be rejected, not stored.
-        $post_id = pp_create_page('Panel CTA hover fill reject');
-        pp_update_composition($post_id, [
-            ['component' => 'section', 'props' => [
+        $composition = [[
+            'component' => 'section',
+            'id'        => 'pp-eeff5566',
+            'props'     => [
                 'layout'         => 'text-panel',
                 'body'           => '<p>Body</p>',
                 'panel_cta_text' => 'Book a call',
                 'panel_cta_url'  => '/call',
-            ]],
-        ]);
-        $result = pp_validate_action('style_component', [
-            'post_id'         => $post_id,
-            'component_index' => 0,
-            'style'           => ['--section-panel-cta-hover-bg' => '#115e59'],
-        ]);
-        $this->assertInstanceOf(WP_Error::class, $result);
-        $this->assertSame('invalid_style_slot', $result->get_error_code());
+            ],
+            'udc'       => ['panel-cta' => ['background' => [
+                'fill'   => '#0f766e',
+                ':hover' => ['fill' => '#115e59'],
+            ]]],
+        ]];
+        $this->assertTrue(pp_validate_composition($composition),
+            'a hover fill on the panel CTA is authorable now, not refused');
+
+        $css = pp_udc_band_css($composition[0]);
+        $this->assertStringContainsString('[data-pp-band="pp-eeff5566"] .section__panel-cta{', $css);
+        $this->assertStringContainsString('background:#0f766e', $css);
+        $this->assertStringContainsString('.section__panel-cta:hover{', $css);
+        $this->assertStringContainsString('background:#115e59', $css);
     }
 
     public function testStyleComponentRejectsTheUnadoptedBandAccentTier(): void
@@ -5011,148 +5047,102 @@ class ActionsTest extends TestCase
 
     // ── #536 section panel-CTA fill slots (authoring-path mandate) ────────────
 
-    /**
-     * Authoring path for issue 536: the three new panel-CTA slots go through the REAL
-     * validate + apply surface on a text-panel section that actually renders a CTA, and
-     * persist onto that component's style map. Raw _pp_composition seeding would bypass
-     * the schema-derived allowlist entirely and prove nothing about whether a site-builder
-     * AI can set them (Section 14.1). This pins authoring only; the cascade that makes the
-     * fill VISIBLE is pinned by StyleSlotContractTest and the rendered computed-style pins
-     * in tests/e2e/style-render.spec.ts.
-     */
-    public function testStyleComponentPersistsSectionPanelCtaFillSlots(): void
+    /** The fill half of the same #536/#584 pair, re-homed to cta's button (#1023). */
+    public function testStyleComponentPersistsAButtonsFillSlots(): void
     {
-        $post_id = pp_create_page('Section panel CTA fill test');
+        $post_id = pp_create_page('Button fill slots');
         pp_update_composition($post_id, [
-            ['component' => 'section', 'props' => [
-                'id'             => 'pp-eeff5566',
-                'layout'         => 'text-panel',
-                'title'          => 'Plans',
-                'body'           => 'Pick a plan.',
-                'panel_heading'  => 'Starter',
-                'panel_cta_text' => 'Book a call',
-                'panel_cta_url'  => '/contact',
+            ['component' => 'cta', 'props' => [
+                'id'          => 'pp-eeff5566',
+                'title'       => 'Plans',
+                'button_text' => 'Book a call',
+                'button_url'  => '/call',
             ]],
         ]);
-
         $result = pp_execute_action('style_component', [
             'post_id'         => $post_id,
             'component_index' => 0,
             'style'           => [
-                '--section-panel-cta-bg'     => '#7c3aed',
-                '--section-panel-cta-color'  => '#ffffff',
-                '--section-panel-cta-shadow' => 'none',
+                '--cta-button-bg'     => '#7c3aed',
+                '--cta-button-color'  => '#ffffff',
+                '--cta-button-shadow' => 'none',
             ],
         ]);
         $this->assertTrue($result['ok']);
 
         $comp = pp_get_composition($post_id);
-        $this->assertSame('#7c3aed', $comp[0]['style']['--section-panel-cta-bg']);
-        $this->assertSame('#ffffff', $comp[0]['style']['--section-panel-cta-color']);
-        $this->assertSame('none', $comp[0]['style']['--section-panel-cta-shadow']);
+        $this->assertSame('#7c3aed', $comp[0]['style']['--cta-button-bg']);
+        $this->assertSame('#ffffff', $comp[0]['style']['--cta-button-color']);
+        $this->assertSame('none', $comp[0]['style']['--cta-button-shadow']);
     }
 
     /**
-     * #551 authoring-path proof. The panel CTA variants whose ink the band rules broke
-     * (outline / ghost / secondary — every TRANSPARENT-or-light variant) must be reachable
-     * through the REAL write surface, not just constructible as a render fixture. Raw
-     * _pp_composition seeding would bypass the schema-derived enum entirely and prove
-     * nothing about whether a site-builder AI can actually author the affected state.
+     * `panel_cta_variant` retired at #1023, and with it the defect this test reproduced.
      *
-     * The filled variant is the control: it is the one the carve-out does NOT touch,
-     * because its ink comes from the premium chain via --section-panel-cta-color.
+     * It needed BOTH halves of a real broken state: a transparent/light button variant
+     * AND a dark band, because #536's ink slot existed to stop a ghost button vanishing
+     * on an inverted panel. Neither half is expressible now — the variant enum is gone
+     * (a bundle of button values is what the UDC expresses directly) and so is `theme`.
+     *
+     * The GUARANTEE survives one layer down and is better than it was: the `panel-cta`
+     * role's `typography.color` is authorable on its own, so an author who makes the
+     * button transparent sets its ink in the same map rather than relying on a variant
+     * having remembered to. Pinned as: the role exists, permits typography, and ships no
+     * colour default that would guess at contrast for them.
      */
-    public function testCreatePageAcceptsEveryPanelCtaVariantWithTheInkSlot(): void
+    public function testThePanelCtaInkIsAuthorableWithoutAVariantEnum(): void
     {
-        // The defect needs BOTH halves: a transparent/light variant AND a dark band. The
-        // `theme` half is authored here so the actual broken state — not just the variant
-        // in isolation — is proven reachable through the real write surface.
-        foreach (['primary', 'secondary', 'outline', 'ghost'] as $variant) {
-            foreach ([null, 'inverted'] as $theme) {
-                $label  = $theme ? "$variant/$theme" : "$variant/default";
-                $result = pp_execute_action('create_page', [
-                    'title'       => "Panel CTA variant $label",
-                    'composition' => [[
-                        'component' => 'section',
-                        'props'     => array_merge([
-                            'layout'            => 'text-panel',
-                            'title'             => 'Plans',
-                            'body'              => 'Pick a plan.',
-                            'panel_heading'     => 'Starter',
-                            'panel_cta_text'    => 'Book a call',
-                            'panel_cta_url'     => '/contact',
-                            'panel_cta_variant' => $variant,
-                        ], $theme ? ['theme' => $theme] : []),
-                        // The #536 per-instance ink slot must keep authoring cleanly
-                        // alongside every variant — the carve-out must not disturb the
-                        // slot contract on the one variant the slot actually reaches.
-                        'style'     => ['--section-panel-cta-color' => '#0b7a3b'],
-                    ]],
-                ]);
+        $schema = json_decode(file_get_contents(dirname(__DIR__) . '/components/section/schema.json'), true);
 
-                $this->assertTrue(
-                    $result['ok'],
-                    "panel_cta_variant=$label must be accepted through create_page: "
-                    . ($result['error'] ?? '')
-                );
+        $this->assertArrayNotHasKey('panel_cta_variant', $schema['props']);
+        $this->assertArrayHasKey('panel_cta_variant', $schema['retired_props']);
 
-                $comp = pp_get_composition((int) $result['target']['post_id']);
-                $this->assertSame($variant, $comp[0]['props']['panel_cta_variant']);
-                $this->assertSame('#0b7a3b', $comp[0]['style']['--section-panel-cta-color']);
-                if ($theme) {
-                    $this->assertSame($theme, $comp[0]['props']['theme']);
-                }
-            }
-        }
+        $role = $schema['roles']['panel-cta'];
+        $this->assertContains('typography', $role['groups'], 'the ink is authorable on the role');
+        $this->assertContains('background', $role['groups']);
+        $this->assertSame([], $role['defaults'],
+            'and ships no default that would guess a contrast pairing for the author');
     }
 
-    /**
-     * The `color`-typed --section-panel-cta-bg goes through the same shared validator as
-     * every other color slot: a non-color value is rejected with the standard code
-     * (authoring-path negative branch, issue 536).
-     */
-    public function testStyleComponentRejectsInvalidSectionPanelCtaBg(): void
+    /** Value rejection on a button fill slot, re-homed to cta (#1023). */
+    public function testStyleComponentRejectsInvalidButtonBg(): void
     {
-        $post_id = pp_create_page('Section panel CTA reject test');
+        $post_id = pp_create_page('Button bg reject test');
         pp_update_composition($post_id, [
-            ['component' => 'section', 'props' => [
-                'id'     => 'pp-eeff5566',
-                'layout' => 'text-panel',
-                'title'  => 'Plans',
-                'body'   => 'Pick a plan.',
+            ['component' => 'cta', 'props' => [
+                'id'          => 'pp-eeff5566',
+                'title'       => 'Plans',
+                'button_text' => 'Book a call',
+                'button_url'  => '/call',
             ]],
         ]);
 
         $result = pp_validate_action('style_component', [
             'post_id'         => $post_id,
             'component_index' => 0,
-            'style'           => ['--section-panel-cta-bg' => 'not-a-color'],
+            'style'           => ['--cta-button-bg' => 'not-a-color'],
         ]);
         $this->assertInstanceOf(WP_Error::class, $result);
         $this->assertEquals('invalid_style_value', $result->get_error_code());
     }
 
-    /**
-     * The `shadow`-typed --section-panel-cta-shadow is validated as a shadow, not a color:
-     * a color literal there is rejected, so the three slots are not silently interchangeable
-     * (issue 536).
-     */
-    public function testStyleComponentRejectsInvalidSectionPanelCtaShadow(): void
+    /** Value rejection on a button shadow slot, re-homed to cta (#1023). */
+    public function testStyleComponentRejectsInvalidButtonShadow(): void
     {
-        $post_id = pp_create_page('Section panel CTA shadow reject test');
+        $post_id = pp_create_page('Button shadow reject test');
         pp_update_composition($post_id, [
-            ['component' => 'section', 'props' => [
-                'id'     => 'pp-eeff5566',
-                'layout' => 'text-panel',
-                'title'  => 'Plans',
-                'body'   => 'Pick a plan.',
+            ['component' => 'cta', 'props' => [
+                'id'          => 'pp-eeff5566',
+                'title'       => 'Plans',
+                'button_text' => 'Book a call',
+                'button_url'  => '/call',
             ]],
         ]);
 
         $result = pp_validate_action('style_component', [
             'post_id'         => $post_id,
             'component_index' => 0,
-            'style'           => ['--section-panel-cta-shadow' => 'javascript:alert(1)'],
+            'style'           => ['--cta-button-shadow' => 'javascript:alert(1)'],
         ]);
         $this->assertInstanceOf(WP_Error::class, $result);
         $this->assertEquals('invalid_style_value', $result->get_error_code());
@@ -5327,9 +5317,11 @@ class ActionsTest extends TestCase
 
     public function testInvalidRecipeRejected(): void
     {
+        // `grid` since #1023: recipes are declared per component and only grid and cta
+        // still have any, section's two having gone with its slot map.
         $post_id = pp_create_page('Recipe test');
         pp_update_composition($post_id, [
-            ['component' => 'section', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello']],
+            ['component' => 'grid', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello', 'items' => [['title' => 'One', 'text' => 'a']]]],
         ]);
 
         $result = pp_validate_action('style_component', [
@@ -5587,10 +5579,10 @@ class ActionsTest extends TestCase
     {
         $post_id = pp_create_page('Error test');
         pp_update_composition($post_id, [
-            ['component' => 'section', 'props' => ['title' => 'Hi']],
+            ['component' => 'grid', 'props' => ['title' => 'Hi', 'items' => [['title' => 'One', 'text' => 'a']]]],
         ]);
 
-        $error  = new WP_Error('invalid_recipe', 'Component "section" has no recipe "dark-blue". Available: dark-spacious, compact, bold-headline');
+        $error  = new WP_Error('invalid_recipe', 'Component "grid" has no recipe "dark-blue". Available: dark-spacious, compact, bold-headline');
         $result = _pp_build_friendly_error($error, [
             'post_id'         => $post_id,
             'component_index' => 0,
@@ -5698,20 +5690,24 @@ class ActionsTest extends TestCase
 
     public function testFriendlyErrorForInvalidRecipeResolvesComponentIdNotIndexZero(): void
     {
+        // The recipe-bearing band is a `grid` since #1023. The point of the case is
+        // unchanged: the friendly error must resolve the band by its component_id and
+        // list THAT band's recipes, not fail as if index 0 (which has none) were the
+        // target.
         $post_id = pp_create_page('Id Recipe Error test');
         pp_update_composition($post_id, [
             ['component' => 'nav', 'props' => []],
-            ['component' => 'section', 'props' => ['id' => 'pp-a1b2c3d4', 'title' => 'Hi']],
+            ['component' => 'grid', 'props' => ['id' => 'pp-a1b2c3d4', 'title' => 'Hi', 'items' => [['title' => 'One', 'text' => 'a']]]],
         ]);
 
-        $error  = new WP_Error('invalid_recipe', 'Component "section" has no recipe "dark-blue". Available: dark-spacious, compact, bold-headline');
+        $error  = new WP_Error('invalid_recipe', 'Component "grid" has no recipe "dark-blue". Available: dark-spacious, compact, bold-headline');
         $result = _pp_build_friendly_error($error, [
             'post_id'      => $post_id,
             'component_id' => 'pp-a1b2c3d4',
         ]);
 
         $this->assertSame('invalid_recipe', $result['error_code']);
-        $this->assertNotEmpty($result['alternatives'], 'Should list section recipes, not fail as if nav (index 0) had none.');
+        $this->assertNotEmpty($result['alternatives'], 'Should list grid recipes, not fail as if nav (index 0) had none.');
     }
 
     public function testFriendlyErrorResolvesComponentIdForInvalidStyleValue(): void
@@ -6015,8 +6011,9 @@ class ActionsTest extends TestCase
         }
         // The fixture must not BE the widest component, or the "aimed at a different
         // component" premise collapses. `section` became the widest once hero moved to
-        // the UDC and declared no slots (#986), so the fixture is `cta`.
-        $this->assertNotSame('cta', $widest_name, 'The target below must differ from the source.');
+        // the UDC and declared no slots (#986), and `cta` became the widest once section
+        // followed it (#1023) — so the fixture moved on again, to `grid`.
+        $this->assertNotSame('grid', $widest_name, 'The target below must differ from the source.');
 
         $style = [];
         foreach (array_keys($widest_slots) as $slot) {
@@ -6025,11 +6022,11 @@ class ActionsTest extends TestCase
 
         $post_id = pp_create_page('Widest component map');
         pp_update_composition($post_id, [
-            ['component' => 'cta', 'props' => ['title' => 'Hi', 'button_text' => 'Go', 'button_url' => '/x']],
+            ['component' => 'grid', 'props' => ['title' => 'Hi', 'items' => [['title' => 'One', 'text' => 'a']]]],
         ]);
 
         $result = _pp_build_friendly_error(
-            new WP_Error('invalid_style_slot', 'Component "cta" has no style slot.'),
+            new WP_Error('invalid_style_slot', 'Component "grid" has no style slot.'),
             ['post_id' => $post_id, 'component_index' => 0, 'style' => $style]
         );
 
