@@ -172,9 +172,12 @@ class FriendlyErrorMessageBoundTest extends TestCase
 
     public function testTheWorstRealRejectionFitsInTheChatColumn(): void
     {
-        // hero declares more style slots than any other shipped component (49), so it
-        // is the worst case the shipped registry can produce.
-        $friendly = $this->reject('stats', ['title' => 'Hi'], ['--stats-bgs' => '#111111']);
+        // THE WORST CASE HAS MOVED TWICE. It was hero (49 slots) until #986, then section
+        // (47) until #1023; `cta` is now both the widest shipped component (40 slots) and
+        // the one carrying the longest single slot description (1203 characters), so it is
+        // the worst case the shipped registry can produce. The comment names the component
+        // rather than a count, because the count is what keeps changing.
+        $friendly = $this->reject('cta', ['title' => 'Hi', 'button_text' => 'Go', 'button_url' => '/x'], ['--cta-bgs' => '#111111']);
 
         $this->assertLessThan(
             self::READABLE_CEILING,
@@ -184,16 +187,16 @@ class FriendlyErrorMessageBoundTest extends TestCase
 
         // The specific thing that made it enormous: full slot descriptions. The longest
         // one the registry declares is over a thousand characters by itself.
-        $descriptions = array_column(pp_get_style_slots('stats'), 'description');
+        $descriptions = array_column(pp_get_style_slots('cta'), 'description');
         // Stated before the loop below: assertStringNotContainsString('', $x) always
         // fails, so an empty description would read as a bound regression rather than
         // as the fixture premise having changed.
-        $this->assertNotContains('', $descriptions, 'Fixture premise: every hero slot carries a description.');
+        $this->assertNotContains('', $descriptions, 'Fixture premise: every cta slot carries a description.');
         $longest      = max(array_map('mb_strlen', $descriptions));
         $this->assertGreaterThan(
             self::READABLE_CEILING,
             $longest,
-            'Fixture premise: one hero description alone exceeds the whole message budget.'
+            'Fixture premise: one cta description alone exceeds the whole message budget.'
         );
         foreach ($descriptions as $description) {
             $this->assertStringNotContainsString(
@@ -272,7 +275,7 @@ class FriendlyErrorMessageBoundTest extends TestCase
 
     public function testTheCompleteSlotListStillShipsInTheSamePayload(): void
     {
-        $friendly = $this->reject('stats', ['title' => 'Hi'], ['--stats-bgs' => '#111111']);
+        $friendly = $this->reject('stats', ['title' => 'Hi', 'items' => [['number' => '1', 'label' => 'One']]], ['--stats-bgs' => '#111111']);
 
         $declared = array_keys(pp_get_style_slots('stats'));
         $this->assertSame(
@@ -310,7 +313,7 @@ class FriendlyErrorMessageBoundTest extends TestCase
         // unbounded, which is the entire defect #661 exists to close.
         $huge = '--section-' . str_repeat('z', 9000);
 
-        $friendly = $this->reject('stats', ['title' => 'Hi'], [$huge => '#111111']);
+        $friendly = $this->reject('stats', ['title' => 'Hi', 'items' => [['number' => '1', 'label' => 'One']]], [$huge => '#111111']);
 
         // Asserted against the arithmetic ceiling, not READABLE_CEILING: the cap that
         // does the work here is PP_REFLECTED_NAME_MAX, and this case lands close enough
@@ -335,7 +338,7 @@ class FriendlyErrorMessageBoundTest extends TestCase
             ['post_id' => $post_id, 'component_index' => 0, 'style' => ['--stats-bg' => '#111']]
         );
 
-        $this->assertStringContainsString('a style setting that the section component doesn\'t support', $friendly['user_message']);
+        $this->assertStringContainsString('a style setting that the stats component doesn\'t support', $friendly['user_message']);
         $this->assertStringNotContainsString('I tried to set "', $friendly['user_message']);
     }
 
@@ -344,7 +347,7 @@ class FriendlyErrorMessageBoundTest extends TestCase
         // The near miss #625 is about. The old message never said which name was
         // rejected, so the author read a wall of settings without being told which of
         // their own words had failed.
-        $friendly = $this->reject('stats', ['title' => 'Hi'], ['--stats-bgs' => '#111111']);
+        $friendly = $this->reject('stats', ['title' => 'Hi', 'items' => [['number' => '1', 'label' => 'One']]], ['--stats-bgs' => '#111111']);
 
         $this->assertStringContainsString('"--stats-bgs"', $friendly['user_message']);
         // And the slot they meant is among the names they can see without opening
@@ -356,12 +359,12 @@ class FriendlyErrorMessageBoundTest extends TestCase
     {
         // Naming one of several would read as a claim about the whole set. raw_error
         // carries the specifics; the visible sentence stays honest about scope.
-        $friendly = $this->reject('stats', ['title' => 'Hi'], [
+        $friendly = $this->reject('stats', ['title' => 'Hi', 'items' => [['number' => '1', 'label' => 'One']]], [
             '--stats-bgs' => '#111111',
             '--section-qqq' => '#222222',
             '--section-www' => '#333333']);
 
-        $this->assertStringContainsString('a style setting that the section component doesn\'t support', $friendly['user_message']);
+        $this->assertStringContainsString('a style setting that the stats component doesn\'t support', $friendly['user_message']);
         $this->assertStringNotContainsString('"--stats-bgs"', $friendly['user_message']);
         $this->assertLessThan(self::READABLE_CEILING, mb_strlen($friendly['user_message']));
     }
@@ -477,7 +480,7 @@ class FriendlyErrorMessageBoundTest extends TestCase
         );
 
         $this->assertStringNotContainsString('I tried to set "', $friendly['user_message']);
-        $this->assertStringContainsString('a style setting that the section component doesn\'t support', $friendly['user_message']);
+        $this->assertStringContainsString('a style setting that the stats component doesn\'t support', $friendly['user_message']);
         // The orientation half is unaffected — it never depended on the attribution.
         $this->assertStringContainsString('It has ' . count(pp_get_style_slots('stats')) . ' style settings', $friendly['user_message']);
     }
@@ -555,7 +558,7 @@ class FriendlyErrorMessageBoundTest extends TestCase
         // raw_error was never the problem — it was already bounded at
         // PP_REFLECTED_ERROR_MAX and already collapsed. The risk in a message change is
         // that the two get conflated and this one is trimmed to match.
-        $friendly = $this->reject('stats', ['title' => 'Hi'], ['--stats-bgs' => '#111111']);
+        $friendly = $this->reject('stats', ['title' => 'Hi', 'items' => [['number' => '1', 'label' => 'One']]], ['--stats-bgs' => '#111111']);
 
         $this->assertStringContainsString('--stats-bgs', $friendly['raw_error']);
         $this->assertLessThanOrEqual(PP_REFLECTED_ERROR_MAX, mb_strlen($friendly['raw_error']));

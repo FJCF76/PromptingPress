@@ -171,21 +171,27 @@ class FriendlyErrorSlotContextTest extends TestCase
         // judged set is what the validator looped over: the recipe's slots plus the
         // undeclared name — never `__recipe` (a tracking key, not a CSS property),
         // never the null (a removal the validator passes over).
+        // `grid` since #1023: this case needs a component with RECIPES, and only grid and
+        // cta still declare any — section's two went with its slot map.
         $post_id = $this->authorPage('Judged set', [
-            ['component' => 'stats', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'Hi']]]);
+            ['component' => 'grid', 'props' => ['items' => [['title' => 'One', 'text' => 'a']], 'title' => 'Hi']]]);
 
         [$error] = $this->rejectThenReport([
             'post_id'         => $post_id,
             'component_index' => 0,
-            'recipe'          => 'accent-panel',
-            'style'           => ['--stats-heading-color' => null, '--stats-bgs' => '#1a1a2e']]);
+            'recipe'          => 'dark-showcase',
+            // The removal must name a slot the recipe does NOT contribute, or the two
+            // assertions below contradict each other. `dark-showcase` sets --grid-bg,
+            // --grid-heading-color, --grid-item-bg, --grid-gap and --grid-item-radius,
+            // so the removal is --grid-subheading-color.
+            'style'           => ['--grid-subheading-color' => null, '--grid-bgs' => '#1a1a2e']]);
 
         $candidates = $error->get_error_data()['candidate_slots'];
 
         $this->assertNotContains('__recipe', $candidates, 'The recipe tracking key is not a slot.');
-        $this->assertNotContains('--stats-heading-color', $candidates, 'A null is a removal, not a value to judge.');
-        $this->assertContains('--stats-bgs', $candidates, 'The undeclared name the author wrote is judged.');
-        foreach (array_keys(pp_get_style_recipes('stats')['accent-panel']['slots']) as $recipe_slot) {
+        $this->assertNotContains('--grid-subheading-color', $candidates, 'A null is a removal, not a value to judge.');
+        $this->assertContains('--grid-bgs', $candidates, 'The undeclared name the author wrote is judged.');
+        foreach (array_keys(pp_get_style_recipes('grid')['dark-showcase']['slots']) as $recipe_slot) {
             $this->assertContains($recipe_slot, $candidates, 'Every slot the recipe contributed is judged.');
         }
     }
@@ -365,8 +371,13 @@ class FriendlyErrorSlotContextTest extends TestCase
         // The hint mechanism itself, exercised through the path production takes:
         // the pre-#626 hint tests all hand-build the rejection, so they now cover
         // the fallback branch only.
+        // The BAND is a `stats` since #1023. The mechanism under test is the
+        // cross-component hint — "that slot lives on cta, not here" — and it only fires
+        // for a component that HAS slots to judge the name against. A v2 band refuses
+        // earlier and differently (`no_style_slots`), which is a different message and is
+        // covered by its own pins.
         $post_id = $this->authorPage('Hint on the real path', [
-            ['component' => 'section', 'props' => ['title' => 'Hi', 'body' => 'Body text']],
+            ['component' => 'stats', 'props' => ['title' => 'Hi', 'items' => [['number' => '1', 'label' => 'One']]]],
         ]);
 
         [, $friendly] = $this->rejectThenReport([
@@ -379,7 +390,7 @@ class FriendlyErrorSlotContextTest extends TestCase
         $this->assertArrayHasKey('--cta-button-bg', $hints);
         $this->assertSame('cta', $hints['--cta-button-bg']['component']);
         $this->assertSame('exact', $hints['--cta-button-bg']['match']);
-        $this->assertStringContainsString('section', $friendly['user_message']);
+        $this->assertStringContainsString('stats', $friendly['user_message']);
     }
 
     // ── A recipe that drifts out of its component's declared slots ─────────
