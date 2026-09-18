@@ -261,14 +261,19 @@ final class AppliesWhenTest extends TestCase
     public function testOneWarningPerSlotListsEveryUnmetClause(): void
     {
         $smells = $this->inertSmells([
-            // cta: the two-button family carries the two-clause condition this pins,
-            // and hero's equivalent left with its slot map in #986.
-            ['component' => 'cta', 'props' => ['title' => 'T', 'body' => 'B', 'button_text' => 'Go', 'button_url' => '/'],
-             'style' => ['--cta-button2-bg' => '#000']],
+            // grid since #1026; cta's two-button family carried this two-clause condition
+            // until its slots retired, and hero's equivalent left at #986. The fixture has
+            // to carry a slot with TWO unmet clauses or the test degenerates into the
+            // one-clause case its sibling below already covers — `--grid-featured-shadow`
+            // applies when `layout = "cards"` AND `card_emphasis = "featured"`, and this
+            // band satisfies neither. See #1025 on why this keeps re-homing.
+            ['component' => 'grid', 'props' => ['title' => 'T', 'layout' => 'list', 'card_emphasis' => 'uniform', 'items' => [['title' => 'Card', 'text' => 'B']]],
+             'style' => ['--grid-featured-shadow' => '0 1px 2px #000']],
         ]);
 
         $this->assertCount(1, $smells);
-        $this->assertStringContainsString('button2_text is set', $smells[0]['message']);
+        $this->assertStringContainsString('layout = "cards"', $smells[0]['message']);
+        $this->assertStringContainsString('card_emphasis = "featured"', $smells[0]['message']);
     }
 
     /** ...and one warning PER SLOT, so a band that defeats six slots reports six. */
@@ -339,29 +344,24 @@ final class AppliesWhenTest extends TestCase
         ]));
     }
 
-    /**
-     * An inert slot renders nothing, so no advisory about its VALUE can be true. The
-     * transparent_fill warning tells the author to switch to the `outline` button variant
-     * — useless advice about a second button that is not on the page at all, and a second
-     * entry on a channel that halts `wp pp validate site`.
-     */
-    public function testAnInertFillSlotSuppressesTheValueLevelAdvisory(): void
-    {
-        $both = pp_validate_composition_smells([
-            ['component' => 'cta', 'props' => ['title' => 'T', 'button_text' => 'Go', 'button_url' => '/'],
-             'style' => ['--cta-button2-bg' => 'transparent']],
-        ]);
-        $this->assertSame(['inert_slot'], array_column($both, 'type'));
-
-        // With the second button actually rendered, the fill advisory is true again.
-        $rendered = pp_validate_composition_smells([
-            ['component' => 'cta', 'props' => [
-                'title' => 'T', 'button_text' => 'Go', 'button_url' => '/',
-                'button2_text' => 'More', 'button2_url' => '/more',
-            ], 'style' => ['--cta-button2-bg' => 'transparent']],
-        ]);
-        $this->assertSame(['transparent_fill'], array_column($rendered, 'type'));
-    }
+    // RETIRED (#1026) — AND THE RETIREMENT CARRIES A DISCLOSURE, not just a re-home.
+    //
+    // The `transparent_fill` advisory (#579) warns that a colour slot marked `role: "fill"`
+    // was set to `transparent` / `currentColor`, which validates and stores but paints a
+    // button no one can see. It recognises a fill by that DECLARED marker, deliberately, and
+    // not by a `-bg` name convention. cta's four button fills were the last slots in the
+    // theme that declared it — hero's left at #986 and `--section-panel-cta-bg` at #1023 —
+    // so as of this change NO shipped slot declares `role: "fill"` and the advisory has no
+    // reachable subject. These tests could only be kept by inventing a fixture slot that
+    // does not ship, which is the vacuous-pin shape this suite exists to refuse.
+    //
+    // WHAT THIS MEANS, stated plainly because it is a real gap rather than a tidy move: the
+    // v2 equivalent — a role's `background.fill: "transparent"` — is accepted with no
+    // advisory at all. The marker, the engine and `pp_slot_roles()` all remain, so a v1
+    // component could still declare it and the advisory would fire; what has no successor is
+    // the WARNING on the v2 surface that replaced the slots. Filed rather than fixed here:
+    // adding an advisory to the UDC engine is a change to the shared engine's finding
+    // vocabulary, which is not cta's rebuild to make.
 
     /**
      * ONE warning per PAINTED declaration, in BOTH stored key orders.
@@ -583,11 +583,11 @@ final class AppliesWhenTest extends TestCase
     {
         $post_id = pp_create_page('Inert snapshot');
         pp_update_composition($post_id, [
-            ['component' => 'cta', 'props' => ['title' => 'A', 'button_text' => 'Go', 'button_url' => '#x'],
-             'style' => ['--cta-button2-color' => '#111111']],
+            ['component' => 'grid', 'props' => ['title' => 'T', 'layout' => 'list', 'items' => [['title' => 'Card', 'text' => 'B']]],
+             'style' => ['--grid-item-bar-color' => '#111111']],
         ]);
         pp_update_composition($post_id, [
-            ['component' => 'cta', 'props' => ['title' => 'B', 'button_text' => 'Go', 'button_url' => '#x']],
+            ['component' => 'grid', 'props' => ['title' => 'B', 'items' => [['title' => 'Card', 'text' => 'B']]]],
         ]);
 
         $result = pp_execute_action('restore_composition', ['post_id' => $post_id, 'steps_back' => 1]);
@@ -596,10 +596,10 @@ final class AppliesWhenTest extends TestCase
         $inert = array_values(array_filter($result['findings'], static fn ($f) => $f['type'] === 'inert_slot'));
         $this->assertCount(1, $inert);
         $this->assertSame('warning', $inert[0]['severity'], 'advisory severity, never an error');
-        $this->assertStringContainsString('--cta-button2-color', $inert[0]['message']);
+        $this->assertStringContainsString('--grid-item-bar-color', $inert[0]['message']);
 
         $restored = pp_get_composition($post_id);
-        $this->assertSame('#111111', $restored[0]['style']['--cta-button2-color'], 'the snapshot came back intact');
+        $this->assertSame('#111111', $restored[0]['style']['--grid-item-bar-color'], 'the snapshot came back intact');
     }
 
     // ── The `wp pp validate site` gate (the #610 failure mode) ───────────────

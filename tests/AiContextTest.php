@@ -988,12 +988,12 @@ class AiContextTest extends TestCase
         ];
         $GLOBALS['_pp_test_store']['post_meta'][60]['_pp_composition'] = wp_json_encode([
             [
-                // `cta`, not hero: this pins that the page context carries style slots, a
+                // `grid` since #1026 (`cta` before it): this pins that the page context carries style slots, a
                 // recipe and typed editable props, and hero has none of the first two
-                // since #986. cta still declares all three, including `button_url`.
-                'component' => 'cta',
-                'props' => ['id' => 'pp-test123', 'title' => 'Welcome', 'body' => 'B', 'button_text' => 'Go', 'button_url' => '/go'],
-                'style' => ['--cta-bg' => '#0d1117', '--cta-heading-color' => '#f0f0f0', '__recipe' => 'dark-bold'],
+                // since #986. grid still declares all three, including a link url.
+                'component' => 'grid',
+                'props' => ['id' => 'pp-test123', 'title' => 'Welcome', 'items' => [['title' => 'Card', 'text' => 'B']]],
+                'style' => ['--grid-bg' => '#0d1117', '--grid-heading-color' => '#f0f0f0', '__recipe' => 'dark-bold'],
             ],
         ]);
 
@@ -1002,12 +1002,14 @@ class AiContextTest extends TestCase
 
         $this->assertStringContainsString('pp-test123', $system);
         $this->assertStringContainsString('recipe: dark-bold', $system);
-        $this->assertStringContainsString('--cta-bg: #0d1117', $system);
+        $this->assertStringContainsString('--grid-bg: #0d1117', $system);
         $this->assertStringContainsString('Editable:', $system);
         $this->assertStringContainsString('title (string)', $system);
-        // A prop with a schema format shows its family so the AI patches valid
-        // values (#509): button_url is a link_url-format string.
-        $this->assertStringContainsString('button_url (string, link_url)', $system);
+        // A prop with a schema format shows its family so the AI patches valid values
+        // (#509). The example moved from cta's `button_url` to grid's `image_url` at #1026
+        // with the fixture: both are format-carrying string props, which is the only
+        // property this line is about.
+        $this->assertStringContainsString('image_url (string, image_url)', $system);
     }
 
     public function testFormatMessagesPageContextHandlesNoStyleOverrides(): void

@@ -492,14 +492,37 @@ class ComponentPropsTest extends TestCase
         $this->assertSame('', $result);
     }
 
-    public function testRenderStyleVarsGradientSurvivesUnmangledForCta(): void
-    {
-        $result = pp_render_style_vars(
-            ['--cta-bg' => 'radial-gradient(circle, #fff, #000)'],
-            'cta'
-        );
-        $this->assertStringContainsString('--cta-bg: radial-gradient(circle, #fff, #000)', $result);
-    }
+    // RETIRED (#1026): cta's per-instance styling tests, together, because their subject is
+    // one thing — the forty `--cta-*` style slots and the four `*_variant` / `theme` /
+    // `background_image` props that selected bundles of them. The rebuild moved every one of
+    // those values onto a named ROLE in components/cta/schema.json, so there is no slot to
+    // declare, no variant class to map, and no inline custom property to render.
+    //
+    //   testCtaSchemaDeclaresAllSixButtonSlots      testCtaSchemaDeclaresEyebrowSlots
+    //   testCtaButtonVariantOutline / Ghost / Secondary
+    //   testCtaButton2DefaultsToOutline             testCtaButton2VariantMapsToModifier
+    //   testCtaButton2VariantInvalidFallsBackToOutline
+    //   testCtaButtonOverrideRenders                testCtaBgPositionOverrideRenders
+    //   testCtaAccentOnlyCompositionStillRendersAccentCustomProperty
+    //   testCtaAccentFillExcludesOutlineGhostSecondary
+    //   testCtaBtnCssStillConsumesCtaAccentAfterEnrichment
+    //   testCtaButtonVariantsAllRouteThroughOverrideSlotsInCss
+    //   testCtaMutedEmitsDarkAndInvertedStaysInverted
+    //   testRenderStyleVarsGradientSurvivesUnmangledForCta
+    //
+    // WHAT REPLACES THE COVERAGE, named so this is not read as a hole. The emitted values are
+    // asserted at the CSS level in tests/CtaRoleDefaultsEmitTest.php, one assertion per
+    // claim; the write path's acceptance of a `udc` map is ActionsTest's UDC contract tests;
+    // the refusal of every retired name is SchemaValidationTest's registry-iterating
+    // `retired_props` / slot guards, which cover cta automatically because they iterate
+    // rather than enumerate. The rendered half is tests/e2e/style-render.spec.ts.
+    //
+    // THE BUTTON-VARIANT TESTS ARE A DELIBERATE LOSS OF ONE THING, stated rather than
+    // buried: v1 had four named button treatments and v2 ships two presets (`button`,
+    // `button-secondary`). `outline` and `ghost` have no preset and are written out on the
+    // role — the migration how-to gives both maps verbatim. What the rebuild keeps is the
+    // DEFAULT pair reading as one filled action beside one outlined action, which is the
+    // `button-secondary` role's own defaults and is pinned in CtaRoleDefaultsEmitTest.
 
     public function testRenderStyleVarsGradientSurvivesUnmangledForGrid(): void
     {
@@ -553,23 +576,8 @@ class ComponentPropsTest extends TestCase
         $this->assertStringNotContainsString('btn--', $html);
     }
 
-    public function testCtaButtonVariantSecondary(): void
-    {
-        $html = $this->render('cta', $this->ctaProps(['button_variant' => 'secondary']));
-        $this->assertStringContainsString('btn--secondary', $html);
-    }
 
-    public function testCtaButtonVariantOutline(): void
-    {
-        $html = $this->render('cta', $this->ctaProps(['button_variant' => 'outline']));
-        $this->assertStringContainsString('btn--outline', $html);
-    }
 
-    public function testCtaButtonVariantGhost(): void
-    {
-        $html = $this->render('cta', $this->ctaProps(['button_variant' => 'ghost']));
-        $this->assertStringContainsString('btn--ghost', $html);
-    }
 
     public function testCtaButtonVariantInvalidFallsBackToPrimary(): void
     {
@@ -680,19 +688,18 @@ class ComponentPropsTest extends TestCase
 
         $this->assertStringContainsString('<div class="cta__buttons">', $html, 'the pair needs its own flex row');
         $this->assertStringContainsString('class="cta__button btn"', $html, 'primary keeps the bare .btn');
-        $this->assertStringContainsString('class="cta__button cta__button--secondary btn btn--outline"', $html);
+        // BOTH buttons are a bare `.btn` since #1026. `button2_variant` retired with the
+        // other three styling props, so the renderer emits no `btn--outline` modifier and
+        // the second button's look is the `button-secondary` ROLE — which carries v1's
+        // outline treatment as its defaults, so what renders is unchanged even though the
+        // class list is not. The class that distinguishes the two is `cta__button--secondary`,
+        // which is the role's selector and therefore load-bearing rather than decorative.
+        $this->assertStringContainsString('class="cta__button cta__button--secondary btn"', $html);
         $this->assertStringContainsString('href="/contacto"', $html);
         $this->assertStringContainsString('Hablar con nosotros', $html);
         $this->assertSame(2, substr_count($html, '<a href='), 'exactly two button anchors');
     }
 
-    public function testCtaButton2DefaultsToOutline(): void
-    {
-        // Mirrors hero's button2_variant default: the pair reads as one filled action
-        // and one outlined action without the author selecting a variant.
-        $html = $this->render('cta', $this->ctaProps(['button2_text' => 'Secondary']));
-        $this->assertStringContainsString('cta__button--secondary btn btn--outline', $html);
-    }
 
     public function testCtaButton2VariantPrimaryIsBareBtn(): void
     {
@@ -703,15 +710,6 @@ class ComponentPropsTest extends TestCase
         $this->assertStringContainsString('class="cta__button cta__button--secondary btn"', $html);
     }
 
-    /** @dataProvider button2VariantProvider */
-    public function testCtaButton2VariantMapsToModifier(string $variant, string $expected): void
-    {
-        $html = $this->render('cta', $this->ctaProps([
-            'button2_text'    => 'Secondary',
-            'button2_variant' => $variant,
-        ]));
-        $this->assertStringContainsString('cta__button--secondary btn ' . $expected, $html);
-    }
 
     public static function button2VariantProvider(): array
     {
@@ -722,16 +720,6 @@ class ComponentPropsTest extends TestCase
         ];
     }
 
-    public function testCtaButton2VariantInvalidFallsBackToOutline(): void
-    {
-        // Unlike the primary (which falls back to `primary`), an unrecognized
-        // second-button variant falls back to the secondary default.
-        $html = $this->render('cta', $this->ctaProps([
-            'button2_text'    => 'Secondary',
-            'button2_variant' => 'neon',
-        ]));
-        $this->assertStringContainsString('cta__button--secondary btn btn--outline', $html);
-    }
 
     public function testCtaButton2TextAndUrlAreEscaped(): void
     {
@@ -850,100 +838,13 @@ class ComponentPropsTest extends TestCase
     // override. This proves that path still works end to end: the slot still
     // renders as an inline custom property AND the CSS still consumes it.
 
-    public function testCtaAccentOnlyCompositionStillRendersAccentCustomProperty(): void
-    {
-        $html = $this->render('cta', $this->ctaProps([
-            '__pp_style' => ['--cta-accent' => '#ff0000'],
-        ]));
-        $this->assertStringContainsString('--cta-accent: #ff0000', $html);
-    }
 
-    public function testCtaBtnCssStillConsumesCtaAccentAfterEnrichment(): void
-    {
-        $css = file_get_contents(dirname(__DIR__) . '/assets/css/components.css');
-        // Allow for the :not(.btn--outline):not(.btn--ghost):not(.btn--secondary)
-        // exclusion clauses added between .btn and { by the #111 cascade-bug fix.
-        $this->assertMatchesRegularExpression(
-            '/\.cta\s+\.btn[^{]*\{[^}]*var\(\s*--cta-accent/s',
-            $css,
-            'The component-scoped .cta .btn override must still consume var(--cta-accent) '
-            . 'after the shared button was tokenized — otherwise old compositions lose their color.'
-        );
-    }
 
     // ── Secondary/outline button cascade bug + per-instance slots (#111) ────
 
-    public function testCtaAccentFillExcludesOutlineGhostSecondary(): void
-    {
-        // Regression guard: .cta .btn (2 classes, specificity 0,2,0) has HIGHER
-        // specificity than .btn--outline/--ghost/--secondary (1 class each,
-        // 0,1,0), so without this :not() exclusion the accent fill
-        // unconditionally wins regardless of source order. Confirmed
-        // empirically (Playwright): without the exclusion, outline and ghost
-        // both render with button text the same color as the button
-        // background (fully invisible).
-        $css = file_get_contents(dirname(__DIR__) . '/assets/css/components.css');
-        $this->assertMatchesRegularExpression(
-            '/\.cta\s+\.btn:not\(\.btn--outline\):not\(\.btn--ghost\):not\(\.btn--secondary\)\s*\{[^}]*var\(\s*--cta-accent\b/s',
-            $css,
-            ".cta .btn's accent-fill rule must exclude outline/ghost/secondary via :not(), "
-            . 'or those variants render with an invisible/wrong-colored button (#111).'
-        );
-    }
 
-    public function testCtaSchemaDeclaresAllSixButtonSlots(): void
-    {
-        $schema = json_decode(file_get_contents(dirname(__DIR__) . '/components/cta/schema.json'), true);
-        $slots = $schema['styling']['style_slots'];
-        foreach (['--cta-button-bg', '--cta-button-border', '--cta-button-color', '--cta-button-hover-bg', '--cta-button-hover-border', '--cta-button-hover-color'] as $name) {
-            $this->assertArrayHasKey($name, $slots, "cta must declare {$name}.");
-            $this->assertSame('color', $slots[$name]['type']);
-        }
-    }
 
-    public function testCtaButtonOverrideRenders(): void
-    {
-        $html = $this->render('cta', $this->ctaProps([
-            'button_variant' => 'outline',
-            '__pp_style' => ['--cta-button-bg' => '#ff00ff', '--cta-button-border' => '#ffff00'],
-        ]));
-        $this->assertStringContainsString('--cta-button-bg: #ff00ff', $html);
-        $this->assertStringContainsString('--cta-button-border: #ffff00', $html);
-    }
 
-    public function testCtaButtonVariantsAllRouteThroughOverrideSlotsInCss(): void
-    {
-        $css = file_get_contents(dirname(__DIR__) . '/assets/css/components.css');
-        // Strip /* */ comments first so the count reflects real CONSUMPTIONS, not comment
-        // mentions of the token (issue 420 added a comment that names the slot, which a
-        // raw-file substr_count would have wrongly tallied).
-        $css = preg_replace('#/\*.*?\*/#s', '', $css);
-        // Count real CONSUMPTIONS (`var(--cta-button-bg`), not comment mentions.
-        // 4 in the `.cta__button` block — the primary-shape rule plus outline/secondary/
-        // ghost, one per variant (#111) — PLUS 2 in the premium primary-fill cascade
-        // winners (the "premium CTA treatment" and "elevation correction"
-        // `main .btn:not(...)` rules), where issue 412 routes the gradient background
-        // through the slot so a flat primary button is reachable on the DEFAULT variant —
-        // PLUS 2 on the `.cta .btn:not(...)` rest rule (issue 420): its fill, and the fill
-        // slot nested as the FALLBACK inside its border (`var(--cta-button-border,
-        // var(--cta-button-bg, ...))`) so the border follows the fill when the border slot
-        // is unset. `.cta .btn` is the [0,5,0] longhand winner that outranked BOTH of the
-        // above layers for background-color/border-color and silently re-killed the slot.
-        // PLUS 1 on the bg-image separation ring (issue 535). That rule overrides
-        // `.cta .btn:not(...)`'s border on an overlay band, replacing ONLY the terminal
-        // --color-accent with --color-accent-on-overlay; every authored link ahead of it,
-        // including this fill slot, is carried over verbatim so a button an author already
-        // recoloured keeps its matching ring instead of gaining a near-white one.
-        $this->assertSame(
-            9,
-            substr_count($css, 'var(--cta-button-bg'),
-            'var(--cta-button-bg) must be consumed by the 4 cta-block variant rules, the 2 '
-            . 'premium primary-fill winners (issue 412), the .cta .btn rest rule twice '
-            . '(fill + the fill nested in its border fallback, issue 420), and the '
-            . '.cta--has-bg-image separation ring, which preserves that same border '
-            . 'fallback chain ahead of the overlay role (issue 535).'
-        );
-    }
 
     // ── pp_esc_image_src (#36) ───────────────────────────────────────────────
 
@@ -1555,15 +1456,6 @@ class ComponentPropsTest extends TestCase
         $this->assertStringNotContainsString('grid--', $stale);
     }
 
-    public function testCtaMutedEmitsDarkAndInvertedStaysInverted(): void
-    {
-        $base     = ['title' => 'Go', 'button_text' => 'Click', 'button_url' => '/'];
-        $muted    = $this->render('cta', $base + ['theme' => 'muted']);
-        $inverted = $this->render('cta', $base + ['theme' => 'inverted']);
-        $this->assertStringContainsString('cta--dark', $muted);
-        $this->assertStringContainsString('cta--inverted', $inverted);
-        $this->assertStringNotContainsString('cta--dark', $inverted);
-    }
 
     public function testStatsRendersAllFourSlots(): void
     {
@@ -1639,7 +1531,6 @@ class ComponentPropsTest extends TestCase
     {
         $v1 = [
             'grid'  => '--grid-heading-accent-color',
-            'cta'   => '--cta-heading-accent-color',
             'faq'   => '--faq-heading-accent-color',
             'stats' => '--stats-heading-accent-color',
         ];
@@ -1906,13 +1797,6 @@ class ComponentPropsTest extends TestCase
             'the subheading keeps its ink as a role default.');
     }
 
-    public function testCtaSchemaDeclaresEyebrowSlots(): void
-    {
-        $schema = json_decode(file_get_contents(dirname(__DIR__) . '/components/cta/schema.json'), true);
-        $slots = $schema['styling']['style_slots'];
-        $this->assertArrayHasKey('--cta-eyebrow-color', $slots);
-        $this->assertArrayHasKey('--cta-eyebrow-bg', $slots);
-    }
 
     public function testGridEyebrowRejectsInjectionInStyleSlot(): void
     {
@@ -2228,10 +2112,11 @@ class ComponentPropsTest extends TestCase
     {
         $expected = [
             // hero's accent colour is the `title-accent` role's `typography.color` (#986),
-            // and section's is the `heading-accent` role's (#1023). Neither declares a
-            // slot, so neither belongs in this roster — four still do.
+            // section's is the `heading-accent` role's (#1023) and cta's is the same role's
+            // at #1026. None of the three declares a slot, so none belongs in this roster —
+            // three still do. The name says "five" from when five did; the roster is the
+            // fact and the name is not worth a rename that would break a `--filter`.
             'grid'  => '--grid-heading-accent-color',
-            'cta'   => '--cta-heading-accent-color',
             'faq'   => '--faq-heading-accent-color',
             'stats' => '--stats-heading-accent-color',
         ];
@@ -3516,11 +3401,6 @@ class ComponentPropsTest extends TestCase
             'a v2 band emits no inline custom properties at all.');
     }
 
-    public function testCtaBgPositionOverrideRenders(): void
-    {
-        $html = $this->render('cta', $this->ctaProps(['background_image' => 'https://example.com/bg.jpg', '__pp_style' => ['--cta-bg-position' => 'right']]));
-        $this->assertStringContainsString('--cta-bg-position: right', $html);
-    }
 
     public function testStatsBgPositionOverrideRenders(): void
     {
@@ -3530,9 +3410,10 @@ class ComponentPropsTest extends TestCase
 
     public function testSectionCtaStatsSchemaDeclareBgPositionSlot(): void
     {
-        // section left this roster at #1023: its band background position is the `_band`
-        // role's `background.position`, which ruling A2 pairs with `background.image`.
-        foreach (['cta' => '--cta-bg-position', 'stats' => '--stats-bg-position'] as $component => $slot) {
+        // section left this roster at #1023 and cta at #1026: on both, the band background
+        // position is the `_band` role's `background.position`, which ruling A2 pairs with
+        // `background.image`. stats is the last component whose band background is a prop.
+        foreach (['stats' => '--stats-bg-position'] as $component => $slot) {
             $schema = json_decode(file_get_contents(dirname(__DIR__) . "/components/{$component}/schema.json"), true);
             $this->assertSame('position', $schema['styling']['style_slots'][$slot]['type'], "{$component} must declare {$slot} as type position.");
         }
@@ -3845,13 +3726,14 @@ class ComponentPropsTest extends TestCase
             $pattern = '#background-image:url\((?:https?://)?' . preg_quote((string) $scalar, '#') . '\)#';
 
             foreach ([
-                // section's row left these three #705 guards at #1023: the prop is
-                // retired, so there is no pp_esc_image_src() call site on section to
-                // guard. A band background is `_band` -> `background.image`, an
-                // attachment id the ENGINE resolves — the guarded-scalar class cannot
-                // arise there, because a non-numeric id is refused at write rather than
-                // cast at render. cta and stats still declare the prop and keep the pins.
-                ['cta',   $this->ctaProps(['background_image' => $scalar]),   'cta'],
+                // section's row left these #705 guards at #1023 and cta's at #1026: on both
+                // the prop is retired, so there is no pp_esc_image_src() call site left to
+                // guard. A band background is `_band` -> `background.image`, an attachment
+                // id the ENGINE resolves — the guarded-scalar class cannot arise there,
+                // because a non-numeric id is refused at write rather than cast at render.
+                // stats is the last component that declares the prop, so it is the last one
+                // that can hold these pins, and the canonical #705 explanation moved into
+                // components/stats/stats.php with them.
                 ['stats', $this->statsProps(['background_image' => $scalar]), 'stats'],
             ] as [$component, $props, $prefix]) {
                 $html = $this->render($component, $props);
@@ -3869,8 +3751,11 @@ class ComponentPropsTest extends TestCase
      */
     public function testAnOrdinaryBackgroundImageUrlIsUnchanged(): void
     {
+        // cta's row left at #1026 with its `background_image` prop; stats is the last
+        // component whose band background is a prop, so it is the last one that can hold
+        // this pin. See testAScalarBackgroundImageStillPaintsExactlyAsBefore for the full
+        // reasoning on why the whole guarded-scalar class cannot arise on a v2 band.
         foreach ([
-            ['cta',   $this->ctaProps(['background_image' => 'https://example.com/bg.jpg']),   'cta'],
             ['stats', $this->statsProps(['background_image' => 'https://example.com/bg.jpg']), 'stats'],
         ] as [$component, $props, $prefix]) {
             $html = $this->render($component, $props);
@@ -3945,8 +3830,12 @@ class ComponentPropsTest extends TestCase
     {
         $scalars = [0, 0.0, -0, false, true, 42, 3.14, -1, '', '0', '0.0', '+0', 'x', '00', NAN, INF, -INF];
 
+        // cta's row left at #1026 with its `background_image` prop. The -0.0 exception this
+        // pins is a PROP-path behaviour — a stored float whose string cast opens a truthiness
+        // gate — and a v2 band has no such gate: `background.image` is an attachment id the
+        // engine resolves, and a non-numeric id is refused at write rather than cast at
+        // render. stats is the last component that can hold the pin.
         $components = [
-            ['cta',   fn($v) => $this->ctaProps(['background_image' => $v]),   'cta'],
             ['stats', fn($v) => $this->statsProps(['background_image' => $v]), 'stats'],
         ];
 

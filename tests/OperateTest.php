@@ -2858,16 +2858,17 @@ class OperateTest extends TestCase
     public function testInspectCompositionIncludesStyleSlots(): void
     {
         $post_id = pp_create_page('Style inspect test');
-        // `cta` since #1023: inspect must report the slot catalog for a band that HAS
-        // one, and section declares none now. cta is the widest component still on slots.
+        // `grid` since #1026 (`cta` from #1023, `section` before): inspect must report the
+        // slot catalog for a band that HAS one, and grid is the widest component still on
+        // slots. See #1025 on why this keeps re-homing and what the durable fix is.
         pp_update_composition($post_id, [
-            ['component' => 'cta', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello', 'button_text' => 'Go', 'button_url' => '/x']],
+            ['component' => 'grid', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello', 'items' => [['title' => 'Card', 'text' => 'B']]]],
         ]);
 
         $result = pp_inspect_composition($post_id);
         $this->assertCount(1, $result);
         $this->assertArrayHasKey('style_slots', $result[0]);
-        $this->assertCount(40, $result[0]['style_slots'], 'cta declares 40 slots');
+        $this->assertCount(38, $result[0]['style_slots'], 'grid declares 38 slots');
 
         // Verify slot structure.
         $first_slot = $result[0]['style_slots'][0];
@@ -2882,27 +2883,27 @@ class OperateTest extends TestCase
     {
         $post_id = pp_create_page('Style inspect test');
         pp_update_composition($post_id, [
-            // `cta` since #1023: `current` vs `default` is a SLOT report, and section
-            // declares no slots. cta's `--cta-bg` is the same shape of assertion, with
+            // `grid` since #1026: `current` vs `default` is a SLOT report, and cta declares
+            // no slots now. grid's `--grid-bg` is the same shape of assertion, with
             // its own declared default.
-            ['component' => 'cta', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello', 'button_text' => 'Go', 'button_url' => '/x'],
-             'style' => ['--cta-bg' => '#1a1a2e']],
+            ['component' => 'grid', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello', 'items' => [['title' => 'Card', 'text' => 'B']]],
+             'style' => ['--grid-bg' => '#1a1a2e']],
         ]);
 
         $result = pp_inspect_composition($post_id);
         $slots = $result[0]['style_slots'];
 
-        // Find the --cta-bg slot.
+        // Find the --grid-bg slot.
         $bg_slot = null;
         foreach ($slots as $s) {
-            if ($s['slot'] === '--cta-bg') {
+            if ($s['slot'] === '--grid-bg') {
                 $bg_slot = $s;
                 break;
             }
         }
         $this->assertNotNull($bg_slot);
         $this->assertSame('#1a1a2e', $bg_slot['current']);
-        $this->assertSame('var(--color-surface)', $bg_slot['default']);
+        $this->assertSame('transparent', $bg_slot['default']);
     }
 
     public function testInspectCompositionShowsActiveRecipe(): void

@@ -83,7 +83,11 @@ class StatedReasonsTest extends TestCase
 
             // ── cta (row 13) ────────────────────────────────────────────────
             'cta button gap'            => ['components/cta/README.md', 'gap: var(--space-sm)', 'cta'],
-            'cta inner-gap disclosure'  => ['components/cta/schema.json', 'It does NOT govern the space BETWEEN the two buttons', 'cta'],
+            // The disclosure SURVIVED the v2 rebuild and moved with the value it describes
+            // (#1026): it is the `inner` role's description now, where `--cta-inner-gap`'s
+            // used to be. The needle is upper-cased to match, which is the accepted cost this
+            // docblock names for a row whose reason has no literal of its own.
+            'cta inner-gap disclosure'  => ['components/cta/schema.json', 'IT DOES NOT GOVERN THE SPACE BETWEEN THE TWO BUTTONS', 'cta'],
 
             // ── grid (rows 15-20 + C-6 connector) ───────────────────────────
             'grid hover lift'           => ['components/grid/README.md', 'translateY(-2px)', 'grid'],

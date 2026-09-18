@@ -31,7 +31,7 @@
  *
  * WHAT THIS FILE PINS, and why each half is here rather than assumed:
  *
- *   1. THE PREDICATE, at both depths, over EVERY shipped declaration — 61 top-level
+ *   1. THE PREDICATE, at both depths, over EVERY shipped declaration — 57 top-level
  *      string props and 22 nested items[] string fields across the 10 composable
  *      components. A two-case pin would prove the helper changed; it would not prove
  *      that every string-typed schema path actually routes THROUGH the helper. The
@@ -124,7 +124,7 @@ class StringPropWriteEnforcementTest extends TestCase
     // ── 2. Uniform coverage over every shipped declaration ──────────────────
 
     /**
-     * EVERY top-level `type: "string"` prop is enforced — 61 of them today, walked
+     * EVERY top-level `type: "string"` prop is enforced — 57 of them today, walked
      * from the schemas rather than listed here so the pin cannot go stale.
      *
      * Chrome (`nav`, `footer`) is excluded because this engine never judges it: a
@@ -168,9 +168,9 @@ class StringPropWriteEnforcementTest extends TestCase
             }
         }
         $this->assertGreaterThanOrEqual(
-            60,
+            56,
             $checked,
-            'the shipped schemas declare 61 composable top-level string props; a lower count means the walk stopped finding them'
+            'the shipped schemas declare 57 composable top-level string props; a lower count means the walk stopped finding them'
         );
     }
 

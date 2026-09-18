@@ -212,7 +212,7 @@ class FriendlyErrorSlotContextTest extends TestCase
             'component_index' => 0,
             // A slot that belongs to `cta`, not `section`: invalid here (so the preview
             // rejects) and hintable (so the report can name where it does live).
-            'style'           => ['--cta-button-bg' => '#1a1a2e']];
+            'style'           => ['--grid-item-bg' => '#1a1a2e']];
         $error = pp_preview_action('style_component', $params);
         $this->assertInstanceOf(WP_Error::class, $error);
 
@@ -238,8 +238,8 @@ class FriendlyErrorSlotContextTest extends TestCase
         // order (an exact match on `section`, a suffix match on any `--*-bg`), so
         // the assertion is that the named component really declares what it claims.
         $hints = (array) $friendly['cross_component_hints'];
-        $this->assertArrayHasKey('--cta-button-bg', $hints, 'The rejected slot is real elsewhere, and the hint says where.');
-        $hint = $hints['--cta-button-bg'];
+        $this->assertArrayHasKey('--grid-item-bg', $hints, 'The rejected slot is real elsewhere, and the hint says where.');
+        $hint = $hints['--grid-item-bg'];
         $this->assertNotSame('stats', $hint['component'], 'A hint points away from the component that rejected.');
         $this->assertArrayHasKey($hint['slot'], pp_get_style_slots($hint['component']));
     }
@@ -383,13 +383,18 @@ class FriendlyErrorSlotContextTest extends TestCase
         [, $friendly] = $this->rejectThenReport([
             'post_id'         => $post_id,
             'component_index' => 0,
-            'style'           => ['--cta-button-bg' => '#101010'],
+            // `--grid-item-bar-color` rather than `--grid-item-bg`: the hint engine resolves
+            // by NAME, and faq declares `--faq-item-bg`, which the matcher reaches first.
+            // The slot has to be one only ONE component declares, or the test pins the
+            // matcher's tie-break instead of the hint. (The fixture moved off cta at #1026;
+            // see #1025 on why the slot-engine fixtures keep re-homing.)
+            'style'           => ['--grid-item-bar-color' => '#101010'],
         ]);
 
         $hints = (array) $friendly['cross_component_hints'];
-        $this->assertArrayHasKey('--cta-button-bg', $hints);
-        $this->assertSame('cta', $hints['--cta-button-bg']['component']);
-        $this->assertSame('exact', $hints['--cta-button-bg']['match']);
+        $this->assertArrayHasKey('--grid-item-bar-color', $hints);
+        $this->assertSame('grid', $hints['--grid-item-bar-color']['component']);
+        $this->assertSame('exact', $hints['--grid-item-bar-color']['match']);
         $this->assertStringContainsString('stats', $friendly['user_message']);
     }
 
@@ -498,12 +503,12 @@ class FriendlyErrorSlotContextTest extends TestCase
 
         $friendly = _pp_build_friendly_error(
             new WP_Error('invalid_style_slot', 'Component "section" has no style slot "--section-bgs". Available: --section-bg'),
-            ['post_id' => $post_id, 'component_index' => 0, 'style' => ['--cta-button-bg' => '#111']]
+            ['post_id' => $post_id, 'component_index' => 0, 'style' => ['--grid-item-bg' => '#111']]
         );
 
         $this->assertSame(array_keys(pp_get_style_slots('section')), $friendly['alternatives']);
         $hints = (array) $friendly['cross_component_hints'];
-        $this->assertArrayHasKey('--cta-button-bg', $hints, 'The fallback still judges the keys it can see.');
+        $this->assertArrayHasKey('--grid-item-bg', $hints, 'The fallback still judges the keys it can see.');
     }
 
     public function testAContextlessRejectionStillReportsAnUnresolvableTarget(): void

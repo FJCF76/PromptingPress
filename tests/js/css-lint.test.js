@@ -364,7 +364,7 @@ describe('CSS lint: no modern CSS features', () => {
 });
 
 describe('CSS lint: style slot fallback patterns', () => {
-    const SCHEMA_COMPONENTS = ['hero', 'section', 'grid', 'cta'];
+    const SCHEMA_COMPONENTS = ['hero', 'section', 'grid', 'cta'];  // v2 members contribute zero
     const stripped = stripComments(COMPONENTS_CSS);
 
     // Load all style slots from schema.json files.
@@ -378,7 +378,7 @@ describe('CSS lint: style slot fallback patterns', () => {
         });
     });
 
-    test('grid/cta schemas declare 78 style slots (subset of the total)', () => {
+    test('this group\'s schemas declare 38 style slots (subset of the total)', () => {
         // 166 -> 172 (#584): +1 hero heading rhythm, +2 hero primary ring slots,
         // +2 section panel-CTA ring slots, +1 cta heading rhythm.
         // 172 -> 174 (#581): the two state twins — grid's --grid-item-link-hover-color
@@ -386,10 +386,15 @@ describe('CSS lint: style slot fallback patterns', () => {
         // 174 -> 125 (#986): hero left the v1 styling system. Its 49 slots are not
         // renamed or relocated — they are GONE, replaced by 13 roles in its schema.
         // 125 -> 78 (#1023): section left it too, the same way — its 47 slots are gone,
-        // replaced by 17 roles. The count stays a count rather than being deleted with
-        // each rebuild, because drift in the components STILL on slots is exactly what
-        // this pin catches, and there are two of them left in this group.
-        expect(allSlots.length).toBe(78);
+        // replaced by 17 roles.
+        // 78 -> 38 (#1026): cta left, its 40 slots replaced by 11 roles. ONE of this
+        // group's four components is still on slots, so the name says "this group" rather
+        // than naming them — the roster above is the fact. The count stays a count rather
+        // than being deleted with each rebuild, because drift in the components STILL on
+        // slots is exactly what this pin catches; keeping the v2 members in
+        // SCHEMA_COMPONENTS is deliberate, so a rebuilt component that quietly re-grew a
+        // slot map would push this number up and fail here.
+        expect(allSlots.length).toBe(38);
     });
 
     allSlots.forEach(({ component, slotName }) => {
@@ -459,151 +464,32 @@ describe('CSS lint: secondary/ghost buttons never get a filled gradient', () => 
     });
 });
 
-/**
- * Premium primary-button fill can be flattened via the documented slot (#412).
+/* RETIRED (#1026): the two remaining per-instance BUTTON-SLOT blocks, because the slots
+ * they pin no longer exist on any component:
  *
- * The premium filled treatment paints the primary button with a `background:`
- * SHORTHAND carrying a gradient background-IMAGE layer. That layer sits above the
- * `background-color` the cta block routes through --cta-button-bg, so a bare
- * shorthand here silently re-kills the slot (Symptom 1: --cta-button-bg does nothing
- * on the default variant) — the #226/#302 dead-slot class, evading the same-property
- * #305 guard through a DIFFERENT cascade layer. This guard extends the slot contract
- * to that layer-defeat: every rule targeting the primary-button surface
- * (`main .btn:not(...)`, the composed winner) that sets `background`/`background-image`
- * MUST route through var(--cta-button-bg / --cta-button-hover-bg), so a future
- * shorthand cannot re-defeat the flat-button slot. Issue 514 extends the rest chain
- * to lead with --hero-button-bg (the hero primary's visible fill winner) with
- * --cta-button-bg still next; both slots must survive in the chain.
+ *   'premium primary-button fill routes through the fill-slot chain (#412/#514)'
+ *   'global button hover tier (#539)'
+ *
+ * Both pinned the ORDER of links inside the shared premium button's `var()` chains —
+ * which per-instance slot led, where the global `--btn-*` tier sat relative to it, and that
+ * the second button routed every shared link its primary did. `--hero-button-*` left at
+ * #986, `--section-panel-cta-*` at #1023, `--cta-button*-*` at #1026, so each chain is now
+ * one global knob and one literal, and two links that cannot both exist cannot be
+ * mis-ordered. A replacement pin would pass vacuously.
+ *
+ * #539's CONTRACT SURVIVES AND IS STILL CHECKED, which is the part worth being precise
+ * about: "a site-wide button retheme reaches every filled surface" is now a property of a
+ * single-link chain, and the surviving premium-fill pins in this file read `--btn-bg` /
+ * `--btn-hover-bg` / `--btn-border-color` / `--btn-hover-border-color` directly. What is
+ * gone is the ORDERING half, which only had meaning while something sat above the knob.
+ *
+ * #412/#514's MECHANISM survives too, and outlived its slots: a flat value resolves the
+ * `background` SHORTHAND to `background: <color>`, which resets `background-image` and
+ * clears the premium gradient. A role's `background.fill` emits that same shorthand by
+ * construction (pp_udc_groups(): "fill MUST stay first"), so the masking fix is now a
+ * property of the emitter rather than of a hand-written fallback chain. The surviving
+ * shorthand in components.css carries that note where a future longhand edit would break it.
  */
-describe('CSS lint: premium primary-button fill routes through the fill-slot chain (#412/#514)', () => {
-    const css = stripComments(COMPONENTS_CSS);
-    // Innermost rules: `selectors { body-without-braces }`.
-    const ruleRe = /([^{}]+)\{([^{}]*)\}/g;
-
-    // A rule targets the composed primary-button FILL surface when a selector is
-    // `main .btn:not(.btn--outline)...` — the filled treatment that excludes the
-    // transparent variants. `.btn--outline` appears here only INSIDE the `:not()`, so
-    // key on that exact shape rather than a bare `.btn--outline` substring (which would
-    // wrongly reject the very selector we want, the trap the #305-era gradient guard hit).
-    function targetsPrimaryFill(selector) {
-        // `:where(` is admitted because #986 (ruling D5) wrapped this rule to drop it to
-        // zero specificity — it is the same rule doing the same job, and a matcher keyed
-        // on the unwrapped spelling would silently stop finding it, which is the vacuous
-        // pass this whole block exists to prevent.
-        return selector.split(',').some(sel =>
-            /(^|\s)main\s+(?::where\()?\.btn:not\(\.btn--outline\)/.test(sel.trim())
-        );
-    }
-
-    // background declarations (shorthand OR background-image), excluding background-color.
-    function fillDecls(body) {
-        return (body.match(/(?<![-a-z])background(?:-image)?\s*:[^;}]+/gi) || [])
-            .map(d => d.trim());
-    }
-
-    const surfaceRules = [];
-    let m;
-    while ((m = ruleRe.exec(css)) !== null) {
-        if (!targetsPrimaryFill(m[1])) continue;
-        const decls = fillDecls(m[2]);
-        if (decls.length) surfaceRules.push({ selector: m[1].replace(/\s+/g, ' ').trim(), body: m[2], decls });
-    }
-
-    // Guard against a vacuous pass: the filled treatment (rest + hover) is at least two rules.
-    test('finds the premium primary-fill rules that set a background', () => {
-        expect(surfaceRules.length).toBeGreaterThanOrEqual(2);
-    });
-
-    test('every primary-fill background routes through the per-instance fill slot chain', () => {
-        // Rest fill leads with --section-panel-cta-bg (issue 536: the section panel CTA's
-        // ONLY fill winner — it has no .hero/.cta ancestor, so nothing else can route it),
-        // then --hero-button-bg (issue 514) then --cta-button-bg. All three must be present
-        // so dropping ANY of them is caught. Hover mirrors that chain since issue 530:
-        // --hero-button-hover-bg leads, --cta-button-hover-bg follows. Before #530 the hover
-        // branch required only the cta slot, which is why the hover surface could ship a
-        // gradient shorthand that masked every per-instance hover fill slot — the guard was
-        // satisfied by a chain that had no hero entry and no second-button re-pointing target.
-        const offenders = [];
-        surfaceRules.forEach(r => {
-            const isHover = /:hover\b/.test(r.selector);
-            // Hero's two entries are gone (#986): it owns no per-instance fill slots,
-            // so requiring them here would demand a chain link nothing can ever set.
-            // The panel-CTA and cta links stay, and so does the global tier, so
-            // dropping any REMAINING slot is still caught.
-            const requiredSlots = isHover
-                ? ['--cta-button-hover-bg', '--btn-hover-bg']
-                : ['--section-panel-cta-bg', '--cta-button-bg'];
-            r.decls.forEach(d => {
-                // Leading slot must be the outermost required slot.
-                const lead = requiredSlots[0];
-                if (!new RegExp('background(?:-image)?\\s*:\\s*var\\(\\s*' + lead + '\\b').test(d)) {
-                    offenders.push(`${r.selector} { ${d} } (missing leading ${lead})`);
-                }
-                // Every required slot must appear somewhere in the chain.
-                requiredSlots.forEach(slot => {
-                    if (!new RegExp('var\\(\\s*' + slot + '\\b').test(d)) {
-                        offenders.push(`${r.selector} { ${d} } (missing ${slot} in chain)`);
-                    }
-                });
-            });
-        });
-        expect(offenders).toEqual([]);
-    });
-
-    // Detection proof: a bare gradient shorthand on the surface must be CAUGHT, and a
-    // slot-routed one must PASS — so a parser regression can't make the scan vacuous.
-    // The scan runs the SAME requiredSlots logic the real guard uses (issue 530): the
-    // previous version hardcoded --cta-button-bg, so dropping a slot from requiredSlots
-    // left this "anti-vacuity" proof passing — vacuous with respect to the thing it guards.
-    const scanWithRequiredSlots = (fixture, requiredSlots) => {
-        const rr = /([^{}]+)\{([^{}]*)\}/g;
-        let mm, out = [];
-        while ((mm = rr.exec(fixture)) !== null) {
-            if (!targetsPrimaryFill(mm[1])) continue;
-            fillDecls(mm[2]).forEach(d => {
-                const lead = requiredSlots[0];
-                if (!new RegExp('background(?:-image)?\\s*:\\s*var\\(\\s*' + lead + '\\b').test(d)) {
-                    out.push(d);
-                    return;
-                }
-                if (requiredSlots.some(slot => !new RegExp('var\\(\\s*' + slot + '\\b').test(d))) out.push(d);
-            });
-        }
-        return out;
-    };
-
-    test('detector flags a bare gradient shorthand but passes a slot-routed one', () => {
-        const rest = ['--section-panel-cta-bg', '--cta-button-bg'];
-        const bad = 'main .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary) { background: linear-gradient(red, blue); }';
-        const good = 'main .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary) { background: var(--section-panel-cta-bg, var(--hero-button-bg, var(--cta-button-bg, linear-gradient(red, blue)))); }';
-        expect(scanWithRequiredSlots(bad, rest).length).toBe(1);
-        expect(scanWithRequiredSlots(good, rest).length).toBe(0);
-    });
-
-    // The hover surface gets its own proof (issue 530). It used to plant a chain that
-    // omitted hero's hover slot — the exact shape that shipped before #530. Hero has no
-    // slots now (#986), so the proof plants a chain missing the CTA hover slot instead:
-    // same defect class, a slot that still exists.
-    test('detector flags a hover chain missing the leading hover slot', () => {
-        const hover = ['--cta-button-hover-bg', '--btn-hover-bg'];
-        const preFix = 'main .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover { background: var(--cta-button-hover-bg, linear-gradient(red, blue)); }';
-        const fixed = 'main .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover { background: var(--cta-button-hover-bg, var(--btn-hover-bg, linear-gradient(red, blue))); }';
-        expect(scanWithRequiredSlots(preFix, hover).length).toBe(1);
-        expect(scanWithRequiredSlots(fixed, hover).length).toBe(0);
-    });
-
-    // Issue 539 added the GLOBAL tier to the hover branch's requiredSlots. Its own proof:
-    // a chain carrying both per-instance hover slots but no --btn-hover-bg is precisely the
-    // pre-#539 shape (a site-wide fill retheme reverting to the theme gradient on hover) and
-    // MUST now be caught — otherwise dropping the global tier from the chain goes unnoticed.
-    test('detector flags a hover chain missing the global --btn-hover-bg tier', () => {
-        const hover = ['--hero-button-hover-bg', '--cta-button-hover-bg', '--btn-hover-bg'];
-        const preFix = 'main .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover { background: var(--hero-button-hover-bg, var(--cta-button-hover-bg, linear-gradient(red, blue))); }';
-        const fixed = 'main .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover { background: var(--hero-button-hover-bg, var(--cta-button-hover-bg, var(--btn-hover-bg, linear-gradient(red, blue)))); }';
-        expect(scanWithRequiredSlots(preFix, hover).length).toBe(1);
-        expect(scanWithRequiredSlots(fixed, hover).length).toBe(0);
-    });
-});
 
 /**
  * The filled premium button's fill and ring SNAP; nothing else about its motion changes (#540).
@@ -813,163 +699,31 @@ describe('CSS lint: filled premium button snaps fill + ring, keeps bevel/ink/lif
     });
 });
 
-/**
- * Primary-button FILL also honors the slot through the background-COLOR longhand (#420).
+/* RETIRED (#1026): FOUR MORE cta-class blocks, for the same reason as the three above —
+ * `.cta--inverted` and `.cta--has-bg-image` derive from `theme` and `background_image`, and
+ * both props retired with the rebuild, so these selectors can no longer be written:
  *
- * The #412 guard above covers the `background`/`background-image` layer-defeat but
- * EXCLUDES `background-color` (it targets the premium `main .btn` gradient shorthand).
- * A different, HIGHER-specificity rule — `.cta .btn:not(...)` [0,5,0] — sets the fill via
- * the `background-color` LONGHAND and outranks BOTH the slot block `.cta__button:not(...)`
- * [0,4,0] and the premium winner `main .btn:not(...)` [0,4,1]. A bare accent there silently
- * re-killed --cta-button-bg for the composed primary button (the #412 trust class survived
- * because that layer routes `background`, not `background-color`). This guard closes the
- * property gap: every CTA-context primary-fill rule that sets `background-color` MUST route
- * through --cta-button-bg (rest) / --cta-button-hover-bg (hover).
+ *   'inverted dark-band links route through the on-inverted accent role (#437)'
+ *   'bg-image band accent routes through --color-accent-on-overlay (#461)'
+ *   'bg-image band title-accent + markers route through --color-accent-on-overlay (#463)'
+ *   'primary-button background-color routes through --cta-button-bg (#420)'
  *
- * Scope note: `.hero .btn:not(...)` sets `background-color` too but routes the SEPARATE
- * --hero-accent slot (hero is its own component context), so it is deliberately NOT matched.
+ * The first three pinned AA ink corrections on a dark band: the body link, its hover, and
+ * the accented heading substring. #420 pinned that the composed primary's background-COLOR
+ * winner routed through the per-instance fill slot, which was the fix for the gradient
+ * masking a flat fill — a slot that no longer exists on any component.
+ *
+ * #461's and #463's pins each had a NEGATIVE half worth naming before it goes: they asserted
+ * the chain did NOT bottom out at the bare `--color-accent`, because that is 1.16:1 over the
+ * worst-case scrim and the whole point of the on-overlay role. That guarantee is now the
+ * author's, on `typography.color` for the role over the scrim, and it is the loss cta's
+ * README records rather than one this deletion hides.
+ *
+ * #420's mechanism did not die with its slot: `background.fill` emits the `background`
+ * SHORTHAND, which resets `background-image` and therefore clears the premium gradient the
+ * same way a flat slot value did. That is stated at the surviving shorthand in
+ * components.css, where a future edit to longhands would break it.
  */
-describe('CSS lint: primary-button background-color routes through --cta-button-bg (#420)', () => {
-    const css = stripComments(COMPONENTS_CSS);
-    const ruleRe = /([^{}]+)\{([^{}]*)\}/g;
-
-    // CTA-context composed-primary-fill surfaces that route through --cta-button-bg.
-    // `.hero .btn` routes --hero-accent (a different slot) and must NOT match.
-    // The `main .btn:not(...)` premium winner sets `background` (shorthand), never the
-    // `background-color` longhand, so it contributes ZERO to the bgColorDecls scan today
-    // (the #412 guard owns that layer). It is kept in the matcher as a forward-guard: if a
-    // future edit adds a `background-color` longhand to that winner, this guard requires it
-    // to route the slot too — the property gap #420 slipped through must not reopen.
-    function targetsCtaPrimaryFill(selector) {
-        return selector.split(',').some(sel => {
-            const s = sel.trim();
-            return /(^|\s)\.cta\s+\.btn:not\(\.btn--outline\)/.test(s)
-                || /(^|\s)\.cta__button:not\(\.btn--outline\)/.test(s)
-                // The cta's SECOND button (issue 474) is its own composed-primary fill
-                // surface in CTA context: it sets a background-color longhand and routes
-                // --cta-button2-bg. The `.cta__button` alternative above cannot match it
-                // (that pattern needs `:not(` immediately after the class, and this
-                // selector carries the `--secondary` modifier there), so without this
-                // line the #420 guard has a hole exactly where the newest fill rule is.
-                || /(^|\s)\.cta__button--secondary:not\(\.btn--outline\)/.test(s)
-                || /(^|\s)main\s+\.btn:not\(\.btn--outline\)/.test(s);
-        });
-    }
-
-    // background-COLOR longhand only (the gap the #412 scanner leaves open).
-    function bgColorDecls(body) {
-        return (body.match(/(?<![-a-z])background-color\s*:[^;}]+/gi) || []).map(d => d.trim());
-    }
-
-    const surfaceRules = [];
-    let m;
-    while ((m = ruleRe.exec(css)) !== null) {
-        if (!targetsCtaPrimaryFill(m[1])) continue;
-        const decls = bgColorDecls(m[2]);
-        if (decls.length) surfaceRules.push({ selector: m[1].replace(/\s+/g, ' ').trim(), decls });
-    }
-
-    // Guard against a vacuous pass: rest + hover for BOTH `.cta .btn` and `.cta__button`.
-    test('finds the CTA primary-fill rules that set a background-color', () => {
-        expect(surfaceRules.length).toBeGreaterThanOrEqual(4);
-    });
-
-    test('every CTA primary-fill background-color routes through --cta-button-bg / --cta-button-hover-bg', () => {
-        const offenders = [];
-        surfaceRules.forEach(r => {
-            const isHover = /:hover\b/.test(r.selector);
-            // The cta's SECOND button (issue 474) is the same fill surface but owns a
-            // SEPARATE slot family: --cta-button2-* is what an author sets there, and
-            // routing it through --cta-button-* would re-couple it to the primary (the
-            // exact leak the isolation rule exists to kill). Expect the slot that
-            // actually belongs to the surface, so the guard polices both buttons.
-            const isSecond = /\.cta__button--secondary\b/.test(r.selector);
-            const family = isSecond ? '--cta-button2' : '--cta-button';
-            const slot = isHover ? `${family}-hover-bg` : `${family}-bg`;
-            r.decls.forEach(d => {
-                if (!new RegExp('background-color\\s*:\\s*var\\(\\s*' + slot + '\\b').test(d)) {
-                    offenders.push(`${r.selector} { ${d} }`);
-                }
-            });
-        });
-        expect(offenders).toEqual([]);
-    });
-
-    // Detection proof: a bare accent background-color on the surface must be CAUGHT, a
-    // slot-routed one must PASS, and a `.hero .btn` accent must be IGNORED (different slot).
-    test('detector flags a bare accent background-color, passes a slot-routed one, ignores hero', () => {
-        const bad = '.cta .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary) { background-color: var(--cta-accent, blue); }';
-        const good = '.cta .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary) { background-color: var(--cta-button-bg, var(--cta-accent, blue)); }';
-        const hero = '.hero .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary) { background-color: var(--hero-accent, blue); }';
-        const scan = (fixture) => {
-            const rr = /([^{}]+)\{([^{}]*)\}/g;
-            let mm, out = [];
-            while ((mm = rr.exec(fixture)) !== null) {
-                if (!targetsCtaPrimaryFill(mm[1])) continue;
-                bgColorDecls(mm[2]).forEach(d => {
-                    if (!/background-color\s*:\s*var\(\s*--cta-button-bg\b/.test(d)) out.push(d);
-                });
-            }
-            return out;
-        };
-        expect(scan(bad).length).toBe(1);
-        expect(scan(good).length).toBe(0);
-        expect(scan(hero).length).toBe(0); // hero never enters the scan
-    });
-
-    // Behavioral pin BOTH ways on the exact declarations: slot set → var() resolves the
-    // slot (slot wins); slot unset → the byte-identical prior accent fallback chain.
-    // Border honors --cta-button-border / --cta-button-hover-border when set (the answered
-    // #420 review decision, Option B), then FOLLOWS the fill slot, then the accent chain —
-    // so a flat button (only --cta-button-bg set) keeps no accent ring, while an explicit
-    // border slot is respected on the composed primary button.
-    function bodyOf(selectorNeedle) {
-        const rr = /([^{}]+)\{([^{}]*)\}/g;
-        let mm;
-        while ((mm = rr.exec(css)) !== null) {
-            if (mm[1].replace(/\s+/g, ' ').trim() === selectorNeedle) return mm[2];
-        }
-        return null;
-    }
-    const REST_SEL = '.cta .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary)';
-    const HOVER_SEL = '.cta .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover';
-
-    test('rest rule: fill routes through --cta-button-bg then the global --btn-bg, border through --cta-button-border / --cta-accent / --btn-border-color then the fill', () => {
-        const body = bodyOf(REST_SEL);
-        expect(body).not.toBeNull();
-        // #458: the global --btn-bg / --btn-border-color knobs sit between the per-component
-        // slots and the --color-accent literal. Border still FOLLOWS the fill chain (so a flat
-        // --cta-button-bg OR a global --btn-bg keeps no accent ring, issue 420 preserved).
-        expect(body).toMatch(/background-color:\s*var\(--cta-button-bg,\s*var\(--cta-accent,\s*var\(--btn-bg,\s*var\(--color-accent\)\)\)\)/);
-        // #564 flipped TWO link pairs in this chain, deliberately (issuecomment-5106604500):
-        // --cta-accent now outranks the global --btn-border-color (so a narrower authored band
-        // accent is not defeated by a broader site-wide knob, matching the hero and the fill
-        // side), and consequently also outranks --cta-button-bg — #538's Option 2, which #538
-        // reserved to the maintainer and #564 reopened. This pin previously asserted the old
-        // order; it is FLIPPED, not deleted, the #538/#530 pattern. The global knob stays
-        // ABOVE the fill link, so #539's authored-beats-inferred rule and #554's coverage
-        // contract are untouched, and the chain is now the positional twin of its :hover rule.
-        expect(body).toMatch(/border-color:\s*var\(--cta-button-border,\s*var\(--cta-accent,\s*var\(--btn-border-color,\s*var\(--cta-button-bg,\s*var\(--btn-bg,\s*var\(--color-accent\)\)\)\)\)\)/);
-    });
-
-    test('hover rule: fill routes through --cta-button-hover-bg, border through --cta-button-hover-border then --cta-accent-hover then the fill', () => {
-        const body = bodyOf(HOVER_SEL);
-        expect(body).not.toBeNull();
-        // #539 completes the rest chain's shape above at the hover tier: --btn-hover-bg and
-        // --btn-hover-border-color take exactly the positions --btn-bg and --btn-border-color
-        // hold at rest — between the per-component slots and the --color-accent-hover literal.
-        // Border still FOLLOWS the fill chain after honouring its own global knob.
-        expect(body).toMatch(/background-color:\s*var\(--cta-button-hover-bg,\s*var\(--cta-accent-hover,\s*var\(--btn-hover-bg,\s*var\(--color-accent-hover\)\)\)\)/);
-        // #548 flipped ONE link pair in the border chain: --cta-accent-hover now outranks
-        // --cta-button-hover-bg, the order button2 has used since #538. #564 flipped a second
-        // pair: --cta-accent-hover now also outranks the global --btn-hover-border-color, so a
-        // site-wide ring knob no longer defeats an authored band accent (the reported defect).
-        // Both pins were flipped deliberately, not deleted, exactly as #538 flipped #530's.
-        // The fill stays IN the chain (a fill-only recolor still rings itself), the global knob
-        // stays ABOVE the fill link, and the terminal is unchanged.
-        expect(body).toMatch(/border-color:\s*var\(--cta-button-hover-border,\s*var\(--cta-accent-hover,\s*var\(--btn-hover-border-color,\s*var\(--cta-button-hover-bg,\s*var\(--btn-hover-bg,\s*var\(--color-accent-hover\)\)\)\)\)\)/);
-    });
-});
 
 describe('CSS lint: grid--steps only declared inside the COMPONENT: grid block (#56)', () => {
     // Regression guard: before #56, `.grid--steps .grid__item` and
@@ -1107,13 +861,15 @@ describe('CSS lint: theme variants survive the desktop typography cascade (#222)
         // reason (no inverted rule existed at all), so it is pinned at the base rule only.
         { el: '.grid__heading', slot: '--grid-heading-color', themeVar: '--pp-grid-heading-theme-color', desktop: true },
         { el: '.grid__subheading', slot: '--grid-subheading-color', themeVar: '--pp-grid-subheading-theme-color', desktop: false },
-        // Section's two entries left this list at #1023, with the `theme` prop itself.
-        // The three-tier slot -> theme-var -> token chain has no v2 analogue: a band's
-        // text colour is `typography.color` on the `heading` / `body` roles, and a dark
-        // band is the `_band` role's `background`, so there is no variant rule for a
-        // desktop rule to lose to. The cascade defect this guard exists for cannot recur
-        // on a v2 component — role defaults emit unlayered, above every rule in this file.
-        { el: '.cta__body', slot: '--cta-body-color', themeVar: '--pp-cta-body-theme-color', desktop: true },
+        // Section's two entries left this list at #1023 and cta's at #1026, each with the
+        // `theme` prop itself. The three-tier slot -> theme-var -> token chain has no v2
+        // analogue: a band's text colour is `typography.color` on the `heading` / `body`
+        // roles, and a dark band is the `_band` role's `background`, so there is no variant
+        // rule for a desktop rule to lose to. The cascade defect this guard exists for
+        // cannot recur on a v2 component — role defaults emit unlayered, above every rule in
+        // this file. cta's departure also took the last `main > .cta` premium-typography
+        // rules with it; their VALUES survive as the `body` role's breakpoint maps, which is
+        // the only reason the phone tier still differs from the two wider ones.
         // faq (issue 581): it implements the identical three-tier chain — the base and the
         // >=768px premium rule both read
         // var(--faq-heading-color, var(--pp-faq-heading-theme-color, var(--color-text)))
@@ -1218,13 +974,11 @@ describe('CSS lint: theme variants survive the desktop typography cascade (#222)
     // (--color-surface) with dark text, so they must NOT set a theme text default.
     const VARIANT_DECLARES = [
         { variant: '.grid--inverted', vars: ['--pp-grid-heading-theme-color', '--pp-grid-subheading-theme-color'] },
-        { variant: '.cta--inverted', vars: ['--pp-cta-body-theme-color'] },
         // Section's two variants are gone (#1023), the way hero's row went at #986: the
         // `theme` prop and the `background_image` prop both retired, so neither
         // `.pp-section--inverted` nor `.section--has-bg-image` is emitted any more. A dark
         // or image-backed section band is the `_band` role's `background` group, and its
         // text colours are `typography.color` on the text roles.
-        { variant: '.cta--has-bg-image', vars: ['--pp-cta-body-theme-color'] },
         { variant: '.faq--inverted', vars: ['--pp-faq-heading-theme-color'] },
     ];
 
@@ -2136,8 +1890,12 @@ describe('CSS lint: premium layer honors padding/type/width slots (#302)', () =>
     // so there is no chain left to sever. The grid/faq half is below and still live.
 
     // The other half of the same severance: grid cards and faq answers took their mobile
-    // body size from --cta-body-size too. They now carry the literal; only cta reads the
-    // slot cta owns.
+    // body size from --cta-body-size too. They now carry the literal.
+    // THE "cta KEEPS THE SLOT IT OWNS" HALF WENT AT #1026, and its absence is the point of
+    // the severance rather than a hole in it. cta's own rules are gone with its slot map,
+    // so there is no longer any reader of `--cta-body-size` anywhere in this file — which
+    // is what makes the grid/faq assertion below unconditional now. #578 severed a borrowed
+    // slot; the rebuild removed the lender.
     test('#578 grid/faq mobile body size no longer reads the cta body-size slot', () => {
         const gridBodies = bodiesForExactSelector('main > .grid .grid__item-text');
         const faqBodies = bodiesForExactSelector('main > .faq .faq__answer');
@@ -2145,10 +1903,8 @@ describe('CSS lint: premium layer honors padding/type/width slots (#302)', () =>
         [...gridBodies, ...faqBodies]
             .flatMap(b => b.match(/font-size\s*:[^;}]+/g) || [])
             .forEach(d => expect(d).not.toMatch(/--cta-body-size/));
-        // cta keeps the slot it owns.
-        const ctaDecls = bodiesForExactSelector('main > .cta .cta__body')
-            .flatMap(b => b.match(/font-size\s*:[^;}]+/g) || []);
-        expect(ctaDecls.some(d => /var\(\s*--cta-body-size\s*,/.test(d))).toBe(true);
+        // And nothing anywhere in the sheet reads it, which a stricter check can now make.
+        expect(stripComments(COMPONENTS_CSS)).not.toMatch(/--cta-body-size/);
     });
 
     // ---- Stats contained-card slots (issue 383) ----
@@ -2181,14 +1937,14 @@ describe('CSS lint: premium layer honors padding/type/width slots (#302)', () =>
         assertPropRoutesThroughSlot('.grid', 'padding-bottom', '--grid-padding-bottom', 2);
     });
 
-    test('every .cta padding declaration routes through --cta-padding-*', () => {
-        assertPropRoutesThroughSlot('.cta', 'padding-top', '--cta-padding-top', 2);
-        assertPropRoutesThroughSlot('.cta', 'padding-bottom', '--cta-padding-bottom', 2);
-    });
-
+    // cta's padding pin left at #1026 with its slot map. Its band padding is the `_band`
+    // role's `spacing.padding-top` / `padding-bottom`, defaulting to the same shared
+    // `@pp-band-padding` this guard pins for every component still on slots — and the
+    // adjacent-sibling rhythm reaches it through the zero-specificity baseline rather than a
+    // per-component rule, because `_band` defaults emit into `pp-zero`, below this
+    // stylesheet. Identical to section's departure at #1023.
     // (The page-specific `#*-cta` padding pins were removed with the demo-ID eviction
-    //  in #412: those ID-scoped closers no longer ship, so the generic `.cta` slot
-    //  rules above are now the whole padding surface.)
+    //  in #412: those ID-scoped closers no longer ship.)
 
     // ---- Adjacent-sibling rhythm routes through the shared def ----
     // The flat premium override was DELETED; the remaining rules for this exact
@@ -2217,7 +1973,6 @@ describe('CSS lint: premium layer honors padding/type/width slots (#302)', () =>
         // through a slot. Its adjacent top edge comes from the zero-specificity
         // baseline rule above, which its `pp-zero` band default yields to by design.
         ['main > [data-pp-component] + .grid', '--grid-padding-top'],
-        ['main > [data-pp-component] + .cta', '--cta-padding-top'],
         ['main > [data-pp-component] + .stats', '--stats-padding-top'],
         ['main > [data-pp-component] + .faq', '--faq-padding-top'],
 // testimonials is absent from this table: it is a v2 component whose CSS block is
@@ -2285,13 +2040,12 @@ describe('CSS lint: section-level bands share one rhythm definition (#431)', () 
     // block), so a naive `--${comp}-` derivation would still assert against a nonexistent
     // `.table` selector.
     const BAND_COMPONENTS = [
-        // section left this list at #1023. Its band padding is the `_band` role's
+        // section left this list at #1023 and cta at #1026. Each band's padding is the `_band` role's
         // spacing default, falling back to the same shared `@pp-band-padding` this guard
         // pins for every component still on slots — and the adjacent-sibling rhythm
         // reaches it through the zero-specificity baseline rather than a per-component
         // rule, because `_band` defaults emit into `pp-zero`, below this stylesheet.
         { comp: 'grid', cls: '.grid', slot: '--grid' },
-        { comp: 'cta', cls: '.cta', slot: '--cta' },
         { comp: 'stats', cls: '.stats', slot: '--stats' },
         { comp: 'faq', cls: '.faq', slot: '--faq' },
 // testimonials is absent from this table: it is a v2 component whose CSS block is
@@ -2559,11 +2313,10 @@ describe('CSS lint: band-level headings share one responsive scale (#436)', () =
         // re-declared the base rule verbatim at higher specificity. The equivalence that
         // made the deletion safe is pinned structurally by
         // 'every .section__title font-size declaration is the same declaration' below.
-        // section's row is gone (#1023): the shared band-heading scale reaches it as the
+        // section's row is gone (#1023) and cta's at #1026: the shared band-heading scale reaches each as the
         // `heading` role's `typography.size` default (@pp-band-heading-size), which is
         // the same token this guard pins for every component still on slots.
         { selectors: ['.grid__heading', 'main > .grid .grid__heading'], slot: '--grid-heading-size' },
-        { selectors: ['.cta__title'], slot: '--cta-heading-size' },
         { selectors: ['.faq__heading', 'main > .faq .faq__heading'], slot: '--faq-heading-size' },
         { selectors: ['.stats__heading'], slot: '--stats-heading-size' },
         { selectors: ['.table-section__heading'], slot: '--table-heading-size' },
@@ -3500,90 +3253,6 @@ describe('CSS lint: no ID selectors in shipped stylesheets (#412)', () => {
     });
 });
 
-describe('CSS lint: inverted dark-band links route through the on-inverted accent role (#437)', () => {
-    // The light-surface accent (--color-accent) measures only 3.23:1 on the dark
-    // inverted band and fails WCAG AA for body text. Every inverted variant whose
-    // links sit DIRECTLY on the dark band must remap `a` color to the
-    // --color-accent-on-inverted role (hover → --color-accent-on-inverted-hover).
-    //
-    // Deliberately NOT enumerated here:
-    //  - Light card/panel inverted variants (grid, faq, testimonials-grid) keep their
-    //    light `.grid__item`/`.faq__item`/`.testimonials__item` background, so links
-    //    there stay on --color-accent (already AA on a light card). Routing them
-    //    through the light on-inverted tint would drop them to ~2:1. The
-    //    rendered-contrast E2E covers those directly.
-    //  - grid cards and the testimonials GRID layout keep their light card even on
-    //    the inverted band, so their body links stay on --color-accent (AA on the
-    //    light card). Routing them through the on-inverted tint would drop them to
-    //    ~2:1. The rendered-contrast E2E covers those directly.
-    //
-    // Since #439, cta.body and testimonials.quote render an inline-HTML subset
-    // (a/strong/em/br), so both CAN now carry a real body link. Where that link
-    // sits DIRECTLY on the dark band it must be remapped: cta__body always sits on
-    // the band, and the testimonials quote sits on the band in the STACK layout
-    // (transparent card). The CTA button (.cta__button) is untouched — the remap is
-    // scoped to .cta__body, and the premium `main .btn` cascade out-orders it anyway.
-    const css = stripComments(COMPONENTS_CSS);
-
-    // The dark-band inverted variants that actually render body-link markup
-    // (wp_kses_post body/content): the link color routes through the on-inverted role
-    // (hover → on-inverted-hover). Buttons (.btn) are never affected — the premium
-    // `main .btn` cascade out-orders these (0,1,1) rules.
-    const DARK_BAND_LINK_VARIANTS = [
-        // #551 carved the panel CTA out of the band-wide anchor rule (the panel is a
-        // LIGHT surface). The on-inverted ROUTING this describe pins is unchanged — only
-        // the selector's reach narrowed, so the pin follows the selector.
-        // section's row is gone (#1023): the `--inverted` class died with the `theme`
-        // prop in its v2 rebuild, exactly as testimonials' did. Body links are the
-        // `body-link` role now, and that role carries its own `:hover` — which is the
-        // §1b requirement that a role's states move with its resting values.
-        '.embed--inverted a',
-        // #439: inline-HTML supporting-text surfaces that sit directly on the dark band.
-        '.cta--inverted .cta__body a',
-        // testimonials is absent. The `--inverted` class died with the `theme` prop in
-        // the v2 rebuild, so the selector this row named no longer exists — and the
-        // standing rule is that contrast fixes belong in token values chosen by the
-        // authoring layer, never baked into component CSS. A dark v2 band sets its
-        // link and text role colours to meet contrast; the AI-facing docs say so.
-    ];
-
-    function ruleBody(selector) {
-        const esc = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        // `a\s*\{` so the color rule is matched, never the sibling `a:hover {`.
-        const m = css.match(new RegExp(esc + '\\s*\\{([^}]*)\\}'));
-        return m ? m[1] : null;
-    }
-
-    DARK_BAND_LINK_VARIANTS.forEach(selector => {
-        test(`${selector} remaps link color to --color-accent-on-inverted`, () => {
-            const body = ruleBody(selector);
-            expect(body).not.toBeNull();
-            expect(body).toMatch(/color:\s*var\([^;]*--color-accent-on-inverted\b/);
-            // Must NOT fall back to the bare light-surface accent as the default.
-            expect(body).not.toMatch(/var\(\s*--color-accent\s*[,)]/);
-        });
-
-        test(`${selector} defines a hover routed through --color-accent-on-inverted-hover`, () => {
-            const hoverBody = ruleBody(`${selector}:hover`);
-            expect(hoverBody).not.toBeNull();
-            expect(hoverBody).toMatch(/--color-accent-on-inverted-hover\b/);
-        });
-    });
-
-    test('inverted stats numbers route the fallback through --color-accent-on-inverted', () => {
-        const esc = '.stats--inverted .stats__number'.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const m = css.match(new RegExp(esc + '\\s*\\{([^}]*)\\}'));
-        expect(m).not.toBeNull();
-        // Slot still wins; the DEFAULT (fallback) is the on-inverted role, not the
-        // failing --color-accent.
-        expect(m[1]).toMatch(/var\(\s*--stats-number-color\s*,\s*var\([^;]*--color-accent-on-inverted\b/);
-    });
-
-    test('the on-inverted accent tokens are defined in base.css :root', () => {
-        expect(BASE_CSS).toMatch(/--color-accent-on-inverted:\s*#[0-9a-fA-F]{6}/);
-        expect(BASE_CSS).toMatch(/--color-accent-on-inverted-hover:\s*#[0-9a-fA-F]{6}/);
-    });
-});
 
 /**
  * Token contract: the global button surface must not drift (#441).
@@ -3789,462 +3458,43 @@ describe('CSS lint: #441 global button token contract (consumed ⊆ registered�
     });
 });
 
-describe('CSS lint: bg-image band accent routes through --color-accent-on-overlay (#461)', () => {
-    // A bg-image band lays a dark rgba(0,0,0,.55) overlay over an ARBITRARY image.
-    // The light-surface accent (--color-accent) is only 1.16:1 over the overlay-over-
-    // white worst case and fails WCAG AA. #461 routes the default accent on ALL THREE
-    // bg-image variants (section link, cta body link, stats number) through the overlay
-    // accent role — NOT --color-accent-on-inverted (tuned to the solid inverted bg, not
-    // the arbitrary-image overlay). The per-instance slot must still win. These pins
-    // guard against a regression back to the bare accent OR to the inverted role.
-    const stripped = stripComments(COMPONENTS_CSS);
-    const rules = [];
-    const ruleRe = /([^{}]+)\{([^{}]*)\}/g;
-    let m;
-    while ((m = ruleRe.exec(stripped)) !== null) {
-        rules.push({ selector: m[1].trim(), body: m[2] });
-    }
-    const ruleFor = (sel) => rules.find(r => r.selector.split(',').some(s => s.trim() === sel));
 
-    // Each entry: selector, the slot it must route through, and the overlay role fallback.
-    const ROUTES = [
-        // #551 carved the panel CTA out of the band-wide anchor rule (the panel is a LIGHT
-        // surface). The overlay ROUTING pinned here is unchanged — only the selector's reach
-        // narrowed, so the pin follows the selector.
-        // section's two rows are gone (#1023): `.section--has-bg-image` is not emitted
-        // any more. A v2 band carrying a background image owns its own contrast — the
-        // author sets `typography.color` on `body-link`, including its `:hover`.
-        { sel: '.cta--has-bg-image .cta__body a', slot: '--cta-body-color', role: '--color-accent-on-overlay' },
-        { sel: '.cta--has-bg-image .cta__body a:hover', slot: '--cta-body-color', role: '--color-accent-on-overlay-hover' },
-        { sel: '.stats--has-bg-image .stats__number', slot: '--stats-number-color', role: '--color-accent-on-overlay' },
-    ];
 
-    ROUTES.forEach(({ sel, slot, role }) => {
-        test(`${sel} routes through ${slot} then ${role}`, () => {
-            const rule = ruleFor(sel);
-            expect(rule).toBeDefined();
-            const re = new RegExp(
-                'color\\s*:\\s*var\\(\\s*' + slot.replace(/[-]/g, '\\-') +
-                '\\s*,\\s*var\\(\\s*' + role.replace(/[-]/g, '\\-') + '\\s*\\)\\s*\\)'
-            );
-            expect(rule.body).toMatch(re);
-        });
-
-        // Regression guard: the bg-image accent must NOT fall back to the bare accent
-        // (the 1.16:1 bug) or the on-inverted role (wrong surface).
-        test(`${sel} does not fall back to bare --color-accent or on-inverted`, () => {
-            const rule = ruleFor(sel);
-            expect(rule).toBeDefined();
-            expect(rule.body).not.toMatch(/var\(\s*--color-accent\s*\)/);
-            expect(rule.body).not.toMatch(/--color-accent-on-inverted/);
-        });
-    });
-
-    // The overlay tokens must be declared in base.css with a type comment so the AI
-    // token validator can reason about them, exactly like the on-inverted pair.
-    test('base.css declares the overlay accent tokens with color type comments', () => {
-        expect(BASE_CSS).toMatch(/--color-accent-on-overlay:[^;]*;\s*\/\*\s*color:/);
-        expect(BASE_CSS).toMatch(/--color-accent-on-overlay-hover:[^;]*;\s*\/\*\s*color:/);
-    });
-});
-
-describe('CSS lint: bg-image band title-accent + markers route through --color-accent-on-overlay (#463)', () => {
-    // #461 routed the default LINK/NUMBER on the three bg-image bands through the overlay
-    // accent role. #463 closes the remaining bare-accent surfaces on those same overlay
-    // bands: the accented title substring (which paints its OWN color and does NOT inherit
-    // the near-white band title, so it hit --color-accent at 1.16:1), the section body list
-    // markers, and .hero--cover's title-accent (same --overlay-bg scrim idiom). Each default
-    // routes through --color-accent-on-overlay — NOT the bare accent (the 1.16:1 bug) and NOT
-    // --color-accent-on-inverted (tuned to the solid inverted bg). Per-instance slots still win.
-    const stripped = stripComments(COMPONENTS_CSS);
-    const rules = [];
-    const ruleRe = /([^{}]+)\{([^{}]*)\}/g;
-    let m;
-    while ((m = ruleRe.exec(stripped)) !== null) {
-        rules.push({ selector: m[1].trim(), body: m[2] });
-    }
-    const rulesFor = (sel) => rules.filter(r => r.selector.split(',').some(s => s.trim() === sel));
-
-    // The four accented title substrings on overlay bands. Each carries its own `color`
-    // rule that must route slot → overlay role.
-    const TITLE_ROUTES = [
-        // section's row is gone (#1023), for the same reason hero's went at #986.
-        { sel: '.cta--has-bg-image .cta__title-accent', slot: '--cta-heading-accent-color' },
-        { sel: '.stats--has-bg-image .stats__heading-accent', slot: '--stats-heading-accent-color' },
-        // hero's row is gone (#986): `.hero--cover` no longer re-colours the accent.
-        // A v2 band carrying a background image owns its own contrast — the author sets
-        // `typography.color` on the `title-accent` role, which is what the AI-facing
-        // docs already require of every v2 dark band.
-    ];
-
-    TITLE_ROUTES.forEach(({ sel, slot }) => {
-        test(`${sel} routes through ${slot} then --color-accent-on-overlay`, () => {
-            const matches = rulesFor(sel);
-            expect(matches.length).toBeGreaterThan(0);
-            const re = new RegExp(
-                'color\\s*:\\s*var\\(\\s*' + slot.replace(/[-]/g, '\\-') +
-                '\\s*,\\s*var\\(\\s*\\-\\-color\\-accent\\-on\\-overlay\\s*\\)\\s*\\)'
-            );
-            expect(matches.some(r => re.test(r.body))).toBe(true);
-        });
-
-        // Regression guard: must NOT fall back to bare --color-accent or the inverted role.
-        test(`${sel} does not fall back to bare --color-accent or on-inverted`, () => {
-            const matches = rulesFor(sel);
-            expect(matches.length).toBeGreaterThan(0);
-            const rule = matches.find(r => /color\s*:/.test(r.body));
-            expect(rule).toBeDefined();
-            expect(rule.body).not.toMatch(/var\(\s*--color-accent\s*\)/);
-            expect(rule.body).not.toMatch(/--color-accent-on-inverted/);
-        });
-    });
-
-    // Section body list markers on the overlay band: --pp-list-marker-color is re-mapped
-    // to the overlay role. The selector also carries the near-white color rule, so find the
-    // declaration that actually assigns the marker variable.
-});
-
-describe('CSS lint: dark-band buttons route through the AA accent roles (#535)', () => {
-    /*
-     * #474 routed the cta's SECOND button; #535 closes the rest of the same class:
-     * the PRIMARY outline/ghost button on both cta dark bands, the hero's primary AND
-     * default second CTA on the `.hero--cover` scrim, and the filled primary's missing
-     * separation ring on the two OVERLAY bands.
-     *
-     * Measured before -> after (rendered, worst-case composites):
-     *   cta inverted outline/ghost       3.23 -> 8.33  (--color-accent-on-inverted)
-     *   cta bg-image outline/ghost       1.17 -> 4.59  (--color-accent-on-overlay)
-     *   hero cover outline / ghost ~3.6 / 1.17 -> 4.59 (--color-accent-on-overlay)
-     *   hero cover cta2 outline/ghost   ~3.6 -> 4.59  (--color-accent-on-overlay)
-     *   filled button ring, overlay bands: fill under 2:1, ring -> 4.59
-     *
-     * on-inverted is tuned to the SOLID inverted background and only reaches ~2.2:1 over
-     * the arbitrary-image scrim, so the two roles are never interchangeable — every route
-     * below pins which role its band must use, and guards against a regression to the
-     * bare light-surface accent.
-     */
-    const css = stripComments(COMPONENTS_CSS);
-    const rules = [];
-    const ruleRe = /([^{}]+)\{([^{}]*)\}/g;
-    let m;
-    while ((m = ruleRe.exec(css)) !== null) {
-        rules.push({ selector: m[1].trim(), body: m[2], index: m.index });
-    }
-    const rulesForAll = (sel) => rules.filter(r => r.selector.split(',').some(s => s.trim() === sel));
-    const ruleFor = (sel) => rulesForAll(sel)[0];
-
-    // selector -> { slot, role, border } . `border: true` means the ring is routed too
-    // (outline paints a visible ring; ghost's border stays transparent by design).
-    const ROUTES = [
-        // cta PRIMARY, solid inverted band.
-        { sel: '.cta--inverted .cta__button.btn--outline', slot: '--cta-button-color', borderSlot: '--cta-button-border', role: '--color-accent-on-inverted' },
-        { sel: '.cta--inverted .cta__button.btn--ghost', slot: '--cta-button-color', borderSlot: null, role: '--color-accent-on-inverted' },
-        // cta PRIMARY, bg-image (overlay) band.
-        { sel: '.cta--has-bg-image .cta__button.btn--outline', slot: '--cta-button-color', borderSlot: '--cta-button-border', role: '--color-accent-on-overlay' },
-        { sel: '.cta--has-bg-image .cta__button.btn--ghost', slot: '--cta-button-color', borderSlot: null, role: '--color-accent-on-overlay' },
-        // HERO'S FOUR COVER ROWS ARE GONE (#986). Hero is a v2 component: its CTA
-        // roles carry no style slots and no variant-scoped cover rules, so there is
-        // no `.hero--cover .btn--outline` chain left to route. The AA guarantee this
-        // block exists for did not move to a weaker place — it moved to the AUTHOR,
-        // who now sets `typography.color` on the `cta` / `cta-secondary` roles for a
-        // band carrying a dark background or a background image, exactly as the
-        // AI-facing docs already require for every v2 dark band. cta and section keep
-        // their rows below, and this guard keeps its teeth for them.
-    ];
-
-    const esc = (s) => s.replace(/[-]/g, '\\-');
-
-    ROUTES.forEach(({ sel, slot, borderSlot, role }) => {
-        test(`${sel} routes ink through ${slot} then ${role}`, () => {
-            const rule = ruleFor(sel);
-            expect(rule).toBeDefined();
-            expect(rule.body).toMatch(new RegExp(
-                'color\\s*:\\s*var\\(\\s*' + esc(slot) + '\\s*,\\s*var\\(\\s*' + esc(role) + '\\s*\\)\\s*\\)'
-            ));
-        });
-
-        if (borderSlot) {
-            test(`${sel} routes its ring through ${borderSlot} then ${role}`, () => {
-                const rule = ruleFor(sel);
-                expect(rule).toBeDefined();
-                expect(rule.body).toMatch(new RegExp(
-                    'border-color\\s*:\\s*var\\(\\s*' + esc(borderSlot) + '\\s*,\\s*var\\(\\s*' + esc(role) + '\\s*\\)\\s*\\)'
-                ));
-            });
-        } else {
-            test(`${sel} does not paint a ring (ghost stays borderless)`, () => {
-                const rule = ruleFor(sel);
-                expect(rule).toBeDefined();
-                expect(rule.body).not.toMatch(/border-color\s*:/);
-            });
-        }
-
-        test(`${sel} does not fall back to the bare accent or the wrong role`, () => {
-            const rule = ruleFor(sel);
-            expect(rule).toBeDefined();
-            // The 3.23:1 / 1.17:1 bug: a bare light-surface accent default.
-            expect(rule.body).not.toMatch(/var\(\s*--color-accent\s*\)/);
-            // Wrong surface: on-inverted is ~2.2:1 over the arbitrary-image scrim, and
-            // on-overlay is not the tuned choice for the solid inverted band.
-            const wrongRole = role === '--color-accent-on-overlay'
-                ? '--color-accent-on-inverted'
-                : '--color-accent-on-overlay';
-            expect(rule.body).not.toMatch(new RegExp(esc(wrongRole)));
-        });
-    });
-
-    // ── The filled primary's separation ring, OVERLAY bands only ──────────────
-    /*
-     * The ring rules replace ONLY the terminal fallback of the chain they override. Every
-     * authored link ahead of the role token must survive verbatim, or an author who
-     * already coloured this ring (via --cta-accent, --hero-button-bg, the global
-     * --btn-* knobs) silently gets a near-white ring instead of theirs. `leading` is the
-     * chain the corresponding base rule declares, in order; `bottom` is the role token
-     * that replaces the base rule's own terminal --color-accent.
-     *
-     * Both hover twins exist because the base `:hover` rules are [0,6,0] and outrank the
-     * [0,5,0] rest rings: without them the ring appeared at rest and dissolved back into
-     * the band the moment the pointer landed, which is the state a user is most likely
-     * looking at (WCAG 1.4.11 covers hover too).
-     */
-    /*
-     * #564 narrowed the "verbatim, only the terminal changes" contract above to "verbatim
-     * MINUS the global RING knob", and #565 completed the narrowing to "verbatim MINUS the
-     * whole GLOBAL tier" by removing --btn-bg / --btn-hover-bg too. On these bands the terminal
-     * is not an ordinary default but a measured 4.59:1 separation role. --btn-border-color /
-     * --btn-hover-border-color sitting above it let a site-wide RING retheme defeat the
-     * guarantee directly; --btn-bg / --btn-hover-bg defeated the same role indirectly, through
-     * the border-follows-fill link (#535), so a site that set only a global button FILL
-     * repainted every unauthored photo-band ring to a colour never measured against the scrim.
-     * Each knob is REMOVED rather than demoted because --color-accent-on-overlay is declared at
-     * :root (base.css) and therefore always set — any link below it is dead code. Per-instance
-     * slots stay above everything as the escape hatch, which is exactly why the PER-INSTANCE
-     * fill link survives below while the global one does not: #535's matching-ring promise was
-     * written for an author who flattens THIS band, and it still holds for them.
-     * Both halves of each twin lost each knob together: dropping one from hover only would
-     * re-open the rest->hover ring flip these twins exist to prevent.
-     * These `leading` arrays are the deliberate positive pins of that contract, FLIPPED rather
-     * than deleted (the #538/#530 pattern) — see the #565 decision comment (2026-07-29).
-     */
-    const RINGS = [
-        {
-            sel: '.cta--has-bg-image .cta__button:not(.btn--outline):not(.btn--ghost):not(.btn--secondary)',
-            // #564 also moved --cta-accent above --cta-button-bg here, mirroring the base rest
-            // chain, so this rule and its :hover twin below are positional twins. #565 dropped
-            // the trailing --btn-bg; --cta-button-bg, the per-instance link, stays.
-            leading: ['--cta-button-border', '--cta-accent', '--cta-button-bg'],
-        },
-        {
-            sel: '.cta--has-bg-image .cta__button:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover',
-            // --cta-accent-hover sits ahead of --cta-button-hover-bg since #548, and since #564
-            // the rest twin uses the SAME order rather than the opposite one — the #538 Option-3
-            // asymmetry is retired, not preserved. #565 dropped the trailing --btn-hover-bg, so
-            // the twins stay positional: same links, same order, both states.
-            leading: ['--cta-button-hover-border', '--cta-accent-hover', '--cta-button-hover-bg'],
-        },
-        // HERO'S TWO FILLED-PRIMARY COVER ROWS ARE GONE (#986). `.hero--cover
-        // .hero__cta` was a v1 slot chain and no longer exists: hero's CTAs are the
-        // `cta` / `cta-secondary` roles, and a cover band's contrast is the author's,
-        // set through those roles. cta keeps all of its rows above.
-    ];
-
-    RINGS.forEach(({ sel, leading }) => {
-        test(`${sel} bottoms the ring out at the overlay role`, () => {
-            const rule = ruleFor(sel);
-            expect(rule).toBeDefined();
-            expect(rule.body).toMatch(/border-color\s*:/);
-            expect(rule.body).toMatch(/--color-accent-on-overlay/);
-            // Wrong surface: on-inverted is only ~2.2:1 over the arbitrary-image scrim.
-            expect(rule.body).not.toMatch(/--color-accent-on-inverted/);
-            // The role must be the LAST link, not an early one that pre-empts a slot.
-            const chain = rule.body.match(/border-color\s*:([^;}]+)/)[1];
-            const tokens = chain.match(/--[a-z0-9-]+/g);
-            expect(tokens[tokens.length - 1]).toBe('--color-accent-on-overlay');
-        });
-
-        test(`${sel} preserves every authored slot ahead of the role, in order`, () => {
-            const rule = ruleFor(sel);
-            expect(rule).toBeDefined();
-            const chain = rule.body.match(/border-color\s*:([^;}]+)/)[1];
-            const tokens = chain.match(/--[a-z0-9-]+/g).filter(t => t !== '--color-accent-on-overlay');
-            expect(tokens).toEqual(leading);
-        });
-
-        test(`${sel} does not bottom out at the bare accent (the pre-#535 behaviour)`, () => {
-            const rule = ruleFor(sel);
-            expect(rule).toBeDefined();
-            const chain = rule.body.match(/border-color\s*:([^;}]+)/)[1];
-            expect(chain).not.toMatch(/var\(\s*--color-accent\s*\)/);
-            expect(chain).not.toMatch(/var\(\s*--color-accent-hover\s*\)/);
-        });
-    });
-
-    /*
-     * NEGATIVE pin (#535 Q2). The INVERTED filled primary measures 3.23:1 fill-vs-band,
-     * which already clears the 3:1 non-text bar, so it is deliberately NOT ringed. If a
-     * future edit adds an on-inverted ring here it is a gratuitous visual change to every
-     * dark-band CTA with no measured defect behind it — fail instead.
-     */
-    test('the INVERTED filled primary is not ringed (3.23:1 already clears the 3:1 bar)', () => {
-        const offenders = rules.filter(r =>
-            /\.cta--inverted\b/.test(r.selector)
-            && /:not\(\.btn--outline\)/.test(r.selector)
-            && /border-color\s*:/.test(r.body)
-        );
-        expect(offenders.map(r => r.selector)).toEqual([]);
-    });
-
-    /*
-     * SOURCE-ORDER pins. Three of these rule groups carry the SAME specificity as the
-     * rule they must override, so they win only by following it. This is not a style
-     * preference — `.hero--cover .btn--outline` used to sit ABOVE `.hero .btn--outline`
-     * (both [0,2,0]) and was therefore DEAD, which is precisely how the near-black-ink
-     * defect shipped. Moving any of these up silently restores the bug.
-     */
-    const ORDER = [
-        // HERO'S SIX SOURCE-ORDER ROWS ARE GONE (#986). Every rule they refereed —
-        // `.hero--cover .btn--outline`, its ghost twin, the two cta2 variants and the
-        // filled primary pair — was v1 variant-scoped button styling, deleted with
-        // hero's slot map. There is nothing left to order: a v2 band's button
-        // treatment comes from its `cta` / `cta-secondary` roles, at one specificity,
-        // in one place. cta keeps every row below, including the combined-band cases.
-        {
-            later: '.cta--has-bg-image .cta__button:not(.btn--outline):not(.btn--ghost):not(.btn--secondary)',
-            earlier: '.cta .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary)',
-            why: 'both [0,5,0]',
-        },
-        {
-            later: '.cta--has-bg-image .cta__button:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover',
-            earlier: '.cta .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover',
-            why: 'both [0,6,0]; without this the ring dissolves again on hover',
-        },
-        /*
-         * A cta can carry BOTH classes: cta.php emits the theme class and the bg-image
-         * class independently, so `theme: "inverted"` + `background_image` renders
-         * `.cta--inverted.cta--has-bg-image` with the scrim painted over the inverted
-         * background. Both routing rules then match at [0,3,0] and only source order
-         * decides. The overlay role must win — on-inverted is only ~2.2:1 over the scrim.
-         */
-        {
-            later: '.cta--has-bg-image .cta__button.btn--outline',
-            earlier: '.cta--inverted .cta__button.btn--outline',
-            why: 'both [0,3,0]; an inverted band WITH a background_image must resolve to the overlay role',
-        },
-        {
-            later: '.cta--has-bg-image .cta__button.btn--ghost',
-            earlier: '.cta--inverted .cta__button.btn--ghost',
-            why: 'both [0,3,0]; same combined-band case',
-        },
-        {
-            later: '.cta--has-bg-image .cta__buttons .cta__button--secondary.btn--outline',
-            earlier: '.cta--inverted .cta__buttons .cta__button--secondary.btn--outline',
-            why: 'both [0,4,0]; the #474 button2 pair has the identical combined-band dependency',
-        },
-    ];
-
-    ORDER.forEach(({ later, earlier, why }) => {
-        test(`${later} comes after ${earlier} (${why})`, () => {
-            const l = ruleFor(later);
-            const e = ruleFor(earlier);
-            expect(l).toBeDefined();
-            expect(e).toBeDefined();
-            expect(l.index).toBeGreaterThan(e.index);
-        });
-    });
-
-    /*
-     * UNIQUENESS. The order pins above compare the FIRST rule carrying each selector, so
-     * on their own they cannot catch the regression the CSS comments actually warn about:
-     * a DUPLICATE rule appended further down the file wins the cascade while every order
-     * pin still passes (confirmed by mutation — appending
-     * `.hero--cover .btn--outline { color: red }` left the whole suite green). Requiring
-     * exactly one rule per routed selector closes that hole.
-     */
-    const UNIQUE_SELECTORS = ROUTES.map(r => r.sel)
-        .concat(RINGS.map(r => r.sel))
-        .concat(ORDER.map(o => o.later));
-
-    [...new Set(UNIQUE_SELECTORS)].forEach(sel => {
-        test(`${sel} is declared exactly once (a later duplicate would silently win)`, () => {
-            expect(rulesForAll(sel).length).toBe(1);
-        });
-    });
-
-    /*
-     * The cta PRIMARY rules must stay BELOW the #474 button2 rules in specificity, not
-     * just in source order: the second button also carries `.cta__button`, so an equal
-     * or higher primary rule would repaint it and break the #474/#526/#530 pins.
-     */
-    test('the cta primary dark-band rules do not outrank the button2 rules', () => {
-        // [0,3,0] vs [0,4,0]: the primary selector must NOT carry the --secondary class,
-        // and the button2 selector must carry one more class than the primary one.
-        const primary = ruleFor('.cta--inverted .cta__button.btn--outline');
-        const second = ruleFor('.cta--inverted .cta__buttons .cta__button--secondary.btn--outline');
-        expect(primary).toBeDefined();
-        expect(second).toBeDefined();
-        const classCount = (sel) => (sel.match(/\.[a-zA-Z][\w-]*/g) || []).length;
-        expect(classCount(second.selector)).toBeGreaterThan(classCount(primary.selector));
-    });
-
-    /*
-     * HOVER leak guard. The rest rules tie on specificity with the `:hover` rules they
-     * follow (a pseudo-class counts as a class), so source order made the routed
-     * dark-band ink win on hover too — landing it on a fill it was never measured
-     * against (on-inverted ink over the accent fill is 2.58:1; on-overlay ink over the
-     * near-white ghost hover fill is effectively invisible). The restoration rules must
-     * exist AND must not themselves carry a role token: on hover each variant paints its
-     * own contrasting fill, so the correct ink is the variant's original hover value.
-     */
-    // `source` is the shared rule whose hover ink each restoration copies verbatim. If the
-    // shared rule's value is ever changed, the copy must move with it — so assert the
-    // declarations are IDENTICAL rather than merely present, which is what makes a silent
-    // divergence fail here instead of shipping.
-    const HOVER_RESTORED = [
-        { sel: '.cta--inverted .cta__button.btn--outline:hover', source: '.cta__button.btn--outline:hover' },
-        { sel: '.cta--has-bg-image .cta__button.btn--outline:hover', source: '.cta__button.btn--outline:hover' },
-        { sel: '.cta--inverted .cta__button.btn--ghost:hover', source: '.cta__button.btn--ghost:hover' },
-        { sel: '.cta--has-bg-image .cta__button.btn--ghost:hover', source: '.cta__button.btn--ghost:hover' },
-        // hero's cover ghost:hover row is gone with the rest of the variant (#986).
-    ];
-
-    // `color:` alone also matches `border-color:` / `background-color:`, which would let a
-    // restoration rule that dropped its ink declaration entirely still pass.
-    const inkDecl = (body) => {
-        const m = body.match(/(?:^|[;{\s])color\s*:([^;}]+)/);
-        return m ? m[1].replace(/\s+/g, ' ').trim() : null;
-    };
-
-    HOVER_RESTORED.forEach(({ sel, source }) => {
-        test(`${sel} restores exactly the ink ${source} declares`, () => {
-            const rule = ruleFor(sel);
-            const src = ruleFor(source);
-            expect(rule).toBeDefined();
-            expect(src).toBeDefined();
-            expect(inkDecl(rule.body)).not.toBeNull();
-            expect(inkDecl(rule.body)).toBe(inkDecl(src.body));
-        });
-
-        test(`${sel} carries no dark-band role token (on hover the fill contrasts, not the band)`, () => {
-            const rule = ruleFor(sel);
-            expect(rule).toBeDefined();
-            expect(rule.body).not.toMatch(/--color-accent-on-inverted|--color-accent-on-overlay/);
-        });
-
-        test(`${sel} follows its rest rule in source order`, () => {
-            const restSel = sel.replace(/:hover$/, '');
-            const hover = ruleFor(sel);
-            const rest = ruleFor(restSel);
-            expect(hover).toBeDefined();
-            expect(rest).toBeDefined();
-            expect(hover.index).toBeGreaterThan(rest.index);
-        });
-    });
-
-    test('the roles these rules depend on are declared in base.css :root', () => {
-        expect(BASE_CSS).toMatch(/--color-accent-on-inverted:\s*#[0-9a-fA-F]{6}/);
-        expect(BASE_CSS).toMatch(/--color-accent-on-overlay:\s*#[0-9a-fA-F]{6}/);
-    });
-});
+/* RETIRED (#1026): THREE WHOLE BLOCKS, because all three were about cta's variant classes
+ * and its per-instance button slots, and cta's rebuild removed both.
+ *
+ *   'dark-band buttons route through the AA accent roles (#535)'
+ *   'the filled second button is ringed on overlay bands (#543)'
+ *   'per-instance button slots are neutralised on non-owned buttons (#545)'
+ *
+ * #535 and #543 pinned the AA routings keyed on `.cta--inverted` and `.cta--has-bg-image`:
+ * on-inverted / on-overlay ink for the outline and ghost variants, and a separation ring
+ * that stopped a filled button dissolving into a scrim. Both classes derive from `theme`
+ * and `background_image`, which retired with the rebuild, and the button VARIANTS they
+ * addressed retired with `button_variant` / `button2_variant` — so the selectors they pin
+ * cannot be written any more, in any configuration. This follows #986's ruling for
+ * `.hero--cover` verbatim ("v2 has no variant-scoped role defaults and does not guess"),
+ * and the same change there deleted the identical `.hero--cover` separation ring.
+ *
+ * #545's block pinned the neutralisation RULE, which is gone for the reason the rule itself
+ * is gone: it reset per-instance button slot families to `initial` on a composed `.btn` the
+ * renderer does not own, and no component declares such a family any longer.
+ *
+ * WHAT COVERS THE GROUND NOW, so this reads as a move rather than a deletion:
+ *   - A v2 band OWNS ITS OWN CONTRAST. A dark fill or a scrim is an authored value, and the
+ *     text roles over it take `typography.color` from the same map. The AI-facing docs and
+ *     components/cta/README.md both say so in those words.
+ *   - The ONE affordance that stayed automatic is the FOCUS RING over a scrim, because #986
+ *     gave it an engine-emitted trigger instead of a class: `[data-pp-band-overlay]`, which
+ *     cta now emits. Its pins are in the #542 block below, narrowed rather than retired.
+ *   - The nested-author-button guarantee (#545) holds by construction: nothing is emitted on
+ *     the band root, so nothing inherits down to an author-written `.btn`.
+ *
+ * WHAT IS GENUINELY LOST, stated rather than buried: the separation ring's measured 4.59:1
+ * on an overlay band, and the on-inverted ink's 8.33:1, were AUTOMATIC. They are now an
+ * author's job on the role. That is the same trade #986 made for the hero and it is recorded
+ * in cta's README under "Two things `theme` and `background_image` took with them".
+ */
 
 /**
  * The isolation re-pointing declarations depend on GUARANTEED-INVALID custom properties
@@ -4307,212 +3557,6 @@ describe('CSS lint: fill-slot re-pointing targets are never @property-registered
     });
 });
 
-/**
- * The filled SECOND button's separation ring on the two OVERLAY bands (#543).
- *
- * #535 gave the ring to the filled PRIMARY only. The second button's own rules are one
- * class higher ([0,6,0] rest / [0,7,0] hover vs the primary ring's [0,5,0]/[0,6,0]) and
- * bottomed out at the bare --color-accent, so a `primary` + `primary` pair on a photo
- * band rendered ONE button with a visible edge next to one dissolving into the scrim.
- *
- * These pins mirror #535's RINGS/ORDER contract at the second button's specificity, with
- * three differences that matter:
- *
- *   1. Media-aware (parseRules, the #542 idiom). #535's block uses a media-blind local
- *      parser; a ring wrapped in a never-matching @media would read as green there.
- *   2. Both twins are REQUIRED, not just the rest one. #538 made the base hover ring
- *      follow the hover fill, so the last incidental fill-vs-ring edge on these bands is
- *      gone — a rest-only ring dissolves again under the pointer (WCAG 1.4.11 covers
- *      hover), which is exactly the defect #535's rendered pass caught on the primary.
- *   3. The hover chain's ORDER is #538's Option 3 (accent knob AHEAD of the fill), and since
- *      #564 the REST chain uses that order too — the two are positional twins. `leading` now
- *      encodes the PARITY rather than the old asymmetry, so a future edit that re-splits them
- *      fails here. Reintroducing the split would repaint authored --cta-accent /
- *      --hero-accent rings and restore the rest->hover flip #564 retired
- *      (issuecomment-5106604500); it is a maintainer decision, not a cleanup.
- *
- * The base (non-overlay) rules keep their own --color-accent terminals, pinned below:
- * that is what makes every light band byte-identical.
- */
-describe('CSS lint: the filled second button is ringed on overlay bands (#543)', () => {
-    const rules = parseRules();
-    const rulesForAll = (sel) => rules.filter(r => r.selectors.includes(sel));
-    const ruleFor = (sel) => rulesForAll(sel)[0];
-
-    const NOT3 = ':not(.btn--outline):not(.btn--ghost):not(.btn--secondary)';
-    const CTA2_BASE = '.cta .cta__buttons .cta__button--secondary' + NOT3;
-    const CTA2_RING = '.cta--has-bg-image .cta__buttons .cta__button--secondary' + NOT3;
-
-    // `leading` = the authored links that MUST survive ahead of the role token, in order.
-    // Each is its base rule's chain MINUS the whole GLOBAL tier, with the role terminal
-    // (ring knobs removed by #564, fill knobs by #565).
-    // #554 had added the global tier here on the reasoning that a cover band must not be the
-    // one band a site-wide retheme fails to reach; #564 and #565 record the counterweight — on
-    // THESE bands the terminal carries a measured 4.59:1 separation guarantee, so a broader
-    // default must not sit above it. The RING knobs defeated it directly; the FILL knobs
-    // defeated it through the border-follows-fill link (#535), which is why they had to go too.
-    // Removed, not demoted: --color-accent-on-overlay is a :root token (base.css) and always
-    // set, so a link below it is dead code. Rest and hover lost each knob together, or the
-    // twins would disagree across the pointer transition.
-    // The PER-INSTANCE fill link stays in every row below — that is the narrowing, not a
-    // reversal: an author who flattens THIS band still gets a matching ring (#535).
-    const RINGS = [
-        { sel: CTA2_RING, base: CTA2_BASE, terminal: '--color-accent',
-          // #564 also lifted --cta-accent above --cta-button2-bg, mirroring the base rest chain.
-          leading: ['--cta-button2-border', '--cta-accent', '--cta-button2-bg'] },
-        { sel: CTA2_RING + ':hover', base: CTA2_BASE + ':hover', terminal: '--color-accent-hover',
-          // #538's Option-3 order (--cta-accent-hover ahead of the hover fill) survives, and
-          // since #564 the rest row uses it too, so the two rows are positional twins.
-          leading: ['--cta-button2-hover-border', '--cta-accent-hover', '--cta-button2-hover-bg'] },
-        // HERO'S TWO ROWS ARE GONE (#986): hero is a v2 component, so
-        // `--hero-button2-*` and `--hero-accent*` no longer exist and neither does the
-        // `.hero--cover` rule that used to lead with them. Its second CTA is the
-        // `cta-secondary` role; its ring is whatever the author (or the
-        // `button-secondary` preset) sets, not a fallback chain this file polices.
-        // cta keeps both of its rows above, so the guard keeps its teeth.
-    ];
-
-    const chainOf = (rule) => {
-        const decl = rule.body.match(/border-color\s*:([^;}]+)/);
-        expect(decl).not.toBeNull();
-        return decl[1];
-    };
-
-    RINGS.forEach(({ sel, base, terminal, leading }) => {
-        test(`${sel} exists, at top level, exactly once`, () => {
-            const found = rulesForAll(sel);
-            // Exactly one: a duplicate later in the file wins the cascade while every
-            // order pin below still passes (the hole #535's uniqueness pin closes).
-            expect(found.length).toBe(1);
-            // Top level: a ring that only paints inside an @media is not a ring.
-            expect(found[0].media).toBeNull();
-            expect(found[0].body).toMatch(/border-color\s*:/);
-        });
-
-        test(`${sel} bottoms the ring out at the overlay role`, () => {
-            const tokens = chainOf(ruleFor(sel)).match(/--[a-z0-9-]+/g);
-            expect(tokens[tokens.length - 1]).toBe('--color-accent-on-overlay');
-            // on-inverted is only ~2.2:1 over the arbitrary-image scrim — never here.
-            expect(tokens).not.toContain('--color-accent-on-inverted');
-        });
-
-        test(`${sel} preserves every authored slot ahead of the role, in order`, () => {
-            const tokens = chainOf(ruleFor(sel))
-                .match(/--[a-z0-9-]+/g)
-                .filter(t => t !== '--color-accent-on-overlay');
-            expect(tokens).toEqual(leading);
-        });
-
-        test(`${sel} no longer bottoms out at the bare accent`, () => {
-            const chain = chainOf(ruleFor(sel));
-            expect(chain).not.toMatch(/var\(\s*--color-accent\s*\)/);
-            expect(chain).not.toMatch(/var\(\s*--color-accent-hover\s*\)/);
-        });
-
-        test(`${sel} follows ${base} in source order (equal specificity, order decides)`, () => {
-            const ring = ruleFor(sel);
-            const baseRule = ruleFor(base);
-            expect(ring).toBeDefined();
-            expect(baseRule).toBeDefined();
-            expect(ring.index).toBeGreaterThan(baseRule.index);
-        });
-
-        test(`${base} keeps its own ${terminal} terminal (light bands stay byte-identical)`, () => {
-            const tokens = chainOf(ruleFor(base)).match(/--[a-z0-9-]+/g);
-            expect(tokens[tokens.length - 1]).toBe(terminal);
-            expect(tokens).not.toContain('--color-accent-on-overlay');
-        });
-
-        /*
-         * The order pin above compares the FIRST rule carrying each selector, so uniqueness
-         * has to hold on BOTH sides of the comparison. #535's uniqueness section proved by
-         * mutation that a duplicate appended later wins the cascade while every order pin
-         * stays green; it pinned that for the ring selectors only. A duplicate of the BASE
-         * rule placed AFTER the ring is the mirror image of that hole — equal specificity,
-         * later in source order, so it takes the ring back off — and it is invisible to
-         * every assertion above. Same reason the media context is pinned: a base rule
-         * re-declared inside an @media block would outrank the top-level ring at one
-         * breakpoint only, which is exactly the class of bug a media-blind scan misses.
-         */
-        test(`${base} is itself declared exactly once, at top level`, () => {
-            const found = rulesForAll(base);
-            expect(found.length).toBe(1);
-            expect(found[0].media).toBeNull();
-        });
-    });
-
-    /*
-     * NEGATIVE pin, the button2 half of #535 Q2. The SOLID inverted filled button measures
-     * 3.23:1 fill-vs-band, clearing the 3:1 non-text bar, so it is deliberately NOT
-     * ringed — for the second button exactly as for the primary. #535's own negative pin
-     * already scans every `.cta--inverted` + `:not(.btn--outline)` rule; this one names
-     * the button2 selector explicitly so the refusal is legible at the specificity a
-     * future edit would actually reach for.
-     *
-     * SOLID is the operative word. A cta can carry BOTH classes — cta.php emits the theme
-     * class and the bg-image class independently — and `.cta--inverted.cta--has-bg-image`
-     * DOES get the ring, correctly: the scrim sits over the inverted background, and
-     * on-inverted is only ~2.2:1 over an arbitrary image. This pin scans for a rule whose
-     * SELECTOR names `.cta--inverted`, so the combined band (which matches the ring rule
-     * through `.cta--has-bg-image`) is untouched by it. The rendered half of that case is
-     * pinned in style-render.spec.ts, the same way #535 pins it for the primary.
-     */
-    test('the SOLID inverted filled second button is not ringed (Q2 refusal, unchanged)', () => {
-        const offenders = rules.filter(r =>
-            r.selectors.some(s =>
-                /\.cta--inverted\b/.test(s)
-                && /\.cta__button--secondary\b/.test(s)
-                && /:not\(\.btn--outline\)/.test(s))
-            && /border-color\s*:/.test(r.body));
-        expect(offenders.map(r => r.selectors.join(', '))).toEqual([]);
-    });
-
-    /*
-     * BOUNDARY pin. The `.cta--dark` theme block carries a NOTE telling future editors not
-     * to add a competing `.cta--inverted` / `.cta--has-bg-image` button rule down there,
-     * because it would win on source order and silently defeat the routing above. The ring
-     * comment leans on that NOTE as its guardrail, so the guardrail has to be a test: a
-     * comment cannot fail CI. Two halves — the ring rules must sit ABOVE the theme block,
-     * and nothing below it may declare border-color on a cta button on either dark band.
-     *
-     * This is the one pin that catches a competing rule spelled DIFFERENTLY from the ring
-     * selectors (`.cta--dark .cta__button--secondary:not(...)`, or a `.cta--has-bg-image`
-     * rule that drops the `.cta__buttons` link). The uniqueness pins only match exact
-     * selector strings, so such a rule evades them entirely while winning the cascade.
-     */
-    test('the ring rules sit ABOVE the .cta--dark theme block', () => {
-        const themeBlock = ruleFor('.cta--dark');
-        expect(themeBlock).toBeDefined();
-        [CTA2_RING, CTA2_RING + ':hover'].forEach(sel => {
-            expect(ruleFor(sel).index).toBeLessThan(themeBlock.index);
-        });
-    });
-
-    test('no rule below .cta--dark sets a cta button border on either dark band', () => {
-        const themeBlock = ruleFor('.cta--dark');
-        const offenders = rules.filter(r =>
-            r.index > themeBlock.index
-            && /border-color\s*:/.test(r.body)
-            && r.selectors.some(s =>
-                /\.cta--(dark|inverted|has-bg-image)\b/.test(s) && /\.cta__button\b/.test(s)));
-        expect(offenders.map(r => r.selectors.join(', '))).toEqual([]);
-    });
-
-    /*
-     * SCOPE pin: the ring stays on the FILLED variant. outline and secondary paint a real
-     * ring of their own and ghost's border bottoms out at `transparent`, so routing the
-     * fill chain there would repaint an authored edge or ADD one to a borderless button —
-     * the same scoping #538 pins for the hover fill-follow. Dropping any :not() from a
-     * ring selector is the mechanical way that happens, so pin all three.
-     */
-    RINGS.forEach(({ sel }) => {
-        test(`${sel} excludes all three transparent-fill variants`, () => {
-            ['.btn--outline', '.btn--ghost', '.btn--secondary'].forEach(v => {
-                expect(ruleFor(sel).selectors[0]).toContain(`:not(${v})`);
-            });
-        });
-    });
-});
 
 /**
  * The FOCUS RING on dark bands (#542).
@@ -4545,9 +3589,20 @@ describe('CSS lint: dark-band focus ring routes through the AA accent roles (#54
     const blockFor = (sel) => blocksFor(sel)[0];
     const esc = (s) => s.replace(/[-]/g, '\\-');
 
-    const INVERTED_SELECTORS = [
-        '.cta--inverted .btn:focus',
-    ];
+    // EMPTY SINCE #1026, and empty is the honest state rather than a gap. The only routed
+    // inverted selector was `.cta--inverted .btn:focus`, and `theme` retired with cta's
+    // rebuild, so no band can carry that class. It was NOT re-keyed the way the overlay half
+    // was, because there is nothing to key it on: an overlay is a fact the ENGINE knows (it
+    // composes the scrim, which is why `[data-pp-band-overlay]` can exist), while "this band
+    // is dark" is a colour an author chose and the engine does not interpret colours.
+    // Detecting darkness would mean parsing an authored value — `@token` references,
+    // gradients and `color-mix()` included — and guessing, which is exactly the
+    // variant-scoped guessing #986 removed from the hero.
+    // THE COST, stated: an inverted cta used to get an 8.33:1 focus ring automatically and
+    // now gets the 3.23:1 bare accent until its `button` role says otherwise. 3.23:1 still
+    // clears the 3:1 non-text bar (#535 Q2 used that same figure), so this is a loss of
+    // margin rather than a new failure, and cta's README records it.
+    const INVERTED_SELECTORS = [];
     const OVERLAY_SELECTORS = [
         // The ENGINE's hook (#986), and the one that matters most now: ruling A2 made
         // a band background image authorable on every layout, so the overlay stopped
@@ -4558,8 +3613,10 @@ describe('CSS lint: dark-band focus ring routes through the AA accent roles (#54
         // way. `.hero--cover` is now redundant with the attribute on a v2 hero and is
         // kept deliberately: it costs nothing and it keeps the rule true for a hero
         // rendered from stored data that predates band ids.
+        // `.cta--has-bg-image` LEFT AT #1026: the `background_image` prop that derived it
+        // retired, cta now emits `data-pp-band-overlay`, and a class term that can never
+        // match is worse than an absent one — it is a roster pretending to still be true.
         '.hero--cover .btn:focus',
-        '.cta--has-bg-image .btn:focus',
     ];
     const ROUTES = INVERTED_SELECTORS.map(sel => ({ sel, role: '--color-accent-on-inverted' }))
         .concat(OVERLAY_SELECTORS.map(sel => ({ sel, role: '--color-accent-on-overlay' })));
@@ -4628,13 +3685,13 @@ describe('CSS lint: dark-band focus ring routes through the AA accent roles (#54
      * win: on-inverted is only 2.21:1 over the worst-case scrim, so the combined band would
      * otherwise get a ring that fails 1.4.11 harder than the bug this fixes.
      */
-    test('the overlay block follows the inverted block (combined inverted + bg-image cta)', () => {
-        const inverted = blockFor('.cta--inverted .btn:focus');
-        const overlay = blockFor('.cta--has-bg-image .btn:focus');
-        expect(inverted).toBeDefined();
-        expect(overlay).toBeDefined();
-        expect(overlay.index).toBeGreaterThan(inverted.index);
-    });
+    // RETIRED (#1026): the source-order pin between the inverted and overlay blocks. It
+    // existed because ONE cta root could carry both classes — cta.php concatenated the theme
+    // class and the bg-image class independently — so the two blocks tied at [0,3,0] and only
+    // order decided which role won. Both classes are gone, so the tie cannot arise: the
+    // overlay case is the engine's attribute and there is no inverted case at all. The
+    // precedence it protected (overlay must beat inverted, because on-inverted is 2.21:1 over
+    // the worst-case scrim) is not re-litigated — it has no second claimant left.
 
     /*
      * These rules win on SPECIFICITY, not source order: [0,3,0] (band class + .btn +
@@ -4727,550 +3784,7 @@ describe('CSS lint: dark-band focus ring routes through the AA accent roles (#54
     });
 });
 
-/**
- * CSS lint: the GLOBAL button hover tier (#539).
- *
- * #458 gave the theme four site-wide button knobs; #530 gave every filled surface a
- * per-instance HOVER fill slot. Between them sat the gap this issue closes: the global tier
- * was resting-state only, so an operator who rethemed every button with --btn-bg /
- * --btn-border-color got their brand at rest and the theme's premium accent gradient back the
- * moment a pointer touched any button on the site.
- *
- * The fix is deliberately NOT "add the tier to the two shared premium hover rules". That
- * would not work. The premium hover rule owns background-IMAGE, but the component hover
- * rules outrank it on background-COLOR:
- *
- *     .hero .btn:not(x):not(y):not(z):hover          [0,6,0]  <- decides background-color
- *     .cta  .btn:not(x):not(y):not(z):hover          [0,6,0]  <- decides background-color
- *     main  .btn:not(x):not(y):not(z):hover          [0,5,1]  <- decides background-image
- *
- * Today the gradient image masks whatever the component rules compute. The instant
- * --btn-hover-bg resolves the premium shorthand to a flat colour, background-image becomes
- * `none` and the component declaration becomes the visible pixel — still resolving to
- * --color-accent-hover if the tier is missing there. So the knob must appear in EVERY hover
- * chain whose resting twin routes the global resting tier, at the SAME relative position.
- * These are exact-value pins: the whole contract is chain ORDER, so a reorder must fail.
- */
-describe('CSS lint: global button hover tier (#539)', () => {
-    // Comments are stripped first: several of these rules carry long docblocks directly
-    // above them, which defeats a "preceded by } or start-of-file" selector match.
-    const NO_COMMENTS = COMPONENTS_CSS.replace(/\/\*[\s\S]*?\*\//g, '');
-    const bodiesFor = (sel) => {
-        const want = sel.replace(/\s+/g, ' ').trim();
-        const out = [];
-        const re = /([^{}]+)\{([^{}]*)\}/g;
-        let m;
-        while ((m = re.exec(NO_COMMENTS)) !== null) {
-            if (m[1].replace(/\s+/g, ' ').trim() === want) out.push(m[2]);
-        }
-        return out;
-    };
-    // Several selectors (notably the premium primary) are declared TWICE — a superseded rule
-    // and the "true final cascade" winner. `last` is the live winner in every such pair.
-    const bodyFor = (sel) => {
-        const all = bodiesFor(sel);
-        return all.length ? all[all.length - 1] : null;
-    };
-    const NOT3 = ':not(.btn--outline):not(.btn--ghost):not(.btn--secondary)';
 
-    // Each entry: the hover rule, and the EXACT chains it must declare. Written out in full
-    // rather than assembled, so the pin is readable as the contract itself.
-    const CHAINS = [
-        {
-            what: 'bare .btn (the live hover winner OUTSIDE main — header/footer buttons)',
-            sel: '.btn:hover',
-            decls: [
-                'background-color: var(--btn-hover-bg, var(--color-accent-hover));',
-                'border-color: var(--btn-hover-border-color, var(--color-accent-hover));',
-            ],
-        },
-        // HERO'S ROW IS GONE (#986). `.hero .btn:hover` was a v1 per-instance chain
-        // (--hero-button-hover-bg -> --hero-accent-hover -> the global tier); hero owns
-        // no button slots now, so its CTAs take the shared premium chain like any other
-        // `.btn` and then whatever the `cta` / `cta-secondary` role sets on top. cta and
-        // the shared premium rule keep their rows, so the tier is still pinned.
-        {
-            what: 'cta primary (background-COLOR winner at [0,6,0])',
-            sel: '.cta .btn' + NOT3 + ':hover',
-            decls: [
-                'background-color: var(--cta-button-hover-bg, var(--cta-accent-hover, var(--btn-hover-bg, var(--color-accent-hover))));',
-                // #548: --cta-accent-hover ahead of --cta-button-hover-bg. #564: and ahead of
-                // --btn-hover-border-color too, so a site-wide ring knob no longer defeats an
-                // authored band accent. The global tier still sits BELOW the per-instance ring
-                // slot and ABOVE the fill link — the property this table exists to pin — it
-                // simply no longer outranks the band accent.
-                'border-color: var(--cta-button-hover-border, var(--cta-accent-hover, var(--btn-hover-border-color, var(--cta-button-hover-bg, var(--btn-hover-bg, var(--color-accent-hover))))));',
-            ],
-        },
-        {
-            what: 'cta second button (isolated from the primary since #530)',
-            sel: '.cta .cta__buttons .cta__button--secondary' + NOT3 + ':hover',
-            decls: [
-                'background-color: var(--cta-button2-hover-bg, var(--cta-accent-hover, var(--btn-hover-bg, var(--color-accent-hover))));',
-            ],
-        },
-        {
-            what: 'the shared premium hover rule (background-IMAGE winner; the panel CTA\'s only fill winner)',
-            sel: 'main .btn' + NOT3 + '' + ':hover',
-            decls: [
-                'var(--cta-button-hover-bg, var(--btn-hover-bg,',
-            ],
-        },
-    ];
-
-    CHAINS.forEach(({ what, sel, decls }) => {
-        test(`${what}: routes the global hover tier below every per-instance slot`, () => {
-            const body = bodyFor(sel);
-            expect(body).not.toBeNull();
-            decls.forEach(d => expect(body.replace(/\s+/g, ' ')).toContain(d.replace(/\s+/g, ' ')));
-        });
-    });
-
-    /*
-     * Cross-property precedence, pinned in the LOSING direction (red-team finding).
-     *
-     * In every border chain --btn-hover-border-color sits below the per-instance hover BORDER
-     * slot and ABOVE the per-instance hover FILL slot. That asymmetry is deliberate — an
-     * explicitly authored global ring beats a ring merely inferred from someone's fill, and it
-     * mirrors --btn-border-color at rest — but it is exactly the kind of ordering a later
-     * "make the globals sit below every per-instance slot" tidy-up would silently invert,
-     * which would hand authored fills their ring back and change shipped renders.
-     */
-    const BORDER_ORDER = [
-        { sel: '.cta .btn' + NOT3 + ':hover', fill: '--cta-button-hover-bg', own: '--cta-button-hover-border' },
-        { sel: '.cta .cta__buttons .cta__button--secondary' + NOT3 + ':hover', fill: '--cta-button2-hover-bg', own: '--cta-button2-hover-border' },
-        // Hero's two rows are gone (#986): it owns no per-instance button slots, so
-        // there is no fill link for a global knob to outrank. cta keeps both rows.
-    ];
-
-    BORDER_ORDER.forEach(({ sel, fill, own }) => {
-        test(`${sel}: the global hover ring outranks the per-instance hover FILL link`, () => {
-            const body = bodyFor(sel);
-            expect(body).not.toBeNull();
-            const chain = body.match(/border-color\s*:([^;]+)/)[1];
-            const order = chain.match(/--[a-z0-9-]+/g);
-            const iGlobal = order.indexOf('--btn-hover-border-color');
-            const iFill = order.indexOf(fill);
-            expect(iGlobal).toBeGreaterThan(-1);
-            expect(iFill).toBeGreaterThan(-1);
-            // Global ring BEFORE the border-follows-fill link.
-            expect(iGlobal).toBeLessThan(iFill);
-            // ...but AFTER the button's own hover border slot, where it has one.
-            if (own) {
-                const iOwn = order.indexOf(own);
-                expect(iOwn).toBeGreaterThan(-1);
-                expect(iOwn).toBeLessThan(iGlobal);
-            }
-        });
-    });
-
-    test('BOTH premium hover rules carry the tier, so the superseded one cannot drift', () => {
-        // #514/#530 keep the superseded and the live premium rules uniform on purpose: the
-        // superseded one is the shape a reader hits first, so a drifted copy teaches the wrong
-        // chain. Two `background:` declarations must route --btn-hover-bg.
-        // Matched against the comment-stripped source: these rules carry docblocks that quote
-        // chain shapes verbatim, so counting against the raw file would trip on documentation.
-        const hits = NO_COMMENTS.match(/background:\s*var\(--cta-button-hover-bg,\s*var\(--btn-hover-bg,/g);
-        expect(hits).not.toBeNull();
-        expect(hits.length).toBe(2);
-    });
-
-    /*
-     * The global hover RING reaches the outline variant, and that is load-bearing to pin.
-     * `.btn--outline:hover` repaints background-color and color but declares NO border-color,
-     * so `.btn:hover`'s border-color is its ring. That mirrors REST exactly (`.btn--outline`
-     * also declares no border-color, so --btn-border-color already rings it), which is the
-     * whole justification for putting the knob in the shared rule. If someone gives
-     * `.btn--outline:hover` its own border-color, or moves it ABOVE `.btn:hover`, the global
-     * ring silently stops reaching outline buttons site-wide and no other assertion notices.
-     */
-    test('the outline variant inherits the global hover ring from .btn:hover', () => {
-        const outlineHover = bodyFor('.btn--outline:hover');
-        expect(outlineHover).not.toBeNull();
-        // It must NOT declare its own border-color, or it would shadow the global ring.
-        expect(outlineHover).not.toMatch(/border-color\s*:/);
-        // ...and it must FOLLOW `.btn:hover` in source order (equal specificity [0,2,0]).
-        const iBase = NO_COMMENTS.indexOf('.btn:hover');
-        const iOutline = NO_COMMENTS.indexOf('.btn--outline:hover');
-        expect(iBase).toBeGreaterThan(-1);
-        expect(iOutline).toBeGreaterThan(iBase);
-    });
-
-    test('the global hover fill NEVER enters a border chain in the premium rule', () => {
-        // Border is INDEPENDENT of the fill in `main .btn:not(...)` at rest (it routes
-        // --btn-border-color but deliberately does not follow --btn-bg, matching the bare .btn
-        // primitive). The hover twin must keep that independence, or a fill-only site retheme
-        // silently starts moving the premium ring too.
-        const body = bodyFor('main .btn' + NOT3 + ':hover');
-        expect(body).not.toBeNull();
-        const border = body.match(/border-color\s*:([^;]+)/)[1];
-        expect(border).toContain('--btn-hover-border-color');
-        expect(border).not.toContain('--btn-hover-bg');
-    });
-
-    /*
-     * REST/HOVER SYMMETRY on the hero's SECOND cta — the pin #539 left behind, now flipped
-     * positive by #554.
-     *
-     * #539 shipped this as a NEGATIVE pin: hero cta2's own chains carried NEITHER global tier,
-     * and the pin asserted that absence, because wiring only the HOVER half would have made a
-     * site setting both knobs render --color-accent at rest and FLASH to the operator's colour
-     * on hover. Symmetry was the invariant; absence was merely how it was satisfied then.
-     *
-     * #554 satisfies the same invariant from the other side: both halves are now wired. The
-     * assertion is therefore inverted, deliberately, and the invariant it protects is
-     * unchanged — rest and hover must never disagree about whether the global tier is routed.
-     *
-     * Why this mattered enough to fix rather than leave: the tier ALREADY reached this button's
-     * background-IMAGE through the shared premium rule (a flat --btn-bg resolves the
-     * `background` shorthand and clears the gradient) while its own [0,7,0] background-COLOR
-     * rule kept painting --color-accent. A rethemed cta2 rendered a FLAT ACCENT pill beside a
-     * brand-coloured primary — half-stripped, not merely unthemed. Verified in a browser before
-     * and after, both states, both bands.
-     */
-    // Retired with hero's slot map (#986): there are no `--hero-button2-*` chains left
-    // to route, and a role cannot carry one state without the other by construction.
-
-    /*
-     * PAIR STRUCTURE (#554) — the hero's two filled buttons resolve their fill and ring through
-     * chains of the same SHAPE, and so do the cta's two.
-     *
-     * This is the property the issue actually established. The original defect was not "a token
-     * is missing" but "the two buttons of one band answer to different sources", which is
-     * invisible to any single-chain assertion: every chain was individually well-formed.
-     *
-     * Same shape is not same colour. Each button still reads its OWN per-instance slots, so the
-     * pair matches wherever the winning link is a shared knob (--hero-accent, --btn-bg) and
-     * differs wherever it is a per-button one (--hero-button2-bg). What must never return is the
-     * pair disagreeing about WHICH KINDS of link participate at all.
-     */
-    const PAIRS = [
-        // HERO'S FOUR PAIR ROWS ARE GONE (#986). They pinned that hero's second CTA
-        // routed every shared link its primary did — a property of two v1 slot chains
-        // that no longer exist. On v2 both CTAs are roles on one engine, so "the two
-        // buttons route the same shared links" is true by construction rather than by
-        // a lint comparing two hand-written chains. cta keeps its rows.
-        {
-            what: 'cta, rest fill',
-            primary: '.cta .btn' + NOT3,
-            second: '.cta .cta__buttons .cta__button--secondary' + NOT3,
-            prop: 'background-color',
-            shared: ['--btn-bg'],
-        },
-        {
-            what: 'cta, rest ring',
-            primary: '.cta .btn' + NOT3,
-            second: '.cta .cta__buttons .cta__button--secondary' + NOT3,
-            prop: 'border-color',
-            // #564: --cta-accent moved above --btn-border-color, matching the hero rows above.
-            shared: ['--cta-accent', '--btn-border-color', '--btn-bg'],
-        },
-        {
-            what: 'cta, hover fill',
-            primary: '.cta .btn' + NOT3 + ':hover',
-            second: '.cta .cta__buttons .cta__button--secondary' + NOT3 + ':hover',
-            prop: 'background-color',
-            shared: ['--btn-hover-bg'],
-        },
-        {
-            what: 'cta, hover ring',
-            primary: '.cta .btn' + NOT3 + ':hover',
-            second: '.cta .cta__buttons .cta__button--secondary' + NOT3 + ':hover',
-            prop: 'border-color',
-            // #564: --cta-accent-hover moved above --btn-hover-border-color, matching the hero.
-            shared: ['--cta-accent-hover', '--btn-hover-border-color', '--btn-hover-bg'],
-        },
-    ];
-
-    /*
-     * Resolved through the media-aware parseRules(), NOT the flat bodyFor() the rest of this
-     * describe uses. bodyFor returns the LAST textual match and cannot see @media, so a
-     * regression that strips the tier from the top-level rule and re-adds it inside a
-     * never-matching @media reads as green — verified by mutation. Uniqueness and top-level
-     * placement are asserted here rather than assumed, the #542 idiom.
-     */
-    const pairRules = parseRules();
-    const uniqueTopLevelRule = (sel) => {
-        const found = pairRules.filter(r => r.selectors.includes(sel));
-        expect(found.length, `${sel} must be declared exactly once`).toBe(1);
-        expect(found[0].media, `${sel} must be top level, not inside @media`).toBeNull();
-        return found[0].body;
-    };
-    const chainTokens = (body, prop, map = {}) => {
-        const m = body.match(new RegExp(prop + '\\s*:([^;}]+)'));
-        expect(m, `${prop} not declared`).not.toBeNull();
-        return m[1].match(/--[a-z0-9-]+/g).map(t => map[t] || t);
-    };
-
-    PAIRS.forEach(({ what, primary, second, prop, shared }) => {
-        test(`${what}: the second button routes every shared link its primary does`, () => {
-            const pChain = chainTokens(uniqueTopLevelRule(primary), prop);
-            const sChain = chainTokens(uniqueTopLevelRule(second), prop);
-            shared.forEach(tok => {
-                expect(pChain, `primary lost ${tok}`).toContain(tok);
-                expect(sChain, `second button lost ${tok} — the #554 split`).toContain(tok);
-            });
-            // Relative ORDER of the shared links must agree too. A site setting two of them at
-            // once is exactly where a reordered chain splits the pair again. Until #564 the two
-            // families disagreed about accent-vs-global-knob (the hero put its accent first, the
-            // cta family put the global ring knob first) and each pair was only internally
-            // consistent; #564 moved the cta onto the hero's order, so the shared links now
-            // agree ACROSS the components as well as within each pair.
-            const idx = (chain) => shared.map(t => chain.indexOf(t));
-            const pOrder = idx(pChain), sOrder = idx(sChain);
-            const rank = (a) => a.map((_, i) => i).sort((x, y) => a[x] - a[y]).join(',');
-            expect(rank(sOrder), `${what}: shared links rank differently on the two buttons`)
-                .toBe(rank(pOrder));
-        });
-    });
-
-    /*
-     * The cta component is the stated parity model (#554): after this change hero cta2 and cta
-     * button2 must carry structurally EQUIVALENT chains — the same kinds of link, in the same
-     * roles. They are not token-identical (each reads its own component's slots), so the
-     * comparison is made on the chain's SHAPE with the component-specific names normalised.
-     */
-    // Retired with hero's slot map (#986): the equivalence it pinned was between two
-    // v1 chains, and hero no longer has one. cta's own chain stays pinned above.
-});
-
-/**
- * CSS lint: band-wide link ink must not reach the LIGHT panel CTA (#551).
- *
- * `.section--has-bg-image a` and `.pp-section--inverted a` are ON-BAND roles — they exist
- * because the band is a dark surface. But the selector is band-WIDE, and `.section__panel`
- * is a self-contained LIGHT surface (--color-surface, #f4f7fb) sitting on that dark band.
- * The section renderer emits exactly ONE anchor inside it (`.section__panel-cta` in
- * components/section/section.php), so the band role painted a transparent panel button's
- * label onto the light panel:
- *
- *     .btn--outline / .btn--ghost / .btn--secondary      [0,1,0]
- *     .section--has-bg-image a                           [0,1,1]  <- outranked them
- *     .section--has-bg-image a:not(.section__panel-cta)  [0,2,1]  <- after the carve-out
- *
- * Measured on the light panel (rendered, headless Chromium, worst-case white bg image):
- *   bg-image  outline/ghost/secondary  rest 1.04:1  |  hover ghost 1.07, secondary 1.33
- *   inverted  outline/ghost/secondary  rest 1.99:1  |  hover ghost 1.46, secondary 1.18
- * After the carve-out every band matches the default-band control (5.14 / 16.52 at rest).
- *
- * Same carve-out class as #424 (panel heading out of the band h2/h3 rules), #463 (panel
- * markers stay bare accent by scoping the remap to .section__content) and #542 (section
- * bands deliberately not routed for the focus ring, because that ring lands on the panel).
- *
- * The DURABILITY pin is the closed-set scan at the bottom: it fails on any FUTURE band-WIDE
- * anchor rule that sets `color` without the carve-out. That scan — not the selector shape —
- * is what makes this survive the next band rule someone adds.
- */
-// The #551 band-link carve-out block was deleted at #1023. All four rules it pinned
-// were section's (`.pp-section--inverted a` and `.section--has-bg-image a`, rest and
-// hover, each carved out of the light panel CTA with `:not(.section__panel-cta)`).
-// None of those selectors is emitted any more: the `theme` and `background_image`
-// props both retired, so the band-wide anchor rules they carved out of are gone, and
-// with them the reason for the carve-out. A section body link is the `body-link` role,
-// which reaches only `.section__content a` and therefore never touched the panel
-// button in the first place — the collision this block existed to referee cannot recur.
-describe('CSS lint: per-instance button slots are neutralised on non-owned buttons (#545)', () => {
-    const fsq = require('fs');
-    const pathq = require('path');
-
-    // The renderer-owned button elements, named by the class each anchor carries rather
-    // than by line number (guard blocks in these templates shift the line numbers on
-    // every fix, and the stale numbers this comment used to quote were worse than none):
-    // hero.php `.hero__cta` (incl. the cta2 modifier), cta.php `.cta__button` (incl. the
-    // `.cta__button--secondary` button2 modifier), section.php `.section__panel-cta`.
-    // `.section__panel-cta` left this list at #1023. Section is a v2 component now, so
-    // its panel button is the `panel-cta` ROLE: whatever it is given emits unlayered and
-    // outranks this `pp-v1` neutraliser at any specificity. Keeping it excluded would
-    // have been a rule that can no longer do anything for that class — the I19 class of
-    // declaration that validates and paints nothing. Zeroing cta's slots on it is also
-    // the honest default: a section panel button reads none of cta's custom properties.
-    const OWNED_BUTTON_CLASSES = ['.hero__cta', '.cta__button'];
-
-    /**
-     * Band-level slots that are leak-capable AND deliberately NOT neutralised. They colour every
-     * accented element in the band by design, and a nested button is one of those elements.
-     * Adding to this list is a conscious product call, which is exactly the point: a NEW BUTTON
-     * slot cannot be added here by reflex without someone reading this comment.
-     */
-    const INTENTIONALLY_REACHING = [
-        '--cta-accent',        // band accent: fills/rings every accented element in the cta
-        '--cta-accent-hover',
-        // Hero's four entries are gone (#986): it declares no style slots at all, so
-        // nothing of its can leak onto a nested author button. Its band-level design
-        // reaches its own roles through the engine's scoped block, which cannot
-        // inherit onto an element no role selects.
-    ].sort();
-
-    const STRIPPED = stripComments(COMPONENTS_CSS);
-
-    /** Every style slot every component schema declares, mapped to its component. */
-    function schemaSlots() {
-        const out = {};
-        const dir = path.resolve(__dirname, '../../components');
-        fsq.readdirSync(dir).forEach((name) => {
-            const file = pathq.join(dir, name, 'schema.json');
-            if (!fsq.existsSync(file)) return;
-            const schema = JSON.parse(fsq.readFileSync(file, 'utf-8'));
-            const slots = (schema.styling && schema.styling.style_slots) || {};
-            Object.keys(slots).forEach((slot) => {
-                out[slot] = name;
-            });
-        });
-        return out;
-    }
-
-    /**
-     * Slots a NON-OWNED composed button can inherit: read inside a rule whose selector mentions
-     * `.btn` without requiring one of the owned classes. Takes css + slot map as arguments so
-     * the detection proofs below can run it against a mutated stylesheet/schema pair.
-     */
-    function leakCapableSlots(css, slots) {
-        const found = new Set();
-        const ruleRe = /([^{}]+)\{([^{}]*)\}/g;
-        let m;
-        while ((m = ruleRe.exec(css)) !== null) {
-            // Evaluate each ARM of a selector list separately. Testing the whole string would
-            // skip `.section .btn, .hero__cta { … }` entirely because one arm names an owned
-            // class, silently blessing the leaking arm.
-            const leaks = m[1]
-                .split(',')
-                .map((arm) => arm.trim())
-                .some((arm) =>
-                    arm.includes('.btn') && !OWNED_BUTTON_CLASSES.some((cls) => arm.includes(cls)),
-                );
-            if (!leaks) continue;
-            const varRe = /var\(\s*(--[a-z0-9-]+)/g;
-            let v;
-            while ((v = varRe.exec(m[2])) !== null) {
-                if (Object.prototype.hasOwnProperty.call(slots, v[1])) found.add(v[1]);
-            }
-        }
-        return [...found].sort();
-    }
-
-    /** The neutralisation rule's selector and the properties it sets to `initial`. */
-    function neutralisationRule(css) {
-        const blocks = css.match(/main\s+\.btn(?::not\(\.[a-z0-9_-]+\))+\s*\{[^}]*\}/gi);
-        if (!blocks) return null;
-        const hit = blocks.find((block) => {
-            const body = block.slice(block.indexOf('{') + 1, -1).trim();
-            return (
-                body.length > 0 &&
-                body
-                    .split(';')
-                    .map((d) => d.trim())
-                    .filter(Boolean)
-                    .every((d) => /^--[a-z0-9-]+:\s*initial$/.test(d))
-            );
-        });
-        if (!hit) return null;
-        return {
-            selector: hit.slice(0, hit.indexOf('{')).trim(),
-            props: [...hit.matchAll(/(--[a-z0-9-]+):\s*initial/g)].map((x) => x[1]).sort(),
-        };
-    }
-
-    test('the neutralisation rule exists and excludes exactly the owned button classes', () => {
-        const rule = neutralisationRule(STRIPPED);
-        expect(rule, 'no `main .btn:not(...) { --slot: initial }` rule found').not.toBeNull();
-
-        const excluded = [...rule.selector.matchAll(/:not\((\.[a-z0-9_-]+)\)/g)]
-            .map((m) => m[1])
-            .sort();
-        expect(excluded).toEqual([...OWNED_BUTTON_CLASSES].sort());
-    });
-
-    test('the derivation finds the shipped families (the pin is not vacuous)', () => {
-        const leaky = leakCapableSlots(STRIPPED, schemaSlots());
-        // Hero's two entries are gone (#986) and section's panel-CTA family went the
-        // same way (#1023): neither declares style slots, so the derivation cannot see
-        // one. The cta family keeps the pin non-vacuous — the point is that the
-        // derivation finds REAL shipped families, and cta's still ships.
-        ['--cta-button-bg', '--cta-button-hover-bg'].forEach((slot) => {
-            expect(leaky, `${slot} must be visible to the derivation`).toContain(slot);
-        });
-    });
-
-    test('every leak-capable schema slot is neutralised, or deliberately left reaching', () => {
-        const rule = neutralisationRule(STRIPPED);
-        const stillReaching = leakCapableSlots(STRIPPED, schemaSlots())
-            .filter((slot) => !rule.props.includes(slot));
-
-        expect(
-            stillReaching,
-            'these slots still inherit onto an author-written nested .btn — neutralise them, or '
-            + 'add them to INTENTIONALLY_REACHING with a reason',
-        ).toEqual(INTENTIONALLY_REACHING);
-    });
-
-    test('it neutralises nothing outside the per-instance button families', () => {
-        const rule = neutralisationRule(STRIPPED);
-        const strays = rule.props.filter(
-            (p) => !/^--(?:hero-button|hero-button2|cta-button|cta-button2|section-panel-cta)-/.test(p),
-        );
-        expect(strays, 'the global --btn-* tier and band accents must keep reaching nested buttons')
-            .toEqual([]);
-    });
-
-    test('the global button tier is deliberately NOT neutralised', () => {
-        const rule = neutralisationRule(STRIPPED);
-        ['--btn-bg', '--btn-text', '--btn-border-color', '--btn-shadow', '--btn-hover-bg',
-            '--btn-hover-border-color'].forEach((token) => {
-            expect(rule.props).not.toContain(token);
-        });
-    });
-
-    test('detection proof: a slot in a BRAND-NEW family left out of the rule is caught', () => {
-        // The case a name-prefix guard would miss entirely: a future component ships its own
-        // button slot under a prefix nobody has seen, and wires it into a leak-capable chain.
-        const rule = neutralisationRule(STRIPPED);
-        // Global replace: the FIRST occurrence lives in the owned `.section__panel-cta` rule,
-        // which the derivation correctly skips, so a first-match mutation would prove nothing.
-        const mutatedCss = STRIPPED.split('var(--section-panel-cta-bg')
-            .join('var(--faq-answer-cta-bg, var(--section-panel-cta-bg');
-        const mutatedSlots = Object.assign(schemaSlots(), { '--faq-answer-cta-bg': 'faq' });
-        const stillReaching = leakCapableSlots(mutatedCss, mutatedSlots)
-            .filter((slot) => !rule.props.includes(slot));
-        expect(stillReaching).toContain('--faq-answer-cta-bg');
-    });
-
-    test('detection proof: a leaking arm of a selector LIST is not blessed by a sibling arm', () => {
-        // The grouped-selector blind spot: if the scan tested the whole selector string, one arm
-        // naming an owned class would hide the leaking arm next to it.
-        const rule = neutralisationRule(STRIPPED);
-        const mutatedCss = STRIPPED
-            + '\n.section__panel-cta, .section__content .btn { color: var(--faq-answer-cta-color); }';
-        const mutatedSlots = Object.assign(schemaSlots(), { '--faq-answer-cta-color': 'faq' });
-        const stillReaching = leakCapableSlots(mutatedCss, mutatedSlots)
-            .filter((slot) => !rule.props.includes(slot));
-        expect(stillReaching).toContain('--faq-answer-cta-color');
-    });
-
-    test('detection proof: dropping an exclusion is caught', () => {
-        const rule = neutralisationRule(STRIPPED);
-        // Drop `.cta__button`. The mutation has to remove an exclusion the shipped
-        // selector ACTUALLY carries, or the proof is vacuous — this line used to drop
-        // `.section__panel-cta`, which stopped being an exclusion at #1023 and left the
-        // mutation identical to production (the assertion then passed and proved nothing).
-        const broken = neutralisationRule(
-            STRIPPED.replace(rule.selector, 'main .btn:not(.hero__cta)'),
-        );
-        const excluded = [...broken.selector.matchAll(/:not\((\.[a-z0-9_-]+)\)/g)]
-            .map((m) => m[1])
-            .sort();
-        // Re-run the PRODUCTION assertion against the mutation, not a restatement of it: the
-        // shipped test must be what goes red, or this proves only that a string lost a substring.
-        expect(() => expect(excluded).toEqual([...OWNED_BUTTON_CLASSES].sort())).toThrow();
-    });
-
-    test('no per-instance button slot is read outside components.css', () => {
-        // The derivation scans components.css. A family slot consumed from base.css or
-        // utilities.css would satisfy it while still leaking, so pin that it cannot happen.
-        const FAMILY = /var\(\s*--(?:hero-button|hero-button2|cta-button|cta-button2)-/;
-        expect(FAMILY.test(stripComments(BASE_CSS))).toBe(false);
-        expect(FAMILY.test(stripComments(UTILITIES_CSS))).toBe(false);
-    });
-});
 
 /**
  * CSS lint: the per-instance RING slots for the hero primary and the section panel CTA (#584).

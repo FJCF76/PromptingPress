@@ -172,12 +172,13 @@ class FriendlyErrorMessageBoundTest extends TestCase
 
     public function testTheWorstRealRejectionFitsInTheChatColumn(): void
     {
-        // THE WORST CASE HAS MOVED TWICE. It was hero (49 slots) until #986, then section
-        // (47) until #1023; `cta` is now both the widest shipped component (40 slots) and
-        // the one carrying the longest single slot description (1203 characters), so it is
-        // the worst case the shipped registry can produce. The comment names the component
-        // rather than a count, because the count is what keeps changing.
-        $friendly = $this->reject('cta', ['title' => 'Hi', 'button_text' => 'Go', 'button_url' => '/x'], ['--cta-bgs' => '#111111']);
+        // THE WORST CASE HAS MOVED THREE TIMES. It was hero (49 slots) until #986, section
+        // (47) until #1023, cta (40) until #1026; `grid` is now both the widest shipped
+        // component (38 slots) and the one carrying the longest single slot description, so
+        // it is the worst case the shipped registry can produce. The comment names the
+        // component rather than a count, because the count is what keeps changing — and it
+        // keeps changing in the same direction, one rebuild at a time.
+        $friendly = $this->reject('grid', ['title' => 'Hi', 'items' => [['title' => 'Card', 'text' => 'B']]], ['--grid-bgs' => '#111111']);
 
         $this->assertLessThan(
             self::READABLE_CEILING,
@@ -187,11 +188,11 @@ class FriendlyErrorMessageBoundTest extends TestCase
 
         // The specific thing that made it enormous: full slot descriptions. The longest
         // one the registry declares is over a thousand characters by itself.
-        $descriptions = array_column(pp_get_style_slots('cta'), 'description');
+        $descriptions = array_column(pp_get_style_slots('grid'), 'description');
         // Stated before the loop below: assertStringNotContainsString('', $x) always
         // fails, so an empty description would read as a bound regression rather than
         // as the fixture premise having changed.
-        $this->assertNotContains('', $descriptions, 'Fixture premise: every cta slot carries a description.');
+        $this->assertNotContains('', $descriptions, 'Fixture premise: every grid slot carries a description.');
         $longest      = max(array_map('mb_strlen', $descriptions));
         $this->assertGreaterThan(
             self::READABLE_CEILING,
@@ -539,16 +540,17 @@ class FriendlyErrorMessageBoundTest extends TestCase
         // two short sentences naming one other component, so it must come through byte
         // for byte — pinned as a whole string, which is the only way a reworded
         // near-copy fails the test.
-        // The slot must exist on ANOTHER component and not on the target, or there is
-        // no cross-component hint to pin. It used to be `--section-bg` aimed at hero;
-        // hero is a v2 component now and rejects the whole style surface for a different
-        // reason, so the pair is cta (target) and section (owner).
-        $friendly = $this->reject('cta', ['title' => 'Hi', 'body' => 'Body text', 'button_text' => 'Go', 'button_url' => '/'], ['--section-bg' => '#111111']);
+        // The slot must exist on ANOTHER component and not on the target, or there is no
+        // cross-component hint to pin. It used to be `--section-bg` aimed at hero; hero went
+        // v2 at #986 and cta at #1026, and a v2 target rejects the whole style surface for a
+        // DIFFERENT reason (`no_style_slots`), which is not the sentence this test pins. So
+        // both sides have to be v1: the pair is grid (target) and a slot grid does not own.
+        $friendly = $this->reject('grid', ['title' => 'Hi', 'items' => [['title' => 'Card', 'text' => 'B']]], ['--stats-number-color' => '#111111']);
 
         $this->assertNotSame([], (array) $friendly['cross_component_hints'], 'Fixture premise: this key hints.');
         $this->assertSame(
-            'I tried to change a setting on the cta component, but it isn\'t available there. '
-                . 'It does exist on the faq component. You could ask me to change it there instead.',
+            'I tried to change a setting on the grid component, but it isn\'t available there. '
+                . 'It does exist on the stats component. You could ask me to change it there instead.',
             $friendly['user_message']
         );
     }

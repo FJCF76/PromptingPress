@@ -119,17 +119,17 @@ class StoredCompositionAliasRenderTest extends TestCase
         // Thin writer, no validation — persists the legacy shape exactly as a
         // pre-1.13.0 install holds it (and as restore_composition can replay it).
         pp_update_composition($id, [[
-            'component' => 'cta',
-            'props'     => ['title' => 'Unstyled', 'body' => 'B', 'button_text' => 'Go', 'button_url' => '/'],
-            'style'     => ['--cta-text' => '#f0f0f0'],
+            'component' => 'grid',
+            'props'     => ['title' => 'Unstyled', 'items' => [['title' => 'Card', 'text' => 'B']]],
+            'style'     => ['--grid-text' => '#f0f0f0'],
         ]]);
 
         $html = $this->renderStored($id);
 
         $this->assertStringNotContainsString('#f0f0f0', $html, 'the legacy declaration does not paint');
-        $this->assertStringNotContainsString('--cta-text', $html, 'and its own name is never emitted');
+        $this->assertStringNotContainsString('--grid-text', $html, 'and its own name is never emitted');
         $this->assertStringNotContainsString(
-            '--cta-heading-color',
+            '--grid-heading-color',
             $html,
             'nothing canonicalizes it on the way through — the read path has no slot map any more'
         );
@@ -151,17 +151,17 @@ class StoredCompositionAliasRenderTest extends TestCase
     {
         $id = pp_create_page('Legacy slot write', 'draft');
         pp_update_composition($id, [
-            ['component' => 'cta', 'props' => ['title' => 'Canonical', 'body' => 'B', 'button_text' => 'Go', 'button_url' => '/']],
+            ['component' => 'grid', 'props' => ['title' => 'Canonical', 'items' => [['title' => 'Card', 'text' => 'B']]]],
         ]);
 
         $result = pp_execute_action('style_component', [
             'post_id'         => $id,
             'component_index' => 0,
-            'style'           => ['--cta-text' => '#f0f0f0'],
+            'style'           => ['--grid-text' => '#f0f0f0'],
         ]);
 
         $this->assertFalse($result['ok'], 'a legacy slot name is not authorable');
-        $this->assertStringContainsString('--cta-text', (string) ($result['error'] ?? ''));
+        $this->assertStringContainsString('--grid-text', (string) ($result['error'] ?? ''));
         $this->assertSame('invalid_style_slot', $result['error_code'] ?? null);
     }
 
@@ -189,7 +189,7 @@ class StoredCompositionAliasRenderTest extends TestCase
     {
         $id = pp_create_page('Legacy slot blocks edits', 'draft');
         pp_update_composition($id, [
-            ['component' => 'cta', 'props' => ['title' => 'Legacy', 'body' => 'B', 'button_text' => 'Go', 'button_url' => '/'], 'style' => ['--cta-text' => '#f0f0f0']],
+            ['component' => 'grid', 'props' => ['title' => 'Legacy', 'items' => [['title' => 'Card', 'text' => 'B']]], 'style' => ['--grid-text' => '#f0f0f0']],
             ['component' => 'section', 'props' => ['title' => 'Band', 'body' => 'Copy.']],
         ]);
 
@@ -211,7 +211,7 @@ class StoredCompositionAliasRenderTest extends TestCase
         ));
         $this->assertNotEmpty($reported, 'the stale declaration is still visible to validation');
         $this->assertStringContainsString(
-            '--cta-text',
+            '--grid-text',
             $reported[0]['message'],
             'the disclosure names the dead slot on the band the operator never touched'
         );
@@ -225,11 +225,11 @@ class StoredCompositionAliasRenderTest extends TestCase
         $merge = pp_execute_action('style_component', [
             'post_id'         => $id,
             'component_index' => 0,
-            'style'           => ['--cta-heading-color' => '#f0f0f0'],
+            'style'           => ['--grid-heading-color' => '#f0f0f0'],
         ]);
         $this->assertTrue($merge['ok'], (string) ($merge['error'] ?? ''));
         $this->assertArrayHasKey(
-            '--cta-text',
+            '--grid-text',
             pp_get_composition($id)[0]['style'],
             'the merge did not evict the dead key'
         );
@@ -244,7 +244,7 @@ class StoredCompositionAliasRenderTest extends TestCase
         ]);
         $this->assertTrue($stillReported['ok'], (string) ($stillReported['error'] ?? ''));
         $this->assertStringContainsString(
-            '--cta-text',
+            '--grid-text',
             implode(' ', array_column($stillReported['findings'], 'message')),
             'the dead key is still diagnosed after the merge that failed to evict it'
         );
@@ -252,7 +252,7 @@ class StoredCompositionAliasRenderTest extends TestCase
         $repaired = pp_execute_action('update_composition', [
             'post_id'     => $id,
             'composition' => [
-                ['component' => 'cta', 'props' => ['title' => 'Legacy', 'body' => 'B', 'button_text' => 'Go', 'button_url' => '/'], 'style' => ['--cta-heading-color' => '#f0f0f0']],
+                ['component' => 'grid', 'props' => ['title' => 'Legacy', 'items' => [['title' => 'Card', 'text' => 'B']]], 'style' => ['--grid-heading-color' => '#f0f0f0']],
                 ['component' => 'section', 'props' => ['title' => 'Band', 'body' => 'Copy.']],
             ],
         ]);
@@ -267,7 +267,7 @@ class StoredCompositionAliasRenderTest extends TestCase
         ]);
         $this->assertTrue($after['ok'], (string) ($after['error'] ?? ''));
         $this->assertSame([], $after['findings'], 'the page is clean once the dead key is gone');
-        $this->assertStringContainsString('--cta-heading-color: #f0f0f0', $this->renderStored($id));
+        $this->assertStringContainsString('--grid-heading-color: #f0f0f0', $this->renderStored($id));
     }
 
     /**
@@ -280,14 +280,14 @@ class StoredCompositionAliasRenderTest extends TestCase
     {
         $id = pp_create_page('Both slot names', 'draft');
         pp_update_composition($id, [[
-            'component' => 'cta',
-            'props'     => ['title' => 'Both', 'body' => 'B', 'button_text' => 'Go', 'button_url' => '/'],
-            'style'     => ['--cta-text' => '#111111', '--cta-heading-color' => '#222222'],
+            'component' => 'grid',
+            'props'     => ['title' => 'Both', 'items' => [['title' => 'Card', 'text' => 'B']]],
+            'style'     => ['--grid-text' => '#111111', '--grid-heading-color' => '#222222'],
         ]]);
 
         $html = $this->renderStored($id);
 
-        $this->assertStringContainsString('--cta-heading-color: #222222', $html, 'the canonical value paints');
+        $this->assertStringContainsString('--grid-heading-color: #222222', $html, 'the canonical value paints');
         $this->assertStringNotContainsString('#111111', $html, 'the stale legacy value is simply gone');
     }
 
@@ -328,9 +328,9 @@ class StoredCompositionAliasRenderTest extends TestCase
     public function testAFreshCanonicalCompositionWritesValidatesReadsBackAndRenders(): void
     {
         $authored = [
-            ['component' => 'cta', 'props' => ['title' => 'Fresh', 'button_text' => 'Go', 'button_url' => '/'], 'style' => [
-                '--cta-heading-color' => '#f0f0f0',
-                '--cta-heading-size'  => '4rem']],
+            ['component' => 'faq', 'props' => ['title' => 'Fresh', 'items' => [['question' => 'Q', 'answer' => 'A']]], 'style' => [
+                '--faq-heading-color' => '#f0f0f0',
+                '--faq-heading-size'  => '4rem']],
             ['component' => 'grid', 'props' => ['title' => 'Cards', 'items' => [
                 ['title' => 'One', 'text' => 'a', 'style' => ['--grid-item-bg' => '#101014']]]], 'style' => ['--grid-heading-measure' => '40rem']],
             ['component' => 'stats', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'Band'], 'style' => [
@@ -355,8 +355,8 @@ class StoredCompositionAliasRenderTest extends TestCase
 
         // Render: every authored declaration reaches the page.
         $html = $this->renderStored($id);
-        $this->assertStringContainsString('--cta-heading-color: #f0f0f0', $html);
-        $this->assertStringContainsString('--cta-heading-size: 4rem', $html);
+        $this->assertStringContainsString('--faq-heading-color: #f0f0f0', $html);
+        $this->assertStringContainsString('--faq-heading-size: 4rem', $html);
         $this->assertStringContainsString('--grid-heading-measure: 40rem', $html);
         $this->assertStringContainsString('--grid-item-bg: #101014', $html);
         $this->assertStringContainsString('--stats-label-color: #334455', $html);
@@ -688,7 +688,7 @@ class StoredCompositionAliasRenderTest extends TestCase
         pp_update_composition($id, [
             ['component' => 'cta', 'props' => ['title' => 'Legacy', 'body' => 'B', 'button_text' => 'Go', 'button_url' => '/'], 'style' => [
                 '--cta-title-size' => '4rem',
-                '--cta-text'       => '#f0f0f0',
+                '--grid-text'       => '#f0f0f0',
             ]],
             ['component' => 'grid', 'props' => ['title' => 'Cards', 'items' => [
                 ['title' => 'One', 'text' => 'a', 'style' => ['--grid-card-bg' => '#101014']],
@@ -800,16 +800,18 @@ class StoredCompositionAliasRenderTest extends TestCase
         // `default` under none.
         $bands = [
             'grid'         => ['title' => 'G', 'items' => [['title' => 'One', 'text' => 'a']]],
-            'cta'          => ['title' => 'C', 'button_text' => 'Go', 'button_url' => '/'],
             'stats'        => ['title' => 'St', 'items' => [['number' => '10', 'label' => 'Customers']]],
             // testimonials is absent: the v2 rebuild removed its `theme` prop, whose
             // entire effect was value-styling the structural-CSS boundary forbids.
             // section is absent since #1023 for the same reason, and it took the one
             // naming oddity with it: it was the only component whose modifier prefix
             // (`pp-section--`) differed from its name, so the $prefixes map that existed
-            // solely for it is gone too. The roster is SIX bands now and still means the
-            // same thing — every component that declares `theme` round-trips its
-            // canonical values.
+            // solely for it is gone too. cta is absent since #1026, and its departure
+            // carries one measured fact worth keeping: on a full-width cta the `muted` and
+            // `dark` renders were BYTE-IDENTICAL to `default`, so retiring `theme` there
+            // cost exactly one rendered state (`inverted`) rather than three. The roster is
+            // FIVE bands now and still means the same thing — every component that declares
+            // `theme` round-trips its canonical values.
             'faq'          => ['title' => 'F', 'items' => [['question' => 'q', 'answer' => 'a']]],
             'embed'        => ['title' => 'E', 'content' => '<p>hi</p>'],
             'logos'        => ['title' => 'L', 'items' => [['image_url' => 'https://example.com/a.png', 'image_alt' => 'A']]],

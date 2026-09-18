@@ -1091,34 +1091,24 @@ class WriteRenderGrammarTest extends TestCase
 
     // ── A-34 — the warn channel ──────────────────────────────────────────────
 
-    /**
-     * A transparent fill is WELL-FORMED and legal; it is only INEFFECTIVE in this
-     * one context, so it warns and never blocks. The observed failure:
-     * fill=rgba(0,0,0,0) ring=rgba(0,0,0,0) ink=rgb(252,253,255) on a white page —
-     * a button that is present, focusable, clickable and completely invisible.
-     *
-     * @dataProvider fillSlotFamily
-     */
-    public function testATransparentFillWarnsWithoutBlocking(string $component, string $slot, array $props): void
-    {
-        $id     = pp_create_page("Transparent {$slot}", 'draft');
-        pp_update_composition($id, [['component' => $component, 'props' => $props]]);
-
-        $result = pp_execute_action('style_component', [
-            'post_id'         => $id,
-            'component_index' => 0,
-            'style'           => [$slot => 'transparent'],
-        ]);
-        $this->assertTrue($result['ok'], $result['error'] ?? 'a transparent fill must NEVER block the write');
-        $this->assertSame('transparent', pp_get_composition($id)[0]['style'][$slot]);
-
-        $warnings = pp_validate_composition_smells(pp_get_composition($id));
-        $matching = array_values(array_filter($warnings, static fn ($w) => $w['type'] === 'transparent_fill'));
-        $this->assertCount(1, $matching, "{$slot} must raise exactly one advisory");
-        $this->assertStringContainsString($slot, $matching[0]['message']);
-        $this->assertStringContainsString('outline', $matching[0]['message'], 'the advisory must name the intended route');
-        $this->assertSame(0, $matching[0]['index']);
-    }
+    // RETIRED (#1026) — AND THE RETIREMENT CARRIES A DISCLOSURE, not just a re-home.
+    //
+    // The `transparent_fill` advisory (#579) warns that a colour slot marked `role: "fill"`
+    // was set to `transparent` / `currentColor`, which validates and stores but paints a
+    // button no one can see. It recognises a fill by that DECLARED marker, deliberately, and
+    // not by a `-bg` name convention. cta's four button fills were the last slots in the
+    // theme that declared it — hero's left at #986 and `--section-panel-cta-bg` at #1023 —
+    // so as of this change NO shipped slot declares `role: "fill"` and the advisory has no
+    // reachable subject. These tests could only be kept by inventing a fixture slot that
+    // does not ship, which is the vacuous-pin shape this suite exists to refuse.
+    //
+    // WHAT THIS MEANS, stated plainly because it is a real gap rather than a tidy move: the
+    // v2 equivalent — a role's `background.fill: "transparent"` — is accepted with no
+    // advisory at all. The marker, the engine and `pp_slot_roles()` all remain, so a v1
+    // component could still declare it and the advisory would fire; what has no successor is
+    // the WARNING on the v2 surface that replaced the slots. Filed rather than fixed here:
+    // adding an advisory to the UDC engine is a change to the shared engine's finding
+    // vocabulary, which is not cta's rebuild to make.
 
     public static function fillSlotFamily(): array
     {
@@ -1156,47 +1146,7 @@ class WriteRenderGrammarTest extends TestCase
         ];
     }
 
-    /**
-     * A HOVER fill gets DIFFERENT advice. The same value means two different things:
-     * on a resting fill it is the invisible-button defect, on a hover fill it only
-     * flattens the pointer state — and telling an author already on the `outline`
-     * variant to use `outline` is advice that cannot be acted on.
-     */
-    public function testAHoverFillAdvisoryDoesNotRecommendTheOutlineVariant(): void
-    {
-        $warnings = pp_validate_composition_smells([[
-            'component' => 'cta',
-            'props'     => ['title' => 'Go', 'button_text' => 'Go', 'button_url' => '/', 'button_variant' => 'outline'],
-            'style'     => ['--cta-button-hover-bg' => 'transparent'],
-        ]]);
-        $matching = array_values(array_filter($warnings, static fn ($w) => $w['type'] === 'transparent_fill'));
 
-        $this->assertCount(1, $matching);
-        $this->assertStringContainsString('no fill on hover', $matching[0]['message']);
-        $this->assertStringNotContainsString(
-            'use the "outline" button variant',
-            $matching[0]['message'],
-            'the hover advisory must not point an outline-variant author back at outline'
-        );
-    }
-
-    /** The advisory carries the component id when one is authored, like empty_section. */
-    public function testTheFillAdvisoryCarriesTheComponentId(): void
-    {
-        $with = pp_validate_composition_smells([[
-            'component' => 'cta',
-            'props'     => ['id' => 'pp-a1b2c3', 'title' => 'Go', 'button_text' => 'Go', 'button_url' => '/'],
-            'style'     => ['--cta-button-bg' => 'transparent'],
-        ]]);
-        $this->assertSame('pp-a1b2c3', $with[0]['id']);
-
-        $without = pp_validate_composition_smells([[
-            'component' => 'cta',
-            'props'     => ['title' => 'Go', 'button_text' => 'Go', 'button_url' => '/'],
-            'style'     => ['--cta-button-bg' => 'transparent'],
-        ]]);
-        $this->assertArrayNotHasKey('id', $without[0]);
-    }
 
     /**
      * Smells run over arbitrary history-ring snapshots and raw-meta writes, so a
@@ -1214,16 +1164,6 @@ class WriteRenderGrammarTest extends TestCase
         $this->assertNotContains('transparent_fill', array_column($warnings, 'type'));
     }
 
-    /** `currentColor` is the other value that resolves to "no fill you can see". */
-    public function testCurrentColorOnAFillSlotWarnsToo(): void
-    {
-        $warnings = pp_validate_composition_smells([[
-            'component' => 'cta',
-            'props'     => ['title' => 'Go', 'button_text' => 'Go', 'button_url' => '/'],
-            'style'     => ['--cta-button-bg' => 'currentColor'],
-        ]]);
-        $this->assertContains('transparent_fill', array_column($warnings, 'type'));
-    }
 
     /**
      * The advisory reads the DECLARED `role: "fill"` marker, never a `-bg` name

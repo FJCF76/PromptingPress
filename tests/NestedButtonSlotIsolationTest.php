@@ -213,140 +213,29 @@ class NestedButtonSlotIsolationTest extends TestCase
         }
     }
 
-    /**
-     * The exclusion list must stay EXHAUSTIVE, not merely correct for today's three
-     * components. Derived by scanning every component template for a rendered `.btn`, so a
-     * NEW component that renders its own button (and one day its own slot family) fails here
-     * instead of silently having the #545 rule neutralise slots on a button it owns.
-     *
-     * Known limit, stated rather than papered over: this is a static scan of literal class
-     * attributes. A template that assembles its class list entirely in PHP (no literal `btn` in
-     * the attribute) is invisible to it. Every component renders its button as a literal today,
-     * and the rendered-HTML pin above (testRendererOwnedButtonsCarryTheExcludedClasses) covers
-     * the three that exist; a fully dynamic future template would need its own case.
-     */
-    public function testEveryRendererThatEmitsAButtonIsExcluded(): void
-    {
-        $owners = [];
-        foreach (glob($this->themeRoot . '/components/*/*.php') as $template) {
-            $src = file_get_contents($template);
-            // Capture the WHOLE class attribute, not the text before `btn`: a template that
-            // writes `class="btn foo__cta"` must be caught too, and a prefix-only scan would
-            // silently skip it — the exact regression this test exists to prevent.
-            if (!preg_match_all('/class=(?:"([^"]*\bbtn\b[^"]*)"|\'([^\']*\bbtn\b[^\']*)\')/', $src, $m)) {
-                continue;
-            }
-            $matched = array_filter(
-                array_merge($m[1], $m[2] ?? []),
-                static fn(string $v): bool => $v !== ''
-            );
-            foreach ($matched as $classList) {
-                /* Templates interpolate the variant modifier with an inline PHP echo inside the
-                   class attribute; drop those spans so only literal class tokens remain. */
-                $classList = preg_replace('/<\?php.*?\?>/s', ' ', $classList) ?? $classList;
-                $classes = array_values(array_filter(
-                    preg_split('/\s+/', trim($classList)),
-                    static fn(string $c): bool => $c !== '' && $c !== 'btn' && !str_starts_with($c, 'btn--')
-                ));
-                $this->assertNotEmpty(
-                    $classes,
-                    "A rendered .btn in {$template} carries no owning element class, so the #545 "
-                    . 'rule would neutralise the slots on a button a renderer owns.'
-                );
-                // The base element class is the first non-modifier class (modifiers carry `--`).
-                foreach ($classes as $class) {
-                    if (!str_contains($class, '--')) {
-                        $owners['.' . $class] = true;
-                        break;
-                    }
-                }
-            }
-        }
-        $owners = array_keys($owners);
-        sort($owners);
-        $this->assertNotEmpty($owners, 'no component template renders a .btn — the scan is broken.');
+    // RETIRED (#1026): the three tests that asserted the issue-545 NEUTRALISATION RULE
+    // exists, excludes exactly the owned button classes, and is scoped to composed buttons.
+    // The rule itself retired in the same change — see the long note where it used to sit in
+    // assets/css/components.css.
+    //
+    //   testEveryRendererThatEmitsAButtonIsExcluded
+    //   testNeutralisationRuleExcludesExactlyTheOwnedButtonClasses
+    //   testNeutralisationRuleIsScopedToComposedButtons
+    //
+    // WHY THE RULE COULD GO, in one sentence, because "we deleted a guard" deserves one: it
+    // reset per-instance button slot families to `initial` on any composed `.btn` the
+    // renderer does not own, and no component declares a button slot family any more —
+    // `--hero-button-*` left at #986, `--section-panel-cta-*` at #1023, `--cta-button*-*` at
+    // #1026 — so it was neutralising properties no write path could produce.
+    //
+    // THE REST OF THIS FILE IS DELIBERATELY KEPT. Its other tests are about the DEFECT
+    // rather than the fix: which renderers emit a button, which props are rich-text surfaces
+    // that could carry an author-written `.btn`, and what each sanitizer's allowlist admits.
+    // Every one of those facts still holds and still matters — a future component that emits
+    // inline custom properties would reopen the class, and these are the tests that would
+    // notice. What is gone is the assertion that one particular stylesheet rule exists.
 
-        preg_match_all('/:not\((\.[a-z0-9_-]+)\)/', $this->neutralisationSelector(), $m);
-        $excluded = $m[1];
-        sort($excluded);
 
-        // ONE DOCUMENTED DEPARTURE FROM "EXACTLY THE OWNED SET" (#1023).
-        //
-        // Section still RENDERS `.section__panel-cta`, so it stays in the derived owner
-        // set — the derivation reads the templates, which is the point of it. But that
-        // button left the exclusion chain, because it is the `panel-cta` ROLE now: its
-        // declarations emit UNLAYERED and outrank this `pp-v1` neutraliser at any
-        // specificity, so excluding it could no longer do anything for that class.
-        //
-        // Removing it is rendering-neutral, and the reason is worth stating because it is
-        // not obvious: the neutraliser sets the family to `initial`, which makes a custom
-        // property GUARANTEED-INVALID, and `var(--x, fallback)` takes the fallback for an
-        // invalid value exactly as it does for an unset one. A section panel button is
-        // never inside a cta band, so `--cta-button-*` was unset there anyway — the chain
-        // falls through to the same link either way.
-        //
-        // `.hero__cta` is a RESIDUAL, not a departure this task introduced: by the same
-        // argument it has been a no-op exclusion since hero's rebuild at #986, and the
-        // wider cleanup of these inert `--hero-button-*` / `--*-panel-cta-*` chain links
-        // belongs to cta's rebuild (#1026), which owns the chain's spine. It is left in
-        // place here rather than tidied by a task that does not own it.
-        $expected = array_values(array_diff($owners, ['.section__panel-cta']));
-        $this->assertSame(
-            $expected,
-            $excluded,
-            'the #545 exclusion list must name exactly the button elements the renderers own '
-            . 'AND still style through the slot family.'
-        );
-    }
-
-    public function testNeutralisationRuleExcludesExactlyTheOwnedButtonClasses(): void
-    {
-        preg_match_all('/:not\((\.[a-z0-9_-]+)\)/', $this->neutralisationSelector(), $m);
-        $excluded = $m[1];
-        sort($excluded);
-        // TWO since #1023, not three. `.section__panel-cta` left the exclusion chain
-        // because section's panel button is the `panel-cta` ROLE now: whatever it is
-        // given emits UNLAYERED and outranks this `pp-v1` neutraliser at any
-        // specificity, so keeping it excluded would have been a rule that can no longer
-        // do anything for that class. Zeroing cta's slots on it is also the honest
-        // default — a section panel button reads none of cta's custom properties.
-        $this->assertSame(
-            ['.cta__button', '.hero__cta'],
-            $excluded,
-            'the rule must exclude exactly the two renderer-owned button elements still on slots.'
-        );
-    }
-
-    public function testNeutralisationRuleIsScopedToComposedButtons(): void
-    {
-        // `main` keeps the rule on composed content. Asserting the finder's own output would be
-        // tautological (its regex requires `main`), so scan the stylesheet for ANY button rule
-        // whose body is nothing but `--x: initial` declarations and require every one of them to
-        // be main-scoped — a future unscoped twin fails here.
-        $stripped = preg_replace('/\/\*.*?\*\//s', '', $this->css) ?? $this->css;
-        $unscoped = [];
-        if (preg_match_all('/([^{}]*\.btn[^{}]*)\{([^}]*)\}/', $stripped, $m, PREG_SET_ORDER)) {
-            foreach ($m as $rule) {
-                $decls = array_filter(array_map('trim', explode(';', $rule[2])));
-                if ($decls === []) {
-                    continue;
-                }
-                $onlyInitial = true;
-                foreach ($decls as $d) {
-                    if (!preg_match('/^--[a-z0-9-]+:\s*initial$/', $d)) {
-                        $onlyInitial = false;
-                        break;
-                    }
-                }
-                if ($onlyInitial && !str_starts_with(trim($rule[1]), 'main ')) {
-                    $unscoped[] = trim(preg_replace('/\s+/', ' ', $rule[1]));
-                }
-            }
-        }
-        $this->assertSame([], $unscoped,
-            'every slot-neutralisation rule must be scoped to composed content with `main`.');
-        $this->assertStringStartsWith('main .btn', $this->neutralisationSelector());
-    }
 
     // ── 3. Authoring path (Section 14.1) ─────────────────────────────────────────────
 

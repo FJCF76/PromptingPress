@@ -572,8 +572,7 @@ between two navy bands this exact way). Zeroing that margin closes the seam.
 | grid | `dark-showcase` | Dark background with light cards |
 | grid | `dense-cards` | Compact card layout with tight spacing |
 | grid | `uniform-cards` | Neutralize the featured first-card treatment (top bar, texture, glow) for a uniform row |
-| cta | `dark-bold` | Dark background with large title |
-| cta | `accent-framed` | Accent border with rounded corners |
+| cta | — | No named recipe. `cta` is a v2 component: it has no style slots for a recipe to expand into. Style it through the `udc` map on the band — see the Universal Design Contract section. The two recipes it used to ship, `dark-bold` and `accent-framed`, were bundles of slot values; a `udc` map says the same thing directly, and a custom preset (`save_preset`) is the reusable form. `dark-bold` becomes `_band` -> `background.fill` plus `typography.color` on the text roles and `heading` -> `typography.size`; `accent-framed` becomes `_band` -> `border` (`width`, `style`, `color`, `radius`). |
 | testimonials | — | No named recipe. `testimonials` is a v2 component: it has no style slots for a recipe to expand into. Style it through the `udc` map on the band — see the Universal Design Contract section. |
 | stats | — | **No recipes.** Set `--stats-bg` + `--stats-radius` + `--stats-max-width` together for the contained rounded metrics card; there is no named shorthand for it |
 | faq | — | **No recipes.** Style it with the band + item slots directly (`--faq-bg`, `--faq-item-bg`, `--faq-item-border-color`, `--faq-item-radius`), or reach for the `theme` prop |
