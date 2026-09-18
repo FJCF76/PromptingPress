@@ -733,16 +733,23 @@ test.describe('Safe-surface rendered proof', () => {
     // re-derived rather than patched — that is the mistake #696 cleaned up. Resolved
     // against the root font size instead of a hardcoded "640px": the value is 40rem,
     // and this file already resolves rems that way (see the #470 body-size pin).
+    //
+    // READ FROM THE ROW ITSELF SINCE #1023, not from `.section__body`. v1 capped the
+    // WRAPPER and the row inherited the constraint through `max-width: 100%`; the wrapper
+    // caps were deleted with the slot map, so the row carries its own
+    // `sizing.max-width` — deliberately the SAME 40rem, because sharing a wrapper is what
+    // gave the two the same cap in the first place. The number this test's expectations
+    // are derived from is therefore unchanged; only the element that declares it moved.
     const measure = async () =>
       page
-        .locator('#pp-sec-wrap .section__body')
+        .locator('#pp-sec-wrap .section__inline-items')
         .first()
         .evaluate((el) => {
           const rootPx = parseFloat(getComputedStyle(document.documentElement).fontSize);
           return { maxWidth: getComputedStyle(el).maxWidth, expected: `${40 * rootPx}px` };
         });
     const cap = await measure();
-    expect(cap.maxWidth, 'section body measure (40rem, issue 302) governs the row width').toBe(
+    expect(cap.maxWidth, 'the inline-items row keeps the 40rem measure that governs its wrapping').toBe(
       cap.expected,
     );
 
@@ -2637,16 +2644,17 @@ test.describe('Safe-surface rendered proof', () => {
   //
   // TWO THINGS THIS PIN NOW CARRIES THAT THE SLOT VERSION COULD NOT:
   //
-  //  1. THE UNAUTHORED DEFAULT IS 49rem, and that is the number that actually RENDERED on
-  //     v1, not the one the old stylesheet read first. Four rules capped
-  //     `.section__content`; the desktop `main > .section--text-only` override at 49rem
-  //     was the winner and the 42rem base merely came first in source. The role default
-  //     carries the value that shipped, and band 1 below is the rendered proof of it —
-  //     if a future edit "tidied" it to 42rem, that would be a silent 7rem narrowing of
-  //     the most-used band in the theme.
+  //  1. THE UNAUTHORED DEFAULT IS 40rem, and that is the number a v1 band actually
+  //     RENDERED — which is NOT the rule that won among those targeting the element. Four
+  //     rules capped `.section__content` and the desktop `main > .section--text-only`
+  //     override at 49rem beat the others, but `.section__content` sits inside
+  //     `.section__body`, which capped at 40rem, so the 49rem literal never bound.
+  //     Measured v1 at 375/768/1280: text-only 640px, centered 672px. An earlier cut of
+  //     this very test asserted 784px on the winning-rule reasoning and was wrong; band 1
+  //     below is the rendered proof of the corrected value.
   //  2. Section's four measure BRANCHES collapsed to one role parameter with a breakpoint
   //     map, so the pin reads the authored value at three tiers rather than one.
-  test('#1023 the section body measure reaches the rendered box, and the unauthored default is 49rem @smoke', async ({
+  test('#1023 the section body measure reaches the rendered box, and the unauthored default is 40rem @smoke', async ({
     page,
   }) => {
     pageId = createPage('E2E Section Body Measure');
@@ -2704,8 +2712,10 @@ test.describe('Safe-surface rendered proof', () => {
     await expect(unauthored).toBeVisible({ timeout: 10000 });
     expect(
       await unauthored.evaluate((el) => getComputedStyle(el).maxWidth),
-      'the unauthored body measure must be 49rem — the value that rendered on v1, not the 42rem base that merely read first',
-    ).toBe('784px');
+      'the unauthored body measure must be 40rem — the width a v1 text-only band actually '
+        + 'RENDERED, not the 49rem rule that won among those targeting .section__content but '
+        + 'never bound because the .section__body wrapper capped it first',
+    ).toBe('640px');
   });
 
   // #470: the section body text size + weight are authorable via --section-body-size
@@ -8265,24 +8275,46 @@ test.describe('#437 inverted link contrast (rendered)', () => {
     mode: 'contrast' | 'staysAccent';
     minRatio?: number;
     openDetails?: boolean;
+    /**
+     * A v2 band's design (#1023). Its presence switches the fixture to the REAL write
+     * path: a `udc` map only scopes to a band whose id the engine minted, and raw meta
+     * mints nothing.
+     */
+    udc?: Record<string, unknown>;
   };
   const ACCENT_RGB = [49, 87, 244]; // --color-accent #3157f4, default palette
 
   const cases: Case[] = [
     {
-      name: 'section body link on the dark band → on-inverted (AA)',
+      // REPRICED (#1023). The v1 case asserted that `theme: "inverted"` ROUTED the link
+      // to an on-inverted colour automatically — a band-class mechanism section no longer
+      // has, and deliberately: v2 makes the author own contrast, which is the trade for
+      // being able to build a band the three-value theme bundle could not express.
+      //
+      // The claim worth keeping is the OUTCOME, not the mechanism: a dark section band's
+      // body link clears AA. So the band is authored dark the v2 way and the link colour
+      // is set on the `body-link` role, and the SAME 4.5:1 assertion runs against it. What
+      // this now proves is that the authored route actually reaches the rendered anchor —
+      // which is the thing an author following the migration table needs to be true, and
+      // the one a CSS-text pin cannot show.
+      name: 'section body link on an authored dark band → AA',
       composition: [
         {
           component: 'section',
           props: {
             id: 'pp-sec01',
-            theme: 'inverted',
-            title: 'Inverted section',
+            title: 'Dark section',
             body: '<p>Body copy with an inline <a href="/somewhere">text link</a> to prove contrast.</p>',
+          },
+          udc: {
+            _band: { background: { fill: '#0b1020' } },
+            heading: { typography: { color: '#ffffff' } },
+            body: { typography: { color: 'rgba(255, 255, 255, 0.82)' } },
+            'body-link': { typography: { color: '#9ec5ff', ':hover': { color: '#ffffff' } } },
           },
         },
       ],
-      linkSelector: '.pp-section--inverted .section__content a',
+      linkSelector: '.section__content a',
       mode: 'contrast',
       minRatio: 4.5,
     },
@@ -8416,7 +8448,16 @@ test.describe('#437 inverted link contrast (rendered)', () => {
   for (const c of cases) {
     test(`${c.name} @375 + @1280`, async ({ page }) => {
       pageId = createPage(`E2E 437 ${c.name}`);
-      setComposition(pageId, c.composition);
+      if (c.composition.some((b) => (b as { udc?: unknown }).udc)) {
+        // v2 bands need the validated write path so the engine mints a band id.
+        setComposition(pageId, [{ component: 'section', props: { id: 'pp-seed', body: '<p>Seed.</p>' } }]);
+        await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+        await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+        const res = await updateComposition(page, pageId, c.composition);
+        expect(res.success, `udc write for "${c.name}": ${JSON.stringify(res)}`).toBe(true);
+      } else {
+        setComposition(pageId, c.composition);
+      }
 
       for (const width of [375, 1280]) {
         await page.setViewportSize({ width, height: 900 });
@@ -8502,16 +8543,19 @@ test.describe('#461 bg-image band accent contrast (rendered)', () => {
   const WHITE_PNG =
     'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAACXBIWXMAAA7EAAAOxAGVKw4bAAAAFklEQVQImWP8//8/AwMDEwMDAwMDAwAkBgMBmjCi+wAAAABJRU5ErkJggg==';
 
+  // SECTION'S BAND LEFT THIS FIXTURE IN #1023, and the capability it tested left with it
+  // rather than moving. The scrim-plus-routing recipe was a band-class mechanism:
+  // `.section--has-bg-image` re-routed the accent surfaces to an on-overlay colour so an
+  // author who set a photograph got legible text without asking. A v2 band has no class,
+  // `background_image` is retired, and the author sets the colours — so there is no
+  // automatic routing left to measure a contrast ratio against.
+  //
+  // What replaced the GUARANTEE is not another automatic route; it is a disclosure ("YOU
+  // own the contrast", in section's README, the CHANGELOG and composition.md) plus the
+  // authored-dark-band AA pin in the #437 block above, which proves the authored route
+  // actually reaches the rendered anchor. cta and stats keep their rows until their own
+  // rebuilds, and this test keeps its full value for them.
   const bands = () => [
-    {
-      component: 'section',
-      props: {
-        id: 'pp-ov-sec',
-        background_image: WHITE_PNG,
-        title: 'Overlay section',
-        body: '<p>Body copy with an inline <a href="/somewhere">text link</a> on the image band.</p>',
-      },
-    },
     {
       component: 'cta',
       props: {
@@ -8536,12 +8580,11 @@ test.describe('#461 bg-image band accent contrast (rendered)', () => {
 
   // Each accent surface + the overlay element whose rendered rgba() sits behind it.
   const SURFACES = [
-    { name: 'section link', accent: '.section--has-bg-image .section__content a', overlay: '.section--has-bg-image .section__overlay' },
     { name: 'cta body link', accent: '.cta--has-bg-image .cta__body a', overlay: '.cta--has-bg-image .cta__overlay' },
     { name: 'stats number', accent: '.stats--has-bg-image .stats__number', overlay: '.stats--has-bg-image .stats__overlay' },
   ];
 
-  test('all three bg-image accent surfaces clear AA (4.5:1) over the overlay-over-white worst case @375 + @1280', async ({
+  test('every remaining bg-image accent surface clears AA (4.5:1) over the overlay-over-white worst case @375 + @1280', async ({
     page,
   }) => {
     pageId = createPage('E2E 461 overlay accent contrast');
@@ -8600,9 +8643,18 @@ test.describe('#461 bg-image band accent contrast (rendered)', () => {
     const SLOT = '#00e5ff'; // vivid cyan no token uses — a leak or clobber is obvious
     const b = bands();
     // Attach the per-instance style slot that each band's accent rule reads first.
-    (b[0].props as Record<string, unknown>).__pp_style = { '--section-body-link-color': SLOT };
-    (b[1].props as Record<string, unknown>).__pp_style = { '--cta-body-color': SLOT };
-    (b[2].props as Record<string, unknown>).__pp_style = { '--stats-number-color': SLOT };
+    // Indices moved when section's band left this fixture in #1023 — bound to the
+    // component name rather than the position so the next departure cannot silently
+    // attach a slot to the wrong band (which is what a positional edit would do).
+    const SLOTS: Record<string, string> = {
+      cta: '--cta-body-color',
+      stats: '--stats-number-color',
+    };
+    for (const band of b) {
+      const slot = SLOTS[band.component as string];
+      expect(slot, `no per-instance slot mapped for "${band.component}"`).toBeTruthy();
+      (band.props as Record<string, unknown>).__pp_style = { [slot]: SLOT };
+    }
     setComposition(pageId, b);
 
     for (const width of [375, 1280]) {
@@ -8642,18 +8694,17 @@ test.describe('#463 bg-image band title-accent + markers contrast (rendered)', (
   const WHITE_PNG =
     'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAACXBIWXMAAA7EAAAOxAGVKw4bAAAAFklEQVQImWP8//8/AwMDEwMDAwMDAwAkBgMBmjCi+wAAAABJRU5ErkJggg==';
 
+  // SECTION'S BAND AND ITS TWO SURFACES LEFT IN #1023, for the reason recorded on the
+  // #461 block above: the on-overlay routing was a band-class mechanism and a v2 band has
+  // no class. One of the two is worth naming separately, because it is a genuine
+  // capability loss rather than a transfer of responsibility — the LIST MARKER. Its
+  // colour is not authorable at all any more: the glyph is drawn with `content` on a
+  // `::before`, ruling A3 defers pseudo-elements, and the colour now comes from the
+  // site-wide `--pp-list-marker-color` token. So on a dark v2 band an author who needs a
+  // legible marker sets that token, and it moves every marker on the site. That is
+  // disclosed in section's README, the CHANGELOG and composition.md, and it is the sharp
+  // edge #1024's per-item work should look at.
   const bands = () => [
-    {
-      component: 'section',
-      props: {
-        id: 'pp-ov463-sec',
-        background_image: WHITE_PNG,
-        title: 'Overlay accent heading',
-        title_accent: 'accent',
-        body_marker: 'check',
-        body: '<p>Body copy on the image band.</p><ul><li>First point</li><li>Second point</li></ul>',
-      },
-    },
     {
       component: 'cta',
       props: {
@@ -8691,8 +8742,7 @@ test.describe('#463 bg-image band title-accent + markers contrast (rendered)', (
   // Each accent surface: the selector, an optional ::before pseudo (list marker glyph),
   // the per-instance slot the rule reads first, and the overlay whose rgba() sits behind it.
   const SURFACES = [
-    { name: 'section title-accent', accent: '.section--has-bg-image .section__title-accent', pseudo: '', slot: '--section-heading-accent-color', overlay: '.section--has-bg-image .section__overlay' },
-    { name: 'section list marker', accent: '.section--has-bg-image .section__content--marker-check > ul > li', pseudo: '::before', slot: '--section-body-marker-color', overlay: '.section--has-bg-image .section__overlay' },
+
     { name: 'cta title-accent', accent: '.cta--has-bg-image .cta__title-accent', pseudo: '', slot: '--cta-heading-accent-color', overlay: '.cta--has-bg-image .cta__overlay' },
     { name: 'stats heading-accent', accent: '.stats--has-bg-image .stats__heading-accent', pseudo: '', slot: '--stats-heading-accent-color', overlay: '.stats--has-bg-image .stats__overlay' },
   ];
@@ -8807,190 +8857,135 @@ test.describe('#439 cta body link renders as an anchor (rendered)', () => {
 });
 
 /*
- * #424 — inverted text-panel heading legibility (rendered proof).
+ * RETIRED TOGETHER IN #1023 — #424, #536 and #551, and one replacement below.
  *
- * A `theme: inverted` + `layout: text-panel` section renders a LIGHT panel box on the
- * dark band. The panel heading is `<h3 class="section__panel-heading">`, whose own rule
- * routes color through --section-panel-text (the panel's dark text). But the inverted
- * band's `h3` rule (0,1,1) outranked it and painted the panel heading in the band's
- * LIGHT title color — light-on-light, invisible on the light panel, while the panel LIST
- * items (not headings) stayed dark and legible. The css-lint pin proves the carve-out
- * selector shape; only getComputedStyle after the full cascade proves the browser
- * actually renders the panel heading in the panel's dark text at BOTH breakpoints, and
- * that the two color slots stay independently authorable.
+ * The three blocks that stood here pinned three cascade-reach defects on section's panel:
+ *
+ *   #424  a `theme: inverted` band's `h3` rule (0,1,1) outranked the panel heading's own
+ *         rule and painted it in the band's LIGHT title colour — light-on-light on the
+ *         panel's light surface.
+ *   #536  `.section__panel-cta` has no .hero/.cta ancestor, so the shared premium
+ *         `main .btn:not(...)` gradient was its only fill winner and a background-COLOUR
+ *         set on the band sat invisibly beneath it.
+ *   #551  the band's near-white overlay/on-inverted roles reached the panel CTA's label,
+ *         painting it onto the near-white panel at 1.04:1 and 1.99:1.
+ *
+ * ALL THREE HAD THE SAME CAUSE, and it is gone rather than relocated: a band-level rule
+ * reaching INTO the panel and outranking the panel's own. v2 emits a role's block
+ * unlayered and band-scoped, `theme` and `background_image` are retired so no band class
+ * exists to carry such a rule, and `panel_cta_variant` is retired so there is no variant
+ * set for a carve-out to contradict. There is nothing left to outrank the panel.
+ *
+ * WHAT IS NOT GONE is the user-facing guarantee all three protected: the panel is a
+ * self-contained light surface, and its heading and its CTA stay legible against IT no
+ * matter how dark the band behind it is. That guarantee is delivered by role defaults now
+ * (`panel` keeps v1's `@color-surface` fill and `@color-text` ink; `panel-heading` and
+ * `panel-cta` inherit from it) instead of by three carve-outs — so it is pinned once,
+ * below, on the case that used to break it.
+ *
+ * The v1 mechanisms' own retirement is pinned in the PHP suite: StyleSlotContractTest
+ * (the #536/#584 keystones) and SectionTextPanelTest.
  */
-test.describe('#424 inverted text-panel heading legibility (rendered)', () => {
+test.describe('#424/#536/#551 the panel stays a light surface under an authored dark band (rendered)', () => {
   let pageId = 0;
 
   test.afterEach(async () => {
-    if (pageId) {
-      try {
-        deletePage(pageId);
-      } catch {
-        /* already cleaned */
-      }
-      pageId = 0;
-    }
+    if (pageId) deletePage(pageId);
+    pageId = 0;
   });
 
-  // One inverted text-panel section: an on-band title plus a panel with a heading and
-  // list items. Reused by every case below (styled variants restyle component 0).
-  const invertedTextPanel = (extra: Record<string, unknown> = {}) => [
-    {
-      component: 'section',
-      props: {
-        id: 'pp-sec01',
-        theme: 'inverted',
-        layout: 'text-panel',
-        title: 'Included in every plan',
-        panel_heading: 'Included, no exceptions',
-        panel_items: ['First perk', 'Second perk', 'Third perk'],
-        ...extra,
+  test('panel surface, heading and CTA stay legible on a dark band @375 + @768 + @1280 @smoke', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E v2 Panel On Dark Band');
+    setComposition(pageId, [{ component: 'section', props: { id: 'pp-seed', body: '<p>Seed.</p>' } }]);
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+
+    // The band is authored as dark as v1's `inverted` was, and NOTHING is said about the
+    // panel — which is the whole point. An author who darkens a band must not have to know
+    // that the panel exists in order for it to stay readable.
+    const res = await updateComposition(page, pageId, [
+      {
+        component: 'section',
+        props: {
+          id: 'pp-sec01',
+          layout: 'text-panel',
+          title: 'Dark band',
+          body: '<p>Left column copy.</p>',
+          panel_heading: 'Included',
+          panel_items: ['First perk', { label: 'Uptime', value: '99.9%' }],
+          panel_cta_text: 'Get started',
+          panel_cta_url: '/signup',
+        },
+        udc: {
+          _band: { background: { fill: '#0b1020' } },
+          heading: { typography: { color: '#ffffff' } },
+          body: { typography: { color: 'rgba(255, 255, 255, 0.82)' } },
+        },
       },
-    },
-  ];
+    ]);
+    expect(res.success, `udc write: ${JSON.stringify(res)}`).toBe(true);
 
-  // Computed `color` of the first match of a selector, as the browser resolves it.
-  const colorOf = (page: any, selector: string) =>
-    page.locator(selector).first().evaluate((el: Element) => getComputedStyle(el).color);
-
-  // WCAG relative-luminance contrast of an element's text color against its first
-  // painted (opaque) ancestor background — the light panel surface here.
-  const contrastOf = (page: any, selector: string) =>
-    page.evaluate((sel: string) => {
-      const parseRgb = (s: string): number[] => (s.match(/[\d.]+/g) || []).map(Number);
-      const lum = (rgb: number[]): number => {
-        const f = (v: number) => {
-          v /= 255;
-          return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
-        };
-        return 0.2126 * f(rgb[0]) + 0.7152 * f(rgb[1]) + 0.0722 * f(rgb[2]);
+    const lum = (rgb: string) => {
+      const [r, g, b] = (rgb.match(/[\d.]+/g) ?? ['0', '0', '0']).slice(0, 3).map(Number);
+      const f = (c: number) => {
+        const s = c / 255;
+        return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
       };
-      const el = document.querySelector(sel);
-      if (!el) return 0;
-      const fg = parseRgb(getComputedStyle(el).color);
-      let node: Element | null = el;
-      let bg: number[] | null = null;
-      while (node) {
-        const p = parseRgb(getComputedStyle(node).backgroundColor);
-        if (p.length >= 3 && (p.length < 4 || p[3] > 0.5)) {
-          bg = p;
-          break;
-        }
-        node = node.parentElement;
-      }
-      if (!bg) bg = [255, 255, 255];
-      const L1 = lum(fg);
-      const L2 = lum(bg);
-      return (Math.max(L1, L2) + 0.05) / (Math.min(L1, L2) + 0.05);
-    }, selector);
+      return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
+    };
+    const ratio = (a: string, b: string) => {
+      const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p);
+      return (x + 0.05) / (y + 0.05);
+    };
 
-  // The regression itself: panel heading must render the panel's dark text (same color
-  // as the panel list items) and NOT the light on-band title color, at both breakpoints.
-  test('panel heading takes panel dark text, band title stays light @375 + @1280', async ({
-    page,
-  }) => {
-    pageId = createPage('E2E 424 base');
-    setComposition(pageId, invertedTextPanel());
-
-    for (const width of [375, 1280]) {
+    for (const width of [1280, 768, 375]) {
       await page.setViewportSize({ width, height: 900 });
       await page.goto(`/?page_id=${pageId}`);
+      await expect(page.locator('.section__panel')).toBeVisible({ timeout: 10000 });
 
-      await expect(page.locator('.section__panel-heading')).toBeVisible({ timeout: 10000 });
+      const read = await page.evaluate(() => {
+        const g = (sel: string) => {
+          const el = document.querySelector(sel) as HTMLElement | null;
+          return el ? { color: getComputedStyle(el).color, bg: getComputedStyle(el).backgroundColor } : null;
+        };
+        return {
+          band: g('main > .section'),
+          bandTitle: g('.section__title'),
+          panel: g('.section__panel'),
+          heading: g('.section__panel-heading'),
+          cta: g('.section__panel-cta'),
+          item: g('.section__panel-item'),
+        };
+      });
 
-      const heading = await colorOf(page, '.section__panel-heading');
-      const item = await colorOf(page, '.section__panel-item');
-      const title = await colorOf(page, '.pp-section--inverted .section__title');
-      const ratio = await contrastOf(page, '.section__panel-heading');
+      // 1. The panel is its own opaque LIGHT surface, not the dark band showing through.
+      //    This is the fact every one of the three retired blocks depended on.
+      expect(read.panel!.bg, `panel fill @${width}`).not.toBe('rgba(0, 0, 0, 0)');
+      expect(lum(read.panel!.bg), `panel must be lighter than the band @${width}`)
+        .toBeGreaterThan(lum(read.band!.bg));
 
-      // Heading routes through the SAME panel slot as the list items (both dark).
-      expect(heading, `@${width}: panel heading ${heading} != panel item ${item}`).toBe(item);
-      // Heading is NOT the light on-band title color (the exact pre-fix bug).
-      expect(heading, `@${width}: panel heading ${heading} must differ from band title ${title}`).not.toBe(title);
-      // And it is actually legible on the light panel.
-      expect(ratio, `@${width}: panel heading contrast ${ratio.toFixed(2)} on the light panel`).toBeGreaterThanOrEqual(4.5);
-    }
-  });
+      // 2. #424's defect: the heading must read against the PANEL, not take the band's
+      //    light title colour. Asserted as a ratio rather than a hex so a retheme moves
+      //    subject and control together.
+      expect(ratio(read.heading!.color, read.panel!.bg), `panel heading vs panel @${width}`)
+        .toBeGreaterThanOrEqual(4.5);
+      // Compared against the BAND TITLE's own rendered colour rather than a literal: #424
+      // was precisely "the panel heading took the band title's colour", so the control is
+      // that colour, whatever a retheme makes it.
+      expect(read.heading!.color, `panel heading must not take the band title colour @${width}`)
+        .not.toBe(read.bandTitle!.color);
 
-  // Slot independence, half 1: an explicit --section-panel-text moves the panel heading
-  // and must NOT bleed into the on-band title.
-  test('--section-panel-text moves the panel heading only @375 + @1280', async ({ page }) => {
-    pageId = createPage('E2E 424 panel-text slot');
-    setComposition(pageId, invertedTextPanel());
+      // 3. #551's defect: the CTA's label must read against the panel too.
+      expect(ratio(read.cta!.color, read.panel!.bg), `panel CTA ink vs panel @${width}`)
+        .toBeGreaterThanOrEqual(4.5);
 
-    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
-    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
-
-    // A vivid color no theme token resolves to, so a leak is unmistakable.
-    const res = await styleComponent(page, pageId, { '--section-panel-text': '#ff0080' });
-    expect(res.success).toBe(true);
-
-    for (const width of [375, 1280]) {
-      await page.setViewportSize({ width, height: 900 });
-      await page.goto(`/?page_id=${pageId}`);
-      await expect(page.locator('.section__panel-heading')).toBeVisible({ timeout: 10000 });
-
-      const heading = await colorOf(page, '.section__panel-heading');
-      const item = await colorOf(page, '.section__panel-item');
-      const title = await colorOf(page, '.pp-section--inverted .section__title');
-      expect(heading, `@${width}: panel heading should honor --section-panel-text`).toBe('rgb(255, 0, 128)');
-      // The heading must move WITH the rest of the panel (the slot is the panel's,
-      // not a heading-only override), so the list items track it too.
-      expect(item, `@${width}: panel items should track the same --section-panel-text`).toBe('rgb(255, 0, 128)');
-      expect(title, `@${width}: --section-panel-text must not bleed into the band title`).not.toBe('rgb(255, 0, 128)');
-    }
-  });
-
-  // The parallel dark surface: a text-panel on a background-image section. The
-  // .section--has-bg-image class is added whenever background_image is set
-  // (independent of theme/layout), so its bare h2,h3 rule defeated the panel slot
-  // exactly like the inverted band. The image itself need not load — the class,
-  // overlay, and the panel's own opaque light surface are what drive the cascade.
-  test('bg-image text-panel: panel heading takes panel dark text, band title stays light @375 + @1280', async ({
-    page,
-  }) => {
-    pageId = createPage('E2E 424 bg-image');
-    setComposition(pageId, invertedTextPanel({ theme: 'default', background_image: '/pp-424-probe.jpg' }));
-
-    for (const width of [375, 1280]) {
-      await page.setViewportSize({ width, height: 900 });
-      await page.goto(`/?page_id=${pageId}`);
-
-      await expect(page.locator('.section--has-bg-image .section__panel-heading')).toBeVisible({ timeout: 10000 });
-
-      const heading = await colorOf(page, '.section--has-bg-image .section__panel-heading');
-      const item = await colorOf(page, '.section--has-bg-image .section__panel-item');
-      const title = await colorOf(page, '.section--has-bg-image .section__title');
-      const ratio = await contrastOf(page, '.section--has-bg-image .section__panel-heading');
-
-      expect(heading, `@${width}: bg-image panel heading ${heading} != panel item ${item}`).toBe(item);
-      expect(heading, `@${width}: bg-image panel heading ${heading} must differ from band title ${title}`).not.toBe(title);
-      expect(ratio, `@${width}: bg-image panel heading contrast ${ratio.toFixed(2)} on the light panel`).toBeGreaterThanOrEqual(4.5);
-    }
-  });
-
-  // Slot independence, half 2: an explicit --section-heading-color moves the on-band title
-  // and must NOT reach into the self-contained panel heading.
-  test('--section-heading-color moves the band title only @375 + @1280', async ({ page }) => {
-    pageId = createPage('E2E 424 title-color slot');
-    setComposition(pageId, invertedTextPanel());
-
-    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
-    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
-
-    const res = await styleComponent(page, pageId, { '--section-heading-color': '#00e5ff' });
-    expect(res.success).toBe(true);
-
-    for (const width of [375, 1280]) {
-      await page.setViewportSize({ width, height: 900 });
-      await page.goto(`/?page_id=${pageId}`);
-      await expect(page.locator('.section__panel-heading')).toBeVisible({ timeout: 10000 });
-
-      const title = await colorOf(page, '.pp-section--inverted .section__title');
-      const heading = await colorOf(page, '.section__panel-heading');
-      expect(title, `@${width}: band title should honor --section-heading-color`).toBe('rgb(0, 229, 255)');
-      expect(heading, `@${width}: --section-heading-color must not reach the panel heading`).not.toBe('rgb(0, 229, 255)');
+      // 4. And a panel list item, which stayed legible even when #424 was live — kept so a
+      //    regression that darkened the whole panel is distinguishable from one that only
+      //    hit the heading.
+      expect(ratio(read.item!.color, read.panel!.bg), `panel item vs panel @${width}`)
+        .toBeGreaterThanOrEqual(4.5);
     }
   });
 });
@@ -10030,340 +10025,7 @@ test.describe('#543 filled second button is ringed on overlay bands (real WP)', 
   });
 });
 
-/**
- * #536 — the section's panel CTA is the last member of the #514 masked-fill class, and its
- * three new per-instance slots actually paint.
- *
- * `.section__panel-cta` has no .hero / .cta ancestor, so the shared premium
- * `main .btn:not(...)` cascade is its ONLY fill winner. That rule paints a `background:`
- * SHORTHAND carrying a gradient background-IMAGE, which sits above any background-COLOR the
- * section block sets — so before this change a branded section simply could not carry a
- * filled accent button through composition style slots. The defect class is invisible to
- * CSS-TEXT pins (a background-color under a gradient is present in the text and absent on
- * screen), so getComputedStyle in a real browser is the acceptance surface. Premium literals
- * are probe-resolved (the #458 idiom) rather than hardcoded, so the byte-identical-when-unset
- * assertions compare against the browser's own resolution of today's gradient.
- */
-test.describe('#536 section panel-CTA fill slots paint (real WP)', () => {
-  let pageId = 0;
 
-  const PANEL_PURPLE = '#7c3aed';
-  const PANEL_CTA = '.section__panel-cta';
-
-  test.afterEach(async () => {
-    if (pageId) {
-      deletePage(pageId);
-      pageId = 0;
-    }
-  });
-
-  // A text-panel section whose panel renders a CTA — the only shape in which the slots apply.
-  function panelPage(title: string, style?: Record<string, string>, variant?: string): number {
-    const id = createPage(title);
-    setComposition(id, [
-      {
-        component: 'section',
-        props: {
-          id: 'pp-536-section',
-          layout: 'text-panel',
-          title: 'Plans',
-          body: 'Pick the plan that fits.',
-          panel_heading: 'Starter',
-          panel_body: 'Everything you need to launch.',
-          panel_cta_text: 'Book a call',
-          panel_cta_url: '/contact',
-          ...(variant ? { panel_cta_variant: variant } : {}),
-        },
-        ...(style ? { style } : {}),
-      },
-    ]);
-    return id;
-  }
-
-  async function readPanelCta(page: any) {
-    return page.evaluate(() => {
-      const resolve = (prop: string, value: string) => {
-        const el = document.createElement('div');
-        el.style.setProperty(prop, value);
-        document.body.appendChild(el);
-        const out = getComputedStyle(el).getPropertyValue(prop);
-        el.remove();
-        return out.trim();
-      };
-      const el = document.querySelector('.section__panel-cta') as HTMLElement;
-      const cs = getComputedStyle(el);
-      return {
-        bgColor: cs.backgroundColor,
-        bgImage: cs.backgroundImage,
-        borderColor: cs.borderTopColor,
-        color: cs.color,
-        shadow: cs.boxShadow,
-        premiumGradient: resolve(
-          'background-image',
-          'linear-gradient(180deg, var(--color-accent-strong) 0%, var(--color-accent-hover) 100%)',
-        ),
-        purple: resolve('background-color', '#7c3aed'),
-        accentStrong: resolve('background-color', 'var(--color-accent-strong)'),
-        colorBg: resolve('background-color', 'var(--color-bg)'),
-      };
-    });
-  }
-
-  for (const width of [1280, 375]) {
-    test(`--section-panel-cta-bg clears the premium gradient and paints (${width}px) @smoke`, async ({
-      page,
-    }) => {
-      pageId = panelPage('E2E 536 fill', {
-        '--section-panel-cta-bg': PANEL_PURPLE,
-        '--section-panel-cta-color': '#fffbe6',
-        '--section-panel-cta-shadow': 'none',
-      });
-
-      await page.setViewportSize({ width, height: 900 });
-      await page.goto(`/?page_id=${pageId}`);
-      await expect(page.locator(PANEL_CTA)).toBeVisible({ timeout: 10000 });
-
-      const got = await readPanelCta(page);
-
-      expect(got.bgImage, `@${width}: the gradient must be cleared, not covering the slot`).toBe(
-        'none',
-      );
-      expect(got.bgColor, `@${width}: the panel CTA must paint --section-panel-cta-bg`).toBe(
-        got.purple,
-      );
-      // Border FOLLOWS the fill when --btn-border-color is unset (the #526 convention), so a
-      // fill-only recolor keeps a matching ring instead of a stray accent-strong outline.
-      expect(got.borderColor, `@${width}: the border must follow the fill`).toBe(got.purple);
-      expect(got.color, `@${width}: the panel CTA must paint the ink slot`).toBe(
-        'rgb(255, 251, 230)',
-      );
-      expect(got.shadow, `@${width}: `+'`none` must flatten the button').toBe('none');
-
-      // The elevation contract is rest AND hover (the #514 contract this slot mirrors):
-      // without --section-panel-cta-shadow in the premium HOVER chain the bevel re-grows
-      // mid-interaction, which a rest-only computed pin cannot see.
-      await page.addStyleTag({ content: '*,*::before,*::after{transition:none !important;}' });
-      await page.locator(PANEL_CTA).hover();
-      const hovered = await readPanelCta(page);
-      expect(hovered.shadow, `@${width}: `+'`none` must flatten hover too').toBe('none');
-    });
-  }
-
-  // Byte-identical when unset: the whole chain must bottom out at today's premium literals.
-  test('an unset panel CTA renders byte-identically @smoke', async ({ page }) => {
-    pageId = panelPage('E2E 536 unset');
-
-    await page.setViewportSize({ width: 1280, height: 900 });
-    await page.goto(`/?page_id=${pageId}`);
-    await expect(page.locator(PANEL_CTA)).toBeVisible({ timeout: 10000 });
-
-    const got = await readPanelCta(page);
-
-    expect(got.bgImage, 'unset panel CTA must keep the premium gradient').toBe(
-      got.premiumGradient,
-    );
-    expect(got.shadow, 'unset panel CTA must keep the premium bevel').not.toBe('none');
-    // The border and ink chains gained a link too (#536 routes --section-panel-cta-bg into
-    // the premium border chain and --section-panel-cta-color into the ink chain), so both
-    // need their own unset proof: a dropped fallback or a mis-nested paren there would leave
-    // the resting ring or label unpinned at the rendered level.
-    expect(got.borderColor, 'unset panel CTA must keep the premium accent ring').toBe(
-      got.accentStrong,
-    );
-    expect(got.color, 'unset panel CTA must keep the premium ink').toBe(got.colorBg);
-  });
-
-  // Variant carve-out: the fill slot must not flatten a transparent panel CTA into a
-  // look-alike filled button (the secondary-contrast defect class the premium :not() chain
-  // exists to prevent).
-  // All three transparent variants are named in the carve-out, so all three get a proof.
-  // The ELEVATION slot is asserted here too: wiring it one specificity tier lower (on the
-  // bare .section__panel-cta rule) escapes the carve-out and paints a drop shadow on a
-  // transparent button, which is exactly the contract lie schema.json would then be telling.
-  for (const variant of ['outline', 'ghost', 'secondary']) {
-    test(`the fill and elevation slots never reach a ${variant} panel CTA @smoke`, async ({
-      page,
-    }) => {
-      pageId = panelPage(
-        `E2E 536 ${variant}`,
-        { '--section-panel-cta-bg': PANEL_PURPLE, '--section-panel-cta-shadow': '0 8px 20px #000' },
-        variant,
-      );
-
-      await page.setViewportSize({ width: 1280, height: 900 });
-      await page.goto(`/?page_id=${pageId}`);
-      await expect(page.locator(PANEL_CTA)).toBeVisible({ timeout: 10000 });
-
-      const got = await readPanelCta(page);
-
-      expect(got.bgImage, `a ${variant} panel CTA must have no fill layer`).toBe('none');
-      expect(got.bgColor, `a ${variant} panel CTA must not take the fill slot`).not.toBe(
-        got.purple,
-      );
-      expect(got.shadow, `a ${variant} panel CTA must not take the elevation slot`).not.toContain(
-        '8px 20px',
-      );
-    });
-  }
-});
-
-/**
- * #551 — a transparent/light panel CTA on a DARK band must take its ink from the panel,
- * not from the band.
- *
- * `.section--has-bg-image a` [0,1,1] and `.pp-section--inverted a` [0,1,1] are band-WIDE,
- * and they outranked `.btn--outline` / `.btn--ghost` / `.btn--secondary` [0,1,0]. But the
- * only anchor those selectors reach inside the band is `.section__panel-cta`, which sits on
- * `.section__panel` — a self-contained LIGHT surface (--color-surface). So the band's
- * near-white overlay role (or the pale on-inverted tint) painted the button label onto a
- * near-white panel:
- *
- *   bg-image band   #fafbff on #f4f7fb = 1.04:1     inverted band  #9dafee on #f4f7fb = 1.99:1
- *
- * This is a CASCADE-REACH defect, so CSS-text pins can pass while the rendered button stays
- * invisible. getComputedStyle in a real browser is the acceptance surface (the same reason
- * #536 and #424 assert here). Assertions are written against the DEFAULT band as the control
- * rather than hardcoded hexes: the whole contract is "the panel CTA renders the same ink on
- * every band", so a theme retint moves control and subject together.
- */
-test.describe('#551 panel CTA ink resolves against the light panel, not the band (rendered)', () => {
-  const pageIds: number[] = [];
-
-  // Worst case for the overlay role: the scrim over a pure-WHITE image.
-  const WHITE_PNG =
-    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII=';
-
-  test.afterEach(async () => {
-    while (pageIds.length) deletePage(pageIds.pop() as number);
-  });
-
-  // One text-panel section: a band link in the body (the byte-identity control) and a
-  // panel CTA in the panel (the subject).
-  function bandPage(title: string, variant: string, band: 'default' | 'inverted' | 'bgimage'): number {
-    const id = createPage(title);
-    pageIds.push(id);
-    setComposition(id, [
-      {
-        component: 'section',
-        props: {
-          id: 'pp-551-section',
-          layout: 'text-panel',
-          title: 'Plans',
-          body: '<p>Body copy with an <a href="/pricing">on-band link</a>.</p>',
-          panel_heading: 'Starter',
-          panel_body: 'Everything a small team needs.',
-          panel_cta_text: 'Book a strategy call with our solutions team',
-          panel_cta_url: '/contact',
-          panel_cta_variant: variant,
-          ...(band === 'inverted' ? { theme: 'inverted' } : {}),
-          ...(band === 'bgimage' ? { background_image: WHITE_PNG } : {}),
-        },
-      },
-    ]);
-    return id;
-  }
-
-  const colorOf = (page: any, selector: string) =>
-    page.locator(selector).first().evaluate((el: Element) => getComputedStyle(el).color);
-
-  // Contrast of an element's ink against the first opaque painted ancestor background.
-  const contrastOf = (page: any, selector: string) =>
-    page.evaluate((sel: string) => {
-      const parseRgb = (s: string): number[] => (s.match(/[\d.]+/g) || []).map(Number);
-      const lum = (rgb: number[]): number => {
-        const f = (v: number) => {
-          v /= 255;
-          return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
-        };
-        return 0.2126 * f(rgb[0]) + 0.7152 * f(rgb[1]) + 0.0722 * f(rgb[2]);
-      };
-      const el = document.querySelector(sel);
-      if (!el) return 0;
-      const fg = parseRgb(getComputedStyle(el).color);
-      let node: Element | null = el;
-      let bg = [255, 255, 255];
-      while (node) {
-        const c = parseRgb(getComputedStyle(node).backgroundColor);
-        if (c.length >= 3 && (c.length < 4 || c[3] > 0)) {
-          bg = c.slice(0, 3);
-          break;
-        }
-        node = node.parentElement;
-      }
-      const [l1, l2] = [lum(fg), lum(bg)];
-      return (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05);
-    }, selector);
-
-  // The transparent/light variants are the ones the band rule broke. `primary` is the
-  // control: the premium chain [0,4,1] always outranked the band rule, so it never moved.
-  for (const variant of ['outline', 'ghost', 'secondary']) {
-    for (const width of [1280, 375]) {
-      // One case is promoted to @smoke so this accessibility defect is guarded on EVERY
-      // PR, not only in the nightly full run: `ghost` at 1280 is the worst of the set —
-      // it has no border either, so before the fix the button disappeared completely
-      // (1.04:1 label on a transparent fill). The remaining variants and the 375 width
-      // stay in the full suite to keep the smoke subset fast.
-      const smoke = variant === 'ghost' && width === 1280 ? ' @smoke' : '';
-      test(`${variant} panel CTA takes panel ink on every band (${width}px)${smoke}`, async ({ page }) => {
-        await page.setViewportSize({ width, height: 900 });
-
-        // Control: the DEFAULT band, where no band ink rule applies at all.
-        const defaultId = bandPage(`E2E 551 ${variant} default ${width}`, variant, 'default');
-        await page.goto(`/?page_id=${defaultId}`);
-        await expect(page.locator('.section__panel-cta')).toBeVisible({ timeout: 10000 });
-        const controlInk = await colorOf(page, '.section__panel-cta');
-
-        for (const band of ['inverted', 'bgimage'] as const) {
-          const id = bandPage(`E2E 551 ${variant} ${band} ${width}`, variant, band);
-          await page.goto(`/?page_id=${id}`);
-          await expect(page.locator('.section__panel-cta')).toBeVisible({ timeout: 10000 });
-
-          const ink = await colorOf(page, '.section__panel-cta');
-          const ratio = await contrastOf(page, '.section__panel-cta');
-
-          expect(
-            ink,
-            `@${width} ${band}/${variant}: panel CTA ink ${ink} must match the default-band control ${controlInk} — the panel is a LIGHT surface on every band`,
-          ).toBe(controlInk);
-          expect(
-            ratio,
-            `@${width} ${band}/${variant}: panel CTA contrast ${ratio.toFixed(2)} on the light panel (was 1.04 bg-image / 1.99 inverted before #551)`,
-          ).toBeGreaterThanOrEqual(4.5);
-        }
-      });
-    }
-  }
-
-  // BYTE-IDENTITY CONTROL. The carve-out narrows the band rule's REACH and must not touch
-  // its behaviour where it still applies: an on-band link keeps the band role, and that
-  // role must remain visibly different from the panel CTA's panel-resolved ink.
-  for (const band of ['inverted', 'bgimage'] as const) {
-    test(`${band} band link keeps its on-band ink after the carve-out`, async ({ page }) => {
-      await page.setViewportSize({ width: 1280, height: 900 });
-
-      const defaultId = bandPage(`E2E 551 bandlink default ${band}`, 'outline', 'default');
-      await page.goto(`/?page_id=${defaultId}`);
-      await expect(page.locator('.section__content a')).toBeVisible({ timeout: 10000 });
-      const defaultBandLink = await colorOf(page, '.section__content a');
-
-      const id = bandPage(`E2E 551 bandlink ${band}`, 'outline', band);
-      await page.goto(`/?page_id=${id}`);
-      await expect(page.locator('.section__content a')).toBeVisible({ timeout: 10000 });
-
-      const bandLink = await colorOf(page, '.section__content a');
-      const panelCta = await colorOf(page, '.section__panel-cta');
-
-      expect(
-        bandLink,
-        `${band}: the on-band link must still take the dark-band accent role, not the light-surface accent ${defaultBandLink}`,
-      ).not.toBe(defaultBandLink);
-      expect(
-        bandLink,
-        `${band}: the band link and the panel CTA must resolve against DIFFERENT surfaces`,
-      ).not.toBe(panelCta);
-    });
-  }
-});
 
 /**
  * Per-instance button slots never reach an author-written nested `.btn` (#545, real WP).
