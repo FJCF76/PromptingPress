@@ -22,7 +22,7 @@ authoring shape.
 | `body` | string | No¹ | `''` | The band's main prose surface. Rich HTML (sanitized via `wp_kses_post`): block markup, lists, headings and links are allowed. Optional since #488 — omit it for a `body_items`-only strip or a panel-only band. Links inside it are the `body-link` role. |
 | `body_items` | array | No | `[]` | Row of short plain-text items after the body (the "trust strip"). At most 8 items, each at most 80 characters; an over-bound or non-string entry is rejected at write time. The row is the `inline-items` role. |
 | `body_items_align` | enum | No | `start` | How the row packs its lines: `start` (left-packed, line-leading separators clipped) or `center` (centred, separator trailing as a line-end dot). Scaffolding, not styling — see "Why two props survived" below. |
-| `body_marker` | enum | No | `disc` | List marker for top-level `<ul>` lists in `body`: `disc` / `check` / `dash` / `arrow`. Chooses WHICH glyph; its colour is the site-wide `--pp-list-marker-color` token — see "What narrowed". |
+| `body_marker` | enum | No | `disc` | List marker for top-level `<ul>` lists in `body`: `disc` / `check` / `dash` / `arrow`. Chooses WHICH glyph; the colour is not authorable and renders the accent — see "What narrowed" (#1028). |
 | `layout` | enum | No | `text-only` | Structural layout: `text-only` / `image-left` / `image-right` / `centered` / `text-panel`. See Variants. |
 | `image_url` | string | No | `''` | The image column's source on `image-left` / `image-right`. This is the band's CONTENT image; a band BACKGROUND is `_band` `background.image` instead. |
 | `image_alt` | string | No | `''` | Alt text for that image. Empty only if it is purely decorative. |
@@ -237,16 +237,20 @@ all five. `40rem` is the value that makes the default layout byte-identical, whi
 that band. The image and `text-panel` layouts are unaffected — their columns were already
 narrower than either cap.
 
-**1. Glyph colour is site-wide, not per-band.** `--section-separator-color`,
+**1. Glyph colour is not authorable (#1028).** `--section-separator-color`,
 `--section-body-marker-color` and `--section-panel-marker-color` were three authorable
 per-band colours. Every one of those marks is drawn with `content` on a `::before` or
 `::after`, and **ruling A3 defers pseudo-elements to their own ruling**, so no role can
 express them at any value — they are mechanism by construction, not by classification.
-Their colour now flows from the site-wide `--pp-list-marker-color` design token. Set it to
-recolour every glyph in the site at once; what is lost is per-band control.
 
-**The two LIST MARKERS are unchanged**: they defaulted to `var(--color-accent)` and the
-token's fallback for them is `var(--color-accent)`, so nothing moves.
+There is no replacement knob, and this README said otherwise until #1028 was filed: the
+`--pp-list-marker-color` property these rules read is internal plumbing, declared on no
+`:root` and registered as no design token, so `update_design_token` refuses it. What is
+lost is per-band control AND glyph-only control; what remains is below.
+
+**The two LIST MARKERS are unchanged**: they defaulted to `var(--color-accent)` and that
+is what they render, so nothing moves. `--color-accent` is a real design token, so
+`update_design_token` moves them — along with every other accent on the site.
 
 **The SEPARATOR is not, and this is stated rather than rounded off.** It defaulted to
 `var(--color-muted)`, not to the accent — and that muted default existed to make the mark
@@ -260,15 +264,20 @@ including ones v1 could not express.
 
 The residual: on a **default light band** the middot follows the row's inherited text
 colour rather than `--color-muted`. Slightly heavier, still recessive against the item
-text it sits between. **To get the old grey back**, set `--pp-list-marker-color` to
-`@color-muted` — it still leads the chain.
+text it sits between. **To get the old grey, grey the row** — that is the only lever, and
+it moves the item text too:
+
+```json
+{"inline-items": {"typography": {"color": "@color-muted"}}}
+```
 
 **If you set `--section-separator-color` to something OTHER than your body text colour,
 read this.** A band that deliberately contrasted its separator against its copy — an
-accent middot over muted text, say — will not reproduce itself: `currentColor` makes the
-mark follow the row. Set `--pp-list-marker-color` to that accent instead. It is a
-site-wide token rather than a per-band value, so this works when the contrast you wanted
-is the same everywhere, and does not when it differed band to band.
+accent middot over muted text, say — **does not reproduce, and nothing here brings it
+back.** `currentColor` is the entire mechanism: the mark follows the row. This is the one
+v1 capability with no v2 equivalent, tracked as #1028 and blocked on the pseudo-element
+ruling, because a mark that differs from its sibling text needs a role that can address a
+pseudo-element.
 
 **2. The body-less strip no longer flushes its own top margin.** On v1 the template
 inferred `$has_body_copy` and emitted a `--flush-top` modifier that zeroed the

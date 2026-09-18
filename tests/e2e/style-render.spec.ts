@@ -4918,9 +4918,11 @@ test.describe('chrome UDC renders (ruling A1)', () => {
   // `panel_items_marker` beats the disc rule and paints a check. The COLOUR half moved —
   // `--section-panel-marker-color` retired with section's slot map, because the mark is a
   // `::before` and ruling A3 defers pseudo-elements, so no role can reach it. The colour
-  // is the site-wide `--pp-list-marker-color` token now, whose fallback for the MARKERS is
-  // `var(--color-accent)` — the exact value this slot defaulted to, so the marker's
-  // rendered colour is unchanged and asserted as such.
+  // is not authorable at all now (#1028): the rule reads `--pp-list-marker-color`, which
+  // is declared nowhere and registered as no design token, so the read's fallback for the
+  // MARKERS — `var(--color-accent)` — IS the rendered value, and it is the exact value
+  // this slot defaulted to. So the marker's rendered colour is unchanged and asserted as
+  // such; what is lost is any way to move it on its own.
   //
   // The narrowing is proved at the WRITE surface instead: the retired slot is refused,
   // which is the half an author actually meets. (The separator is the one glyph whose
@@ -8729,11 +8731,12 @@ test.describe('#463 bg-image band title-accent + markers contrast (rendered)', (
   // no class. One of the two is worth naming separately, because it is a genuine
   // capability loss rather than a transfer of responsibility — the LIST MARKER. Its
   // colour is not authorable at all any more: the glyph is drawn with `content` on a
-  // `::before`, ruling A3 defers pseudo-elements, and the colour now comes from the
-  // site-wide `--pp-list-marker-color` token. So on a dark v2 band an author who needs a
-  // legible marker sets that token, and it moves every marker on the site. That is
-  // disclosed in section's README, the CHANGELOG and composition.md, and it is the sharp
-  // edge #1024's per-item work should look at.
+  // `::before`, ruling A3 defers pseudo-elements, and the `--pp-list-marker-color` the
+  // rule reads is plumbing nothing can write (#1028). It renders `var(--color-accent)`.
+  // So on a dark v2 band an author who needs a legible marker has exactly one move —
+  // `update_design_token` on `--color-accent` itself, which recolours every accent on the
+  // site. That is disclosed in section's README, the CHANGELOG and composition.md, and it
+  // is the sharp edge #1024's per-item work should look at.
   const bands = () => [
     {
       component: 'cta',

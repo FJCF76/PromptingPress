@@ -1074,8 +1074,10 @@ describe('CSS lint: grid steps numeral color routes through --grid-step-text-col
 // were section's `--section-separator-color` routing, on a `::before`/`::after` glyph.
 // Section is a v2 component now: the glyph is a shared mechanism (see the SHARED GLYPH
 // AND PROSE MECHANISMS block in components.css) and its colour is NOT authorable,
-// because ruling A3 defers pseudo-elements. Colour flows from --pp-list-marker-color,
-// whose fallback is var(--color-accent) — the exact value the slot defaulted to.
+// because ruling A3 defers pseudo-elements. The rule reads --pp-list-marker-color, which
+// nothing declares and nothing can write (#1028), so its fallback is what renders: the
+// SEPARATOR takes currentColor and follows its row, the two list MARKERS take
+// var(--color-accent) — the exact value their slots defaulted to.
 // Nothing replaced this block: there is no slot left to route.
 describe('CSS lint: theme variants survive the desktop typography cascade (#222)', () => {
     // Regression guard for the inverted dark-on-dark bug. The "Premium body-section

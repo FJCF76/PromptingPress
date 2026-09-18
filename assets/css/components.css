@@ -1091,8 +1091,12 @@
    RESIDUAL, stated rather than denied: on a default light band the middot moves
    #5e6677 -> #2d3648, because the row inherits `@color-text-secondary` instead of
    `--color-muted`. Slightly heavier, still recessive against the item text it sits
-   between. An author who wants the old grey sets `--pp-list-marker-color` to
-   `@color-muted`, which still leads this chain. */
+   between. THE OLD GREY IS NOT RECOVERABLE ON ITS OWN (#1028): `--pp-list-marker-color`
+   is internal plumbing that is declared nowhere and registered as no design token, so
+   nothing can write it. `currentColor` is the whole mechanism — grey the ROW
+   (`inline-items` -> typography -> color) and the mark greys with it. A mark whose colour
+   DIFFERS from its sibling text is not expressible until a role can address a
+   pseudo-element. */
 .section__inline-items li::before {
   content: "\00b7" / "";
   display: inline-block;

@@ -605,6 +605,76 @@ class SchemaTruthfulnessTest extends TestCase
     }
 
     /**
+     * THE SAME FALSEHOOD WITHOUT THE ACTION NAME (#1028).
+     *
+     * The scan above keys on `update_design_token`, and the docblock says so honestly: it
+     * catches a NAME beside an ACTION. #1023 proved the seam that leaves. Section's rebuild
+     * retired three glyph-colour slots and its schema told an agent the colour "is the
+     * site-wide `--pp-list-marker-color` design token". Every word of the promise was there
+     * — site-wide, design token, a property name to write — and the action name was not, so
+     * the scan walked straight past it. The property is declared on no `:root` and
+     * registered as no token, so `update_design_token` refuses it; the route was fiction
+     * from the moment it was written, and it shipped through four review rounds.
+     *
+     * So this pin keys on the CLAIM VOCABULARY instead. A schema string that says "design
+     * token" is making a promise about a site-wide surface, and every `--name` in that
+     * string had better be one this component can actually reach. It is deliberately the
+     * same reachability set as the scan above — registry plus own slots plus chrome
+     * properties — so the two tests disagree about the TRIGGER and never about the answer.
+     *
+     * What it does not do, same honesty as its sibling: a string that makes the promise
+     * while naming no property at all still passes. That is prose comprehension. What it
+     * does buy is that the house's own phrasing for this promise cannot name a property
+     * that does not exist — which is the shape the real defect took, twice, in one schema.
+     *
+     * The "design token" phrasing is also why a retired slot name must not appear in such a
+     * sentence: `--section-separator-color` was never a design token, and a description
+     * that explains what it USED to be belongs in prose that does not make the promise.
+     */
+    public function testNoSchemaCallsAnUnregisteredPropertyADesignToken(): void
+    {
+        $scanned   = 0;
+        $claims    = 0;
+        $offenders = [];
+
+        foreach ($this->allSchemas() as $component => $schema) {
+            $reachable = $this->namesThisComponentCanReach($schema);
+            foreach ($this->everyString($schema) as $text) {
+                $scanned++;
+                if (stripos($text, 'design token') === false) {
+                    continue;
+                }
+                $claims++;
+                preg_match_all('/(--[a-z0-9-]+)/i', $text, $m);
+                foreach (array_unique($m[1]) as $name) {
+                    if (!isset($reachable[$name])) {
+                        $offenders[] = "{$component} calls {$name} a design token";
+                    }
+                }
+            }
+        }
+
+        // Two floors, for the two ways this pin can go quietly inert. The walk floor is the
+        // sibling scan's, measured the same way. The CLAIM floor proves the phrase is still
+        // house vocabulary — if every schema stopped saying "design token" tomorrow this
+        // test would pass on an empty set and tell nobody.
+        $this->assertGreaterThanOrEqual(1000, $scanned, 'the schema string walk collapsed');
+        $this->assertGreaterThanOrEqual(5, $claims, 'no schema string makes a design-token claim any more; this pin is inert');
+
+        $this->assertSame(
+            [],
+            array_unique($offenders),
+            'A schema calls a property a "design token" that pp_design_tokens() does not '
+            . 'register, so an agent reading it is told a site-wide retune exists that no '
+            . 'action can perform. This is the #1028 defect: the promise is what misleads, '
+            . 'and it misleads whether or not the sentence names update_design_token. State '
+            . 'what is actually reachable — a registered token, or this component\'s own '
+            . 'slot — or say plainly that the value is not authorable and explain the '
+            . 'mechanism in ai-instructions/ instead.'
+        );
+    }
+
+    /**
      * Detection proof for the scan above. Both narrowings that an earlier draft shipped are
      * pinned here as rows, so a "tidy-up" that reintroduces either fails on this table
      * instead of passing silently over the live schemas.

@@ -13,10 +13,11 @@
  * section's slot map, and ruling A3 defers pseudo-elements to their own ruling, so no
  * role can address the mark at any value. It falls back to `currentColor`, which is
  * what the v1 muted default achieved through band-class remaps a v2 band has no class
- * for — so the mark follows whatever colour the author gave the row. The site-wide
- * `--pp-list-marker-color` token still leads the chain for a site that wants one
- * colour everywhere. The tests below assert exactly that; this header used to sell
- * the retired slot as the feature.
+ * for — so the mark follows whatever colour the author gave the row, and that is the
+ * ONLY lever on it: `--pp-list-marker-color` leads the chain in the CSS but is declared
+ * nowhere and registered as no design token, so nothing can write it (#1028). The tests
+ * below assert exactly that; this header used to sell the retired slot as the feature,
+ * and then briefly sold a token that does not exist.
  *
  * Hanging-separator clip (issue 489): the separator is on EVERY item's `::before`,
  * each item is pulled left by exactly the separator's occupied width, and the row is
@@ -385,8 +386,8 @@ class SectionInlineItemsTest extends TestCase
         // So the fallback is `currentColor` — the same intent in the mechanism v2 has.
         // Residual, disclosed in three places rather than rounded off: on a default light
         // band the middot moves #5e6677 -> #2d3648, because the row inherits
-        // `@color-text-secondary`. `--pp-list-marker-color` still leads the chain, so
-        // setting it to `@color-muted` restores the old grey.
+        // `@color-text-secondary`. There is no knob that restores the old grey on its own
+        // (#1028) — greying the ROW greys the mark with it, and that is the whole lever.
         //
         // The two halves are asserted separately below, because collapsing them is exactly
         // the mistake this comment is correcting.
@@ -626,8 +627,9 @@ class SectionInlineItemsTest extends TestCase
         // The centered separator is a TRAILING middot on every item except the last
         // (:not(:last-child)). Its colour used to route through the
         // --section-separator-color slot; that slot is retired with the rest of them, so
-        // both modes read the shared --pp-list-marker-color — falling back to
-        // `currentColor`, NOT to the accent the two list markers take. See
+        // both modes read the shared --pp-list-marker-color plumbing var — falling back
+        // to `currentColor`, NOT to the accent the two list markers take. Nothing writes
+        // that var (#1028), so the fallback IS the rendered value. See
         // testTheSeparatorColourIsNoLongerAuthorable() for why the separator's fallback
         // differs from theirs, and for the residual that difference leaves.
         //

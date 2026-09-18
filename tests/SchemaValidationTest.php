@@ -4959,11 +4959,16 @@ class SchemaValidationTest extends TestCase
         //   NARROWING, and the reason is structural rather than an oversight: every one of
         //   those marks is drawn with `content` on a `::before`/`::after`, ruling A3 defers
         //   pseudo-elements to their own ruling, and so NO role can express them at any
-        //   value. Their colour moved to the site-wide `--pp-list-marker-color` design
-        //   token, whose fallback is `var(--color-accent)` — the exact value all three
-        //   slots defaulted to, so nothing moves visually; what is lost is per-band
-        //   control. See the SHARED GLYPH AND PROSE MECHANISMS block in
-        //   assets/css/components.css, which states the same thing at the source.
+        //   value. THERE IS NO REPLACEMENT KNOB (#1028): an earlier draft of these notes
+        //   said the colour "moved to the site-wide `--pp-list-marker-color` design
+        //   token", which was false in two ways — that property is declared on no `:root`
+        //   and registered as no token, so `update_design_token` refuses it, and the three
+        //   slots do not even share one fallback. The two MARKERS render
+        //   `var(--color-accent)`, the exact value they defaulted to, so nothing moves and
+        //   the registered `--color-accent` token still moves them site-wide. The
+        //   SEPARATOR renders `currentColor` and follows its row's ink. See the SHARED
+        //   GLYPH AND PROSE MECHANISMS block in assets/css/components.css, which states
+        //   the same thing at the source.
         'section' => [
             '--section-padding-top' => 'REPLACED in v2 (#1023) by the `_band` role\'s `spacing.padding-top` (which now also carries the narrow-viewport tier).',
             '--section-padding-bottom' => 'REPLACED in v2 (#1023) by the `_band` role\'s `spacing.padding-bottom`.',
@@ -5009,9 +5014,9 @@ class SchemaValidationTest extends TestCase
             '--section-panel-cta-hover-border' => 'REPLACED in v2 (#1023) by the `panel-cta` role\'s `:hover` state, nested inside `border`.',
             '--section-panel-cta-shadow' => 'REPLACED in v2 (#1023) by the `panel-cta` role\'s `shadow.box`.',
             '--section-inline-items-align' => 'REPLACED in v2 (#1023) by the `body_items_align` PROP, not by a role parameter, and that is deliberate: the value selects a WRAP TECHNIQUE (a justify-content value plus the separator mechanism that technique needs), the UDC taxonomy carries no layout group, and the `inline-items` role owns the row\'s type, colour and gaps. Same two accepted values (`start`, `center`).',
-            '--section-separator-color' => 'NARROWED in v2 (#1023) to the site-wide `--pp-list-marker-color` design token; no role replaces it. The separator is drawn with `content` on a `::before`/`::after` and ruling A3 defers pseudo-elements, so no role can express it at any value. The token\'s fallback is `var(--color-accent)`, this slot\'s own default, so nothing moves visually; per-band control is what is lost. The `inline-items` role still owns the row\'s type, colour and gaps.',
-            '--section-body-marker-color' => 'NARROWED in v2 (#1023) to the site-wide `--pp-list-marker-color` design token; no role replaces it, for the same pseudo-element reason as `--section-separator-color`. The `body_marker` prop still chooses WHICH glyph, and the `body` role still owns the list text.',
-            '--section-panel-marker-color' => 'NARROWED in v2 (#1023) to the site-wide `--pp-list-marker-color` design token; no role replaces it, for the same pseudo-element reason as `--section-separator-color`. The `panel_items_marker` prop still chooses WHICH glyph, and the `panel-list` role still owns the list\'s spacing.',
+            '--section-separator-color' => 'NARROWED in v2 (#1023): no role replaces it and NO TOKEN replaces it either (#1028). The separator is drawn with `content` on a `::before`/`::after` and ruling A3 defers pseudo-elements, so no role can express it at any value; the `--pp-list-marker-color` property its rule reads is internal plumbing, declared nowhere and registered as no design token. What renders is that read\'s fallback, `currentColor`, so the mark follows its row\'s ink — this slot defaulted to `var(--color-muted)`, so a default light band moves #5e6677 -> #2d3648. The `inline-items` role owns the row\'s type, colour and gaps, and its `typography.color` is the only lever on the mark; it moves the item text too. A mark DIFFERENT in colour from its sibling text is no longer expressible.',
+            '--section-body-marker-color' => 'NARROWED in v2 (#1023): no role replaces it, for the same pseudo-element reason as `--section-separator-color`, and no token replaces it either (#1028). Unlike the separator it renders `var(--color-accent)`, the exact value this slot defaulted to, so nothing moves visually; `--color-accent` IS a registered design token, so `update_design_token` still moves it along with every other accent on the site. Per-band and glyph-only control are what is lost. The `body_marker` prop still chooses WHICH glyph, and the `body` role still owns the list text.',
+            '--section-panel-marker-color' => 'NARROWED in v2 (#1023): no role replaces it, for the same pseudo-element reason as `--section-separator-color`, and no token replaces it either (#1028). Like `--section-body-marker-color` it renders `var(--color-accent)`, this slot\'s own default, so nothing moves visually. The `panel_items_marker` prop still chooses WHICH glyph, and the `panel-list` role still owns the list\'s spacing.',
         ],
     ];
 

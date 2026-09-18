@@ -1374,7 +1374,7 @@ function _pp_validate_font_style(string $value): bool {
  *     judges a reference by the type the registry declares (#972), then validates
  *     the resolved value here — so `@font-weight-heading` was refused with a
  *     message quoting its own value. No v2 component could reference the theme's
- *     heading weight at all: hero and testimonials as much as section.
+ *     heading weight at all — hero and testimonials as much as section.
  *
  * WHAT CSS ACTUALLY SAYS. CSS Fonts 4 defines `<font-weight-absolute>` as
  * `normal | bold | <number [1,1000]>`. The range is inclusive at both ends and

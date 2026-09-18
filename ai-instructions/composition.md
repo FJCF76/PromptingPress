@@ -230,11 +230,13 @@ a dark `panel` `background.fill` + an accented `panel-row-value` — not a named
 
 To turn `panel_items` into a check-list (the common "benefits beside a panel" pattern),
 set `panel_items_marker: "check"`. `dash` and `arrow` are the other values; `disc` is the
-plain default. **The marker's COLOUR is not per-band:** it comes from the site-wide
-`--pp-list-marker-color` design token (default `var(--color-accent)`), because the glyph
-is drawn with `content` on a `::before` and ruling A3 defers pseudo-elements, so no role
-can reach it. Set the token with `update_design_tokens` to recolour every marker in the
-site at once; on a dark panel that is the knob to reach for. The same marker capability is
+plain default. **The marker's COLOUR is not authorable — do not offer to change it.** The
+glyph is drawn with `content` on a `::before` and ruling A3 defers pseudo-elements, so no
+role can reach it, and there is no token for it either (#1028). It renders
+`var(--color-accent)`. The only knob that moves it is `update_design_token` on
+`--color-accent` itself, which recolours the accent everywhere on the site — say that
+plainly rather than implying a marker-only setting exists. On a dark panel, reach for the
+panel's own `background.fill` and ink instead. The same marker capability is
 available on `grid` card bullets (always a check) and on `section` body lists
 (`body_marker`, below) — one shared treatment, so a check-list is reachable from any
 list-rendering surface.
@@ -302,8 +304,8 @@ That is the same trade named above — one role, every row.
 **top-level** `<ul>` lists authored in a section's `body` — the same shared marker
 treatment the panel and grid use. `disc` leaves body lists exactly as before;
 `check`/`dash`/`arrow` apply to lists written as a direct child of the body (nested lists
-keep their disc). The marker's colour is the site-wide `--pp-list-marker-color` token, as
-above — not a per-band value. Use `body_marker` when a prose section needs a check-list
+keep their disc). The marker's colour is not authorable, as above (#1028). Use
+`body_marker` when a prose section needs a check-list
 without moving the content into a grid or panel.
 
 ```json
@@ -331,20 +333,20 @@ set, the row renders after the body.
 The row is the `inline-items` role. It carries the body's type as its own role default, so
 a strip keeps the band's size and weight without you repeating them; override
 `typography.size` / `.weight` / `.color` on the role for a slimmer or bolder strip. The
-separator's glyph is a fixed middot, and its COLOUR is the site-wide
-`--pp-list-marker-color` token rather than a per-band value — same pseudo-element reason
-as the list markers above. **Its fallback differs from theirs on purpose:** the markers
-fall back to `var(--color-accent)`, which is what they always defaulted to, but the
-separator falls back to **`currentColor`**, so it follows whatever `typography.color` you
-put on `inline-items`. That is what the v1 muted default achieved through band-class
-remaps, which a v2 band has no class for — so set the row's colour on a dark band and the
-separator follows it automatically. Residual on a default light band: the middot is
-`#2d3648` (the row's inherited secondary text) where v1 painted `#5e6677`; set
-`--pp-list-marker-color` to `@color-muted` for the old grey. **And if a band set the
-separator to a colour DIFFERENT from its body copy** — an accent middot over muted text —
-that will not reproduce itself, because `currentColor` makes the mark follow the row: set
-`--pp-list-marker-color` to that accent instead. It is a site-wide token, so it covers a
-contrast that was the same everywhere and not one that differed band to band.
+separator's glyph is a fixed middot, and like the list markers above its colour is not
+directly authorable — same pseudo-element reason (#1028). **But it resolves differently
+from them on purpose, and that difference is the knob:** the markers land on
+`var(--color-accent)`, which is what they always defaulted to, while the separator lands on
+**`currentColor`**, so it follows whatever `typography.color` you put on `inline-items`.
+That is what the v1 muted default achieved through band-class remaps, which a v2 band has
+no class for — so set the row's colour on a dark band and the separator follows it
+automatically, with nothing else to set. Residual on a default light band: the middot is
+`#2d3648` (the row's inherited secondary text) where v1 painted `#5e6677`. To get the old
+grey, grey the row: `"inline-items": {"typography": {"color": "@color-muted"}}` moves the
+mark and the item text together. **A band that set the separator to a colour DIFFERENT
+from its body copy** — an accent middot over muted text — does not reproduce, and there is
+no setting that brings it back; `currentColor` is the whole mechanism. Say so rather than
+proposing a substitute.
 
 Per-line alignment when the strip wraps is the **`body_items_align` prop** (`start` |
 `center`, default `start`) — a prop and not a role value, because it selects a wrap
@@ -527,7 +529,7 @@ Style ONE card differently from its siblings. A grid item may carry an optional 
 
 Set it in the composition (`create_page` / `update_composition` / `update_component`), NOT via `style_component` — `style_component` targets a whole component instance, not one item. Use it for the standard "one distinct card in a row" patterns: a dark CTA panel beside light checklist cards, or a green-on-dark terminal/code card (pair with `text_role: "mono"`).
 
-The **card-scoped** slots accepted here: `--grid-item-bg`, `--grid-item-border-color`, `--grid-item-border-width`, `--grid-item-radius`, `--grid-item-shadow`, `--grid-item-bar-color`, `--grid-item-bar-height`, `--grid-featured-texture-color`, `--grid-featured-shadow`, `--grid-item-padding`, `--grid-item-gap`, `--grid-item-text-align`, `--grid-item-icon-size`, `--grid-item-title-size`, `--grid-item-title-color`, `--grid-item-text-color`, `--grid-item-bullet-color`, `--grid-item-link-color`, `--grid-item-link-hover-color`, `--grid-step-bg`, `--grid-step-text-color`. (`--grid-item-text-align` sets the card's alignment — a `text-align` keyword, e.g. `center` — and aligns the title/text/bullets AND the `Read more` link/button together, so a centered card is fully centered.) Container/heading slots (`--grid-bg`, `--grid-gap`, `--grid-heading-*`, `--grid-eyebrow-*`, `--grid-subheading-*`, `--grid-padding-*`) are read on the section/list/header, not the card, so a per-card override would render nothing — they are **rejected** here with `invalid_style_slot` naming the card. Put those on the grid-level `style` instead. Since #579 the **renderer** enforces the same narrowing, so a container-scoped slot that reached storage through a non-validating path (a raw database write, or a `restore_composition` of an old snapshot — which by rule never blocks) is dropped from the card's inline style instead of being emitted onto the `<li>`. The same holds for a section panel row's `style` (`props.panel_items[].style`).
+The **card-scoped** slots accepted here: `--grid-item-bg`, `--grid-item-border-color`, `--grid-item-border-width`, `--grid-item-radius`, `--grid-item-shadow`, `--grid-item-bar-color`, `--grid-item-bar-height`, `--grid-featured-texture-color`, `--grid-featured-shadow`, `--grid-item-padding`, `--grid-item-gap`, `--grid-item-text-align`, `--grid-item-icon-size`, `--grid-item-title-size`, `--grid-item-title-color`, `--grid-item-text-color`, `--grid-item-bullet-color`, `--grid-item-link-color`, `--grid-item-link-hover-color`, `--grid-step-bg`, `--grid-step-text-color`. (`--grid-item-text-align` sets the card's alignment — a `text-align` keyword, e.g. `center` — and aligns the title/text/bullets AND the `Read more` link/button together, so a centered card is fully centered.) Container/heading slots (`--grid-bg`, `--grid-gap`, `--grid-heading-*`, `--grid-eyebrow-*`, `--grid-subheading-*`, `--grid-padding-*`) are read on the section/list/header, not the card, so a per-card override would render nothing — they are **rejected** here with `invalid_style_slot` naming the card. Put those on the grid-level `style` instead. Since #579 the **renderer** enforces the same narrowing, so a container-scoped slot that reached storage through a non-validating path (a raw database write, or a `restore_composition` of an old snapshot — which by rule never blocks) is dropped from the card's inline style instead of being emitted onto the `<li>`. (A section panel row's `style` used to work the same way; #1023 retired it, so a `panel_items` entry declares `label` and `value` and nothing else.)
 
 ```json
 { "component": "grid", "props": { "items": [
@@ -549,9 +551,9 @@ All seven heading-bearing components accept `title_accent`: an exact, case-sensi
 
 ### eyebrow / subheading / title_align (hero, section, faq, grid, cta, testimonials)
 
-> `testimonials` is a v2 component: it keeps `eyebrow` and `subheading` as CONTENT props but has no `title_align` and no `theme`. Its styling is the `udc` map.
+> `section` and `testimonials` are v2 components: both keep `eyebrow` and `subheading` as CONTENT props but have no `title_align` and no `theme`. Their styling is the `udc` map.
 
-`eyebrow` renders a short kicker label as a pill above the title (e.g. `"NEW"`) on all six; on the v1 components the pill defaults to uppercase, overridable via the `text-transform`-typed `--<component>-eyebrow-text-transform` style slot (`none` for sentence case, or `lowercase`/`capitalize`). `subheading` renders a supporting line below the title on section, grid, and testimonials only — hero uses `subheading` and cta uses `body` for the same concept, so neither has a `subheading` prop. `title_align` (`start` default, or `center`; section and grid only) centers the eyebrow/title/subheading header block — independent of the component's overall layout. **hero and testimonials no longer have it**: both are v2 components, so header alignment is the header roles' `typography.align` in the band's `udc` map (hero's `centered` and `cover` layouts already centre their text structurally, and an authored `align` overrides that), with `spacing.margin-left`/`margin-right` set to `auto` to centre the block. The eyebrow pill's casing is likewise the `eyebrow` role's `typography.transform` there, not a style slot.
+`eyebrow` renders a short kicker label as a pill above the title (e.g. `"NEW"`) on all six; on the v1 components the pill defaults to uppercase, overridable via the `text-transform`-typed `--<component>-eyebrow-text-transform` style slot (`none` for sentence case, or `lowercase`/`capitalize`). `subheading` renders a supporting line below the title on section, grid, and testimonials only — hero uses `subheading` and cta uses `body` for the same concept, so neither has a `subheading` prop. `title_align` (`start` default, or `center`; **grid only**) centers the eyebrow/title/subheading header block — independent of the component's overall layout. **hero, section and testimonials no longer have it**: all three are v2 components, so header alignment is the header roles' `typography.align` in the band's `udc` map (hero's `centered` and `cover` layouts already centre their text structurally, and an authored `align` overrides that), with `spacing.margin-left`/`margin-right` set to `auto` to centre the block. The eyebrow pill's casing is likewise the `eyebrow` role's `typography.transform` there, not a style slot.
 
 ### image_id (hero, section, logos / grid / testimonials items) — responsive images (#107, #584)
 

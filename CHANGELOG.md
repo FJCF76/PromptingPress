@@ -146,6 +146,21 @@ sources and the attachment's own alt text. Run `import_media` first and pass the
 `':hover'`, or a link you recolour at rest still hovers to the theme accent. The trade is
 that you can now build a band the three-value bundle could not express.
 
+### ⚠️ Breaking: section's two style recipes are gone
+
+`accent-panel` and `spacious-editorial` were section's shipped recipes — named bundles of
+slot values you could apply with `style_component --recipe=<name>`. A recipe is a bundle of
+STYLE SLOTS, and section has none, so both are deleted with the slot map.
+
+**What a caller sees.** `style_component` on a section now returns `no_style_slots` — not
+`invalid_recipe` — whatever the recipe name, because the refusal fires before the recipe is
+looked up. The message names all 19 roles and the `udc` route.
+
+**The replacement is `_preset` or an explicit role map**, and it is strictly more capable: a
+recipe was a fixed bundle on one component, while a role map is per role, per breakpoint and
+per state. A stored `style: {"__recipe": "accent-panel"}` on an existing band still
+validates — the tracking key is not a slot — so nothing already stored is stranded.
+
 ### ⚠️ Breaking: per-row panel styling is retired
 
 A `panel_items` paired row could carry its own `"style"` map to emphasise one row. The
@@ -154,18 +169,26 @@ every row; a stored per-row `style` key is now an undeclared field and refused a
 **A single emphasised row is not expressible today.** Per-item addressing is tracked as
 **#1024**; until it lands, the way to draw the eye is the row's own content.
 
-### ⚠️ Narrowed: glyph colour is site-wide, not per-band
+### ⚠️ Narrowed: glyph colour is not authorable at all (#1028)
 
 `--section-separator-color`, `--section-body-marker-color` and
 `--section-panel-marker-color` were three per-band colours. Every one of those marks is
 drawn with `content` on a `::before`/`::after`, and pseudo-elements are deferred to their
-own ruling, so **no role can express them at any value.** Their colour now comes from the
-site-wide `--pp-list-marker-color` design token; set it with `update_design_tokens` to
-recolour every glyph at once. What is lost is per-band control. The glyph CHOICE is
-unaffected: `body_marker` and `panel_items_marker` still work.
+own ruling, so **no role can express them at any value.** The glyph CHOICE is unaffected:
+`body_marker` and `panel_items_marker` still work.
 
-**The two list markers do not move**: they defaulted to `var(--color-accent)` and the
-token falls back to `var(--color-accent)` for them.
+**State it plainly: there is no replacement knob.** An earlier draft of these notes said
+the colour "comes from the site-wide `--pp-list-marker-color` design token". It does not —
+that property is internal plumbing, declared nowhere and registered as no token, so
+`update_design_token` refuses it. It is tracked as #1028 and blocked on the pseudo-element
+ruling. What you can reach today:
+
+- **The two list markers** render `var(--color-accent)` — the same value their slots
+  defaulted to, so nothing moves. `--color-accent` IS a registered design token, so
+  `update_design_token` recolours them, but it moves the whole accent site-wide. There is
+  no glyph-only and no per-band control.
+- **The separator** follows its row's ink (below). The `inline-items` role's
+  `typography.color` moves it, and moves the row's text with it.
 
 ### ⚠️ Narrowed: a `centered` band's body measure is 32px tighter
 
@@ -196,14 +219,17 @@ grey that vanishes on the dark bands v2 makes easy. Its fallback is **`currentCo
 instead: the same intent in the mechanism v2 has, so the mark follows the colour you gave
 the row, on every band. **The residual:** on a default light band the middot moves
 `#5e6677` → `#2d3648`, because the row inherits `@color-text-secondary`. Slightly heavier,
-still recessive. **To get the old grey back**, set `--pp-list-marker-color` to
-`@color-muted`.
+still recessive. **The old grey is not recoverable on its own** — `currentColor` is the
+whole mechanism, so the only way to move the mark is to move the row's ink with it:
+`"inline-items": {"typography": {"color": "@color-muted"}}` greys the mark and the item
+text together.
 
-**Migration, if your separator was a DIFFERENT colour from your body copy.** A band that
-set `--section-separator-color` to an accent over muted text will not reproduce itself —
-`currentColor` makes the mark follow the row. Set `--pp-list-marker-color` to that accent
-instead. It is site-wide rather than per-band, so it covers the case where the contrast
-you wanted is the same across the site, and not the case where it differed band to band.
+**Migration, if your separator was a DIFFERENT colour from your body copy.** That case
+does not reproduce, and nothing in this release reproduces it. A band that set
+`--section-separator-color` to an accent over muted text gets a muted mark now, because
+the mark follows the row. **This is the one v1 capability with no v2 equivalent**, and it
+is #1028 rather than something to work around: a mark that differs from its sibling text
+needs a role that can address a pseudo-element, which is the A3 deferral.
 
 ### ⚠️ Narrowed: a body-less trust strip no longer flushes its own top margin
 
@@ -256,11 +282,24 @@ band's `udc` background now. Nothing about the smell's threshold or message chan
 ### Upgrading
 
 An unstyled section renders identically: the values moved, the pixels did not — with the
-two narrowings above as the exceptions, both of which an unstyled site does not notice
-(the glyph colour lands on the value it already had; the flush-top margin affects only a
-body-less strip). If you have stored `--section-*` slots, a `theme`, a `title_align`, a
-`background_image`, a `panel_cta_variant` or a per-row panel `style`, those writes are
-refused and each refusal names its route. `wp pp check page` finds them.
+narrowings above as the exceptions, and an unstyled site notices none of them (the two list
+markers land on the value they already had; the separator follows its row; the flush-top
+margin affects only a body-less strip; the measure is v1's rendered width). If you have
+stored `--section-*` slots, a `theme`, a `title_align`, a `background_image`, a
+`panel_cta_variant` or a per-row panel `style`, those writes are refused and each refusal
+names its route. `wp pp check page` finds them.
+
+**If you script `style_component` against a section**, that call now fails with
+`no_style_slots` whichever slots or recipe it carried — including `--recipe=accent-panel`
+and `--recipe=spacious-editorial`, which no longer exist. Send the design as a `udc` role
+map on the band instead.
+
+**One thing gets quietly worse and this release says so rather than hiding it.** Setting
+`body_items_align` on a band that has no `body_items` used to be accepted WITH a warning
+that named the reason — the slot it replaced declared `applies_when`. The prop does not
+carry that, and `refuse_props_when` has no way to say "this other prop is absent", so the
+value is now stored, paints nothing, and nothing tells you. It is #1029, with the two
+candidate fixes written up. Until then: set `body_items_align` only alongside `body_items`.
 
 ### Itemized changes
 
@@ -312,8 +351,10 @@ refused and each refusal names its route. `wp pp check page` finds them.
   narrowing — all three now false. Two `length-or-none` rosters and the `role: "fill"`
   declarer roster still named hero's retired slots.
 - `ai-instructions/style-component.md` named two recipes, `dark-spacious` and
-  `accent-panel`, that **no shipped schema declares**. Pre-existing fiction, replaced with
-  cta's real ones. Its `--overlay-bg` example also named four components that list the
+  `accent-panel`, as examples. Only the first was pre-existing fiction — hero's, stranded
+  by #986. `accent-panel` was section's REAL recipe and **this release deletes it** (see
+  the breaking note above); the doc now names cta's, which still ship. Its `--overlay-bg`
+  example also named four components that list the
   token; hero and section retired theirs, so it is two.
 - Counts that this rebuild falsified, re-measured rather than carried forward: the
   "76 retired slot names" in `lib/wp.php`, `lib/admin.php` and

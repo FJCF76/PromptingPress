@@ -759,6 +759,13 @@ function pp_validate_composition_smells(array $composition): array {
         $udc       = is_array($item['udc'] ?? null) ? $item['udc'] : [];
         $band      = is_array($udc['_band'] ?? null) ? $udc['_band'] : [];
         $band_bg   = is_array($band['background'] ?? null) ? $band['background'] : [];
+        // `!empty()` and not `isset()` on purpose: this smell asks "does the band have
+        // something to look at", and `""`/`null` are the engine's unset sentinels. The
+        // known imprecision is `fill: "transparent"`, which is a present value that paints
+        // nothing and therefore suppresses a warning it should not. Left as-is because the
+        // rule is advisory and warn-direction — a missed nudge on a band the author did
+        // style deliberately, never a false accusation — and because reproducing the
+        // engine's paints-nothing analysis here would duplicate it.
         $has_band_bg = !empty($band_bg['image']) || !empty($band_bg['fill']);
 
         $layout = $props['layout'] ?? 'text-only';
