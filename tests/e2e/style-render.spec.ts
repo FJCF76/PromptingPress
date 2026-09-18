@@ -508,37 +508,79 @@ test.describe('Safe-surface rendered proof', () => {
     }
   });
 
-  // #475: section.body_items renders a row of short items with a CSS-generated
-  // `li::before` middot separator (on EVERY item since #489's hanging-separator
-  // clip; the 2nd item read below is a mid-line item whose separator is visible).
-  // The separator color routes
-  // through --section-separator-color (default --color-muted); on the inverted band
-  // the default follows the light on-inverted text like sibling text (--color-muted
-  // is remapped to --color-bg there). PHP/CSS pins prove the routing declarations;
-  // only getComputedStyle('::before') proves the browser paints the middot the right
-  // color once the cascade applies. The items also inherit the #470 body type slots,
-  // so the brand strip (15px/600 + a lime middot) is fully expressible. Per the
-  // #86/#349 mobile-hid-it lesson, assert at 1280 AND 375.
-  test('#475 body_items separator honors --section-separator-color + inverted routing + brand type @smoke', async ({
+  // #475/#1023: section.body_items renders a row of short items with a CSS-generated
+  // `li::before` middot separator (on EVERY item since #489's hanging-separator clip;
+  // the 2nd item read below is a mid-line item whose separator is visible).
+  //
+  // REBUILT FOR v2 (#1023) AND IT IS NOT A MECHANICAL RE-POINT — the ruled fix to a
+  // defect this rebuild introduced lives here, because it is the browser-only half.
+  //
+  // WHAT THE v1 TEST ASSERTED: the separator routed through `--section-separator-color`
+  // (default `var(--color-muted)`), and on an inverted band the default followed the
+  // light sibling text because `--color-muted` was REMAPPED by the band class.
+  //
+  // WHAT CHANGED: the slot retired with section's slot map, and the mark is drawn with
+  // `content` on a `::before`, which ruling A3 defers — so no role can address it. The
+  // first cut pointed it at `--pp-list-marker-color` with the LIST MARKERS' accent
+  // fallback, and the rebuild's own disclosure claimed "nothing moves visually". That was
+  // false: the markers defaulted to accent, the SEPARATOR defaulted to muted, and the
+  // muted default existed precisely to make the mark follow its sibling text via those
+  // band-class remaps. A v2 band has no class, so reusing the literal would have painted a
+  // fixed grey that vanishes on the dark bands v2 makes easy.
+  //
+  // RULED: the separator falls back to `currentColor` — the same intent in the mechanism
+  // v2 has, inheritance — while the two list markers keep `var(--color-accent)`.
+  //
+  // THIS TEST IS THE RENDERED PROOF, at THREE widths rather than two (the ruling asked for
+  // 375/768/1280), on a light band AND an authored dark band. CSS-text pins can show the
+  // declaration; only a browser resolves `currentColor` through the cascade and proves the
+  // mark actually follows the row on a band that carries no class at all.
+  test('#1023 the body_items separator follows its row on every band, and the markers keep the accent @smoke', async ({
     page,
   }) => {
-    pageId = createPage('E2E Section Inline Items Separator');
-    const LIME = '#84cc16'; // rgb(132, 204, 22) — the brand strip's colored middot
-    setComposition(pageId, [
-      // 0: default separator (unset slot) — muted default.
-      { component: 'section', props: { id: 'pp-sec-default', body: '<p>Body.</p>', body_items: ['One', 'Two', 'Three'] } },
-      // 1: explicit var(--color-muted) — must be byte-identical to the unset default.
-      { component: 'section', props: { id: 'pp-sec-explicit', body: '<p>Body.</p>', body_items: ['One', 'Two', 'Three'] }, style: { '--section-separator-color': 'var(--color-muted)' } },
-      // 2: overridden separator color — the slot genuinely changes the middot.
-      { component: 'section', props: { id: 'pp-sec-override', body: '<p>Body.</p>', body_items: ['One', 'Two', 'Three'] }, style: { '--section-separator-color': LIME } },
-      // 3: inverted band, unset separator — routes like sibling text (light).
-      { component: 'section', props: { id: 'pp-sec-inverted', theme: 'inverted', body: '<p>Body.</p>', body_items: ['One', 'Two', 'Three'] } },
-      // 4: the brand strip — 15px/600 body type + a lime middot.
-      { component: 'section', props: { id: 'pp-sec-brand', body: '<p>Body.</p>', body_items: ['One', 'Two', 'Three'] }, style: { '--section-body-size': '15px', '--section-body-weight': '600', '--section-separator-color': LIME } },
-    ]);
+    const MUTED = 'rgb(94, 102, 119)'; // #5e6677 — what v1 painted on a light band
+    const LIGHT_INK = 'rgb(226, 232, 240)'; // #e2e8f0 — the dark band's authored row ink
 
-    // The 2nd <li> is a mid-line item; its ::before separator is visible (not
-    // clipped). Read its ::before color.
+    pageId = createPage('E2E Section Separator Follows Its Row');
+    setComposition(pageId, [{ component: 'section', props: { id: 'pp-seed', body: '<p>Seed.</p>' } }]);
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+
+    // Authored through the REAL path, not raw meta: a `udc` map only scopes to a band
+    // whose id the engine minted, and raw meta mints nothing (Section 14.1).
+    const res = await updateComposition(page, pageId, [
+      // 0 — default light band, nothing authored. The separator must equal the row's own
+      //     colour, which is what `currentColor` MEANS and what v1 achieved by remap.
+      { component: 'section', props: { id: 'pp-sec-default', body: '<p>Body.</p>', body_items: ['One', 'Two', 'Three'] } },
+      // 1 — the documented ROUTE BACK to the old recessive grey: the token still leads
+      //     the chain, so setting it to the muted token restores exactly what v1 painted.
+      {
+        component: 'section',
+        props: { id: 'pp-sec-muted', body: '<p>Body.</p>', body_items: ['One', 'Two', 'Three'] },
+        udc: { 'inline-items': { typography: { color: '@color-muted' } } },
+      },
+      // 2 — an authored DARK band. v1 could not express this at all without its theme
+      //     prop; the separator must follow the light ink with NO band class in play.
+      {
+        component: 'section',
+        props: { id: 'pp-sec-dark', body: '<p>Body.</p>', body_items: ['One', 'Two', 'Three'] },
+        udc: {
+          _band: { background: { fill: '#0b1020' } },
+          'inline-items': { typography: { color: '#e2e8f0' } },
+        },
+      },
+      // 3 — the brand strip: 15px/600 from the role, no extra typography surface needed.
+      {
+        component: 'section',
+        props: { id: 'pp-sec-brand', body: '<p>Body.</p>', body_items: ['One', 'Two', 'Three'] },
+        udc: { 'inline-items': { typography: { size: '15px', weight: '600', color: '#84cc16' } } },
+      },
+      // 4 — a body list, so the MARKERS can be proved NOT to have moved with the
+      //     separator. Conflating the two is the exact mistake this test corrects.
+      { component: 'section', props: { id: 'pp-sec-marker', body: '<ul><li>Item</li></ul>', body_marker: 'check' } },
+    ]);
+    expect(res.success, `udc write: ${JSON.stringify(res)}`).toBe(true);
+
     const sepColor = (id: string) =>
       page.locator(`#${id} .section__inline-item`).nth(1).evaluate((el) => getComputedStyle(el, '::before').color);
     const itemColor = (id: string) =>
@@ -549,34 +591,50 @@ test.describe('Safe-surface rendered proof', () => {
         return { size: cs.fontSize, weight: cs.fontWeight };
       });
 
-    for (const width of [1280, 375]) {
+    for (const width of [1280, 768, 375]) {
       await page.setViewportSize({ width, height: 900 });
       await page.goto(`/?page_id=${pageId}`);
-      await expect(page.locator('.section__inline-items')).toHaveCount(5, { timeout: 10000 });
+      await expect(page.locator('.section__inline-items')).toHaveCount(4, { timeout: 10000 });
 
-      // Default separator == explicit var(--color-muted): #475 changed no default.
-      const def = await sepColor('pp-sec-default');
-      const explicit = await sepColor('pp-sec-explicit');
-      expect(def).toBe(explicit);
+      // THE RULING, rendered: the separator equals its own row's colour. Asserted as an
+      // equality rather than against a literal, so it stays true through a retheme —
+      // which is the whole point of `currentColor` over a baked value.
+      for (const id of ['pp-sec-default', 'pp-sec-muted', 'pp-sec-dark', 'pp-sec-brand']) {
+        expect(await sepColor(id), `${id} @${width}`).toBe(await itemColor(id));
+      }
 
-      // The override slot genuinely repaints the middot lime, and differs from muted.
-      expect(await sepColor('pp-sec-override')).toBe('rgb(132, 204, 22)');
-      expect(await sepColor('pp-sec-override')).not.toBe(def);
+      // The DARK band is the case v1 could not express, and the one a re-used
+      // `--color-muted` literal would have made invisible. The separator is the light
+      // ink, and it is NOT what the light bands paint.
+      const dark = await sepColor('pp-sec-dark');
+      expect(dark, `dark band separator @${width}`).toBe(LIGHT_INK);
+      expect(dark).not.toBe(await sepColor('pp-sec-default'));
 
-      // Inverted routing: the separator follows the light sibling text (both resolve
-      // through the band's remapped --color-muted → --color-bg), and it is NOT the
-      // dark default muted the light bands paint.
-      const invSep = await sepColor('pp-sec-inverted');
-      expect(invSep).toBe(await itemColor('pp-sec-inverted'));
-      expect(invSep).not.toBe(def);
+      // THE ROUTE BACK, rendered: the old recessive grey is one authored value away.
+      expect(await sepColor('pp-sec-muted'), `muted route-back @${width}`).toBe(MUTED);
 
-      // Brand strip: the items inherit the #470 body type slots (15px / 600) and the
-      // separator is lime — the full original symptom, expressible with zero new
-      // typography slots.
+      // THE RESIDUAL, pinned rather than left implicit: an UNAUTHORED light band no
+      // longer paints v1's muted grey — it paints the row's inherited secondary text.
+      // If this ever equals MUTED again, the disclosure in three surfaces is stale.
+      expect(await sepColor('pp-sec-default'), `residual @${width}`).not.toBe(MUTED);
+
+      // The brand strip's type comes from the role, and its separator follows its ink.
       const brand = await itemType('pp-sec-brand');
       expect(brand.size).toBe('15px');
       expect(brand.weight).toBe('600');
       expect(await sepColor('pp-sec-brand')).toBe('rgb(132, 204, 22)');
+
+      // THE NON-CONFLATION PIN: the body list MARKER keeps the accent it always painted.
+      // It must NOT have been dragged onto `currentColor` with the separator.
+      const marker = await page
+        .locator('#pp-sec-marker .section__content--marker-check > ul > li')
+        .first()
+        .evaluate((el) => getComputedStyle(el, '::before').color);
+      const markerText = await page
+        .locator('#pp-sec-marker .section__content--marker-check > ul > li')
+        .first()
+        .evaluate((el) => getComputedStyle(el).color);
+      expect(marker, `marker @${width}`).not.toBe(markerText);
     }
   });
 
@@ -1005,38 +1063,70 @@ test.describe('Safe-surface rendered proof', () => {
     }
   });
 
-  // #488: a body_items-only band (no body copy) is a first-class strip. Its
-  // top margin — a body-relative separation — zeroes so the band's symmetric
-  // padding centers the row, while a strip WITH body copy keeps var(--space-md).
-  // Computed-style pins (0 vs 16px) at both viewports, plus a body-less WRAPPING
-  // strip to prove the #489 hanging-separator clip still holds without a body.
-  test('#488 body-less body_items strip zeroes its top margin and keeps the #489 clip @smoke', async ({
+  // #488/#1023: a body_items-only band (no body copy) is a first-class strip, and it
+  // still is — but the AUTOMATIC top-margin zeroing that #488 shipped is RETIRED, and
+  // this test is inverted rather than deleted because the narrowing is the thing that
+  // now needs proving.
+  //
+  // WHAT #488 DID: the template inferred `$has_body_copy` and emitted a `--flush-top`
+  // modifier that zeroed the row's body-relative top margin, so a body-less strip sat
+  // optically centred in the band's own symmetric padding.
+  //
+  // WHY IT IS GONE: a v2 role default is per COMPONENT, not per content shape. Inferring
+  // design intent from whether a prop happens to be empty is exactly the hidden-rule class
+  // the contract removes — and there is no legal place left to say it, because the modifier
+  // was a value decision the structural-CSS boundary keeps out of the stylesheet.
+  //
+  // WHAT REPLACES IT: the author says so, in one line the docs give verbatim —
+  // `"inline-items": { "spacing": { "margin-top": "0" } }`. Bands 0 and 1 below are the
+  // rendered proof that the route WORKS and that the default is what the disclosure says
+  // it is, so a reader who followed the CHANGELOG gets the result it promises.
+  //
+  // The #489 hanging-separator clip is unchanged and still pinned on a body-less wrapping
+  // strip, because that half was never about the margin.
+  test('#1023 a body-less strip keeps its default top margin, and the documented route zeroes it @smoke', async ({
     page,
   }, testInfo) => {
     pageId = createPage('E2E Section Body-less Strip');
-    setComposition(pageId, [
-      // A body-less strip: no body key, body_items only. This is the exact shape
-      // #488 reports as previously unauthorable (it needed a body:"" placeholder).
+    setComposition(pageId, [{ component: 'section', props: { id: 'pp-seed', body: '<p>Seed.</p>' } }]);
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+
+    const DARK = { _band: { background: { fill: '#0b1020' } }, 'inline-items': { typography: { color: '#e2e8f0' } } };
+    const seedRes = await updateComposition(page, pageId, [
+      // 0 — a body-less strip, UNAUTHORED margin. This is the narrowing: it now keeps
+      //     var(--space-md), where #488 zeroed it automatically.
       {
         component: 'section',
-        props: { id: 'pp-sec-bodyless', theme: 'inverted', body_items: ['SOC 2 Type II', '99.99% uptime', 'GDPR compliant'] },
+        props: { id: 'pp-sec-bodyless', body_items: ['SOC 2 Type II', '99.99% uptime', 'GDPR compliant'] },
+        udc: DARK,
       },
-      // A strip WITH body copy: keeps the base var(--space-md) top margin.
+      // 1 — the same strip with the DOCUMENTED ROUTE applied, verbatim from the README,
+      //     the CHANGELOG and composition.md. It must render what #488 used to give free.
+      {
+        component: 'section',
+        props: { id: 'pp-sec-bodyless-flush', body_items: ['SOC 2 Type II', '99.99% uptime', 'GDPR compliant'] },
+        udc: { ...DARK, 'inline-items': { ...DARK['inline-items'], spacing: { 'margin-top': '0' } } },
+      },
+      // 2 — a strip WITH body copy: keeps the base var(--space-md) top margin, exactly as
+      //     it always did. Unchanged by the narrowing, which only ever touched the
+      //     body-LESS case.
       {
         component: 'section',
         props: { id: 'pp-sec-withbody', body: '<p>Everything you need to launch.</p>', body_items: ['SOC 2 Type II', '99.99% uptime', 'GDPR compliant'] },
       },
-      // A body-less strip long enough to wrap at mobile: the #489 clip must still
-      // hide the line-leading separator on every wrapped line even with flush-top.
+      // 3 — a body-less strip long enough to wrap at mobile: the #489 clip must still
+      //     hide the line-leading separator on every wrapped line.
       {
         component: 'section',
         props: {
           id: 'pp-sec-bodyless-wrap',
-          theme: 'inverted',
           body_items: ['Recuperación incluida', 'Copias diarias', 'Sin permanencia', 'Soporte en español', '99,9% de disponibilidad'],
         },
+        udc: DARK,
       },
     ]);
+    expect(seedRes.success, `udc write: ${JSON.stringify(seedRes)}`).toBe(true);
 
     const marginTop = (rowId: string) =>
       page.locator(`#${rowId} .section__inline-items`).evaluate(
@@ -1064,10 +1154,17 @@ test.describe('Safe-surface rendered proof', () => {
       await page.goto(`/?page_id=${pageId}`);
       await expect(page.locator('#pp-sec-bodyless .section__inline-item')).toHaveCount(3, { timeout: 10000 });
 
-      // Core #488 assertion: body-less strip zeroes its top margin; a strip WITH
-      // body keeps var(--space-md) (16px). Same at every width.
-      expect(await marginTop('pp-sec-bodyless')).toBe(0);
-      expect(await marginTop('pp-sec-withbody')).toBe(16);
+      // THE NARROWING, RENDERED. A body-less strip no longer zeroes itself: it keeps
+      // var(--space-md) (16px), the same as a strip that has body copy above it. If this
+      // ever reads 0 again, something has reintroduced a rule that infers design intent
+      // from an empty prop, and three disclosure surfaces are wrong.
+      expect(await marginTop('pp-sec-bodyless'), `body-less default @${width}`).toBe(16);
+      expect(await marginTop('pp-sec-withbody'), `with-body default @${width}`).toBe(16);
+
+      // THE ROUTE BACK, RENDERED. The one line the docs hand the author does exactly what
+      // #488's automatic behaviour did — this is what makes the narrowing disclosable
+      // rather than a regression.
+      expect(await marginTop('pp-sec-bodyless-flush'), `documented route @${width}`).toBe(0);
 
       // #489 clip holds on the body-less wrapping strip: the leading item of every
       // visual line hangs into the clip zone (its ::before is clipped, no dangling
@@ -1980,36 +2077,49 @@ test.describe('Safe-surface rendered proof', () => {
    */
 
   // Padding axis (#302): the premium clamp() re-declaration used to beat the slot.
-  test('#305 section honors --section-padding-top at 1280px desktop @smoke', async ({
+  //
+  // RE-AUTHORED FOR v2 (#1023), same axis and same incident. The value moved from the
+  // `--section-padding-top` slot to the `_band` role's `spacing.padding-top`, and the
+  // question the pin asks is unchanged: does the browser render the author's value once
+  // the premium clamp() rules, the media queries and the adjacent-band rhythm all apply?
+  //
+  // The v2 answer is stronger than the slot's was, and the fixture proves the stronger
+  // claim rather than the old one: a role block is emitted UNLAYERED and band-scoped, so
+  // it outranks `@layer pp-v1` outright — including the `main > .section` premium rules
+  // this pin was born to catch, which is why those four rules were deletable as dead code
+  // in the same change. And because the parameter takes a breakpoint map, the pin now
+  // covers all three tiers with DIFFERENT values, which the single slot could never hold.
+  test('#1023 section honors an authored _band padding at all three tiers @smoke', async ({
     page,
   }) => {
-    pageId = createPage('E2E Section Padding Slot');
-    setComposition(pageId, [
-      {
-        component: 'section',
-        props: {
-          id: 'pp-sec01',
-          title: 'Slot contract',
-          body: '<p>Padding must be controllable per instance.</p>',
-        },
-      },
-    ]);
+    pageId = createPage('E2E Section Band Padding');
+    setComposition(pageId, [{ component: 'section', props: { id: 'pp-seed', body: '<p>Seed.</p>' } }]);
 
     await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
     await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
 
-    // A pixel value no token resolves to, so a premium clamp() clobber is unmistakable.
-    const res = await styleComponent(page, pageId, { '--section-padding-top': '77px' });
-    expect(res.success).toBe(true);
+    // Pixel values no token resolves to, so a premium clamp() clobber is unmistakable —
+    // and three DISTINCT ones, so a breakpoint map that collapsed to a single tier would
+    // fail here rather than pass on the desktop value.
+    const res = await updateComposition(page, pageId, [
+      {
+        component: 'section',
+        props: { id: 'pp-sec01', title: 'Role contract', body: '<p>Padding must be controllable per band.</p>' },
+        udc: { _band: { spacing: { 'padding-top': { d: '77px', t: '55px', p: '33px' } } } },
+      },
+    ]);
+    expect(res.success, `udc write: ${JSON.stringify(res)}`).toBe(true);
 
-    await page.setViewportSize({ width: 1280, height: 900 });
-    await page.goto(`/?page_id=${pageId}`);
+    for (const [width, expected] of [[1280, '77px'], [768, '55px'], [375, '33px']] as const) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`/?page_id=${pageId}`);
 
-    const section = page.locator('main > .section');
-    await expect(section).toBeVisible({ timeout: 10000 });
+      const section = page.locator('main > .section');
+      await expect(section).toBeVisible({ timeout: 10000 });
 
-    const paddingTop = await section.evaluate((el) => getComputedStyle(el).paddingTop);
-    expect(paddingTop).toBe('77px');
+      const paddingTop = await section.evaluate((el) => getComputedStyle(el).paddingTop);
+      expect(paddingTop, `@${width}`).toBe(expected);
+    }
   });
 
   // Type-scale axis (#302): the shared premium heading rule used to beat the slot.
@@ -2516,53 +2626,81 @@ test.describe('Safe-surface rendered proof', () => {
   // .section__content — a shape the static guard's own docblock says no
   // same-subject textual scan can prove. This rendered pin is the layer that owns
   // it: if any ancestor cap returns, the inner box cannot reach the slot value.
-  test('#305 section body honors --section-body-measure past its wrapper at 1280px @smoke', async ({
+  // RE-AUTHORED FOR v2 (#1023). The measure is the `body` role's `sizing.max-width`, and
+  // the ancestor-cap question is the same one — only a rendered box can show that no
+  // wrapper is capping the content the author sized.
+  //
+  // TWO THINGS THIS PIN NOW CARRIES THAT THE SLOT VERSION COULD NOT:
+  //
+  //  1. THE UNAUTHORED DEFAULT IS 49rem, and that is the number that actually RENDERED on
+  //     v1, not the one the old stylesheet read first. Four rules capped
+  //     `.section__content`; the desktop `main > .section--text-only` override at 49rem
+  //     was the winner and the 42rem base merely came first in source. The role default
+  //     carries the value that shipped, and band 1 below is the rendered proof of it —
+  //     if a future edit "tidied" it to 42rem, that would be a silent 7rem narrowing of
+  //     the most-used band in the theme.
+  //  2. Section's four measure BRANCHES collapsed to one role parameter with a breakpoint
+  //     map, so the pin reads the authored value at three tiers rather than one.
+  test('#1023 the section body measure reaches the rendered box, and the unauthored default is 49rem @smoke', async ({
     page,
   }) => {
-    pageId = createPage('E2E Section Body Width Slot');
-    setComposition(pageId, [
-      {
-        component: 'section',
-        props: {
-          id: 'pp-sec01',
-          title: 'Width is controllable',
-          body: '<p>The body width slot must reach the rendered content box.</p>',
-        },
-      },
-    ]);
+    pageId = createPage('E2E Section Body Measure');
+    setComposition(pageId, [{ component: 'section', props: { id: 'pp-seed', body: '<p>Seed.</p>' } }]);
 
     await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
     await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
 
-    // Wider than the 40rem (640px) wrapper default, so a re-introduced ancestor
-    // cap fails this loudly instead of hiding inside the old limit.
-    const res = await styleComponent(page, pageId, { '--section-body-measure': '700px' });
-    expect(res.success).toBe(true);
+    // 700px is wider than the old 640px wrapper default, so a re-introduced ancestor cap
+    // fails loudly instead of hiding inside the old limit.
+    const res = await updateComposition(page, pageId, [
+      {
+        component: 'section',
+        props: { id: 'pp-sec01', title: 'Width is controllable', body: '<p>The measure must reach the rendered content box.</p>' },
+        udc: { body: { sizing: { 'max-width': { d: '700px', t: '600px', p: '300px' } } } },
+      },
+      {
+        component: 'section',
+        props: { id: 'pp-sec02', title: 'Unauthored', body: '<p>The role default must still be 49rem.</p>' },
+      },
+    ]);
+    expect(res.success, `udc write: ${JSON.stringify(res)}`).toBe(true);
 
+    for (const [width, expected] of [[1280, '700px'], [768, '600px'], [375, '300px']] as const) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`/?page_id=${pageId}`);
+
+      const content = page.locator('#pp-sec01 .section__content');
+      await expect(content).toBeVisible({ timeout: 10000 });
+
+      const box = await content.evaluate((el) => {
+        const wrapper = el.closest('.section__body') as Element | null;
+        return {
+          content: getComputedStyle(el).maxWidth,
+          wrapperCap: wrapper ? getComputedStyle(wrapper).maxWidth : null,
+          rendered: Math.round(el.getBoundingClientRect().width),
+        };
+      });
+
+      // The authored value reaches the content box…
+      expect(box.content, `authored measure @${width}`).toBe(expected);
+      // …and nothing above it is capping narrower than that. `none` is the v2 answer:
+      // the wrapper caps were deleted, so the only cap in the chain is the role's own.
+      if (box.wrapperCap !== 'none') {
+        expect(parseFloat(box.wrapperCap as string), `ancestor cap @${width}`).toBeGreaterThanOrEqual(parseFloat(expected));
+      }
+      // The rendered box must actually be able to USE it where the viewport allows.
+      if (width >= 768) expect(box.rendered).toBeGreaterThan(400);
+    }
+
+    // The unauthored default, read at desktop where 49rem (784px) fits.
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto(`/?page_id=${pageId}`);
-
-    const content = page.locator('.section__content');
-    await expect(content).toBeVisible({ timeout: 10000 });
-
-    const widths = await content.evaluate((el) => {
-      const wrapper = el.closest('.section__body') as Element;
-      return {
-        content: getComputedStyle(el).maxWidth,
-        wrapper: wrapper ? getComputedStyle(wrapper).maxWidth : null,
-        rendered: el.getBoundingClientRect().width,
-      };
-    });
-
-    // The wrapper must carry the slot value, and the rendered box must actually
-    // exceed the old 640px wrapper default — the rendered proof, not just the
-    // computed property. The INNER .section__content now honors the slot too:
-    // issue 309 routed the text-only 49rem literal (main > .section--text-only
-    // .section__content) through var(--section-body-measure, 49rem), so the inner
-    // content box that used to cap dead at 784px now follows the slot to 700px.
-    expect(widths.content).toBe('700px');
-    expect(widths.wrapper).toBe('700px');
-    expect(widths.rendered).toBeGreaterThan(640);
+    const unauthored = page.locator('#pp-sec02 .section__content');
+    await expect(unauthored).toBeVisible({ timeout: 10000 });
+    expect(
+      await unauthored.evaluate((el) => getComputedStyle(el).maxWidth),
+      'the unauthored body measure must be 49rem — the value that rendered on v1, not the 42rem base that merely read first',
+    ).toBe('784px');
   });
 
   // #470: the section body text size + weight are authorable via --section-body-size
@@ -2573,33 +2711,42 @@ test.describe('Safe-surface rendered proof', () => {
   // lesson), and an UNSET section must render byte-identically to today: weight 430 at
   // both, size 1.065rem (desktop) / 1rem (mobile) resolved against the page's own root.
   // Two sections prove both halves in one render: section 0 SET, section 1 UNSET.
-  test('#470 section body honors --section-body-size / --section-body-weight at both breakpoints; unset byte-identical @smoke', async ({
+  // RE-AUTHORED FOR v2 (#1023). The two slots are the `body` role's `typography.size` and
+  // `typography.weight`, and the claim is unchanged in both halves: an authored band gets
+  // the deliberate type step #470 asked for, and an UNAUTHORED band is byte-identical to
+  // what shipped — weight 430 at every tier, size 1.065rem desktop/tablet and 1rem phone.
+  //
+  // THE UNSET HALF IS THE LOAD-BEARING ONE and it is why this is not a mechanical
+  // re-point: those literals used to live in the desktop premium and mobile stylesheet
+  // rules, and the rebuild moved them into role defaults. "The values moved, the pixels
+  // did not" is the promise the whole release makes, and this is the rendered proof of it
+  // for the most-used band in the theme — read at the SAME three tiers as the padding and
+  // measure pins, because the phone tier is where the 1.065 -> 1 step lives and the #86/#349
+  // lesson is that a mobile-only regression hides from a desktop-only read.
+  test('#1023 the section body type is authorable per band, and an unauthored band is byte-identical @smoke', async ({
     page,
   }) => {
-    pageId = createPage('E2E Section Body Type Slots');
-    setComposition(pageId, [
+    pageId = createPage('E2E Section Body Type Roles');
+    setComposition(pageId, [{ component: 'section', props: { id: 'pp-seed', body: '<p>Seed.</p>' } }]);
+
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+
+    // Distinctive, unambiguous values: 22px is no theme literal, 850 is no default weight
+    // — and 850 is only expressible at all because #988 widened the font-weight grammar
+    // to the real CSS range, which this rebuild needed for its own 560/430 defaults.
+    const res = await updateComposition(page, pageId, [
       {
         component: 'section',
         props: { id: 'pp-sec01', title: 'Set body type', body: '<p>Deliberate size and weight.</p>' },
+        udc: { body: { typography: { size: '22px', weight: '850' } } },
       },
       {
         component: 'section',
         props: { id: 'pp-sec02', title: 'Default body type', body: '<p>Unchanged defaults.</p>' },
       },
     ]);
-
-    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
-    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
-
-    // Distinctive, unambiguous values: 22px is no theme literal, 850 is no default weight.
-    const res = await styleComponent(
-      page,
-      pageId,
-      { '--section-body-size': '22px', '--section-body-weight': '850' },
-      undefined,
-      0,
-    );
-    expect(res.success).toBe(true);
+    expect(res.success, `udc write: ${JSON.stringify(res)}`).toBe(true);
 
     const bodyType = (i: number) =>
       page.locator('.section__content').nth(i).locator('p').first().evaluate((el) => {
@@ -2608,23 +2755,23 @@ test.describe('Safe-surface rendered proof', () => {
         return { fontSize: cs.fontSize, fontWeight: cs.fontWeight, rootPx };
       });
 
-    for (const width of [1280, 375]) {
+    for (const width of [1280, 768, 375]) {
       await page.setViewportSize({ width, height: 900 });
       await page.goto(`/?page_id=${pageId}`);
       await expect(page.locator('.section__content')).toHaveCount(2, { timeout: 10000 });
 
-      // Set slot reaches the body at BOTH breakpoints — the issue's case.
+      // The authored role value reaches the body at every tier — the issue's case.
       const set = await bodyType(0);
-      expect(set.fontSize).toBe('22px');
-      expect(set.fontWeight).toBe('850');
+      expect(set.fontSize, `authored size @${width}`).toBe('22px');
+      expect(set.fontWeight, `authored weight @${width}`).toBe('850');
 
-      // Unset renders byte-identically to today: weight 430 at both breakpoints,
-      // size 1.065rem (desktop) / 1rem (mobile) resolved against the page's own root
-      // font-size — the exact historical literal, and NOT the set section's value.
+      // Unset renders byte-identically to v1: weight 430 at every tier, size 1.065rem at
+      // desktop AND tablet, 1rem at phone, resolved against the page's own root font-size
+      // — the exact historical literals, and NOT the authored band's value.
       const unset = await bodyType(1);
-      expect(unset.fontWeight).toBe('430');
+      expect(unset.fontWeight, `default weight @${width}`).toBe('430');
       const remFactor = width >= 768 ? 1.065 : 1;
-      expect(unset.fontSize).toBe(`${remFactor * unset.rootPx}px`);
+      expect(unset.fontSize, `default size @${width}`).toBe(`${remFactor * unset.rootPx}px`);
       expect(unset.fontSize).not.toBe('22px');
     }
   });
@@ -2714,19 +2861,8 @@ test.describe('Safe-surface rendered proof', () => {
         '--cta-eyebrow-border-color': 'transparent',
       },
     },
-    {
-      component: 'section',
-      props: { id: 'pp-sec01', body: '<p>Panel body.</p>' },
-      slots: {
-        '--section-border-width': '0px',
-        '--section-border-color': 'transparent',
-        '--section-panel-border-width': '0px',
-        '--section-panel-border-color': 'transparent',
-        '--section-eyebrow-border-width': '0px',
-        '--section-eyebrow-border-color': 'transparent',
-      },
-    },
-    // HERO'S ROW IS RETIRED, AND THE CASE IS INAPPLICABLE RATHER THAN UNPINNED (#986).
+    // HERO'S AND SECTION'S ROWS ARE RETIRED, AND THE CASE IS INAPPLICABLE RATHER THAN
+    // UNPINNED (#986, #1023).
     //
     // It was left here with an EMPTY slot map during the repricing, which made it vacuous:
     // `styleComponent()` refuses a v2 component with `no_style_slots`, so the row failed on
@@ -2736,10 +2872,20 @@ test.describe('Safe-surface rendered proof', () => {
     // Why hero cannot come back to this list: issue 332 is WP core injecting
     // `border-style: solid` through `:where([style*="border-width"])`, which matches on the
     // INLINE STYLE ATTRIBUTE. A v2 component emits none, so core's selector has nothing to
-    // match and the trigger class is unreachable for it. Hero is covered by the v2
-    // border-sink pin below, which asserts exactly that — a stronger statement than this
-    // row made, because it holds for every trigger core might add rather than the slots
+    // match and the trigger class is unreachable for it. Both are covered by the v2
+    // border-sink pin below, which asserts exactly that — a stronger statement than these
+    // rows made, because it holds for every trigger core might add rather than the slots
     // that happened to exist.
+    //
+    // Section's row left the same way at #1023, and its departure is the one that makes
+    // the #1026 landmine concrete: the issue-332 immunity baseline still forces
+    // `border-style: none; border-width: 0` on `.section__panel-row`, whose stated premise
+    // is "every element that can carry inline slot custom properties". That premise is now
+    // FALSE — section emits no style attribute anywhere. The baseline is deliberately NOT
+    // narrowed here: section's `_band` border default is zero-width/transparent, which is
+    // byte-identical to what the baseline forces, so the collision is invisible and the
+    // trap does not bite. Narrowing it needs its own before/after Chromium read, which is
+    // #1026's to do when grid follows.
   ];
 
   // Guard the guard. Derived from schema.json, NOT compared to a hardcoded count: a
@@ -2764,8 +2910,11 @@ test.describe('Safe-surface rendered proof', () => {
 
     const covered = new Set(BORDER_TRIGGER_CASES.flatMap((c) => Object.keys(c.slots)));
 
-    // Fail-closed floor: 13 trigger slots existed at issue 332.
-    expect(declared.size).toBeGreaterThanOrEqual(13);
+    // Fail-closed floor: 13 trigger slots existed at issue 332; 11 remain after section's
+    // `--section-border-width` and `--section-panel-border-width` left with its slot map
+    // (#1023). The floor tracks the v1 surface, which shrinks one rebuild sprint at a
+    // time — it is NOT a statement that the theme has fewer borders.
+    expect(declared.size).toBeGreaterThanOrEqual(11);
     expect([...covered].sort()).toEqual([...declared].sort());
   });
 
@@ -2871,6 +3020,26 @@ test.describe('Safe-surface rendered proof', () => {
       props: { id: 'pp-hero01', layout: 'split', title: 'Hero', image_url: '/x.png', image_alt: 'x' },
       udc: {
         media: { border: { width: '2px', style: 'solid', color: '#345678' } },
+        eyebrow: { border: { width: '3px', style: 'solid', color: '#876543' } },
+      },
+    },
+    {
+      // #1023. The `text-panel` layout is chosen deliberately: `.section__panel-row` is
+      // one of the three selectors the issue-332 immunity baseline still names, so this
+      // row renders the element whose premise the rebuild falsified and proves the sink
+      // is absent on it too — not only on the band root.
+      component: 'section',
+      rootSel: 'main > .section',
+      innerSel: '.section__panel',
+      props: {
+        id: 'pp-sec01',
+        layout: 'text-panel',
+        body: '<p>Body.</p>',
+        panel_heading: 'Panel',
+        panel_items: [{ label: 'A', value: '1' }],
+      },
+      udc: {
+        panel: { border: { width: '2px', style: 'solid', color: '#345678' } },
         eyebrow: { border: { width: '3px', style: 'solid', color: '#876543' } },
       },
     },
@@ -3406,8 +3575,10 @@ test.describe('Safe-surface rendered proof', () => {
   // (0,1,0), and the subheading is always the header's last child — so the
   // declared `margin-bottom: var(--space-lg)` computed to 0px on every page.
   // All three subheading-bearing components shared the bug.
+  // REPRICED AGAIN (#1023): section left this loop with its slots, exactly as
+  // testimonials did in Sprint 0. Its two header-rhythm halves are pinned on the roles in
+  // the v2 test below, which now covers both v2 components rather than one.
   for (const { component, slot, expected } of [
-    { component: 'section', slot: '--section-subheading-margin-bottom', expected: '16px' },
     { component: 'grid', slot: '--grid-subheading-margin-bottom', expected: '32px' },
   ]) {
     test(`#336 ${component} subheading keeps its bottom rhythm as the header's last child @smoke`, async ({
@@ -3481,12 +3652,11 @@ test.describe('Safe-surface rendered proof', () => {
   // a declaration-level assertion would not prove the slot survives the premium
   // override — only computed style does. 1.65rem @ 16px root = 26.4px.
   //
-  // REPRICED (v2 Sprint 0): testimonials left this loop with its slots. The header
-  // rhythm it pinned is not gone — it moved onto the UDC roles, where the same two
-  // halves are pinned in the v2 test that follows this loop.
+  // REPRICED (v2 Sprint 0, then #1023): testimonials left this loop with its slots, and
+  // section followed. The header rhythm they pinned is not gone — it moved onto the UDC
+  // roles, where the same two halves are pinned in the v2 test that follows this loop.
   // Pinned twice: unset -> the real rendered default, and set -> the operator wins.
   for (const { component, locator, slot, expected } of [
-    { component: 'section', locator: '.section__title', slot: '--section-heading-margin-bottom', expected: '26.4px' },
     { component: 'grid', locator: '.grid__heading', slot: '--grid-heading-margin-bottom', expected: '26.4px' },
   ]) {
     test(`#343 ${component} title keeps its slot-driven gap above the subheading @smoke`, async ({
@@ -3606,6 +3776,86 @@ test.describe('Safe-surface rendered proof', () => {
     expect(res.success, `udc header rhythm write: ${JSON.stringify(res)}`).toBe(true);
 
     await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+    expect(await sub.evaluate((el) => getComputedStyle(el).marginBottom)).toBe('61px');
+    expect(await head.evaluate((el) => getComputedStyle(el).marginBottom)).toBe('62px');
+  });
+
+  // The SECTION twin of the pair above (#1023). Written as its own test rather than
+  // parameterised over the two v2 components, because the two do not share the numbers
+  // that make the pin meaningful: testimonials rhythms at a flat 32px, and section's
+  // heading carries a BREAKPOINT MAP — 1.65rem at desktop and tablet, 1.25rem at phone.
+  //
+  // That map is the part worth a rendered pin. On v1 the value came from a base rule plus
+  // TWO premium breakpoint overrides (the #302 split), and #343's whole point was that a
+  // declaration-level assertion could not prove the slot survived the premium override.
+  // The role default replaces all three with one map, so the phone tier is read here
+  // explicitly — a collapse to a single tier would pass a desktop-only read.
+  test('#336/#343 the section header rhythm holds on its UDC roles, at every tier and when set @smoke', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E Section v2 Header Rhythm');
+    setComposition(pageId, [
+      {
+        component: 'section',
+        props: {
+          id: 'pp-sec01',
+          title: 'Title',
+          eyebrow: 'Kicker',
+          subheading: 'The title must not collide with the sub-heading below it.',
+          body: '<p>Body copy.</p>',
+        },
+      },
+    ]);
+
+    const head = page.locator('.section__title');
+    const sub = page.locator('.section__subheading');
+
+    // Unset -> the documented defaults, carried by the role-defaults block.
+    for (const [width, headingMb] of [[1280, '26.4px'], [768, '26.4px'], [375, '20px']] as const) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`/?page_id=${pageId}`);
+      await expect(sub).toBeVisible({ timeout: 10000 });
+
+      expect(
+        await head.evaluate((el) => getComputedStyle(el).marginBottom),
+        `title gap above the subheading @${width}`,
+      ).toBe(headingMb);
+      expect(
+        await sub.evaluate((el) => getComputedStyle(el).marginBottom),
+        `subheading keeps its bottom rhythm as the header's last child @${width}`,
+      ).toBe('16px');
+      expect(
+        await sub.evaluate((el) => el === el.parentElement?.lastElementChild),
+        'and it really is the last child — the condition that broke it in #336',
+      ).toBe(true);
+    }
+
+    // Set -> the author wins, through the validated v2 write path. Values no token
+    // resolves to, so a default leaking through is unmistakable.
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+    const res = await updateComposition(page, pageId, [
+      {
+        component: 'section',
+        props: {
+          id: 'pp-sec01',
+          title: 'Title',
+          eyebrow: 'Kicker',
+          subheading: 'The title must not collide with the sub-heading below it.',
+          body: '<p>Body copy.</p>',
+        },
+        udc: {
+          subheading: { spacing: { 'margin-bottom': '61px' } },
+          heading: { spacing: { 'margin-bottom': '62px' } },
+        },
+      },
+    ]);
+    expect(res.success, `udc header rhythm write: ${JSON.stringify(res)}`).toBe(true);
+
+    // Read at the PHONE tier deliberately: the authored flat value must override every
+    // tier of the default's map, not just the one that happens to match the viewport.
+    await page.setViewportSize({ width: 375, height: 900 });
     await page.goto(`/?page_id=${pageId}`);
     expect(await sub.evaluate((el) => getComputedStyle(el).marginBottom)).toBe('61px');
     expect(await head.evaluate((el) => getComputedStyle(el).marginBottom)).toBe('62px');
