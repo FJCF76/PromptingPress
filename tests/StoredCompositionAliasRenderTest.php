@@ -328,23 +328,18 @@ class StoredCompositionAliasRenderTest extends TestCase
     public function testAFreshCanonicalCompositionWritesValidatesReadsBackAndRenders(): void
     {
         $authored = [
-            ['component' => 'cta', 'props' => ['title' => 'Fresh', 'body' => 'B', 'button_text' => 'Go', 'button_url' => '/'], 'style' => [
+            ['component' => 'cta', 'props' => ['title' => 'Fresh', 'button_text' => 'Go', 'button_url' => '/'], 'style' => [
                 '--cta-heading-color' => '#f0f0f0',
-                '--cta-heading-size'  => '4rem',
-            ]],
+                '--cta-heading-size'  => '4rem']],
             ['component' => 'grid', 'props' => ['title' => 'Cards', 'items' => [
-                ['title' => 'One', 'text' => 'a', 'style' => ['--grid-item-bg' => '#101014']],
-            ]], 'style' => ['--grid-heading-measure' => '40rem']],
-            ['component' => 'section', 'props' => ['title' => 'Band', 'body' => 'Copy.'], 'style' => [
-                '--section-body-color' => '#334455',
-            ]],
-        ];
+                ['title' => 'One', 'text' => 'a', 'style' => ['--grid-item-bg' => '#101014']]]], 'style' => ['--grid-heading-measure' => '40rem']],
+            ['component' => 'stats', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'Band'], 'style' => [
+                '--stats-label-color' => '#334455']]];
 
         $id     = pp_create_page('Fresh canonical page', 'draft');
         $result = pp_execute_action('update_composition', [
             'post_id'     => $id,
-            'composition' => $authored,
-        ]);
+            'composition' => $authored]);
         $this->assertTrue($result['ok'], (string) ($result['error'] ?? ''));
 
         // Read back: every authored style map survives the round trip untouched.
@@ -364,7 +359,7 @@ class StoredCompositionAliasRenderTest extends TestCase
         $this->assertStringContainsString('--cta-heading-size: 4rem', $html);
         $this->assertStringContainsString('--grid-heading-measure: 40rem', $html);
         $this->assertStringContainsString('--grid-item-bg: #101014', $html);
-        $this->assertStringContainsString('--section-body-color: #334455', $html);
+        $this->assertStringContainsString('--stats-label-color: #334455', $html);
 
         // And validation is clean — no findings on a canonically authored document.
         $this->assertSame([], pp_validate_composition_errors($stored));
@@ -567,14 +562,12 @@ class StoredCompositionAliasRenderTest extends TestCase
     {
         $id = pp_create_page('Link hover slot', 'draft');
         pp_update_composition($id, [
-            ['component' => 'section', 'props' => ['title' => 'Band', 'body' => 'Copy.']],
-        ]);
+            ['component' => 'stats', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'Band']]]);
 
         $result = pp_execute_action('style_component', [
             'post_id'         => $id,
             'component_index' => 0,
-            'style'           => ['--section-body-link-hover-color' => '#ff6600'],
-        ]);
+            'style'           => ['--section-body-link-hover-color' => '#ff6600']]);
 
         $this->assertTrue($result['ok'], (string) ($result['error'] ?? ''));
         $this->assertStringContainsString('--section-body-link-hover-color: #ff6600', $this->renderStored($id));
@@ -590,14 +583,12 @@ class StoredCompositionAliasRenderTest extends TestCase
     {
         $id = pp_create_page('Rejected slot', 'draft');
         pp_update_composition($id, [
-            ['component' => 'section', 'props' => ['title' => 'Band', 'body' => 'Copy.']],
-        ]);
+            ['component' => 'stats', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'Band']]]);
 
         $result = pp_execute_action('style_component', [
             'post_id'         => $id,
             'component_index' => 0,
-            'style'           => ['--section-accent-hover' => '#ff6600'],
-        ]);
+            'style'           => ['--section-accent-hover' => '#ff6600']]);
 
         $this->assertFalse($result['ok'], 'an undeclared, unaliased slot name must still be rejected');
         $this->assertStringContainsString('--section-accent-hover', (string) ($result['error'] ?? ''));
@@ -622,14 +613,13 @@ class StoredCompositionAliasRenderTest extends TestCase
     {
         $id = pp_create_page('Legacy slot write boundary', 'draft');
         pp_update_composition($id, [
-            ['component' => 'section', 'props' => ['title' => 'Band', 'body' => 'Copy.'],
-             'style' => ['--section-text' => '#334455']],
-        ]);
+            ['component' => 'stats', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'Band'],
+             'style' => ['--section-text' => '#334455']]]);
 
         // STORED: paints nothing, under either name.
         $html = $this->renderStored($id);
         $this->assertStringNotContainsString('#334455', $html, 'the stored legacy declaration is dead');
-        $this->assertStringNotContainsString('--section-body-color', $html, 'and nothing renames it');
+        $this->assertStringNotContainsString('--stats-label-color', $html, 'and nothing renames it');
         $this->assertStringNotContainsString('--section-text', $html);
 
         // The band can no longer be edited at all — the stale declaration is visible
@@ -638,8 +628,7 @@ class StoredCompositionAliasRenderTest extends TestCase
         $blocked = pp_execute_action('update_component', [
             'post_id'         => $id,
             'component_index' => 0,
-            'props'           => ['title' => 'Renamed'],
-        ]);
+            'props'           => ['title' => 'Renamed']]);
         $this->assertFalse($blocked['ok'], 'the dead slot fails the write it sits on');
         $this->assertSame('invalid_style_slot', $blocked['error_code'] ?? null);
         $this->assertStringContainsString(
@@ -652,8 +641,7 @@ class StoredCompositionAliasRenderTest extends TestCase
         $rejected = pp_execute_action('style_component', [
             'post_id'         => $id,
             'component_index' => 0,
-            'style'           => ['--section-title-size' => '3rem'],
-        ]);
+            'style'           => ['--section-title-size' => '3rem']]);
         $this->assertFalse($rejected['ok'], 'authoring a legacy slot name was never accepted and still is not');
         $this->assertStringContainsString('--section-title-size', (string) ($rejected['error'] ?? ''));
     }
