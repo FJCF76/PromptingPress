@@ -406,7 +406,7 @@
     },
     "body-link": {
       "selector": ".section__content a",
-      "description": "Links inside the body rich text. STATES ARE PART OF THIS ROLE, not the stylesheet: its resting colour and its `hover` colour are both authored here, because moving one without the other is the cancellation trap docs/explanation-cascade-layers.md §1b describes.",
+      "description": "Links inside the rich-text body. THIS ROLE DECLARES NO DEFAULTS, and that is the faithful port rather than an omission — the same reasoning as `inline-items`' type. base.css already gives every `a` the accent colour, an underline and an accent-hover, so a role default here would have been byte-identical in VALUE and different in CASCADE POSITION: a role block is emitted unlayered, so it outranks the shared premium button rule, and an author-written `<a class=\"btn\">` inside the prose is an anchor too. Pinning the defaults here painted such a button's label accent-on-accent-gradient — the #545 nested-author-button defect, reintroduced through a role selector, because the selector grammar cannot say \"an anchor that is not a button\". Leaving the role silent restores v1 exactly: an unauthored prose link takes the global anchor treatment, and the button rule keeps winning for buttons. An author who sets a colour here (a dark band needs one) outranks both, which is also what v1 did on its inverted bands.",
       "groups": [
         "typography",
         "spacing",
@@ -415,15 +415,7 @@
         "sizing",
         "motion"
       ],
-      "defaults": {
-        "typography": {
-          "color": "@color-accent",
-          "decoration": "underline",
-          ":hover": {
-            "color": "@color-accent-hover"
-          }
-        }
-      }
+      "defaults": {}
     },
     "columns": {
       "selector": ".section__grid",

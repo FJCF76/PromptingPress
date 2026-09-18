@@ -120,4 +120,66 @@ class SectionBodyListTest extends TestCase
             'authored <ul> in section.body must render inside .section__content.'
         );
     }
+
+    /**
+     * THE `body-link` ROLE DECLARES NO DEFAULTS, and the absence is load-bearing (#1023).
+     *
+     * FOUND BY A RENDERED PIN, not by reading the schema. The role's first cut declared
+     * `typography.color: @color-accent`, `decoration: underline` and a `:hover` — which is
+     * byte-identical to what `base.css` already gives every `a`. Identical in VALUE, and
+     * different in CASCADE POSITION: a role block is emitted UNLAYERED, so it outranked the
+     * shared premium `main .btn:not(...)` rule — and an author-written `<a class="btn">`
+     * inside `body` is an anchor too. The measured result was a nested author button
+     * rendering its label rgb(49,87,244) on the premium blue gradient: accent-on-accent,
+     * effectively invisible. That is the #545 nested-author-button defect, reintroduced
+     * through a role selector.
+     *
+     * It cannot be fixed by narrowing the selector: the role-selector gate in lib/udc.php
+     * admits `[A-Za-z0-9_ .>-]` only, so `:not(.btn)` is not expressible — and widening a
+     * gate that guards a string interpolated into CSS to work around one component's
+     * default would be the wrong trade.
+     *
+     * Leaving the role silent restores v1 exactly. Measured after the change: the prose
+     * link is unchanged (accent + underline) and the nested button is rgb(252,253,255) on
+     * the gradient, identical to the panel CTA beside it.
+     *
+     * An AUTHOR who sets a colour here still outranks both — which a dark band needs, and
+     * which is also what v1 did on its inverted bands. Declining a DEFAULT is not
+     * withholding the surface.
+     */
+    public function testTheBodyLinkRoleDeclinesToDefaultWhatBaseCssAlreadyGives(): void
+    {
+        $schema = json_decode(file_get_contents($this->themeRoot . '/components/section/schema.json'), true);
+        $role   = $schema['roles']['body-link'];
+
+        $this->assertSame(
+            [],
+            $role['defaults'] ?? [],
+            'the `body-link` role must declare NO defaults: base.css already gives every anchor '
+            . 'the accent colour, an underline and an accent hover, so a default here changes only '
+            . 'the cascade position — and unlayered it repaints author-written .btn anchors in the body.'
+        );
+
+        // …but the surface stays open, or a dark band could not recolour its links at all.
+        $this->assertContains(
+            'typography',
+            $role['groups'],
+            'an author must still be able to colour prose links; only the DEFAULT is declined'
+        );
+
+        // The values the role would have pinned are the ones base.css ships, which is why
+        // pinning them was redundant. If base.css ever stops shipping them, this test fails
+        // and the role's silence has to be re-argued rather than silently becoming a gap.
+        $base = file_get_contents($this->themeRoot . '/assets/css/base.css');
+        $this->assertMatchesRegularExpression(
+            '/\ba\s*\{[^}]*color:\s*var\(--color-accent\)/s',
+            $base,
+            'base.css must still give every anchor the accent colour — the role relies on it'
+        );
+        $this->assertMatchesRegularExpression(
+            '/\ba:hover\s*\{[^}]*color:\s*var\(--color-accent-hover\)/s',
+            $base,
+            'base.css must still give every anchor an accent hover — the role relies on it'
+        );
+    }
 }

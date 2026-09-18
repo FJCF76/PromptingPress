@@ -8939,6 +8939,12 @@ test.describe('#424/#536/#551 the panel stays a light surface under an authored 
           _band: { background: { fill: '#0b1020' } },
           heading: { typography: { color: '#ffffff' } },
           body: { typography: { color: 'rgba(255, 255, 255, 0.82)' } },
+          // The RING, authored at rest and on hover from ONE map. This is the v2
+          // replacement for #584's panel-CTA ring pair, which needed a positional twin
+          // slot so a chosen ring would survive the pointer. A `':hover'` nested inside
+          // `border` is emitted from the same map as the resting value, so the two cannot
+          // split — asserted rendered, below.
+          'panel-cta': { border: { color: '#7c3aed', ':hover': { color: '#ddd6fe' } } },
         },
       },
     ]);
@@ -9024,6 +9030,18 @@ test.describe('#424/#536/#551 the panel stays a light surface under an authored 
       //    hit the heading.
       expect(ratio(read.item!.color, read.panel!.bg), `panel item vs panel @${width}`)
         .toBeGreaterThanOrEqual(4.5);
+
+      // 5. THE RING SURVIVES THE POINTER (#584's contract, v2 mechanism). The authored
+      //    resting colour paints, and hovering moves it to the authored hover colour
+      //    rather than reverting to the theme accent — which is what the slot era needed
+      //    a separate positional twin to achieve.
+      const cta = page.locator('.section__panel-cta');
+      expect(await cta.evaluate((el) => getComputedStyle(el).borderTopColor), `ring at rest @${width}`)
+        .toBe('rgb(124, 58, 237)');
+      await cta.hover();
+      await expect
+        .poll(async () => cta.evaluate((el) => getComputedStyle(el).borderTopColor), { timeout: 2000 })
+        .toBe('rgb(221, 214, 254)');
     }
   });
 });
@@ -10092,6 +10110,35 @@ test.describe('#545 per-instance button slots stay off nested author buttons (re
     }
   });
 
+  /**
+   * The v2 half (#1023): author the panel CTA through its ROLE, via the validated write
+   * path, because a `udc` map only scopes to a band whose id the engine minted. Returns
+   * the page id so the caller reads it exactly as it reads `sectionPage()`'s.
+   */
+  async function sectionPageUdc(page: any, title: string, udc: Record<string, unknown>): Promise<number> {
+    const id = sectionPage(title);
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+    const res = await updateComposition(page, id, [
+      {
+        component: 'section',
+        props: {
+          id: 'pp-545-section',
+          layout: 'text-panel',
+          title: 'Plans',
+          body: '<p>Pick a plan. <a class="btn" href="/x">Inline CTA</a> '
+            + '<a class="btn btn--outline" href="/y">Outline CTA</a></p>',
+          panel_heading: 'Starter',
+          panel_cta_text: 'Book a call',
+          panel_cta_url: '/contact',
+        },
+        udc,
+      },
+    ]);
+    expect(res.success, `udc write: ${JSON.stringify(res)}`).toBe(true);
+    return id;
+  }
+
   function sectionPage(title: string, style?: Record<string, string>): number {
     const id = createPage(title);
     setComposition(id, [
@@ -10181,10 +10228,18 @@ test.describe('#545 per-instance button slots stay off nested author buttons (re
     test(`section: the panel fill slots paint the panel CTA and not the body button (${width}px) @smoke`, async ({
       page,
     }) => {
-      pageId = sectionPage('E2E 545 section', {
-        '--section-panel-cta-bg': PURPLE,
-        '--section-panel-cta-color': INK,
-        '--section-panel-cta-shadow': 'none',
+      // The three retired fill slots are the `panel-cta` role's three parameters now.
+      // The CONTRACT this test exists for is unchanged and is the reason it was repriced
+      // rather than retired: an authored button design must reach the button the component
+      // OWNS and must not leak onto an author-written `.btn` inside `body`. A role selector
+      // is narrower than the old premium cascade, so the isolation should hold by
+      // construction — "should" is what this proves.
+      pageId = await sectionPageUdc(page, 'E2E 545 section', {
+        'panel-cta': {
+          background: { fill: PURPLE },
+          typography: { color: INK },
+          shadow: { box: 'none' },
+        },
       });
 
       await page.setViewportSize({ width, height: 900 });
@@ -10193,8 +10248,8 @@ test.describe('#545 per-instance button slots stay off nested author buttons (re
 
       const got = await readButtons(page, '.section__panel-cta', '.section__content .btn');
 
-      // The slot still does its job (#536 stays green).
-      expect(got.owned.bgColor, `@${width}: the panel CTA must still paint the fill slot`).toBe(
+      // The role still does its job (what #536 proved for the slot).
+      expect(got.owned.bgColor, `@${width}: the panel CTA must still paint the authored fill`).toBe(
         got.purple,
       );
       expect(got.owned.shadow, `@${width}: the panel CTA must still flatten`).toBe('none');
@@ -10292,7 +10347,9 @@ test.describe('#545 per-instance button slots stay off nested author buttons (re
   // The GLOBAL tier is deliberately NOT neutralised: a site-wide button retheme must still
   // reach an author-written button, exactly as it reaches every composed one.
   test('a site-wide --btn-bg still repaints a nested author button @smoke', async ({ page }) => {
-    pageId = sectionPage('E2E 545 global tier', { '--section-panel-cta-bg': PURPLE });
+    pageId = await sectionPageUdc(page, 'E2E 545 global tier', {
+      'panel-cta': { background: { fill: PURPLE } },
+    });
 
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto(`/?page_id=${pageId}`);
@@ -10319,8 +10376,10 @@ test.describe('#545 per-instance button slots stay off nested author buttons (re
 
     expect(got.nested.bgColor, 'the global tier must still reach the nested button').toBe(teal);
     expect(got.nested.bgImage, 'a flat global fill clears the gradient there too').toBe('none');
-    // The per-instance slot still outranks the global tier on the button that owns it.
-    expect(got.owned.bgColor, 'the panel CTA keeps its per-instance fill').toBe(got.purple);
+    // The authored ROLE still outranks the global tier on the button that owns it — and by
+    // a cleaner route than the slot did: a role block is unlayered, so it does not depend
+    // on leading a fallback chain the way `--section-panel-cta-bg` had to.
+    expect(got.owned.bgColor, 'the panel CTA keeps its authored fill').toBe(got.purple);
   });
 });
 
@@ -12718,30 +12777,35 @@ test.describe('#584 slot families, as rendered', () => {
   // ── A-38: the four new ring slots actually paint, and outrank the global knob ──────
 
   const RING_CASES = [
-    // HERO'S TWO RING ROWS ARE GONE (#986). They authored `--hero-button-border` /
-    // `--hero-button-hover-border` on a hero band; hero owns no button slots now, and its
-    // CTA ring is whatever the `cta` role (or the `button` preset) sets. The panel-CTA
-    // rows below keep this block's coverage of the ring-slot contract.
+    // HERO'S TWO RING ROWS ARE GONE (#986) AND SECTION'S PANEL-CTA ROW WITH THEM (#1023).
+    // Both components own no button slots now: hero's CTA ring is whatever the `cta` role
+    // (or the `button` preset) sets, and section's panel CTA is the `panel-cta` role's
+    // `border.color` with a `':hover'` nested in the same group — which is a STRONGER
+    // contract than the slot pair, because it needs no positional twin to survive the
+    // hover and no premium rule has to be led.
+    //
+    // cta keeps this block's coverage of the v1 ring-slot contract until its own rebuild
+    // (#1026), and it is the honest host: the slots this loop reads are cta's own, so
+    // nothing here is reading one component's slot through another's rule.
+    //
+    // The v2 replacement is pinned as RENDERED hover in the
+    // "#424/#536/#551 the panel stays a light surface" block, and as CSS text in
+    // SectionTextPanelTest.
     {
-      // The panel CTA's ring is decided by the SHARED premium rule, not by the section
-      // block's keystone. If the slot had only been routed in the keystone (the literal
-      // reading of the issue's single citation), this case would read the theme accent.
-      name: 'section panel CTA',
-      sel: '.section__panel-cta',
+      name: 'cta primary button',
+      sel: '.cta__button',
       component: (style: Record<string, string>) => ({
-        component: 'section',
+        component: 'cta',
         props: {
-          id: 'pp-s584',
-          layout: 'text-panel',
-          body: '<p>Body copy for the text panel band.</p>',
-          panel_heading: 'Panel',
-          panel_cta_text: 'Book a call',
-          panel_cta_url: '/call',
-          panel_cta_variant: 'primary',
+          id: 'pp-c584',
+          title: 'Ring contract',
+          body: 'Body copy for the cta band.',
+          button_text: 'Book a call',
+          button_url: '/call',
         },
         style,
       }),
-      slots: { rest: '--section-panel-cta-border', hover: '--section-panel-cta-hover-border' },
+      slots: { rest: '--cta-button-border', hover: '--cta-button-hover-border' },
     },
   ];
 
