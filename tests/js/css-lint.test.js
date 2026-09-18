@@ -15,6 +15,20 @@ const COMPONENTS_CSS = fs.readFileSync(
     'utf-8'
 );
 
+/**
+ * One component schema, by name.
+ *
+ * Three separate inline `JSON.parse(fs.readFileSync(...))` blocks appeared in this file
+ * when #994 moved chrome's designable values out of the stylesheet and several pins had
+ * to follow them into the schema. Three hand-rolled copies of one read is how the fourth
+ * one ends up pointing at the wrong path.
+ */
+function readSchema(component) {
+    return JSON.parse(
+        fs.readFileSync(path.resolve(__dirname, `../../components/${component}/schema.json`), 'utf-8'),
+    );
+}
+
 const BASE_CSS = fs.readFileSync(
     path.resolve(__dirname, '../../assets/css/base.css'),
     'utf-8'
@@ -106,26 +120,38 @@ describe('CSS lint: positional selectors', () => {
 // is not just unnecessary, it no longer exists, and asserting it would pin a lie.
 //
 // The DEFECT #355 found still has to stay fixed, and it was never really about the
-// custom property: the active link had no colour surface of its own at all. Both
-// selectors must still carry their own colour declaration (so the role can reach them)
-// and keep the bold emphasis (which is structural, not authored).
+// custom property: the active link had no colour surface of its own at all.
+//
+// REPOINTED AGAIN BY #994, because the surface moved rather than changed. The three
+// stylesheet rules that carried the accent and the bold weight are gone; they are
+// the `link-current` role's DEFAULTS now. Asserting them against components.css
+// would pin their absence, so the assertions follow the values to the schema — the
+// guarantee is identical and it is checked where the values actually live.
+//
+// THE SELECTOR IS HALF THE GUARANTEE and gets its own assertion. `current-menu-item`
+// is a strict superset of the other two markers (WordPress only adds
+// `current_page_item` inside the branch that already added `current-menu-item`, and
+// `aria-current="page"` derives from the same flag), so ONE selector replaces three
+// — but only in the CHILD form. The descendant form would also paint every link in
+// a current parent's dropdown, which is the regression ruling D4 widened the
+// role-selector charset to avoid.
 describe('CSS lint: #355 the active header link is its own colour surface', () => {
-    const css = stripComments(COMPONENTS_CSS);
+    const linkCurrent = readSchema('nav').roles['link-current'];
 
-    test('current-menu-item / current_page_item carries its own colour and the bold weight', () => {
-        const rule = css.match(
-            /\.nav__menu ul li\.current-menu-item > a,\s*\.nav__menu ul li\.current_page_item > a\s*\{([^}]*)\}/,
-        );
-        expect(rule).not.toBeNull();
-        expect(rule[1]).toContain('font-weight: 700');
-        expect(rule[1]).toMatch(/color:\s*var\(--color-accent\)/);
+    test('the link-current role exists and reaches the current item as a CHILD', () => {
+        expect(linkCurrent).toBeTruthy();
+        expect(linkCurrent.selector).toBe('.nav__menu ul li.current-menu-item > a');
     });
 
-    test('aria-current="page" carries its own colour and the bold weight', () => {
-        const rule = css.match(/\.nav__menu ul li a\[aria-current="page"\]\s*\{([^}]*)\}/);
-        expect(rule).not.toBeNull();
-        expect(rule[1]).toContain('font-weight: 700');
-        expect(rule[1]).toMatch(/color:\s*var\(--color-accent\)/);
+    test('link-current carries its own colour default and the bold weight', () => {
+        expect(linkCurrent.defaults.typography.color).toBe('@color-accent');
+        expect(linkCurrent.defaults.typography.weight).toBe('700');
+    });
+
+    test('the retired stylesheet rules really are gone, not duplicated', () => {
+        const css = stripComments(COMPONENTS_CSS);
+        expect(css).not.toMatch(/\.nav__menu ul li\.current_page_item/);
+        expect(css).not.toMatch(/\.nav__menu ul li a\[aria-current="page"\]/);
     });
 });
 
@@ -179,13 +205,21 @@ describe('CSS lint: mobile nav menu is an out-of-flow panel (#426)', () => {
         expect(body).toMatch(/position\s*:\s*absolute/);
     });
 
-    test('the panel declares its own background, which the `menu` role overrides', () => {
-        // Was: routes the --header-bg chrome slot. That inline custom property is gone
-        // with the pp_header_bg option (#976, ruling A1); the panel is the `menu` UDC
-        // role now. What must stay true is that the panel declares a background AT ALL
-        // — an out-of-flow panel over page content with no fill is unreadable, and
-        // that is the regression this test was added to catch.
-        expect(body).toMatch(/background\s*:\s*var\(\s*--color-bg\b/);
+    test('the panel declares its own background, as a phone-scoped `menu` role default', () => {
+        // Was: routes the --header-bg chrome slot, then: declares `background` here.
+        // Both homes are gone — the slot with the pp_header_bg option (#976, ruling
+        // A1), the declaration with #994's retirement. What must stay true has never
+        // changed: the panel has a fill AT ALL, because an out-of-flow panel over page
+        // content without one is unreadable, and that is the regression this test
+        // exists to catch.
+        //
+        // THE BREAKPOINT IS PART OF THE ASSERTION. The default is keyed `p`, and its
+        // `d` counterpart is `transparent`: the engine's `d` breakpoint carries no
+        // media query, so a fill declared only as `d` would paint the desktop menu — a
+        // bar-coloured rectangle behind the desktop links — instead of the phone panel.
+        const fill = readSchema('nav').roles.menu.defaults.background.fill;
+        expect(fill.p).toBe('@color-bg');
+        expect(fill.d).toBe('transparent');
     });
 
     // Detection proof: the mechanism pin must CATCH an in-flow regression and PASS
@@ -296,17 +330,18 @@ describe('CSS lint: footer column grid + #382 landing slot (#427)', () => {
   });
 
   test('the contact <address> resets italic and its links carry no slot-defeating literal', () => {
-    const addr = ruleBody('.site-footer__address');
-    expect(addr).not.toBeNull();
-    expect(addr).toMatch(/font-style\s*:\s*normal/);
-    const link = ruleBody('.site-footer__address a');
-    expect(link).not.toBeNull();
-    // The routing through --footer-link-color is gone with that option (#976, ruling
-    // A1); these links are the `address-link` role now. The half that still matters is
-    // that the default is a TOKEN, not a hardcoded colour — a literal here would
-    // outrank nothing but would make the role's value look broken next to its siblings.
-    expect(link).toMatch(/color\s*:\s*var\(--color-muted\)/);
-    expect(link).not.toMatch(/color\s*:\s*#[0-9a-f]{3,8}/i);
+    // BOTH HALVES MOVED TO THE SCHEMA (#994), so both assertions follow them. The
+    // <address> italic reset is `address`'s `typography.style`, and the link ink is
+    // `address-link`'s `typography.color`. What each guards is unchanged: an
+    // <address> renders italic by UA default and footer contact info is not italic,
+    // and the link colour must be a TOKEN rather than a hardcoded literal — a
+    // literal would still work and would still be wrong, because retuning the
+    // palette would leave these two links behind every other muted surface.
+    const footerSchema = readSchema('footer');
+    expect(footerSchema.roles.address.defaults.typography.style).toBe('normal');
+    const linkColor = footerSchema.roles['address-link'].defaults.typography.color;
+    expect(linkColor).toBe('@color-muted');
+    expect(linkColor).not.toMatch(/^#[0-9a-f]{3,8}$/i);
   });
 });
 
@@ -2865,18 +2900,16 @@ describe('CSS lint: schema styling.tokens are reachable BY THE COMPONENT THAT LI
         const entry = components.find(c => c.name === component);
         const { blocks } = entry;
 
-        // CHROME TAKES THE STYLESHEET PATH, not the role-defaults path.
-        //
-        // It is a v2 component — nav and footer are on the engine — but ruling A1 as
-        // issued keeps its resting appearance in components.css ("default chrome
-        // styling from base.css/components.css stays"), so it ships EMPTY role
-        // defaults and consumes its tokens exactly the way a v1 component does:
-        // through `var(--token)` in its own CSS block. Routing it down the role
-        // branch would demand defaults the ruling says not to add. The reachability
-        // question is unchanged — it is just answered by the stylesheet.
-        const chrome = ['nav', 'footer'].includes(component);
-
-        if (entry.roles && !chrome) {
+        // CHROME TAKES THE ROLE-DEFAULTS PATH TOO SINCE #994. It used to be carved
+        // out here for the same reason it was carved out of the structural boundary:
+        // ruling A1 as issued kept its resting appearance in components.css, so it
+        // shipped EMPTY role defaults and consumed its tokens the way a v1 component
+        // does, through `var(--token)` in its own block. The retirement moved those
+        // values into defaults, so the branch below is now the right one for every
+        // component that declares roles, with no exception to maintain. The
+        // reachability question never changed — only which half of the system
+        // answers it.
+        if (entry.roles) {
             // `--color-text` is referenced as `@color-text` in a role default.
             const ref = '"@' + token.replace(/^--/, '') + '"';
             expect(
@@ -3048,36 +3081,40 @@ describe('CSS lint: v2 components keep NO designable value in their stylesheet',
             if (!fs.existsSync(file)) return false;
             const schema = JSON.parse(fs.readFileSync(file, 'utf-8'));
             if (!(schema.roles && Object.keys(schema.roles).length)) return false;
-            // CHROME IS ON THE ENGINE BUT KEEPS ITS RESTING APPEARANCE IN THIS FILE,
-            // by explicit ruling (#976, ruling A1 as issued: "default chrome styling
-            // from base.css/components.css stays — that's component CSS, not the
-            // options"). The §2 boundary says a v2 component's designable values come
-            // from the engine; for a BAND that works because the ELEMENT half of the
-            // defaults tier is unlayered while this stylesheet sits in `@layer pp-v1`
-            // (#986), so a role default wins regardless of print order. Chrome's header
-            // and footer are painted by this file today, and moving ~40 declarations
-            // into role defaults is a separate change with its own visual risk on every
-            // page of every site — not something to smuggle in behind a lint. So chrome
-            // ships EMPTY role defaults (pinned in ChromeUdcTest) and this file keeps
-            // its resting values; an authored chrome value still wins, because the
-            // authored tier is unlayered too.
+            // THE CHROME CARVE-OUT LAPSED HERE (#994), on the condition it named.
             //
-            // THAT EMPTY-DEFAULTS PIN NOW CARRIES MORE WEIGHT THAN IT WAS WRITTEN FOR.
-            // It was a bound on VISUAL risk. Since the layering it is also the only
-            // thing keeping chrome's hover, current-page and mobile rules in this file
-            // from being erased at any specificity: a non-empty chrome role default
-            // would be unlayered and would outrank every one of them. Do not relax it
-            // as "just a staging decision" — retire chrome's CSS block in the same
-            // change, or not at all.
+            // It read: chrome is on the engine but keeps its resting appearance in
+            // this file (#976, ruling A1 as issued), because moving ~88 declarations
+            // into role defaults is a change with its own visual risk on every page of
+            // every site — not something to smuggle in behind a lint. And it carried
+            // its own lapse condition: "retire chrome's CSS block in the same change,
+            // or not at all... Remove this filter then." #994 retired nav's and
+            // footer's blocks together, so the filter is removed rather than relaxed.
             //
-            // CARVE-OUT, NOT AN EXEMPTION: it is named, it cites the ruling, and it
-            // lapses the moment chrome's CSS block is retired. Remove this filter then.
-            return !['nav', 'footer'].includes(name);
+            // WHY BOTH AT ONCE WAS THE RULE. An ELEMENT-level role default emits
+            // UNLAYERED while this stylesheet sits in `@layer pp-v1`, so a non-empty
+            // chrome default outranks the matching rule here at any specificity. A
+            // half-retirement would have left the other half's hover, current-page and
+            // mobile rules alive in the file and dead in the browser.
+            return true;
         });
 
     // Fail-closed: if discovery breaks, every check below would pass vacuously.
     test('discovery finds the rebuilt components', () => {
         expect(v2Components).toContain('testimonials');
+    });
+
+    /**
+     * THE CARVE-OUT'S LAPSE, PINNED (#994).
+     *
+     * Deleting a filter is invisible: nothing fails if someone re-adds it, and the
+     * discovery above would go quietly back to skipping the two components with the
+     * largest CSS blocks in the file. Naming them here means a re-exemption has to
+     * argue with a test rather than with a comment.
+     */
+    test('chrome joins the boundary rule like any other v2 component', () => {
+        expect(v2Components).toContain('nav');
+        expect(v2Components).toContain('footer');
     });
 
     // STRUCTURE, not design. Layout scaffolding (how boxes relate), wrapper
@@ -3096,6 +3133,31 @@ describe('CSS lint: v2 components keep NO designable value in their stylesheet',
         'padding', 'content', 'visibility', 'pointer-events', 'order', 'isolation',
         // Accessibility affordances.
         'scroll-margin-top', 'outline', 'outline-offset', 'clip', 'clip-path', 'white-space',
+        // THE THREE PROPERTIES CHROME'S RETIREMENT FOUND HOMELESS (#994, rulings
+        // H1/H2/H3). Same discipline as `aspect-ratio` above and the opposite
+        // outcome: these three have no place in the UDC taxonomy and should not get
+        // one, so the boundary claims them rather than leaving them in neither set,
+        // where the fail-closed arm below would make them unauthorable AND
+        // un-keepable — a capability deletion.
+        //
+        // `cursor` — an interaction affordance, the tier `outline` and
+        // `pointer-events` already belong to. There is no UDC group for it and one
+        // property on two buttons does not justify opening ruling A3's taxonomy.
+        //
+        // `transition` / `transition-property` — the motion group carries
+        // `transition-duration` and `timing-function` and deliberately NOT the
+        // property list (ruling A3, "exactly two params"). lib/udc.php states the
+        // arrangement this classification completes: a role whose STRUCTURAL css
+        // sets the `transition` shorthand keeps its property LIST while an authored
+        // `motion.transition-duration` overrides the timing. Moving the shorthand
+        // into a role would silently widen the animated list from `color` to CSS's
+        // initial `all` — a behaviour change wearing a migration's clothes.
+        //
+        // `transform` — nav's open chevron rotation. Its selector needs a child
+        // combinator AND an ancestor state (`.is-open` on a forebear); the UDC has
+        // no ancestor-state dimension (deliberately, see pp_udc_states()), so no
+        // role could express it at any value.
+        'cursor', 'transition', 'transition-property', 'transform',
     ]);
 
     // Properties that are NEVER structural, whatever value they carry. A

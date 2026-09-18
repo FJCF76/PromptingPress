@@ -1468,6 +1468,57 @@ graphy";
     }
 
     /**
+     * THE SIBLING DISCLOSURE, ON THE BAND SURFACE (#994, ruling D8).
+     *
+     * `udc_preset_groups_skipped` covers a group the role does not PERMIT.
+     * `udc_preset_value_shadowed_by_role_default` covers the other loss: a group the
+     * role permits and also DEFAULTS, where the preset's value ranks under the default
+     * and never paints. Two causes, two findings, deliberately — collapsing them would
+     * tell an author to fix the wrong thing.
+     *
+     * PINNED HERE BECAUSE THIS IS THE SURFACE `wp pp check page` AND RESTORE SHARE.
+     * ChromeUdcTest pins the write envelope and the stored-map re-read; this is the
+     * composition path, and it is also where the loss was reachable BEFORE #994 — a
+     * `button` preset on testimonials' `card` has always ranked under that role's
+     * background and border defaults, and nothing disclosed it. The retirement is what
+     * prompted the disclosure; the disclosure closes the older gap too.
+     */
+    public function testAPresetValueShadowedByARoleDefaultIsDisclosedOnTheCompositionPath(): void
+    {
+        $findings = pp_udc_composition_findings([[
+            'component' => 'testimonials',
+            'id'        => 'pp-a1b2c3d4',
+            'props'     => ['items' => [['quote' => 'Great.', 'author' => 'Ada']]],
+            // `card` permits background and border AND defaults both, so the theme's
+            // own `button` preset loses five values on it.
+            'udc'       => ['card' => [PP_UDC_PRESET_KEY => 'button']],
+        ]]);
+
+        $shadowed = array_values(array_filter(
+            $findings,
+            static fn(array $f): bool => $f['type'] === 'udc_preset_value_shadowed_by_role_default'
+        ));
+        $this->assertCount(1, $shadowed, 'the composition path must carry the disclosure');
+        $message = (string) $shadowed[0]['message'];
+
+        $this->assertStringContainsString('role "card"', $message);
+        $this->assertStringContainsString('"button"', $message);
+        $this->assertStringContainsString('background.fill', $message);
+        $this->assertStringContainsString('Write the value in your own map', $message);
+
+        // AND IT IS THE RIGHT FINDING, not the neighbour: `card` permits every group the
+        // preset sets, so nothing is skipped for want of permission.
+        $this->assertSame(
+            [],
+            array_values(array_filter(
+                $findings,
+                static fn(array $f): bool => $f['type'] === 'udc_preset_groups_skipped'
+            )),
+            'a permitted-but-defaulted group is not a skipped group'
+        );
+    }
+
+    /**
      * AND ON CHROME, which is the half #993 made reachable. The same preset on a
      * chrome role must disclose the same way — an asymmetry here is the bug #993
      * filed, arriving on schedule the moment custom presets shipped.

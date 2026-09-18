@@ -43,14 +43,29 @@ role now.
 | columns | `.site-footer__columns` | the column row |
 | brand | `.site-footer__brand` | the brand column (logo/wordmark plus blurb) |
 | blurb | `.site-footer__blurb` | the short brand paragraph |
-| heading | `.site-footer__heading` | every optional column heading |
-| link | `.site-footer__nav ul li a` | footer menu links, both columns |
+| social | `.site-footer__social` | the social-icon ROW — the space between icons and its offset from the blurb |
 | social-link | `.site-footer__social-link` | the social icon links |
+| heading | `.site-footer__heading` | every optional column heading |
+| nav-list | `.site-footer__nav ul` | the menu LIST — the row and column rhythm of a wrapping link row |
+| link | `.site-footer__nav ul li a` | footer menu links, both columns |
+| contact | `.site-footer__contact` | the contact COLUMN — its type size and reading rhythm |
 | address | `.site-footer__address` | the contact block |
 | address-link | `.site-footer__address a` | the `mailto:` / `tel:` links inside it |
 | copyright | `.site-footer__copyright` | the copyright line |
 | bottom | `.site-footer__bottom` | the delimited bottom bar (only when a note is set) |
+| bottom-row | `.site-footer__bottom-inner` | the row inside that bar — the gap between copyright and note |
 | note | `.site-footer__note` | the optional secondary line |
+
+Every role above carries the footer's resting appearance as a DEFAULT since #994;
+`assets/css/components.css` keeps only structure. Two consequences worth knowing:
+setting a colour at rest no longer cancels that role's hover treatment (#992 — the
+hovers are defaults in the same tier now), and a `_preset` fills in only where a
+default is silent, because role defaults out-rank presets.
+
+`heading` defaults its colour to `currentColor`, which in the `color` property means
+"inherit" — so a heading follows the footer's own text colour and a dark footer
+carries its headings with it. Set a colour there only when a heading should differ
+from the text around it.
 
 Hover, focus and the active state are ordinary value dimensions: put a `:hover` map
 inside a role's group. The global `--color-accent` token is still the default, so an
@@ -61,12 +76,16 @@ new background — `blurb`, `heading`, `copyright`, `note`, `address`, plus the 
 roles — and check each against the fill for WCAG AA. A dark footer with one role left
 un-recoloured renders dark ink on dark.
 
-`.site-footer__blurb` is capped at `32ch`, the footer's only measure cap. The footer is a
-tight dark-marketing-footer surface, not a general footer builder, so a brand blurb stays a
-short descriptor; the `ch` unit keeps it short at any type size. It is a literal, not a
-slot, for the same chrome-contract reason — chrome declares **zero style slots** by
-ratified contract, so a stated reason is the only disposition available here, not a
-second-best one. **Reopening condition:** the chrome model's own boundary (#223) moving.
+The brand blurb is capped at `32ch`, the footer's only measure cap. The footer is a tight
+dark-marketing-footer surface, not a general footer builder, so a brand blurb stays a short
+descriptor; the `ch` unit keeps it short at any type size, because `ch` scales with the font
+instead of fixing a pixel width the next type-scale change would invalidate.
+
+It used to be a literal in `components.css` that nothing could reach, carrying a stated
+reason and a **reopening condition** — "the chrome model's own boundary moving". #994 is
+that condition arriving: the cap is the `blurb` role's `sizing.max-width` now, so you can
+change it like any other role value, and the reason travelled with it into the role's own
+description.
 | `blurb`      | string | No | — | Brand/description line under the logo. Set via `pp_footer_blurb` |
 | `contact`    | string | No | — | Contact/secondary text block. Set via `pp_footer_contact`. Rendered inside an `<address>`; email addresses become `mailto:` links and international phone numbers (leading `+`) become `tel:` links (#427). Stays free text — non-matching text passes through unchanged |
 | `copyright`  | string | No | — | Copyright line. Set via `pp_footer_copyright`; empty = the default `© <year> <site title>. All rights reserved.` |
@@ -134,13 +153,19 @@ If no menu is assigned to the location, the nav area is empty but the footer sti
 
 ## CSS
 
-Styles in `assets/css/components.css` under `/* === COMPONENT: footer === */`.
+Structural styles in `assets/css/components.css` under `/* === COMPONENT: footer === */` —
+layout, wrapper geometry and accessibility affordances only.
 
-Background: `--color-surface`. Text: inherited. Nav-link colour: `--color-muted`.
-Border top: `1px solid --color-border`. Every one of those is the resting value a
-`pp_site_udc` role overrides — the footer emits no inline style attribute at all, so an
-authored value wins on source order from the `pp-utilities` handle rather than by outranking
-the cascade.
+That file keeps STRUCTURE only since #994. The resting appearance — background
+`@color-surface`, the `1px solid @color-border` top border, the band padding, every text
+and link colour — is role `defaults` in `components/footer/schema.json`, and the footer
+emits no inline style attribute at all.
+
+Which tier wins is not source order. The engine emits defaults before the stylesheets and
+authored values after, and both are unlayered while `components.css` sits in `@layer
+pp-v1`, so an authored value beats the default on emission order and beats the stylesheet
+on layer. The one exception is the `_band` root tier, which rides `@layer pp-zero` BELOW
+the stylesheet on purpose — see `docs/explanation-cascade-layers.md`.
 
 ### Layout and semantics (#427)
 

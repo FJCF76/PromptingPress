@@ -209,9 +209,12 @@ add_action('wp_enqueue_scripts', function () {
     // with a stock-coloured header on exactly the pages a visitor reaches when
     // something has already gone wrong.
     //
-    // A site with no chrome styling stored pays one autoloaded option read and
-    // returns before the component registry is touched; see
-    // pp_udc_chrome_defaults_css().
+    // CHROME DEFAULTS EMIT ON EVERY SITE, styled or not (#994). This used to note that
+    // a site with no chrome styling stored returned before the component registry was
+    // touched; that short-circuit is gone, because the header's and footer's whole
+    // resting appearance is role defaults now and skipping them would leave an
+    // unstyled site with unpainted chrome. See pp_udc_chrome_defaults_css() for what
+    // the gate was buying and why the cost is acceptable.
     $pp_chrome_defaults = pp_udc_chrome_defaults_css();
     if ($pp_chrome_defaults !== '') {
         wp_add_inline_style('pp-base', $pp_chrome_defaults);

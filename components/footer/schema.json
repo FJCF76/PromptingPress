@@ -111,7 +111,20 @@
         "shadow",
         "motion"
       ],
-      "defaults": {}
+      "defaults": {
+        "spacing": {
+          "padding-top": "@space-lg",
+          "padding-bottom": "@space-lg"
+        },
+        "border": {
+          "width-top": "1px",
+          "style-top": "solid",
+          "color-top": "@color-border"
+        },
+        "background": {
+          "fill": "@color-surface"
+        }
+      }
     },
     "inner": {
       "selector": ".site-footer__inner",
@@ -125,7 +138,11 @@
         "shadow",
         "motion"
       ],
-      "defaults": {}
+      "defaults": {
+        "spacing": {
+          "gap": "@space-lg"
+        }
+      }
     },
     "columns": {
       "selector": ".site-footer__columns",
@@ -139,7 +156,15 @@
         "shadow",
         "motion"
       ],
-      "defaults": {}
+      "defaults": {
+        "spacing": {
+          "gap": {
+            "d": "@space-xl",
+            "t": "@space-lg",
+            "p": "@space-lg"
+          }
+        }
+      }
     },
     "brand": {
       "selector": ".site-footer__brand",
@@ -153,11 +178,15 @@
         "shadow",
         "motion"
       ],
-      "defaults": {}
+      "defaults": {
+        "spacing": {
+          "gap": "@space-sm"
+        }
+      }
     },
     "blurb": {
       "selector": ".site-footer__blurb",
-      "description": "The short brand paragraph under the footer logo.",
+      "description": "The short brand paragraph under the footer logo. Its `sizing.max-width` is the footer's only measure cap, and it is a `ch` value on purpose: `ch` scales with the font, so the line stays short at ANY type size instead of fixing a pixel width the next type-scale change would invalidate. The footer is a tight marketing surface, not a general builder — the blurb is a descriptor beside two or three menu columns, not body copy.",
       "groups": [
         "typography",
         "spacing",
@@ -166,11 +195,18 @@
         "sizing",
         "motion"
       ],
-      "defaults": {}
+      "defaults": {
+        "typography": {
+          "size": "0.9rem"
+        },
+        "sizing": {
+          "max-width": "32ch"
+        }
+      }
     },
-    "heading": {
-      "selector": ".site-footer__heading",
-      "description": "Every optional column heading (the menu, contact and secondary labels).",
+    "social": {
+      "selector": ".site-footer__social",
+      "description": "The social-icon ROW under the brand blurb: the space between icons and the row's offset from the blurb above it. The icons' own ink is `social-link`.",
       "groups": [
         "typography",
         "spacing",
@@ -179,20 +215,12 @@
         "sizing",
         "motion"
       ],
-      "defaults": {}
-    },
-    "link": {
-      "selector": ".site-footer__nav ul li a",
-      "description": "Footer menu links, in both the primary and secondary columns.",
-      "groups": [
-        "typography",
-        "spacing",
-        "border",
-        "background",
-        "sizing",
-        "motion"
-      ],
-      "defaults": {}
+      "defaults": {
+        "spacing": {
+          "margin-top": "@space-sm",
+          "gap": "@space-sm"
+        }
+      }
     },
     "social-link": {
       "selector": ".site-footer__social-link",
@@ -205,7 +233,95 @@
         "sizing",
         "motion"
       ],
-      "defaults": {}
+      "defaults": {
+        "typography": {
+          "color": "@color-muted",
+          ":hover": {
+            "color": "@color-accent"
+          }
+        }
+      }
+    },
+    "heading": {
+      "selector": ".site-footer__heading",
+      "description": "Every optional column heading (the menu, contact and secondary labels). Its colour defaults to `currentColor`, which in the `color` property means \"inherit\" — so a heading follows the footer's own text colour, and setting `_band.typography.color` for a dark footer carries the headings with it. Set a colour here only when a heading should differ from the text around it.",
+      "groups": [
+        "typography",
+        "spacing",
+        "border",
+        "background",
+        "sizing",
+        "motion"
+      ],
+      "defaults": {
+        "typography": {
+          "size": "0.9rem",
+          "weight": "600",
+          "color": "currentColor"
+        },
+        "spacing": {
+          "margin-bottom": "@space-sm"
+        }
+      }
+    },
+    "nav-list": {
+      "selector": ".site-footer__nav ul",
+      "description": "The footer menu LIST, in both the primary and secondary columns. Its `spacing.row-gap` and `spacing.column-gap` are the rhythm of a wrapping link row; the links themselves are the `link` role.",
+      "groups": [
+        "typography",
+        "spacing",
+        "border",
+        "background",
+        "sizing",
+        "motion"
+      ],
+      "defaults": {
+        "spacing": {
+          "row-gap": "@space-sm",
+          "column-gap": "@space-md"
+        }
+      }
+    },
+    "link": {
+      "selector": ".site-footer__nav ul li a",
+      "description": "Footer menu links, in both the primary and secondary columns.",
+      "groups": [
+        "typography",
+        "spacing",
+        "border",
+        "background",
+        "sizing",
+        "motion"
+      ],
+      "defaults": {
+        "typography": {
+          "size": "0.9rem",
+          "decoration": "none",
+          "color": "@color-muted",
+          ":hover": {
+            "decoration": "underline",
+            "color": "@color-accent"
+          }
+        }
+      }
+    },
+    "contact": {
+      "selector": ".site-footer__contact",
+      "description": "The contact COLUMN — the optional heading plus the address block beneath it. Its type size and line-height set the column's reading rhythm; the <address> element inside it is the `address` role and the mailto:/tel: links are `address-link`.",
+      "groups": [
+        "typography",
+        "spacing",
+        "border",
+        "background",
+        "sizing",
+        "motion"
+      ],
+      "defaults": {
+        "typography": {
+          "size": "0.9rem",
+          "line-height": "1.6"
+        }
+      }
     },
     "address": {
       "selector": ".site-footer__address",
@@ -218,7 +334,11 @@
         "sizing",
         "motion"
       ],
-      "defaults": {}
+      "defaults": {
+        "typography": {
+          "style": "normal"
+        }
+      }
     },
     "address-link": {
       "selector": ".site-footer__address a",
@@ -231,7 +351,15 @@
         "sizing",
         "motion"
       ],
-      "defaults": {}
+      "defaults": {
+        "typography": {
+          "decoration": "underline",
+          "color": "@color-muted",
+          ":hover": {
+            "color": "@color-accent"
+          }
+        }
+      }
     },
     "copyright": {
       "selector": ".site-footer__copyright",
@@ -244,7 +372,12 @@
         "sizing",
         "motion"
       ],
-      "defaults": {}
+      "defaults": {
+        "typography": {
+          "size": "0.875rem",
+          "color": "@color-muted"
+        }
+      }
     },
     "bottom": {
       "selector": ".site-footer__bottom",
@@ -258,7 +391,34 @@
         "shadow",
         "motion"
       ],
-      "defaults": {}
+      "defaults": {
+        "spacing": {
+          "margin-top": "@space-md",
+          "padding-top": "@space-md"
+        },
+        "border": {
+          "width-top": "1px",
+          "style-top": "solid",
+          "color-top": "@color-border"
+        }
+      }
+    },
+    "bottom-row": {
+      "selector": ".site-footer__bottom-inner",
+      "description": "The row INSIDE the bottom bar, holding the copyright and the optional note. Its `spacing.gap` is what separates them when they stack on a narrow screen. The bar's own divider and padding are the `bottom` role.",
+      "groups": [
+        "typography",
+        "spacing",
+        "border",
+        "background",
+        "sizing",
+        "motion"
+      ],
+      "defaults": {
+        "spacing": {
+          "gap": "@space-sm"
+        }
+      }
     },
     "note": {
       "selector": ".site-footer__note",
@@ -271,7 +431,12 @@
         "sizing",
         "motion"
       ],
-      "defaults": {}
+      "defaults": {
+        "typography": {
+          "size": "0.875rem",
+          "color": "@color-muted"
+        }
+      }
     }
   },
   "styling": {
@@ -287,13 +452,17 @@
       "columns",
       "brand",
       "blurb",
-      "heading",
-      "link",
+      "social",
       "social-link",
+      "heading",
+      "nav-list",
+      "link",
+      "contact",
       "address",
       "address-link",
       "copyright",
       "bottom",
+      "bottom-row",
       "note"
     ]
   },

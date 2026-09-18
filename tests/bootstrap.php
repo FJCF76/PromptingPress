@@ -251,9 +251,94 @@ if (!function_exists('get_search_query')) {
     }
 }
 
+/**
+ * Minimal stand-in for core's nav walker base class (#994).
+ *
+ * Only the four methods a theme subclass may override, with core's signatures and
+ * core's ORDER of operations — `start_el()` for an item, then `start_lvl()` when
+ * that item has children. That order is the whole contract PP_Nav_Menu_Walker
+ * relies on to know which item a level belongs to, so a stub that got it wrong
+ * would let a broken walker pass.
+ *
+ * NOT a re-implementation of core's markup: `start_el()` emits the `<a>` and the
+ * `<li>` classes the theme's SELECTORS actually depend on (`menu-item-has-children`,
+ * `current-menu-item`) and nothing else. Core's own classes, ids, filters and
+ * indentation are not modelled and must not be asserted against this.
+ */
+if (!class_exists('Walker_Nav_Menu')) {
+    class Walker_Nav_Menu
+    {
+        public function start_lvl(&$output, $depth = 0, $args = null)
+        {
+            $output .= '<ul class="sub-menu">';
+        }
+
+        public function end_lvl(&$output, $depth = 0, $args = null)
+        {
+            $output .= '</ul>';
+        }
+
+        public function start_el(&$output, $data_object, $depth = 0, $args = null, $current_object_id = 0)
+        {
+            $classes = is_object($data_object) && isset($data_object->classes)
+                ? (array) $data_object->classes
+                : [];
+            $title = is_object($data_object) && isset($data_object->title) ? (string) $data_object->title : '';
+            $url   = is_object($data_object) && isset($data_object->url) ? (string) $data_object->url : '#';
+            $output .= '<li class="menu-item ' . esc_attr(implode(' ', $classes)) . '">'
+                . '<a href="' . esc_url($url) . '">' . esc_html($title) . '</a>';
+        }
+
+        public function end_el(&$output, $data_object, $depth = 0, $args = null)
+        {
+            $output .= '</li>';
+        }
+    }
+}
+
 if (!function_exists('wp_nav_menu')) {
+    /**
+     * Renders a fixture menu, honouring a supplied walker (#994).
+     *
+     * THE WALKER BRANCH IS NOT DECORATION. `components/nav/schema.json` declares
+     * roles whose selectors point at `.nav__submenu-toggle` and `.sub-menu`, and
+     * UdcEngineTest's selector lint asserts every role selector matches an element
+     * the component ACTUALLY RENDERS. Before #994 that button was built in the
+     * browser, so no PHP render could ever show it and the lint had to take the
+     * class on trust. Driving the real walker over a two-level fixture is what
+     * makes the lint's check honest for chrome's dropdown roles.
+     *
+     * The flat single-item shape is preserved for a call with NO walker, which is
+     * every other menu in the suite.
+     */
     function wp_nav_menu(array $args = []): void {
-        echo '<ul><li><a href="#">Test Link</a></li></ul>';
+        $walker = $args['walker'] ?? null;
+        if (!is_object($walker) || !method_exists($walker, 'start_el')) {
+            echo '<ul><li><a href="#">Test Link</a></li></ul>';
+            return;
+        }
+
+        $item = static function (string $title, string $url, array $classes): object {
+            return (object) ['title' => $title, 'url' => $url, 'classes' => $classes, 'ID' => 0];
+        };
+
+        // Three top-level items covering every selector chrome's roles use: a
+        // current item, a parent WITH children (so start_lvl runs and the
+        // disclosure button is emitted), and a plain sibling.
+        $output = '<ul id="pp-test-menu" class="menu">';
+        $walker->start_el($output, $item('Current', '/current/', ['current-menu-item']), 0, $args, 0);
+        $walker->end_el($output, null, 0, $args);
+        $walker->start_el($output, $item('Parent', '/parent/', ['menu-item-has-children']), 0, $args, 0);
+        $walker->start_lvl($output, 0, $args);
+        $walker->start_el($output, $item('Child', '/parent/child/', []), 1, $args, 0);
+        $walker->end_el($output, null, 1, $args);
+        $walker->end_lvl($output, 0, $args);
+        $walker->end_el($output, null, 0, $args);
+        $walker->start_el($output, $item('Plain', '/plain/', []), 0, $args, 0);
+        $walker->end_el($output, null, 0, $args);
+        $output .= '</ul>';
+
+        echo $output;
     }
 }
 

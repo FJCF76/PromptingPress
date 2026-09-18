@@ -116,7 +116,7 @@ wp pp action execute update_site_option --run-id=<uuid> --params='{"key":"pp_foo
 wp pp action execute update_site_option --run-id=<uuid> --params='{"key":"pp_footer_copyright","value":"© 2026 Example Inc. Beta."}'
 ```
 
-**You own the contrast.** A dark `_band` fill does not re-light anything: set a colour on every text and link role you put over it — `blurb`, `heading`, `copyright`, `note`, `address`, `link`, `address-link`, `social-link` — and check each against the fill for WCAG AA. One role left un-recoloured renders dark ink on dark, which is the most common way this goes wrong. The footer's remaining roles are layout surfaces rather than ink: `inner` (the footer's content wrapper), `columns` (the column grid), `brand` (the logo/blurb block) and `bottom` (the delimited bottom bar when `pp_footer_note` is set). Read the footer's declared roles from `wp pp schema footer`.
+**You own the contrast.** A dark `_band` fill does not re-light anything: set a colour on every text and link role you put over it — `blurb`, `copyright`, `note`, `address`, `link`, `address-link`, `social-link` (`heading` defaults to `currentColor`, so it follows the band's own text colour and needs a value here only when it should DIFFER from the text around it) — and check each against the fill for WCAG AA. One role left un-recoloured renders dark ink on dark, which is the most common way this goes wrong. The footer's remaining roles are layout surfaces rather than ink: `inner` (the footer's content wrapper), `columns` (the column grid), `brand` (the logo/blurb block), `social` (the icon row), `nav-list` (the menu list's row and column rhythm), `contact` (the contact column's reading rhythm), `bottom` (the delimited bottom bar when `pp_footer_note` is set) and `bottom-row` (the row inside it). Read the footer's declared roles from `wp pp schema footer`.
 
 `pp_footer_copyright` replaces the default `© <year> <site title>. All rights reserved.` line verbatim, so include the year yourself; leave it empty to keep the default.
 
@@ -149,10 +149,12 @@ The header is template-owned (#223) exactly like the footer, so it is never comp
 
 ```bash
 # Dark header with a subtle gradient and light links
-wp pp action execute update_site_option --run-id=<uuid> --params='{"key":"pp_site_udc","value":"{\"nav\":{\"_band\":{\"background\":{\"fill\":\"linear-gradient(135deg, #1a1a2e, #16121f)\"}},\"logo\":{\"typography\":{\"color\":\"#e8e8f0\",\":hover\":{\"color\":\"@color-accent\"}}},\"toggle\":{\"typography\":{\"color\":\"#e8e8f0\",\":hover\":{\"color\":\"@color-accent\"}}},\"link\":{\"typography\":{\"color\":\"#c8c8e0\",\":hover\":{\"color\":\"@color-accent\"}}},\"link-current\":{\"typography\":{\"color\":\"#ffffff\"}}}}"}'
+wp pp action execute update_site_option --run-id=<uuid> --params='{"key":"pp_site_udc","value":"{\"nav\":{\"_band\":{\"background\":{\"fill\":\"linear-gradient(135deg, #1a1a2e, #16121f)\"}},\"logo\":{\"typography\":{\"color\":\"#e8e8f0\",\":hover\":{\"color\":\"@color-accent\"}}},\"toggle\":{\"typography\":{\"color\":\"#e8e8f0\",\":hover\":{\"color\":\"@color-accent\"}}},\"link\":{\"typography\":{\"color\":\"#c8c8e0\",\":hover\":{\"color\":\"@color-accent\"}}},\"link-current\":{\"typography\":{\"color\":\"#ffffff\"}},\"submenu-toggle\":{\"typography\":{\"color\":\"#c8c8e0\"}}}}"}'
 ```
 
-The header's roles are `_band`, `container`, `logo`, `logo-image`, `menu`, `submenu`, `link`, `link-current` and `toggle`. `container` is the header ROW inside the bar: `sizing.min-height` sets the row's height and `spacing.gap` the space between logo, toggle and menu (`_band` is the bar itself — its background and border). `menu` is the mobile disclosure panel and `submenu` is the desktop dropdown — separate roles, because they are separate surfaces. `link-current` is the active/current link; it keeps its bold weight, which is structural. Hover, focus and active are ordinary states inside a role's group.
+The header's roles are `_band`, `container`, `logo`, `logo-image`, `menu`, `menu-list`, `submenu`, `submenu-toggle`, `link`, `link-current` and `toggle`. `container` is the header ROW inside the bar: `sizing.min-height` sets the row's height and `spacing.gap` the space between logo, toggle and menu (`_band` is the bar itself — its background and border). `menu` is the mobile disclosure panel and `submenu` is the desktop dropdown — separate roles, because they are separate surfaces; `menu-list` is the list inside them, where the gap between items lives. `submenu-toggle` is the dropdown chevron. `link-current` is the active/current link, carrying both its colour and its bold weight. Hover, focus and active are ordinary states inside a role's group.
+
+The footer's roles are `_band`, `inner`, `columns`, `brand`, `blurb`, `social`, `social-link`, `heading`, `nav-list`, `link`, `contact`, `address`, `address-link`, `copyright`, `bottom`, `bottom-row` and `note`.
 
 Style the header to match the SITE's real header, not the hero: a dark hero is not a reason to make the header dark. Layout, sticky behavior and menu structure are not configurable here — the UDC is a design surface, not a header builder.
 
@@ -162,29 +164,35 @@ Style the header to match the SITE's real header, not the hero: a dark hero is n
 
 **The row has a second tenant, and it is not yours to send.** The site's custom presets live in the same option under the engine-owned `_presets` and `_presets_version` keys, written only by `save_preset` / `delete_preset`. They are preserved automatically across every chrome write and across a `""` clear, so leaving them out never loses one — and a chrome write that CARRIES either key is refused with `invalid_option_value`. If you read the stored bytes back before editing, strip those two keys and send the rest; `_version` is the one engine-owned key you may leave in place.
 
-**Pair every colour you set at rest with its hover (#992).** Chrome roles carry no
-defaults, so a value you set at REST outranks the theme stylesheet in EVERY state —
-including the hover and current-page treatments that stylesheet provides. Setting
-`nav.link.typography.color` on its own flattens the accent hover AND the current-page
-accent onto your one colour; setting `nav.logo` or `nav.toggle` colour on its own leaves
-those controls with no hover feedback at all.
+**A colour set at rest no longer cancels its hover (#992, fixed by #994).** This used
+to be the biggest trap on this surface, and if you learned it, unlearn it: chrome roles
+carried NO defaults, so a value you set at REST was the only unlayered declaration on
+the element and outranked the theme stylesheet in every state — including the hover and
+current-page treatments that stylesheet provided. Setting `nav.link.typography.color`
+alone flattened the accent hover AND the current-page accent onto your one colour.
 
-**The rule is per-role, and it applies to the roles that HAVE a built-in hover.** Each
-role loses its own: colour `logo` at rest and the logo's hover goes, colour `toggle` and
-the toggle's goes. `link` loses two, because the current-page accent lives on a separate
-role you did not set — which is why `link` is the one that also needs `link-current`.
+Those treatments are role DEFAULTS now, in the same tier your values live in, so they
+survive. Setting a `":hover"` is a design choice again rather than damage control. The
+examples above still pair them, which is good practice and now simply means "I want a
+different hover", not "or else I lose one".
 
-The roles with a built-in hover to preserve are, on the header: `logo`, `toggle`, `link`.
-On the footer: `link`, `address-link`, `social-link` — the same exposure, same fix.
+**Two things the defaults changed that you should carry forward.**
 
-Roles with no hover treatment need no `":hover"`: the footer's `blurb`, `heading`,
-`copyright` and `note` are static text, and `link-current` deliberately holds its colour
-under the pointer rather than flickering to the hover colour — so neither example below
-gives it one, and that is correct rather than an omission.
+1. **Set `submenu-toggle` whenever you set `link`.** The dropdown chevron is a SIBLING
+   of the link, not a child, so no default can make it follow the link's colour. Style
+   a header dark without it and the chevron keeps the default ink against your new
+   background — a 1:1 contrast ratio, invisible (#995). It is the one pairing that is
+   still mandatory.
+2. **A `_preset` fills in only where a default is silent.** The rung order is site
+   tokens, then presets, then role defaults, then your own map — so on a chrome role
+   that now has defaults, a preset supplies only the parameters that role does not
+   default. If you want a specific value, write it in your map, where it out-ranks
+   both.
 
-Both examples above do this correctly. Copy that shape. (`link-current` reaches every current item by itself —
-WordPress adds `current-menu-item` to everything it marks current, and only ever adds
-`current_page_item` or `aria-current="page"` alongside it.)
+`link-current` reaches every current item by itself — WordPress adds `current-menu-item`
+to everything it marks current, and only ever adds `current_page_item` or
+`aria-current="page"` alongside it. It targets that item's own link directly, so a
+current page that HAS a dropdown does not hand the treatment to every link inside it.
 
 Backgrounds accept a plain colour **or** a bounded `linear-gradient()` / `radial-gradient()` with 2+ stops. `conic-gradient()`, the `repeating-*` gradients, and any `var()` / `url()` / `env()` inside a gradient function are rejected. For a background IMAGE, set `background.image` to a Media Library attachment ID and pair it with `background.overlay` — never a URL.
 

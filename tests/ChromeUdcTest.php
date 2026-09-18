@@ -80,6 +80,15 @@ class ChromeUdcTest extends TestCase
         return pp_execute_action('update_site_option', $params);
     }
 
+    /** The findings of one type, so a pin never asserts against a neighbour's message. */
+    private function findingsOfType(array $findings, string $type): array
+    {
+        return array_values(array_filter(
+            $findings,
+            static fn (array $f): bool => ($f['type'] ?? '') === $type
+        ));
+    }
+
     /** Validation only, for the refusal cases. */
     private function validate(array $map)
     {
@@ -125,39 +134,324 @@ class ChromeUdcTest extends TestCase
     }
 
     /**
-     * Chrome role defaults are EMPTY, deliberately (see the schemas).
+     * Chrome role defaults CARRY CHROME'S RESTING APPEARANCE (#994).
      *
-     * Chrome's resting appearance is owned by components.css, and this pin is what
-     * keeps the two systems from fighting over the same elements.
+     * THIS IS THE INVERSION OF testChromeRolesShipNoDefaults, and the pin it replaces
+     * was the tripwire that made this change happen in one piece rather than two. It
+     * read: chrome ships EMPTY defaults, because a non-empty ELEMENT default emits
+     * UNLAYERED and would silently ERASE the components.css rules it sits above — the
+     * hover accents, the current-page accent, the mobile panel. Measured in Chromium
+     * against a temporary schema patch during #991: a planted `link` default rendered
+     * rgb(0,160,160) and a `link-current` default rgb(255,102,0), both beating the
+     * stylesheet outright, while the ROOT `_band` default (which emits into
+     * `@layer pp-zero`) never painted at all.
      *
-     * CORRECTED (#991). This docblock used to say a role default would "lose to it on
-     * specificity", which is true of only HALF the defaults tier and pointed at the
-     * wrong risk. Measured in Chromium against a temporary schema patch:
+     * Both halves of that measurement are now load-bearing in the other direction.
+     * The element rules were DELETED in the same change that gave the elements
+     * defaults, so there is nothing left to erase; and `.site-header`/`.site-footer`
+     * lost their rules too, because a root default in `pp-zero` could not have
+     * outranked them.
      *
-     *   - the ROOT `_band` default emits into `@layer pp-zero` and does lose — a
-     *     planted `#3d0066` header background never painted;
-     *   - an ELEMENT role default (`link`, `link-current`, …) emits UNLAYERED and
-     *     WINS — planted defaults rendered rgb(0,160,160) and rgb(255,102,0), beating
-     *     components.css outright.
-     *
-     * So the danger is the opposite of "paints nothing": a non-empty element default
-     * would silently ERASE the stylesheet rules it sits above — the hover accents, the
-     * current-page accent, the mobile panel. That is why this pin is all-or-nothing.
-     * If a future change gives chrome real defaults it must retire the corresponding
-     * CSS in the SAME change (nav and footer together — see #994), and this test is
-     * the tripwire that forces that pairing. Do not relax it as a staging step.
+     * WHAT THIS ASSERTS IS NON-EMPTINESS AND CORRECTNESS, not a byte-for-byte
+     * snapshot: the whole-block shape is pinned by the emission tests below, which
+     * fail on a changed VALUE rather than on a reformatted schema. Here the question
+     * is narrower and the one a reviewer actually asks — did the retirement land on
+     * every role that had CSS, and does each default say what the stylesheet said?
      */
-    public function testChromeRolesShipNoDefaults(): void
+    public function testChromeRolesCarryTheRestingAppearanceTheStylesheetUsedTo(): void
     {
-        foreach (['nav', 'footer'] as $name) {
+        // EVERY ROLE, EVERY VALUE — not just which groups each role defaults.
+        //
+        // This asserted only the group KEYS until the testing specialist proved the gap
+        // by mutation on a copy of the tree: changing `nav-list.row-gap` from @space-sm
+        // to @space-xl, `contact.size` from 0.9rem to 2rem, `bottom-row.gap` and
+        // `menu-list.gap` likewise, left BOTH suites fully green. For a change whose
+        // headline promise is "an unstyled site renders identically", ~88 moved
+        // declarations had no value-equality guard at all, and the five roles #994 ADDS
+        // had no value pinned anywhere in either suite.
+        //
+        // A FROZEN LITERAL, not a read of the schema. The values below were verified by
+        // rendered before/after equality on a real page at 375/768/1280 — that is where
+        // their authority comes from. Written out here, a later edit to either schema
+        // has to argue with this list, which is what makes the retirement's "same pixels"
+        // claim reviewable in one place instead of inferred across six files.
+        //
+        // A role NOT here legitimately declares nothing: nav's `logo-image`, whose rules
+        // were all wrapper geometry.
+        $expected = [
+            'nav' => [
+                '_band' => [
+                    'border' => [
+                        'width-bottom' => '1px',
+                        'style-bottom' => 'solid',
+                        'color-bottom' => '@color-border',
+                    ],
+                    'background' => [
+                        'fill' => '@color-bg',
+                    ],
+                ],
+                'container' => [
+                    'spacing' => [
+                        'gap' => '@space-md',
+                    ],
+                    'sizing' => [
+                        'min-height' => '64px',
+                    ],
+                ],
+                'logo' => [
+                    'typography' => [
+                        'family' => '@font-heading',
+                        'weight' => '700',
+                        'size' => '1.25rem',
+                        'decoration' => 'none',
+                        'color' => '@color-text',
+                        ':hover' => ['color' => '@color-accent'],
+                    ],
+                    'sizing' => [
+                        'min-height' => '44px',
+                    ],
+                ],
+                'menu' => [
+                    'spacing' => [
+                        'padding-top' => ['d' => '0', 'p' => '@space-sm'],
+                        'padding-bottom' => ['d' => '0', 'p' => '@space-md'],
+                    ],
+                    'border' => [
+                        'width-bottom' => ['d' => '0', 'p' => '1px'],
+                        'style-bottom' => ['d' => 'none', 'p' => 'solid'],
+                        'color-bottom' => ['d' => 'currentColor', 'p' => '@color-border'],
+                    ],
+                    'shadow' => [
+                        'box' => ['d' => 'none', 'p' => '0 8px 24px rgba(16, 24, 40, 0.12)'],
+                    ],
+                    'background' => [
+                        'fill' => ['d' => 'transparent', 'p' => '@color-bg'],
+                    ],
+                ],
+                'menu-list' => [
+                    'spacing' => [
+                        'gap' => '@space-xs',
+                    ],
+                ],
+                'submenu' => [
+                    'spacing' => [
+                        'padding' => ['d' => '@space-xs', 'p' => '0'],
+                        'gap' => ['d' => '0', 'p' => '@space-xs'],
+                    ],
+                    'border' => [
+                        'width' => ['d' => '1px', 'p' => '0'],
+                        'style' => ['d' => 'solid', 'p' => 'none'],
+                        'color' => ['d' => '@color-border', 'p' => 'currentColor'],
+                        'radius' => ['d' => '@radius', 'p' => '0'],
+                    ],
+                    'shadow' => [
+                        'box' => ['d' => '0 8px 24px rgba(16, 24, 40, 0.12)', 'p' => 'none'],
+                    ],
+                    'background' => [
+                        'fill' => ['d' => '@color-surface', 'p' => 'transparent'],
+                    ],
+                ],
+                'submenu-toggle' => [
+                    'typography' => [
+                        'line-height' => '0',
+                        'color' => '@color-text',
+                    ],
+                    'spacing' => [
+                        'padding' => '@space-xs',
+                        'margin-left' => '-0.25rem',
+                    ],
+                    'border' => [
+                        'width' => '0',
+                        'style' => 'none',
+                    ],
+                    'background' => [
+                        'fill' => 'transparent',
+                    ],
+                ],
+                'link' => [
+                    'typography' => [
+                        'decoration' => 'none',
+                        'color' => '@color-text',
+                        ':hover' => ['decoration' => 'underline', 'color' => '@color-accent'],
+                    ],
+                    'spacing' => [
+                        'padding-top' => ['d' => '@space-xs', 'p' => '@space-sm'],
+                        'padding-right' => '@space-sm',
+                        'padding-bottom' => ['d' => '@space-xs', 'p' => '@space-sm'],
+                        'padding-left' => '@space-sm',
+                    ],
+                    'border' => [
+                        'radius' => '@radius',
+                    ],
+                ],
+                'link-current' => [
+                    'typography' => [
+                        'weight' => '700',
+                        'color' => '@color-accent',
+                    ],
+                ],
+                'toggle' => [
+                    'typography' => [
+                        'color' => '@color-text',
+                        ':hover' => ['color' => '@color-accent'],
+                    ],
+                    'border' => [
+                        'width' => '0',
+                        'style' => 'none',
+                        'radius' => '@radius',
+                    ],
+                    'background' => [
+                        'fill' => 'transparent',
+                    ],
+                ],
+            ],
+            'footer' => [
+                '_band' => [
+                    'spacing' => [
+                        'padding-top' => '@space-lg',
+                        'padding-bottom' => '@space-lg',
+                    ],
+                    'border' => [
+                        'width-top' => '1px',
+                        'style-top' => 'solid',
+                        'color-top' => '@color-border',
+                    ],
+                    'background' => [
+                        'fill' => '@color-surface',
+                    ],
+                ],
+                'inner' => [
+                    'spacing' => [
+                        'gap' => '@space-lg',
+                    ],
+                ],
+                'columns' => [
+                    'spacing' => [
+                        'gap' => ['d' => '@space-xl', 't' => '@space-lg', 'p' => '@space-lg'],
+                    ],
+                ],
+                'brand' => [
+                    'spacing' => [
+                        'gap' => '@space-sm',
+                    ],
+                ],
+                'blurb' => [
+                    'typography' => [
+                        'size' => '0.9rem',
+                    ],
+                    'sizing' => [
+                        'max-width' => '32ch',
+                    ],
+                ],
+                'social' => [
+                    'spacing' => [
+                        'margin-top' => '@space-sm',
+                        'gap' => '@space-sm',
+                    ],
+                ],
+                'social-link' => [
+                    'typography' => [
+                        'color' => '@color-muted',
+                        ':hover' => ['color' => '@color-accent'],
+                    ],
+                ],
+                'heading' => [
+                    'typography' => [
+                        'size' => '0.9rem',
+                        'weight' => '600',
+                        'color' => 'currentColor',
+                    ],
+                    'spacing' => [
+                        'margin-bottom' => '@space-sm',
+                    ],
+                ],
+                'nav-list' => [
+                    'spacing' => [
+                        'row-gap' => '@space-sm',
+                        'column-gap' => '@space-md',
+                    ],
+                ],
+                'link' => [
+                    'typography' => [
+                        'size' => '0.9rem',
+                        'decoration' => 'none',
+                        'color' => '@color-muted',
+                        ':hover' => ['decoration' => 'underline', 'color' => '@color-accent'],
+                    ],
+                ],
+                'contact' => [
+                    'typography' => [
+                        'size' => '0.9rem',
+                        'line-height' => '1.6',
+                    ],
+                ],
+                'address' => [
+                    'typography' => [
+                        'style' => 'normal',
+                    ],
+                ],
+                'address-link' => [
+                    'typography' => [
+                        'decoration' => 'underline',
+                        'color' => '@color-muted',
+                        ':hover' => ['color' => '@color-accent'],
+                    ],
+                ],
+                'copyright' => [
+                    'typography' => [
+                        'size' => '0.875rem',
+                        'color' => '@color-muted',
+                    ],
+                ],
+                'bottom' => [
+                    'spacing' => [
+                        'margin-top' => '@space-md',
+                        'padding-top' => '@space-md',
+                    ],
+                    'border' => [
+                        'width-top' => '1px',
+                        'style-top' => 'solid',
+                        'color-top' => '@color-border',
+                    ],
+                ],
+                'bottom-row' => [
+                    'spacing' => [
+                        'gap' => '@space-sm',
+                    ],
+                ],
+                'note' => [
+                    'typography' => [
+                        'size' => '0.875rem',
+                        'color' => '@color-muted',
+                    ],
+                ],
+            ],
+        ];
+
+        foreach ($expected as $name => $roles) {
+            $actual = [];
             foreach (pp_udc_component_roles($name) as $role => $definition) {
-                $this->assertSame(
-                    [],
-                    $definition['defaults'] ?? [],
-                    "{$name}.{$role} declares a default that components.css would outrank"
-                );
+                $defaults = $definition['defaults'] ?? [];
+                if ($defaults !== []) {
+                    $actual[$role] = $defaults;
+                }
             }
+            $this->assertSame(
+                $roles,
+                $actual,
+                "{$name}'s role defaults no longer match the CSS block #994 retired"
+            );
         }
+
+        // THE THREE VALUES THAT CARRY THE #992 FIX, spelled out. They are the ones
+        // that used to live in `pp-v1` STATE rules, which is exactly why an authored
+        // resting colour could cancel them; as defaults they share the authored tier
+        // and win on specificity instead.
+        $nav = pp_udc_component_roles('nav');
+        $this->assertSame('@color-accent', $nav['link']['defaults']['typography'][':hover']['color']);
+        $this->assertSame('@color-accent', $nav['logo']['defaults']['typography'][':hover']['color']);
+        $this->assertSame('@color-accent', $nav['toggle']['defaults']['typography'][':hover']['color']);
+        $this->assertSame('@color-accent', $nav['link-current']['defaults']['typography']['color']);
     }
 
     /**
@@ -191,10 +485,13 @@ class ChromeUdcTest extends TestCase
             );
         }
 
-        // It is chrome, so it ships no defaults like every other chrome role. Asserted
-        // here too, not only in the sweep above, because this role is the newest and
-        // the likeliest place for a well-meaning default to be added.
-        $this->assertSame([], $roles['container']['defaults'] ?? []);
+        // AND IT CARRIES THE TWO VALUES IT WAS ADDED FOR (#994). This assertion was
+        // the reverse until the retirement — "ships no defaults like every other
+        // chrome role" — because the row's height and gap still lived in
+        // components.css. They are here now, which is what makes the role more than a
+        // declared surface with nothing behind it.
+        $this->assertSame('64px', $roles['container']['defaults']['sizing']['min-height']);
+        $this->assertSame('@space-md', $roles['container']['defaults']['spacing']['gap']);
     }
 
     public function testAValidChromeMapIsAcceptedThroughTheRealWriteSurface(): void
@@ -715,7 +1012,18 @@ class ChromeUdcTest extends TestCase
     {
         $this->assertSame(self::ABSENT_ROW, pp_udc_site_map());
         $this->assertSame('', pp_udc_chrome_authored_css());
-        $this->assertSame('', pp_udc_chrome_defaults_css());
+
+        // THE DEFAULTS TIER IS NOT CONDITIONAL ON THE ROW, and that is the #994
+        // change this assertion used to state backwards. It asserted '' here, which
+        // was true only while chrome declared no defaults: pp_udc_chrome_defaults_css()
+        // short-circuited when no chrome entry was stored, so the day chrome got a
+        // real default it would have been invisible on every site that never wrote
+        // chrome styling — which is nearly all of them. The defaults are a property of
+        // the THEME, so they emit on an unwritten row exactly as on a written one.
+        // Only the AUTHORED tier still depends on what the site stored.
+        $defaults = pp_udc_chrome_defaults_css();
+        $this->assertStringContainsString('[data-pp-chrome="nav"] .nav__menu ul li a{', $defaults);
+        $this->assertStringContainsString('[data-pp-chrome="footer"] .site-footer__inner{', $defaults);
     }
 
     /**
@@ -828,20 +1136,37 @@ class ChromeUdcTest extends TestCase
     }
 
     /**
-     * SOURCE-PINNED, because the output cannot carry this one.
+     * THE OUTPUT CAN CARRY THIS ONE NOW (#994).
      *
-     * Chrome ships no role defaults, so pp_udc_chrome_defaults_css() returns '' —
-     * which it would ALSO return if the `:where()` wrapper were deleted. An
-     * output assertion here is green either way and proves nothing, which is what
-     * the testing specialist caught. The claim is about the CALL, so the call is
-     * what gets pinned: a root-scoped chrome default must sit at zero specificity
-     * or it outranks the structural rule it is supposed to yield to, and that only
-     * becomes visible the day someone adds a default.
+     * It could not before: chrome shipped no role defaults, so this function returned
+     * '' — which it would ALSO have returned with the `:where()` wrapper deleted, so
+     * an output assertion was green either way and proved nothing (the testing
+     * specialist's catch). The pin was made against the SOURCE instead. Chrome has
+     * real root defaults now, so the rendered claim is assertable directly, and the
+     * source pin stays beside it: one proves the wrapper is THERE, the other proves
+     * the call that puts it there has not been rewritten around it.
+     *
+     * WHY ZERO SPECIFICITY IS THE WHOLE POINT for a root default: it rides
+     * `@layer pp-zero`, strictly below the v1 stylesheet, and `:where()` keeps it at
+     * [0,0,0] so it also yields to ordinary structural rules within that layer. A
+     * root default that outranked the structure it sits inside would be the
+     * band-rhythm inversion #986 ruling D5 exists to prevent.
      */
     public function testTheChromeDefaultsTierIsEmittedAtZeroRootSpecificity(): void
     {
         $this->write(['nav' => ['_band' => ['background' => ['fill' => '#101828']]]]);
-        $this->assertSame('', pp_udc_chrome_defaults_css(), 'no chrome defaults ship today');
+
+        $emitted = pp_udc_chrome_defaults_css();
+        $this->assertStringContainsString(
+            '@layer pp-zero{:where([data-pp-chrome="nav"]){',
+            $emitted,
+            'the root tier must be layered AND zero-specificity, not one or the other'
+        );
+        $this->assertStringNotContainsString(
+            ':where([data-pp-chrome="nav"]) .nav__',
+            $emitted,
+            'element defaults must NOT be wrapped — at [0,1,0] they would lose to base.css'
+        );
 
         $source = file_get_contents(dirname(__DIR__) . '/lib/udc.php');
         $this->assertIsString($source);
@@ -1169,6 +1494,452 @@ class ChromeUdcTest extends TestCase
         $this->assertFalse(
             function_exists('pp_chrome_style_attr'),
             'an inline chrome style attribute would outrank the UDC block it replaced'
+        );
+    }
+
+    // ── 6. The retirement's own contract (#994) ─────────────────────────────
+
+    /**
+     * BOTH DIRECTIONS, because a defaults tier that cannot be overridden is worse
+     * than no defaults at all.
+     *
+     * The retirement's whole risk is that it puts values the theme chose into a tier
+     * the author also writes into. The defaults and the authored map emit at the same
+     * scope and the same specificity, so the ONLY thing ranking them is print order —
+     * defaults first, authored second. That is a one-line invariant with no test
+     * asserting it until now, and inverting it would make every chrome write silently
+     * inert, reporting ok:true (the I35 class this engine exists to close).
+     */
+    public function testAnAuthoredChromeValueStillOutranksTheNewDefault(): void
+    {
+        $this->write(['nav' => ['link' => ['typography' => ['color' => '#0a7d32']]]]);
+
+        $defaults = pp_udc_chrome_defaults_css();
+        $authored = pp_udc_chrome_authored_css();
+
+        // Same element, same selector shape, in both tiers.
+        $selector = '[data-pp-chrome="nav"] .nav__menu ul li a{';
+        $this->assertStringContainsString($selector, $defaults, 'the default is still emitted');
+        $this->assertStringContainsString($selector . 'color:#0a7d32;}', $authored);
+
+        // And the two are separately obtainable so the emitter can place them on
+        // either side of the stylesheets. A combined string could not.
+        $this->assertStringNotContainsString('#0a7d32', $defaults);
+    }
+
+    /**
+     * THE PART OF THE CASCADE THE AUTHOR CAN NO LONGER SEE (#994, ruling D6).
+     *
+     * Role defaults out-rank presets (site tokens -> presets -> role defaults -> the
+     * authored map). Chrome had NO defaults, so a `_preset` on a chrome role applied
+     * in full; it now applies only where the role's defaults are silent. That is the
+     * ruled behaviour and it is a real narrowing, so it gets a pin that states the
+     * true shape rather than a comment claiming nothing changed.
+     */
+    public function testAPresetOnAChromeRoleFillsInOnlyWhereTheDefaultsAreSilent(): void
+    {
+        // `logo` defaults typography and sizing, and nothing else — so a preset
+        // reaches the groups it does not touch and is suppressed where it does.
+        $this->write(['nav' => ['logo' => ['_preset' => 'button']]]);
+        $css = pp_udc_chrome_authored_css();
+
+        $this->assertSame(
+            1,
+            preg_match('/\[data-pp-chrome="nav"\] \.nav__logo\{[^}]*\}/', $css, $matches),
+            'the preset must produce a block on the role it was applied to'
+        );
+        $block = $matches[0];
+
+        // SUPPRESSED: the role defaults a colour, so the preset's does not land.
+        //
+        // ASSERTED ON THE VALUE THE PRESET ACTUALLY CARRIES. This named
+        // `var(--btn-text)` until the testing specialist caught it: the `button`
+        // preset's `typography.color` is `@color-bg` (lib/udc.php), so
+        // `var(--btn-text)` is a string this block can never contain and the
+        // assertion could not fail — it would have stayed green through a full
+        // inversion of the rung order, which is the one thing it exists to catch.
+        $this->assertStringNotContainsString(
+            'color:var(--color-bg)',
+            $block,
+            'a preset cannot beat a role default — that is the rung order, not a bug'
+        );
+
+        // AND THE DEFAULT IS WHAT PAINTS INSTEAD. Without this the assertion above
+        // also passes when the entire preset was dropped on the floor.
+        $this->assertStringContainsString(
+            'color:var(--color-text)',
+            pp_udc_chrome_css('nav', 'defaults')
+        );
+
+        // APPLIED: `logo` declares no background or motion default, so the preset's
+        // fill and line-height DO land. This is the half that proves presets still
+        // REACH chrome at all rather than being suppressed wholesale.
+        $this->assertStringContainsString('background:var(--color-accent)', $block);
+        $this->assertStringContainsString('line-height:1.4', $block);
+    }
+
+    /**
+     * THE SILENT LOSS, AND THE DISCLOSURE THAT ENDS IT (#994, ruling D8, invariant I35).
+     *
+     * RED-PROOF FIRST, because the whole point is that this was invisible. The stored
+     * map below is the measured case: `{"nav":{"logo":{"_preset":"button"}}}`. Before
+     * chrome had role defaults, it emitted the button treatment entire — `color:
+     * var(--color-bg)` over `background: var(--color-accent)`, inverted ink on an accent
+     * fill, which is what that preset is FOR. With `logo` defaulting typography and
+     * sizing, six of the preset's values are suppressed and the logo renders
+     * `@color-text` ink on the same accent fill: a contrast inversion, on a site whose
+     * stored map nobody edited, reported `ok: true`.
+     *
+     * Ruling D6 settled the precedence and D8 settled the remedy: disclose it. The three
+     * assertions below are the three things a disclosure has to be — TRUE (the loss is
+     * real and measurable), REACHED (it rides the channel the author actually sees), and
+     * ACTIONABLE (the route it names works when followed).
+     */
+    public function testAShadowedPresetValueIsDisclosedRatherThanSilentlyLost(): void
+    {
+        $result = $this->write(['nav' => ['logo' => ['_preset' => 'button']]]);
+        $this->assertTrue($result['ok'], $result['error'] ?? '');
+
+        // ── 1. THE LOSS IS REAL. The preset's ink does not land; the default's does.
+        $css = pp_udc_chrome_authored_css();
+        $this->assertSame(
+            1,
+            preg_match('/\[data-pp-chrome="nav"\] \.nav__logo\{[^}]*\}/', $css, $m),
+            'the preset must still produce a block — this is a shadowed VALUE, not a dropped preset'
+        );
+        $this->assertStringNotContainsString('color:var(--color-bg)', $m[0], 'the preset ink is suppressed');
+        $this->assertStringContainsString('background:var(--color-accent)', $m[0], 'the fill still lands');
+
+        // ── 2. IT IS DISCLOSED, on the write envelope.
+        $shadowed = $this->findingsOfType($result['findings'] ?? [], 'udc_preset_value_shadowed_by_role_default');
+        $this->assertCount(1, $shadowed, 'the write envelope must carry the disclosure');
+        $message = (string) $shadowed[0]['message'];
+
+        $this->assertStringContainsString('role "logo"', $message, 'it must name the role');
+        $this->assertStringContainsString('"button"', $message, 'and the preset');
+        $this->assertStringContainsString('typography.color', $message, 'and a suppressed parameter');
+        $this->assertStringContainsString(
+            'Write the value in your own map',
+            $message,
+            'a refusal or an advisory without the route back is the I24 class'
+        );
+
+        // ── 3. THE ROUTE IT NAMES ACTUALLY WORKS. Follow it and the inverted ink returns.
+        $this->write([
+            'nav' => ['logo' => [
+                '_preset'    => 'button',
+                'typography' => ['color' => '@color-bg'],
+            ]],
+        ]);
+        $this->assertStringContainsString(
+            'color:var(--color-bg)',
+            pp_udc_chrome_authored_css(),
+            'the authored map must out-rank both the preset and the role default'
+        );
+    }
+
+    /**
+     * THE DISCLOSURE REACHES STORED DATA, not only a fresh write (#994, ruling D8).
+     *
+     * This is the half that matters for a map written BEFORE the retirement, and the
+     * reason the finding is reconstructed from the preset REFERENCE rather than from a
+     * diff of the write: nobody is going to re-send those maps. `wp pp operate inspect`
+     * and the composition-findings path both re-derive from what is on disk, so a site
+     * that has not been touched since #994 still learns what its stored preset lost.
+     */
+    public function testTheShadowedPresetDisclosureIsDerivedFromStoredDataToo(): void
+    {
+        // SEEDED RAW, deliberately: this is the shape a site carries from before the
+        // change, and the point is that no write is needed to surface it.
+        $GLOBALS['_pp_test_store']['options'][PP_SITE_UDC_OPTION] =
+            (string) wp_json_encode(['_version' => 1, 'nav' => ['logo' => ['_preset' => 'button']]]);
+
+        $shadowed = $this->findingsOfType(
+            pp_udc_site_findings(),
+            'udc_preset_value_shadowed_by_role_default'
+        );
+        $this->assertCount(1, $shadowed, 'a stored map must disclose on re-read, not only at write');
+        $this->assertStringContainsString('role "logo"', (string) $shadowed[0]['message']);
+    }
+
+    /**
+     * THE PARAMETER LIST IS BOUNDED, with a tail that states the TRUE total.
+     *
+     * The message names PARAMETERS, and a role may permit every group in the taxonomy —
+     * so an unbounded interpolation here is one wide preset away. Routed through
+     * pp_udc_bounded_list(), the repo's one list contract, whose rule is that the "and N
+     * more" count is the real total so a truncated list never reads as a complete one.
+     */
+    public function testTheShadowedPresetDisclosureBoundsItsParameterList(): void
+    {
+        $saved = pp_execute_action('save_preset', [
+            'name'  => 'wide-probe',
+            'grain' => 'role',
+            'udc'   => ['typography' => [
+                'size' => '2rem', 'weight' => '700', 'family' => '@font-heading',
+                'decoration' => 'underline', 'color' => '@color-accent',
+                'line-height' => '2', 'letter-spacing' => '0.05em',
+            ]],
+        ]);
+        $this->assertTrue($saved['ok'], $saved['error'] ?? '');
+
+        // footer's `link` defaults size, decoration and colour; nav's `logo` defaults
+        // family, weight, size, decoration and colour — five of the seven above, which
+        // is under the cap. Use a role that defaults more by pairing with `logo` and
+        // asserting the SHAPE of the bound rather than a specific truncation.
+        $result = $this->write(['nav' => ['logo' => ['_preset' => 'wide-probe']]]);
+        $this->assertTrue($result['ok'], $result['error'] ?? '');
+
+        $shadowed = $this->findingsOfType($result['findings'] ?? [], 'udc_preset_value_shadowed_by_role_default');
+        $this->assertCount(1, $shadowed);
+        $message = (string) $shadowed[0]['message'];
+
+        // Five suppressed parameters, under the cap of six, so the list is complete and
+        // carries no tail. The bound's OTHER arm is pinned directly on the helper below.
+        $this->assertStringNotContainsString('and 0 more', $message);
+        foreach (['typography.family', 'typography.weight', 'typography.size',
+                  'typography.decoration', 'typography.color'] as $param) {
+            $this->assertStringContainsString($param, $message);
+        }
+    }
+
+    /** The bound itself, at the grain the message is built from. */
+    public function testTheBoundedListTailCarriesTheTrueTotalNotTheCap(): void
+    {
+        $items = ['a.one', 'a.two', 'a.three', 'a.four', 'a.five', 'a.six', 'a.seven', 'a.eight'];
+        $this->assertSame(
+            'a.one, a.two, a.three, a.four, a.five, a.six, and 2 more',
+            pp_udc_bounded_list($items, 6, count($items)),
+            'the tail must state how many there really are, not how many were hidden by the cap'
+        );
+    }
+
+    /**
+     * A PRESET VALUE THE ROLE DOES NOT DEFAULT IS NOT REPORTED, and a state is judged
+     * separately from its base.
+     *
+     * The rung is applied per (group, param, state) tuple, so a preset's `:hover` can
+     * survive while its base is suppressed. Reporting at group grain would claim a whole
+     * bundle lost when one value did; reporting at param grain would miss a state the
+     * role defaults separately. Both errors read as noise, and an advisory that cries
+     * wolf gets acknowledged into silence.
+     */
+    public function testTheShadowedPresetDisclosureJudgesEachStateSeparately(): void
+    {
+        $role = ['groups' => ['typography'], 'defaults' => ['typography' => ['color' => '@color-text']]];
+
+        // Base suppressed, `:hover` survives — the role declares no hover.
+        $this->assertSame(
+            ['typography.color'],
+            _pp_udc_preset_values_shadowed_by_role_defaults(
+                ['typography' => ['color' => '#fff', ':hover' => ['color' => '#eee']]],
+                $role
+            )
+        );
+
+        // Nothing reported when the role defaults nothing the preset sets.
+        $this->assertSame(
+            [],
+            _pp_udc_preset_values_shadowed_by_role_defaults(['typography' => ['size' => '2rem']], $role)
+        );
+
+        // A group the role does not permit belongs to udc_preset_groups_skipped, not here.
+        $this->assertSame(
+            [],
+            _pp_udc_preset_values_shadowed_by_role_defaults(['shadow' => ['box' => 'none']], $role)
+        );
+
+        // And a state the role DOES default is labelled with its state.
+        $this->assertSame(
+            ['typography.color (:hover)'],
+            _pp_udc_preset_values_shadowed_by_role_defaults(
+                ['typography' => [':hover' => ['color' => '#eee']]],
+                ['groups' => ['typography'], 'defaults' => ['typography' => [':hover' => ['color' => '@color-accent']]]]
+            )
+        );
+    }
+
+    /**
+     * A CUSTOM preset reaches a chrome role exactly as a built-in one does (#1016).
+     *
+     * The preset store and chrome share the `pp_site_udc` row, so "does a custom
+     * preset still work on chrome" is a question about two features that were built
+     * separately and now interact under a third change. Asserted on a role whose
+     * defaults are EMPTY, so the answer is about reachability rather than rung order.
+     */
+    public function testACustomPresetStillReachesAChromeRole(): void
+    {
+        $saved = pp_execute_action('save_preset', [
+            'name'  => 'chrome-probe',
+            'grain' => 'role',
+            'udc'   => ['sizing' => ['max-height' => '3rem']],
+        ]);
+        $this->assertTrue($saved['ok'], $saved['error'] ?? '');
+
+        // `logo-image` is the one chrome role that legitimately defaults nothing.
+        $this->assertSame([], pp_udc_component_roles('nav')['logo-image']['defaults']);
+
+        $this->write(['nav' => ['logo-image' => ['_preset' => 'chrome-probe']]]);
+        $this->assertStringContainsString(
+            '.nav__logo-image{max-height:3rem;}',
+            pp_udc_chrome_authored_css(),
+            'a custom preset must reach chrome like any other preset'
+        );
+    }
+
+    /**
+     * THE BREAKPOINT TIERS PRINT NARROW-LAST, and the emitted ORDER is the ranking.
+     *
+     * Computed-value checks cannot see this: a `d` value and a `p` value for the same
+     * property land at identical specificity, so whichever prints later wins, and a
+     * reordering would show up as the wrong value at one width rather than as an
+     * error. Chrome's retirement leans on it harder than any band does — the desktop
+     * dropdown's whole surface is `d` with a `p` reset, and the mobile panel is the
+     * reverse — so the order is pinned on the emitted TEXT.
+     */
+    public function testTheChromeDefaultsPrintUnmediatedRulesBeforeTheirNarrowOverrides(): void
+    {
+        $css = pp_udc_chrome_css('nav', 'defaults');
+
+        $base  = strpos($css, '[data-pp-chrome="nav"] .nav__menu{');
+        $phone = strpos($css, '@media (max-width: 767px)');
+        $this->assertIsInt($base);
+        $this->assertIsInt($phone);
+        $this->assertLessThan(
+            $phone,
+            $base,
+            'an unmediated rule must print BEFORE its narrow override, or the phone value never wins'
+        );
+
+        // And the states print after both, so a `:hover` is not defeated by a
+        // breakpoint rule for the same property.
+        $this->assertGreaterThan(
+            $phone,
+            strpos($css, '.nav__menu ul li a:hover{'),
+            'state rules print last, which is what makes them reachable at every width'
+        );
+    }
+
+    /**
+     * A BREAKPOINT MAP THAT NAMES ONLY `d` IS A MISSING RESET, NOT A NARROW VALUE.
+     *
+     * The `d` breakpoint carries NO media query, so a `d` value paints at EVERY width
+     * — which is exactly what an unkeyed scalar already means. A map therefore exists
+     * for one reason: to differ by width. One that has collapsed back to `d` alone is
+     * the retirement's signature failure, and it is invisible: the desktop dropdown's
+     * whole surface would simply start painting on the mobile expand-in-place list,
+     * and every assertion in both suites would stay green.
+     *
+     * PROVEN NECESSARY BY MUTATION (on a copy, rule 14.7): the testing specialist
+     * deleted `p` from `nav.submenu.shadow.box` and both `p` and `t` from
+     * `footer.columns.spacing.gap`, and PHPUnit 5111/5111 and Vitest both stayed
+     * green. Fourteen breakpoint-mapped defaults were unguarded; this covers all of
+     * them by construction rather than by naming them, so the next one is covered the
+     * day it is written.
+     */
+    public function testEveryBreakpointKeyedChromeDefaultCarriesItsNarrowReset(): void
+    {
+        $breakpoints = pp_udc_breakpoints();
+        $checked     = 0;
+
+        foreach (pp_udc_chrome_names() as $component) {
+            foreach (pp_udc_component_roles($component) as $role => $definition) {
+                foreach (($definition['defaults'] ?? []) as $group => $params) {
+                    foreach ($params as $param => $value) {
+                        // A state sub-map (`:hover`) is not a breakpoint map; its
+                        // members are, and they are reached on the next pass down.
+                        $candidates = str_starts_with((string) $param, ':')
+                            ? $value
+                            : [$param => $value];
+
+                        foreach ($candidates as $name => $candidate) {
+                            if (!is_array($candidate)) {
+                                continue;
+                            }
+                            $keys = array_keys(array_intersect_key($candidate, $breakpoints));
+                            if ($keys === []) {
+                                continue;
+                            }
+                            $checked++;
+                            $this->assertNotSame(
+                                ['d'],
+                                $keys,
+                                "{$component}.{$role}.{$group}.{$name} is a breakpoint map naming only "
+                                . '`d`, which carries no media query and so paints at every width. Either '
+                                . 'add the narrow reset it is missing, or write it as a plain scalar.'
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
+        $this->assertGreaterThan(
+            10,
+            $checked,
+            'the sweep must actually reach the breakpoint-mapped defaults'
+        );
+    }
+
+    /**
+     * EVERY ROLE THAT DECLARES A DEFAULT ACTUALLY EMITS ONE.
+     *
+     * A default in the schema is not a default on the page. The compile-time selector
+     * gate SILENTLY SKIPS a role whose selector fails its charset (deliberately, and
+     * deliberately without a ledger entry — see pp_udc_compile_band), so a typo'd
+     * selector costs the role its entire block with no error anywhere. Several pins
+     * this change repointed now read the schema and stop there, which cannot see that.
+     * One sweep closes it for all 27 roles at once.
+     */
+    public function testEveryChromeRoleWithDefaultsReachesThePage(): void
+    {
+        foreach (pp_udc_chrome_names() as $component) {
+            $css = pp_udc_chrome_css($component, 'defaults');
+            foreach (pp_udc_component_roles($component) as $role => $definition) {
+                if (($definition['defaults'] ?? []) === []) {
+                    continue;
+                }
+                $selector = (string) ($definition['selector'] ?? '');
+                $needle   = $selector === ''
+                    ? ':where([data-pp-chrome="' . $component . '"]){'
+                    : '[data-pp-chrome="' . $component . '"] ' . $selector . '{';
+
+                $this->assertStringContainsString(
+                    $needle,
+                    $css,
+                    "{$component}.{$role} declares defaults that never reach the page — its "
+                    . 'selector is probably being skipped by the compile-time charset gate'
+                );
+            }
+        }
+    }
+
+    /**
+     * ONE LITERAL COPIED OUT OF A TOKEN, PINNED TO IT.
+     *
+     * `submenu-toggle`'s `spacing.margin-left` is `-0.25rem`, which is
+     * `--space-xs` negated. It has to be a literal: the length grammar is
+     * literal-only by design (a `@reference` carries a registry TYPE, not an
+     * expression), so `calc(-1 * var(--space-xs))` is refused and there is no
+     * negative-space token to reference.
+     *
+     * A literal copied out of a token is a drift hazard — retune `--space-xs` and this
+     * silently stops matching it, which is the quiet divergence I36 exists to prevent.
+     * So the derivation is pinned the way the motion defaults' is
+     * (UdcPresetStateMotionTest::testTheMotionDefaultsStillEqualTheThemesTransitionToken):
+     * parse the token out of base.css and fail if the two stop agreeing.
+     */
+    public function testTheChevronsNegativeMarginStillEqualsTheNegatedSpaceToken(): void
+    {
+        $tokens = pp_design_tokens();
+        $this->assertArrayHasKey('--space-xs', $tokens, 'the token this literal mirrors is gone');
+
+        $declared = pp_udc_component_roles('nav')['submenu-toggle']['defaults']['spacing']['margin-left'];
+        $this->assertSame(
+            '-' . trim($tokens['--space-xs']['value']),
+            $declared,
+            'the chevron\'s negative margin has drifted from --space-xs; re-derive it or give '
+            . 'the engine a way to negate a reference'
         );
     }
 }

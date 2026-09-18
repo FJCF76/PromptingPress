@@ -169,7 +169,8 @@ test.describe('Mobile nav disclosure (issue 426)', () => {
     const listDir = await page.locator('#pp-nav-menu > ul').evaluate((el) => getComputedStyle(el).flexDirection);
     expect(listDir).toBe('row');
 
-    // #381 submenu disclosure: main.js injects a .nav__submenu-toggle; clicking it
+    // #381 submenu disclosure: the theme's nav walker renders a .nav__submenu-toggle
+    // and main.js wires it (the button moved server-side in #994); clicking it
     // opens the group (is-open + the sub-menu renders). Proves #381 is untouched.
     const subToggle = page.locator('.nav__submenu-toggle').first();
     await expect(subToggle).toHaveCount(1);

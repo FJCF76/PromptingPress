@@ -1749,9 +1749,51 @@ class StyleSlotContractTest extends TestCase
      * instead") arriving from the other direction. It is ALSO the reason the baseline
      * was not hoisted out of the layer to restore the old mechanism: an unlayered
      * baseline would outrank every layered component rule that legitimately draws a
-     * border (13 of them today — `.cta--dark`, `.grid--dark`, `.site-footer`, …) and
-     * erase all of them. The rendered pin remains the proof that matters.
+     * border (`.cta--dark`, `.grid--dark`, `.section--bordered`, …) and erase all of
+     * them. The rendered pin remains the proof that matters.
+     *
+     * `.site-footer` is NOT one of those rules any more, and the docblock immediately
+     * below is why: #994 made the footer's top border a `_band` role default, and this
+     * baseline was silently deleting it until chrome was excluded.
      */
+    /**
+     * THE CHROME EXCLUSION COSTS THE IMMUNITY NOTHING (#994).
+     *
+     * `isBaselineFor()` accepts `[data-pp-component]:not(:where([data-pp-chrome]))` as
+     * the baseline, because the unexcluded form silently deleted the header's and the
+     * footer's borders once #994 made them `_band` role defaults. That is only
+     * admissible if chrome can never be one of the elements the baseline defends — so
+     * this asserts it instead of the comment merely claiming it.
+     *
+     * Two independent reasons, both checked: chrome declares zero style slots (so no
+     * slot of its can embed a WP-core trigger substring), and its templates emit no
+     * `style` attribute at all (so core's `[style*="border-width"]` substring selector
+     * has nothing to match on). Either alone would be enough; both are pinned, because
+     * the first could change with a schema edit and the second with a template edit.
+     */
+    public function testNoBorderTriggerSlotBelongsToChrome(): void
+    {
+        foreach (array_keys($this->borderTriggerSlots()) as $slot) {
+            foreach (['nav', 'footer'] as $chrome) {
+                $this->assertStringNotContainsString(
+                    $chrome,
+                    (string) $slot,
+                    "the immunity baseline excludes chrome, so a chrome border-trigger slot "
+                    . "({$slot}) would be left exposed"
+                );
+            }
+        }
+
+        foreach (['nav', 'footer'] as $chrome) {
+            $this->assertSame(
+                [],
+                pp_get_style_slots($chrome),
+                "{$chrome} must declare no style slots — the chrome exclusion in the issue-332 "
+                . 'baseline depends on it'
+            );
+        }
+    }
+
     public function testBorderTriggerSlotsHaveCascadeImmunity(): void
     {
         $triggerSlots = $this->borderTriggerSlots();
@@ -2162,9 +2204,31 @@ class StyleSlotContractTest extends TestCase
         // but only immunizes roots inside .wrapper, leaving every other root exposed
         // (adversarial-review finding 3). Require the surface to stand alone as one whole
         // comma-separated compound selector.
+        //
+        // ONE EXCLUSION IS ALLOWED, and only one (#994). `[data-pp-component]` matches the
+        // site header and footer too, and once chrome's `_band` role defaults carried the
+        // header's `border-bottom` and the footer's `border-top`, this baseline deleted
+        // both: it sits in `@layer pp-v1` while a root default emits into `@layer pp-zero`
+        // BELOW it, and it claims exactly those two longhands. Measured in Chromium at
+        // 375/768/1280 — `border-bottom-width` on `.site-header` read `0px` where it had
+        // read `1px`.
+        //
+        // Excluding chrome costs the guarantee NOTHING, which is why it is admissible
+        // here rather than a hole in the guard: this baseline defends elements that carry
+        // inline slot custom properties, and chrome declares ZERO style slots by ratified
+        // contract (#223) and emits no style attribute at all. Not one of the
+        // border-trigger slots discovered above belongs to nav or footer, and the test
+        // below proves that rather than assuming it.
+        //
+        // `:where(...)` IS REQUIRED IN THE SPELLING. A bare `:not([data-pp-chrome])` would
+        // raise the baseline from (0,1,0) to (0,2,0) and start beating the thirteen
+        // component rules that legitimately draw a border. `:where()` contributes zero, so
+        // the weight the source-order check below depends on is unchanged.
+        $chromeExclusion = ':not(:where([data-pp-chrome]))';
         $selects = false;
         foreach (explode(',', $rule['selector']) as $part) {
-            if (trim($part) === $surface) {
+            $part = trim($part);
+            if ($part === $surface || $part === $surface . $chromeExclusion) {
                 $selects = true;
                 break;
             }
@@ -2272,10 +2336,16 @@ class StyleSlotContractTest extends TestCase
     /** Component root class selectors (`.nav`, `.grid`, …). */
     private static function styledComponentRoots(): array
     {
-        // '.site-footer' (issue 581): the footer's RENDERED root class is .site-footer, not
-        // .footer — a '.footer' entry matched nothing, so footer rules were invisible to the
-        // first-component-rule scan that uses this list.
-        return ['.nav', '.hero', '.section', '.faq', '.grid', '.table', '.cta', '.site-footer', '.stats', '.logos', '.embed', '.testimonials'];
+        // '.site-footer__inner' / '.nav__container' (#994): chrome's ROOT selectors are
+        // gone from components.css entirely — the retirement moved `.site-footer`'s and
+        // `.site-header`'s declarations into `_band` role defaults — so the plain root
+        // entries this list used to carry ('.site-footer', '.nav') matched nothing and the
+        // first-component-rule scan stopped seeing chrome. That is the same regression
+        // issue 581 fixed when a '.footer' entry matched nothing, arriving from the other
+        // direction: the entries were right and the stylesheet moved. Naming a selector
+        // each component still renders keeps the scan honest without pretending the roots
+        // are still styled here.
+        return ['.nav__container', '.hero', '.section', '.faq', '.grid', '.table', '.cta', '.site-footer__inner', '.stats', '.logos', '.embed', '.testimonials'];
     }
 
     /**

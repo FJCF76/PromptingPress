@@ -44,9 +44,11 @@ no breakpoint, no state, no spacing, no typography.
 | logo | `.nav__logo` | the logo link / wordmark |
 | logo-image | `.nav__logo-image` | the logo `<img>`, when one resolves |
 | menu | `.nav__menu` | the menu container — on phones, the disclosure panel |
+| menu-list | `.nav__menu ul` | the menu LIST — the space between items (`spacing.gap`), in the mobile stack and the desktop row alike |
 | submenu | `.nav__menu .sub-menu` | the desktop dropdown panel |
+| submenu-toggle | `.nav__submenu-toggle` | the dropdown chevron beside a parent item |
 | link | `.nav__menu ul li a` | every nav link at rest |
-| link-current | `.nav__menu ul li.current-menu-item a` | the link for the page you are on |
+| link-current | `.nav__menu ul li.current-menu-item > a` | the link for the page you are on |
 | toggle | `.nav__toggle` | the hamburger button (phones only) |
 
 A role's `background` takes a colour, a bounded gradient, or a Media Library **attachment ID** via `background.image` (never a URL) with `background.overlay` for a scrim over it — so a photographic header band is expressible. Pair image and overlay whenever text sits on the picture.
@@ -58,30 +60,63 @@ Hover, focus and the active state are ordinary value dimensions now: put a `:hov
 map inside the `link` role's `typography` group. The global `--color-accent` token is
 still the default for all three, so an unstyled header is unchanged.
 
-### Set a colour at rest, set its hover too (#992)
+### Every role carries the header's resting appearance (#994)
 
-An **unstyled** header keeps the accent on hover and on the current page. A **partly
-styled** one does not, and that is a live gap rather than a design choice.
+The header used to be painted by `assets/css/components.css` while its roles shipped
+EMPTY defaults. That is over: the whole resting appearance is role defaults now, and
+the stylesheet keeps only structure — layout, wrapper geometry, and the accessibility
+affordances (`cursor`, the `transition` property list, the open chevron's rotation).
 
-Chrome roles ship no defaults, so the header's resting appearance still comes from
-`assets/css/components.css` — which sits in `@layer pp-v1`, while your authored block
-is unlayered. Unlayered wins at any specificity, in every state. So a colour you set
-at REST also outranks the stylesheet's `:hover` and current-page rules:
+Two things follow, and both are improvements you can feel:
 
-| you set | you also lose |
-|---|---|
-| `link.typography.color` | the accent hover on links **and** the current-page accent |
-| `logo.typography.color` | the logo's accent hover — the logo then has no hover feedback at all |
-| `toggle.typography.color` | the hamburger's accent hover |
+- **Setting a colour no longer erases the states that go with it.** Before, an
+  authored value was the only unlayered declaration on the element, so it outranked
+  the stylesheet's `:hover` and current-page rules and silently cancelled them
+  (#992). Those treatments are role defaults now, in the same tier, so styling
+  `link` at rest leaves its hover accent and the you-are-here marker intact. You can
+  still override either — that is what setting `link`'s `:hover` or `link-current`
+  is for — but you no longer lose them by accident.
+- **A preset fills in only where a default is silent.** Role defaults out-rank
+  presets (site tokens → presets → role defaults → your `udc` map), and chrome now
+  has defaults where it had none. So `{"_preset": "button"}` on `link` still applies,
+  but only for the parameters `link` does not default; set a value explicitly in your
+  own map when you want it to win.
 
-The fix while the gap is open is to author what you cancelled, in the same write:
+`submenu-toggle` is the role to reach for whenever you set `link`. The chevron is a
+SIBLING of the link, not a child, so it cannot follow the link's colour on its own —
+style a header dark without it and the chevron stays on the default ink against your
+new background, which is invisible (#995).
+
+### Setting a colour at rest keeps its hover (fixed, #992/#994)
+
+There used to be a gap here worth knowing about, because you may have written around
+it. An **unstyled** header kept the accent on hover and on the current page; a
+**partly styled** one lost both. Chrome shipped no role defaults, so the header's
+resting appearance came from `assets/css/components.css` — which sits in
+`@layer pp-v1`, while your authored block is unlayered, and unlayered wins at any
+specificity in EVERY state. A colour you set at rest therefore outranked the
+stylesheet's `:hover` and current-page rules and silently cancelled them.
+
+#994 fixed it structurally. Those treatments are role defaults now, so they sit in
+the same unlayered tier your values do and win or lose on specificity like anything
+else. Setting `link.typography.color` alone leaves the accent hover and the
+current-page marker working.
+
+Writes that paired the states anyway are still correct and still recommended — an
+explicit hover is a design decision, and now it overrides a working default instead
+of rescuing a broken one:
 
 ```json
-{"nav": {"link":         {"typography": {"color": "#f7f8fa", ":hover": {"color": "@color-accent"}}},
-         "link-current": {"typography": {"color": "@color-accent"}},
-         "logo":         {"typography": {"color": "#f7f8fa", ":hover": {"color": "@color-accent"}}},
-         "toggle":       {"typography": {"color": "#f7f8fa", ":hover": {"color": "@color-accent"}}}}}
+{"nav": {"link":           {"typography": {"color": "#f7f8fa", ":hover": {"color": "@color-accent"}}},
+         "link-current":   {"typography": {"color": "@color-accent"}},
+         "logo":           {"typography": {"color": "#f7f8fa", ":hover": {"color": "@color-accent"}}},
+         "toggle":         {"typography": {"color": "#f7f8fa", ":hover": {"color": "@color-accent"}}},
+         "submenu-toggle": {"typography": {"color": "#f7f8fa"}}}}
 ```
+
+`submenu-toggle` is the one that still needs you: the chevron is a sibling of the
+link, so no default can make it follow `link`'s colour. The example above sets it —
+copy that shape.
 
 `link-current` reaches every current item on its own: WordPress adds `current-menu-item`
 to everything it marks current, and only ever adds `current_page_item` or
@@ -89,20 +124,20 @@ to everything it marks current, and only ever adds `current_page_item` or
 That relationship is pinned by a test, so a future WordPress change breaks loudly
 rather than silently dropping the current-page treatment.
 
-Issue #994 closes the gap properly by moving the header's resting appearance into role
-defaults; #992 tracks the defect.
-
 ### Stated defaults
 
-`.nav__menu .sub-menu { min-width: 12rem }` (at 768px and up, where the dropdown exists) is the dropdown panel's floor width. A
-floating panel cannot size to its own content without jitter: rename one child item and
-the panel's width would jump under the cursor mid-hover. `12rem` is the width at which a
-typical menu label does not wrap, so the panel holds still while the menu changes. It is
-a literal rather than a slot for the same reason as everything else here — chrome
-declares **zero style slots** by ratified contract, so a stated reason is the only
-disposition available, not a second-best one. The same block **is** partly
-token-reachable already: the panel's fill is the `submenu` UDC role and its corners
-follow `--radius`. **Reopening condition:** the chrome model's own boundary (#223) moving.
+`.nav__menu .sub-menu { min-width: 12rem }` (at 768px and up, where the dropdown exists) is
+the dropdown panel's floor width. A floating panel cannot size to its own content without
+jitter: rename one child item and the panel's width would jump under the cursor mid-hover.
+`12rem` is the width at which a typical menu label does not wrap, so the panel holds still
+while the menu changes.
+
+It stays in the stylesheet because it is wrapper GEOMETRY — the box the panel lays out in,
+not how the panel looks — which is the structural half of the §2 boundary. That is a
+different reason from the one this paragraph used to give ("chrome declares zero style
+slots, so a literal is the only disposition available"), and the difference matters: the
+panel's whole surface is the `submenu` role now, and `submenu` permits `sizing`, so an
+authored `sizing.min-width` overrides this line. Nothing here is out of reach any more.
 
 ## Configuring the header
 
@@ -118,8 +153,8 @@ configuration.
 | Attach a menu to the header | `assign_menu_location` with location `primary` |
 | Dark or gradient header, text and link colours, spacing, typography | `update_site_option` with key `pp_site_udc`, setting the roles above |
 
-The active/current link is the `link-current` role; it keeps its bold weight, which is
-structural. Style the header to match the SITE's real header, not the hero: a dark hero
+The active/current link is the `link-current` role, which carries both its colour and
+its bold weight. Style the header to match the SITE's real header, not the hero: a dark hero
 is not a reason to make the header dark. Layout, sticky behavior and menu structure are
 still not configurable — the UDC is a design surface, not a header builder.
 
@@ -131,8 +166,8 @@ no menu, its menu is empty, or `pp_logo_id` points at something that is not an i
 - **Mobile** (`< 768px`): Hamburger button shown. Menu hidden (`hidden` attribute). JS in `main.js` toggles `aria-expanded` and `hidden`.
 - **Desktop** (`≥ 768px`): Hamburger hidden via CSS. Menu always visible.
 - **Keyboard**: `Escape` closes the menu and returns focus to the toggle button.
-- **Dropdown submenus** (#381): a nav item with children (authored via `set_menu`'s `children` array — one level deep) renders as an accessible dropdown. `main.js` enhances each parent into a WAI-ARIA **disclosure** (an injected `.nav__submenu-toggle` button with `aria-expanded`, never a menubar — no `role="menu"`). Desktop: hover reveals the dropdown (mouse); the button opens it for keyboard. Mobile: the group expands in place. Keyboard: the toggle opens on `Enter`/`Space`, `ArrowDown` opens it and moves focus to the first child, `Escape` closes it and returns focus to the toggle. Without JS, the submenu stays visible (expanded on mobile, hover on desktop).
-- **Active link**: WordPress marks the current item server-side (`current-menu-item` on the `<li>`, `aria-current="page"` on the `<a>`); no JS. Its colour is the `link-current` role (defaulting to `--color-accent`) and it renders in bold.
+- **Dropdown submenus** (#381): a nav item with children (authored via `set_menu`'s `children` array — one level deep) renders as an accessible dropdown. The theme's nav walker renders a `.nav__submenu-toggle` button beside each parent link and `main.js` wires it into a WAI-ARIA **disclosure** (`aria-expanded`, never a menubar — no `role="menu"`). The button is server-rendered since #994, which is what lets the `submenu-toggle` role style it; without JavaScript it stays hidden, so there is never a control that does nothing. Desktop: hover reveals the dropdown (mouse); the button opens it for keyboard. Mobile: the group expands in place. Keyboard: the toggle opens on `Enter`/`Space`, `ArrowDown` opens it and moves focus to the first child, `Escape` closes it and returns focus to the toggle. Without JS, the submenu stays visible (expanded on mobile, hover on desktop).
+- **Active link**: WordPress marks the current item server-side (`current-menu-item` on the `<li>`, `aria-current="page"` on the `<a>`); no JS. Its colour AND its bold weight are the `link-current` role, defaulting to `@color-accent` and `700`. The role targets the current item's own link as a direct child, so a current page that HAS a dropdown does not hand the treatment to every link inside it.
 
 ## Usage
 
@@ -153,6 +188,9 @@ In WP Admin: Appearance → Menus → create a menu and assign it to the "Primar
 
 ## CSS
 
-Styles in `assets/css/components.css` under `/* === COMPONENT: nav === */`.
+Structural styles in `assets/css/components.css` under `/* === COMPONENT: nav === */` —
+layout, wrapper geometry and accessibility affordances only. Everything designable (colour,
+type, size, spacing, border, shadow) is a role `default` in `components/nav/schema.json`
+since #994.
 
 At `md` breakpoint (768px): `.nav__toggle { display: none }` and `.nav__menu { display: block }` (always visible, `hidden` attribute overridden by CSS).

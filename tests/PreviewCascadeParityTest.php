@@ -101,7 +101,13 @@ final class PreviewCascadeParityTest extends TestCase
         );
         $this->assertStringContainsString('#101828', $head, 'the authored chrome value must reach the preview');
 
-        $chrome = strpos($head, '[data-pp-chrome="nav"]');
+        // THE AUTHORED VALUE, NOT THE FIRST CHROME SELECTOR (#994). Since chrome's
+        // retirement, `[data-pp-chrome="nav"]` appears in the DEFAULTS block too —
+        // which prints BEFORE the stylesheets, correctly — so searching for the
+        // selector found the wrong occurrence and this ordering claim inverted. The
+        // claim was always about the AUTHORED tier, so it is anchored on the authored
+        // value itself, which only one block can contain.
+        $chrome = strpos($head, '#101828');
         foreach (['base.css', 'components.css', 'utilities.css'] as $sheet) {
             $this->assertLessThan(
                 $chrome,
@@ -179,7 +185,14 @@ final class PreviewCascadeParityTest extends TestCase
     {
         $head = $this->head();
 
-        $this->assertStringNotContainsString('data-pp-chrome', $head);
+        // CHROME DEFAULTS ARE NOT "EXTRA" (#994). This asserted no `data-pp-chrome` at
+        // all, which was right while chrome shipped no defaults and is wrong now: the
+        // header and footer's resting appearance IS the defaults tier, so a preview
+        // without it would show unstyled chrome above a styled page — the I15 lie this
+        // whole file exists to prevent, arriving from the other side. What must still
+        // be absent on an unstyled site is the AUTHORED tier's content.
+        $this->assertStringContainsString('[data-pp-chrome="nav"] .nav__menu ul li a{', $head);
+        $this->assertStringNotContainsString('id="pp-udc-authored">[data-pp-chrome', $head);
         $this->assertStringNotContainsString('<link rel="stylesheet" href="https://fonts', $head);
         // Counts the UDC TIERS, not every <style> in the head: the layer-order statement
         // (#986) is a third block and deliberately not one of them.
@@ -246,14 +259,21 @@ final class PreviewCascadeParityTest extends TestCase
         $this->assertStringContainsString(':where(', $head, 'the root-level defaults are emitted at zero specificity');
     }
 
-    /** An empty composition emits no empty blocks — the head stays clean. */
+    /** An empty composition emits no BAND blocks — but chrome still renders. */
     public function testACompositionWithNoV2BandsEmitsNeitherBlock(): void
     {
         $head = pp_preview_document_head([], 'https://example.test/theme');
 
-        // The layer-order statement is always emitted (#986); what must be absent here is
-        // any UDC tier.
-        $this->assertStringNotContainsString('id="pp-udc-', $head);
+        // The layer-order statement is always emitted (#986). Since #994 the DEFAULTS
+        // block is too, because the preview renders nav and footer markup on every
+        // page and chrome's resting appearance is role defaults — a head without it
+        // would preview an unstyled header. What must be absent is anything BAND-
+        // scoped, which is what "no v2 bands" actually means.
+        $this->assertStringNotContainsString('data-pp-band', $head);
+        $this->assertStringNotContainsString('data-pp-component', $head);
+        $this->assertStringNotContainsString('id="pp-udc-authored"', $head);
+        $this->assertStringContainsString('id="pp-udc-defaults"', $head);
+        $this->assertStringContainsString('[data-pp-chrome="footer"]', $head);
         $this->assertStringContainsString('base.css', $head, 'the stylesheets are still linked');
     }
 

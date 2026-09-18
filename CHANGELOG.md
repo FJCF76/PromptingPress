@@ -4,6 +4,91 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [Unreleased — v2.0.0-alpha.2] — v2 Sprint 2: the chrome CSS retirement — the header and footer join the design contract, and styling one part of them stops cancelling another (#994, #992, #995)
+
+**The last two components still painted by the old stylesheet are on the engine.** The site header and footer declared roles you could author, while `assets/css/components.css` quietly owned how they actually looked. That split is what made styling a nav link silently erase its own hover. 88 declarations moved into role defaults, the CSS rules are gone, and the three bugs the split was causing are fixed.
+
+### What changes for you
+
+**Styling one thing no longer breaks another.** Setting `nav.link`'s colour used to cancel the accent hover AND the current-page marker, because an authored value outranked the stylesheet in every state. Both survive now. Setting a `":hover"` is a design choice again rather than damage control (#992).
+
+**The dropdown chevron is reachable, and it sits where it belongs.** It had no role at all, so on a dark header it rendered at the default ink against your new background — invisible. It is the `submenu-toggle` role now. It also used to wrap onto its own line, pushing its menu item ~14px out of line with its neighbours; measured at 1280 the parent item now shares its siblings' exact box (#995).
+
+**Seven new roles.** nav gains `menu-list` and `submenu-toggle`; the footer gains `social`, `nav-list`, `contact` and `bottom-row`. Each covers spacing or type that no surface could reach before.
+
+**The current-page treatment stays where it belongs.** It targets the current item's own link as a direct child, so visiting a page that has a dropdown no longer tints every link inside it.
+
+### ⚠️ Breaking: a stored chrome `_preset` now fills in only where the role is silent
+
+Chrome's header and footer used to declare no role defaults at all, so a `"_preset"` on a
+chrome role applied in full. Their whole resting appearance is role defaults now, and role
+defaults out-rank presets — so a preset supplies only the parameters its role does not
+already default.
+
+**If you have a stored `pp_site_udc` map with a `"_preset"` on a chrome role, it renders
+differently than it did.** The measured case: `{"nav":{"logo":{"_preset":"button"}}}` used
+to give the logo the button treatment entire, inverted ink on an accent fill. It now keeps
+the accent fill and takes `logo`'s own text colour, because `logo` defaults typography and
+sizing. On a dark accent that is a contrast change you will want to look at.
+
+You do not have to hunt for it. The write envelope, `wp pp operate inspect` and
+`wp pp check page` all now report `udc_preset_value_shadowed_by_role_default`, naming the
+component, the role, the preset and every parameter the role's defaults suppress — including
+for maps written before this release, because the finding is derived from what is stored
+rather than from the write.
+
+**Migration.** Read your current chrome map, then re-send the affected roles with the values
+written explicitly, where they out-rank both the preset and the default:
+
+```bash
+wp pp operate inspect                      # returns the stored map as `chrome`, with its `version`
+wp pp action execute update_site_option --run-id=<uuid> \
+  --params='{"key":"pp_site_udc","expected_version":<version>,"value":"{\"nav\":{\"logo\":{\"_preset\":\"button\",\"typography\":{\"color\":\"@color-bg\"}}}}"}'
+```
+
+Keep the `"_preset"` if you still want the parameters the role does not default; add only
+the values you want back. A write replaces the whole chrome subtree, so send every chrome
+component you want to keep in the same write.
+
+Also narrowed, and needing no action: a stored `nav.link-current` map no longer tints the
+links inside a current page's dropdown. It now targets that item's own link as a direct
+child, which is what the deleted CSS did and what the role always described.
+
+### Upgrading
+
+Nothing to do unless you have a stored `pp_site_udc` map with a `"_preset"` on a chrome role — see the breaking note above for the migration. An unstyled site renders identically: the values moved, the pixels did not.
+
+### Known issues
+
+- The header and footer now emit ~4.6 KB of inline CSS per request (+710 gzipped) that was previously served from the cacheable stylesheet, and `components.css` itself grew because the change is heavily commented. #1021 tracks stripping comments at package time.
+- An unstyled page pays ~2.4 ms of compile on routes that warm nothing else (404, search, archives). #1020 tracks the available win.
+
+### Itemized changes
+
+#### Fixed
+- Authoring a chrome role's resting colour no longer cancels that role's hover or the current-page marker (#992).
+- The nav dropdown chevron is reachable through the `submenu-toggle` role, and no longer wraps its parent item out of alignment (#995).
+- A preset value suppressed by a role default is now disclosed as `udc_preset_value_shadowed_by_role_default` on the write envelope, on `wp pp operate inspect` and on `wp pp check page` — including for maps written before this release. It also fires for bands, where the same silence predates chrome entirely.
+- A dark-footer write no longer claims the band colour fails to reach `heading`; that role inherits by design.
+- The header's bottom border and the footer's top border survive the move. The issue-332 border-immunity baseline matched both chrome roots and was deleting them; chrome is excluded from it now, and cannot trigger the WordPress rule that baseline exists to defeat.
+
+#### Changed
+- Chrome role defaults emit on every site, styled or not. The no-stored-entry short-circuit in `pp_udc_chrome_defaults_css()` is gone, per its own docblock.
+- Role selectors may contain a child combinator. The gate is anchored with `\z` to match its five siblings.
+- `cursor`, `transition`, `transition-property` and `transform` are classified structural.
+- The dropdown disclosure button is rendered by the theme's nav walker instead of built in JavaScript. Hidden until JavaScript activates it, so the no-JS render is unchanged.
+
+#### Docs
+- Every AI-facing surface corrected: the #992 pairing advice inverted, the preset interaction stated, and the one pairing that stays mandatory (`submenu-toggle` with `link`) added to the worked examples that previously violated it.
+- `docs/explanation-cascade-layers.md` gains section 1c: a `pp-zero` root default competes with every `pp-v1` rule that matches its element, not only the ones written about that component.
+
+#### Tests
+- Chrome joins the structural-CSS boundary lint; the carve-out is removed and its lapse pinned.
+- The #992 characterization test is inverted rather than deleted: same fixture, same authored input, opposite expectations.
+- New pins: role defaults frozen value-for-value, breakpoint maps refused when they name only `d`, every role's defaults proved to reach the page, every shipped selector proved well-formed, and the chevron's negative margin pinned to the token it mirrors.
+
+---
+
 ## [v2.0.0-alpha.1] — 2026-09-15 — v2 Sprint 1 "engine": the contract-boundary gate fixes, presets/states/motion, chrome and background images, the batched hardening, hero rebuilt on the contract, and the nav chrome surface verified (#962, #965, #970, #976, #981, #986, #968, #972, #991)
 
 **Sprint 1 is the engine sprint: the UDC contract stops being something testimonials proved and becomes something a second component, the site chrome and a shared vocabulary all run on.** Presets give a look a name. Three states replace one. A motion group arrives with `prefers-reduced-motion` handled for you. The header and footer move onto the same engine as the bands. A background takes a Media Library image without anyone writing a `url()`. hero is rebuilt on the contract, and the v1 stylesheet is put in a cascade layer so an authored value actually wins. Underneath all of that, three contract-boundary gate fixes and eight honesty fixes close gaps between what the system accepts and what it then does.
