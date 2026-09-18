@@ -30,3 +30,8 @@ integrity-manifest.json
 
 # gstack tooling output
 .gstack-screenshots/
+
+# The release zip that scripts/package.sh writes to the repo root. CI builds and
+# uploads the real artifact (release.yml), so a local build is a throwaway — but it
+# lands at the root, unignored, at ~2.4MB, where the next `git add -A` swallows it.
+promptingpress-*.zip

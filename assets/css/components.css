@@ -3429,7 +3429,9 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
    Text-only: body fills the container (no max-width) so titles and headings
    match the visual width of adjacent full-width components (grid, table, CTA).
    Only the prose content block is constrained for readable line length.
-   Centered: body is constrained to --measure-centered with center-aligned text.
+   Centered: the text is centred and the column width is the `heading`, `subheading`
+   and `body` roles' own `sizing.max-width` (40rem each). It was `--measure-centered`
+   (56rem) on a wrapper until #1023; that token now has no reader in this stylesheet.
    ========================================================================== */
 
 /* Issue 581 (A-28) — the `.section--text-only .section__title` font-size rule that used
@@ -3481,10 +3483,11 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
        without it        title left,   subheading left, eyebrow left
    and an unauthored centred band renders `center` on all three either way. */
 
-/* The centered layout centers the OUTER .section__body (max-width --measure-centered,
-   56rem) but its inner .section__content carries a NARROWER cap (--section-body-measure,
-   42rem) with no auto margins, so the body copy left-pinned inside the wider centered
-   wrapper while the title sat centered — a visible ~112px asymmetry (issue 354). Give
+/* HISTORICAL, and the shape is worth keeping because #1023 reproduced its mirror image.
+   v1 centred the OUTER .section__body (max-width --measure-centered, 56rem) while its
+   inner .section__content carried a NARROWER cap (--section-body-measure, 42rem) with no
+   auto margins, so the body copy left-pinned inside the wider centred wrapper while the
+   title sat centred — a visible ~112px asymmetry (issue 354). Give
    the inner wrapper auto side-margins so the measure centers under the heading. Scoped
    to .section--centered only: text-only / image-left / image-right / text-panel keep
    .section__content left-pinned (byte-identical). Text is already centered here via the
