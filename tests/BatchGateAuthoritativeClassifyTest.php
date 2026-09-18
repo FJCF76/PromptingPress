@@ -58,6 +58,18 @@
 
 use PHPUnit\Framework\TestCase;
 
+// EVERY SECTION BAND BELOW CARRIES 'id' => 'pp-5ec71011' (#1023).
+//
+// Section is a v2 component now, so the writer mints `pp-<hex8>` onto any v2 band that
+// reaches it without one — and a minted id breaks the byte-identical baseline and
+// snapshot comparisons this whole file is built on, for a reason that has nothing to do
+// with the classify gate. An authored valid id is honoured and never overwritten (§3.1),
+// so supplying one keeps the comparisons exact.
+//
+// ONE SHARED id, deliberately: every page here is single-band, and two fixtures that
+// build the same band from a variable and from a literal must compare equal. A
+// content-derived id was tried first and made those two differ.
+
 /**
  * Counts the composition point-lookups the gate issues, so the per-batch cost is a pinned
  * number rather than a claim in a changelog. Grants the lock like every other batch harness.
@@ -153,7 +165,7 @@ class BatchGateAuthoritativeClassifyTest extends TestCase
     private function healthyPage(string $title = 'Healthy'): int
     {
         $post_id = pp_create_page($title, 'draft');
-        pp_update_composition($post_id, [['component' => 'section', 'props' => ['id' => 'h', 'title' => 'Fine', 'body' => 'Body text']]]);
+        pp_update_composition($post_id, [['component' => 'section', 'id' => 'pp-5ec71011', 'props' => ['id' => 'h', 'title' => 'Fine', 'body' => 'Body text']]]);
         $this->assertTrue(pp_get_composition_result($post_id)['ok'], 'premise: readable');
         return $post_id;
     }
@@ -185,7 +197,7 @@ class BatchGateAuthoritativeClassifyTest extends TestCase
     {
         return ['type' => 'action', 'name' => 'update_composition', 'params' => [
             'post_id'     => $post_id,
-            'composition' => [['component' => 'section', 'props' => ['id' => 'edited', 'title' => $title, 'body' => 'Body text']]],
+            'composition' => [['component' => 'section', 'id' => 'pp-5ec71011', 'props' => ['id' => 'edited', 'title' => $title, 'body' => 'Body text']]],
         ]];
     }
 
@@ -269,7 +281,7 @@ class BatchGateAuthoritativeClassifyTest extends TestCase
 
         $this->assertSame([$post_id => 'decode_error'], $snapshot['unreadable']);
         $this->assertSame(
-            [['component' => 'section', 'props' => ['id' => 'h', 'title' => 'Fine', 'body' => 'Body text']]],
+            [['component' => 'section', 'id' => 'pp-5ec71011', 'props' => ['id' => 'h', 'title' => 'Fine', 'body' => 'Body text']]],
             $snapshot['posts'][$post_id]['composition'],
             'the captured baseline is still the cached read: the state this batch would execute against'
         );
@@ -325,7 +337,7 @@ class BatchGateAuthoritativeClassifyTest extends TestCase
         // nothing has shown to be damaged.
         $this->assertArrayNotHasKey('model_note', $resp['data']);
         $this->assertSame(
-            [['component' => 'section', 'props' => ['id' => 'h', 'title' => 'Fine', 'body' => 'Body text']]],
+            [['component' => 'section', 'id' => 'pp-5ec71011', 'props' => ['id' => 'h', 'title' => 'Fine', 'body' => 'Body text']]],
             pp_get_composition($post_id),
             'and the page is untouched'
         );
@@ -446,7 +458,7 @@ class BatchGateAuthoritativeClassifyTest extends TestCase
         $post_id = $this->healthyPage('Row already repaired');
         update_post_meta($post_id, '_pp_composition', self::CORRUPT_BYTES);
         $GLOBALS['_pp_test_store']['wpdb_postmeta'][$post_id]['_pp_composition'] =
-            json_encode([['component' => 'section', 'props' => ['id' => 'fixed', 'title' => 'Repaired', 'body' => 'Body text']]]);
+            json_encode([['component' => 'section', 'id' => 'pp-5ec71011', 'props' => ['id' => 'fixed', 'title' => 'Repaired', 'body' => 'Body text']]]);
 
         $this->assertFalse(pp_get_composition_result($post_id)['ok'], 'premise: the cache says corrupt');
         $this->assertTrue(pp_get_composition_result_authoritative($post_id)['ok'], 'premise: the row says healthy');
@@ -476,7 +488,7 @@ class BatchGateAuthoritativeClassifyTest extends TestCase
         $this->assertCount(2, $batch['steps']);
         $this->assertSame('publish', get_post($post_id)->post_status);
         $this->assertSame(
-            [['component' => 'section', 'props' => ['id' => 'edited', 'title' => 'Rewritten', 'body' => 'Body text']]],
+            [['component' => 'section', 'id' => 'pp-5ec71011', 'props' => ['id' => 'edited', 'title' => 'Rewritten', 'body' => 'Body text']]],
             pp_get_composition($post_id)
         );
     }

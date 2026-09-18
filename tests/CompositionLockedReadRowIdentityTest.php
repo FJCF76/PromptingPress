@@ -270,14 +270,14 @@ class CompositionLockedReadRowIdentityTest extends TestCase
     private function originalBands(): array
     {
         return [
-            ['component' => 'section',    'props' => ['id' => 'band-1', 'title' => 'Original section', 'body' => 'Body text']],
-            ['component' => 'section', 'props' => ['id' => 'band-2', 'title' => 'Original section']],
+            ['component' => 'section', 'id' => 'pp-a1b20007', 'props' => ['id' => 'band-1', 'title' => 'Original section', 'body' => 'Body text']],
+            ['component' => 'section', 'id' => 'pp-a1b20008', 'props' => ['id' => 'band-2', 'title' => 'Original section']],
         ];
     }
 
     private function laterBands(): array
     {
-        return [['component' => 'section', 'props' => ['id' => 'band-later', 'title' => 'Later section', 'body' => 'Body text']]];
+        return [['component' => 'section', 'id' => 'pp-a1b20009', 'props' => ['id' => 'band-later', 'title' => 'Later section', 'body' => 'Body text']]];
     }
 
     /** A page that has been through the writer once, so it has a composition and a marker. */
