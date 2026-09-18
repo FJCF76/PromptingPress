@@ -4,7 +4,7 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
-## [v2.0.0-alpha.2] — 2026-09-18 — the chrome CSS retirement: the header and footer join the design contract, and styling one part of them stops cancelling another (#994, #992, #995)
+## [Unreleased — v2.0.0-alpha.2] — v2 Sprint 2: the chrome CSS retirement — the header and footer join the design contract, and styling one part of them stops cancelling another (#994, #992, #995)
 
 **The last two components still painted by the old stylesheet are on the engine.** The site header and footer declared roles you could author, while `assets/css/components.css` quietly owned how they actually looked. That split is what made styling a nav link silently erase its own hover. 88 declarations moved into role defaults, the CSS rules are gone, and the three bugs the split was causing are fixed.
 
