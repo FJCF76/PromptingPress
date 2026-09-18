@@ -42,7 +42,6 @@ use PHPUnit\Framework\TestCase;
 
 class MeasureSurfaceTest extends TestCase
 {
-    /** The eight band components whose heading measure routes the shared token. */
     // The components that route the shared --measure-heading token through a
     // style slot. This is the v1 STYLE-SLOT roster; testimonials left it when it was rebuilt on the Universal Design Contract (v2) and now declares roles instead of slots: its heading cap is the `heading` role's
     // `sizing.max-width` default, which still resolves @measure-heading, so the
@@ -541,23 +540,6 @@ class MeasureSurfaceTest extends TestCase
 
 
 
-    /**
-     * THE FOUR BRANCH FALLBACKS COLLAPSED INTO ONE ROLE DEFAULT (#1023), and this test is
-     * inverted rather than deleted because the collapse is a rendering decision.
-     *
-     * v1 capped `.section__content` from FIVE consumptions carrying FOUR distinct
-     * measures — 40rem on the outer `.section__body`, 42rem on the inner
-     * `.section__content`, `var(--measure-centered)` on the centered and text-only
-     * branches, and 49rem in the desktop `main > .section--text-only` override. The old
-     * pin existed to stop someone "tidying" them, because collapsing them changes the
-     * rendered line length.
-     *
-     * A v2 role has no layout-specific defaults, so the collapse was forced, and the
-     * choice of WHICH value survives is the whole decision: 49rem, because the desktop
-     * `main > .section--text-only` override is the one that actually WON on a rendered
-     * page. Picking the 42rem base — the one that reads first in the file — would have
-     * narrowed every default section body by ~7rem.
-     */
     /**
      * RENAMED AND CORRECTED (#1023). The previous name — "collapsed to the branch that
      * actually won" — described the wrong analysis and asserted the wrong number.

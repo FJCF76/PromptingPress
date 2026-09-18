@@ -145,7 +145,6 @@ class CompositionEncodeRefusalTest extends TestCase
         return $post_id;
     }
 
-    /** A perfectly ordinary, encodable composition with an explicit (non-generated) id. */
     /**
      * EVERY FIXTURE HERE CARRIES ITS OWN TOP-LEVEL BAND ID SINCE #1023.
      *

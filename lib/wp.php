@@ -1723,8 +1723,8 @@ function pp_get_style_slots(string $component_name): array {
  * route names a role the component does not declare. A refusal that lies about where a
  * value went is worse than one that only says no.
  *
- * STYLE SLOTS NEED NO SUCH REGISTRY and deliberately do not have one. All 76 retired
- * slots belong to the two components `pp_udc_is_v2_component()` already identifies, and
+ * STYLE SLOTS NEED NO SUCH REGISTRY and deliberately do not have one. All 123 retired
+ * slots belong to the components `pp_udc_is_v2_component()` already identifies, and
  * every one of them is replaced by the same thing — the band's `udc` map — so the route
  * is derivable at runtime and cannot drift. Only props need naming, because their
  * replacements differ per prop.
@@ -8760,7 +8760,17 @@ function pp_default_homepage_composition(): array {
             'panel'          => [
                 'background' => ['fill' => '#0A0A12'],
                 'typography' => ['color' => '#F2EEE5', 'family' => '@font-mono'],
-                'border'     => ['width' => '1px', 'style' => 'solid', 'color' => '#14141F', 'radius' => '4px'],
+                // NO `width` HERE, DELIBERATELY, and it is the one place in this seed where
+                // the conversion is not a straight slot-to-role move. v1's rule was
+                // `border: var(--section-panel-border-width, 0) solid
+                // var(--section-panel-border-color, transparent)` and this seed set only the
+                // COLOUR — so the width resolved to its `0` fallback and the panel painted
+                // NO border. The `panel` role's own default is `border.width: "0"`, so
+                // omitting it here reproduces that exactly. Adding `1px` (as an earlier cut
+                // of this conversion did) would have shipped a border the starter never had.
+                // Contrast the `_band` and `eyebrow` entries above, where v1 set width AND
+                // colour, so both carry across.
+                'border'     => ['color' => '#14141F', 'radius' => '4px'],
             ],
         ]],
 

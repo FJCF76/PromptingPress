@@ -743,9 +743,26 @@ function pp_validate_composition_smells(array $composition): array {
             ];
         }
 
-        // Track consecutive text-only sections (no image, no visual anchor)
+        // Track consecutive text-only sections (no image, no visual anchor).
+        //
+        // THE BAND BACKGROUND IS READ FROM BOTH SYSTEMS (#1023). This test used to ask
+        // `empty($props['background_image'])`, which is a v1 prop section retired — so on
+        // a v2 band the term was unconditionally true and a band carrying a real
+        // photographic background counted as bare text. Three of those in a row raised a
+        // "wall of text" warning about a page with background variety, which is the
+        // opposite of what the smell is for. `wp pp check page` halts on any smell, so a
+        // false positive here is not cosmetic.
+        //
+        // Same defensive posture as the rest of this loop: a corrupt row can hold any
+        // shape at each level, and these smells also run over arbitrary history-ring
+        // snapshots (#233), so every step is array-guarded rather than indexed.
+        $udc       = is_array($item['udc'] ?? null) ? $item['udc'] : [];
+        $band      = is_array($udc['_band'] ?? null) ? $udc['_band'] : [];
+        $band_bg   = is_array($band['background'] ?? null) ? $band['background'] : [];
+        $has_band_bg = !empty($band_bg['image']) || !empty($band_bg['fill']);
+
         $layout = $props['layout'] ?? 'text-only';
-        if ($component === 'section' && in_array($layout, ['text-only', 'centered'], true) && empty($image_url) && empty($props['background_image'] ?? '')) {
+        if ($component === 'section' && in_array($layout, ['text-only', 'centered'], true) && empty($image_url) && empty($props['background_image'] ?? '') && !$has_band_bg) {
             $consecutive_text_only++;
         } else {
             $consecutive_text_only = 0;

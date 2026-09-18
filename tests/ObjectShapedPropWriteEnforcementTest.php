@@ -422,15 +422,6 @@ class ObjectShapedPropWriteEnforcementTest extends TestCase
     }
 
     /**
-     * THE SECOND SHIPPED FIELD, through a real action rather than only through the §2
-     * inventory walk.
-     *
-     * `section.panel_items[].style` reaches RULE 6c by a different route than
-     * `grid.items[].style`: its prop accepts MIXED string and object entries, so the
-     * entry walk it sits in is not the one grid uses. A rule proven on one of two
-     * shipped callers is a rule proven on half the surface.
-     */
-    /**
      * INVERTED at #1023. This was the second half of the #883 shape rule, proven through
      * a real action: a JSON LIST where a per-item `style` object belongs is refused, and
      * the message pluralizes its entry count.

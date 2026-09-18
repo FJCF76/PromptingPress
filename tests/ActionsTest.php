@@ -5563,7 +5563,7 @@ class ActionsTest extends TestCase
 
         $this->assertSame('no_style_slots', $result['error_code']);
         // #1007: this used to assert "this component doesn't support style customization",
-        // which is false for all four components that produce this code — they produce it
+        // which is false for all five components that produce this code — they produce it
         // BECAUSE their styling moved to the band's `udc` map. The card now routes instead
         // of dead-ending, and must never claim the component is unstylable again.
         $this->assertStringContainsString('new styling system', $result['user_message']);

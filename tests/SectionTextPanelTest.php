@@ -5,21 +5,26 @@
  * Section text-panel layout (issue 104): a two-column "text + content panel"
  * layout where the right column is a server-validated panel built from PROPS
  * (panel_heading / panel_body / panel_items / panel CTA) — NOT nested
- * components, so the "components never nest components" invariant holds. The
- * panel is styleable per-instance through the --section-panel-* style slots.
+ * components, so the "components never nest components" invariant holds.
+ *
+ * THE PANEL'S DESIGN IS ROLES, NOT SLOTS, SINCE #1023. The `--section-panel-*`
+ * family is retired; the panel is six roles — `panel`, `panel-heading`,
+ * `panel-body`, `panel-list`, `panel-row` / `panel-row-label` /
+ * `panel-row-value` — plus `panel-cta`, compiled by the engine into a
+ * band-scoped block rather than emitted as inline custom properties on the
+ * section root. The tests below assert exactly that, so this header is written
+ * to match them rather than the system they replaced.
  *
  * Three layers are pinned here:
  *   1. Render — the panel column, list, and CTA render (and degrade) correctly,
  *      and the left column keeps the normal section header/content markup.
- *   2. Validation — the new flat props and the new style slots pass the SHARED
- *      engine (pp_validate_composition), and an unknown panel-ish prop is still
- *      rejected by the #147 prop-key gate.
- *   3. CSS contract — the panel box + text route through the slots, the list
- *      markers are restored (base reset strips them), the panel CTA color routes
- *      through the documented per-component --btn-* idiom, and the two columns
- *      top-align at >=768px. (The generic "every slot is consumed / unbypassed"
- *      proof is owned by StyleSlotContractTest #305; these are the value-level
- *      and structure pins that file does not assert.)
+ *   2. Validation — the flat props pass the SHARED engine
+ *      (pp_validate_composition); an unknown panel-ish prop is still rejected by
+ *      the #147 prop-key gate; and the panel props are REFUSED with `inert_prop`
+ *      on every layout that renders no panel.
+ *   3. DESIGN contract — the panel's values compile into the band block and NOT
+ *      into a style attribute, the list markers are restored (base reset strips
+ *      them), and the two columns top-align at >=768px.
  */
 
 use PHPUnit\Framework\TestCase;
@@ -860,34 +865,37 @@ class SectionTextPanelTest extends TestCase
      */
     public function testPanelContainsNoAnchorOtherThanTheCta(): void
     {
-        foreach (['primary', 'secondary', 'outline', 'ghost'] as $variant) {
-            $html = $this->render($this->fullPanelProps([
-                'panel_cta_variant' => $variant,
-                // Feed every panel text field something that WOULD become an anchor if the
-                // field were ever rendered as raw HTML instead of escaped text.
-                'panel_heading'     => 'Plans <a href="/x">link</a>',
-                'panel_body'        => 'Copy <a href="/y">link</a>',
-                'panel_items'       => ['Item <a href="/z">link</a>'],
-            ]));
+        // ONE render, not four. The loop here swept `panel_cta_variant`, retired at #1023,
+        // so every iteration produced identical markup (review finding). What the case is
+        // actually about is the ESCAPING of the panel's text fields, which no prop varies.
+        // ONE render, not four. This swept `panel_cta_variant`, retired at #1023, so every
+        // iteration produced identical markup and the failure messages named a variant that
+        // no longer exists (review finding). What the case is actually about is the ESCAPING
+        // of the panel's text fields, which no prop varies.
+        $html = $this->render($this->fullPanelProps([
+            // Feed every panel text field something that WOULD become an anchor if the
+            // field were ever rendered as raw HTML instead of escaped text.
+            'panel_heading'     => 'Plans <a href="/x">link</a>',
+            'panel_body'        => 'Copy <a href="/y">link</a>',
+            'panel_items'       => ['Item <a href="/z">link</a>'],
+        ]));
 
-            // Isolate the panel subtree, then count anchors inside it.
-            $start = strpos($html, '<div class="section__panel">');
-            $this->assertNotFalse($start, "panel must render (panel_cta_variant=$variant)");
-            $panel = substr($html, $start);
+        // Isolate the panel subtree, then count anchors inside it.
+        $start = strpos($html, '<div class="section__panel">');
+        $this->assertNotFalse($start, 'panel must render');
+        $panel = substr($html, $start);
 
-            $this->assertSame(
-                1,
-                preg_match_all('/<a\b/', $panel),
-                "the panel must contain exactly ONE anchor (panel_cta_variant=$variant) — "
-                . '#551 carves `.section__panel-cta` out of the band-wide `a` ink rule, which '
-                . 'only covers the whole panel while the CTA is its only anchor.'
-            );
-            $this->assertStringContainsString(
-                'section__panel-cta',
-                $panel,
-                "the panel's single anchor must be the CTA (panel_cta_variant=$variant)."
-            );
-        }
+        $this->assertSame(
+            1,
+            preg_match_all('/<a\b/', $panel),
+            'the panel must contain exactly ONE anchor — the band-wide `a` ink rule only '
+            . 'covers the whole panel while the CTA is its only anchor.'
+        );
+        $this->assertStringContainsString(
+            'section__panel-cta',
+            $panel,
+            "the panel's single anchor must be the CTA."
+        );
     }
 
     /**
@@ -924,26 +932,28 @@ class SectionTextPanelTest extends TestCase
     }
 
     /**
-     * The section RENDERER emits exactly ONE button surface, which is why #536 needs no
-     * #526-style isolation rule. Pin that structural fact across every panel_cta_variant:
-     * if a second button surface is ever added to the section, this fails and the isolation
-     * question has to be answered again. Counts elements carrying the `btn` CLASS (matched
+     * The section RENDERER emits exactly ONE button surface, which is why #536 needed no
+     * #526-style isolation rule. If a second button surface is ever added to the section,
+     * this fails and the isolation question has to be answered again.
+     *
+     * THE `panel_cta_variant` LOOP IS GONE (review finding, #1023). It swept four values of
+     * a prop this branch RETIRED, so it rendered four byte-identical strings and asserted
+     * the same thing four times while its failure message named a variant that no longer
+     * exists. The fact is structural — the template emits one anchor — so it is asserted
+     * once, on the markup rather than on a prop. Counts elements carrying the `btn` CLASS (matched
      * at a word boundary inside a class attribute), not the substring — a variant modifier
      * (`btn btn--outline`) is still ONE surface, and an unrelated `btn` substring elsewhere
      * in the markup is not a surface at all.
      */
     public function testSectionRendersExactlyOneButtonSurface(): void
     {
-        foreach (['primary', 'secondary', 'outline', 'ghost'] as $variant) {
-            $html = $this->render($this->fullPanelProps(['panel_cta_variant' => $variant]));
-            $this->assertSame(
-                1,
-                preg_match_all('/class="[^"]*\bbtn\b/', $html),
-                "section must render exactly one .btn surface (panel_cta_variant=$variant) — a "
-                . 'second one would need the #526 slot-isolation treatment before the #536 slots '
-                . 'could be trusted.'
-            );
-        }
+        $html = $this->render($this->fullPanelProps());
+        $this->assertSame(
+            1,
+            preg_match_all('/class="[^"]*\bbtn\b/', $html),
+            'section must render exactly one .btn surface — a second one would need the #526 '
+            . 'slot-isolation treatment before the #536 guarantees could be trusted.'
+        );
     }
 
     // ── #568 paired-row mobile stack ──────────────────────────────────────

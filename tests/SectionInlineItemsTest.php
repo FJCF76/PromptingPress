@@ -3,11 +3,20 @@
  * tests/SectionInlineItemsTest.php
  *
  * Section inline-items row (issue 475): section.body_items renders a band of short
- * plain-text items with a CSS-generated, slot-colorable separator between them. The
- * renderer emits `<ul class="section__inline-items" role="list">` only when
- * body_items is non-empty, after .section__content; the separator is a `li::before`
- * pseudo-element (never a content character) so it can be slot-colored and stays out
- * of the accessibility tree.
+ * plain-text items with a CSS-generated separator between them. The renderer emits
+ * `<ul class="section__inline-items" role="list">` only when body_items is non-empty,
+ * after .section__content; the separator is a `li::before` pseudo-element (never a
+ * content character) so it stays out of the accessibility tree.
+ *
+ * THE SEPARATOR'S COLOUR IS NOT AUTHORABLE SINCE #1023, and that is a stated
+ * narrowing rather than an oversight: `--section-separator-color` retired with
+ * section's slot map, and ruling A3 defers pseudo-elements to their own ruling, so no
+ * role can address the mark at any value. It falls back to `currentColor`, which is
+ * what the v1 muted default achieved through band-class remaps a v2 band has no class
+ * for — so the mark follows whatever colour the author gave the row. The site-wide
+ * `--pp-list-marker-color` token still leads the chain for a site that wants one
+ * colour everywhere. The tests below assert exactly that; this header used to sell
+ * the retired slot as the feature.
  *
  * Hanging-separator clip (issue 489): the separator is on EVERY item's `::before`,
  * each item is pulled left by exactly the separator's occupied width, and the row is

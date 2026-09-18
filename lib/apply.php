@@ -1400,7 +1400,8 @@ function _pp_validate_font_weight(string $value): bool {
     }
     // _pp_validate_number() is the shared unitless-number owner: it already
     // refuses a sign, an exponent, whitespace and anything non-numeric, so the
-    // only thing left to say here is the range. 0 and 1001 are refused by it.
+    // only thing left to say here is the range. 0 and 1001 are refused by the RANGE CHECK below, not by that helper — it accepts any
+        // unsigned decimal, so removing the bounds test would accept both.
     if (!_pp_validate_number($value)) {
         return false;
     }

@@ -645,7 +645,7 @@ function pp_udc_groups(): array {
             'aspect-ratio' => ['property' => 'aspect-ratio', 'type' => 'ratio', 'signed' => false, 'max_values' => 1, 'keywords' => []],
             // OBJECT-POSITION (#1023). The same shape as `aspect-ratio` above, found by
             // section's rebuild for the same reason: `--section-image-position` set
-            // `object-position` on the content image (components.css:1087), no group
+            // `object-position` on the v1 `.section__image` rule, no group
             // emitted that property, and the structural-CSS lint is fail-closed on
             // unlisted properties — so the moment section declares roles, the value could
             // be neither authored here nor kept in the stylesheet. That is the capability
@@ -654,8 +654,8 @@ function pp_udc_groups(): array {
             //
             // NO NEW GRAMMAR, which is what makes this a repricing rather than a widening.
             // `position` is the v1 slot type already owned by _pp_validate_position()
-            // (lib/apply.php:1233) and already dispatched by _pp_validate_token_value()'s
-            // `case 'position'` (lib/apply.php:1629) — it is the same type
+            // (`_pp_validate_position()`) and already dispatched by _pp_validate_token_value()'s
+            // `case 'position'` in that dispatcher — it is the same type
             // `background.position` has carried since Sprint 0. Only the property string
             // differs, and that is looked up from this table, never from author input.
             //

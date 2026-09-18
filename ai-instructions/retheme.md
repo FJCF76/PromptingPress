@@ -63,13 +63,17 @@ leave it unpinned; a pinned on-inverted override that diverges from that derivat
 surfaced by the same `stale_warnings` / `masked_derived_override` machinery as every
 other derived token (see below), so you are told when a base change may not reach it.
 
-**Surface-paired accent (the bg-image band).** A section/cta/stats band WITH a
-`background_image` — and a v2 hero whose `_band` `udc` map sets `background.image` plus
-`background.overlay` (on v2 a `cover` hero carrying `image_url` or `image_id` is REFUSED
-at write with `inert_prop`; do not author that pair) — lays a dark
-`rgba(0,0,0,.55)` overlay over an ARBITRARY image, so EVERY accent surface on that band
-(section/cta links, stats numbers, the `title_accent` substring on all four, section
-body list markers, the `outline`/`ghost` buttons on a cta or cover hero — including
+**Surface-paired accent (the bg-image band).** A **cta/stats** band WITH a
+`background_image` — and a v2 **hero or section** whose `_band` `udc` map sets
+`background.image` plus `background.overlay` (on v2 a `cover` hero carrying `image_url`
+or `image_id` is REFUSED at write with `inert_prop`; do not author that pair) — lays a
+dark `rgba(0,0,0,.55)` overlay over an ARBITRARY image.
+**THE ROUTING BELOW IS v1 ONLY.** It works by band CLASS, and a v2 band has no class:
+on hero and section YOU own the contrast, setting a `typography.color` on each text role
+over the image (see this file's v2 note further down). So on a cta or stats band, EVERY
+accent surface
+(cta links, stats numbers, the `title_accent` substring, the
+`outline`/`ghost` buttons on a cta or cover hero — including
 the hero's second CTA, whose variant DEFAULTS to `outline` — and the FOCUS RING of
 EVERY button variant on a bg-image cta or cover hero — drawn outside the button, so it
 lands on the scrim, and applying to any `cover` hero whether or not it has an

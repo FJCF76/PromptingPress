@@ -57,12 +57,14 @@ design token** (a property in the first `:root` block of `base.css`, which is th
 (a rule that component can match actually reads it). Completeness is NOT guaranteed. The array
 is hand-curated and deliberately partial: a band's own rules read several times more registered
 tokens than its array names, and a token can be missing for no reason beyond nobody having added
-it. `--overlay-bg` is listed by the four components that read it (`cta`, `section`, `stats`,
-`hero`), and it is reached only as a slot fallback (`var(--cta-overlay-bg, var(--overlay-bg))`);
-`--measure-heading` is reached in exactly the same way and is not listed by anyone.
+it. `--overlay-bg` is listed by the two v1 components that still read it (`cta`, `stats`), and
+it is reached only as a slot fallback (`var(--cta-overlay-bg, var(--overlay-bg))`);
+`--measure-heading` is reached in exactly the same way and is not listed by anyone. (`hero` and
+`section` listed it too until their rebuilds retired the slot chain that reached it.)
 **So never read absence from this array as "this component does not consume that token."** For
 what you can actually set on one band, read its `style_slots` — each slot's `default` names the
-token it routes. For what you can retune site-wide, read the design-token list in the catalog.
+token it routes — or, on a v2 component, its `roles` and the band's `udc` map, which declare no
+slots at all. For what you can retune site-wide, read the design-token list in the catalog.
 
 The shared band rhythm and heading scale are a different thing from a missing entry:
 `--pp-band-padding` and `--pp-band-heading-size` are not design tokens at all, so no array could
@@ -359,8 +361,11 @@ point is `_band`'s `background.position`. A hero band
 background is `_band` `background.image` plus `background.position` — never `image_url`,
 which on `layout: "cover"` is now REFUSED at write with `inert_prop`.
 
-**The scrim over a `background_image` has its own per-instance slot on all four of those
-bands: `--{hero,section,cta,stats}-overlay-bg`** (stats was the last to get one, #577).
+**The scrim over a `background_image` has its own per-instance slot on the two v1 bands
+that still carry one: `--{cta,stats}-overlay-bg`** (stats was the last to get one, #577).
+On a v2 component the scrim is the `_band` role's `background.overlay`, authored beside
+`background.image` in the same map — hero left this slot family in #986 and section in
+#1023, and writing either retired slot is refused with `no_style_slots`.
 It is `gradient`-typed and defaults to the shared `--overlay-bg`. Reach for it when one
 particular photo needs a darker or lighter scrim than the site default, instead of
 retuning `--overlay-bg` and moving every image band at once. Two things to know before

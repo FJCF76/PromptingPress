@@ -71,16 +71,6 @@ final class WriteEnvelopeFindingsTest extends TestCase
     }
 
     /**
-     * A band whose eyebrow slot is inert: it paints only when `eyebrow` is set.
-     *
-     * RE-POINTED FROM HERO (#986). The original trap was `--section-overlay-bg` on a
-     * `split` hero — the slot paints only under `layout: "cover"` — and hero is a v2
-     * component now with no slots at all, so that exact trap cannot be built. The
-     * DEFECT CLASS is unchanged and is what these tests are about: a value that
-     * validates, stores, reports applied, and paints nothing. section's eyebrow family
-     * declares `applies_when: eyebrow present`, so omitting `eyebrow` reproduces it.
-     */
-    /**
      * The inert-slot trap band. Re-homed from section to stats at #1023: section is a v2
      * component and declares no style slots, so it can no longer hold an inert one. stats
      * is the host chosen for every re-homed slot fixture in this sprint — 17 slots, 12 of
@@ -516,7 +506,6 @@ final class WriteEnvelopeFindingsTest extends TestCase
 
     // ── 5. THE BUDGET (D1 clause 3, on this surface only) ───────────────────────
 
-    /** A composition whose report is longer than the budget. */
     /**
      * A page whose every band carries four undeclared props, so the whole-page report
      * comfortably exceeds the findings budget. The VOLUME is what these tests need.

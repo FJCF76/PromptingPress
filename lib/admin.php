@@ -886,13 +886,13 @@ function _pp_entry_is_object_shape($entry): bool {
  * What to say when a component declares NO style slots at all (#1007).
  *
  * "Available slots: (none)" was a dead end that read as "this component can no longer be
- * styled", which is false for the four components it actually fires on — they are the
+ * styled", which is false for the five components it actually fires on — they are the
  * MOST styleable components in the theme, and the only reason they declare no slots is
  * that every designable value moved to the `udc` map.
  *
  * DERIVED, NOT LISTED. `pp_udc_is_v2_component()` already answers "is this component on
  * the new system", and the roles come from the same schema the refusal is about, so this
- * route cannot drift the way a hand-maintained list of 76 retired slot names would. That
+ * route cannot drift the way a hand-maintained list of 123 retired slot names would. That
  * is why the props needed a registry and the slots did not: every retired slot is
  * replaced by the same thing, and each retired prop by a different one.
  *

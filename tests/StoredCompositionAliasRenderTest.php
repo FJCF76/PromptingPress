@@ -554,14 +554,6 @@ class StoredCompositionAliasRenderTest extends TestCase
     // ── Authoring-path coverage (Section 14.1) ───────────────────────────────
 
     /**
-     * `--section-body-link-hover-color` is a NEW declaration, not a rename: it was
-     * consumed at components.css:1853/:1947 and declared in no schema, so it was
-     * unreachable from every authoring path — a real intended surface hiding in plain
-     * sight. Authored through the REAL surface (style_component -> the shared style
-     * engine), not a raw meta write, because raw seeding is exactly what cannot tell a
-     * declared slot from an undeclared one.
-     */
-    /**
      * The section body-link HOVER colour is still reachable from the authoring path —
      * through the `body-link` role's `:hover`, not a slot (#1023).
      *

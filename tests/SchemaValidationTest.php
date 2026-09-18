@@ -3898,6 +3898,58 @@ class SchemaValidationTest extends TestCase
      * the static default must itself be valid, or setup.php would persist a
      * composition the rest of the system considers invalid.
      */
+    /**
+     * THE SEED'S v2 CONVERSION IS VALUE-FOR-VALUE, and the one place it is easy to get
+     * wrong is a border (review finding, #1023).
+     *
+     * v1 painted a border only where the seed set BOTH halves, because every border rule
+     * was `var(--x-border-width, 0) solid var(--x-border-color, transparent)`. The seed set
+     * width+colour on the band and the eyebrow, and colour ONLY on the panel — so the panel
+     * had no border. An earlier cut of the conversion wrote `width: 1px` on all three and
+     * shipped a border the starter never had, under a comment claiming the conversion was
+     * lossless. Nothing pinned the seed's panel, so nothing caught it.
+     *
+     * Pinned as the RENDERED consequence (does a border paint?) rather than as the literal
+     * map, so the test survives a reshuffle of how the seed is written.
+     */
+    public function testTheStarterSeedPaintsABorderOnlyWhereV1Did(): void
+    {
+        $sections = array_values(array_filter(
+            pp_default_homepage_composition(),
+            static fn (array $item): bool => ($item['component'] ?? '') === 'section'
+        ));
+        $this->assertNotSame([], $sections, 'the seed must still carry section bands');
+
+        $paints = static function (array $border): bool {
+            $w = trim((string) ($border['width'] ?? '0'));
+            return $w !== '' && $w !== '0' && $w !== '0px';
+        };
+
+        $sawPanel = false;
+        foreach ($sections as $band) {
+            $udc = $band['udc'] ?? [];
+
+            // The BAND and the EYEBROW carried width+colour on v1, so they still paint.
+            if (isset($udc['_band']['border'])) {
+                $this->assertTrue($paints($udc['_band']['border']), 'the seed band border painted on v1');
+            }
+            if (isset($udc['eyebrow']['border'])) {
+                $this->assertTrue($paints($udc['eyebrow']['border']), 'the seed eyebrow border painted on v1');
+            }
+
+            // The PANEL carried colour only, so its width fell back to 0 and it painted none.
+            if (isset($udc['panel']['border'])) {
+                $sawPanel = true;
+                $this->assertFalse(
+                    $paints($udc['panel']['border']),
+                    'the seed panel must paint NO border: v1 set only --section-panel-border-color, '
+                    . 'so --section-panel-border-width resolved to its 0 fallback'
+                );
+            }
+        }
+        $this->assertTrue($sawPanel, 'the seed must still carry a text-panel band, or this pin is vacuous');
+    }
+
     public function testDefaultHomepageCompositionPassesValidation(): void
     {
         $composition = pp_default_homepage_composition();

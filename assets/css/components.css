@@ -984,9 +984,14 @@
       express them at any value — they are mechanism by construction, not by
       classification. Their COLOUR is the part that used to be authorable
       (`--section-separator-color`, `--section-body-marker-color`,
-      `--section-panel-marker-color`) and is not any more; it flows from
-      `--pp-list-marker-color`, whose fallback is `var(--color-accent)` — the exact
-      value those slots defaulted to, so nothing moves visually.
+      `--section-panel-marker-color`) and is not any more; all three now flow from
+      `--pp-list-marker-color`, but they do NOT take the same fallback:
+      - the two LIST MARKERS fall back to `var(--color-accent)` — the exact value
+        their slots defaulted to, so nothing moves visually there;
+      - the SEPARATOR falls back to `currentColor`. Its slot defaulted to
+        `var(--color-muted)`, not the accent, and that default only read as
+        "follow the sibling text" because of BAND-CLASS remaps a v2 band cannot
+        carry. The residual is stated in full at the rule itself, below.
 
    The block sits outside section's `COMPONENT:` banner on purpose: the css-lint slicer
    runs a component's block to the next `/* =====`, and these rules are shared, so
@@ -1544,8 +1549,10 @@
 
    Colour flows in through --pp-list-marker-color (internal plumbing, NOT a schema
    style_slot): each consuming component maps its own authorable colour slot onto
-   it inside that component's own block (grid: --grid-item-bullet-color above; section:
-   --section-panel-marker-color / --section-body-marker-color).
+   it inside that component's own block (grid: --grid-item-bullet-color above).
+   A v2 COMPONENT MAPS NOTHING ONTO IT: section's two marker-colour slots retired with
+   its slot map (#1023), ruling A3 defers pseudo-elements so no role can address the
+   glyph, and the variable's own fallback below IS the value section renders.
 
    One definition, three consumers:
    - grid cards        .grid__item-bullet         (always a check, unchanged)
@@ -2602,8 +2609,9 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
 }
 
 /* CTA with background image */
-/* Same dark-overlay surface as .section--has-bg-image — same theme text default
-   (issue 248). */
+/* Same dark-overlay surface as .stats--has-bg-image — same theme text default
+   (issue 248). The original sibling was `.section--has-bg-image`, deleted with
+   section's slot map at #1023; stats is the remaining one. */
 .cta--has-bg-image {
   position: relative;
   background-size: cover;
@@ -3891,23 +3899,37 @@ main > .grid .grid__item-link::after {
 
 /* Per-instance button slots reach the component's OWN buttons and nothing else (issue 545).
 
+   WHAT IS STILL LIVE HERE (#1023). This rule was written when three components emitted button
+   slot families. Two have since left: hero at #986 and section at #1023, and neither emits an
+   inline custom property of any kind now — a v2 component's design is a band-scoped block, not
+   a `style` attribute on the root. So `--hero-button-*` and `--section-panel-cta-*` survive
+   below only as inert chain heads that always fall through (see the note on the neutralisation
+   block above; #1026 collapses them with cta's rebuild). CTA IS THE ONLY LIVE CASE, and the
+   defect below is described in its original three-component terms because that is the history
+   the rule encodes — read every mention of hero and section as past tense.
+
    THE DEFECT. Every per-instance filled-button slot family (--hero-button-* / --hero-button2-* /
-   --cta-button-* / --cta-button2-* / --section-panel-cta-*) is emitted by the renderer as an
+   --cta-button-* / --cta-button2-* / --section-panel-cta-*) was emitted by the renderer as an
    inline custom property on the COMPONENT ROOT, and the three selector shapes that consume
    them — `main .btn:not(...)` (the premium winner below), `.hero .btn:not(...)` and
    `.cta .btn:not(...)` — read them by INHERITANCE rather than through the component's own
    button class. Custom properties inherit to every descendant, so those slots also reached a
    `.btn` an AUTHOR hand-writes into a rich-text prop, and the component's per-instance button
-   styling repainted it. Two surfaces INSIDE A BAND THAT EMITS BUTTON SLOTS can hold such a button
-   today, both filtered by wp_kses_post (which permits `class` on `<a>`): `section.body`
-   (section.php:209,232,301) and `hero.proof` (hero.php:138,144). Three other components have a
+   styling repainted it. The surfaces that could hold such a button were the wp_kses_post props
+   of a band that emitted button slots (wp_kses_post permits `class` on `<a>`): `section.body`
+   and `hero.proof`. NEITHER IS ONE TODAY — both components are v2 and emit no slots — so the
+   inheritance path has no live source left; cta's own body cannot carry a class at all (see
+   below). Classes are named rather than cited by template line number on purpose: the line
+   numbers drifted every time either template was touched, and the class is the durable fact.
+   Three other components have a
    wp_kses_post surface — faq.answer (faq.php:52), table cells (table.php:47), embed.content
    (embed.php:37) — and they are inert rather than excluded: none emits a button slot family, and
    components never nest (no component template calls pp_get_component), so a `.btn` written there
    has nothing to inherit in the first place. The cta component has no such surface at all —
    `cta.body` goes through pp_kses_inline (helpers.php:141), whose `a` allowlist is href/title
-   only, so a class cannot survive there. Consequently only 14 of the 26 properties below are
-   load-bearing (--hero-button-* / --cta-button-* / --section-panel-cta-*); the 12 cta2 entries
+   only, so a class cannot survive there. Of the properties below, only cta's are load-bearing
+   at all now; historically the count was 14 of 26 (--hero-button-* / --cta-button-* /
+   --section-panel-cta-*); the 12 cta2 entries
    (--hero-button2-* / --cta-button2-*) are inert by SCOPING — every chain that reads them is already
    selector-scoped to an owned button — and the --cta-button-* seven are inert by SANITIZER. All
    are kept for the same reason #526 resets slots on every cta2 variant: the isolation should hold
@@ -3973,6 +3995,20 @@ main .btn:not(.hero__cta):not(.cta__button) {
   --cta-button2-hover-bg: initial;
   --cta-button2-hover-border: initial;
   --cta-button2-hover-color: initial;
+  /* THE FIVE BELOW ARE INERT AS OF #1023 AND ARE KEPT DELIBERATELY, NOT OVERLOOKED.
+     Section is a v2 component: it declares no style slots, so no write path can set any
+     `--section-panel-cta-*` property and every `var()` chain that leads with one now falls
+     straight through to its `--cta-button-*` link. The same is true of the `--hero-button-*`
+     links elsewhere in this cascade since #986.
+
+     They are NOT removed here because removing them is #1026's recorded job: cta owns the
+     spine these chains fall through to (`--cta-button-*`), so the whole family collapses
+     honestly in that rebuild rather than losing one component's link per sprint — and
+     editing cta's cascade from section's rebuild would put this PR's blast radius inside
+     the component the next one rewrites. See #1026's landmine list.
+
+     Behaviourally this is a no-op either way: a custom property nothing can set resolves to
+     its fallback whether or not it is named. */
   --section-panel-cta-bg: initial;
   --section-panel-cta-border: initial;
   --section-panel-cta-color: initial;
@@ -4302,7 +4338,9 @@ main .btn:focus-visible {
    down to 2.02:1 (on-inverted) or 1.04:1 (on-overlay) — strictly worse than the bug being
    fixed. This is the same carve-out #424/#463 already made for the panel's list markers (see
    "Panel markers stay bare accent" above). Do not "complete the set" by adding
-   `.pp-section--inverted .btn:focus` / `.section--has-bg-image .btn:focus`.
+   `.pp-section--inverted .btn:focus` (`.section--has-bg-image` no longer exists —
+   it was deleted with section's slot map at #1023 — and a v2 dark band carries no
+   class at all, so there is nothing left to hang the twin rule on either).
 
    Scoped to `.btn` on the roots whose RENDERERS put a button ON the band: cover hero and cta.
    A dark band that renders no on-band button (grid/stats/faq/logos/embed/testimonials, and
