@@ -8703,18 +8703,25 @@ function pp_default_homepage_composition(): array {
             'body'          => '<p>An AI page can look done in minutes. Then the team inherits unclear structure, scattered styling, and a page that is hard to inspect the next time a client asks for a change.</p><p>PromptingPress keeps that next edit reviewable: WordPress sections, bounded component props, validated style slots, and screenshots stay in the workflow before anything is treated as done.</p>',
             'body_items'    => ['First-draft speed', 'Revision debt', 'Handoff clarity', 'Safer edits'],
             'layout'        => 'text-only',
-        ], 'style' => [
-            '--section-bg'                => '#F2EEE5',
-            '--section-border-color'      => '#E8E2D4',
-            '--section-border-width'      => '1px',
-            '--section-heading-size'        => 'clamp(1.9rem, 3vw, 2.9rem)',
-            '--section-heading-accent-color' => '#FF5C2E',
-            '--section-body-measure'        => '46rem',
-            '--section-eyebrow-color'     => '#FF5C2E',
-            '--section-eyebrow-bg'        => '#FBF8F1',
-            '--section-eyebrow-border-color' => '#E8E2D4',
-            '--section-eyebrow-border-width' => '1px',
-            '--section-separator-color'   => '#FF5C2E',
+        // Section is a v2 component since #1023, so the starter's styling for this band
+        // is a `udc` map keyed by role rather than a flat slot map. Same rendered design,
+        // eleven slot names down to five role entries. `--section-separator-color` has no
+        // equivalent: the inline-items separator is a `::before` glyph and ruling A3
+        // defers pseudo-elements, so the strip's middot takes the shared accent default —
+        // which is the colour this starter was setting it to anyway.
+        ], 'udc' => [
+            '_band'          => [
+                'background' => ['fill' => '#F2EEE5'],
+                'border'     => ['width' => '1px', 'style' => 'solid', 'color' => '#E8E2D4'],
+            ],
+            'heading'        => ['typography' => ['size' => 'clamp(1.9rem, 3vw, 2.9rem)']],
+            'heading-accent' => ['typography' => ['color' => '#FF5C2E']],
+            'body'           => ['sizing' => ['max-width' => '46rem']],
+            'eyebrow'        => [
+                'typography' => ['color' => '#FF5C2E'],
+                'background' => ['fill' => '#FBF8F1'],
+                'border'     => ['width' => '1px', 'style' => 'solid', 'color' => '#E8E2D4'],
+            ],
         ]],
 
         // 3 — Mechanism band (native text-panel, monospace dark spec panel).
@@ -8734,21 +8741,27 @@ function pp_default_homepage_composition(): array {
                 ['label' => 'Component props & slots', 'value' => 'WordPress'],
                 ['label' => 'Validation & screenshots', 'value' => 'Review path'],
             ],
-        ], 'style' => [
-            '--section-bg'                => '#FBF8F1',
-            '--section-border-color'      => '#E8E2D4',
-            '--section-border-width'      => '1px',
-            '--section-heading-size'        => 'clamp(1.9rem, 3vw, 2.9rem)',
-            '--section-heading-accent-color' => '#FF5C2E',
-            '--section-eyebrow-color'     => '#FF5C2E',
-            '--section-eyebrow-bg'        => '#F2EEE5',
-            '--section-eyebrow-border-color' => '#E8E2D4',
-            '--section-eyebrow-border-width' => '1px',
-            '--section-panel-bg'          => '#0A0A12',
-            '--section-panel-text'        => '#F2EEE5',
-            '--section-panel-border-color' => '#14141F',
-            '--section-panel-radius'      => '4px',
-            '--section-panel-font'        => 'var(--font-mono)',
+        // The text-panel band, same conversion. The panel's five slots become one `panel`
+        // role entry, and the mono family is the udc reference spelling `@font-mono`
+        // rather than CSS `var(--font-mono)` — the engine resolves it and checks the
+        // token's declared TYPE (#972), so a font token is accepted for the right reason.
+        ], 'udc' => [
+            '_band'          => [
+                'background' => ['fill' => '#FBF8F1'],
+                'border'     => ['width' => '1px', 'style' => 'solid', 'color' => '#E8E2D4'],
+            ],
+            'heading'        => ['typography' => ['size' => 'clamp(1.9rem, 3vw, 2.9rem)']],
+            'heading-accent' => ['typography' => ['color' => '#FF5C2E']],
+            'eyebrow'        => [
+                'typography' => ['color' => '#FF5C2E'],
+                'background' => ['fill' => '#F2EEE5'],
+                'border'     => ['width' => '1px', 'style' => 'solid', 'color' => '#E8E2D4'],
+            ],
+            'panel'          => [
+                'background' => ['fill' => '#0A0A12'],
+                'typography' => ['color' => '#F2EEE5', 'family' => '@font-mono'],
+                'border'     => ['width' => '1px', 'style' => 'solid', 'color' => '#14141F', 'radius' => '4px'],
+            ],
         ]],
 
         // 4 — Speed / trust card grid (dark band, uniform peer cards).
@@ -8800,18 +8813,25 @@ function pp_default_homepage_composition(): array {
             'body'          => '<p>Most AI website workflows optimize for the first page. PromptingPress optimizes for the work after it: the next revision, the client change request, the page expansion, and the post-launch handoff all stay inside a reviewable WordPress composition path.</p><p>The agent can inspect the page, edit bounded props, validate the result, render screenshots, and leave a trail before work is treated as done.</p>',
             'body_items'    => ['Inspect', 'Edit bounded props', 'Validate', 'Screenshot', 'Roll back'],
             'layout'        => 'text-only',
-        ], 'style' => [
-            '--section-bg'                => '#F2EEE5',
-            '--section-border-color'      => '#E8E2D4',
-            '--section-border-width'      => '1px',
-            '--section-heading-size'        => 'clamp(1.9rem, 3vw, 2.9rem)',
-            '--section-heading-accent-color' => '#FF5C2E',
-            '--section-body-measure'        => '46rem',
-            '--section-eyebrow-color'     => '#FF5C2E',
-            '--section-eyebrow-bg'        => '#FBF8F1',
-            '--section-eyebrow-border-color' => '#E8E2D4',
-            '--section-eyebrow-border-width' => '1px',
-            '--section-separator-color'   => '#FF5C2E',
+        // Section is a v2 component since #1023, so the starter's styling for this band
+        // is a `udc` map keyed by role rather than a flat slot map. Same rendered design,
+        // eleven slot names down to five role entries. `--section-separator-color` has no
+        // equivalent: the inline-items separator is a `::before` glyph and ruling A3
+        // defers pseudo-elements, so the strip's middot takes the shared accent default —
+        // which is the colour this starter was setting it to anyway.
+        ], 'udc' => [
+            '_band'          => [
+                'background' => ['fill' => '#F2EEE5'],
+                'border'     => ['width' => '1px', 'style' => 'solid', 'color' => '#E8E2D4'],
+            ],
+            'heading'        => ['typography' => ['size' => 'clamp(1.9rem, 3vw, 2.9rem)']],
+            'heading-accent' => ['typography' => ['color' => '#FF5C2E']],
+            'body'           => ['sizing' => ['max-width' => '46rem']],
+            'eyebrow'        => [
+                'typography' => ['color' => '#FF5C2E'],
+                'background' => ['fill' => '#FBF8F1'],
+                'border'     => ['width' => '1px', 'style' => 'solid', 'color' => '#E8E2D4'],
+            ],
         ]],
 
         // 6 — Closing CTA (dark), branded orange button.

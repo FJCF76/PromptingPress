@@ -146,9 +146,25 @@ class CompositionEncodeRefusalTest extends TestCase
     }
 
     /** A perfectly ordinary, encodable composition with an explicit (non-generated) id. */
+    /**
+     * EVERY FIXTURE HERE CARRIES ITS OWN TOP-LEVEL BAND ID SINCE #1023.
+     *
+     * Section is a v2 component now, so `pp_udc_assign_band_ids()` mints `pp-<hex8>` onto
+     * any v2 band that reaches the writer without one — documented in
+     * docs/explanation-validation-scope.md as the one thing the writer does do to
+     * untouched bands. A minted id would appear in every read-back and break the
+     * byte-identical comparisons this whole file is built on, for a reason that has
+     * nothing to do with encode refusal.
+     *
+     * Supplying the id is better than stripping it before comparing: an authored valid id
+     * is HONOURED and never overwritten (§3.1), so the fixtures stay byte-exact and the
+     * minting path is left to the suites that actually test it. Note this is the top-level
+     * `id` on the composition ITEM — the band's styling handle — not the `id` prop inside
+     * `props`, which is the author's HTML anchor name.
+     */
     private function healthyBands(string $title = 'Real content'): array
     {
-        return [['component' => 'section', 'props' => ['id' => 'band-1', 'title' => $title, 'body' => 'Body text']]];
+        return [['component' => 'section', 'id' => 'pp-aa11bb22', 'props' => ['id' => 'band-1', 'title' => $title, 'body' => 'Body text']]];
     }
 
     /** A composition whose single band carries a prop value nested $depth levels deep. */
@@ -158,7 +174,7 @@ class CompositionEncodeRefusalTest extends TestCase
         for ($i = 0; $i < $depth; $i++) {
             $value = [$value];
         }
-        return [['component' => 'section', 'props' => ['id' => 'deep-1', 'title' => 'Deep', 'deep' => $value]]];
+        return [['component' => 'section', 'id' => 'pp-cc33dd44', 'props' => ['id' => 'deep-1', 'title' => 'Deep', 'deep' => $value]]];
     }
 
     /**
@@ -187,7 +203,7 @@ class CompositionEncodeRefusalTest extends TestCase
     /** A composition holding a non-finite float — the second route to a false encode. */
     private function nonFiniteBands(): array
     {
-        return [['component' => 'section', 'props' => ['id' => 'band-1', 'title' => 'T', 'ratio' => INF]]];
+        return [['component' => 'section', 'id' => 'pp-ee55ff66', 'props' => ['id' => 'band-1', 'title' => 'T', 'ratio' => INF]]];
     }
 
     /** A composition holding a value JSON has no representation for. */
@@ -195,7 +211,7 @@ class CompositionEncodeRefusalTest extends TestCase
     {
         $handle          = fopen('php://memory', 'r');
         $this->handles[] = $handle;
-        return [['component' => 'section', 'props' => ['id' => 'band-1', 'title' => 'T', 'handle' => $handle]]];
+        return [['component' => 'section', 'id' => 'pp-1122aabb', 'props' => ['id' => 'band-1', 'title' => 'T', 'handle' => $handle]]];
     }
 
     /** Every trigger, as [label => composition], each independently proven to encode false. */

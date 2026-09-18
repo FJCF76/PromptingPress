@@ -586,7 +586,7 @@
     },
     "panel-row-label": {
       "selector": ".section__panel-row-label",
-      "description": "The label half of a paired panel row. A DISTINCT VISUAL JOB, which is why it is its own role rather than folded into `panel-row`: stacked on a phone, position no longer separates label from value, so the label is the small tracked one and the value carries the weight (#568, the theme's own stacked key/value idiom). The SIZE step is load-bearing — the theme ships no webfont, so a weight-only treatment renders pixel-identical in a bare font environment.",
+      "description": "The label half of a paired panel row. A DISTINCT VISUAL JOB, which is why it is its own role rather than folded into `panel-row`: stacked on a phone, position no longer separates label from value, so the label is the small tracked one and the value carries the weight (#568, the theme's own stacked key/value idiom). The SIZE step is load-bearing — the theme ships no webfont, so a weight-only treatment renders pixel-identical in a bare font environment. RECORDED BECAUSE IT WAS REVERSED: an earlier cut of the v2 rebuild folded this role and `panel-row-value` into `panel-row` to keep the role count at the precedent ceiling. The rendered evidence overturned that — a count heuristic lost to a load-bearing visual distinction — so do not re-merge them on role-count grounds alone.",
       "groups": [
         "typography",
         "spacing",

@@ -80,9 +80,23 @@ final class CompositionFindingsBoundsTest extends TestCase
      * what "pathological" means. Authored through pp_update_composition(), the real
      * writer, so the stored bytes are the ones a restore would actually bring back.
      */
+    /**
+     * Volume: forty-odd bands each carrying four undeclared props, so the whole-page
+     * report comfortably exceeds the findings budget.
+     *
+     * The LEAD band is a `stats` since #1023, because every test here writes to index 0
+     * through the v1 slot surface and section is a v2 component now. The rest stay
+     * `section` bands: an undeclared prop is reported for a v2 component exactly as for a
+     * v1 one, so they still supply the volume. Do not "consistently" convert the whole
+     * page — the mixed shape is the ordinary one mid-rebuild and the one most likely to
+     * surprise the report assembler.
+     */
     private function pathologicalPage(int $bands = 40): int
     {
-        $composition = [];
+        $composition = [['component' => 'stats', 'props' => [
+            'id' => 'lead', 'title' => 'Lead', 'items' => [['number' => '1', 'label' => 'One']],
+            'zzA' => 1, 'zzB' => 2, 'zzC' => 3, 'zzD' => 4,
+        ]]];
         for ($i = 0; $i < $bands; $i++) {
             $composition[] = ['component' => 'section', 'props' => [
                 'id' => "s$i", 'title' => "T$i", 'body' => 'B',
@@ -100,7 +114,7 @@ final class CompositionFindingsBoundsTest extends TestCase
     {
         $id = pp_create_page('Slightly stale', 'draft');
         pp_update_composition($id, [
-            ['component' => 'section', 'props' => ['id' => 's1', 'title' => 'One', 'body' => 'B', 'zzA' => 1]],
+            ['component' => 'stats', 'props' => ['id' => 's1', 'title' => 'One', 'items' => [['number' => '1', 'label' => 'One']], 'zzA' => 1]],
         ]);
 
         return $id;
@@ -111,7 +125,7 @@ final class CompositionFindingsBoundsTest extends TestCase
     {
         $id = pp_create_page($title, 'draft');
         pp_update_composition($id, [
-            ['component' => 'section', 'props' => ['id' => 's1', 'title' => 'One', 'body' => 'Body copy.']],
+            ['component' => 'stats', 'props' => ['id' => 's1', 'title' => 'One', 'items' => [['number' => '1', 'label' => 'One']]]],
         ]);
 
         return $id;
@@ -127,7 +141,7 @@ final class CompositionFindingsBoundsTest extends TestCase
     private function restoreAfterOneWrite(int $post_id): array
     {
         pp_execute_action('style_component', [
-            'post_id' => $post_id, 'component_index' => 0, 'style' => ['--section-bg' => '#101014'],
+            'post_id' => $post_id, 'component_index' => 0, 'style' => ['--stats-bg' => '#101014'],
         ]);
 
         return pp_execute_action('restore_composition', ['post_id' => $post_id, 'steps_back' => 1]);
