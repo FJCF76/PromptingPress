@@ -941,8 +941,14 @@ test.describe('Safe-surface rendered proof', () => {
     }
   });
 
-  // #510: the --section-inline-items-align style slot ('start' | 'center', default
-  // 'start') gives the author a lever over the wrap alignment. 'start' keeps the
+  // #510/#1023: the `body_items_align` PROP ('start' | 'center', default 'start') gives
+  // the author a lever over the wrap alignment. It was the --section-inline-items-align
+  // style SLOT until section's rebuild, and it could not become a role value: it sets
+  // `justify-content`, a LAYOUT property, and the UDC taxonomy carries no layout group —
+  // the same reason hero kept `split_ratio` and `vertical_align`. It also has to derive a
+  // MODIFIER rather than emit a raw keyword, because the centred mode switches the
+  // separator from ::before to ::after, which no role value could do. Same two accepted
+  // values, same default, same rendered behaviour — which is what this test proves. 'start' keeps the
   // #489 hanging-clip left-packing (its own test above). 'center' switches to
   // per-line centering with a TRAILING separator (li:not(:last-child)::after): the
   // leading ::before is suppressed (content: none) so a wrapped line NEVER opens
@@ -961,13 +967,14 @@ test.describe('Safe-surface rendered proof', () => {
   }, testInfo) => {
     pageId = createPage('E2E Section Inline Items Center');
     setComposition(pageId, [
-      // A centered strip long enough to wrap to 2-3 lines at mobile. Top-level
-      // `style` sets the align slot (component-level style, not props.style).
+      // A centered strip long enough to wrap to 2-3 lines at mobile. The align value is a
+      // PROP now, so it rides in `props` rather than a component-level `style` map.
       {
         component: 'section',
         props: {
           id: 'pp-sec-center',
           body: '<p>Body.</p>',
+          body_items_align: 'center',
           body_items: [
             'Recuperación incluida',
             'Copias diarias',
@@ -976,13 +983,11 @@ test.describe('Safe-surface rendered proof', () => {
             '99,9% de disponibilidad',
           ],
         },
-        style: { '--section-inline-items-align': 'center' },
       },
       // A short centered strip that fits one line even at 320 — still block-centered.
       {
         component: 'section',
-        props: { id: 'pp-sec-center-oneline', body: '<p>Body.</p>', body_items: ['Rápido', 'Seguro', 'Fiable'] },
-        style: { '--section-inline-items-align': 'center' },
+        props: { id: 'pp-sec-center-oneline', body: '<p>Body.</p>', body_items_align: 'center', body_items: ['Rápido', 'Seguro', 'Fiable'] },
       },
     ]);
 
@@ -4886,7 +4891,18 @@ test.describe('chrome UDC renders (ruling A1)', () => {
    * (robust); the ::before content is checked tolerantly (CSSOM quotes `content`
    * inconsistently across engines).
    */
-  test('#339 text-panel check marker paints over the disc rule + honors its colour slot @smoke', async ({
+  // REPRICED FOR v2 (#1023). The GLYPH half is unchanged and still the point of #339:
+  // `panel_items_marker` beats the disc rule and paints a check. The COLOUR half moved —
+  // `--section-panel-marker-color` retired with section's slot map, because the mark is a
+  // `::before` and ruling A3 defers pseudo-elements, so no role can reach it. The colour
+  // is the site-wide `--pp-list-marker-color` token now, whose fallback for the MARKERS is
+  // `var(--color-accent)` — the exact value this slot defaulted to, so the marker's
+  // rendered colour is unchanged and asserted as such.
+  //
+  // The narrowing is proved at the WRITE surface instead: the retired slot is refused,
+  // which is the half an author actually meets. (The separator is the one glyph whose
+  // fallback is NOT the accent — see the #1023 separator test for why it differs.)
+  test('#339/#1023 the panel check marker still beats the disc rule, and its colour slot is refused @smoke', async ({
     page,
   }) => {
     pageId = createPage('E2E Panel Check Marker');
@@ -4908,9 +4924,10 @@ test.describe('chrome UDC renders (ruling A1)', () => {
     await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
     await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
 
-    // A vivid colour no theme token uses, so a failure to reach the marker is obvious.
-    const res = await styleComponent(page, pageId, { '--section-panel-marker-color': '#ff0080' });
-    expect(res.success).toBe(true);
+    // THE NARROWING, at the surface an author meets: the retired slot is refused rather
+    // than accepted and silently ignored.
+    const refused = await styleComponent(page, pageId, { '--section-panel-marker-color': '#ff0080' });
+    expect(refused.success, 'a retired slot must be REFUSED, not stored and ignored').toBe(false);
 
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto(`/?page_id=${pageId}`);
@@ -4918,18 +4935,30 @@ test.describe('chrome UDC renders (ruling A1)', () => {
     const list = page.locator('.section__panel-list');
     await expect(list).toBeVisible({ timeout: 10000 });
 
-    // The disc rule is beaten: the <ul> renders no native marker.
+    // The disc rule is still beaten: the <ul> renders no native marker.
     const listStyle = await list.evaluate((el) => getComputedStyle(el).listStyleType);
     expect(listStyle).toBe('none');
 
-    // The glyph paints, in the operator's chosen colour.
+    // The glyph still paints, and in the SAME colour it always did — the markers' token
+    // fallback is the accent this slot defaulted to, so nothing moved for them.
     const marker = await page.locator('.section__panel-item').first().evaluate((el) => {
       const b = getComputedStyle(el, '::before');
-      return { content: b.content, color: b.color };
+      const accent = getComputedStyle(document.documentElement).getPropertyValue('--color-accent').trim();
+      return { content: b.content, color: b.color, accent };
     });
     expect(marker.content).not.toBe('none');
     expect(marker.content).not.toBe('normal');
-    expect(marker.color).toBe('rgb(255, 0, 128)');
+    // Compared against the token's own resolved value rather than a literal, so a retheme
+    // does not break the pin — the claim is "unchanged", not "this exact pink".
+    const probe = await page.evaluate((accent) => {
+      const el = document.createElement('span');
+      el.style.color = accent;
+      document.body.appendChild(el);
+      const rgb = getComputedStyle(el).color;
+      el.remove();
+      return rgb;
+    }, marker.accent);
+    expect(marker.color, 'the panel marker keeps the accent it always painted').toBe(probe);
   });
 
   test('#339 body check marker paints on the top-level list + honors its colour slot @smoke', async ({
@@ -4951,8 +4980,10 @@ test.describe('chrome UDC renders (ruling A1)', () => {
     await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
     await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
 
-    const res = await styleComponent(page, pageId, { '--section-body-marker-color': '#ff0080' });
-    expect(res.success).toBe(true);
+    // Same repricing as the panel marker above: the colour slot is refused at write, and
+    // the glyph keeps the accent it always painted.
+    const refused = await styleComponent(page, pageId, { '--section-body-marker-color': '#ff0080' });
+    expect(refused.success, 'a retired slot must be REFUSED, not stored and ignored').toBe(false);
 
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto(`/?page_id=${pageId}`);
@@ -4969,7 +5000,15 @@ test.describe('chrome UDC renders (ruling A1)', () => {
     });
     expect(marker.content).not.toBe('none');
     expect(marker.content).not.toBe('normal');
-    expect(marker.color).toBe('rgb(255, 0, 128)');
+    const accentRgb = await page.evaluate(() => {
+      const el = document.createElement('span');
+      el.style.color = getComputedStyle(document.documentElement).getPropertyValue('--color-accent').trim();
+      document.body.appendChild(el);
+      const rgb = getComputedStyle(el).color;
+      el.remove();
+      return rgb;
+    });
+    expect(marker.color, 'the body marker keeps the accent it always painted').toBe(accentRgb);
   });
 
   test('#339 an unstyled body list is unchanged — still a disc, no marker class @smoke', async ({
@@ -5101,17 +5140,28 @@ test.describe('chrome UDC renders (ruling A1)', () => {
     expect(arrow).toContain('→');
   });
 
-  test('#334 paired rows: mono font + per-row accent paint, row marker suppressed @smoke', async ({
+  test('#334/#1023 paired rows: mono panel + independent label/value type, row marker suppressed @smoke', async ({
     page,
   }) => {
-    // Cross-sheet PAINT proof (the #342 gap: a slot can validate yet never
-    // render). One page exercises all three parts of the capability:
-    //   - --section-panel-font: var(--font-mono) actually reaches the panel font;
-    //   - a per-row style recolours ONE row via the item_eligible --section-panel-text;
-    //   - a paired row shows NO marker glyph while a string bullet in the same
-    //     list still does (mixed list, marker on the <ul>).
+    // Cross-sheet PAINT proof (the #342 gap: a value can validate yet never render).
+    // Repriced for v2 (#1023) and the capability it proves CHANGED SHAPE — one part was
+    // retired and one part is new, so this is not a re-point:
+    //   - the mono panel is the `panel` role's `typography.family` (was a slot);
+    //   - THE PER-ROW ACCENT IS RETIRED. The engine addresses roles, not items, so a
+    //     `style` map on a paired row is an undeclared field now. What replaces it is
+    //     NOT a narrower version of the same thing: `panel-row-label` and
+    //     `panel-row-value` are INDEPENDENT roles, so the label and the value can be
+    //     typed differently on EVERY row — the spec-sheet composition the old
+    //     item_eligible slot could only approximate one row at a time. That is what is
+    //     asserted here instead, because it is what an author can now do;
+    //   - a paired row shows NO marker glyph while a string bullet in the same list
+    //     still does (mixed list, marker on the <ul>) — unchanged.
     pageId = createPage('E2E Panel Paired Rows');
-    setComposition(pageId, [
+    setComposition(pageId, [{ component: 'section', props: { id: 'pp-seed', body: '<p>Seed.</p>' } }]);
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+
+    const res = await updateComposition(page, pageId, [
       {
         component: 'section',
         props: {
@@ -5124,17 +5174,22 @@ test.describe('chrome UDC renders (ruling A1)', () => {
           panel_items: [
             'All checks passing',
             { label: 'WordPress', value: '6.7.1' },
-            { label: 'Uptime', value: '99.9%', style: { '--section-panel-text': '#22d3ee' } },
+            { label: 'Uptime', value: '99.9%' },
           ],
         },
-        style: { '--section-panel-font': 'var(--font-mono)' },
+        udc: {
+          panel: { typography: { family: '@font-mono' } },
+          'panel-row-label': { typography: { color: '#94a3b8' } },
+          'panel-row-value': { typography: { color: '#22d3ee' } },
+        },
       },
     ]);
+    expect(res.success, `udc write: ${JSON.stringify(res)}`).toBe(true);
 
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto(`/?page_id=${pageId}`);
 
-    // 1. The mono font slot reaches the panel.
+    // 1. The mono family reaches the panel through the role.
     const panel = page.locator('.section__panel');
     await expect(panel).toBeVisible({ timeout: 10000 });
     const font = await panel.evaluate((el) => getComputedStyle(el).fontFamily);
@@ -5154,12 +5209,37 @@ test.describe('chrome UDC renders (ruling A1)', () => {
       .evaluate((el) => getComputedStyle(el, '::before').content);
     expect(rowMarker).toBe('none');
 
-    // 3. The per-row accent recolours only the styled row (last row = Uptime).
-    const rowColor = await page
-      .locator('.section__panel-row')
-      .last()
-      .evaluate((el) => getComputedStyle(el).color);
-    expect(rowColor).toBe('rgb(34, 211, 238)');
+    // 3. THE REPLACEMENT CAPABILITY, rendered: the two halves of a row are typed
+    //    independently, on every row rather than one. The old per-row slot could recolour
+    //    a whole row; this distinguishes label from value, which is the composition the
+    //    panel exists for — and it is why the five panel-* text roles were NOT collapsed
+    //    into one `panel` role during the rebuild.
+    const rows = page.locator('.section__panel-row');
+    const rowCount = await rows.count();
+    expect(rowCount, 'both paired rows render').toBe(2);
+    for (let i = 0; i < rowCount; i++) {
+      const label = await rows.nth(i).locator('.section__panel-row-label').evaluate((el) => getComputedStyle(el).color);
+      const value = await rows.nth(i).locator('.section__panel-row-value').evaluate((el) => getComputedStyle(el).color);
+      expect(label, `row ${i} label`).toBe('rgb(148, 163, 184)');
+      expect(value, `row ${i} value`).toBe('rgb(34, 211, 238)');
+      expect(label).not.toBe(value);
+    }
+
+    // 4. THE RETIREMENT, at the write surface: a stored per-row `style` map is an
+    //    undeclared field now and is refused, rather than accepted and silently ignored.
+    const refused = await updateComposition(page, pageId, [
+      {
+        component: 'section',
+        props: {
+          id: 'pp-sec01',
+          layout: 'text-panel',
+          body: '<p>Left.</p>',
+          panel_heading: 'Runtime',
+          panel_items: [{ label: 'Uptime', value: '99.9%', style: { '--section-panel-text': '#22d3ee' } }],
+        },
+      },
+    ]);
+    expect(refused.success, 'a per-row style map must be REFUSED (#1024 owns the replacement)').toBe(false);
   });
 
   // #568 — a paired row had NO mobile rule: it kept its two-column geometry at every
