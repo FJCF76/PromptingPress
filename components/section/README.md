@@ -141,6 +141,24 @@ every text role that sits over your new background — `heading`, `subheading`, 
 at rest will still hover to the theme accent). The old `theme: "inverted"` did this for
 you as a bundle; the trade is that you can now build a band the bundle could not express.
 
+**The number, so "you own it" is not an abstraction.** `body-link` declares no colour
+default on purpose (see "What the defaults are"), so an unauthored prose link renders the
+theme accent. Measured, WCAG 2.x:
+
+| Link ink | Over | Ratio | |
+|---|---|---|---|
+| `@color-accent` `#3157f4` | default light band `#fcfdff` | **5.43:1** | passes AA |
+| `@color-accent` `#3157f4` | `@color-bg-inverted` `#0f172a` | **3.23:1** | **fails AA for body text** |
+
+v1 remapped that automatically, because an inverted band carried a CLASS and the stylesheet
+could hang a rule on it. A v2 band carries no class — that is the whole point, since it is
+what lets any background be a band — so nothing can guess. **If you darken a band, set
+`body-link`'s `typography.color` and its `:hover`.** `@color-accent-on-inverted` is the
+token v1 used and it is still there.
+
+This is a v2 posture rather than a section one: every rebuilt component inherits it, and
+section is simply the one where prose links are common.
+
 ## Variants
 
 Layout (`layout`):

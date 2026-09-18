@@ -62,6 +62,9 @@ Nothing to do unless you have a stored `pp_site_udc` map with a `"_preset"` on a
 
 - The header and footer now emit ~4.6 KB of inline CSS per request (+710 gzipped) that was previously served from the cacheable stylesheet, and `components.css` itself grew because the change is heavily commented. #1021 tracks stripping comments at package time.
 - An unstyled page pays ~2.4 ms of compile on routes that warm nothing else (404, search, archives). #1020 tracks the available win.
+- **A prose link on a dark band you author is an AA failure until you colour it.** `body-link` ships no colour default, so it renders `@color-accent` `#3157f4`: **5.43:1** on the default light band, **3.23:1** on `@color-bg-inverted` `#0f172a`. v1 remapped that automatically because an inverted band carried a CLASS; a v2 band carries none, which is exactly what lets any background be a band, so nothing can guess. Set `body-link`'s `typography.color` and its `":hover"` whenever you darken a band — `@color-accent-on-inverted` is the token v1 used. This is the v2 posture rather than section's alone; section is where prose links are common. #1028's sibling problem, filed separately where it is not authorable at all.
+- **The default panel has no visible edge.** `panel` defaults to `@color-surface` `#f4f7fb` with `border.width: 0` and no shadow — **1.06:1** against the page ground `#fcfdff`. A faithful port of v1, and on a default light band the card reads only because the band happens to match the page. Give the panel a `border` or a `background.fill` with more separation if the band is not the page colour. Reconsidering the default is #1031.
+- Two of `panel_cta_variant`'s four values (`outline`, `ghost`) have no system preset and must be written out on the `panel-cta` role. See the breaking note for the JSON.
 
 ### Itemized changes
 
@@ -133,13 +136,30 @@ with `no_style_slots`.
 | `theme: "muted"` / `"inverted"` | `_band` `background.fill`, **plus** a `typography.color` on every text role over it |
 | `title_align: "center"` | `typography.align` on `heading` / `eyebrow` / `subheading`, with `spacing.margin-left`/`margin-right` set to `auto` |
 | `background_image: "<url>"` | `_band` `background.image` — **a Media Library attachment id, not a URL** — with `background.overlay` and `background.position` |
-| `panel_cta_variant` | `"_preset": "button"` (or `"button-secondary"`) on `panel-cta`, overridden beside it |
+| `panel_cta_variant: "primary"` / `"secondary"` | `"_preset": "button"` / `"button-secondary"` on `panel-cta`, overridden beside it |
+| `panel_cta_variant: "outline"` / `"ghost"` | **no preset — build it on the role.** See the narrowing below |
 | any `--section-*` slot | the role and parameter named in that slot's migration note |
 
 **`background_image` is a narrowing as well as a move:** it took a URL string, and
 `background.image` takes an attachment id, which is what lets the theme resolve responsive
 sources and the attachment's own alt text. Run `import_media` first and pass the
 `attachment_id` it returns.
+
+**`panel_cta_variant` is a narrowing too, and only half of it is a rename.** The prop took
+four values — `primary`, `secondary`, `outline`, `ghost` — and the system ships two button
+presets. `primary` and `secondary` map onto `button` and `button-secondary` exactly.
+**`outline` and `ghost` have no preset and must be written out on the role:**
+
+```json
+{"panel-cta": {"background": {"fill": "transparent"},
+               "border": {"width": "1px", "style": "solid", "color": "@color-accent"},
+               "typography": {"color": "@color-accent"}}}
+```
+
+(that is `outline`; `ghost` is the same without the `border`). More verbose than an enum
+value, and more capable — a `":hover"` nests inside either group, which the variant could
+not express — but it is a real loss of convenience on the two least-used values, and it is
+the author's contrast to own once the enum is not choosing the pairing.
 
 **`theme: "inverted"` did your contrast for you; a `udc` map does not.** Set a colour on
 `heading`, `subheading`, `body`, `inline-items` and `body-link` — and give `body-link` a
@@ -233,6 +253,24 @@ does not reproduce, and nothing in this release reproduces it. A band that set
 the mark follows the row. **This is the one v1 capability with no v2 equivalent**, and it
 is #1028 rather than something to work around: a mark that differs from its sibling text
 needs a role that can address a pseudo-element, which is the A3 deferral.
+
+### ⚠️ Narrowed: a wide `text-only` band centres its trust strip on the band, not on the prose
+
+v1 capped `.section__body` — the wrapper holding the header block, the prose and the strip —
+at 40rem, and the strip is `margin: 0 auto; width: fit-content`, so it centred **inside the
+prose measure**. Each of that wrapper's three children now carries its own 40rem, which
+reproduces all three WIDTHS; the strip's containing block is full width, so the strip
+centres **on the band**.
+
+On a `text-only` band at 1280 a short strip's centre moves about 230px to the right, and the
+prose above it is still 640px and left-aligned, so the strip reads as detached from its
+column. Below 768px nothing moves (the container is narrower than the cap), and the image
+and panel layouts are unaffected (their text column was always narrower than the cap).
+
+**Route back:** `"inline-items": {"spacing": {"margin-left": "0"}}` left-aligns the strip
+under the prose, which is closer to v1 than centring on the band is. Restoring v1's exact
+origin needs a role on the wrapper itself, which is #1032 — filed rather than guessed at,
+because it is a question about the role count and not about this band.
 
 ### ⚠️ Narrowed: a body-less trust strip no longer flushes its own top margin
 
