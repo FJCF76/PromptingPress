@@ -83,15 +83,16 @@ class StyleSlotContractTest extends TestCase
     public function testDiscoveryFindsTheKnownStyledComponents(): void
     {
         $found = $this->styledComponents();
-        // FIVE, not seven: testimonials left the style-slot system in #958 and hero in
-        // #986, both rebuilt on the Universal Design Contract. Their authoring surface
-        // is roles, and the contract that replaced this one is the UDC engine's own.
-        foreach (['cta', 'faq', 'grid', 'section', 'stats'] as $known) {
+        // FOUR, not seven: testimonials left the style-slot system in #958, hero in #986
+        // and section in #1023, all rebuilt on the Universal Design Contract. Their
+        // authoring surface is roles, and the contract that replaced this one is the UDC
+        // engine's own.
+        foreach (['cta', 'faq', 'grid', 'stats'] as $known) {
             $this->assertContains($known, $found, "Schema discovery lost the {$known} component.");
         }
-        // …and the two v2 components must NOT be discovered here, or this suite would
+        // …and the three v2 components must NOT be discovered here, or this suite would
         // start asserting a slot contract against a component that has none.
-        foreach (['hero', 'testimonials'] as $v2) {
+        foreach (['hero', 'section', 'testimonials'] as $v2) {
             $this->assertNotContains($v2, $found, "{$v2} is a v2 component: it declares no style slots.");
         }
     }
@@ -774,10 +775,13 @@ class StyleSlotContractTest extends TestCase
         // Fail-closed: the six must be the ONLY margin-bottom literals left on a band heading.
         // The four that already had the slot keep it; a seventh bare literal appearing on a
         // band title is the exact regression this row exists to prevent from recurring.
-        foreach (['section' => '.section__title', 'grid' => '.grid__heading', 'faq' => '.faq__heading',
-                  // testimonials is absent: its heading rhythm is the `heading` role's
-                  // `spacing.margin-bottom` default, not a --<comp>-heading-margin-bottom
-                  // slot, so there is no slot for this guard to route.
+        foreach (['grid' => '.grid__heading', 'faq' => '.faq__heading',
+                  // testimonials, hero and section are absent: their heading rhythm is the
+                  // `heading` role's `spacing.margin-bottom` default, not a
+                  // --<comp>-heading-margin-bottom slot, so there is no slot for this
+                  // guard to route. section's responsive tiers (1.65rem desktop/tablet,
+                  // 1.25rem phone) are that default's breakpoint map since #1023, which is
+                  // more than the single slot could express.
                   ] as $component => $_selector) {
             $this->assertStringContainsString(
                 "var(--{$component}-heading-margin-bottom,",
@@ -1589,13 +1593,16 @@ class StyleSlotContractTest extends TestCase
      */
     private const CROSS_BLOCK_SLOT_CONTRACT = [
         '.grid__heading'     => ['--grid-heading-color', 'color'],
-        '.section__title'    => ['--section-heading-color', 'color'],
+        // section's two rows retired in #1023: both slots went with its slot map, and the
+        // four `main > .section` premium-typography rules that made them cross-block
+        // reachable were DELETED in the same change (they were dead code — pp-v1 loses to
+        // the unlayered role defaults the engine emits). So the cross-block hazard this
+        // map exists for no longer has a mechanism on section, not merely no slot.
         // Body/content + card text slots are ALSO re-declared in the desktop
         // "premium typography" media rules. The original #86 fix only covered
         // the two heading slots above; these four were left clobbered (desktop
         // hardcoded a token, ignoring the per-instance slot) until caught by a
         // dev smoke test against a dark-band benchmark. Same cross-block class.
-        '.section__content'  => ['--section-body-color', 'color'],
         '.grid__item-title'  => ['--grid-item-title-color', 'color'],
         '.grid__item-text'   => ['--grid-item-text-color', 'color'],
         '.cta__body'         => ['--cta-body-color', 'color'],
@@ -1798,12 +1805,17 @@ class StyleSlotContractTest extends TestCase
     {
         $triggerSlots = $this->borderTriggerSlots();
 
-        // Fail-closed floor: 13 such slots exist today (issue 332). If discovery breaks,
-        // every assertion below would pass over an empty list.
+        // Fail-closed floor: 11 such slots exist today. 13 at issue 332, minus section's
+        // two (`--section-border-width` and `--section-panel-border-width`), which went
+        // with its slot map in #1023 — a v2 band's border width is the `_band` / `panel`
+        // role's `border.width`, emitted by the engine into a band-scoped rule rather
+        // than an inline style attribute, so it never meets WP core's 3px trigger this
+        // immunity baseline exists to defeat. If discovery breaks, every assertion below
+        // would pass over an empty list.
         $this->assertGreaterThanOrEqual(
-            13,
+            11,
             count($triggerSlots),
-            'Discovery found fewer border-trigger slots than the 13 known at issue 332 — '
+            'Discovery found fewer border-trigger slots than the 11 known today — '
             . 'the schema scan is broken and this guard would pass vacuously.'
         );
 
@@ -1881,13 +1893,16 @@ class StyleSlotContractTest extends TestCase
             }
         }
 
-        // Fail-closed: 7 styled components render a root style attr, grid renders a
-        // per-card one, and section renders a per-row one (issue 334). If the scan
-        // finds nothing, the loop above proved nothing.
+        // Fail-closed: 6 styled components render a root style attr and grid renders a
+        // per-card one, so 7. Two left in #1023 with section's rebuild: its root
+        // attribute, and the per-row one issue 334 added — the panel rows are the
+        // `panel-row` / `panel-row-label` / `panel-row-value` roles now, and the engine
+        // emits no inline attribute at all. If the scan finds nothing, the loop above
+        // proved nothing.
         $this->assertGreaterThanOrEqual(
-            9,
+            7,
             $emitted,
-            'Found fewer inline slot surfaces than the 9 known today — the template scan is broken.'
+            'Found fewer inline slot surfaces than the 7 known today — the template scan is broken.'
         );
 
         // Every pp_render_style_vars() call must reach an emit site the loop above actually
