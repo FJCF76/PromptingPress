@@ -203,8 +203,11 @@ function pp_prop_definition_keys(): array {
  * a `-bg` / `-hover-bg` name convention: a naming convention is not machine-readable
  * without a second source of truth, which is the defect this whole contract fixes
  * one layer down. #575 landed the field one gate ahead of its consumer; #579 wired
- * that consumer, the `transparent_fill` composition smell, and the hero/cta button
- * fills plus `--section-panel-cta-bg` are the slots that declare it today.
+ * that consumer, the `transparent_fill` composition smell, and cta's four button fills
+ * are the slots that declare it today. The roster shrinks one rebuild sprint at a time:
+ * hero's left in #986 and section's `--section-panel-cta-bg` in #1023, because a v2
+ * button fill is a role's `background.fill` and the advisory recognises slots by their
+ * declared `role: "fill"` marker, which a role parameter does not carry or need.
  *
  * `measure` marks a slot as a TEXT MEASURE — the max-width of a heading, a prose
  * column, or a content column — so the advisory engine can tell one from any other

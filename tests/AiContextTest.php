@@ -263,17 +263,26 @@ class AiContextTest extends TestCase
         $this->assertStringContainsString('A `length-or-none`-typed slot', $prompt);
         $this->assertStringContainsString('PLUS the keyword `none`', $prompt);
         $this->assertStringContainsString(
-            'A plain `length` slot (padding, font-size, radius, and every measure with a real length default, e.g. `--section-body-measure` or `--cta-heading-measure`) still rejects it.',
+            'A plain `length` slot (padding, font-size, radius, and every measure with a real length default, e.g. `--cta-heading-measure`) still rejects it.',
             $prompt,
             'the widening must be stated as bounded, or the AI will try `none` everywhere'
         );
-        // #578 widened the type from one band-geometry cap to five slots. The prompt
-        // must name the four uncapped measures, or an agent reading it will believe
-        // `none` is never valid on a measure and cannot restore their declared default.
+        // #578 widened the type from one band-geometry cap to five slots. The prompt must
+        // name the uncapped measures that are still SLOTS, or an agent reading it will
+        // believe `none` is never valid on a measure and cannot restore their declared
+        // default. The set shrinks one rebuild sprint at a time — --hero-heading-measure
+        // left in #986, --section-heading-measure in #1023 — so the prompt must also say
+        // what the v2 route is, or an agent on a rebuilt component reads a list it is not
+        // on and concludes the capability is gone.
         $this->assertStringContainsString(
-            'the three text measures that ship uncapped (`--section-heading-measure`, `--cta-body-measure`, `--faq-body-measure`)',
+            'the two text measures that ship uncapped (`--cta-body-measure`, `--faq-body-measure`)',
             $prompt,
             'the length-or-none carrier set must be stated, not just --stats-max-width'
+        );
+        $this->assertStringContainsString(
+            'an uncapped measure is the role\'s `sizing.max-width` set to `none`',
+            $prompt,
+            'the v2 route must be stated beside the shrinking slot list'
         );
         $this->assertStringContainsString(
             'use the slot\'s own removal value when its type has one',

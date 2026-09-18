@@ -45,7 +45,7 @@ See `AI_CONTEXT.md` → Component index for the current list. As of last update:
 | Name    | Required props                          | Optional props (selection)                              |
 |---------|-----------------------------------------|---------------------------------------------------------|
 | hero    | title                                   | title_accent, eyebrow, subheading, button_text, button_url, button2_text, button2_url, layout, image_url, image_id, image_alt, split_ratio, vertical_align, proof |
-| section | one of: body / body_items / panel content | body, title, title_accent, eyebrow, subheading, title_align, layout, theme, image_url, image_id, image_alt, background_image, body_marker, body_items, panel_heading, panel_body, panel_items, panel_items_marker, panel_cta_text, panel_cta_url, panel_cta_variant |
+| section | one of: body / body_items / panel content | body, title, title_accent, eyebrow, subheading, layout, image_url, image_id, image_alt, body_marker, body_items, body_items_align, panel_heading, panel_body, panel_items, panel_items_marker, panel_cta_text, panel_cta_url — and NOT `theme`, `title_align`, `background_image` or `panel_cta_variant`, which the v2 rebuild retired (see section.styling below) |
 | faq     | items[] {question, answer}              | title, title_accent, eyebrow, theme, id                 |
 | grid    | items[] (fields: number, title, text, text_role, bullets[], image_url, image_alt, image_id, link_url, link_text, style — none individually required) | title, title_accent, eyebrow, subheading, title_align, layout, card_emphasis, theme, columns, image_treatment |
 | table   | headers[], rows[][]                     | title, caption, id                                      |
@@ -105,22 +105,43 @@ for the primary, `--cta-button2-hover-bg` for the second), and a filled button k
 premium hover gradient until its own hover-fill slot is set. At mobile
 widths the pair stacks one button per row.
 
-### section.theme
+### section.styling — there is no `theme` prop
 
-Controls per-section background color/tone for visual rhythm on marketing pages. (Independent of `section.layout`.)
+`section` is a **v2 component on the Universal Design Contract**: it declares no style
+slots, and `theme` / `title_align` / `background_image` / `panel_cta_variant` are RETIRED.
+Writing any of them is refused with `retired_prop` and a message naming the replacement.
+Per-band tone is the `_band` role's `background` in the band's `udc` map.
 
-| Value      | Effect                                                      |
-|------------|-------------------------------------------------------------|
-| `default`  | Page background (`--color-bg`). No class added. Default.   |
-| `muted`    | Light tinted surface band (`--color-surface`) with framing borders. Subtle differentiation. |
-| `inverted` | Inverted **dark** background (`--color-bg-inverted`). Strong contrast — use this for a genuinely dark band. |
+| Old | Write this instead |
+|---|---|
+| `theme: "muted"` | `"_band": { "background": { "fill": "@color-surface" } }` |
+| `theme: "inverted"` | `"_band": { "background": { "fill": "@color-bg-inverted" } }` **plus** a `typography.color` on every text role over it |
+| `title_align: "center"` | `typography.align: "center"` on `heading` / `eyebrow` / `subheading`, with `spacing.margin-left` / `margin-right` set to `"auto"` to centre the block |
+| `background_image: "<url>"` | `"_band": { "background": { "image": <attachment id>, "overlay": "rgba(…)", "position": "center" } }` — an **attachment id**, not a URL; `import_media` returns one |
+| `panel_cta_variant: "outline"` | `"_preset": "button-secondary"` on the `panel-cta` role, overridden beside it |
 
-> `muted` is a LIGHT band, not a dark one. For a dark band use `inverted`.
+**A background never recolours text.** The old `theme: "inverted"` did that as a bundle;
+a `udc` map does not. Set `typography.color` on `heading`, `subheading`, `body`,
+`inline-items` and `body-link` — and give `body-link` a `':hover'` too, or the link colour
+you set at rest will still hover to the theme accent. The trade is that you can now build
+a band the three-value bundle could not express.
 
 Example — alternating section rhythm:
 ```json
-{ "component": "section", "props": { "body": "<p>...</p>", "theme": "muted" } },
-{ "component": "section", "props": { "body": "<p>...</p>", "theme": "inverted" } }
+{
+  "component": "section",
+  "props": { "body": "<p>...</p>" },
+  "udc": { "_band": { "background": { "fill": "@color-surface" } } }
+},
+{
+  "component": "section",
+  "props": { "body": "<p>...</p>" },
+  "udc": {
+    "_band": { "background": { "fill": "@color-bg-inverted" } },
+    "heading": { "typography": { "color": "#ffffff" } },
+    "body": { "typography": { "color": "rgba(255, 255, 255, 0.82)" } }
+  }
+}
 ```
 
 ### section.layout
@@ -145,16 +166,78 @@ Panel props (all optional; ignored by other layouts):
 |------|---------|
 | `panel_heading` | Panel heading (`<h3>`). |
 | `panel_body` | Optional plain-text intro paragraph above the list (text only, no HTML). |
-| `panel_items` | Array of panel entries. Each entry is EITHER a plain-text string (a bullet) OR a paired-row object `{ "label": "...", "value": "..." }` rendered as a two-part row (label left, value right at >=768px; label stacked above value below that). Mix freely in one array. A paired-row entry may carry an optional `"style"` map (see below). |
+| `panel_items` | Array of panel entries. Each entry is EITHER a plain-text string (a bullet) OR a paired-row object `{ "label": "...", "value": "..." }` rendered as a two-part row (label left, value right at >=768px; label stacked above value below that). Mix freely in one array. A paired-row entry may NOT carry a `"style"` map any more — see "Per-row styling is RETIRED" below. |
 | `panel_items_marker` | List marker for the string entries of `panel_items`: `disc` (default) / `check` / `dash` / `arrow`. Not a distinct list type — just the glyph. Paired rows are never bullets, so they never show a marker. |
-| `panel_cta_text` + `panel_cta_url` | The panel's CTA button. Both are required for the button to render. |
-| `panel_cta_variant` | Button style: `primary` (default) / `secondary` / `outline` / `ghost`. The transparent/light variants read against the panel's own light surface on every band, including `inverted` and `background_image` ones. |
+| `panel_cta_text` + `panel_cta_url` | The panel's CTA button. Both are required for the button to render. Its look is the `panel-cta` role. |
 
-The panel falls back to a plain `text-only` section when it has no content (no heading, no body, no list items, and no complete CTA). Style the panel per-instance with the `--section-panel-*` slots (`-bg`, `-border-color`, `-border-width`, `-radius`, `-padding`, `-text`, `-font`) via `style_component` — set `--section-panel-bg` to a dark color and `--section-panel-text` to a light color for a dark panel. Set `--section-panel-font` to `var(--font-mono)` for a monospace panel (spec sheets, config or stat readouts). The panel CTA has its own fill slots (#536): on the default `primary` variant, `--section-panel-cta-bg` replaces the theme's premium gradient with a flat brand fill (a plain background colour cannot — the gradient is a background-image painted over it), `--section-panel-cta-color` sets the label ink, and `--section-panel-cta-shadow: none` flattens the bevel. An unset border follows the fill. They reach the `primary` variant only; pick `panel_cta_variant` for a transparent button instead.
+**The panel props are REFUSED on any layout but `text-panel`**, with `inert_prop` and a
+message naming the layout to set. Same for the image props on the three layouts that
+render no image column. A value that would be stored, reported applied, and paint nothing
+is refused rather than accepted quietly.
 
-**Paired label/value rows.** When a panel summarises data — a pricing summary, spec sheet, plan comparison, stat readout, or config/contact list — give `panel_items` entries the object form `{ "label": "...", "value": "..." }` instead of strings. Each renders as a two-part row: label on the left, value on the right, both plain text. String and paired-row entries mix in one array (a string is still a bullet). **Below 768px the two columns become two lines by default: the label stacks above its value, both on one shared left edge, with the label set smaller and tracked and the value carrying the weight so the pair still reads as label-then-fact without position to carry it, and a wider gap between one pair and the next.** That is a fixed responsive default with no slot or prop behind it — do not try to keep two columns on mobile; there is not room for them, and a long value would wrap to four lines in a ~170px box. It also means a long `value` is safe: at narrow widths it gets the panel's full measure, so write values in real words rather than trimming them to fit an imagined column. To emphasise or de-emphasise one row against its siblings, add a per-row `"style"` map that sets `--section-panel-text` (the panel's text-colour slot, the only per-row slot) — no new colour grammar, no status vocabulary. A monospace data panel (a spec sheet, config readout, or stat summary) is just a composition of these generic parts (`--section-panel-font: var(--font-mono)` + paired rows + a dark `--section-panel-bg` + a per-row accent), not a named mode. Set per-row `style` through the composition (`update_component` / `update_composition` / `create_page`), not `style_component`.
+The panel falls back to a plain `text-only` section when it has no content (no heading, no
+body, no list items, and no complete CTA).
 
-To turn `panel_items` into a check-list (the common "benefits beside a panel" pattern), set `panel_items_marker: "check"` and recolor the marker with the `--section-panel-marker-color` slot (defaults to the site accent; set a light value on a dark panel). `dash` and `arrow` are the other marker values; `disc` is the plain default. The same marker capability is available on `grid` card bullets (always a check) and on `section` body lists (`body_marker`, below) — one shared treatment, so a check-list is reachable from any list-rendering surface, not just the grid.
+**Style the panel through roles, not slots. `section` is a v2 component: it has no style
+slots.** The panel is six roles, one per visual job:
+
+| Role | What to set on it |
+|---|---|
+| `panel` | the surface: `background.fill`, `border.color` / `.width` / `.radius`, `spacing.padding`, `shadow.box`, and the base `typography` |
+| `panel-heading` | the `<h3>`'s type and colour |
+| `panel-body` | the intro paragraph's type and colour |
+| `panel-list` | the list's indent and rhythm (`spacing.padding-left`, `spacing.margin-bottom`) |
+| `panel-row` | a paired row's `spacing.gap` and `typography.align` |
+| `panel-row-label` / `panel-row-value` | the two halves of a paired row, independently |
+
+For a dark panel set `panel` `background.fill` to a dark colour and put a light
+`typography.color` on `panel-heading`, `panel-body`, `panel-row-label` and
+`panel-row-value` — the fill does not recolour the text for you. For a monospace data
+panel set `panel` `typography.family` to `"@font-mono"`.
+
+The panel CTA is the `panel-cta` role. There is **no `panel_cta_variant` prop any more**:
+a variant was a bundle of button colours, which is what a preset is. Put
+`"_preset": "button"` (or `"button-secondary"`) on the role and override anything beside
+it — `background.fill` for a flat brand fill, `typography.color` for the ink,
+`shadow.box: "none"` to flatten the bevel, `border.color` for the ring, and a `':hover'`
+nested inside any of those groups for the hover state. Unlike v1 there is no
+primary-only restriction and no missing hover fill: whatever you set is what paints.
+
+**Paired label/value rows.** When a panel summarises data — a pricing summary, spec
+sheet, plan comparison, stat readout, or config/contact list — give `panel_items` entries
+the object form `{ "label": "...", "value": "..." }` instead of strings. Each renders as a
+two-part row: label on the left, value on the right, both plain text. String and
+paired-row entries mix in one array (a string is still a bullet). **Below 768px the two
+columns become two lines by default: the label stacks above its value, both on one shared
+left edge, with the label set smaller and tracked and the value carrying the weight so
+the pair still reads as label-then-fact without position to carry it, and a wider gap
+between one pair and the next.** Do not try to keep two columns on mobile; there is not
+room for them, and a long value would wrap to four lines in a ~170px box. It also means a
+long `value` is safe: at narrow widths it gets the panel's full measure, so write values
+in real words rather than trimming them to fit an imagined column. The stacking itself is
+structural, but the label and value TYPE are the `panel-row-label` / `panel-row-value`
+roles, and both take a `breakpoints` map, so a brand that wants different narrow-width
+type says so there.
+
+**Per-row styling is RETIRED (#1023).** On 1.x a paired row could carry its own `"style"`
+map to emphasise one row against its siblings. The v2 engine addresses **roles, not
+individual items**: `panel-row-value` is styled once for every row. A stored per-row
+`style` key is now an undeclared field and is refused at write. Per-item addressing is
+tracked as **#1024**; until it lands, a single emphasised row is not expressible, and the
+way to draw the eye is the row's own content. A monospace data panel is still just a
+composition of generic parts — `panel` `typography.family: "@font-mono"` + paired rows +
+a dark `panel` `background.fill` + an accented `panel-row-value` — not a named mode.
+
+To turn `panel_items` into a check-list (the common "benefits beside a panel" pattern),
+set `panel_items_marker: "check"`. `dash` and `arrow` are the other values; `disc` is the
+plain default. **The marker's COLOUR is not per-band:** it comes from the site-wide
+`--pp-list-marker-color` design token (default `var(--color-accent)`), because the glyph
+is drawn with `content` on a `::before` and ruling A3 defers pseudo-elements, so no role
+can reach it. Set the token with `update_design_tokens` to recolour every marker in the
+site at once; on a dark panel that is the knob to reach for. The same marker capability is
+available on `grid` card bullets (always a check) and on `section` body lists
+(`body_marker`, below) — one shared treatment, so a check-list is reachable from any
+list-rendering surface.
 
 ```json
 {
@@ -169,11 +252,16 @@ To turn `panel_items` into a check-list (the common "benefits beside a panel" pa
     "panel_cta_text": "Get started",
     "panel_cta_url": "/signup"
   },
-  "style": { "--section-panel-bg": "#0f172a", "--section-panel-text": "#f8fafc" }
+  "udc": {
+    "panel": { "background": { "fill": "#0f172a" } },
+    "panel-heading": { "typography": { "color": "#f8fafc" } },
+    "panel-body": { "typography": { "color": "#cbd5e1" } },
+    "panel-cta": { "_preset": "button" }
+  }
 }
 ```
 
-A monospace spec panel with paired label/value rows, one row emphasised via a per-row `style`:
+A monospace spec panel with paired label/value rows:
 
 ```json
 {
@@ -186,23 +274,37 @@ A monospace spec panel with paired label/value rows, one row emphasised via a pe
     "panel_items": [
       { "label": "WordPress", "value": "6.7.1" },
       { "label": "PHP", "value": "8.3" },
-      { "label": "Uptime", "value": "99.9%", "style": { "--section-panel-text": "#22d3ee" } },
+      { "label": "Uptime", "value": "99.9%" },
       "All checks passing"
     ],
     "panel_cta_text": "View status",
     "panel_cta_url": "/status"
   },
-  "style": {
-    "--section-panel-bg": "#0f172a",
-    "--section-panel-text": "#f8fafc",
-    "--section-panel-font": "var(--font-mono)"
+  "udc": {
+    "panel": {
+      "background": { "fill": "#0f172a" },
+      "typography": { "family": "@font-mono", "color": "#f8fafc" }
+    },
+    "panel-heading": { "typography": { "color": "#f8fafc" } },
+    "panel-row-label": { "typography": { "color": "#94a3b8" } },
+    "panel-row-value": { "typography": { "color": "#22d3ee" } }
   }
 }
 ```
 
+Note what changed in that second example: v1 emphasised the one `Uptime` row with a
+per-row `style`; v2 sets the accent on `panel-row-value`, so **every** value carries it.
+That is the same trade named above — one role, every row.
+
 #### section body list markers: `body_marker`
 
-`body_marker` (`disc` default / `check` / `dash` / `arrow`) sets the marker on **top-level** `<ul>` lists authored in a section's `body` — the same shared marker treatment the panel and grid use. `disc` leaves body lists exactly as before; `check`/`dash`/`arrow` apply to lists written as a direct child of the body (nested lists keep their disc). Recolor the marker with the `--section-body-marker-color` slot (defaults to the site accent). Use it when a prose section needs a check-list without moving the content into a grid or panel.
+`body_marker` (`disc` default / `check` / `dash` / `arrow`) sets the marker on
+**top-level** `<ul>` lists authored in a section's `body` — the same shared marker
+treatment the panel and grid use. `disc` leaves body lists exactly as before;
+`check`/`dash`/`arrow` apply to lists written as a direct child of the body (nested lists
+keep their disc). The marker's colour is the site-wide `--pp-list-marker-color` token, as
+above — not a per-band value. Use `body_marker` when a prose section needs a check-list
+without moving the content into a grid or panel.
 
 ```json
 {
@@ -217,13 +319,54 @@ A monospace spec panel with paired label/value rows, one row emphasised via a pe
 
 #### section inline-items row: `body_items`
 
-`body_items` renders a short "trust strip" — a centered row of brief plain-text items with a CSS-generated middot (`·`) separator between each (the separator never dangles at the start of a wrapped line; at narrow widths the row wraps and its lines pack from the left). Use it for the slim post-hero meta row (e.g. "No credit card · Cancel anytime · 30-day guarantee"), not for multi-line content (use `body` or `panel_items` for that). Each entry is a plain-text string (escaped, no HTML): at most **8 items**, each at most **80 characters** — a write that exceeds either bound, or passes a non-string entry, is rejected with `invalid_prop_value` (nothing persists). The row renders only when non-empty; when both `body` and `body_items` are set, the row renders after the body.
+`body_items` renders a short "trust strip" — a row of brief plain-text items with a
+CSS-generated middot (`·`) separator between each. Use it for the slim post-hero meta row
+(e.g. "No credit card · Cancel anytime · 30-day guarantee"), not for multi-line content
+(use `body` or `panel_items` for that). Each entry is a plain-text string (escaped, no
+HTML): at most **8 items**, each at most **80 characters** — a write that exceeds either
+bound, or passes a non-string entry, is rejected with `invalid_prop_value` (nothing
+persists). The row renders only when non-empty; when both `body` and `body_items` are
+set, the row renders after the body.
 
-The items inherit the section body type, so the `--section-body-size` / `--section-body-weight` slots (a slim 15px/600 strip needs no extra typography slots). Colour the separator with the `--section-separator-color` style slot (defaults to the muted text colour; it follows the light on-inverted / on-background-image text colour like sibling text on dark bands). The glyph is a fixed middot.
+The row is the `inline-items` role. It carries the body's type as its own role default, so
+a strip keeps the band's size and weight without you repeating them; override
+`typography.size` / `.weight` / `.color` on the role for a slimmer or bolder strip. The
+separator's glyph is a fixed middot, and its COLOUR is the site-wide
+`--pp-list-marker-color` token rather than a per-band value — same pseudo-element reason
+as the list markers above.
 
-Per-line alignment when the strip wraps is the `--section-inline-items-align` style slot (`start` | `center`, default `start`). `start` (the default) packs each wrapped line from the left and clips the leading separator, so no middot ever dangles at the start of a line. `center` centres each wrapped line, moving the separator to a trailing middot after every item except the last. There is a documented trade with `center`: because a centred line ends mid-box, its trailing middot at a wrap point stays **visible** as a subtle line-end dot (an edge-clip cannot remove a mid-box dot; there is no pure-CSS centred-and-artifact-free option). Choose `center` when the brand's art direction wants a centred strip at every width and accepts the subtle line-end dots; keep the default `start` for artifact-free left-packing. A single-line strip reads centred in both modes, so this only matters where the row wraps (typically mobile).
+Per-line alignment when the strip wraps is the **`body_items_align` prop** (`start` |
+`center`, default `start`) — a prop and not a role value, because it selects a wrap
+TECHNIQUE rather than a value: a `justify-content` plus the separator mechanism that
+technique requires. `start` packs each wrapped line from the left and clips the leading
+separator, so no middot ever dangles at the start of a line. `center` centres each wrapped
+line, moving the separator to a trailing middot after every item except the last. There is
+a documented trade with `center`: because a centred line ends mid-box, its trailing middot
+at a wrap point stays **visible** as a subtle line-end dot (an edge-clip cannot remove a
+mid-box dot; there is no pure-CSS centred-and-artifact-free option). Choose `center` when
+the brand's art direction wants a centred strip at every width and accepts the subtle
+line-end dots; keep the default `start` for artifact-free left-packing. A single-line strip
+reads centred in both modes, so this only matters where the row wraps (typically mobile).
 
-`body` is optional (#488): a strip whose whole content is `body_items` — no heading, no paragraph — is a first-class band, so author it with `body_items` alone and no `body` key. On a body-less strip the row sits vertically centred within the band's own padding (its body-relative top margin drops away automatically), so a symmetric strip needs no manual padding compensation. A section must still carry SOME renderable content: at least one of `body`, `body_items`, or panel content (`panel_heading` / `panel_body` / `panel_items` / a panel CTA). A fully-empty section — no body, no items, no panel — is rejected at write time with `invalid_composition`. (A `title` alone does not satisfy this: a heading needs a `body`, `body_items`, or panel beneath it.)
+`body` is optional (#488): a strip whose whole content is `body_items` — no heading, no
+paragraph — is a first-class band, so author it with `body_items` alone and no `body` key.
+A section must still carry SOME renderable content: at least one of `body`, `body_items`,
+or panel content (`panel_heading` / `panel_body` / `panel_items` / a panel CTA). A
+fully-empty section is rejected at write time with `invalid_composition`. (A `title` alone
+does not satisfy this.)
+
+**A body-less strip no longer flushes its own top margin (#1023).** On v1 the template
+inferred that no body copy preceded the row and zeroed its top margin automatically, so a
+strip sat centred in the band's own symmetric padding. A v2 role default is per COMPONENT,
+not per content shape, and inferring design intent from whether a prop is empty is exactly
+the kind of hidden rule the UDC removes. **Say it instead:**
+
+```json
+"inline-items": { "spacing": { "margin-top": "0" } }
+```
+
+Without it, a body-less strip carries `@space-md` above it and sits slightly below the
+band's optical centre. Add it to any body-less strip you want optically centred.
 
 ```json
 {
@@ -232,22 +375,33 @@ Per-line alignment when the strip wraps is the `--section-inline-items-align` st
     "body": "<p>Everything you need to launch.</p>",
     "body_items": ["No credit card", "Cancel anytime", "30-day guarantee"]
   },
-  "style": { "--section-body-size": "15px", "--section-body-weight": "600", "--section-separator-color": "#84cc16" }
+  "udc": {
+    "inline-items": { "typography": { "size": "15px", "weight": "600" } }
+  }
 }
 ```
 
-A body-less trust strip (no `body`, centred by the band padding):
+A body-less trust strip on a dark band, optically centred:
 
 ```json
 {
   "component": "section",
   "props": {
-    "theme": "inverted",
     "body_items": ["SOC 2 Type II", "99.99% uptime", "GDPR compliant"]
   },
-  "style": { "--section-body-size": "15px", "--section-body-weight": "600" }
+  "udc": {
+    "_band": { "background": { "fill": "#0f172a" } },
+    "inline-items": {
+      "typography": { "size": "15px", "weight": "600", "color": "#e2e8f0" },
+      "spacing": { "margin-top": "0" }
+    }
+  }
 }
 ```
+
+Note both v2 shapes: the dark band is `_band` `background.fill` (there is no `theme` prop
+on section any more), and the strip's own colour is set explicitly, because a band
+background never recolours text for you.
 
 ### grid.layout: "steps"
 

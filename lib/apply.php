@@ -514,9 +514,12 @@ function pp_css_grammar_summary(): string {
  * @param bool   $allow_none Accept the keyword `none`. Set ONLY by the
  *                           `length-or-none` slot type — the width caps whose DECLARED
  *                           DEFAULT is `none`: the band-geometry cap --stats-max-width
- *                           (#579) plus the four measures that ship uncapped (#578,
- *                           --hero-heading-measure, --section-heading-measure,
- *                           --cta-body-measure, --faq-body-measure) — never by plain `length`:
+ *                           (#579) plus the measures that ship uncapped (#578) and are
+ *                           still on the slot system, --cta-body-measure and
+ *                           --faq-body-measure (--hero-heading-measure left in #986 and
+ *                           --section-heading-measure in #1023; on a v2 component an
+ *                           uncapped measure is the role's `sizing.max-width` set to
+ *                           `none`) — never by plain `length`:
  *                           `none` on a padding, radius or font-size is a value the
  *                           browser drops, which is the accepted-but-dead class this
  *                           whole engine exists to reject.
@@ -1580,7 +1583,12 @@ function _pp_validate_token_value(string $value, ?string $type, ?array $allowed 
 
     switch ($type) {
         case 'enum':
-            // Bounded keyword set (e.g. --section-inline-items-align: start|center).
+            // Bounded keyword set. NO SHIPPED SLOT DECLARES ONE TODAY:
+            // --section-inline-items-align was the last and #1023 replaced it with the
+            // `body_items_align` PROP, which reaches this same grammar through the prop
+            // path. The slot path is still live and still reached by the engine — pinned
+            // by SchemaValidationTest's synthetic slot-enum proof, which also asserts the
+            // live count is zero so the stand-in retires when a real one ships.
             // The allowed values live on the slot definition, so a write-time caller
             // (composition validation, update_style) passes them here for strict
             // membership. The #330 render boundary calls WITHOUT $allowed: the value
@@ -1609,13 +1617,16 @@ function _pp_validate_token_value(string $value, ?string $type, ?array $allowed 
             // keyword `none` — the third state the plain `length` grammar could not
             // express (issue #579, A-30). --stats-max-width was the first; #578 added
             // the four measure slots that are uncapped by default and must therefore be
-            // restorable to that default: --hero-heading-measure, --section-heading-measure,
-            // --cta-body-measure and --faq-body-measure.
+            // restorable to that default. Two of those four are left on the slot system,
+            // --cta-body-measure and --faq-body-measure: --hero-heading-measure retired
+            // in #986 and --section-heading-measure in #1023, where the same "the
+            // declared default must be authorable" rule is satisfied by the v2 grammar
+            // accepting `none` on `sizing.max-width` directly.
             //
             // The RULE is "the declared default must be authorable", not "measure slots
             // get `none`". Every measure slot with a real length default
-            // (--cta-heading-measure, --grid-heading-measure, --section-body-measure,
-            // --embed-body-measure and the other routed heading measures) deliberately
+            // (--cta-heading-measure, --grid-heading-measure, --embed-body-measure and
+            // the other routed heading measures) deliberately
             // stays plain `length`: they have no third state, and the shipped
             // friendly-error path steers "remove this cap" to `100%` for them. Do not
             // widen this type to a padding, radius or font-size slot without a decision —
