@@ -1020,17 +1020,19 @@ final class UdcEngineTest extends TestCase
 
     public function testALegacyComponentAcceptsNoUdcMapAtAll(): void
     {
-        // `section`, not hero: hero joined the UDC in #986, so asking it this question
-        // now tests the opposite of what the name promises (I40). section is the largest
-        // component still on the v1 slot system.
-        $error = pp_udc_validate_map(['quote' => ['typography' => ['size' => '1rem']]], 'section');
+        // THE HOST HAS MOVED TWICE, and the comment is kept because the trap is real: ask
+        // this question of a component that has since joined the UDC and the test asserts
+        // the opposite of what its name promises (I40). It was hero until #986, section
+        // until #1023, and is `grid` now — the largest component still on the v1 slot
+        // system, and the next one due to move, so expect to re-point this again.
+        $error = pp_udc_validate_map(['quote' => ['typography' => ['size' => '1rem']]], 'grid');
         $this->assertInstanceOf(WP_Error::class, $error);
         $this->assertSame('unknown_udc_role', $error->get_error_code());
         $this->assertStringContainsString('not on the UDC styling system', $error->get_error_message());
 
         // …and a legacy component emits no band block, whatever it stores.
         $this->assertSame('', pp_udc_band_css([
-            'component' => 'section',
+            'component' => 'grid',
             'id'        => 'pp-aabbccdd',
             'udc'       => ['quote' => ['typography' => ['size' => '1rem']]],
         ]));
@@ -1220,8 +1222,8 @@ final class UdcEngineTest extends TestCase
 
         // A legacy component says NOTHING, so an absent key is never mistaken for
         // "declared empty".
-        $this->assertArrayNotHasKey('roles', pp_component_schema_report('section'));
-        $this->assertArrayNotHasKey('udc_groups', pp_component_schema_report('section'));
+        $this->assertArrayNotHasKey('roles', pp_component_schema_report('grid'));
+        $this->assertArrayNotHasKey('udc_groups', pp_component_schema_report('grid'));
     }
 
     // ── The schema side of the contract ─────────────────────────────────────
@@ -1436,6 +1438,39 @@ final class UdcEngineTest extends TestCase
     public function testEveryRoleSelectorMatchesAnElementTheComponentActuallyRenders(): void
     {
         $fixtures = [
+            // SECTION NEEDS TWO FIXTURES (#1023), for the reason hero needs three: some
+            // of its roles cannot coexist in one render. `media` only appears on an image
+            // layout, and the whole `panel*` family only on `text-panel` — so one fixture
+            // covers the text/media roles and the other the panel ones, and the sweep
+            // checks the union.
+            'section' => [
+                [
+                    'title'            => 'Section heading',
+                    'title_accent'     => 'heading',
+                    'eyebrow'          => 'KICKER',
+                    'subheading'       => 'A supporting line',
+                    'body'             => '<p>Body copy with a <a href="/x">link</a> and a list.</p><ul><li>One</li></ul>',
+                    'body_items'       => ['First', 'Second'],
+                    'body_items_align' => 'center',
+                    'layout'           => 'image-left',
+                    'image_url'        => '/wp-content/uploads/photo.png',
+                    'image_alt'        => 'A photo',
+                ],
+                [
+                    'title'              => 'Panel band',
+                    'body'               => '<p>Left column copy.</p>',
+                    'layout'             => 'text-panel',
+                    'panel_heading'      => 'What lives where',
+                    'panel_body'         => 'A supporting line inside the panel.',
+                    'panel_items'        => [
+                        'A plain bullet',
+                        ['label' => 'Templates', 'value' => 'Theme files'],
+                    ],
+                    'panel_items_marker' => 'check',
+                    'panel_cta_text'     => 'Book a call',
+                    'panel_cta_url'      => '/contact',
+                ],
+            ],
             'testimonials' => [
                 'title'        => 'What they say',
                 'title_accent' => 'they',
@@ -1632,8 +1667,9 @@ final class UdcEngineTest extends TestCase
         $this->assertSame('pp-33333333', $out[0]['id']);
         $this->assertNotSame('pp-33333333', $out[1]['id'], 'a claimed id must not be carried onto a second band');
 
-        // 5. A legacy component is never minted one at all.
-        $out = pp_udc_assign_band_ids([$band('section')]);
+        // 5. A legacy component is never minted one at all. (`grid` since #1023 — section
+        // joined the engine, so asking it this would assert the opposite of the clause.)
+        $out = pp_udc_assign_band_ids([$band('grid')]);
         $this->assertArrayNotHasKey('id', $out[0]);
 
         // 6. THE POST-CONDITION, which is what all of the above is for.
@@ -1752,14 +1788,17 @@ final class UdcEngineTest extends TestCase
                 $legacy[] = $name;
             }
         }
-        // Nine now, not eleven: testimonials was rebuilt in Sprint 0, and nav and
-        // footer joined the engine as the CHROME container in Sprint 1 (ruling A1).
-        // The number is asserted rather than loosened so that a component quietly
-        // falling OFF the engine still trips this.
-        $this->assertCount(8, $legacy, 'eight components stay on the legacy system');
+        // SEVEN now: testimonials was rebuilt in Sprint 0, nav and footer joined as the
+        // CHROME container in Sprint 1 (ruling A1), hero in Sprint 1 (#986) and section
+        // in Sprint 2 (#1023). The number is asserted rather than loosened so that a
+        // component quietly falling OFF the engine still trips this — and so that each
+        // rebuild has to come here and say which one moved.
+        $this->assertCount(7, $legacy, 'seven components stay on the legacy system');
         $this->assertNotContains('testimonials', $legacy);
         $this->assertNotContains('nav', $legacy);
         $this->assertNotContains('footer', $legacy);
+        $this->assertNotContains('hero', $legacy);
+        $this->assertNotContains('section', $legacy);
 
         foreach ($legacy as $name) {
             $this->assertSame([], pp_udc_component_roles($name));
