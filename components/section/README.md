@@ -198,6 +198,38 @@ there is no per-item replacement today: the `panel-row` / `panel-row-label` /
 of **#1024**; until it lands, a single emphasised row is not expressible and the way to
 draw the eye is the row's own content.
 
+## What no role reaches
+
+The 19 roles cover the visual jobs this component has, with four honest gaps. Three are
+shared mechanisms that live in the structural block because the contract has no dimension
+for them; the fourth is a hole.
+
+- **The glyphs' colour** — the list markers and the inline separator. Pseudo-elements, so
+  ruling A3 defers them; see "What narrowed" and #1028.
+- **Prose rhythm inside `body`** — `p + p` separation, the list indent and marker restore
+  after the base reset, and the panel list's item rhythm. These are relationships between
+  SIBLINGS, and a role addresses one element.
+- **The phone-only gap BETWEEN stacked panel rows.** This is the one most likely to be
+  reached for and not found: `panel-row`'s `spacing.gap` is the gap INSIDE a row, between
+  its label and its value. The gap between one row and the next is
+  `.section__panel-row + .section__panel-row`, a sibling selector, so it is structural.
+- **A plain-string `panel_items` entry** (`.section__panel-item`) has **no role at all.**
+  The paired-row shape is fully addressable — `panel-row`, `panel-row-label`,
+  `panel-row-value` — and the bullet shape is not. In v1 that read as "nothing here has
+  slots"; in a 19-role vocabulary it reads as a hole, and it is one. Style it by styling
+  `panel-list`, or use paired rows when you need the entries designed.
+
+**Two wrapper roles, two different inheritance behaviours** — worth knowing before you set
+one and expect the other:
+
+- `header` declares `typography`, but only `align` does anything. `size`, `weight` and
+  `color` set there are defeated by `heading`'s and `subheading`'s own defaults, which
+  declare those same parameters on the children.
+- `panel` is the mirror. Its `typography.color` DOES flow down, because its children
+  declare no colour — but its `typography.size` moves the body, the list and the rows and
+  **not** the `<h3>`, because base.css gives `h3` a font size and a set property does not
+  inherit. Set `panel-heading` directly for that one.
+
 ## Structural CSS
 
 `assets/css/components.css` keeps only layout scaffolding, wrapper geometry and
