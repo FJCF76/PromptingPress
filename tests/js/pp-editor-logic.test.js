@@ -1816,11 +1816,13 @@ describe('#805 against the real shipped schemas', () => {
     it('classifies the shipped container sub-keys as display-only', () => {
         // Not stand-ins: these are the declarations the issue measured.
         const grid = REAL.find((c) => c.name === 'grid').schema.props.items.items;
-        const section = REAL.find((c) => c.name === 'section').schema.props.panel_items.items;
-
+        // `section.panel_items[].style` was the second measured declaration and it is
+        // gone (#1023): per-item style maps went with section's slot system, and v2 has
+        // no address for one — roles are band-grain. The contract question is staged as
+        // BUILD-SPEC Addendum B and gated on #1024. grid's two remain, so the pin still
+        // measures real shipped declarations rather than stand-ins.
         expect(subFieldIsDisplayOnly(grid.bullets)).toBe(true);
         expect(subFieldIsDisplayOnly(grid.style)).toBe(true);
-        expect(subFieldIsDisplayOnly(section.style)).toBe(true);
         expect(subFieldIsTypedScalar(grid.image_id)).toBe(true);
         expect(subFieldIsDisplayOnly(grid.title)).toBe(false);
         // The nested enum stays exactly where it was — #646's, not this change's.

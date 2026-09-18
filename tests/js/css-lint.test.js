@@ -378,16 +378,18 @@ describe('CSS lint: style slot fallback patterns', () => {
         });
     });
 
-    test('section/grid/cta schemas declare 125 style slots (subset of the total)', () => {
+    test('grid/cta schemas declare 78 style slots (subset of the total)', () => {
         // 166 -> 172 (#584): +1 hero heading rhythm, +2 hero primary ring slots,
         // +2 section panel-CTA ring slots, +1 cta heading rhythm.
         // 172 -> 174 (#581): the two state twins — grid's --grid-item-link-hover-color
         // and cta's --cta-button2-shadow.
         // 174 -> 125 (#986): hero left the v1 styling system. Its 49 slots are not
         // renamed or relocated — they are GONE, replaced by 13 roles in its schema.
-        // The count stays a count rather than being deleted with it, because drift in
-        // the three components still on slots is exactly what this pin catches.
-        expect(allSlots.length).toBe(125);
+        // 125 -> 78 (#1023): section left it too, the same way — its 47 slots are gone,
+        // replaced by 17 roles. The count stays a count rather than being deleted with
+        // each rebuild, because drift in the components STILL on slots is exactly what
+        // this pin catches, and there are two of them left in this group.
+        expect(allSlots.length).toBe(78);
     });
 
     allSlots.forEach(({ component, slotName }) => {
@@ -1068,64 +1070,13 @@ describe('CSS lint: grid steps numeral color routes through --grid-step-text-col
     });
 });
 
-describe('CSS lint: inline-items separator color routes through --section-separator-color (#475)', () => {
-    // The body_items middot separator is a `li::before` pseudo-element (on EVERY
-    // item since #489's hanging-separator clip; line-leading ones are clipped) whose
-    // color MUST route through the --section-separator-color slot at every
-    // declaration site (the base rule + the bg-image overlay re-route), so a future
-    // bare `color: var(--color-muted)` cannot silently re-kill the slot. The base
-    // default is --color-muted; the overlay default is --color-bg (that band does
-    // not remap --color-muted). Both are valid slot-routed fallbacks.
-    const stripped = stripComments(COMPONENTS_CSS);
-    const ruleRe = /([^{}]+)\{([^{}]*)\}/g;
-
-    // Every innermost rule whose selector targets the separator pseudo-element.
-    function separatorRules() {
-        const out = [];
-        let m;
-        while ((m = ruleRe.exec(stripped)) !== null) {
-            const sel = m[1].replace(/\s+/g, ' ').trim();
-            if (/\.section__inline-items li::before$/.test(sel)) out.push({ sel, body: m[2] });
-        }
-        return out;
-    }
-
-    test('finds the separator rule(s) — base + overlay', () => {
-        // Base rule + the .section--has-bg-image overlay re-route = at least two.
-        expect(separatorRules().length).toBeGreaterThanOrEqual(2);
-    });
-
-    test('every separator `color` declaration routes through var(--section-separator-color …)', () => {
-        const offenders = [];
-        separatorRules().forEach(({ sel, body }) => {
-            (body.match(/(?<![-a-z])color\s*:[^;}]+/gi) || []).forEach((d) => {
-                if (!/color\s*:\s*var\(\s*--section-separator-color\b/.test(d.trim())) {
-                    offenders.push(`${sel} { ${d.trim()} }`);
-                }
-            });
-        });
-        expect(offenders).toEqual([]);
-    });
-
-    // Detection proof: a bare separator color must be CAUGHT and a slot-routed one
-    // must PASS, so a parser regression can't make the scan vacuous.
-    test('detector flags a bare separator color but passes a slot-routed one', () => {
-        const scan = (fixture) => {
-            const rr = /([^{}]+)\{([^{}]*)\}/g;
-            let mm; const out = [];
-            while ((mm = rr.exec(fixture)) !== null) {
-                if (!/\.section__inline-items li::before\s*$/.test(mm[1].replace(/\s+/g, ' ').trim())) continue;
-                (mm[2].match(/(?<![-a-z])color\s*:[^;}]+/gi) || []).forEach((d) => {
-                    if (!/color\s*:\s*var\(\s*--section-separator-color\b/.test(d.trim())) out.push(d);
-                });
-            }
-            return out;
-        };
-        expect(scan('.section__inline-items li::before { color: var(--color-muted); }').length).toBe(1);
-        expect(scan('.section__inline-items li::before { color: var(--section-separator-color, var(--color-muted)); }').length).toBe(0);
-    });
-});
-
+// The #475 inline-items separator COLOUR block was deleted at #1023. Its four rules
+// were section's `--section-separator-color` routing, on a `::before`/`::after` glyph.
+// Section is a v2 component now: the glyph is a shared mechanism (see the SHARED GLYPH
+// AND PROSE MECHANISMS block in components.css) and its colour is NOT authorable,
+// because ruling A3 defers pseudo-elements. Colour flows from --pp-list-marker-color,
+// whose fallback is var(--color-accent) — the exact value the slot defaulted to.
+// Nothing replaced this block: there is no slot left to route.
 describe('CSS lint: theme variants survive the desktop typography cascade (#222)', () => {
     // Regression guard for the inverted dark-on-dark bug. The "Premium body-section
     // typography" media block declares `color` on `main > .grid .grid__heading` etc.
@@ -1154,8 +1105,12 @@ describe('CSS lint: theme variants survive the desktop typography cascade (#222)
         // reason (no inverted rule existed at all), so it is pinned at the base rule only.
         { el: '.grid__heading', slot: '--grid-heading-color', themeVar: '--pp-grid-heading-theme-color', desktop: true },
         { el: '.grid__subheading', slot: '--grid-subheading-color', themeVar: '--pp-grid-subheading-theme-color', desktop: false },
-        { el: '.section__title', slot: '--section-heading-color', themeVar: '--pp-section-title-theme-color', desktop: true },
-        { el: '.section__content', slot: '--section-body-color', themeVar: '--pp-section-text-theme-color', desktop: true },
+        // Section's two entries left this list at #1023, with the `theme` prop itself.
+        // The three-tier slot -> theme-var -> token chain has no v2 analogue: a band's
+        // text colour is `typography.color` on the `heading` / `body` roles, and a dark
+        // band is the `_band` role's `background`, so there is no variant rule for a
+        // desktop rule to lose to. The cascade defect this guard exists for cannot recur
+        // on a v2 component — role defaults emit unlayered, above every rule in this file.
         { el: '.cta__body', slot: '--cta-body-color', themeVar: '--pp-cta-body-theme-color', desktop: true },
         // faq (issue 581): it implements the identical three-tier chain — the base and the
         // >=768px premium rule both read
@@ -1261,9 +1216,12 @@ describe('CSS lint: theme variants survive the desktop typography cascade (#222)
     // (--color-surface) with dark text, so they must NOT set a theme text default.
     const VARIANT_DECLARES = [
         { variant: '.grid--inverted', vars: ['--pp-grid-heading-theme-color', '--pp-grid-subheading-theme-color'] },
-        { variant: '.pp-section--inverted', vars: ['--pp-section-title-theme-color', '--pp-section-text-theme-color'] },
         { variant: '.cta--inverted', vars: ['--pp-cta-body-theme-color'] },
-        { variant: '.section--has-bg-image', vars: ['--pp-section-title-theme-color', '--pp-section-text-theme-color'] },
+        // Section's two variants are gone (#1023), the way hero's row went at #986: the
+        // `theme` prop and the `background_image` prop both retired, so neither
+        // `.pp-section--inverted` nor `.section--has-bg-image` is emitted any more. A dark
+        // or image-backed section band is the `_band` role's `background` group, and its
+        // text colours are `typography.color` on the text roles.
         { variant: '.cta--has-bg-image', vars: ['--pp-cta-body-theme-color'] },
         { variant: '.faq--inverted', vars: ['--pp-faq-heading-theme-color'] },
     ];
@@ -1309,93 +1267,12 @@ describe('CSS lint: theme variants survive the desktop typography cascade (#222)
     });
 });
 
-describe('CSS lint: dark-band heading rules carve out the self-contained panel heading (#424)', () => {
-    // A text-panel is a light surface on a DARK band (inverted, or bg-image overlay).
-    // Its heading is `<h3 class="section__panel-heading">`, whose own rule (0,1,0)
-    // routes color through --section-panel-text. The dark-band heading rules paint
-    // ALL headings via a bare `h2,h3` selector (0,1,1) that outranks the panel rule,
-    // so the panel heading rendered in the band's LIGHT title color — light-on-light,
-    // invisible on the light panel (#424). The fix scopes each bare heading branch
-    // with :not(.section__panel-heading) so the panel's slot wins inside the panel.
-    //
-    // Asserting "the :not appears somewhere" is not enough: if a band rule kept a bare
-    // `h3` branch (no exclusion), the panel heading would regress while the suite stayed
-    // green. So for each dark-band variant, pin that EVERY heading-element branch that
-    // is not the shared `.section__title` carries the exclusion.
-    const stripped = stripComments(COMPONENTS_CSS);
-
-    const rules = [];
-    const ruleRe = /([^{}]+)\{([^{}]*)\}/g;
-    let m;
-    while ((m = ruleRe.exec(stripped)) !== null) {
-        rules.push({ selector: m[1].trim(), body: m[2] });
-    }
-
-    // The two dark-band variants whose bare heading rule defeats the panel slot.
-    const DARK_BAND_VARIANTS = ['.pp-section--inverted', '.section--has-bg-image'];
-
-    DARK_BAND_VARIANTS.forEach((variant) => {
-        // The heading-color rule for this variant sets `color: var(--section-heading-color, ...)`
-        // and targets the variant's headings. Find every rule that both scopes the variant
-        // and colours a heading through the title slot.
-        const headingRules = rules.filter((r) =>
-            r.selector.includes(variant) &&
-            /\bh[23]\b/.test(r.selector) &&
-            /color\s*:\s*var\(--section-heading-color/.test(r.body)
-        );
-
-        test(`${variant} has a heading-color rule (guard is not vacuous)`, () => {
-            expect(headingRules.length).toBeGreaterThan(0);
-        });
-
-        // Every comma-part of that rule that targets a bare `h2`/`h3` element (i.e. not the
-        // `.section__title` class branch) must exclude `.section__panel-heading`.
-        test(`${variant} excludes .section__panel-heading from every bare h2/h3 branch`, () => {
-            const offenders = [];
-            headingRules.forEach((r) => {
-                r.selector.split(',').forEach((part) => {
-                    const p = part.trim();
-                    // Only heading-element branches are the trap; the `.section__title`
-                    // class branch legitimately has no bare element to carve out.
-                    if (!/\bh[23]\b/.test(p)) return;
-                    if (!/:not\(\.section__panel-heading\)/.test(p)) {
-                        offenders.push(p);
-                    }
-                });
-            });
-            expect(offenders).toEqual([]);
-        });
-    });
-
-    // The other half of the contract: the panel heading's OWN rule must route color
-    // through the panel slot, so once the band rule is carved out the panel heading
-    // resolves to the panel's (dark) text authority rather than an inherited light band.
-    test('.section__panel-heading colors through --section-panel-text', () => {
-        const rule = rules.find((r) =>
-            r.selector.split(',').some((s) => s.trim() === '.section__panel-heading')
-        );
-        expect(rule).toBeDefined();
-        expect(rule.body).toMatch(/color\s*:\s*var\(--section-panel-text\b/);
-    });
-});
-
-/**
- * Featured grid card honors the --grid-item-border-color style slot (#226).
- *
- * The first card of a `layout: cards` grid gets an unconditional "featured"
- * treatment. Its sibling slot --grid-item-bg is routed through
- * `var(--grid-item-bg, <default>)` so an author's declared value wins, but the
- * border was hardcoded to an accent token — so a declared --grid-item-border-color
- * silently no-opped on card 1 while `style_component` reported success.
- *
- * TWO rules set border-color on the featured first card and BOTH must route
- * through the slot: the later one wins the cascade (equal specificity), and the
- * earlier one is the base featured rule. If either keeps a bare token, the slot
- * is ignored on that path. The keystone StyleSlotContractTest only proves the
- * slot is consumed *somewhere* in the grid block (the base `.grid__item` rule
- * satisfies it), so it cannot catch this first-child-specific gap — hence this
- * targeted pin.
- */
+// The #424 dark-band heading carve-out block was deleted at #1023. Its two variants
+// (`.pp-section--inverted`, `.section--has-bg-image`) and its `--section-panel-text`
+// assertion were all section's, and none of that surface exists now. The panel is the
+// `panel` role with its own `typography.color`, and it is no longer at risk of being
+// repainted by a band-wide heading rule, because there is no band-wide heading rule:
+// the `heading` role paints `.section__title` and nothing else.
 describe('CSS lint: featured grid card honors --grid-item-border-color (#226)', () => {
     // The featured first-card rules carry a :not(.grid--uniform) guard so the
     // `card_emphasis: uniform` prop can opt out of the whole treatment (#226).
@@ -2233,69 +2110,28 @@ describe('CSS lint: premium layer honors padding/type/width slots (#302)', () =>
     }
 
     // ---- Heading font-size slots (title-size / heading-size) ----
-    test('section title premium rule routes font-size through --section-heading-size', () => {
-        assertPropRoutesThroughSlot('main > .section .section__title', 'font-size', '--section-heading-size', 1);
-    });
 
     test('grid heading premium rule routes font-size through --grid-heading-size', () => {
         assertPropRoutesThroughSlot('main > .grid .grid__heading', 'font-size', '--grid-heading-size', 1);
     });
 
-    // ---- Section body width slot ----
-    test('.section__body caps max-width through --section-body-measure (fallback 40rem)', () => {
-        const bodies = bodiesForExactSelector('.section__body');
-        const widthBodies = bodies.filter(b => /max-width\s*:/.test(b));
-        expect(widthBodies.length).toBeGreaterThanOrEqual(1);
-        widthBodies.forEach(body => {
-            (body.match(/max-width\s*:[^;}]+/g) || []).forEach(d => {
-                expect(d).toMatch(/max-width\s*:\s*var\(\s*--section-body-measure\s*,\s*40rem\s*\)/);
-            });
-        });
-    });
+    // ---- SECTION'S FIVE ROWS LEFT THIS BLOCK AT #1023 ----
+    //
+    // The heading font-size pin, the `.section__body` measure pin, and the three
+    // `.section__content` type pins (base, desktop premium, mobile) all described
+    // slot ROUTING through rules this rebuild deleted. Section declares no slots, so
+    // there is nothing left to route: the values are the `heading` and `body` roles'
+    // defaults in components/section/schema.json, responsive where v1 split them
+    // across breakpoints, and the boundary test enforces that this stylesheet may not
+    // declare any of those properties for section at all. grid, cta, faq and stats
+    // keep their rows below — the dead-slot class this block guards is still live for
+    // every component still on slots.
 
-    // ---- Section body type slots (issue 470) ----
-    // font-size / font-weight for the section body must route through
-    // --section-body-size / --section-body-weight at EVERY declaration site: the
-    // base .section__content rule (in-block, keystone consumption) plus the desktop
-    // premium (main > .section .section__content[, ... p]) and mobile rules. A bare
-    // literal at any site would defeat the slot (the #302/#305 dead-slot class).
-    // The base .section__content rule (in-block, keystone consumption).
-    test('base .section__content routes font-size/weight through the body slots', () => {
-        assertPropRoutesThroughSlot('.section__content', 'font-size', '--section-body-size', 1);
-        assertPropRoutesThroughSlot('.section__content', 'font-weight', '--section-body-weight', 1);
-    });
 
-    // Both breakpoints declare the section body via the grouped
-    // `main > .section .section__content, main > .section .section__content p` list.
-    // The `p` selector is the one that terminates each rule (the bare container
-    // selector only ever appears mid-list, never immediately before `{`), and it
-    // shares the rule body with the container, so pinning it covers both. Presence 2
-    // = desktop premium block + mobile block.
-    test('section body premium + mobile rules route font-size through --section-body-size', () => {
-        assertPropRoutesThroughSlot('main > .section .section__content p', 'font-size', '--section-body-size', 2);
-    });
-
-    test('section body premium + mobile rules route font-weight through --section-body-weight', () => {
-        assertPropRoutesThroughSlot('main > .section .section__content p', 'font-weight', '--section-body-weight', 2);
-    });
-
-    // INVERTED by issue 578 (A-5 part 2). The mobile fallback used to CHAIN through
-    // --cta-body-size, so an unset section body followed a CTA slot — a cta authoring
-    // surface acting as a section slot. The chain is severed and the literal is the
-    // fallback directly. Byte-identical: --cta-body-size renders on the CTA component
-    // root, so it could never resolve on a .section subtree; its unset result was always
-    // 1rem. This pin now guards the severance, so a re-introduced chain fails here.
-    test('#578 mobile section body size no longer chains through the cta-body-size leak', () => {
-        const bodies = bodiesForExactSelector('main > .section .section__content p');
-        const sizeDecls = bodies
-            .flatMap(b => b.match(/font-size\s*:[^;}]+/g) || [])
-            .filter(d => /--section-body-size/.test(d));
-        expect(sizeDecls.length).toBeGreaterThanOrEqual(1);
-        // No section body size declaration may name a cta slot at all.
-        sizeDecls.forEach(d => expect(d).not.toMatch(/--cta-body-size/));
-        // The mobile rule falls back to the literal the chain used to terminate in.
-        expect(sizeDecls.some(d => /var\(\s*--section-body-size\s*,\s*1rem\s*\)/.test(d))).toBe(true);
-    });
+    // The #578 section half of the cta-body-size severance went with section's mobile
+    // body rule at #1023. It guarded that an unset section body did not chain through a
+    // slot cta owns; section has no body-size slot and no rule in this file at all now,
+    // so there is no chain left to sever. The grid/faq half is below and still live.
 
     // The other half of the same severance: grid cards and faq answers took their mobile
     // body size from --cta-body-size too. They now carry the literal; only cta reads the
@@ -2337,10 +2173,6 @@ describe('CSS lint: premium layer honors padding/type/width slots (#302)', () =>
     });
 
     // ---- Own section/grid/cta padding (desktop + mobile) ----
-    test('every .section padding declaration routes through --section-padding-*', () => {
-        assertPropRoutesThroughSlot('.section', 'padding-top', '--section-padding-top', 2);
-        assertPropRoutesThroughSlot('.section', 'padding-bottom', '--section-padding-bottom', 2);
-    });
 
     test('every .grid padding declaration routes through --grid-padding-*', () => {
         assertPropRoutesThroughSlot('.grid', 'padding-top', '--grid-padding-top', 2);
@@ -2378,7 +2210,10 @@ describe('CSS lint: premium layer honors padding/type/width slots (#302)', () =>
     // through the component slot (slot wins), and testimonials must be present
     // (its adjacent rule was missing before issue 431).
     test.each([
-        ['main > [data-pp-component] + .section', '--section-padding-top'],
+        // section is absent from this table since #1023, for the same reason
+        // testimonials is: its CSS block is structural only, so it routes nothing
+        // through a slot. Its adjacent top edge comes from the zero-specificity
+        // baseline rule above, which its `pp-zero` band default yields to by design.
         ['main > [data-pp-component] + .grid', '--grid-padding-top'],
         ['main > [data-pp-component] + .cta', '--cta-padding-top'],
         ['main > [data-pp-component] + .stats', '--stats-padding-top'],
@@ -2448,7 +2283,11 @@ describe('CSS lint: section-level bands share one rhythm definition (#431)', () 
     // block), so a naive `--${comp}-` derivation would still assert against a nonexistent
     // `.table` selector.
     const BAND_COMPONENTS = [
-        { comp: 'section', cls: '.section', slot: '--section' },
+        // section left this list at #1023. Its band padding is the `_band` role's
+        // spacing default, falling back to the same shared `@pp-band-padding` this guard
+        // pins for every component still on slots — and the adjacent-sibling rhythm
+        // reaches it through the zero-specificity baseline rather than a per-component
+        // rule, because `_band` defaults emit into `pp-zero`, below this stylesheet.
         { comp: 'grid', cls: '.grid', slot: '--grid' },
         { comp: 'cta', cls: '.cta', slot: '--cta' },
         { comp: 'stats', cls: '.stats', slot: '--stats' },
@@ -2718,7 +2557,9 @@ describe('CSS lint: band-level headings share one responsive scale (#436)', () =
         // re-declared the base rule verbatim at higher specificity. The equivalence that
         // made the deletion safe is pinned structurally by
         // 'every .section__title font-size declaration is the same declaration' below.
-        { selectors: ['.section__title', 'main > .section .section__title'], slot: '--section-heading-size' },
+        // section's row is gone (#1023): the shared band-heading scale reaches it as the
+        // `heading` role's `typography.size` default (@pp-band-heading-size), which is
+        // the same token this guard pins for every component still on slots.
         { selectors: ['.grid__heading', 'main > .grid .grid__heading'], slot: '--grid-heading-size' },
         { selectors: ['.cta__title'], slot: '--cta-heading-size' },
         { selectors: ['.faq__heading', 'main > .faq .faq__heading'], slot: '--faq-heading-size' },
@@ -2962,38 +2803,12 @@ describe('CSS lint: schema styling.tokens are reachable BY THE COMPONENT THAT LI
  * differs from the shared routing fails here, which is exactly when a duplicate would
  * stop being redundant.
  */
-describe('CSS lint: every .section__title font-size is the same declaration (#581)', () => {
-    const titleRules = rulesMatching('.section__title');
-
-    test('the base .section__title rule still declares a font-size', () => {
-        const base = titleRules.filter(r =>
-            r.media === null && r.selectors.some(s => s === '.section__title')
-        );
-        expect(base.length, 'the base .section__title rule vanished').toBeGreaterThanOrEqual(1);
-        expect(base.some(r => /font-size\s*:/.test(r.body))).toBe(true);
-    });
-
-    test('all of them route the slot to the shared scale, with no second value', () => {
-        const decls = titleRules
-            .flatMap(r => r.body.match(/font-size\s*:[^;}]+/g) || [])
-            .map(d => d.replace(/\s+/g, ' ').trim());
-        expect(decls.length, 'no .section__title font-size found at all').toBeGreaterThanOrEqual(1);
-        expect([...new Set(decls)]).toEqual([
-            'font-size: var(--section-heading-size, var(--pp-band-heading-size))',
-        ]);
-    });
-});
-
-/**
- * Band heading-color slot routing pin (#438). table/logos/embed gained a
- * --<comp>-heading-color slot. The keystone StyleSlotContractTest only proves the
- * slot is consumed SOMEWHERE in the component block (satisfied by the base rule),
- * and the #61 dark-surface guard's variant whitelist excludes logos/embed — so a
- * revert of the INVERTED-variant heading color to a hardcoded literal would leave
- * every other test green while silently killing the slot on the inverted variant.
- * This pins both the base rule (fallback var(--color-text), the h2 default, so unset
- * output is unchanged) AND the inverted-variant rules (fallback var(--color-bg)).
- */
+// The #581 `.section__title` font-size block was deleted at #1023. It pinned that every
+// declaration of that property was the one base rule routing through
+// --section-heading-size. Section declares no slots now; the `heading` role's
+// typography.size default (@pp-band-heading-size) is the single declaration, emitted by
+// the engine, and the schema is where it is pinned. The equivalent guard for a v2
+// component is the boundary test above: the stylesheet may not declare font-size at all.
 describe('CSS lint: band heading-color slots route through the slot (#438)', () => {
     // Brace-matched extraction of every rule whose selector is EXACTLY `selector`.
     // Same technique as the #431 suite; the `[{};,]` prefix isolates the base
@@ -3117,6 +2932,11 @@ describe('CSS lint: v2 components keep NO designable value in their stylesheet',
         expect(v2Components).toContain('footer');
     });
 
+    /** Section joined at #1023, the first v2 component carrying authored rich text. */
+    test('section joins the boundary rule', () => {
+        expect(v2Components).toContain('section');
+    });
+
     // STRUCTURE, not design. Layout scaffolding (how boxes relate), wrapper
     // geometry (how wide the column is), and the resets a component needs so a
     // role's value lands predictably.
@@ -3128,11 +2948,19 @@ describe('CSS lint: v2 components keep NO designable value in their stylesheet',
         'grid-column', 'grid-row', 'grid-area', 'grid-auto-flow', 'grid-auto-rows', 'grid-auto-columns',
         'max-width', 'min-width', 'width', 'max-height', 'min-height', 'height',
         'margin', 'margin-left', 'margin-right', 'margin-inline', 'margin-block',
-        'overflow', 'overflow-x', 'overflow-y', 'object-fit', 'object-position',
+        'overflow', 'overflow-x', 'overflow-y', 'object-fit',
         'box-sizing', 'list-style', 'border-left', 'border-right', 'border-top', 'border-bottom',
         'padding', 'content', 'visibility', 'pointer-events', 'order', 'isolation',
         // Accessibility affordances.
         'scroll-margin-top', 'outline', 'outline-offset', 'clip', 'clip-path', 'white-space',
+        // `overflow-wrap` sits beside `white-space` for the same reason and was found by
+        // the fail-closed arm at #1023, working exactly as intended. It is the affordance
+        // that lets a long unbroken token fit its track instead of overflowing it — the
+        // repo already relies on it globally in base.css, and CSS grid needs BOTH
+        // minmax(0,..) on the track and this on the text for content to stay inside.
+        // There is no UDC group for it and there should not be: an author choosing
+        // "let long words overflow my layout" is not a design decision anyone wants.
+        'overflow-wrap',
         // THE THREE PROPERTIES CHROME'S RETIREMENT FOUND HOMELESS (#994, rulings
         // H1/H2/H3). Same discipline as `aspect-ratio` above and the opposite
         // outcome: these three have no place in the UDC taxonomy and should not get
@@ -3169,6 +2997,17 @@ describe('CSS lint: v2 components keep NO designable value in their stylesheet',
         'letter-spacing', 'text-transform', 'text-decoration', 'text-decoration-line',
         'border-radius', 'border-width', 'border-color', 'border', 'gap', 'row-gap', 'column-gap',
         'opacity', 'text-align',
+        // object-position joined the engine as `sizing.object-position` (#1023), found
+        // by section's rebuild exactly as `aspect-ratio` was found by hero's:
+        // `--section-image-position` set it on the content image, no group emitted it,
+        // and the fail-closed arm below meant a component declaring roles could neither
+        // author it nor keep it here.
+        //
+        // IT MOVES OUT OF `STRUCTURAL` IN THE SAME COMMIT AS THE PARAM, for the reason
+        // the aspect-ratio note above states: the property has exactly one home at
+        // every commit — never zero, and never two. It sat in both for the length of
+        // one commit on the #1023 branch, which is how the rule got tested.
+        'object-position',
         // aspect-ratio joined the engine as `sizing.aspect-ratio` (ruling D1, #986),
         // so it is designable and belongs to a role, never to this stylesheet.
         //
@@ -3193,7 +3032,41 @@ describe('CSS lint: v2 components keep NO designable value in their stylesheet',
         'margin-inline', 'margin-block',
         'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left',
     ]);
-    const GEOMETRY_ONLY = /^(0|auto)(\s+(0|auto))*$/;
+    // A NEGATIVE SPACING VALUE IS MECHANISM, NOT DESIGN (#1023).
+    //
+    // `0` and `auto` were the whole admitted set, on the principle that any real
+    // length in a padding or margin is separation — and separation is what the
+    // `spacing` group owns. A NEGATIVE value cannot be separation: there is no
+    // design idea "less than touching". It can only pull a box out of its own flow
+    // line, which is the same category as `position`/`inset`, already structural
+    // here. So it is admitted on that argument rather than on convenience — the
+    // same shape as #994 claiming `cursor`, `transition` and `transform` into
+    // STRUCTURAL with a stated reason instead of leaving them homeless.
+    //
+    // THE MOTIVATING CASE is the #489 hanging-separator clip:
+    //   .section__inline-item { margin-left: calc(-1 * (var(--space-sm) + var(--space-xs))) }
+    // Each item is pulled left by exactly the separator's occupied width, so a
+    // line-leading separator lands outside the row's content box and is clipped by
+    // `overflow: hidden`. Delete the pull and a middot dangles at the start of every
+    // wrapped line. It is not a value an author would ever want to retune; it is the
+    // mechanism's arithmetic.
+    //
+    // THE ADMISSION IS SIGNED, NOT ABSOLUTE. A positive length is still an offence,
+    // pinned directly below, so this cannot be read as "spacing is allowed after all".
+    const ZERO_OR_AUTO = /^(0|auto)(\s+(0|auto))*$/;
+    // Negative, by the argument above: an explicit leading `-`, or a calc() whose
+    // result is negated (`calc(-1 * ...)`, `calc(-1 * (...))`). A calc() that merely
+    // CONTAINS a minus — `calc(100% - 1rem)` — is positive and stays an offence.
+    const NEGATIVE_PULL = /^(-[\d.]|calc\(\s*-)/;
+    // A whole-value test FIRST, because a calc() carries spaces of its own and must
+    // not be split into meaningless parts. Only a space-separated shorthand of simple
+    // parts falls through to the per-part pass.
+    const GEOMETRY_ONLY = (value) => {
+        const v = value.trim();
+        if (ZERO_OR_AUTO.test(v) || NEGATIVE_PULL.test(v)) return true;
+        if (v.includes('(')) return false; // any other function value is a real length
+        return v.split(/\s+/).every(part => part === '0' || part === 'auto' || NEGATIVE_PULL.test(part));
+    };
 
     // The component's OWN banner block, sliced the way the PHP contract test does it.
     // rulesMatching('.testimonials') is the wrong tool here: it is a class-BOUNDARY
@@ -3256,6 +3129,9 @@ describe('CSS lint: v2 components keep NO designable value in their stylesheet',
             // shipped. Planted here so the boundary's power over it is proven rather
             // than inferred — the same discipline as every other family above.
             'aspect ratio': 'aspect-ratio: 16 / 9',
+            // #1023: the param section's rebuild added. Planted for the same reason,
+            // and because this property spent one commit in BOTH sets.
+            'object position': 'object-position: top center',
         };
         // A four-selector rule entirely inside ONE component must NOT be exempt.
         const wide = parseRules(
@@ -3284,6 +3160,38 @@ describe('CSS lint: v2 components keep NO designable value in their stylesheet',
             '.testimonials__subheading { margin-top: 0; }'
         );
         expect(designOffencesIn(structural)).toEqual([]);
+    });
+
+    /**
+     * THE NEGATIVE-SPACING ADMISSION IS SIGNED, NOT ABSOLUTE (#1023).
+     *
+     * GEOMETRY_ONLY admits a negative margin because a negative margin cannot
+     * express separation — it can only pull a box out of its flow line. That
+     * argument says nothing about POSITIVE spacing, and an admission nobody can
+     * see the edge of is indistinguishable from a removed rule. So both sides are
+     * pinned here: the #489 clip that motivated it passes, and every positive
+     * spelling of the same property still fails.
+     */
+    test('negative spacing is admitted; positive spacing still is not', () => {
+        const pull = parseRules(
+            '.section__inline-item { margin-left: calc(-1 * (var(--space-sm) + var(--space-xs))); }'
+        );
+        expect(designOffencesIn(pull)).toEqual([]);
+
+        const centred = parseRules('.section__inline-items { margin: 0 auto; }');
+        expect(designOffencesIn(centred)).toEqual([]);
+
+        [
+            '.section__inline-items { margin-top: var(--space-md); }',
+            '.section__panel { padding: var(--space-lg); }',
+            '.section__content { margin: 0 0 1rem; }',
+            '.section__body { padding-left: calc(100% - 1rem); }',
+        ].forEach(css => {
+            expect(
+                designOffencesIn(parseRules(css)),
+                `a positive spacing value must still be an offence: ${css}`
+            ).not.toEqual([]);
+        });
     });
 
     function designOffencesIn(rules) {
@@ -3341,7 +3249,7 @@ describe('CSS lint: v2 components keep NO designable value in their stylesheet',
                         offences.push(`${rule.selectors.join(', ')} { ${prop}: ${value} }  (unrecognised property — classify it)`);
                         return;
                     }
-                    if (SPACING_FAMILY.has(prop) && !GEOMETRY_ONLY.test(value)) {
+                    if (SPACING_FAMILY.has(prop) && !GEOMETRY_ONLY(value)) {
                         offences.push(`${rule.selectors.join(', ')} { ${prop}: ${value} }  (a non-zero ${prop} is spacing, not geometry)`);
                     }
                 });
@@ -3612,7 +3520,10 @@ describe('CSS lint: inverted dark-band links route through the on-inverted accen
         // #551 carved the panel CTA out of the band-wide anchor rule (the panel is a
         // LIGHT surface). The on-inverted ROUTING this describe pins is unchanged — only
         // the selector's reach narrowed, so the pin follows the selector.
-        '.pp-section--inverted a:not(.section__panel-cta)',
+        // section's row is gone (#1023): the `--inverted` class died with the `theme`
+        // prop in its v2 rebuild, exactly as testimonials' did. Body links are the
+        // `body-link` role now, and that role carries its own `:hover` — which is the
+        // §1b requirement that a role's states move with its resting values.
         '.embed--inverted a',
         // #439: inline-HTML supporting-text surfaces that sit directly on the dark band.
         '.cta--inverted .cta__body a',
@@ -3887,8 +3798,9 @@ describe('CSS lint: bg-image band accent routes through --color-accent-on-overla
         // #551 carved the panel CTA out of the band-wide anchor rule (the panel is a LIGHT
         // surface). The overlay ROUTING pinned here is unchanged — only the selector's reach
         // narrowed, so the pin follows the selector.
-        { sel: '.section--has-bg-image a:not(.section__panel-cta)', slot: '--section-body-link-color', role: '--color-accent-on-overlay' },
-        { sel: '.section--has-bg-image a:not(.section__panel-cta):hover', slot: '--section-body-link-hover-color', role: '--color-accent-on-overlay-hover' },
+        // section's two rows are gone (#1023): `.section--has-bg-image` is not emitted
+        // any more. A v2 band carrying a background image owns its own contrast — the
+        // author sets `typography.color` on `body-link`, including its `:hover`.
         { sel: '.cta--has-bg-image .cta__body a', slot: '--cta-body-color', role: '--color-accent-on-overlay' },
         { sel: '.cta--has-bg-image .cta__body a:hover', slot: '--cta-body-color', role: '--color-accent-on-overlay-hover' },
         { sel: '.stats--has-bg-image .stats__number', slot: '--stats-number-color', role: '--color-accent-on-overlay' },
@@ -3943,7 +3855,7 @@ describe('CSS lint: bg-image band title-accent + markers route through --color-a
     // The four accented title substrings on overlay bands. Each carries its own `color`
     // rule that must route slot → overlay role.
     const TITLE_ROUTES = [
-        { sel: '.section--has-bg-image .section__title-accent', slot: '--section-heading-accent-color' },
+        // section's row is gone (#1023), for the same reason hero's went at #986.
         { sel: '.cta--has-bg-image .cta__title-accent', slot: '--cta-heading-accent-color' },
         { sel: '.stats--has-bg-image .stats__heading-accent', slot: '--stats-heading-accent-color' },
         // hero's row is gone (#986): `.hero--cover` no longer re-colours the accent.
@@ -3977,16 +3889,6 @@ describe('CSS lint: bg-image band title-accent + markers route through --color-a
     // Section body list markers on the overlay band: --pp-list-marker-color is re-mapped
     // to the overlay role. The selector also carries the near-white color rule, so find the
     // declaration that actually assigns the marker variable.
-    test('.section--has-bg-image .section__content re-maps --pp-list-marker-color to the overlay role', () => {
-        const rule = rulesFor('.section--has-bg-image .section__content')
-            .find(r => /--pp-list-marker-color\s*:/.test(r.body));
-        expect(rule).toBeDefined();
-        expect(rule.body).toMatch(
-            /--pp-list-marker-color\s*:\s*var\(\s*--section-body-marker-color\s*,\s*var\(\s*--color-accent-on-overlay\s*\)\s*\)/
-        );
-        // Regression guard: the marker default must not be the bare accent (1.16:1) here.
-        expect(rule.body).not.toMatch(/--pp-list-marker-color\s*:\s*var\(\s*--section-body-marker-color\s*,\s*var\(\s*--color-accent\s*\)\s*\)/);
-    });
 });
 
 describe('CSS lint: dark-band buttons route through the AA accent roles (#535)', () => {
@@ -5146,267 +5048,14 @@ describe('CSS lint: global button hover tier (#539)', () => {
  * anchor rule that sets `color` without the carve-out. That scan — not the selector shape —
  * is what makes this survive the next band rule someone adds.
  */
-describe('CSS lint: band link ink is carved out of the light panel CTA (#551)', () => {
-    const rules = parseRules();
-    const blocksFor = (sel) => rules.filter(r => r.selectors.includes(sel));
-    const blockFor = (sel) => blocksFor(sel)[0];
-    const esc = (s) => s.replace(/[-]/g, '\\-');
-
-    const CARVE = ':not(.section__panel-cta)';
-
-    // Every band-WIDE anchor ink rule, with the slot + role it must keep routing.
-    const BAND_LINK_RULES = [
-        { sel: `.section--has-bg-image a${CARVE}`, slot: '--section-body-link-color', role: '--color-accent-on-overlay' },
-        { sel: `.section--has-bg-image a${CARVE}:hover`, slot: '--section-body-link-hover-color', role: '--color-accent-on-overlay-hover' },
-        { sel: `.pp-section--inverted a${CARVE}`, slot: '--section-body-link-color', role: '--color-accent-on-inverted' },
-        { sel: `.pp-section--inverted a${CARVE}:hover`, slot: '--section-body-link-hover-color', role: '--color-accent-on-inverted-hover' },
-    ];
-
-    BAND_LINK_RULES.forEach(({ sel, slot, role }) => {
-        test(`${sel} carries the panel-CTA carve-out`, () => {
-            const rule = blockFor(sel);
-            expect(rule, `missing rule: ${sel}`).toBeDefined();
-        });
-
-        // The carve-out must NARROW the reach without changing the on-band routing —
-        // that is the whole "byte-identical where the rule still reaches" claim.
-        test(`${sel} still routes through ${slot} then ${role}`, () => {
-            const rule = blockFor(sel);
-            expect(rule).toBeDefined();
-            expect(rule.body).toMatch(new RegExp(
-                'color\\s*:\\s*var\\(\\s*' + esc(slot) + '\\s*,\\s*var\\(\\s*' + esc(role) + '\\s*\\)\\s*\\)'
-            ));
-        });
-
-        test(`${sel} is declared exactly once (a later duplicate would silently win)`, () => {
-            expect(blocksFor(sel).length).toBe(1);
-        });
-
-        // A rule moved into a media block applies only at that width; every other pin
-        // here still reads green because the rule text is unchanged.
-        test(`${sel} is declared at the top level, not inside a media block`, () => {
-            expect(blockFor(sel).media).toBeNull();
-        });
-    });
-
-    // The UNCARVED forms must be gone. Without this, someone re-adding the bare rule
-    // later (which would win on source order at lower specificity for non-CTA anchors,
-    // and re-break the CTA) passes every pin above.
-    ['.section--has-bg-image a', '.pp-section--inverted a',
-     '.section--has-bg-image a:hover', '.pp-section--inverted a:hover'].forEach(bare => {
-        test(`the uncarved \`${bare}\` rule no longer exists`, () => {
-            expect(blocksFor(bare)).toEqual([]);
-        });
-    });
-
-    /*
-     * CLOSED-SET DURABILITY PIN — the point of this describe.
-     *
-     * A band-WIDE anchor selector is one whose LAST compound is a bare `a` sitting
-     * DIRECTLY under a band class, with no intervening container compound. Those are
-     * exactly the selectors that can reach inside `.section__panel`. A rule already
-     * scoped to a band-only container (`.section--has-bg-image .section__content a`)
-     * is NOT band-wide and correctly needs no carve-out — so this scan does not
-     * overfire on legitimate scoped rules.
-     *
-     * `:is()` / `:where()` / `:matches()` wrapping an `a` counts too: `:where(a)` has
-     * the same reach as a bare `a` and would otherwise slip past a naive check.
-     */
-    // Properties that paint anchor INK. -webkit-text-fill-color wins over `color` on
-    // Blink/WebKit, so a rule using it would defeat the carve-out on the majority engine.
-    const INK_PROP = /(?<![-a-z])(?:color|-webkit-text-fill-color)\s*:/i;
-
-    // A band class appearing ANYWHERE in a compound (`.pp-section.pp-section--inverted`
-    // and `main .pp-section--inverted` both carry the band).
-    const BAND_IN_COMPOUND = /\.(pp-section--inverted|section--has-bg-image)(?![\w-])/;
-
-    // Compounds that are band-ONLY containers. `.section__content` / `.section__body` /
-    // `.section__header` and friends live in the text column, a SIBLING of
-    // `.section__panel` (both are children of the same row wrapper in
-    // components/section/section.php), so an anchor scoped under one of them cannot reach
-    // the panel CTA and correctly needs no carve-out.
-    //
-    // This list is deliberately an ALLOWLIST, so the scan fails CLOSED: an unknown
-    // intervening compound (`.container`, `.section__grid`, `.section__panel` itself)
-    // counts as panel-reaching and gets flagged. Adding to this list is a deliberate act.
-    const BAND_ONLY_CONTAINERS = [
-        '.section__content', '.section__body', '.section__header',
-        '.section__inline-items', '.section__title', '.section__subheading',
-        '.section__eyebrow',
-    ];
-
-    // `:is(.a, .b) a` has exactly the reach of `.a a` and `.b a`, and de-duping the two
-    // band rules into one `:is()` is the single most likely future edit to these lines.
-    // Expand one level of :is()/:where()/:matches() groups into concrete selectors.
-    const expandGroups = (sel) => {
-        const m = sel.match(/:(?:is|where|matches)\(([^()]*)\)/);
-        if (!m) return [sel];
-        return m[1].split(',').flatMap(alt =>
-            expandGroups(sel.slice(0, m.index) + alt.trim() + sel.slice(m.index + m[0].length))
-        );
-    };
-
-    // Split a selector into descendant compounds, treating >, + and ~ as separators
-    // (a child combinator does not make a rule safe).
-    const compounds = (sel) => sel.replace(/\s*[>+~]\s*/g, ' ').trim().split(/\s+/).filter(Boolean);
-
-    // Does this compound match an <a>? A bare `a` type selector, with or without pseudos.
-    // `:not(...)` contents are stripped first so `a:not(.x)` still reads as an anchor.
-    const isAnchorCompound = (c) => /(?:^|[^\w.#-])a(?![\w-])/.test(' ' + c.replace(/:not\([^)]*\)/g, ''));
-
-    // The carve-out, matched as a precise token — a substring test would accept
-    // `:not(.section__panel-cta-x)`, a class that does not exist.
-    const CARVED = /:not\(\s*\.section__panel-cta\s*\)/;
-
-    /**
-     * Every selector that can paint ink on `.section__panel-cta` without the carve-out.
-     * Scans components.css AND base.css AND utilities.css — a band anchor rule added to
-     * any sheet reaches the same element.
-     */
-    // parseRules splits a grouped selector on every comma, which also splits INSIDE
-    // `:is(a, b)`. Rejoin fragments until their parentheses balance, so a functional
-    // pseudo-class group survives as one selector.
-    const rejoinGroups = (selectors) => {
-        const out = [];
-        let buf = '';
-        selectors.forEach(part => {
-            buf = buf ? `${buf}, ${part}` : part;
-            const open = (buf.match(/\(/g) || []).length;
-            const close = (buf.match(/\)/g) || []).length;
-            if (open === close) {
-                out.push(buf);
-                buf = '';
-            }
-        });
-        if (buf) out.push(buf);
-        return out;
-    };
-
-    const uncarvedPanelReachingInkRules = (sheets) => {
-        const offenders = [];
-        sheets.forEach(css => {
-            parseRules(stripComments(css)).forEach(r => {
-                if (!INK_PROP.test(r.body)) return;
-                rejoinGroups(r.selectors).forEach(rawSel => {
-                    expandGroups(rawSel).forEach(sel => {
-                        const parts = compounds(sel);
-                        const bandAt = parts.findIndex(p => BAND_IN_COMPOUND.test(p));
-                        if (bandAt === -1) return;                 // not a band rule
-                        const last = parts[parts.length - 1];
-                        if (bandAt === parts.length - 1) return;   // band compound IS the target
-                        if (!isAnchorCompound(last)) return;       // not anchor ink
-                        if (CARVED.test(last)) return;             // carved out — fine
-                        // Scoped under a container that cannot contain the panel?
-                        const between = parts.slice(bandAt + 1, parts.length - 1);
-                        if (between.some(p => BAND_ONLY_CONTAINERS.some(c => p.startsWith(c)))) return;
-                        offenders.push(rawSel);
-                    });
-                });
-            });
-        });
-        return [...new Set(offenders)];
-    };
-
-    test('no band rule paints uncarved ink on an anchor that can reach the panel CTA', () => {
-        expect(uncarvedPanelReachingInkRules([COMPONENTS_CSS, BASE_CSS, UTILITIES_CSS])).toEqual([]);
-    });
-
-    /*
-     * The detector is the durability claim, so it gets its own tests — and they call the
-     * REAL detector, never a copy. (A re-implemented copy silently drifts from the thing
-     * it claims to prove, and both then read green forever.)
-     *
-     * Every DANGEROUS case below reaches `.section__panel-cta` and paints ink on it.
-     */
-    const DANGEROUS = [
-        // The literal bug this issue fixes.
-        { sel: '.section--has-bg-image a', prop: 'color' },
-        { sel: '.pp-section--inverted a:hover', prop: 'color' },
-        // De-duping the two band rules into one :is() — the most plausible future edit.
-        { sel: ':is(.section--has-bg-image, .pp-section--inverted) a', prop: 'color' },
-        { sel: ':where(.pp-section--inverted) a', prop: 'color' },
-        // The panel itself, and any container that CONTAINS the panel.
-        { sel: '.section--has-bg-image .section__panel a', prop: 'color' },
-        { sel: '.section--has-bg-image > .container a', prop: 'color' },
-        { sel: '.section--has-bg-image .section__grid a', prop: 'color' },
-        // Band class in a compound, or with an ancestor prefix.
-        { sel: '.pp-section.pp-section--inverted a', prop: 'color' },
-        { sel: 'main .pp-section--inverted a', prop: 'color' },
-        // Anchor inside a group.
-        { sel: '.pp-section--inverted :is(a, button)', prop: 'color' },
-        // A carve-out that names a class which does not exist.
-        { sel: '.section--has-bg-image a:not(.section__panel-cta-x)', prop: 'color' },
-        // The Blink/WebKit ink property, which wins over `color` on the majority engine.
-        { sel: '.section--has-bg-image a', prop: '-webkit-text-fill-color' },
-    ];
-
-    // Every SAFE case either cannot reach the panel CTA or is correctly carved out.
-    const SAFE = [
-        '.section--has-bg-image a:not(.section__panel-cta)',
-        '.pp-section--inverted a:not(.section__panel-cta):hover',
-        '.section--has-bg-image .section__content a',   // text column, sibling of the panel
-        '.section--has-bg-image .section__body a:hover',
-        '.section--has-bg-image .section__title-accent', // not an anchor
-        '.cta--has-bg-image .cta__body a',               // different component entirely
-    ];
-
-    DANGEROUS.forEach(({ sel, prop }) => {
-        test(`detector FLAGS a panel-reaching band ink rule: \`${sel}\` via ${prop}`, () => {
-            expect(uncarvedPanelReachingInkRules([`${sel} { ${prop}: red; }`])).toEqual([sel]);
-        });
-    });
-
-    SAFE.forEach(sel => {
-        test(`detector PASSES a rule that cannot reach the panel CTA: \`${sel}\``, () => {
-            expect(uncarvedPanelReachingInkRules([`${sel} { color: red; }`])).toEqual([]);
-        });
-    });
-
-    // Anti-vacuity: the real detector must be looking at real rules. Strip the carve-out
-    // from the shipped stylesheet and the scan must light up on all four.
-    test('the scan is not vacuous — removing the carve-out flags all four shipped rules', () => {
-        // Mutate ONLY the four selectors under test, not every carve-out in the sheet:
-        // a global replace could stay green off some unrelated rule's carve-out.
-        const reverted = BAND_LINK_RULES.reduce(
-            (css, { sel }) => css.split(sel).join(sel.replace(CARVE, '')),
-            COMPONENTS_CSS
-        );
-        expect(uncarvedPanelReachingInkRules([reverted]).sort()).toEqual([
-            '.pp-section--inverted a',
-            '.pp-section--inverted a:hover',
-            '.section--has-bg-image a',
-            '.section--has-bg-image a:hover',
-        ]);
-    });
-
-    test('the roles these rules depend on are declared in base.css :root', () => {
-        expect(BASE_CSS).toMatch(/--color-accent-on-overlay:\s*#[0-9a-fA-F]{6}/);
-        expect(BASE_CSS).toMatch(/--color-accent-on-inverted:\s*#[0-9a-fA-F]{6}/);
-    });
-});
-
-
-/**
- * Per-instance button slots never reach an author-written nested `.btn` (#545).
- *
- * The per-instance filled-button slot families are emitted on the COMPONENT ROOT and consumed
- * by selector shapes that match ANY composed button — `main .btn:not(...)`, `.hero .btn:not(...)`
- * and `.cta .btn:not(...)`. Custom properties inherit, so before #545 those slots repainted a
- * `.btn` an author hand-writes into a wp_kses_post rich-text prop (`section.body`, `hero.proof`).
- * The fix neutralises them (`--slot: initial`, the guaranteed-invalid value) on every composed
- * button that is not a renderer-owned button element.
- *
- * The load-bearing, otherwise-invisible half is COMPLETENESS, and this pin derives it
- * STRUCTURALLY rather than from a name pattern:
- *
- *   leak-capable  =  { schema-declared style_slot }  ∩  { slot read by a rule whose selector
- *                     mentions .btn and does NOT require an owned button class }
- *
- * Every leak-capable slot must then be either NEUTRALISED by the rule or on the short,
- * documented list of band-level slots we deliberately let reach a nested button. A new slot in
- * a new family is caught by construction — a prefix regex would not have caught it, which was
- * the whole justification for preferring this mechanism over per-slot private twins.
- */
+// The #551 band-link carve-out block was deleted at #1023. All four rules it pinned
+// were section's (`.pp-section--inverted a` and `.section--has-bg-image a`, rest and
+// hover, each carved out of the light panel CTA with `:not(.section__panel-cta)`).
+// None of those selectors is emitted any more: the `theme` and `background_image`
+// props both retired, so the band-wide anchor rules they carved out of are gone, and
+// with them the reason for the carve-out. A section body link is the `body-link` role,
+// which reaches only `.section__content a` and therefore never touched the panel
+// button in the first place — the collision this block existed to referee cannot recur.
 describe('CSS lint: per-instance button slots are neutralised on non-owned buttons (#545)', () => {
     const fsq = require('fs');
     const pathq = require('path');
@@ -5416,7 +5065,13 @@ describe('CSS lint: per-instance button slots are neutralised on non-owned butto
     // every fix, and the stale numbers this comment used to quote were worse than none):
     // hero.php `.hero__cta` (incl. the cta2 modifier), cta.php `.cta__button` (incl. the
     // `.cta__button--secondary` button2 modifier), section.php `.section__panel-cta`.
-    const OWNED_BUTTON_CLASSES = ['.hero__cta', '.cta__button', '.section__panel-cta'];
+    // `.section__panel-cta` left this list at #1023. Section is a v2 component now, so
+    // its panel button is the `panel-cta` ROLE: whatever it is given emits unlayered and
+    // outranks this `pp-v1` neutraliser at any specificity. Keeping it excluded would
+    // have been a rule that can no longer do anything for that class — the I19 class of
+    // declaration that validates and paints nothing. Zeroing cta's slots on it is also
+    // the honest default: a section panel button reads none of cta's custom properties.
+    const OWNED_BUTTON_CLASSES = ['.hero__cta', '.cta__button'];
 
     /**
      * Band-level slots that are leak-capable AND deliberately NOT neutralised. They colour every
@@ -5514,12 +5169,11 @@ describe('CSS lint: per-instance button slots are neutralised on non-owned butto
 
     test('the derivation finds the shipped families (the pin is not vacuous)', () => {
         const leaky = leakCapableSlots(STRIPPED, schemaSlots());
-        // Hero's two entries are gone (#986): it declares no style slots, so the
-        // derivation cannot see one. The cta and panel-CTA families keep the pin
-        // non-vacuous — the point is that the derivation finds REAL shipped families,
-        // and three of them still ship.
-        ['--cta-button-bg', '--cta-button-hover-bg',
-            '--section-panel-cta-bg'].forEach((slot) => {
+        // Hero's two entries are gone (#986) and section's panel-CTA family went the
+        // same way (#1023): neither declares style slots, so the derivation cannot see
+        // one. The cta family keeps the pin non-vacuous — the point is that the
+        // derivation finds REAL shipped families, and cta's still ships.
+        ['--cta-button-bg', '--cta-button-hover-bg'].forEach((slot) => {
             expect(leaky, `${slot} must be visible to the derivation`).toContain(slot);
         });
     });
@@ -5581,8 +5235,12 @@ describe('CSS lint: per-instance button slots are neutralised on non-owned butto
 
     test('detection proof: dropping an exclusion is caught', () => {
         const rule = neutralisationRule(STRIPPED);
+        // Drop `.cta__button`. The mutation has to remove an exclusion the shipped
+        // selector ACTUALLY carries, or the proof is vacuous — this line used to drop
+        // `.section__panel-cta`, which stopped being an exclusion at #1023 and left the
+        // mutation identical to production (the assertion then passed and proved nothing).
         const broken = neutralisationRule(
-            STRIPPED.replace(rule.selector, 'main .btn:not(.hero__cta):not(.cta__button)'),
+            STRIPPED.replace(rule.selector, 'main .btn:not(.hero__cta)'),
         );
         const excluded = [...broken.selector.matchAll(/:not\((\.[a-z0-9_-]+)\)/g)]
             .map((m) => m[1])
@@ -5595,7 +5253,7 @@ describe('CSS lint: per-instance button slots are neutralised on non-owned butto
     test('no per-instance button slot is read outside components.css', () => {
         // The derivation scans components.css. A family slot consumed from base.css or
         // utilities.css would satisfy it while still leaking, so pin that it cannot happen.
-        const FAMILY = /var\(\s*--(?:hero-button|hero-button2|cta-button|cta-button2|section-panel-cta)-/;
+        const FAMILY = /var\(\s*--(?:hero-button|hero-button2|cta-button|cta-button2)-/;
         expect(FAMILY.test(stripComments(BASE_CSS))).toBe(false);
         expect(FAMILY.test(stripComments(UTILITIES_CSS))).toBe(false);
     });
@@ -5631,112 +5289,9 @@ describe('CSS lint: per-instance button slots are neutralised on non-owned butto
  * Media-aware (parseRules), so a ring wrapped in a never-matching @media reads as red, and
  * uniqueness is asserted rather than assumed (the #542 idiom).
  */
-describe('CSS lint: per-instance ring slots for the panel CTA (#584)', () => {
-    const ringRules = parseRules();
-    const NOT3 = ':not(.btn--outline):not(.btn--ghost):not(.btn--secondary)';
-
-    const uniqueTopLevel = (sel) => {
-        const found = ringRules.filter((r) => r.selectors.includes(sel));
-        expect(found.length, `${sel} must be declared exactly once`).toBe(1);
-        expect(found[0].media, `${sel} must be top level, not inside @media`).toBeNull();
-        return found[0].body;
-    };
-    // The premium primary is declared TWICE (a superseded rule and the "true final cascade"
-    // winner). Source order breaks the specificity tie, so the LAST one is the live winner and
-    // the only one this pin may read.
-    const lastTopLevel = (sel) => {
-        const found = ringRules.filter((r) => r.selectors.includes(sel) && r.media === null);
-        expect(found.length, `${sel} must exist at top level`).toBeGreaterThan(0);
-        return found[found.length - 1].body;
-    };
-    const borderChain = (body) => {
-        const m = body.match(/border-color\s*:([^;}]+)/);
-        expect(m, 'border-color not declared').not.toBeNull();
-        return m[1].match(/--[a-z0-9-]+/g);
-    };
-
-    // Each row: where the ring is decided, the slot that must LEAD it, and the full chain.
-    const RINGS = [
-        // HERO'S TWO ROWS ARE GONE (#986). `.hero .btn` carried a [0,5,0] rule whose
-        // whole job was leading the ring with `--hero-button-border`; on v2 hero owns
-        // no button slots and declares no rule of its own here, so the hero CTA takes
-        // the shared premium chain like any other `.btn` and then whatever its `cta` /
-        // `cta-secondary` role sets on top. Panel CTA keeps every row below.
-        {
-            what: 'panel CTA, rest — the LIVE winner, in the shared premium block',
-            body: () => lastTopLevel('main .btn' + NOT3 + ''),
-            slot: '--section-panel-cta-border',
-            chain: ['--section-panel-cta-border', '--cta-button-border', '--cta-accent',
-                '--btn-border-color', '--section-panel-cta-bg', '--color-accent-strong'],
-        },
-        {
-            what: 'panel CTA, hover — the LIVE winner, in the shared premium block',
-            body: () => lastTopLevel('main .btn' + NOT3 + ':hover'),
-            slot: '--section-panel-cta-hover-border',
-            chain: ['--section-panel-cta-hover-border', '--cta-button-hover-border',
-                '--cta-accent-hover', '--btn-hover-border-color', '--color-accent'],
-        },
-        {
-            what: 'panel CTA, rest — the section-block keystone (masked, but the slot contract)',
-            body: () => uniqueTopLevel('.section__panel-cta' + NOT3),
-            slot: '--section-panel-cta-border',
-            chain: ['--section-panel-cta-border', '--btn-border-color', '--section-panel-cta-bg',
-                '--btn-bg', '--color-accent'],
-        },
-        {
-            what: 'panel CTA, hover — the section-block keystone (masked, but the slot contract)',
-            body: () => uniqueTopLevel('.section__panel-cta' + NOT3 + ':hover'),
-            slot: '--section-panel-cta-hover-border',
-            chain: ['--section-panel-cta-hover-border', '--btn-hover-border-color',
-                '--color-accent-hover'],
-        },
-    ];
-
-    // PROPERTY 2, RE-BASED RATHER THAN RETIRED (#986). The positional-twin pin used to
-    // iterate a pair list covering hero AND the panel CTA; removing hero's pair took the
-    // panel CTA's comparison with it, leaving the docblock promising a property nothing
-    // asserted. The per-row chain checks below verify each chain in isolation and cannot
-    // see the RELATIONSHIP between them, which is the whole point of the property: the
-    // hover chain must be the rest chain with every knob swapped for its hover
-    // equivalent, or a ring dissolves under the pointer (#535).
-    test('panel CTA: the hover ring chain is the positional twin of the rest chain', () => {
-        const rest = borderChain(lastTopLevel('main .btn' + NOT3 + ''));
-        const hover = borderChain(lastTopLevel('main .btn' + NOT3 + ':hover'));
-        // The rest chain ends in a FILL fallback the hover chain does not carry, so
-        // compare the knob positions the two share, in order.
-        const swap = (name) =>
-            name
-                .replace('--section-panel-cta-border', '--section-panel-cta-hover-border')
-                .replace('--cta-button-border', '--cta-button-hover-border')
-                .replace('--cta-accent', '--cta-accent-hover')
-                .replace('--btn-border-color', '--btn-hover-border-color');
-        // Compare only the positions whose rest knob HAS a hover twin. Past those the
-        // two chains legitimately diverge: the rest chain carries a border-follows-fill
-        // link (`--section-panel-cta-bg`) that hover has no equivalent for, then each
-        // ends in its own literal. Comparing those positions would assert a symmetry
-        // the design deliberately does not have.
-        const twinned = rest.filter((knob) => swap(knob) !== knob);
-        expect(twinned.length, 'the rest chain must carry the four knob tiers').toBe(4);
-        twinned.forEach((knob, i) => {
-            expect(hover[i], `hover position ${i} must twin rest position ${i}`).toBe(swap(knob));
-        });
-    });
-
-    RINGS.forEach(({ what, body, slot, chain }) => {
-        test(`${what}: ${slot} LEADS the border chain`, () => {
-            expect(borderChain(body())[0]).toBe(slot);
-        });
-
-        test(`${what}: the whole chain, in order`, () => {
-            // Exact, not "contains": the contract IS the order, so a reorder must fail.
-            expect(borderChain(body())).toEqual(chain);
-        });
-    });
-
-    // The positional-twin and #526-isolation pins are RETIRED for hero (#986): both
-    // read `.hero .btn` and `.hero .hero__cta--secondary` rules that no longer exist.
-    // Hero's two CTAs are the `cta` and `cta-secondary` roles now, so "the primary's
-    // ring slots never reach the second CTA" is true by construction — they are
-    // different roles with different selectors — rather than by a lint comparing two
-    // hand-written fallback chains. The panel-CTA rows above keep their coverage.
-});
+// The #584 panel-CTA ring-slot block was deleted at #1023. Both of its cases were
+// section's own (`--section-panel-cta-border` and `--section-panel-cta-hover-border`
+// leading the border chain). The `panel-cta` ROLE replaces them: a ring is its
+// `border` group and a hover ring is that group's `:hover`, both authored rather than
+// slot-ordered, so there is no chain left to pin an order in. Hero's equivalent rows
+// left the same way at #986.

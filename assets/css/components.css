@@ -743,15 +743,20 @@
   margin-top: 0;
 }
 
-/* object-fit/object-position are the crop BEHAVIOUR of a fixed box and stay structural
-   (the §2 boundary names object-fit and object-position; the lint classifies both).
-   The RATIO of that box is designable and is the `media` role's `sizing.aspect-ratio`
-   (ruling D1) — it had no home in either system before that param shipped. */
+/* object-fit is the crop BEHAVIOUR of a fixed box and stays structural. The RATIO of
+   that box is the `media` role's `sizing.aspect-ratio` (ruling D1), and since #1023 so
+   is WHERE the picture sits inside it: `sizing.object-position`.
+
+   THIS COMMENT USED TO CLAIM BOTH PROPERTIES FOR THE BOUNDARY, and it was right until
+   the param existed. Section's rebuild found `object-position` the way hero's found
+   `aspect-ratio` — `--section-image-position` set it, no group emitted it — so the
+   param was added and the property moved to the roles for EVERY v2 component at once.
+   Hero's default is `center`, declared in components/hero/schema.json, which is the
+   value this rule used to carry. One property, one home. */
 .hero__image {
   width: 100%;
   height: auto;
   object-fit: cover;
-  object-position: center;
 }
 
 @media (min-width: 1024px) {
@@ -797,128 +802,199 @@
    Generic text + optional image section.
    ========================================================================== */
 
-.section {
-  padding-top: var(--section-padding-top, var(--pp-band-padding));
-  padding-bottom: var(--section-padding-bottom, var(--pp-band-padding));
-  background: var(--section-bg, transparent);
-  border-top: var(--section-border-width, 0) solid var(--section-border-color, transparent);
-  border-bottom: var(--section-border-width, 0) solid var(--section-border-color, transparent);
-  border-radius: var(--section-radius, 0);
-  box-shadow: var(--section-shadow, none);
-}
+/* STRUCTURAL CSS ONLY — this block is the v2 boundary (docs/v2/BUILD-SPEC-sprint0.md §2).
+   Layout scaffolding, wrapper geometry and accessibility affordances live here. NO colour,
+   type, size, spacing, border, shadow, aspect-ratio or object-position value may be added:
+   every one of those belongs to a role in components/section/schema.json and is emitted by
+   the UDC engine into a band-scoped block in the document head. tests/js/css-lint.test.js
+   enforces this on exactly this block; adding a designable declaration fails CI.
 
-/* .section__body is the OUTER wrapper of .section__content (section.php). The inner
-   .section__content already routes max-width through --section-body-measure, but this
-   outer 40rem literal capped it, so the slot silently no-opped (issue 302). Route the
-   outer cap through the same slot with 40rem as the fallback (unset stays 40rem, the
-   narrower of the two, so output is unchanged). The remaining headings keep 40rem. */
-.section__body {
-  max-width: var(--section-body-measure, 40rem);
-}
+   The band root carries no rule of its own: its padding, background, border, radius and
+   shadow are the `_band` role's defaults, so there is nothing structural left to say
+   about it. The shared adjacent-band rhythm still reaches it — `_band` defaults emit into
+   `@layer pp-zero`, deliberately BELOW this stylesheet, which is what lets #430/#431's
+   `main > [data-pp-component] + .section` rule keep winning.
 
-/* The six-selector heading cap that used to sit here is GONE (issue 578). It capped
-   .table-section__heading, .faq__heading, .logos__heading, .embed__heading, .cta__title
-   and .stats__heading from ONE rule reading --cta-heading-measure — a CTA slot on five
-   foreign elements. The five non-cta components could neither SET it (the write path
-   rejects a foreign slot as invalid_style_slot) nor have it RESOLVE (inline slot
-   properties land on the owning component's root, never on a sibling band). Because the
-   rule lived in the SECTION block it was also invisible to every per-component audit.
-   Each of the six now declares its own cap, reading its own slot, inside its own
-   COMPONENT block, defaulting to var(--measure-heading) (base.css, 40rem — the value all
-   six render today, so unset output is unchanged). .section__title was NEVER one of the
-   six and gains no cap; hero was capped separately and is exempt from --measure-heading. */
+   FIVE THINGS THE v1 BLOCK DID THAT THIS ONE DELIBERATELY DOES NOT:
 
-.section__header--center {
-  text-align: center;
-}
+   1. THE THEME VARIANTS ARE GONE. `.pp-section--dark` and `.pp-section--inverted` painted a
+      background, re-coloured the title, accent, body, links and link hovers, and re-mapped
+      `--color-muted`. The `theme` prop is retired: a band's surface is the `_band` role's
+      `background` group and its text colours are `typography.color` on the text roles. v2
+      has no bundled dark/light switch because every value is authorable.
+
+   2. THE BACKGROUND-IMAGE VARIANT AND ITS SCRIM ELEMENT ARE GONE. `.section--has-bg-image`
+      positioned the band, sized and placed an inline `background-image`, re-coloured six
+      descendants on the assumption the image was dark, and `.section__overlay` was a real
+      DIV rendered only to hold the scrim. A band background is now `_band` ->
+      `background.image` (an attachment id, ruling A2) and `background.overlay`, which the
+      engine composes into the SAME background layer list — so the extra element has nothing
+      left to do. A band with an image owns its own contrast, exactly as the AI-facing docs
+      already say for every v2 dark band; the stylesheet no longer guesses.
+
+   3. IT RE-COLOURED AND RE-SIZED THE BODY FROM `main > .section` RULES FURTHER DOWN THE
+      FILE. Those are deleted, not moved. A non-`_band` role default emits UNLAYERED while
+      this stylesheet sits in `pp-v1`, so every one of them was outranked the moment section
+      declared roles — a rule that validates and paints nothing, which is the class the
+      engine's own drop ledger exists to catch.
+
+   4. `.section__header--center` IS GONE with the `title_align` prop. Alignment is the
+      `header` role's `typography.align`, which the eyebrow, heading and subheading inherit.
+      `.section--centered` still centres its text HERE, because that is the layout modifier's
+      own geometry (the css-lint carve-out, same as `.hero--centered`) — a layout that does
+      not do what its name says is a default-experience regression, not a narrowing.
+
+   5. THE `--flush-top` MODIFIER IS GONE. It zeroed the inline-items row's top margin on a
+      band with no body copy above it (#488). Its rule sits in `pp-v1` while the
+      `inline-items` role's `spacing.margin-top` default emits unlayered, so it could never
+      win again — an I19-class rule, and a dead rule is worse than an absent one. An author
+      who wants the flush strip sets `spacing.margin-top: 0` on the `inline-items` role.
+      Disclosed in the README, the CHANGELOG and the AI-facing authoring docs.
+
+   The list rhythm inside authored `body` rich text, the marker glyphs and the inline-items
+   separator all live in the SHARED GLYPH AND PROSE MECHANISMS block below this one. They
+   are not section's design: no author wants band A's lists indented differently from band
+   B's, and ruling A3 defers pseudo-elements, so no role can express a `::before` glyph at
+   any value. cta and faq both need them too. */
 
 .section__eyebrow {
   display: inline-block;
-  padding: 0.35rem 0.85rem;
-  margin-bottom: var(--space-sm);
-  border: var(--section-eyebrow-border-width, 0) solid var(--section-eyebrow-border-color, transparent);
-  border-radius: var(--section-eyebrow-radius, 3px);
-  font-size: 0.8125rem;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: var(--section-eyebrow-text-transform, uppercase);
-  color: var(--section-eyebrow-color, var(--color-text));
-  background: var(--section-eyebrow-bg, var(--color-surface-accent));
 }
 
-.section__title {
-  font-size: var(--section-heading-size, var(--pp-band-heading-size));
-  color: var(--section-heading-color, var(--pp-section-title-theme-color, var(--color-text)));
-  /* Section's heading measure (issue 578). Default `none`, and that is deliberate: the
-     section title has never carried a cap, section is the most-used band in the product,
-     and giving it the 40rem the other eight route would change the rendered line length
-     of every stored section heading. Section is therefore EXEMPT from --measure-heading
-     alongside hero. `none` is max-width's initial value, so declaring it here is
-     byte-identical — it exists to give the operator the knob the other bands have. */
-  max-width: var(--section-heading-measure, none);
-  /* Top-side header rhythm (title -> subheading gap). issue 336 made the subheading's
-     BOTTOM margin authorable; this routes the title's own bottom margin through a
-     slot so the whole header rhythm is slot-driven (issue 343). No header-scoping
-     needed: the title is a heading, not the header's last child, so base.css's
-     `p:last-child` reset never reached it. Today's literal stays the fallback. */
-  margin-bottom: var(--section-heading-margin-bottom, var(--space-md));
-}
-
-.section__title-accent {
-  color: var(--section-heading-accent-color, var(--color-accent));
-}
-
+/* base.css `p:last-child { margin-bottom: 0 }` reaches this element; the role default
+   owns its bottom rhythm and emits unlayered, so only the top reset is structural. */
 .section__subheading {
-  color: var(--section-subheading-color, var(--color-muted));
   margin-top: 0;
 }
-/* base.css `p:last-child { margin-bottom: 0 }` (0,1,1) outranks a bare
-   `.section__subheading` (0,1,0), and the subheading is always the header's last
-   child, so the component's declared bottom rhythm never reached the page (issue 336).
-   Own the spacing at header scope (0,2,0): it wins the cascade without weakening
-   the global prose reset, and does not depend on the subheading staying last. */
-.section__header > .section__subheading {
-  margin-bottom: var(--section-subheading-margin-bottom, var(--space-md));
+
+/* One column on phones, two at 768px and up. The TRACK is structure; the GUTTER between
+   the columns is the `columns` role's `spacing.gap`, responsive by default so it matches
+   what this file used to declare at each width. */
+.section__grid {
+  display: flex;
+  flex-direction: column;
 }
 
+@media (min-width: 768px) {
+  .section__grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    align-items: center;
+  }
 
-.section__content {
-  color: var(--section-body-color, var(--pp-section-text-theme-color, var(--color-text)));
-  max-width: var(--section-body-measure, 42rem);
-  /* Body type slots (issue 470): the section body text has no font-size/weight of
-     its own here — the `main > .section .section__content` premium/mobile rules
-     (further down this file) set it at every breakpoint, and those (0,2,1) rules
-     outrank this base (0,1,0) at ALL viewport widths. `inherit` is therefore
-     byte-identical to declaring nothing (unchanged output, incl. the 767-768px
-     sub-pixel gap between the two media queries), while giving the slot-contract
-     keystone an in-block consumption. Mirrors .cta__body's base (var(--cta-body-size,
-     inherit)). Setting either slot routes through the premium/mobile rules, which
-     read the SAME slot with today's literal as the fallback. */
-  font-size: var(--section-body-size, inherit);
-  font-weight: var(--section-body-weight, inherit);
-  /* Body list-marker colour (issue 339): read by the shared marker rules only
-     when the operator opts into a non-disc body_marker; inert otherwise. */
-  --pp-list-marker-color: var(--section-body-marker-color, var(--color-accent));
+  /* text-panel top-aligns its columns instead of centering: the panel is a surface
+     beside the prose, not a picture balanced against it. */
+  .section--text-panel .section__grid {
+    align-items: start;
+  }
 }
 
-/* Restore list markers + indent for lists authored in section.body rich text.
-   The global reset (base.css *{padding:0} + ul,ol{list-style:none}) strips both,
-   so any <ul>/<ol> in section.body rendered as flush-left, unmarked lines,
-   indistinguishable from stacked paragraphs. Re-declare markers, indent, and
-   rhythm scoped to .section__content (where wp_kses_post($body) lands) — the
-   .section__content ul selector (0,1,1) outweighs the base ul,ol reset (0,0,1).
-   No style slot governs list-style/padding here, so no slot routing. issue 295 */
-.section__content ul,
-.section__content ol {
+/* The picture fills its frame; the frame's ratio and the picture's placement inside it are
+   the `media` role's `sizing.aspect-ratio` and `sizing.object-position`. */
+.section__image {
+  width: 100%;
+  height: auto;
+  object-fit: cover;
+}
+
+/* A paired row is label-left / value-right on desktop and stacks on phones. Both are
+   arrangement. The row's colour, type and rhythm are the `panel-row` role. */
+.section__panel-row {
+  list-style: none;
+  display: flex;
+  justify-content: space-between;
+}
+
+@media (max-width: 767px) {
+  .section__panel-row {
+    flex-direction: column;
+  }
+}
+
+/* A paired row is not a bullet: suppress the list glyph the shared marker rules would
+   otherwise draw on it. */
+.section__panel-list > .section__panel-row::before {
+  content: none;
+}
+
+/* THE INLINE-ITEMS ROW (issue 475) — the arrangement half.
+   A left-packed flex row that shrink-wraps its content and is centred as a BLOCK by its
+   auto side margins, so a single-line row reads centred and a wrapped row packs its lines
+   from the left. `overflow: hidden` is the clip surface the separator mechanism below
+   depends on. Left-packing is what makes that clip possible at all: an edge clip cannot
+   hide a line-leading glyph on a per-line-CENTERED row.
+
+   `justify-content` used to read a style slot (#510). It is a prop now
+   (`body_items_align`), because justify-content is a LAYOUT property and the taxonomy
+   carries no layout group — the same reasoning that kept hero's `split_ratio`. The
+   modifier below is what the prop derives, and it carries what a raw keyword cannot: the
+   ::before -> ::after separator switch in the shared block.
+
+   The row's gaps and its top margin are the `inline-items` role. */
+.section__inline-items {
+  list-style: none;
+  margin: 0 auto;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: flex-start;
+  width: fit-content;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.section__inline-items--center {
+  justify-content: center;
+}
+
+.section__inline-item {
+  min-width: 0;
+  overflow-wrap: break-word;
+}
+
+/* ==========================================================================
+   SHARED: GLYPH AND PROSE MECHANISMS  —  not any one component's design
+   CSS-generated glyphs and the rhythm authored rich text needs to stay legible.
+   ========================================================================== */
+
+/* WHY THIS IS A BLOCK OF ITS OWN (#1023).
+   Two things ended up here when section became a v2 component, and neither is
+   section's design:
+
+   1. AUTHORED-PROSE RHYTHM. `section.body` is rich text the AUTHOR wrote. The global
+      reset (base.css `* { padding: 0 }` plus `ul, ol { list-style: none }`) strips
+      markers and indent from it, so an authored list renders as flush, unmarked lines
+      indistinguishable from stacked paragraphs (issue 295). Restoring them is
+      reset/normalize, which §2 names as structural — and it is not per-band design:
+      no author wants band A's lists indented differently from band B's. cta and faq
+      carry rich text too and inherit this the moment they rebuild.
+
+   2. GLYPH MECHANISMS. Every one of these draws with `content` on a `::before` or
+      `::after`. Ruling A3 defers pseudo-elements to their own ruling, so NO role can
+      express them at any value — they are mechanism by construction, not by
+      classification. Their COLOUR is the part that used to be authorable
+      (`--section-separator-color`, `--section-body-marker-color`,
+      `--section-panel-marker-color`) and is not any more; it flows from
+      `--pp-list-marker-color`, whose fallback is `var(--color-accent)` — the exact
+      value those slots defaulted to, so nothing moves visually.
+
+   The block sits outside section's `COMPONENT:` banner on purpose: the css-lint slicer
+   runs a component's block to the next `/* =====`, and these rules are shared, so
+   they must not be judged as one component's stylesheet. That is the same siting the
+   `.pp-marker-list` glyph rules already use further down this file. */
+
+/* Authored `body` lists: markers and indent restored, scoped to the container
+   wp_kses_post() lands in. `.section__content ul` (0,1,1) outweighs the base
+   `ul, ol` reset (0,0,1). The disc here is intentionally beaten, on SOURCE ORDER at
+   equal specificity, by the shared `.pp-marker-list` rules further down — do NOT raise
+   this rule's specificity or move it below that block, or a non-disc body_marker stops
+   painting. */
+.section__content :is(ul, ol) {
   padding-left: var(--space-lg);
   margin: 0 0 var(--space-md);
 }
 
-/* The disc here is intentionally beaten, on SOURCE ORDER at equal specificity
-   (0,1,1), by the shared issue-339 marker rules (.section__content--marker-* > ul)
-   further down this file. Do NOT raise this rule's specificity or move it below
-   that block, or non-disc body markers stop painting (the tests/e2e/style-render
-   issue-339 pins guard this). */
 .section__content ul {
   list-style: disc;
 }
@@ -935,622 +1011,60 @@
   margin-bottom: 0;
 }
 
-/* Inline-items row (issue 475): a band of short items with a CSS-generated
-   separator between them (the "trust strip" pattern — e.g. a slim post-hero band
-   of short items with a colored middot between each). It sits in the section body
-   scope, right after .section__content, and reads the SAME #470 body type slots so
-   the items inherit the section body size/weight (the brand band's 15px/600).
-   Unset (no body_items) emits no markup, so output stays byte-identical.
-
-   Centering + wrapping (issue 489): the DEFAULT row is a left-packed
-   (justify-content: flex-start) flex row that shrink-wraps its content (width:
-   fit-content) and is centered as a BLOCK via auto side margins. A single-line row
-   therefore reads centered exactly like before; a row that WRAPS fills the available
-   width and its lines pack from the left. Left-packing is what lets the
-   hanging-separator clip below hide line-leading separators — an edge-clip cannot
-   hide a line-leading separator on a per-line-CENTERED row (the separator is not at
-   the box edge). overflow: hidden is the clip surface; the separator ::before is
-   pulled left of this box on every line-leading item and disappears.
-
-   Per-line alignment (issue 510): justify-content reads the
-   --section-inline-items-align style slot (start | center). Unset resolves to
-   flex-start, so the default row above is byte-identical to before. 'center'
-   (with the --center modifier the renderer derives, below) switches to per-line
-   centering + a TRAILING separator; a centered line ends mid-box, so its trailing
-   middot cannot be edge-clipped and stays VISIBLE as a subtle line-end dot — the
-   documented trade of choosing center. */
-.section__inline-items {
-  list-style: none;
-  margin: var(--space-md) auto 0;
-  padding: 0;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  justify-content: var(--section-inline-items-align, flex-start);
-  width: fit-content;
-  max-width: 100%;
-  column-gap: var(--space-md);
-  row-gap: var(--space-xs);
-  overflow: hidden;
-  font-size: var(--section-body-size, inherit);
-  font-weight: var(--section-body-weight, inherit);
+/* Paragraph rhythm inside authored prose. It lived in the desktop `main > .section`
+   premium block until #1023; it is prose rhythm rather than band design, so it moved
+   here with the list rules rather than becoming a role an author would have to know
+   about to get readable paragraphs. */
+.section__content p + p {
+  margin-top: 1.05rem;
 }
 
-/* Body-less strip flush-top (issue 488): the row's top margin is a separation
-   from preceding body copy, so on a body_items-only band (no body copy above it)
-   it zeroes and the band's symmetric padding centres the row. The renderer adds
-   this modifier only when no body copy precedes the row; a band WITH body copy
-   keeps the base var(--space-md) top margin, byte-identical to before. Same
-   specificity as the base rule (0,1,0) and declared immediately after it, so
-   source order wins; the doubled class keeps specificity (0,2,0) above any future
-   equal-specificity rule that might target the base row, and only margin-top is
-   overridden (the auto side margins that centre the fit-content row as a block,
-   and the 0 bottom, are untouched). */
-.section__inline-items.section__inline-items--flush-top {
-  margin-top: 0;
-}
-
-/* Hanging-separator clip (issue 489): each item is pulled left by exactly the
-   separator's occupied width (the ::before's fixed box + its right margin =
-   --space-sm + --space-xs). On a line-leading item — the first item of the row AND
-   the first item of every wrapped line — the ::before then sits entirely left of
-   the ul's content box and is clipped by overflow: hidden, so no middot ever dangles
-   at the start of a line. The item text lands exactly at the content edge. On a
+/* THE INLINE-ITEMS SEPARATOR (#475), and its hanging-separator clip (#489).
+   Each item is pulled LEFT by exactly the separator's occupied width (the ::before's
+   fixed box plus its right margin). On a line-leading item — the first of the row AND
+   the first of every wrapped line — the ::before then sits entirely left of the row's
+   content box and is clipped by its `overflow: hidden`, so no middot ever dangles at
+   the start of a line, while the item's text lands exactly at the content edge. On a
    mid-line item the ::before sits between two items and is fully visible, giving the
-   symmetric "A · B" separator. The negative margin lives on the ITEM, not the ul:
-   pulling the ul via its own margin would move its clip region with it and clip
-   nothing. */
+   symmetric "A · B" separator.
+
+   The arithmetic is the mechanism: the pull must equal the box plus the gap, or the
+   clip stops lining up. It is not a value anyone would retune.
+
+   `content: "\00b7" / ""` supplies the empty ALTERNATIVE TEXT, which keeps the middot
+   out of the accessibility tree while the row keeps its `role="list"` semantics. */
 .section__inline-item {
-  margin: 0 0 0 calc(-1 * (var(--space-sm) + var(--space-xs)));
-  /* Let a pathological single unbreakable label wrap instead of being clipped by
-     the row's overflow: hidden (base.css only sets overflow-wrap on p/headings, and
-     a flex item's default min-width: auto would otherwise refuse to shrink). */
-  min-width: 0;
-  overflow-wrap: break-word;
+  margin-left: calc(-1 * (var(--space-sm) + var(--space-xs)));
 }
 
-/* The separator is a CSS-generated middot before EVERY item (line-leading ones are
-   clipped, see above), so it is never a content character: it can be slot-colored and
-   stays out of the accessibility tree. The `/ ""` alternative-text empties its a11y
-   name, and the <ul role="list"> keeps list semantics intact. The glyph is a FIXED
-   (middot) stated default with no slot. Its canonical STATED REASON and reopening
-   condition live on the authoring surface an agent actually reads — the
-   --section-separator-color description in components/section/schema.json, and "Stated
-   defaults" in components/section/README.md. Keep them there when editing; this comment
-   is a pointer, not the record. It is a fixed-width
-   inline-block box (--space-sm) so the
-   left-pull above is an exact token value independent of the glyph's advance width.
-   Color routes through --section-separator-color, defaulting to the muted role like
-   sibling text; on the inverted band --color-muted is already remapped to the light
-   on-inverted color (.pp-section--inverted below), so the default follows the sibling
-   text there automatically — no separate inverted rule. The bg-image overlay default
-   is remapped below (mirrors the #461/#463 links/markers). */
 .section__inline-items li::before {
   content: "\00b7" / "";
   display: inline-block;
   width: var(--space-sm);
   text-align: center;
   margin-right: var(--space-xs);
-  color: var(--section-separator-color, var(--color-muted));
+  color: var(--pp-list-marker-color, var(--color-accent));
 }
 
-/* Centered per-line alignment (issue 510): the --center modifier is derived by the
-   renderer when --section-inline-items-align is 'center'. justify-content: center is
-   already supplied by the slot on the base rule; this modifier carries only what a
-   raw keyword cannot express — the switch from the leading, edge-clipped ::before
-   separator to a TRAILING ::after one that survives centering. On a centered row the
-   hanging-clip geometry does not apply, so the per-item left pull is zeroed (the
-   ::before is suppressed anyway) and the separator is emitted as an ::after on every
-   item except the last (:not(:last-child)). At a wrap point the trailing middot sits
-   at a centered line's right edge — mid-box, not the box edge — so overflow: hidden
-   cannot clip it and it stays VISIBLE as a subtle line-end dot (the documented trade;
-   there is no pure-CSS centered-and-artifact-free option). Line-leading items on
-   wrapped lines carry NO separator, so a wrapped line never opens with a dangling
-   middot. Same slot color routing as ::before, so --section-separator-color and the
-   inverted/overlay defaults apply identically in both modes. */
+/* `body_items_align: center` (#510). A centred line ends mid-box, so a trailing
+   separator cannot be edge-clipped — it stays visible as a subtle line-end dot, which
+   is the documented trade of choosing center. So the glyph moves from ::before to
+   ::after and the pull is cancelled. */
 .section__inline-items--center .section__inline-item {
   margin-left: 0;
 }
+
 .section__inline-items--center li::before {
   content: none;
 }
+
 .section__inline-items--center li:not(:last-child)::after {
   content: "\00b7" / "";
   display: inline-block;
   width: var(--space-sm);
   text-align: center;
   margin-left: var(--space-xs);
-  color: var(--section-separator-color, var(--color-muted));
-}
-
-/* Image variants: side-by-side grid at md+ */
-.section__grid {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-lg);
-}
-
-@media (min-width: 768px) {
-  .section__grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    align-items: center;
-    gap: var(--space-xl);
-  }
-}
-
-.section__image {
-  width: 100%;
-  height: auto;
-  aspect-ratio: var(--section-image-aspect-ratio, auto);
-  object-fit: cover;
-  object-position: var(--section-image-position, center);
-  border-radius: var(--section-image-radius, var(--radius));
-}
-
-/* text-panel layout: text column + styleable content panel (issue 104).
-   Reuses .section__grid (two columns at >=768px, stacked text-then-panel on
-   mobile) but top-aligns the columns instead of centering like the image
-   variants. The panel box and text route through --section-panel-* slots. The
-   panel deliberately uses its own classes (not .section__content/.section__title)
-   so the desktop premium-typography cascade cannot clobber the panel text on a
-   dark panel — --section-panel-text stays the authority. */
-@media (min-width: 768px) {
-  .section--text-panel .section__grid {
-    align-items: start;
-  }
-}
-
-.section__panel {
-  padding: var(--section-panel-padding, var(--space-lg));
-  background: var(--section-panel-bg, var(--color-surface));
-  color: var(--section-panel-text, var(--color-text));
-  /* Panel font (issue 334): inherit by default (unchanged), var(--font-mono) for
-     a monospace spec/stat panel. Descendants inherit, so heading/body/list/rows
-     all pick it up unless a nested rule sets its own family. */
-  font-family: var(--section-panel-font, inherit);
-  border: var(--section-panel-border-width, 0) solid var(--section-panel-border-color, transparent);
-  border-radius: var(--section-panel-radius, var(--radius));
-}
-
-.section__panel-heading {
-  color: var(--section-panel-text, var(--color-text));
-  margin-bottom: var(--space-md);
-}
-
-.section__panel-body {
-  margin-top: 0;
-  margin-bottom: var(--space-md);
-}
-
-/* Restore list markers + indent stripped by the base reset (base.css
-   ul,ol{list-style:none} + *{padding:0}), same approach as .section__content
-   (issue 295). No style slot governs list-style/padding here. issue 104.
-   This disc is intentionally beaten on SOURCE ORDER at equal specificity (0,1,0)
-   by the shared issue-339 .pp-marker-list rules below when panel_items_marker opts
-   in — do not raise its specificity or move it below that block. */
-.section__panel-list {
-  list-style: disc;
-  padding-left: var(--space-lg);
-  margin: 0 0 var(--space-md);
-  /* Panel list-marker colour (issue 339): inert until panel_items_marker opts in. */
-  --pp-list-marker-color: var(--section-panel-marker-color, var(--color-accent));
-}
-
-.section__panel-list li {
-  margin-bottom: var(--space-xs);
-}
-
-.section__panel-list li:last-child {
-  margin-bottom: 0;
-}
-
-/* Paired rows (issue 334): a { label, value } entry renders as a two-part row
-   inside the same panel list, label left / value right AT >=768px (issue 568
-   stacks the pair below that; see the media block after the value rule).
-   A row is NOT a bullet, so it carries its own list-style:none and its glyph
-   marker is suppressed below.
-   Row text colour routes through the SAME --section-panel-text slot as the rest
-   of the panel, which is item_eligible so a per-row style map can recolour one
-   row (emphasise/de-emphasise) via cascade proximity on the inline row style. */
-.section__panel-row {
-  list-style: none;
-  display: flex;
-  justify-content: space-between;
-  gap: var(--space-md);
-  color: var(--section-panel-text, var(--color-text));
-}
-
-.section__panel-row-value {
-  text-align: right;
-}
-
-/* Mobile stack (issue 568). Below 768px the two-column geometry starves the
-   value: at 375 the row content box is 247px (343px viewport-minus-page-padding,
-   less the panel's 2 x --space-lg, less the list's --space-lg indent) and the
-   label takes its share off the front, leaving the value ~170px — a 5-12 word
-   comparison value wrapped to FOUR right-aligned lines beside a one-word label.
-   Stacking hands the value the full 247px (+45%) and one shared left edge with
-   its label. This is a DEFAULT, not a knob: no responsive slot, no new prop, and
-   >=768px is untouched.
-
-   Five properties, all scoped to this breakpoint:
-     1. flex-direction: column   label above value.
-     2. value text-align: left   one shared left edge. The `right` on the rule
-                                 above is the half of the defect that survives
-                                 stacking, so it must be answered explicitly.
-     3. gap: --space-xs (4px)    TIGHT intra-pair gap — the value belongs to the
-                                 label directly above it.
-     4. row + row: 16px          LOOSE inter-pair rhythm, so four pairs read as
-                                 four facts rather than one eight-line block.
-     5. pair type treatment      stacked, POSITION no longer distinguishes label
-                                 from value (they share size, weight and colour),
-                                 so a short label reads as a first line OF the
-                                 value. A smaller, tracked label over a heavier
-                                 value is what makes the pair read as label-then-
-                                 fact. Accepted on the issue's mandatory 375px
-                                 rendered check, not on this declaration.
-
-   Property 4 is an ADJACENT-SIBLING margin-top, not a margin-bottom on the row.
-   `.section__panel-list li` (0,1,1) already owns margin-bottom and its
-   `:last-child` companion (0,1,2) zeroes it, so any margin-bottom answer has to
-   out-specify BOTH and then re-implement the last-child zero — and a bare
-   `.section__panel-row` (0,1,0) would silently lose outright. `+` (0,2,0) writes
-   margin-top, which nothing else on a panel li sets. It fires on every row after
-   the first, INCLUDING the last, but it only ever adds space ABOVE a row, so it
-   can never leave a trailing gap below the last row (i.e. above a panel CTA),
-   and it never fires between a bullet and a row.
-
-   Known GROUPING consequence in a MIXED list (string bullets + paired rows, a
-   shape the grammar actively encourages): a paired row that follows a plain
-   bullet keeps the list's own 4px, which is now about the same optical distance
-   as a value sits from its own label — so that bullet can read as a third line
-   of the pair below it. Before this change every entry was one line, so the flat
-   4px implied no grouping at all and the ambiguity did not exist. Widening the
-   bullet/row boundary is NOT this issue's ruled change (property 4 is the rhythm
-   between PAIRS), so it is recorded here as a follow-up, not fixed.
-
-   Property 5 is typographic on purpose, never colour. Row colour routes through
-   the item_eligible --section-panel-text slot (a per-row style map recolours one
-   row) and --section-panel-bg is author-controlled and may be dark, so a
-   hardcoded muted label colour would both fight the slot and put an unreviewable
-   contrast pair on the page.
-
-   Which element carries which signal follows the stacked key/value idiom the theme
-   used to carry as `.hero__surface-key` / `.hero__surface-value` — the same geometry
-   (flex column, gap --space-xs), the KEY the small tracked one and the VALUE the one
-   at weight 600. THOSE TWO RULES ARE GONE (#986): they were hero helper classes that
-   styled markup an author hand-wrote, which the v2 structural-CSS boundary has no
-   place for. The idiom they established is kept here deliberately, because a panel row
-   is the same shape playing the same two roles and inventing a second convention for
-   it would be worse than outliving the rules that set the first.
-   Two deliberate divergences from that idiom, both forced: no `color:
-   var(--color-muted)` (see the slot/dark-panel note above), and no
-   `text-transform: uppercase` (a panel label is authored free text and is
-   routinely a proper noun — "WordPress", "PHP" — which uppercasing mangles; the
-   retired key rule's 0.08em tracking was calibrated for uppercase, so the label keeps
-   `.section__eyebrow`'s gentler 0.04em instead).
-
-   The SIZE step carries the distinction; the WEIGHT is a bonus, not the proof.
-   The theme ships no webfont (--font-body is `system-ui, sans-serif`), so which
-   weights exist is the client's business: in a bare Linux/CI font environment
-   600 resolves to the same face as 400 and renders PIXEL-IDENTICAL — the 375px
-   A/B for this issue produced byte-identical PNGs for a weight-only treatment.
-   A rendered pin that asserts ONLY the weight would therefore go green over an
-   invisible distinction; the size step is what a rendered pin must assert. Size
-   and tracking also survive --section-panel-font: var(--font-mono), shot too. */
-@media (max-width: 767px) {
-  .section__panel-row {
-    flex-direction: column;
-    gap: var(--space-xs);
-  }
-
-  .section__panel-row + .section__panel-row {
-    margin-top: var(--space-md);
-  }
-
-  .section__panel-row-label {
-    font-size: 0.8125rem;
-    letter-spacing: 0.04em;
-  }
-
-  .section__panel-row-value {
-    font-weight: 600;
-    text-align: left;
-  }
-}
-
-/* Suppress the shared issue-339 marker glyph on paired rows only. The marker
-   layer paints via `.pp-marker-list--{marker} > li::before` (specificity 0,1,2);
-   this two-class selector (0,2,1) outranks it so a mixed list keeps markers on
-   its string bullets while rows stay markerless. content:none also neutralizes
-   the base .pp-marker-list `li::before` reserved box. */
-.section__panel-list > .section__panel-row::before {
-  content: none;
-}
-
-/* Panel CTA spacing + per-instance filled-button slots (issue 104, extended by 536).
-   Variant selection still comes from the panel_cta_variant prop (primary/secondary/
-   outline/ghost) and the shared .btn primitive; the premium `main .btn:not(...)`
-   cascade is still the visible winner for a filled panel CTA. What changed in #536 is
-   that the panel now exposes its OWN per-instance fill slots — --section-panel-cta-bg /
-   -color / -shadow — routed as the OUTERMOST value of that premium chain (the #514/#526
-   idiom), so a branded section can paint a flat accent button through composition style
-   slots alone instead of being stuck under the premium gradient.
-
-   The rule below is the slot-contract keystone (StyleSlotContractTest): it wires all
-   three slots inside the section block on type-compatible properties. It sits BELOW the
-   premium winner [0,4,1] in specificity, so it never changes what a button actually
-   paints — the VISIBLE win happens in the premium rule, exactly as the hero's
-   .hero .btn / .hero__cta keystones do for --hero-button-*.
-
-     specificity map:
-       .section__panel-cta                         [0,1,0]  <- spacing only
-       .section__panel-cta:not(x):not(y):not(z)    [0,4,0]  <- this keystone
-       main .btn:focus / :focus-visible            [0,2,1]
-       main .btn:not(x):not(y):not(z)              [0,4,1]  <- the live winner, always
-
-   All three slots share ONE variant carve-out, which is what makes the primary-only
-   contract in schema.json true of the ELEVATION slot as well as the fill and ink. An
-   uncarved [0,1,0] box-shadow line would outrank the shared `.btn` rule and paint a
-   drop shadow on a transparent outline/ghost panel CTA — a slot the schema says never
-   reaches them. The carve-out also keeps the transparent variants' focus glow intact:
-   `main .btn:focus` [0,2,1] stays their box-shadow winner because this rule cannot
-   match them at all. (On the FILLED variant the premium rest rule [0,4,1] already
-   outranks the focus rule, so nothing changes there either — that is pre-existing
-   shared-button behavior, not something this rule introduces.) */
-.section__panel-cta {
-  margin-top: var(--space-sm);
-}
-
-/* Filled (primary) panel CTA only — outline/ghost/secondary keep their transparent
-   treatment, so the fill slot never flattens them into look-alike filled buttons (the
-   same carve-out `.hero .btn:not(...)` makes). Border honors its own global knob first,
-   then FOLLOWS the fill (the #526 border-follows-fill convention) so a fill-only recolor
-   keeps a matching ring; unset it falls through --btn-* to today's literals. The `none`
-   elevation default mirrors `.hero__cta:not(...)`: the premium winner supplies the real
-   bevel through its own var(--section-panel-cta-shadow, <bevel>) fallback, so an unset
-   button is byte-identical and `none` flattens rest + hover. */
-.section__panel-cta:not(.btn--outline):not(.btn--ghost):not(.btn--secondary) {
-  background-color: var(--section-panel-cta-bg, var(--btn-bg, var(--color-accent)));
-  border-color: var(--section-panel-cta-border, var(--btn-border-color, var(--section-panel-cta-bg, var(--btn-bg, var(--color-accent)))));
-  color: var(--section-panel-cta-color, var(--btn-text, var(--color-bg)));
-  box-shadow: var(--section-panel-cta-shadow, none);
-}
-
-/* Per-instance RING slots for the panel CTA (issue 584), and the ONE hover rule this
-   surface has ever had.
-
-   The gap this closes: the panel CTA was the only filled-button surface with NEITHER of
-   the two tiers its siblings carry above the site-wide knob. A hero primary reaches its
-   ring through --hero-button-border (rest rule above) and a cta primary through
-   --cta-button-border; the panel CTA had only --btn-border-color, so its ring could be
-   recoloured site-wide or not at all. --section-panel-cta-border and its hover twin sit
-   at the head of the chain in exactly the position --cta-button-border holds.
-
-   WHY BOTH HERE AND IN THE PREMIUM BLOCK, exactly as #536 did for the fill slot: this
-   keystone is [0,4,0] and the shared premium winner `main .btn:not(x):not(y):not(z)` is
-   [0,4,1] (hover: [0,5,0] vs [0,5,1]), so these declarations never decide a composed
-   panel CTA's border — they WIRE the slots inside the section block, which is the
-   slot-contract keystone (StyleSlotContractTest). The VISIBLE win happens in the premium
-   rules, where both slots also lead the chain. Route only here and the slots would be
-   dead; route only there and the keystone contract breaks. The hero needs no premium
-   entry because `.hero .btn:not(...)` is [0,5,0] and already outranks [0,4,1].
-
-   The hover chain deliberately carries NO fill link. #536 shipped the panel CTA
-   resting-state-only and this issue does not revisit that: there is no
-   --section-panel-cta-hover-bg to follow, so the ring's hover twin covers the RING and
-   nothing else. Unset, the chain resolves --btn-hover-border-color then
-   --color-accent-hover, which is precisely what `.btn:hover` computes — so this rule is
-   byte-identical both under the premium winner (masked) and in the one context where it
-   would win, a panel CTA rendered outside `main`. */
-.section__panel-cta:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover {
-  border-color: var(--section-panel-cta-hover-border, var(--btn-hover-border-color, var(--color-accent-hover)));
-}
-
-/* Section background variants.
-   These theme rules set background-color and border-* as BARE LITERALS at [0,1,0],
-   after .section's own slot-routed declarations at the same specificity. --section-bg
-   was therefore dead on BOTH themed sections; --section-border-width /
-   --section-border-color were dead on the muted one only, since .pp-section--inverted
-   declares no border and its borders still resolved from .section. Meanwhile the
-   annotation surface an agent reads already promised the override wins
-   (tests/AiContextTest.php testAdjacencyOverrideBeatsThemeBucket).
-   Route them through the slots with the theme literal as the fallback, following
-   .cta--full-width / .cta--dark / .cta--inverted — unset output is byte-identical, an
-   authored slot now actually renders (issue 577).
-   The `background-color` LONGHAND is deliberate where cta uses the `background`
-   shorthand: it leaves .section--has-bg-image's background-size/position/repeat alone
-   on a themed image band. --section-bg is `gradient`-typed, and a gradient is invalid
-   on background-color, so an authored gradient is ignored HERE and painted by
-   .section's own `background: var(--section-bg, transparent)` shorthand above — the
-   value still renders, one rule up. */
-.pp-section--dark {
-  background-color: var(--section-bg, var(--color-surface));
-  color: var(--color-text);
-  border-top: var(--section-border-width, 1px) solid var(--section-border-color, var(--color-border));
-  border-bottom: var(--section-border-width, 1px) solid var(--section-border-color, var(--color-border));
-}
-
-/* --color-muted carries .section__subheading; --section-*-theme-color carry the
-   elements the desktop typography block re-colors at higher specificity (issue 222). */
-.pp-section--inverted {
-  background-color: var(--section-bg, var(--color-bg-inverted));
-  color: var(--color-bg);
-  --color-muted: var(--color-bg);
-  --pp-section-title-theme-color: var(--color-bg);
-  --pp-section-text-theme-color: var(--color-bg);
-}
-
-/* The text-panel is a self-contained LIGHT surface sitting on the dark band, with
-   its own --section-panel-text authority (see the .section__panel comment block).
-   Its heading is an <h3.section__panel-heading> whose own rule (0,1,0) routes color
-   through --section-panel-text, but a bare `h3` here (0,1,1) outranks it and paints
-   the panel heading in the band's light title color — light-on-light, invisible on
-   the panel. Carve the panel heading out so the panel slot wins inside the panel
-   while --section-heading-color keeps governing the on-band title. (#424) */
-.pp-section--inverted .section__title,
-.pp-section--inverted h2:not(.section__panel-heading),
-.pp-section--inverted h3:not(.section__panel-heading) {
-  color: var(--section-heading-color, var(--color-bg));
-}
-
-.pp-section--inverted .section__content {
-  color: var(--section-body-color, var(--color-bg));
-}
-
-/* The accented substring inside a title paints its OWN color (0,1,0) and does not
-   inherit the light .pp-section--inverted .section__title above, so on the dark band it
-   rendered bare --color-accent at 3.23:1. The --has-bg-image twin has routed the
-   overlay accent role since #463; the INVERTED twin was simply never written. Add it,
-   pointing at the ratified on-inverted role (8.33:1); the per-instance
-   --section-heading-accent-color slot still wins (issue 577). */
-.pp-section--inverted .section__title-accent {
-  color: var(--section-heading-accent-color, var(--color-accent-on-inverted));
-}
-
-/* PANEL CTA CARVE-OUT (#551) — see the shared block above `.section--has-bg-image a`
-   for the full rationale. The band's link ink is an ON-BAND role; the panel is a
-   self-contained LIGHT surface, and `.section__panel-cta` is the only anchor the
-   section renderer can put inside it, so the band role must not reach it. */
-.pp-section--inverted a:not(.section__panel-cta) {
-  /* On the dark band the light-surface accent fails WCAG AA (3.23:1), so links
-     fall back to the on-inverted accent role (issue 437). An explicit
-     --section-body-link-color slot still wins. */
-  color: var(--section-body-link-color, var(--color-accent-on-inverted));
-}
-
-.pp-section--inverted a:not(.section__panel-cta):hover {
-  color: var(--section-body-link-hover-color, var(--color-accent-on-inverted-hover));
-}
-
-/* Section with background image. The dark overlay below makes this a dark surface,
-   so it needs the same theme text defaults as the inverted variant: the desktop
-   typography block outranks every rule here and would otherwise fall back to the
-   light-theme token, painting dark text on the overlay (issue 248). */
-.section--has-bg-image {
-  position: relative;
-  background-size: cover;
-  background-position: var(--section-bg-position, center);
-  background-repeat: no-repeat;
-  --pp-section-title-theme-color: var(--color-bg);
-  --pp-section-text-theme-color: var(--color-bg);
-}
-
-.section__overlay {
-  position: absolute;
-  inset: 0;
-  background: var(--section-overlay-bg, var(--overlay-bg));
-}
-
-.section--has-bg-image > .container {
-  position: relative;
-  z-index: 1;
-}
-
-/* Same self-contained-panel carve-out as the inverted band above: a bg-image
-   section is a dark surface (overlay), so its bare `h2,h3` rule (0,1,1) would
-   clobber the light panel's own --section-panel-text heading authority (0,1,0)
-   and render the panel heading invisible on the light panel. (#424) */
-.section--has-bg-image .section__title,
-.section--has-bg-image h2:not(.section__panel-heading),
-.section--has-bg-image h3:not(.section__panel-heading) {
-  color: var(--section-heading-color, var(--color-bg));
-}
-
-.section--has-bg-image .section__content,
-.section--has-bg-image .section__body {
-  color: var(--section-body-color, var(--color-bg));
-}
-
-/* The dark overlay makes this a dark surface over an arbitrary image, so the
-   light-surface accent (--color-accent) is only 1.16:1 over the overlay-over-white
-   worst case and fails WCAG AA. Route the default through the overlay accent role
-   (#461); an explicit --section-body-link-color slot still wins. Mirrors the inverted-band
-   pattern above, but with the overlay role (on-inverted is tuned to the solid
-   inverted bg, not the arbitrary-image overlay). */
-/* PANEL CTA CARVE-OUT (#551) — the load-bearing scope call for the whole band-ink family.
-
-   These band rules are ON-BAND roles: they exist because the band is a DARK surface. But
-   the selector is band-WIDE, and `.section__panel` is a self-contained LIGHT surface
-   (--color-surface, #f4f7fb) sitting ON that dark band with its own --space-lg of padding.
-   The section renderer emits exactly ONE anchor inside it (section.php:270,
-   `.section__panel-cta`), so before this carve-out the band's near-white overlay ink
-   painted a transparent panel button's label onto the light panel:
-
-     specificity map (the issue's own [0,2,0] figure was wrong — `a` is a TYPE selector):
-       .btn--outline / .btn--ghost / .btn--secondary        [0,1,0]
-       .section--has-bg-image a                             [0,1,1]  <- outranked them
-       .section--has-bg-image a:not(.section__panel-cta)    [0,2,1]  <- this rule
-       main .btn:not(x):not(y):not(z)                       [0,4,1]  <- filled CTA, untouched
-
-     measured on the light panel, worst-case white bg image (rendered, headless Chromium):
-       bg-image  outline/ghost/secondary  rest 1.04:1   hover ghost 1.07 / secondary 1.33
-       inverted  outline/ghost/secondary  rest 1.99:1   hover ghost 1.46 / secondary 1.18
-       default band (the correct control)  rest 5.14 / 16.52   hover 5.43 / 5.14 / 13.36
-     After the carve-out every band matches the default-band control exactly.
-
-   This is the same carve-out class #424 made for the panel HEADING (`h2,h3:not(
-   .section__panel-heading)` above), #463 made for the panel LIST MARKERS (by scoping the
-   marker remap to .section__content — "Panel markers stay bare accent"), and #542 made for
-   the panel CTA's FOCUS RING (by refusing to route section bands at all). This is that same
-   call one layer down, on the ink.
-
-   Why `:not(.section__panel-cta)` and not a panel-wide `:not(.section__panel *)`: both were
-   prototyped and render byte-identically, because the CTA is the ONLY anchor the panel can
-   contain (panel_heading/panel_body/panel_items are all esc_html — pinned in
-   SectionTextPanelTest). But a complex `:not()` is a Selectors-4 feature, and an engine that
-   does not support it drops the ENTIRE rule — which would strip the on-overlay ink from real
-   on-band links, a worse failure than the bug. The compound `:not()` has no such mode.
-   Durability against FUTURE band rules comes from the closed-set css-lint pin, not from the
-   selector shape: any new band-WIDE anchor rule that sets `color` must carry this carve-out.
-
-   The filled (primary) panel CTA is deliberately untouched: its ink comes from the premium
-   chain at [0,4,1], which already outranked these rules, so --section-panel-cta-color (#536)
-   keeps winning everywhere. NOTE: this raises these rules from [0,1,1] to [0,2,1], so custom
-   CSS overriding them at [0,1,1] would now lose — the supported override path is the
-   --section-body-link-color / --section-body-link-hover-color slot, which is unchanged and still wins. */
-.section--has-bg-image a:not(.section__panel-cta) {
-  color: var(--section-body-link-color, var(--color-accent-on-overlay));
-}
-
-.section--has-bg-image a:not(.section__panel-cta):hover {
-  color: var(--section-body-link-hover-color, var(--color-accent-on-overlay-hover));
-}
-
-/* The accented title substring paints its OWN color (0,1,0) and does NOT inherit
-   the near-white .section--has-bg-image .section__title above, so on the dark
-   overlay-over-image band it renders bare --color-accent at 1.16:1 (fails even the
-   3:1 large-text bar). Route the default through the overlay accent role (#463,
-   the same fix #461 gave links/numbers); the per-instance --section-heading-accent-color
-   slot still wins. on-inverted is tuned to the solid inverted bg, not this overlay. */
-.section--has-bg-image .section__title-accent {
-  color: var(--section-heading-accent-color, var(--color-accent-on-overlay));
-}
-
-/* Body list markers on the overlay band: a non-disc body_marker paints its glyph
-   from --pp-list-marker-color, whose default is bare --color-accent (1.16:1 here).
-   Re-map the default to the overlay accent role (#463); the --section-body-marker-color
-   slot still wins. Panel markers stay bare accent — a bg-image section's panel is a
-   self-contained LIGHT surface (#424), not on the overlay. */
-.section--has-bg-image .section__content {
-  --pp-list-marker-color: var(--section-body-marker-color, var(--color-accent-on-overlay));
-}
-
-/* Inline-items separator on the overlay band (issue 475): unlike the inverted band,
-   .section--has-bg-image does NOT remap --color-muted, so the muted default would
-   stay dark and vanish on the dark overlay. Route the default through the light
-   on-overlay text color like sibling body text (.section--has-bg-image .section__content
-   above resolves to --color-bg); the --section-separator-color slot still wins.
-   Mirrors the inverted band's automatic --color-muted remap. */
-.section--has-bg-image .section__inline-items li::before {
-  color: var(--section-separator-color, var(--color-bg));
-}
-/* Same on-overlay routing for the centered (issue 510) trailing ::after separator,
-   so the light default and the --section-separator-color slot behave identically to
-   the leading ::before in the default mode. */
-.section--has-bg-image .section__inline-items--center li:not(:last-child)::after {
-  color: var(--section-separator-color, var(--color-bg));
+  color: var(--pp-list-marker-color, var(--color-accent));
 }
 
 /* ==========================================================================
@@ -3859,20 +3373,31 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
    slot to the same fallback, so no specificity ordering can produce a different value
    and removing one redundant declaration site cannot move a rendered pixel. */
 
-.section--text-only .section__content {
-  max-width: var(--section-body-measure, var(--measure-centered));
-}
+/* `.section--text-only .section__content`'s measure cap was DELETED at #1023. It was one
+   of four rules capping this element and not the one that won — the desktop
+   `main > .section--text-only` override at 49rem was — so it could not be "moved" to a
+   role without picking which of the four to keep. The `body` role's `sizing.max-width`
+   default is 49rem, the value that actually rendered. */
 
 /* ==========================================================================
    SHARED: Section Centered Variant
    Centered text layout with constrained width, no image.
    ========================================================================== */
 
+/* The centred layout's arrangement. `text-align` is here rather than on a role because
+   every selector in these rules targets a `--variant` modifier: "centered" means the
+   content is centred, and a layout that centres the boxes while leaving the text
+   ragged-left is not the layout it advertises. That is the css-lint layout-modifier
+   carve-out, the same one `.hero--centered` uses, and an authored `typography.align`
+   still wins because the authored tier is unlayered.
+
+   The `max-width` cap left this rule at #1023 with the rest of section's measures: the
+   `body` role owns it now, so a centred band's measure is authorable rather than being
+   a second cap fighting the one on `.section__content`. */
 .section--centered .section__body {
   text-align: center;
   margin-left: auto;
   margin-right: auto;
-  max-width: var(--section-body-measure, var(--measure-centered));
 }
 
 .section--centered .section__title {
@@ -3940,7 +3465,9 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
 
 /* Premium body-section typography. */
 @media (min-width: 768px) {
-  main > .section .section__title,
+  /* `main > .section .section__title` left this list at #1023: section's heading weight
+     and line-height are the `heading` role's typography defaults now, responsive so the
+     desktop 1.12 and the phone 1.15 both survive. */
   main > .grid .grid__heading,
   main > .faq .faq__heading {
     font-weight: 560;
@@ -3991,11 +3518,7 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
     margin-bottom: var(--grid-heading-margin-bottom, 1.65rem);
   }
 
-  main > .section .section__title {
-    color: var(--section-heading-color, var(--pp-section-title-theme-color, var(--color-text)));
-    font-size: var(--section-heading-size, var(--pp-band-heading-size));
-    margin-bottom: var(--section-heading-margin-bottom, 1.65rem);
-  }
+
 
   main > .faq .faq__heading {
     color: var(--faq-heading-color, var(--pp-faq-heading-theme-color, var(--color-text)));
@@ -4003,21 +3526,16 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
     margin-bottom: var(--faq-heading-margin-bottom, 1.65rem);
   }
 
-  main > .section .section__content,
-  main > .section .section__content p {
-    color: var(--section-body-color, var(--pp-section-text-theme-color, var(--color-text-secondary)));
-    font-size: var(--section-body-size, 1.065rem);
-    font-weight: var(--section-body-weight, 430);
-    line-height: 1.76;
-  }
-
-  main > .section--text-only .section__content {
-    max-width: var(--section-body-measure, 49rem);
-  }
-
-  main > .section .section__content p + p {
-    margin-top: 1.05rem;
-  }
+  /* THE SECTION BODY'S THREE RULES WERE DELETED HERE (#1023), not moved. They set the
+     body's colour, size, weight and line-height, and capped the text-only measure at
+     49rem. A non-`_band` role default emits UNLAYERED while this stylesheet sits in
+     `pp-v1`, so every one of them was outranked the moment section declared roles —
+     rules that validate and paint nothing, which is the class a dead declaration
+     belongs to. Their VALUES were not lost: they are the `body` role's defaults in
+     components/section/schema.json, including the 49rem measure, which is the value
+     that actually won here rather than the 42rem base further up. The `p + p` rhythm
+     moved to the SHARED GLYPH AND PROSE MECHANISMS block, because it is authored-prose
+     rhythm rather than band design. */
 
   main > .grid .grid__item-title {
     color: var(--grid-item-title-color, var(--color-text));
@@ -4076,7 +3594,9 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
 }
 
 @media (max-width: 767px) {
-  main > .section .section__title,
+  /* `main > .section .section__title` left this list at #1023: section's heading weight
+     and line-height are the `heading` role's typography defaults now, responsive so the
+     desktop 1.12 and the phone 1.15 both survive. */
   main > .grid .grid__heading,
   main > .faq .faq__heading {
     font-weight: 560;
@@ -4091,9 +3611,7 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
     margin-bottom: var(--grid-heading-margin-bottom, 1.25rem);
   }
 
-  main > .section .section__title {
-    margin-bottom: var(--section-heading-margin-bottom, 1.25rem);
-  }
+
 
   main > .faq .faq__heading {
     margin-bottom: var(--faq-heading-margin-bottom, 1.25rem);
@@ -4106,12 +3624,10 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
      section slot. That chain is severed (issue 578) and the literal is the fallback
      directly. Byte-identical: --cta-body-size is declared on the CTA component root, so
      it can never resolve on a .section subtree, and its unset result was always 1rem. */
-  main > .section .section__content,
-  main > .section .section__content p {
-    font-size: var(--section-body-size, 1rem);
-    font-weight: var(--section-body-weight, 430);
-    line-height: 1.65;
-  }
+  /* Section's mobile body rule was DELETED at #1023, the last of its four type rules.
+     Its values are the `body` role's defaults, responsive, so the phone size (1rem) and
+     line-height (1.65) survive alongside the desktop 1.065rem / 1.76 — v1 needed two
+     rules in two media blocks to say that; the role says it once. */
 
   /* grid and faq took their mobile body size from --cta-body-size (issue 578): a CTA
      slot on a grid card and a faq answer. Neither could set it (the write path rejects a
@@ -4396,7 +3912,7 @@ main > .grid .grid__item-link::after {
    `style="--hero-button-bg: …"` — wp_kses_post permits `style`, and an inline declaration beats
    this rule, so the author's own value paints their own button. Neither is the leak: the leak
    was the BAND's styling arriving somewhere nobody asked for it. */
-main .btn:not(.hero__cta):not(.cta__button):not(.section__panel-cta) {
+main .btn:not(.hero__cta):not(.cta__button) {
   --cta-button-bg: initial;
   --cta-button-border: initial;
   --cta-button-color: initial;
@@ -4809,9 +4325,13 @@ main .btn:focus-visible {
    restatement, and falls back to hero's own opener rhythm rather than the shared band
    tier — see the long comment there for both reasons (issue 577). */
 @media (min-width: 768px) {
-  main > [data-pp-component] + .section {
-    padding-top: var(--section-padding-top, var(--pp-band-padding-adjacent-top));
-  }
+  /* section's per-component adjacent rule was DELETED at #1023. It existed only to keep
+     `--section-padding-top` live at this specificity; with no slot left it resolved to
+     exactly what the zero-specificity baseline above already gives, so the baseline now
+     serves section directly. Unlike hero, section needs NO `:not()` exclusion: its
+     `_band` padding default is the shared `@pp-band-padding` on both edges, the same
+     value this tier carries, so the adjacent rhythm winning over the pp-zero default is
+     the intended arrangement rather than a collision. */
   main > [data-pp-component] + .grid {
     padding-top: var(--grid-padding-top, var(--pp-band-padding-adjacent-top));
   }
@@ -4846,10 +4366,10 @@ main .btn:focus-visible {
    --faq-padding-top/bottom too (issue 304). The clamp() literal moved into the one
    rhythm definition (issue 431); stats/testimonials get their own tier via their
    base rules, which now route through the same --pp-band-padding. */
-.section {
-  padding-top: var(--section-padding-top, var(--pp-band-padding));
-  padding-bottom: var(--section-padding-bottom, var(--pp-band-padding));
-}
+/* `.section`'s band padding rule was DELETED at #1023: it is the `_band` role's
+   `spacing.padding-top` / `padding-bottom` default now, resolving to the same shared
+   `@pp-band-padding`. The default emits into `pp-zero`, below this stylesheet, which is
+   what keeps the adjacent-sibling rhythm above able to win the top edge. */
 
 .grid {
   padding-top: var(--grid-padding-top, var(--pp-band-padding));
@@ -4925,9 +4445,13 @@ main .btn {
   :where(main > [data-pp-component] + [data-pp-component]:not(.hero)) {
     padding-top: var(--pp-band-padding-adjacent-top);
   }
-  main > [data-pp-component] + .section {
-    padding-top: var(--section-padding-top, var(--pp-band-padding-adjacent-top));
-  }
+  /* section's per-component adjacent rule was DELETED at #1023. It existed only to keep
+     `--section-padding-top` live at this specificity; with no slot left it resolved to
+     exactly what the zero-specificity baseline above already gives, so the baseline now
+     serves section directly. Unlike hero, section needs NO `:not()` exclusion: its
+     `_band` padding default is the shared `@pp-band-padding` on both edges, the same
+     value this tier carries, so the adjacent rhythm winning over the pp-zero default is
+     the intended arrangement rather than a collision. */
   main > [data-pp-component] + .grid {
     padding-top: var(--grid-padding-top, var(--pp-band-padding-adjacent-top));
   }
@@ -4963,10 +4487,8 @@ main .btn {
      shared --pp-band-padding (3.35rem at this breakpoint). cta/stats/testimonials
      no longer need a per-component restatement here — their base rules already
      fall back to --pp-band-padding, so they join the same mobile tier (issue 431). */
-  .section {
-    padding-top: var(--section-padding-top, var(--pp-band-padding));
-    padding-bottom: var(--section-padding-bottom, var(--pp-band-padding));
-  }
+  /* section's mobile restatement went with its desktop twin (#1023) — the `_band`
+     default already falls back to the shared `--pp-band-padding` at this breakpoint. */
 
   .grid {
     padding-top: var(--grid-padding-top, var(--pp-band-padding));

@@ -2,7 +2,11 @@
   "component": "section",
   "description": "Generic content band: heading block plus rich-text body, with optional image column, inline-items strip, or a right-hand content panel. REBUILT ON THE UNIVERSAL DESIGN CONTRACT (v2): it declares no style slots. Every designable value — colour, type, spacing, border, shadow, size, motion — is set through the `udc` map on the band, per role. Structural props (`layout`, `body_items_align`) survive because the UDC taxonomy has no layout group, so removing them would delete a capability rather than move it. See docs/v2/BUILD-SPEC-sprint0.md §3.",
   "content_requirement": {
-    "any_of": ["title", "body", "body_items"],
+    "any_of": [
+      "title",
+      "body",
+      "body_items"
+    ],
     "message": "A section band needs at least one of: title, body, or body_items."
   },
   "props": {
@@ -52,7 +56,10 @@
     "body_items_align": {
       "type": "enum",
       "strict": true,
-      "values": ["start", "center"],
+      "values": [
+        "start",
+        "center"
+      ],
       "required": false,
       "default": "start",
       "description": "How the body_items row packs its lines. 'start' (default) is a left-packed row whose line-leading separators are clipped, so no separator ever dangles at the start of a line. 'center' centres each line and moves the separator to a trailing position, which stays visible as a line-end dot. THIS IS SCAFFOLDING, NOT STYLING — it selects a wrap technique (a justify-content value plus the separator mechanism that technique requires), and the UDC taxonomy carries no layout group, which is why it is a prop rather than a role value. It replaces the v1 `--section-inline-items-align` style slot with the same two accepted values."
@@ -60,7 +67,13 @@
     "layout": {
       "type": "enum",
       "strict": true,
-      "values": ["text-only", "image-left", "image-right", "centered", "text-panel"],
+      "values": [
+        "text-only",
+        "image-left",
+        "image-right",
+        "centered",
+        "text-panel"
+      ],
       "required": false,
       "default": "text-only",
       "description": "Structural layout — scaffolding, not styling, which is why it is still a prop. 'text-only' is a single column; 'centered' is a single centred column; 'image-left'/'image-right' put the image column on that side and fall back to 'text-only' when there is no image; 'text-panel' adds a right-hand content panel and falls back to 'text-only' when the panel has no content. The image props are REFUSED on the three layouts that never render an image, and the panel props on the four layouts that never render a panel — see refuse_props_when."
@@ -118,7 +131,12 @@
     "panel_items_marker": {
       "type": "enum",
       "strict": true,
-      "values": ["disc", "check", "dash", "arrow"],
+      "values": [
+        "disc",
+        "check",
+        "dash",
+        "arrow"
+      ],
       "required": false,
       "default": "disc",
       "description": "text-panel layout: list marker glyph for the string entries of panel_items. 'disc' (default) is the plain bulleted list; 'check', 'dash' and 'arrow' render that glyph instead. THE GLYPH IS CONTENT, which is why this stays a prop. Its COLOUR is no longer authorable: the glyph is painted by a ::before pseudo-element, and ruling A3 defers pseudo-elements to their own ruling — see retired_props."
@@ -126,7 +144,12 @@
     "body_marker": {
       "type": "enum",
       "strict": true,
-      "values": ["disc", "check", "dash", "arrow"],
+      "values": [
+        "disc",
+        "check",
+        "dash",
+        "arrow"
+      ],
       "required": false,
       "default": "disc",
       "description": "List marker glyph for top-level <ul> lists in body. 'disc' (default) leaves body lists unchanged; 'check', 'dash' and 'arrow' render that glyph instead. Applies only to lists authored as a direct child of the body (nested lists keep their disc). Same pseudo-element deferral as panel_items_marker — the glyph is a prop, its colour is not authorable in v2."
@@ -154,13 +177,43 @@
   },
   "refuse_props_when": [
     {
-      "when": [{ "prop": "layout", "in": ["text-only", "centered", "text-panel"] }],
-      "props": ["image_url", "image_id", "image_alt"],
+      "when": [
+        {
+          "prop": "layout",
+          "in": [
+            "text-only",
+            "centered",
+            "text-panel"
+          ]
+        }
+      ],
+      "props": [
+        "image_url",
+        "image_id",
+        "image_alt"
+      ],
       "message": "paints nothing on this layout: only \"image-left\" and \"image-right\" render the image column. Either set `layout` to one of those, or — if you meant the band's BACKGROUND rather than a content image — set `_band` -> `background` -> `image` to a Media Library attachment id, which paints on every layout."
     },
     {
-      "when": [{ "prop": "layout", "in": ["text-only", "centered", "image-left", "image-right"] }],
-      "props": ["panel_heading", "panel_body", "panel_items", "panel_items_marker", "panel_cta_text", "panel_cta_url"],
+      "when": [
+        {
+          "prop": "layout",
+          "in": [
+            "text-only",
+            "centered",
+            "image-left",
+            "image-right"
+          ]
+        }
+      ],
+      "props": [
+        "panel_heading",
+        "panel_body",
+        "panel_items",
+        "panel_items_marker",
+        "panel_cta_text",
+        "panel_cta_url"
+      ],
       "message": "paints nothing on this layout: only \"text-panel\" renders the right-hand panel. Set `layout` to \"text-panel\" in the same write if you want the panel."
     }
   ],
@@ -168,7 +221,15 @@
     "_band": {
       "selector": "",
       "description": "The band itself — the <section>. Set the band's own background here to make a dark or tinted band; the v1 `theme` prop is gone because a preset bundle of colours is exactly what the UDC expresses directly. A band background image is `background.image` (an attachment id) with `background.overlay` for the scrim.",
-      "groups": ["typography", "spacing", "border", "background", "sizing", "shadow", "motion"],
+      "groups": [
+        "typography",
+        "spacing",
+        "border",
+        "background",
+        "sizing",
+        "shadow",
+        "motion"
+      ],
       "defaults": {
         "spacing": {
           "padding-top": "@pp-band-padding",
@@ -184,19 +245,35 @@
           "color": "transparent",
           "radius": "0"
         },
-        "shadow": { "box": "none" }
+        "shadow": {
+          "box": "none"
+        }
       }
     },
     "header": {
       "selector": ".section__header",
       "description": "The heading block wrapper (eyebrow + heading + subheading). Its `typography.align` is what the v1 `title_align` prop set: the eyebrow, heading and subheading inherit it.",
-      "groups": ["typography", "spacing", "border", "background", "sizing", "motion"],
+      "groups": [
+        "typography",
+        "spacing",
+        "border",
+        "background",
+        "sizing",
+        "motion"
+      ],
       "defaults": {}
     },
     "eyebrow": {
       "selector": ".section__eyebrow",
       "description": "The kicker pill above the heading.",
-      "groups": ["typography", "spacing", "border", "background", "sizing", "motion"],
+      "groups": [
+        "typography",
+        "spacing",
+        "border",
+        "background",
+        "sizing",
+        "motion"
+      ],
       "defaults": {
         "typography": {
           "size": "0.8125rem",
@@ -215,68 +292,163 @@
           "color": "transparent",
           "radius": "3px"
         },
-        "background": { "fill": "@color-surface-accent" }
+        "background": {
+          "fill": "@color-surface-accent"
+        }
       }
     },
     "heading": {
       "selector": ".section__title",
       "description": "The band heading (an <h2>).",
-      "groups": ["typography", "spacing", "border", "background", "sizing", "motion"],
+      "groups": [
+        "typography",
+        "spacing",
+        "border",
+        "background",
+        "sizing",
+        "motion"
+      ],
       "defaults": {
         "typography": {
           "size": "@pp-band-heading-size",
-          "color": "@color-text"
+          "color": "@color-text",
+          "weight": "560",
+          "line-height": {
+            "d": "1.12",
+            "t": "1.12",
+            "p": "1.15"
+          }
         },
-        "spacing": { "margin-bottom": "1.65rem" },
-        "sizing": { "max-width": "none" }
+        "spacing": {
+          "margin-bottom": {
+            "d": "1.65rem",
+            "t": "1.65rem",
+            "p": "1.25rem"
+          }
+        },
+        "sizing": {
+          "max-width": "none"
+        }
       }
     },
     "heading-accent": {
       "selector": ".section__title-accent",
       "description": "The accented substring inside the heading, rendered only when title_accent matches.",
-      "groups": ["typography", "spacing", "border", "background", "sizing", "motion"],
+      "groups": [
+        "typography",
+        "spacing",
+        "border",
+        "background",
+        "sizing",
+        "motion"
+      ],
       "defaults": {
-        "typography": { "color": "@color-accent" }
+        "typography": {
+          "color": "@color-accent"
+        }
       }
     },
     "subheading": {
       "selector": ".section__subheading",
       "description": "The supporting line below the heading.",
-      "groups": ["typography", "spacing", "border", "background", "sizing", "motion"],
+      "groups": [
+        "typography",
+        "spacing",
+        "border",
+        "background",
+        "sizing",
+        "motion"
+      ],
       "defaults": {
-        "typography": { "color": "@color-muted" },
-        "spacing": { "margin-bottom": "@space-md" }
+        "typography": {
+          "color": "@color-muted"
+        },
+        "spacing": {
+          "margin-bottom": "@space-md"
+        }
       }
     },
     "body": {
       "selector": ".section__content",
-      "description": "The rich-text body container. Its measure is this role's `sizing.max-width`; the type scale is its `typography`.",
-      "groups": ["typography", "spacing", "border", "background", "sizing", "motion"],
+      "description": "The rich-text body container. Its measure is this role's `sizing.max-width`; the type scale is its `typography`. THE DEFAULT IS THE MEASURED v1 VALUE, NOT THE BASE ONE: v1 capped this element from four rules at once (a 42rem in-block base, a .section--text-only override at --measure-centered, and a desktop `main > .section--text-only` override at 49rem), and the one that actually won on a page was the last. v2 has no layout-specific role defaults, so the four collapse into this single authorable value and 49rem is the one that keeps a default section body wrapping where it wraps today.",
+      "groups": [
+        "typography",
+        "spacing",
+        "border",
+        "background",
+        "sizing",
+        "motion"
+      ],
       "defaults": {
         "typography": {
           "color": "@color-text-secondary",
-          "size": "1.065rem",
-          "weight": "430"
+          "size": {
+            "d": "1.065rem",
+            "t": "1.065rem",
+            "p": "1rem"
+          },
+          "weight": "430",
+          "line-height": {
+            "d": "1.76",
+            "t": "1.76",
+            "p": "1.65"
+          }
         },
-        "sizing": { "max-width": "40rem" }
+        "sizing": {
+          "max-width": "49rem"
+        }
       }
     },
     "body-link": {
       "selector": ".section__content a",
       "description": "Links inside the body rich text. STATES ARE PART OF THIS ROLE, not the stylesheet: its resting colour and its `hover` colour are both authored here, because moving one without the other is the cancellation trap docs/explanation-cascade-layers.md §1b describes.",
-      "groups": ["typography", "spacing", "border", "background", "sizing", "motion"],
+      "groups": [
+        "typography",
+        "spacing",
+        "border",
+        "background",
+        "sizing",
+        "motion"
+      ],
       "defaults": {
         "typography": {
           "color": "@color-accent",
           "decoration": "underline",
-          ":hover": { "color": "@color-accent-hover" }
+          ":hover": {
+            "color": "@color-accent-hover"
+          }
+        }
+      }
+    },
+    "columns": {
+      "selector": ".section__grid",
+      "description": "The two-column track on the image and text-panel layouts. The track itself is structural (one column below 768px, two above); the GUTTER between the columns is design, which is why this role exists: `gap` is a designable value, so it cannot live in the stylesheet for a v2 component. The gutter is responsive by default, matching the v1 stylesheet exactly: var(--space-lg) below 768px and var(--space-xl) at and above it.",
+      "groups": [
+        "spacing",
+        "sizing",
+        "motion"
+      ],
+      "defaults": {
+        "spacing": {
+          "gap": {
+            "d": "@space-xl",
+            "t": "@space-xl",
+            "p": "@space-lg"
+          }
         }
       }
     },
     "inline-items": {
       "selector": ".section__inline-items",
       "description": "The short-items row rendered after the body (the \"trust strip\"). Its separator glyph is structural; how the row packs its lines is the `body_items_align` prop, because the taxonomy has no layout group.",
-      "groups": ["typography", "spacing", "border", "background", "sizing", "motion"],
+      "groups": [
+        "typography",
+        "spacing",
+        "border",
+        "background",
+        "sizing",
+        "motion"
+      ],
       "defaults": {
         "spacing": {
           "column-gap": "@space-md",
@@ -288,9 +460,18 @@
     "media": {
       "selector": ".section__image",
       "description": "The content image on the image layouts. Its box is design, not structure: shape, ratio and how the picture sits inside its frame are all set here.",
-      "groups": ["spacing", "border", "background", "sizing", "shadow", "motion"],
+      "groups": [
+        "spacing",
+        "border",
+        "background",
+        "sizing",
+        "shadow",
+        "motion"
+      ],
       "defaults": {
-        "border": { "radius": "@radius" },
+        "border": {
+          "radius": "@radius"
+        },
         "sizing": {
           "aspect-ratio": "auto",
           "object-position": "center"
@@ -300,48 +481,100 @@
     "panel": {
       "selector": ".section__panel",
       "description": "The right-hand panel surface on the text-panel layout.",
-      "groups": ["typography", "spacing", "border", "background", "sizing", "shadow", "motion"],
+      "groups": [
+        "typography",
+        "spacing",
+        "border",
+        "background",
+        "sizing",
+        "shadow",
+        "motion"
+      ],
       "defaults": {
-        "typography": { "color": "@color-text" },
-        "spacing": { "padding": "@space-lg" },
-        "background": { "fill": "@color-surface" },
+        "typography": {
+          "color": "@color-text"
+        },
+        "spacing": {
+          "padding": "@space-lg"
+        },
+        "background": {
+          "fill": "@color-surface"
+        },
         "border": {
           "width": "0",
           "style": "solid",
           "color": "transparent",
           "radius": "@radius"
         },
-        "shadow": { "box": "none" }
+        "shadow": {
+          "box": "none"
+        }
       }
     },
     "panel-heading": {
       "selector": ".section__panel-heading",
       "description": "The panel's heading (an <h3>).",
-      "groups": ["typography", "spacing", "border", "background", "sizing", "motion"],
+      "groups": [
+        "typography",
+        "spacing",
+        "border",
+        "background",
+        "sizing",
+        "motion"
+      ],
       "defaults": {}
     },
     "panel-body": {
       "selector": ".section__panel-body",
       "description": "The panel's supporting paragraph.",
-      "groups": ["typography", "spacing", "border", "background", "sizing", "motion"],
+      "groups": [
+        "typography",
+        "spacing",
+        "border",
+        "background",
+        "sizing",
+        "motion"
+      ],
       "defaults": {}
     },
     "panel-list": {
       "selector": ".section__panel-list",
       "description": "The panel's list container. The space between entries is design; the marker glyph is the panel_items_marker prop.",
-      "groups": ["typography", "spacing", "border", "background", "sizing", "motion"],
+      "groups": [
+        "typography",
+        "spacing",
+        "border",
+        "background",
+        "sizing",
+        "motion"
+      ],
       "defaults": {}
     },
     "panel-row": {
       "selector": ".section__panel-row",
       "description": "One paired { label, value } row inside the panel list. A rule between rows is this role's border. NARROWER THAN v1, deliberately: the label and the value were separately styleable and are now one role, because a role name is a permanent authoring surface and `.section__panel-row-label` / `-value` describe this component's markup rather than a visual job. Style the pair together here; a label that must read differently from its value is a case for the future item-grain contract (#1024), not for two markup-shaped roles. This role reaches EVERY row in the band — per-row addressing is what the v1 per-row `style` map did, and it has no v2 address yet.",
-      "groups": ["typography", "spacing", "border", "background", "sizing", "motion"],
+      "groups": [
+        "typography",
+        "spacing",
+        "border",
+        "background",
+        "sizing",
+        "motion"
+      ],
       "defaults": {}
     },
     "panel-cta": {
       "selector": ".section__panel-cta",
       "description": "The panel's call-to-action button. Its resting AND hover treatment both live here — apply the `button` or `button-secondary` preset, or set the groups directly.",
-      "groups": ["typography", "spacing", "border", "background", "sizing", "shadow", "motion"],
+      "groups": [
+        "typography",
+        "spacing",
+        "border",
+        "background",
+        "sizing",
+        "shadow",
+        "motion"
+      ],
       "defaults": {}
     }
   },
