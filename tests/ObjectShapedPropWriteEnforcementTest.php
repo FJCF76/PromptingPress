@@ -259,9 +259,13 @@ class ObjectShapedPropWriteEnforcementTest extends TestCase
             }
         }
 
-        $this->assertSame(2, $seen,
-            'the registry declares exactly two nested `object` fields today (grid.items[].style,'
-            . ' section.panel_items[].style) — if this count moved, the walk above covered a'
+        // Two -> ONE at #1023: `section.panel_items[].style` retired with section's slot
+        // system, because v2 has no address for a per-item style map (roles are
+        // band-grain). BUILD-SPEC Addendum B is the contract question and #1024 the gate;
+        // when it is ruled this count goes back up at item grain.
+        $this->assertSame(1, $seen,
+            'the registry declares exactly one nested `object` field today'
+            . ' (grid.items[].style) — if this count moved, the walk above covered a'
             . ' different set than the one this file claims and the number needs updating deliberately');
     }
 
@@ -426,7 +430,19 @@ class ObjectShapedPropWriteEnforcementTest extends TestCase
      * entry walk it sits in is not the one grid uses. A rule proven on one of two
      * shipped callers is a rule proven on half the surface.
      */
-    public function testTheSectionPanelRowStyleIsRefusedThroughARealActionToo(): void
+    /**
+     * INVERTED at #1023. This was the second half of the #883 shape rule, proven through
+     * a real action: a JSON LIST where a per-item `style` object belongs is refused, and
+     * the message pluralizes its entry count.
+     *
+     * `section.panel_items[].style` is retired, so there is no field for the shape rule
+     * to judge — a stored one is an UNDECLARED field now. What the write path says about
+     * it changed accordingly, and that is worth pinning: an undeclared item field is
+     * refused with `unknown_prop`, naming the fields the entry does accept, rather than
+     * being silently dropped. The grid half of the #883 pair is above and still live, so
+     * the shape rule itself keeps its through-a-real-action proof.
+     */
+    public function testAStoredPanelRowStyleIsNowAnUndeclaredField(): void
     {
         $post_id = pp_create_page('Panel page', 'draft');
         pp_update_composition($post_id, [['component' => 'section', 'props' => ['body' => 'Body copy']]]);
@@ -435,15 +451,17 @@ class ObjectShapedPropWriteEnforcementTest extends TestCase
             'post_id'     => $post_id,
             'composition' => [['component' => 'section', 'props' => [
                 'body'        => 'Body copy',
+                'layout'      => 'text-panel',
                 'panel_items' => [['label' => 'Row', 'style' => json_decode('["#fff","#000"]', true)]],
             ]]],
         ]);
 
-        $this->assertFalse($result['ok'], 'the panel-row style must be refused too');
-        $this->assertSame('invalid_prop_value', $result['error_code']);
-        $this->assertStringContainsString('field "style"', $result['error']);
-        $this->assertStringContainsString('must be an object, but this one is a JSON list (2 entries).', $result['error'],
-            'and the entry count pluralizes');
+        $this->assertFalse($result['ok'], 'an undeclared item field must still be refused');
+        $this->assertSame('unknown_prop', $result['error_code'],
+            'and with the UNDECLARED code, not the shape code — the field is gone, not mistyped');
+        $this->assertStringContainsString('style', $result['error']);
+        $this->assertStringContainsString('label', $result['error'],
+            'the refusal names the fields a panel entry does accept');
     }
 
     // ── §4. The route table: what refuses, and what deliberately bypasses ───
@@ -729,6 +747,26 @@ class ObjectShapedPropWriteEnforcementTest extends TestCase
      * so a new composable component fails HERE by name instead of being walked against an
      * empty fixture and reporting coverage it never had.
      */
+    /**
+     * The layout a section band needs so the prop under test is not INERT (#1023).
+     *
+     * `refuse_props_when` refuses the image props on the three layouts with no image
+     * column and the panel props on the four with no panel. Both refusals are the point
+     * of the rule, so a sweep over section's props has to author the layout that makes
+     * each one live rather than pick one and hope.
+     */
+    private static function sectionLayoutFor(array $override): array
+    {
+        $prop = (string) (array_key_first($override) ?? '');
+        if (in_array($prop, ['image_url', 'image_alt', 'image_id'], true)) {
+            return ['layout' => 'image-left', 'image_url' => '/a.png'];
+        }
+        if (str_starts_with($prop, 'panel_')) {
+            return ['layout' => 'text-panel', 'panel_heading' => 'Panel'];
+        }
+        return [];
+    }
+
     private function wellFormedProps(string $component, array $override): array
     {
         $base = [
@@ -738,7 +776,14 @@ class ObjectShapedPropWriteEnforcementTest extends TestCase
             'grid'         => ['items' => [['title' => 'Card', 'text' => 'Text']]],
             'hero'         => ['title' => 'Real title'],
             'logos'        => ['items' => [['image_url' => '/a.png', 'image_alt' => 'Acme']]],
-            'section'      => ['body' => 'Body copy'],
+            // SECTION'S LAYOUT FOLLOWS THE PROP UNDER TEST (#1023). Section refuses a
+            // prop as `inert_prop` on a layout that cannot render it, and that refusal
+            // lands BEFORE the shape/type rules these sweeps assert — so a single base
+            // layout would make the sweep report the wrong refusal. No one layout works:
+            // `text-panel` renders no image column and the image layouts render no panel,
+            // which is exactly the pair of rules the rebuild added. So the base is chosen
+            // per prop, below.
+            'section'      => ['body' => 'Body copy'] + self::sectionLayoutFor($override),
             'stats'        => ['items' => [['number' => '99%', 'label' => 'Uptime']]],
             'table'        => ['headers' => ['A'], 'rows' => [['1']]],
             'testimonials' => ['items' => [['quote' => 'Great']]],

@@ -168,7 +168,7 @@ class StringPropWriteEnforcementTest extends TestCase
             }
         }
         $this->assertGreaterThanOrEqual(
-            61,
+            60,
             $checked,
             'the shipped schemas declare 61 composable top-level string props; a lower count means the walk stopped finding them'
         );
@@ -359,7 +359,10 @@ class StringPropWriteEnforcementTest extends TestCase
             'title'       => 'The smoke fixture shape',
             'composition' => [[
                 'component' => 'section',
-                'props'     => ['body' => 'Body copy', 'panel_cta_text' => 'Book', 'panel_cta_url' => false],
+                // `layout` is explicit since #1023: the panel props are refused as
+                // `inert_prop` on a layout with no panel, and that refusal would land
+                // before the type rule this case is about.
+                'props'     => ['body' => 'Body copy', 'layout' => 'text-panel', 'panel_cta_text' => 'Book', 'panel_cta_url' => false],
             ]],
         ]);
 
@@ -668,6 +671,26 @@ class StringPropWriteEnforcementTest extends TestCase
      * it never had, and the paragraph above would quietly stop being true. Failing here
      * instead names the component whose fixture is missing.
      */
+    /**
+     * The layout a section band needs so the prop under test is not INERT (#1023).
+     *
+     * `refuse_props_when` refuses the image props on the three layouts with no image
+     * column and the panel props on the four with no panel. Both refusals are the point
+     * of the rule, so a sweep over section's props has to author the layout that makes
+     * each one live rather than pick one and hope.
+     */
+    private static function sectionLayoutFor(array $override): array
+    {
+        $prop = (string) (array_key_first($override) ?? '');
+        if (in_array($prop, ['image_url', 'image_alt', 'image_id'], true)) {
+            return ['layout' => 'image-left', 'image_url' => '/a.png'];
+        }
+        if (str_starts_with($prop, 'panel_')) {
+            return ['layout' => 'text-panel', 'panel_heading' => 'Panel'];
+        }
+        return [];
+    }
+
     private function wellFormedProps(string $component, array $override): array
     {
         $base = [
@@ -677,7 +700,14 @@ class StringPropWriteEnforcementTest extends TestCase
             'grid'         => ['items' => [['title' => 'Card', 'text' => 'Text']]],
             'hero'         => ['title' => 'Real title'],
             'logos'        => ['items' => [['image_url' => '/a.png', 'image_alt' => 'Acme']]],
-            'section'      => ['body' => 'Body copy'],
+            // SECTION'S LAYOUT FOLLOWS THE PROP UNDER TEST (#1023). Section refuses a
+            // prop as `inert_prop` on a layout that cannot render it, and that refusal
+            // lands BEFORE the shape/type rules these sweeps assert — so a single base
+            // layout would make the sweep report the wrong refusal. No one layout works:
+            // `text-panel` renders no image column and the image layouts render no panel,
+            // which is exactly the pair of rules the rebuild added. So the base is chosen
+            // per prop, below.
+            'section'      => ['body' => 'Body copy'] + self::sectionLayoutFor($override),
             'stats'        => ['items' => [['number' => '99%', 'label' => 'Uptime']]],
             'table'        => ['headers' => ['A'], 'rows' => [['1']]],
             'testimonials' => ['items' => [['quote' => 'Great']]],

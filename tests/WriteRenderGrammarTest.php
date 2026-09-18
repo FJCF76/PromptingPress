@@ -316,7 +316,10 @@ class WriteRenderGrammarTest extends TestCase
         return [
             'padding'        => ['stats', '--stats-padding-top'],
             'font size'      => ['stats', '--stats-number-size'],
-            'text measure'   => ['section', '--section-body-measure'],
+            // section's row left this table at #1023 with its slot map. The
+            // length-vs-length-or-none distinction it pinned lives on for the components
+            // still on slots, and for section it is now a ROLE param type
+            // (`length-or-none` on `sizing.max-width`), pinned in MeasureSurfaceTest.
         ];
     }
 
@@ -366,32 +369,12 @@ class WriteRenderGrammarTest extends TestCase
     }
 
     /** The same seed for SECTION's panel row, the other render call site. */
-    public function testContainerScopedSlotIsNotEmittedOnASectionPanelRow(): void
-    {
-        $eligible = array_keys(pp_item_eligible_slots(pp_get_style_slots('section')));
-        $this->assertNotEmpty($eligible, 'section must declare at least one item-eligible slot');
-        $item_slot = $eligible[0];
-
-        $id = pp_create_page('Section item scope');
-        $this->seedRaw($id, [[
-            'component' => 'section',
-            'props'     => [
-                'title'       => 'Rows',
-                'layout'      => 'text-panel', // panel rows render only in this layout
-                'panel_items' => [
-                    ['label' => 'A', 'value' => 'B', 'style' => [
-                        '--section-padding-top' => '9rem',      // container-scoped
-                        $item_slot              => '#ff0000',   // item-eligible
-                    ]],
-                ],
-            ],
-        ]]);
-
-        $html = $this->renderStored($id);
-
-        $this->assertStringNotContainsString('--section-padding-top', $html);
-        $this->assertStringContainsString($item_slot . ': #ff0000', $html);
-    }
+    // The SECTION half of this A-19 pair was deleted at #1023. It proved the same
+    // container-vs-item boundary on section's single item-eligible slot; section
+    // declares none now, so pp_item_eligible_slots() returns nothing and the fixture
+    // premise fails. The grid case above is the surface that matters anyway (20 of its
+    // slots are item-eligible), and it is what BUILD-SPEC Addendum B (#1024) has to
+    // preserve when item-grain addressing is ruled.
 
     /**
      * Byte-identity for the COMPONENT-level map: narrowing must apply to item scope
@@ -977,8 +960,13 @@ class WriteRenderGrammarTest extends TestCase
      */
     public function testMixedStringAndObjectPanelItemsStillValidate(): void
     {
+        // `layout` is explicit since #1023: the panel props are REFUSED as `inert_prop`
+        // on any layout that does not render the panel, which is the #1006-class rule
+        // section's rebuild added. The mixed-entry traversal this case is about is
+        // unchanged; it just has to author a band that actually shows a panel.
         $this->assertTrue(pp_validate_composition([['component' => 'section', 'props' => [
             'body'        => 'x',
+            'layout'      => 'text-panel',
             'panel_items' => ['a plain string row', ['label' => 'Seats', 'value' => '12']],
         ]]]));
     }
@@ -1160,7 +1148,11 @@ class WriteRenderGrammarTest extends TestCase
             '--cta-button-hover-bg'   => ['cta', '--cta-button-hover-bg', $hero],
             '--cta-button2-bg'        => ['cta', '--cta-button2-bg', $hero2],
             '--cta-button2-hover-bg'  => ['cta', '--cta-button2-hover-bg', $hero2],
-            '--section-panel-cta-bg'   => ['section', '--section-panel-cta-bg', $section],
+            // section's row left this provider at #1023 with the slot. The
+            // transparent-fill advisory still fires for every component that declares a
+            // fill slot; section's panel button is the `panel-cta` ROLE now, and the
+            // equivalent advisory over a `udc` map is the engine's own, pinned in
+            // UdcEngineTest rather than here.
         ];
     }
 
