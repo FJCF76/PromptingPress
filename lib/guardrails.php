@@ -759,14 +759,26 @@ function pp_validate_composition_smells(array $composition): array {
         $udc       = is_array($item['udc'] ?? null) ? $item['udc'] : [];
         $band      = is_array($udc['_band'] ?? null) ? $udc['_band'] : [];
         $band_bg   = is_array($band['background'] ?? null) ? $band['background'] : [];
-        // `!empty()` and not `isset()` on purpose: this smell asks "does the band have
-        // something to look at", and `""`/`null` are the engine's unset sentinels. The
-        // known imprecision is `fill: "transparent"`, which is a present value that paints
-        // nothing and therefore suppresses a warning it should not. Left as-is because the
-        // rule is advisory and warn-direction — a missed nudge on a band the author did
-        // style deliberately, never a false accusation — and because reproducing the
-        // engine's paints-nothing analysis here would duplicate it.
-        $has_band_bg = !empty($band_bg['image']) || !empty($band_bg['fill']);
+        // `is_scalar()` AND `!empty()`, and BOTH halves are load-bearing.
+        //
+        // `!empty()` rather than `isset()` because this smell asks "does the band have
+        // something to look at", and `""`/`null` are the engine's unset sentinels.
+        //
+        // `is_scalar()` because `!empty()` alone answers TRUE for a non-empty ARRAY, and
+        // these values reach here from storage — a raw meta write, or a #233 restore,
+        // which by rule never blocks — so `image => ['a']` is reachable and is not a
+        // background. Without the scalar test a corrupt map SUPPRESSES the warning, which
+        // is the one direction a suppression term must never fail in. Caught by
+        // testAHostileUdcShapeNeitherFatalsNorSuppresses(), which was written for exactly
+        // this and found it.
+        //
+        // The known remaining imprecision is `fill: "transparent"`: a present scalar that
+        // paints nothing and therefore suppresses a warning it should not. Left as-is
+        // because the rule is advisory and warn-direction — a missed nudge on a band the
+        // author did style deliberately, never a false accusation — and because
+        // reproducing the engine's paints-nothing analysis here would duplicate it.
+        $has_band_bg = (is_scalar($band_bg['image'] ?? null) && !empty($band_bg['image']))
+            || (is_scalar($band_bg['fill'] ?? null) && !empty($band_bg['fill']));
 
         $layout = $props['layout'] ?? 'text-only';
         if ($component === 'section' && in_array($layout, ['text-only', 'centered'], true) && empty($image_url) && empty($props['background_image'] ?? '') && !$has_band_bg) {

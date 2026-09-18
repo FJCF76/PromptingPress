@@ -275,10 +275,15 @@ class SchemaTruthfulnessTest extends TestCase
             //   --section-body-size / -weight     -> body.typography.size / .weight
             //   --section-body-color              -> body.typography.color
             //   --section-heading-margin-bottom   -> heading.spacing.margin-bottom
-            //   --section-body-measure            -> body.sizing.max-width, at 49rem
-            // The measure is the one that changed value, and deliberately: v1 capped
-            // that element from four rules and 49rem is the one that actually won. The
-            // role-side pins live in MeasureSurfaceTest and the component's own suite.
+            //   --section-body-measure            -> body.sizing.max-width, at 40rem
+            // THE MEASURE IS 40rem, AND AN EARLIER DRAFT OF THIS COMMENT SAID 49rem.
+            // v1 capped that element from four rules and 49rem is the one that WON among
+            // them — but `.section__content` sits inside `.section__body`, which capped at
+            // 40rem, so the 49rem literal never bound and 640px is what every v1 band
+            // actually rendered. Winning-rule reading vs rendered geometry; the rendered
+            // value is the one a port carries. The same wrapper capped the heading, the
+            // subheading and the trust strip, which is why all four roles default to
+            // 40rem. Role-side pins: MeasureSurfaceTest and SectionRoleDefaultsEmitTest.
             ['cta', '--cta-heading-size', 'var(--pp-band-heading-size)'],
             ['grid', '--grid-heading-size', 'var(--pp-band-heading-size)'],
             ['faq', '--faq-heading-size', 'var(--pp-band-heading-size)'],

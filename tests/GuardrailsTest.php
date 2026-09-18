@@ -823,6 +823,110 @@ class GuardrailsTest extends TestCase
         $this->assertNotContains('consecutive_text_sections', $types);
     }
 
+    /**
+     * THE v2 HALF OF THE SAME SMELL (#1023).
+     *
+     * The test above feeds `background_image`, a prop `section` no longer declares —
+     * the write path refuses it now, so that case exercises a path no author can reach
+     * and it is kept only as a stored-state guard. A rebuilt section puts its background
+     * in the band's `udc` map, and until #1023 the smell could not see it: a band with a
+     * real photograph behind it still counted as bare text, and the warning fired on
+     * pages that are not monotonous at all. `wp pp check page` exits non-zero on any
+     * smell, so a false positive here stops an agent loop.
+     */
+    public function testAV2BandBackgroundImageBreaksTheTextOnlyRun(): void
+    {
+        $composition = [
+            ['component' => 'section', 'props' => ['body' => 'A']],
+            ['component' => 'section', 'props' => ['body' => 'B'],
+             'udc' => ['_band' => ['background' => ['image' => '42']]]],
+            ['component' => 'section', 'props' => ['body' => 'C']],
+        ];
+        $types = array_column(pp_validate_composition_smells($composition), 'type');
+        $this->assertNotContains('consecutive_text_sections', $types);
+    }
+
+    /** A fill is a background too — a solid colour band breaks the run exactly as an image does. */
+    public function testAV2BandBackgroundFillBreaksTheTextOnlyRunToo(): void
+    {
+        $composition = [
+            ['component' => 'section', 'props' => ['body' => 'A']],
+            ['component' => 'section', 'props' => ['body' => 'B'],
+             'udc' => ['_band' => ['background' => ['fill' => '#101014']]]],
+            ['component' => 'section', 'props' => ['body' => 'C']],
+        ];
+        $types = array_column(pp_validate_composition_smells($composition), 'type');
+        $this->assertNotContains('consecutive_text_sections', $types);
+    }
+
+    /**
+     * THE COUNTER-DIRECTION, and the reason the two tests above are not enough on their
+     * own. A suppression term can pass every "does not fire" assertion by suppressing
+     * everything, which is the failure mode a newly added suppression is most likely to
+     * have. Three bands that carry a `udc` map with NO background are still three bare
+     * text bands, and the warning must still fire.
+     */
+    public function testThreeBandsCarryingAUdcMapWithNoBackgroundStillFire(): void
+    {
+        $styled = ['heading' => ['typography' => ['color' => '#111111']]];
+        $composition = [
+            ['component' => 'section', 'props' => ['body' => 'A'], 'udc' => $styled],
+            ['component' => 'section', 'props' => ['body' => 'B'], 'udc' => $styled],
+            ['component' => 'section', 'props' => ['body' => 'C'], 'udc' => $styled],
+        ];
+        $types = array_column(pp_validate_composition_smells($composition), 'type');
+        $this->assertContains('consecutive_text_sections', $types);
+    }
+
+    /**
+     * An overlay with no image paints nothing, so it is not a background and must not
+     * suppress. This is the narrowest case the read can get wrong: `background` IS an
+     * array and IS non-empty, but neither key the smell reads is set.
+     */
+    public function testAnOverlayWithoutAnImageIsNotABackground(): void
+    {
+        $composition = [
+            ['component' => 'section', 'props' => ['body' => 'A']],
+            ['component' => 'section', 'props' => ['body' => 'B'],
+             'udc' => ['_band' => ['background' => ['overlay' => 'rgba(0,0,0,0.4)']]]],
+            ['component' => 'section', 'props' => ['body' => 'C']],
+        ];
+        $types = array_column(pp_validate_composition_smells($composition), 'type');
+        $this->assertContains('consecutive_text_sections', $types);
+    }
+
+    /**
+     * HOSTILE STORED SHAPES. The read is three nested `is_array()` guards, written for
+     * data that reached storage another way — a raw meta write, or a #233 restore, which
+     * by rule never blocks. Each shape must neither fatal nor suppress: a corrupt map is
+     * not a background.
+     *
+     * @dataProvider hostileUdcShapes
+     */
+    public function testAHostileUdcShapeNeitherFatalsNorSuppresses($udc): void
+    {
+        $composition = [
+            ['component' => 'section', 'props' => ['body' => 'A'], 'udc' => $udc],
+            ['component' => 'section', 'props' => ['body' => 'B'], 'udc' => $udc],
+            ['component' => 'section', 'props' => ['body' => 'C'], 'udc' => $udc],
+        ];
+        $types = array_column(pp_validate_composition_smells($composition), 'type');
+        $this->assertContains('consecutive_text_sections', $types);
+    }
+
+    public static function hostileUdcShapes(): array
+    {
+        return [
+            'udc is a string'            => ['x'],
+            'udc is an int'              => [7],
+            '_band is a string'          => [['_band' => 'x']],
+            'background is a string'     => [['_band' => ['background' => 'x']]],
+            'image is an array'          => [['_band' => ['background' => ['image' => ['a']]]]],
+            'image is the empty string'  => [['_band' => ['background' => ['image' => '']]]],
+            'fill is null'               => [['_band' => ['background' => ['fill' => null]]]],
+        ];
+    }
+
     // ── Consecutive Narrow Width / Compact Spacing Smells (issue 51) ──────
 
     public function testSmellsThreeConsecutiveNarrowWidthTriggersWarning(): void

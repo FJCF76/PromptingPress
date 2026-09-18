@@ -3479,10 +3479,25 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
    to .section--centered only: text-only / image-left / image-right / text-panel keep
    .section__content left-pinned (byte-identical). Text is already centered here via the
    inherited text-align:center on .section--centered .section__body. */
-.section--centered .section__content {
+.section--centered .section__content,
+.section--centered .section__title,
+.section--centered .section__subheading {
   margin-left: auto;
   margin-right: auto;
 }
+
+/* THE HEADING AND SUBHEADING JOINED THAT RULE AT #1023, and the reason is the exact
+   inverse of the one above. v1 capped `.section__body` — the wrapper — so the heading
+   FILLED it and `text-align: center` was the whole centring mechanism. The rebuild moved
+   the measure onto the roles that render it, which is right, but a capped BLOCK with no
+   auto margins pins to its parent's left edge and only its TEXT centres inside it.
+   Measured at 1280 before this rule: container 1152, `.section__title` 640px wide at
+   left=96 — 224px left of centre, while `.section__content` beside it was centred. That
+   is #367's `.stats__heading` defect reproduced exactly.
+   Auto margins are the centring MECHANISM for this variant, not a design value: `auto`
+   is not a length, it is "distribute the free space", which is why the sibling rule above
+   has lived here since #354. It stays scoped to `.section--centered` — every other layout
+   keeps its header left-pinned, byte-identical. */
 
 /* ==========================================================================
    SHARED: Pagination
