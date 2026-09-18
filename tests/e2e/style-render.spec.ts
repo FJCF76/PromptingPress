@@ -5329,7 +5329,11 @@ test.describe('chrome UDC renders (ruling A1)', () => {
           panel_items: [
             'All checks passing',
             { label: 'Timeline', value: 'Six to eight weeks from kickoff to launch' },
-            { label: 'Included', value: 'Discovery, design, build, QA and a handover session' },
+            // LONG ENOUGH THAT THE WRAP COMPARISON BELOW CANNOT SATURATE. At the old
+            // 50-character length this value took 2 lines at the stacked measure and 3 at
+            // 170px on some faces, and 3 at BOTH on others — a one-step gap that a font
+            // change closes. See the assertion at the end of this test.
+            { label: 'Included', value: 'Discovery, design, build, QA and a handover session with the whole delivery team' },
             { label: 'Support and maintenance retainer', value: 'Optional' },
             { label: 'Docs', value: 'https://example.com/a-very-long-unbreakable-documentation-path' },
             // Half-rows: the renderer emits BOTH spans even when one side is empty
@@ -5497,25 +5501,46 @@ test.describe('chrome UDC renders (ruling A1)', () => {
     expect(gap).toBe(4);
     expect(gap).toBeLessThan(mobile.rows[1].marginTop);
 
-    // The reported defect, measured: the longest value takes FEWER lines at the full
-    // stacked measure than it did in the old ~170px column. Measured as a difference
-    // against the SAME text in the SAME font at the two widths, not as an absolute
-    // line count — the theme ships no webfont, so an absolute count is a hostage to
-    // whichever face `system-ui` resolves to on the machine running the suite, and
-    // would go red on a font change that has nothing to do with this CSS.
+    // The reported defect, measured two ways — and the second one exists because the
+    // first is not as font-independent as it looks.
+    //
+    // THE ORIGINAL COMPARISON WAS A STEP FUNCTION WITH ONE STEP OF HEADROOM. Comparing
+    // the SAME text at two widths was meant to cancel the font out, since the theme ships
+    // no webfont and `system-ui` resolves to whatever the running machine has. It does not
+    // cancel: a line COUNT is quantised, so when the text needs 3 lines at BOTH widths the
+    // comparison collapses to `3 < 3` and goes red on a CSS change that never happened.
+    // Measured on the old 50-character value at the stacked 223px: the drop to 3 lines
+    // came at 210px under Liberation Sans, a 13px margin, and this machine resolves
+    // `system-ui` to WenQuanYi Zen Hei while CI resolves it to a Latin face — so the local
+    // run was never checking the same thing as CI. The value is longer now, which puts a
+    // whole line between the two widths on every face tried (WenQuanYi, DejaVu, Liberation,
+    // Verdana, Times, serif, monospace: 3-vs-4 or better, Liberation 3-vs-5).
+    //
+    // AND THE CLAIM ITSELF IS A WIDTH, so it is now asserted as one. "Gives the value the
+    // full measure" is continuous and font-independent; the wrap count is the consequence.
     const wrap = await page
       .locator('#pp-sec-stack .section__panel-row-value')
-      .nth(1) // "Discovery, design, build, QA and a handover session" — the longest
+      .nth(1) // the "Included" value — the longest
       .evaluate((el: HTMLElement) => {
         const lh = parseFloat(getComputedStyle(el).lineHeight);
         const lines = () => Math.round(el.getBoundingClientRect().height / lh);
+        const naturalWidth = el.getBoundingClientRect().width;
         const atFullMeasure = lines();
         const prior = el.style.width;
         el.style.width = '170px'; // the pre-#568 column this value was squeezed into
         const atOldColumn = lines();
         el.style.width = prior;
-        return { atFullMeasure, atOldColumn };
+        return { atFullMeasure, atOldColumn, naturalWidth };
       });
+
+    // The fix itself: the stacked value gets the row's whole content box, not the ~170px
+    // column #568 reported. 223px at 375 (343 viewport-minus-page-padding, less the
+    // panel's 2 x --space-lg, less the list's --space-lg indent, less the row's 1.5rem
+    // marker indent). Asserted as a floor rather than an equality so a padding-token
+    // retune does not fail it, and well above 170 so a regression to the old column does.
+    expect(wrap.naturalWidth).toBeGreaterThan(200);
+
+    // The consequence, now with a full line of headroom on every face.
     expect(wrap.atFullMeasure).toBeLessThan(wrap.atOldColumn);
 
     // The single-row panel: nothing to follow, so no margin-top, and no trailing gap
