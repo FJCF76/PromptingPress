@@ -4012,11 +4012,17 @@ main > .grid .grid__item-link::after {
    --cta-accent), though it is unreachable today: a .cta has no prop that can carry a nested
    .btn.
 
+   `.section__panel-cta` LEFT this exclusion list at #1023. Section is a v2 component now, so
+   its panel button is the `panel-cta` ROLE: whatever that role is given emits unlayered and
+   outranks this `pp-v1` neutraliser at any specificity, so keeping the exclusion would have
+   been a rule that can no longer do anything for that class. Zeroing cta's slots on it is also
+   the honest default — a section panel button reads none of cta's custom properties.
+
    Escape hatch, accepted: an author who hand-writes one of the excluded classes onto their own
-   button opts back into whichever band's slots that button sits inside (`class="btn hero__cta"`
-   in a hero's proof, `class="btn section__panel-cta"` in a section's body). The component classes
-   are internal, and treating a deliberate copy of one as intent is better than out-guessing it. The same holds for a hand-written
-   `style="--hero-button-bg: …"` — wp_kses_post permits `style`, and an inline declaration beats
+   button opts back into whichever band's slots that button sits inside (`class="btn cta__button"`
+   in a cta's body). The component classes are internal, and treating a deliberate copy of one
+   as intent is better than out-guessing it. The same holds for a hand-written
+   `style="--cta-button-bg: …"` — wp_kses_post permits `style`, and an inline declaration beats
    this rule, so the author's own value paints their own button. Neither is the leak: the leak
    was the BAND's styling arriving somewhere nobody asked for it. */
 main .btn:not(.hero__cta):not(.cta__button) {
