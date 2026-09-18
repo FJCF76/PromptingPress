@@ -4,7 +4,7 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
-## [Unreleased — v2.0.0-alpha.2] — v2 Sprint 2: the chrome CSS retirement — the header and footer join the design contract, and styling one part of them stops cancelling another (#994, #992, #995)
+## [Unreleased — v2.0.0-alpha.2] — v2 Sprint 2: the chrome CSS retirement, and `section` rebuilt on the design contract (#994, #992, #995, #1023, #988)
 
 **The last two components still painted by the old stylesheet are on the engine.** The site header and footer declared roles you could author, while `assets/css/components.css` quietly owned how they actually looked. That split is what made styling a nav link silently erase its own hover. 88 declarations moved into role defaults, the CSS rules are gone, and the three bugs the split was causing are fixed.
 
@@ -86,6 +86,197 @@ Nothing to do unless you have a stored `pp_site_udc` map with a `"_preset"` on a
 - Chrome joins the structural-CSS boundary lint; the carve-out is removed and its lapse pinned.
 - The #992 characterization test is inverted rather than deleted: same fixture, same authored input, opposite expectations.
 - New pins: role defaults frozen value-for-value, breakpoint maps refused when they name only `d`, every role's defaults proved to reach the page, every shipped selector proved well-formed, and the chevron's negative margin pinned to the token it mirrors.
+
+---
+
+## `section` is on the design contract (#1023)
+
+**The most-used band in the theme is rebuilt.** `section` declared 47 style slots and
+40,852 bytes of stylesheet; it declares **19 roles and zero slots**, and its stylesheet
+block is 6,969 bytes of pure layout scaffolding. Every designable value — colour, type,
+spacing, border, shadow, size, crop, motion — is now a role parameter in the band's `udc`
+map, per breakpoint and per state.
+
+### What changes for you
+
+**Nineteen roles, because the panel is a component inside a component.** `_band`, `header`,
+`eyebrow`, `heading`, `heading-accent`, `subheading`, `body`, `body-link`, `columns`,
+`inline-items`, `media`, `panel`, `panel-heading`, `panel-body`, `panel-list`, `panel-row`,
+`panel-row-label`, `panel-row-value`, `panel-cta`. A spec-sheet panel wants its label small
+and tracked and its value carrying the weight, so the label and the value are separate
+roles — a single `panel` role could not express the composition the panel exists for.
+
+**Three limits on the panel CTA are gone, not moved.** It used to need a dedicated fill
+slot to defeat the shared premium gradient (a plain background colour lost to a
+background-image), the slots reached the `primary` variant only, and there was no
+per-instance hover fill at all — a flat panel button reverted to the gradient under the
+pointer. The `panel-cta` role is emitted unlayered and band-scoped, so `background.fill`
+simply paints; `panel_cta_variant` is retired, so there is no variant set to contradict;
+and a `':hover'` nested inside `background` is a real hover fill.
+
+**Section links are reachable on every band.** `--section-body-link-color` and its hover
+twin were consumed on `inverted` and `background_image` bands only — a dark-band correction
+rather than the general way to colour a link. The `body-link` role paints on every band.
+
+**Per-viewport values where there used to be one.** A measure, a heading rhythm or a body
+size took a single value at every layout and viewport; each is a role parameter with a
+breakpoint map now.
+
+### ⚠️ Breaking: four props are retired
+
+`theme`, `title_align`, `background_image` and `panel_cta_variant` are **refused at write**
+with `retired_prop`, and the refusal names the replacement. All 47 style slots are refused
+with `no_style_slots`.
+
+| Retired | Write this instead |
+|---|---|
+| `theme: "muted"` / `"inverted"` | `_band` `background.fill`, **plus** a `typography.color` on every text role over it |
+| `title_align: "center"` | `typography.align` on `heading` / `eyebrow` / `subheading`, with `spacing.margin-left`/`margin-right` set to `auto` |
+| `background_image: "<url>"` | `_band` `background.image` — **a Media Library attachment id, not a URL** — with `background.overlay` and `background.position` |
+| `panel_cta_variant` | `"_preset": "button"` (or `"button-secondary"`) on `panel-cta`, overridden beside it |
+| any `--section-*` slot | the role and parameter named in that slot's migration note |
+
+**`background_image` is a narrowing as well as a move:** it took a URL string, and
+`background.image` takes an attachment id, which is what lets the theme resolve responsive
+sources and the attachment's own alt text. Run `import_media` first and pass the
+`attachment_id` it returns.
+
+**`theme: "inverted"` did your contrast for you; a `udc` map does not.** Set a colour on
+`heading`, `subheading`, `body`, `inline-items` and `body-link` — and give `body-link` a
+`':hover'`, or a link you recolour at rest still hovers to the theme accent. The trade is
+that you can now build a band the three-value bundle could not express.
+
+### ⚠️ Breaking: per-row panel styling is retired
+
+A `panel_items` paired row could carry its own `"style"` map to emphasise one row. The
+engine addresses **roles, not individual items**, so `panel-row-value` is styled once for
+every row; a stored per-row `style` key is now an undeclared field and refused at write.
+**A single emphasised row is not expressible today.** Per-item addressing is tracked as
+**#1024**; until it lands, the way to draw the eye is the row's own content.
+
+### ⚠️ Narrowed: glyph colour is site-wide, not per-band
+
+`--section-separator-color`, `--section-body-marker-color` and
+`--section-panel-marker-color` were three per-band colours. Every one of those marks is
+drawn with `content` on a `::before`/`::after`, and pseudo-elements are deferred to their
+own ruling, so **no role can express them at any value.** Their colour now comes from the
+site-wide `--pp-list-marker-color` design token, whose fallback is `var(--color-accent)` —
+the exact value all three slots defaulted to, so **nothing moves visually.** What is lost
+is per-band control; set the token with `update_design_tokens` to recolour every glyph at
+once. The glyph CHOICE is unaffected: `body_marker` and `panel_items_marker` still work.
+
+### ⚠️ Narrowed: a body-less trust strip no longer flushes its own top margin
+
+The template used to infer that no body copy preceded a `body_items` row and zero its top
+margin automatically, so a strip sat optically centred in the band's own symmetric padding.
+A role default is per component, not per content shape, and inferring design intent from
+whether a prop is empty is the kind of hidden rule the contract removes. **Say it instead:**
+
+```json
+"inline-items": { "spacing": { "margin-top": "0" } }
+```
+
+Without it a body-less strip carries `@space-md` above it and sits slightly below the
+band's optical centre. The same line is in `components/section/README.md` and in
+`ai-instructions/composition.md`, next to a worked example that uses it.
+
+### Also fixed here: `--font-weight-heading` was unreachable from the engine (#988)
+
+The theme's own heading weight is `650`, which CSS Fonts 4 allows and the engine's
+`font-weight` grammar refused — so referencing `@font-weight-heading` from any v2
+component shipped a value the validator rejected. The grammar now accepts the range CSS
+actually defines: **a number from 1 to 1000, decimals included**, because variable fonts
+make `412.5` a legitimate weight on a `wght` axis. The keyword set (`normal`, `bold`,
+`lighter`, `bolder`) is unchanged. One validator owns it. This unblocked section's own
+`560`/`430` defaults and the token for hero and testimonials too.
+
+### Fixed before anyone hit it: the starter homepage
+
+`pp_default_homepage_composition()` styled its three section bands with flat slot maps.
+Section has no slots, so **a fresh install's homepage would have failed validation** — a
+defect in the release artifact, not in anything an author writes. Converted to `udc` role
+maps; the seeded composition validates with zero findings.
+
+### Upgrading
+
+An unstyled section renders identically: the values moved, the pixels did not — with the
+two narrowings above as the exceptions, both of which an unstyled site does not notice
+(the glyph colour lands on the value it already had; the flush-top margin affects only a
+body-less strip). If you have stored `--section-*` slots, a `theme`, a `title_align`, a
+`background_image`, a `panel_cta_variant` or a per-row panel `style`, those writes are
+refused and each refusal names its route. `wp pp check page` finds them.
+
+### Itemized changes
+
+#### Added
+- `sizing.object-position` joins the engine's taxonomy. Section's rebuild needed it, an
+  engine gap is fixed in the engine rather than worked around locally — and adding it
+  **reverses hero's #986 narrowing** of the same property. One property, one home, on
+  every v2 component.
+- `body_items_align` (`start` | `center`), replacing the `--section-inline-items-align`
+  slot with the same two values. A prop and not a role value because it selects a wrap
+  TECHNIQUE — a `justify-content` plus the separator mechanism that technique needs — and
+  the taxonomy has no layout group.
+- `refuse_props_when` on section: the image props are refused on the three layouts that
+  render no image column, and the six panel props on the four that render no panel.
+
+#### Fixed
+- `_pp_validate_font_weight()` accepts the real CSS range, 1–1000 inclusive, decimals
+  included (#988).
+- The shipped starter homepage validates again.
+
+#### Changed
+- `section`'s stylesheet block: 40,852 → 6,969 bytes. Four families deleted rather than
+  moved — the theme variants, the background-image variant and its overlay element, the
+  band-padding rules, and the two measure caps — plus the four `main > .section` premium
+  typography rules, which were **dead code**: they live in the `pp-v1` cascade layer and a
+  role's block is emitted unlayered, so they had stopped painting the moment roles took
+  over. That is #989's stylesheet audit intersecting this component.
+- The authored-prose mechanisms (list markers and indent restored after the base reset, the
+  `p + p` rhythm, the panel list's item rhythm, the mobile inter-pair margin, the
+  inline-items separator) moved into a shared `GLYPH AND PROSE MECHANISMS` block. They are
+  shared by every component carrying rich text, and the boundary lint judges a component's
+  block as that component's stylesheet.
+- The issue-545 nested-button neutraliser no longer carves out `.section__panel-cta`: the
+  carve-out existed to protect slots that no longer exist, and the role outranks the rule
+  outright.
+
+#### Docs
+- `components/section/README.md` rebuilt: 19 props, 19 roles, a worked dark-band example,
+  the contrast rule, and every narrowing stated with its route.
+- Every AI-facing surface swept for `--section-*`: the runtime prompt, `composition.md`,
+  `style-component.md`, `retheme.md`, `AI_CONTEXT.md`, `README.md` and two `docs/`
+  references. The slot total is restated 185 → 138 across 7 components.
+- Three corrections that were stale since #986, found by the sweep: hero's README claimed
+  the font-weight grammar could not accept the theme's heading weight, listed
+  `object-position` as structural CSS it keeps, and recorded the media focal point as a
+  narrowing — all three now false. Two `length-or-none` rosters and the `role: "fill"`
+  declarer roster still named hero's retired slots.
+- `ai-instructions/style-component.md` named two recipes, `dark-spacious` and
+  `accent-panel`, that **no shipped schema declares**. Pre-existing fiction, replaced with
+  cta's real ones.
+
+#### Tests
+- The issue-305 subject parser was upgraded rather than worked around. It split selector
+  lists on every comma, so `:is(ul, ol)` mis-attributed every subject in the rule, and a
+  guard failed fast with "must be upgraded first". Splitting at paren depth zero is also a
+  correctness fix: `.p :is(.a, .b)` now yields the two subjects it really has, where the
+  old parser yielded none — and the bypass guard can only police a subject it can name.
+- The all-declared-props sweep is partitioned by refusal gate. "Every prop in one band" is
+  not an authorable state for a component whose prop groups are mutually exclusive by
+  design, so the sweep runs one composition per gate value and then asserts the partition
+  is exhaustive. Same claim, on a surface where one band cannot hold it.
+- 47 slot migration notes and 4 prop notes, each naming the role and parameter that owns
+  the value today.
+- All 19 role selectors verified against rendered markup — which needs two fixtures,
+  because `media` only renders on an image layout and the `panel*` family only on
+  `text-panel`.
+- Retirements are named replacements, not deletions: the prose-only condition census was
+  WIDENED when its disjunction example left (it now pins five live classes including two
+  that were never pinned anywhere), the `in`-operator claim split into a renderer pin plus
+  a proof that the operator still has a live declaring surface, and the `pp-section--*`
+  prefix trap became a derived guard that catches the hazard on every component instead of
+  by name on one.
 
 ---
 
