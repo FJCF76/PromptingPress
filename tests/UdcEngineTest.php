@@ -2224,4 +2224,108 @@ final class UdcEngineTest extends TestCase
         $this->assertStringNotContainsString('background-repeat', $css);
         $this->assertStringNotContainsString('background-position', $css);
     }
+
+    // ── sizing.object-position, the param section's rebuild added (#1023) ─────
+
+    /**
+     * THE PRECEDENT IS aspect-ratio, AND IT IS THE REASON THESE THREE EXIST.
+     *
+     * `sizing.aspect-ratio` was added by hero's rebuild for the same reason
+     * `sizing.object-position` is added by section's: the engine grows rather than
+     * the component keeping a local hack. That one arrived with a hostile-write
+     * sweep, a stored-hostile proof and a shared-grammar agreement pin. This one
+     * arrived with a single happy-path assertion, and a security review found the
+     * asymmetry — the boundary held under every payload it fired, but nothing in
+     * CI held it there. These are those three tests with the param swapped, so the
+     * newest param is pinned the way the last new param was.
+     *
+     * The write gate. Every value here must be refused BEFORE storage.
+     */
+    public function testAMalformedOrHostileObjectPositionIsRefusedAtWrite(): void
+    {
+        $cases = [
+            // shape failures the position grammar owns
+            '', '  ', 'centre', 'top left bottom', '50', 'top 50px left 20px extra',
+            // the injection classes, one representative each
+            '}', '{', 'center} body{display:none} .x{color:red', 'center;color:red',
+            'center</style><script>alert(1)</script>', 'center/*x*/', 'center*/',
+            'url(javascript:alert(1))', 'expression(alert(1))', '@import url(//evil)',
+            'var(--x)', 'var(--x, }body{color:red)', 'calc(50% + 10px) calc(1px',
+            "center\n;color:red", "center\r\ncolor:red", "center\tcolor:red",
+            'center"', 'center)', 'center\\', '--x: red',
+        ];
+
+        foreach ($cases as $value) {
+            $error = pp_udc_validate_map(
+                ['media' => ['sizing' => ['object-position' => $value]]],
+                'section'
+            );
+            $this->assertInstanceOf(
+                WP_Error::class,
+                $error,
+                sprintf('object-position %s must be refused at write', json_encode($value))
+            );
+        }
+    }
+
+    /**
+     * The emitter re-rejects a stored position the write gate would have refused,
+     * so data that reached storage another way (a raw meta write, or a restore,
+     * which by rule never blocks per #233) drops its OWN declaration and leaves
+     * its siblings painting. The proof is the siblings: an emitter that bailed on
+     * the whole role would also pass a "does not contain object-position" check.
+     */
+    public function testAStoredHostileObjectPositionDropsOnlyItsOwnDeclaration(): void
+    {
+        $band = [
+            'component' => 'section',
+            'id'        => 'pp-3f9a1c2e',
+            'props'     => ['body' => '<p>Body.</p>', 'image_url' => '/x.png', 'layout' => 'image-left'],
+            'udc'       => [
+                'media' => [
+                    'sizing' => [
+                        'object-position' => 'center}body{display:none} .z{color:red',
+                        'aspect-ratio'    => '16/9',
+                        'max-width'       => '40rem',
+                    ],
+                ],
+            ],
+        ];
+
+        $css = pp_udc_band_css(pp_udc_normalize_band($band));
+
+        $this->assertStringNotContainsString('object-position', $css);
+        $this->assertStringNotContainsString('display:none', $css);
+        $this->assertStringNotContainsString('body{', $css);
+        $this->assertStringContainsString('aspect-ratio:16/9;', $css, 'the sibling declaration must survive');
+        $this->assertStringContainsString('max-width:40rem;', $css, 'the sibling declaration must survive');
+    }
+
+    /**
+     * ONE OWNER. The position grammar is _pp_validate_position() in lib/apply.php,
+     * reached through _pp_validate_token_value()'s `case 'position'` — the same
+     * route a v1 `position`-typed style slot takes, and the same one `_band`'s
+     * `background.position` takes. If this param ever grew its own validator the
+     * surfaces could drift, which is the forked-grammar the architecture forbids;
+     * so the pin is that both routes agree, value for value, in both directions.
+     */
+    public function testTheObjectPositionParamUsesTheSharedPositionGrammarAndNotASecondOne(): void
+    {
+        $param = pp_udc_groups()['sizing']['params']['object-position'];
+        $this->assertSame('position', $param['type']);
+        $this->assertSame('object-position', $param['property']);
+
+        $values = [
+            'center', 'top', 'bottom right', '50% 50%', '-10px 50%', 'left 10px top 20px',
+            '', 'centre', '}', 'url(x)', 'var(--p)', 'calc(1px)', '@import url(//e)', '50',
+        ];
+
+        foreach ($values as $value) {
+            $this->assertSame(
+                _pp_validate_token_value($value, 'position') === true,
+                pp_udc_validate_value($value, $param) === true,
+                sprintf('the udc param and the shared position grammar must agree on %s', json_encode($value))
+            );
+        }
+    }
 }
