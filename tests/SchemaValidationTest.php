@@ -374,10 +374,39 @@ class SchemaValidationTest extends TestCase
 
     /**
      * Tests that every declared style slot has the required keys: type, default, description.
+     *
+     * THE ROSTER IS DERIVED, NOT LISTED, and #1046 is why. It used to read
+     * `['hero','section','grid','cta']` — a hand-picked four, three of which have since
+     * been rebuilt onto the UDC and now declare ZERO slots, so the sweep was quietly
+     * running against one real component while four others (stats 17, embed 8, logos 8,
+     * table 6) sat outside it entirely.
+     *
+     * That gap had teeth. #1046's review found that `testStatsSchemaDeclaresItsNamedStyleSlots`
+     * was deleted inside faq's slot-test retirement block even though STATS HAS NOT BEEN
+     * REBUILT, and nothing caught it: deleting the `default` key from `--stats-label-color`
+     * left the entire PHP suite green, because the only generic sweep that would have seen
+     * it was iterating a list stats was never on. Deriving the roster from the schemas
+     * closes that for every slot-bearing component at once and cannot go stale the next
+     * time a component leaves the slot system — the fix is the shape #1038 asked for
+     * (resolve by SURVIVING SUBJECT, not by the issue that introduced the test).
      */
     public function testStyleSlotStructure(): void
     {
-        $components = ['hero', 'section', 'grid', 'cta'];
+        $components = [];
+        foreach (glob($this->themeRoot . '/components/*/schema.json') as $file) {
+            $schema = json_decode(file_get_contents($file), true);
+            if (($schema['styling']['style_slots'] ?? []) !== []) {
+                $components[] = basename(dirname($file));
+            }
+        }
+        sort($components);
+        // Fail-closed: if every component is eventually rebuilt this test must be RETIRED
+        // deliberately, not allowed to pass vacuously on an empty roster.
+        $this->assertNotEmpty(
+            $components,
+            'no slot-bearing component found — the sweep would pass vacuously; retire this '
+            . 'test deliberately if the slot system is genuinely gone'
+        );
         $validTypes = ['color', 'length', 'length-or-none', 'number', 'shadow', 'gradient', 'position', 'ratio', 'align', 'text-transform', 'font-family', 'enum'];
 
         foreach ($components as $component) {
@@ -4926,7 +4955,7 @@ class SchemaValidationTest extends TestCase
     private const SLOT_RENAME_MIGRATION_NOTES = [
         // ── v2 Sprint 2 (#1046): faq's 21 style slots retired ──
         //
-        // The third-largest slot map after section's 47 and cta's 40, and the same story:
+        // The smallest of the five retired slot maps (hero 49, section 47, cta 40, testimonials 27, faq 21), and the same story:
         // the slot SYSTEM is gone from this component, not renamed and not deprecated.
         // Each note names the role and parameter that owns the value today.
         //
@@ -7541,6 +7570,78 @@ class SchemaValidationTest extends TestCase
         ]);
         $this->assertInstanceOf(\WP_Error::class, $v1);
         $this->assertStringContainsString('Available slots: --grid-', $v1->get_error_message());
+    }
+
+
+    /**
+     * EVERY MIGRATION NOTE'S ROUTE MUST BE A ROUTE THE ENGINE ACTUALLY HAS.
+     *
+     * These notes are the ONLY migration path an author gets when their stored page still
+     * carries a `--<component>-*` slot the theme no longer declares: the write is refused
+     * and the message hands them this text. #1046's review measured what was guarding
+     * them — `detectMigrationNoteDefects()` checks three things only (the note is a
+     * non-empty string, it mentions an issue number, and the slot name is no longer live).
+     * Nothing checked that the role, group or parameter it names EXISTS. Proof: rewriting
+     * a note to route to a `panel-row-nonexistent` role's `flexbox.wobble` left the whole
+     * suite green.
+     *
+     * So the route is parsed out of the note and checked against the live registry: the
+     * role must exist on that component, the role must PERMIT the group it names, and the
+     * taxonomy must declare the parameter. A note that sends an author somewhere the
+     * engine will refuse is worse than no note, because it reads as authoritative.
+     *
+     * Notes that record a REMOVAL rather than a move (no default on the v2 side, a value
+     * that became structural, a capability that retired outright) legitimately name no
+     * route and are skipped — the count floor below is what keeps that from silently
+     * becoming "skip everything".
+     */
+    public function testEveryMigrationNoteRoutesSomewhereTheEngineActuallyHas(): void
+    {
+        $checked = 0;
+        $groups  = pp_udc_groups();
+
+        foreach (self::SLOT_RENAME_MIGRATION_NOTES as $component => $entries) {
+            $roles = pp_udc_component_roles($component);
+
+            foreach ($entries as $slot => $note) {
+                if (!preg_match('/`([A-Za-z_][A-Za-z0-9_-]*)` role\'s `([a-z-]+)\.([a-z-]+)`/', $note, $m)) {
+                    continue; // records a removal, not a move
+                }
+                [, $role, $group, $param] = $m;
+
+                $this->assertArrayHasKey(
+                    $role,
+                    $roles,
+                    "{$component}'s note for {$slot} routes to a `{$role}` role that does not exist"
+                );
+                $this->assertContains(
+                    $group,
+                    $roles[$role]['groups'] ?? [],
+                    "{$component}'s note for {$slot} routes to `{$group}`, which the `{$role}` role does not permit"
+                );
+                $this->assertArrayHasKey(
+                    $group,
+                    $groups,
+                    "{$component}'s note for {$slot} names a `{$group}` group the taxonomy does not declare"
+                );
+                $this->assertArrayHasKey(
+                    $param,
+                    $groups[$group]['params'] ?? [],
+                    "{$component}'s note for {$slot} names `{$group}.{$param}`, which the taxonomy does not declare"
+                );
+                $checked++;
+            }
+        }
+
+        // Fail-closed floor: if the note wording drifts so the parser stops matching, this
+        // guard would pass having verified nothing. The number only ever grows as more
+        // components are rebuilt, so a DROP is the signal.
+        $this->assertGreaterThanOrEqual(
+            100,
+            $checked,
+            'the route parser matched fewer notes than expected — the note wording drifted '
+            . 'and this guard went quiet rather than failing'
+        );
     }
 
 }

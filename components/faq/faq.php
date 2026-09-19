@@ -184,23 +184,22 @@ $overlay_attr = !empty($props['__pp_udc_overlay']) ? ' data-pp-band-overlay' : '
                 <?php endforeach; ?>
             </div>
         <?php else : ?>
-            <?php // THE `text-muted` UTILITY IS GONE (#1046). The class hardcodes
-                  // `--color-muted` from utilities.css in `@layer pp-v1`, and WHICH
-                  // AUTHORED WRITE IT WOULD HAVE BEATEN IS WORTH STATING EXACTLY,
-                  // because an earlier draft of this comment said "a class rule like
-                  // that WINS over an authored colour" flat, which is only half true:
-                  //   - a write aimed at THIS role emits UNLAYERED and matches
-                  //     `.faq__empty` directly, so it BEATS the layered utility. The
-                  //     class was never what blocked that write.
-                  //   - a `_band` write emits unlayered too, but on the band ROOT, and
-                  //     reaches this line only by INHERITANCE. An inherited value is
-                  //     used only when NO declaration matches the element, so layer
-                  //     order never enters and `.text-muted` WINS. That write is the
-                  //     one the class would have stranded — and the dark band is
-                  //     exactly the case that needs it.
-                  // So the class is gone for the reason #994 gave footer: one source of
-                  // truth, and the inherited route left open. The measured grey is the
-                  // `empty` role's `typography.color` default now. ?>
+            <?php // THE `text-muted` UTILITY IS GONE (#1046), so the `empty` role owns
+                  // this line's colour instead of a utility class — the same call #994
+                  // made for footer. The measured grey is the role's `typography.color`
+                  // default now.
+                  //
+                  // THE CANONICAL CASCADE REASONING LIVES IN `components/faq/schema.json`
+                  // under the `empty` role, the way faq.php:130 points at cta.php for the
+                  // positional-twin pair. It is stated there once because it is subtle and
+                  // this branch has now shipped two wrong drafts of it in this very
+                  // comment: the first claimed a layered utility beats any authored
+                  // colour (false for a role-aimed write), and the second claimed dropping
+                  // the class "left the inherited route open" (also false — the role's own
+                  // default is a direct declaration on this element, so an inherited
+                  // `_band` colour still loses, which is exactly why a dark band needs a
+                  // second write on `empty`). Three copies of that argument is three
+                  // places to get it wrong; the schema is the copy under test. ?>
             <p class="faq__empty">No questions yet.</p>
         <?php endif; ?>
 

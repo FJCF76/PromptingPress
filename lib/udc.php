@@ -2958,12 +2958,22 @@ function pp_udc_compile_band(array $item, string $layer, ?array &$drops = null):
         // closing `}` TO EOF (#965). Its docblock is the reference.
         //
         // The blast radius is why this is checked here rather than trusted to the
-        // schemas. A malformed `>` costs the one grouped rule it sits in. A malformed
-        // `[` costs every rule that PRINTS AFTER IT — and lib/wp.php concatenates every
-        // inline style on a handle into ONE `<style>` element, so that is the rest of
-        // this component's defaults, every band block below it, and the token tier
-        // sharing the handle. The input is repo-owned either way; this bounds what a
-        // theme bug can do, which is the same posture the charset itself takes.
+        // schemas. A malformed `>` costs the one grouped rule it sits in. A malformed `[`
+        // costs every rule that PRINTS AFTER IT in the SAME `<style>` element — and
+        // WordPress core concatenates a handle's inline styles into one element
+        // (WP_Styles::print_inline_style; functions.php:105 says so too). PER HANDLE,
+        // measured against functions.php rather than assumed:
+        //   defaults ride `pp-base` (:193)      -> the rest of this component's defaults,
+        //                                          every LATER component's defaults, and
+        //                                          the chrome defaults (:220)
+        //   authored rides `pp-utilities` (:198) -> every later band block and the chrome
+        //                                          authored block (:225)
+        // Two handles, so a broken DEFAULTS selector cannot reach an authored band block
+        // at all, and the token tier is safe in both directions because it is added to
+        // `pp-base` FIRST (:112) and therefore prints ahead of any damage. An earlier
+        // draft of this comment claimed the opposite on both counts.
+        // The input is repo-owned either way; this bounds what a theme bug can do, which
+        // is the same posture the charset itself takes.
         //
         // ONE OWNER, deliberately: this routes through the shared balance helper rather
         // than counting brackets locally, because a second implementation of "is this
@@ -2980,7 +2990,8 @@ function pp_udc_compile_band(array $item, string $layer, ?array &$drops = null):
         //   `.a(b`   balanced=false  charset=false  -> refused HERE
         //   `.a[b`   balanced=false  charset=TRUE   -> refused HERE, and ONLY here
         //
-        // That last row is why this gate exists at all. Brackets are the one delimiter
+        // That last row is why this CALL SITE exists (the helper itself is #965's, shared
+        // with three older callers; #1046 only routes the selector path through it). Brackets are the one delimiter
         // class the charset ADMITS (widened at #1046 for `question-open`), so this is the
         // only thing standing between an unbalanced `[` and the emitter printing
         // `.faq__item[open > .faq__question{...}`, which swallows the following role to

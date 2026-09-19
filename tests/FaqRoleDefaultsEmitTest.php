@@ -321,10 +321,15 @@ class FaqRoleDefaultsEmitTest extends TestCase
      * THE EMPTY LINE'S COLOUR IS A ROLE DEFAULT, and that is a CHANGE OF MECHANISM the
      * markup paid for.
      *
-     * v1 put `text-muted` on the element, which hardcodes `--color-muted` in `pp-v1` and
-     * beats an authored colour — the exact case footer met at #994, where the template
-     * dropped the class so the role could govern. The measured value is unchanged; what
-     * changed is that an author can now reach it.
+     * v1 put `text-muted` on the element, which hardcodes `--color-muted` in `pp-v1` — the
+     * exact case footer met at #994, where the template dropped the class so the role
+     * could govern. BE PRECISE ABOUT WHAT THE CLASS BEAT, because a careless version of
+     * this sentence is wrong and this file states the mechanism correctly 20 lines down:
+     * a layered utility beats an INHERITED `_band` colour (an inherited value is used only
+     * when no declaration matches the element), never a write aimed at the role itself
+     * (unlayered, matches directly, wins). What v1 actually lacked was any addressable
+     * surface for this line at all — faq declared no slot for it. The measured value is
+     * unchanged; what changed is that an author now has something to aim at.
      */
     public function testTheEmptyStateCarriesItsMeasuredGreyAsARoleDefault(): void
     {
@@ -396,15 +401,22 @@ class FaqRoleDefaultsEmitTest extends TestCase
         // THE DISCLOSURE ITSELF. The three places a dark-band author could look must all
         // name `empty`, or the measured 3.10:1 render is undocumented again.
         $roles = pp_udc_component_roles('faq');
-        // The ENUMERATION, not the bare word. `_band`'s description names `empty` twice —
-        // once in the non-following list and once pointing at the role — so asserting the
-        // substring alone passes even with the list member deleted. Proven: that mutation
-        // SURVIVED the first draft of this test.
+        // THE ENUMERATION, NOT THE BARE WORD, but matched structurally rather than as a
+        // frozen comma list. `_band`'s description names `empty` twice — once in the
+        // non-following list and once pointing at the role — so asserting the bare
+        // substring passes even with the list member deleted (proven: that mutation
+        // SURVIVED this test's first draft). Pinning the whole literal list was the second
+        // draft, and it broke the moment `heading-accent` was legitimately ADDED to the
+        // enumeration — a guard that fails on a correct edit gets weakened by the next
+        // author. So: isolate the clause, then require `empty` inside it.
+        if (!preg_match('/([^.]*roles do NOT[^.]*\\.)/', $roles['_band']['description'], $clause)) {
+            $this->fail("_band's description no longer contains a `roles do NOT` clause at all");
+        }
         $this->assertStringContainsString(
-            'The `question`, `answer` and `empty` roles do NOT',
-            $roles['_band']['description'],
-            "_band's description must name `empty` IN the list of roles that do not follow "
-            . 'it, not merely mention the role somewhere in the paragraph'
+            '`empty`',
+            $clause[1],
+            "_band's description must name `empty` IN the clause listing the roles that do "
+            . 'not follow it, not merely mention the role somewhere in the paragraph'
         );
         $this->assertStringContainsString(
             'empty',

@@ -7988,6 +7988,105 @@ test.describe('FAQ open-state role (#1046)', () => {
       await expect
         .poll(() => chevron('pp-faqset'), { message: `chevron authored @${width}`, timeout: 5000 })
         .toBe('rgb(7, 199, 111)');
+
+      // AND IT CLOSES AGAIN. #1046's acceptance criterion is "opens AND closes at all
+      // three tiers", and #1046's own ship review found the close half asserted NOWHERE:
+      // every closed read above is taken on a fresh load BEFORE the click, which cannot
+      // distinguish "the disclosure toggles" from "the disclosure opens once and sticks".
+      // A native <details> is the browser's to toggle, but an authored `udc` map is ours
+      // to get wrong — a role that reached `display` or `overflow` on the answer, or a
+      // motion value that never settles, would leave a band that opens and then refuses
+      // to collapse. So: click the same control a second time and require the attribute
+      // gone, the answer hidden, and the ink back on its resting value.
+      for (const id of ['pp-faqdef', 'pp-faqset']) {
+        const summary = page.locator(`#${id} .faq__question`).first();
+        await summary.scrollIntoViewIfNeeded({ timeout: 5000 });
+        await summary.click({ timeout: 10000 });
+      }
+      await expect(page.locator('#pp-faqdef .faq__item[open]')).toHaveCount(0);
+      await expect(page.locator('#pp-faqset .faq__item[open]')).toHaveCount(0);
+      await expect(page.locator('#pp-faqdef .faq__answer')).toBeHidden();
+
+      // The ink returns by the same polled read the open half uses, for the same reason:
+      // the 150ms colour transition runs on the way back too.
+      await expect
+        .poll(() => ink('pp-faqdef'), { message: `re-closed default @${width}`, timeout: 5000 })
+        .toBe('rgb(16, 24, 40)');
+      await expect
+        .poll(() => ink('pp-faqset'), { message: `re-closed authored @${width}`, timeout: 5000 })
+        .toBe('rgb(16, 24, 40)');
+    }
+  });
+
+  /**
+   * THE FOCUS RING IS INSET, AND IT HAS TO BE PINNED IN PIXELS (#1046).
+   *
+   * `.faq__item { overflow: hidden }` clips an outward focus ring completely: the item
+   * carries a 1px border, so its padding box (the clip box) starts exactly at the
+   * summary's border box, and base.css's `outline-offset: 2px` puts the whole stroke
+   * outside it. #1046 measured 0 accent pixels painted above the summary while the
+   * COMPUTED outline read `solid 2px rgb(49,87,244)` — which is why computed style alone
+   * cannot pin this and a pixel read has to. WCAG 2.4.7, and it silently disabled the
+   * on-overlay ring rule too.
+   *
+   * The structural block now sets `outline-offset: -3px` on `:focus-visible`. This asserts
+   * the ring PAINTS, by counting accent pixels inside the summary's own top edge. A
+   * regression to the outward offset, or a re-introduced clip, takes this to zero.
+   */
+  test('#1046 the summary focus ring paints inside the clipped item', async ({ page }) => {
+    pageId = createPage('E2E 1046 faq focus ring');
+    setComposition(pageId, [
+      { component: 'faq', props: { id: 'pp-faqring', title: 'Ring', items: [{ question: 'Focus me?', answer: 'A.' }] } },
+    ]);
+
+    for (const width of [1280, 768, 375]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`/?page_id=${pageId}`);
+      const summary = page.locator('#pp-faqring .faq__question').first();
+      await expect(summary).toBeVisible({ timeout: 10000 });
+      await summary.scrollIntoViewIfNeeded();
+
+      // Keyboard focus, so :focus-visible matches — a bare click may not.
+      await summary.evaluate((el: HTMLElement) => el.focus());
+      await page.keyboard.press('Shift+Tab');
+      await page.keyboard.press('Tab');
+
+      const computed = await summary.evaluate((el) => getComputedStyle(el).outlineStyle);
+      expect(computed, `the outline must be declared at all @${width}`).toBe('solid');
+
+      const box = await summary.boundingBox();
+      if (!box) throw new Error('no summary box');
+      const clip = {
+        x: Math.floor(box.x) + 1,
+        y: Math.floor(box.y) + 1,
+        width: Math.floor(box.width) - 2,
+        height: 6,
+      };
+      const b64 = (await page.screenshot({ clip })).toString('base64');
+      const accentPixels = await page.evaluate(
+        async ({ b64, w, h }) => {
+          const img = new Image();
+          img.src = 'data:image/png;base64,' + b64;
+          await img.decode();
+          const c = document.createElement('canvas');
+          c.width = w;
+          c.height = h;
+          const ctx = c.getContext('2d')!;
+          ctx.drawImage(img, 0, 0);
+          const d = ctx.getImageData(0, 0, w, h).data;
+          let n = 0;
+          for (let i = 0; i < d.length; i += 4) {
+            if (Math.abs(d[i] - 49) < 40 && Math.abs(d[i + 1] - 87) < 40 && Math.abs(d[i + 2] - 244) < 40) n++;
+          }
+          return n;
+        },
+        { b64, w: clip.width, h: clip.height },
+      );
+      expect(
+        accentPixels,
+        `the focus ring must PAINT inside the clipped item @${width} — zero accent pixels ` +
+          'means it reverted to an outward offset and overflow:hidden ate it',
+      ).toBeGreaterThan(100);
     }
   });
 
@@ -9913,7 +10012,7 @@ test.describe('#583 stressed-state rendered coverage (table, embed, logos)', () 
       await page.addStyleTag({ content: `:root { ${measureHandle}: 30rem; }` });
       const driven = await measureHeadingBox(page, heading.selector);
       const drivenCap = Math.round((desktop.capPx / 40) * 30);
-      expect(driven.maxWidth, 'the heading measure is still slot-routed, not a literal').toBe(
+      expect(driven.maxWidth, `the heading measure is still routed through ${measureHandle}, not a literal`).toBe(
         `${drivenCap}px`,
       );
       expect(driven.measuredWidth, 'the driven cap reaches the rendered box').toBe(drivenCap);

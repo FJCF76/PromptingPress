@@ -2514,4 +2514,99 @@ final class UdcEngineTest extends TestCase
             );
         }
     }
+
+    /**
+     * THE BALANCE GATE, ASSERTED AS BEHAVIOUR — because as source text it was a no-op.
+     *
+     * #1046's review measured this: replacing the `continue;` in BOTH selector-gate bodies
+     * with a no-op left the suite byte-identical at 5099 tests / 30644 assertions. The only
+     * things holding the gate were two source-STRING assertions in this file, and a source
+     * string cannot tell you whether the verdict is ACTED ON — the exact I35 shape filed as
+     * #1048, reproduced in the guard that was added to make #1046's `[`/`]` widening safe.
+     *
+     * So this drives the real compiler against a synthetic component, through the fixture
+     * seam ApplyTest/PreflightTest/SetupTest/CliSchemaCommandTest already use
+     * (`$GLOBALS['_pp_test_template_dir']` + the registry invalidate flag), and asserts the
+     * two halves that matter:
+     *
+     *   1. the refused role emits NOTHING — not a broken rule, nothing at all;
+     *   2. THE ROLE DECLARED AFTER IT STILL EMITS INTACT.
+     *
+     * The second is the whole point and is why an unbalanced `[` is worse than an
+     * unbalanced `>`. `.gf__a[open > .gf__b {` does not end at the brace: the unclosed
+     * bracket swallows forward to the next `]` or end-of-rule, so a single bad selector
+     * takes the rules printing after it in the same `<style>` element with it. Asserting
+     * only (1) would pass on an engine that emitted the broken selector AND lost the
+     * sibling — which is the failure this gate exists to prevent.
+     *
+     * The bad selector is charset-CLEAN and only unbalanced, so the charset gate cannot
+     * take credit for the refusal: it isolates this gate.
+     */
+    public function testARoleWhoseSelectorTheBalanceGateRefusesEmitsNothingAndSwallowsNoSibling(): void
+    {
+        $root = sys_get_temp_dir() . '/pp-gate-' . getmypid() . '-' . bin2hex(random_bytes(4));
+        $dir  = $root . '/components/gatefix';
+        mkdir($dir, 0755, true);
+        file_put_contents($dir . '/gatefix.php', "<?php // fixture component\n");
+        file_put_contents($dir . '/schema.json', json_encode([
+            'component' => 'gatefix',
+            'props'     => [],
+            'roles'     => [
+                // Charset-clean and UNBALANCED: only the balance gate can refuse it.
+                'bad'  => [
+                    'selector' => '.gf__a[open > .gf__b',
+                    'groups'   => ['typography'],
+                    'defaults' => ['typography' => ['color' => '#111111']],
+                ],
+                // Declared AFTER the bad one, so it is what a swallow would consume.
+                'good' => [
+                    'selector' => '.gf__c',
+                    'groups'   => ['typography'],
+                    'defaults' => ['typography' => ['color' => '#222222']],
+                ],
+            ],
+        ], JSON_UNESCAPED_SLASHES));
+
+        $prevRoot = $GLOBALS['_pp_test_template_dir'] ?? null;
+        $GLOBALS['_pp_test_template_dir']               = $root;
+        $GLOBALS['_pp_registered_components_invalidate'] = true;
+
+        try {
+            // Precondition: the fixture really loaded, or both assertions below pass
+            // vacuously against an empty registry.
+            $roles = pp_udc_component_roles('gatefix');
+            $this->assertArrayHasKey('bad', $roles, 'the fixture component did not load');
+            $this->assertArrayHasKey('good', $roles, 'the fixture component did not load');
+
+            $css = pp_udc_component_defaults_css('gatefix');
+
+            $this->assertStringNotContainsString(
+                '.gf__a',
+                $css,
+                'a selector the balance gate refuses must be SKIPPED, not emitted — an '
+                . 'unbalanced `[` reaching the sheet is the swallow this gate prevents'
+            );
+            $this->assertStringNotContainsString('#111111', $css, 'the refused role emitted its value anyway');
+            $this->assertStringContainsString(
+                '.gf__c{color:#222222;}',
+                $css,
+                'the role declared AFTER the refused one must still emit intact — if this '
+                . 'fails, the bad selector swallowed its sibling, which is the whole reason '
+                . 'an unbalanced bracket is worse than an unbalanced child combinator'
+            );
+        } finally {
+            if ($prevRoot === null) {
+                unset($GLOBALS['_pp_test_template_dir']);
+            } else {
+                $GLOBALS['_pp_test_template_dir'] = $prevRoot;
+            }
+            $GLOBALS['_pp_registered_components_invalidate'] = true;
+            @unlink($dir . '/schema.json');
+            @unlink($dir . '/gatefix.php');
+            @rmdir($dir);
+            @rmdir($root . '/components');
+            @rmdir($root);
+        }
+    }
+
 }

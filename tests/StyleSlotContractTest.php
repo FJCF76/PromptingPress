@@ -904,8 +904,11 @@ class StyleSlotContractTest extends TestCase
         // change, not a cross-block clobber. This test matches by class substring
         // across the whole stylesheet and can't distinguish "different intentional
         // state" from "accidental override," so .faq__question would false-fail here.
-        // The desktop cross-block rule for .faq__question is still fixed (routes
-        // through --faq-question-color) — just not covered by this automated guard.
+        // HISTORICAL as of #1046: the desktop cross-block rule for .faq__question WAS
+        // fixed (it routed through --faq-question-color), and both are now gone — the
+        // rule was deleted from components.css and --faq-question-color is one of the 21
+        // retired slots. The surviving reasoning is in the #1046 paragraph above; this
+        // note is kept only to explain why the pair was never in the map.
     ];
 
     /**

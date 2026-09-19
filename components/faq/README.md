@@ -31,7 +31,7 @@ three of its settings were measured before it went and only one of them was a ba
 |---|---|---|
 | `default` | `@color-surface`, no border on any edge | the `_band` role's defaults — nothing to write |
 | `muted` | the same fill **plus a 1px solid `@color-border` rule top and bottom** | `_band` → `border.width-top` / `width-bottom` = `"1px"`, `style-top` / `style-bottom` = `"solid"`, `color` = `"@color-border"` |
-| `inverted` | `@color-bg-inverted` fill, heading re-coloured to `@color-bg` | `_band` → `background.fill`, plus `typography.color` — the `heading` role follows it |
+| `inverted` | `@color-bg-inverted` fill, heading re-coloured to `@color-bg` | `_band` → `background.fill`, plus `typography.color` — the `heading` role follows it through `currentColor`, but `heading-accent` does NOT (it pins `@color-accent`, landing at 3.23:1 on a dark band: still clear of the 3:1 large-text floor at the heading's 28px minimum, but an 80% cut in margin beside a 17.54:1 heading) |
 
 `dark` was never an accepted input (removed at #605) and is not part of the route.
 
@@ -72,7 +72,7 @@ The same ranking applies to STATES, which is easier to miss: a `:hover` or
 `:focus-visible` map on `question` reaches a closed row and not an open one. Set it on
 `question-open` too when it has to survive opening.
 
-### `question-open` is the only ancestor-state role in the theme
+### `question-open` is the theme's only ancestor-ATTRIBUTE role
 
 Its selector is not a state in the engine's state dimension — ruling A3 defers ancestor
 states — so it is a role of its own, the same shape `nav`'s `link-current` takes for the
@@ -110,7 +110,11 @@ pp_get_component('faq', [
 
 - Uses `<details>`/`<summary>` — browser-native accessibility. No ARIA attributes needed.
 - Keyboard: `Enter` or `Space` toggles open/closed. `Tab` navigates between items.
-- The summary reserves a 44px touch target (WCAG 2.5.5), which no role can shrink.
+- The summary reserves a 44px touch target (WCAG 2.5.5) in the stylesheet — but an
+  authored `question` -> `sizing.min-height` emits unlayered and OUTRANKS it (measured:
+  `12px` validates, emits, and renders). Treat 44px as an obligation you must not go
+  under, not a floor the component enforces. hero and nav carry theirs as the role's own
+  `sizing.min-height` default instead; faq's placement is filed as an open question.
 - Over a background image with a scrim, the focus ring routes to the on-overlay accent —
   emitted by the engine (`data-pp-band-overlay`), never something an author must switch on.
 - Empty state shows a friendly message rather than an empty section.

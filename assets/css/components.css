@@ -1203,7 +1203,11 @@
 
    THE PIECES THAT STAYED, each for a stated reason rather than by omission:
    - `min-height: 44px` on the summary is the WCAG 2.5.5 touch target, an accessibility
-     affordance. It is a floor, not a size an author tunes.
+     affordance. IT IS NOT UNREACHABLE, and calling it a floor would be false: it sits in
+     `pp-v1` while `question` declares the `sizing` group, so an authored `min-height`
+     emits unlayered and wins (measured: 12px validates, emits and renders). The 44px is
+     an obligation on the author, not a limit this component enforces. hero and nav carry
+     theirs as the role's own `sizing.min-height` default instead.
    - `transition: color var(--transition)` stays because the motion group carries exactly
      two params by ruling A3 and a property LIST is not one of them. An authored
      `motion.transition-duration` overrides the timing and leaves the list intact — which
@@ -1239,11 +1243,30 @@
   justify-content: space-between;
   cursor: pointer;
   list-style: none;
-  /* WCAG 2.5.5: the row is a control, and its target may not shrink below 44px
-     whatever type or padding a role sets. */
+  /* WCAG 2.5.5: the row is a control and this is its 44px target. NOTE THE LIMIT OF THIS
+     RULE — it is layered in `pp-v1`, so an authored `question` -> `sizing.min-height`
+     outranks it and CAN shrink the target. Type and padding cannot; `sizing` can. */
   min-height: 44px;
   /* Ruling A3: the property LIST is structural, the timing is authorable. */
   transition: color var(--transition);
+}
+
+/* THE FOCUS RING HAS TO BE INSET, AND #1046 MEASURED WHY.
+   base.css gives every focusable element `outline: 2px solid var(--color-accent)` at
+   `outline-offset: 2px`, which paints OUTWARD from the border box. `.faq__item` declares
+   `overflow: hidden` (it clips the open answer to the item's radius) and carries a 1px
+   border, so the item's padding box — the clip box — begins exactly at the summary's
+   border box. The whole outward stroke therefore lands in the clipped region.
+   Measured in Chromium: 0 accent pixels painted in the 6px strip spanning the summary's
+   top edge, on a band where the computed outline was `solid 2px rgb(49,87,244)`. A
+   keyboard user got NO visible focus indicator on any faq summary, closed or open, at any
+   tier — WCAG 2.4.7 — and it also made the on-overlay ring rule below inert, because
+   recolouring an outline that never paints changes nothing.
+   An inset ring is inside the clip box and survives: 2170 accent pixels with -3px
+   (2px stroke, 1px clear of the edge). This is an accessibility affordance, so it belongs
+   in the structural block by this block's own rule, not in a role. */
+.faq__question:focus-visible {
+  outline-offset: -3px;
 }
 
 /* Remove default marker in WebKit */
