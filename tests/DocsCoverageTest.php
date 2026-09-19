@@ -377,6 +377,64 @@ class DocsCoverageTest extends TestCase
      * component reads as one whose designable values may still go in the stylesheet, and a
      * v1 component named here would send its slots to a role that does not exist.
      */
+    /**
+     * THE RUNTIME PROMPT'S v2 ROSTER, DERIVED (#1046).
+     *
+     * `lib/ai-context.php` is not documentation — it is the text the model reads at run
+     * time — and it carried a hand-written roster: "ON A v2 COMPONENT (hero, section,
+     * testimonials, cta)". faq's rebuild falsified it, and nothing failed: the derived
+     * catalog in the same prompt was already advertising faq's ten roles while this
+     * sentence told the model faq was not on the contract. A model reading a roster it is
+     * not on concludes the capability is missing, which is the #1045 class landing on the
+     * one surface where it changes behaviour rather than only reading.
+     *
+     * Derived from `pp_udc_is_v2_component()` in both directions, so the next rebuild
+     * fails here instead of shipping a prompt that contradicts its own catalog.
+     */
+    public function testTheRuntimePromptsV2RosterMatchesTheRegistry(): void
+    {
+        // SEED THE STORE FIRST. `pp_ai_system_prompt()` enumerates pages and menus, so it
+        // reaches the `get_posts()` stub — and this file's other tests read DOCS, never the
+        // prompt, so nothing here had initialised `$_pp_test_store`. Without this the test
+        // passes while emitting three PHP warnings into the suite (undefined global, array
+        // offset on null, foreach on null), which is how a green run quietly grows its
+        // warning count. Mirrors AiContextTest::setUp().
+        $GLOBALS['_pp_test_store'] = [
+            'post_meta' => [],
+            'posts'     => [],
+            'options'   => [],
+            'next_id'   => 100,
+        ];
+
+        $prompt = pp_ai_system_prompt();
+        $this->assertMatchesRegularExpression(
+            '/ON A v2 COMPONENT \(([^)]+)\)/',
+            $prompt,
+            'the runtime prompt must carry the v2 roster it teaches the focal-point route with'
+        );
+        preg_match('/ON A v2 COMPONENT \(([^)]+)\)/', $prompt, $m);
+        $roster = $m[1];
+
+        foreach (array_keys(pp_composable_components()) as $component) {
+            if (pp_udc_is_v2_component($component)) {
+                $this->assertStringContainsString(
+                    $component,
+                    $roster,
+                    "the runtime prompt's v2 roster omits `{$component}`, which declares roles — "
+                    . 'the model would read a roster it is not on and conclude the `udc` route '
+                    . "does not apply to {$component}. Roster reads: {$roster}"
+                );
+            } else {
+                $this->assertStringNotContainsString(
+                    $component,
+                    $roster,
+                    "the runtime prompt's v2 roster names `{$component}`, which is still on style "
+                    . "slots. Roster reads: {$roster}"
+                );
+            }
+        }
+    }
+
     public function testTheStructuralLintRosterInAiRulesMatchesTheRegistry(): void
     {
         $v2 = array_values(array_filter(self::allComponents(), 'pp_udc_is_v2_component'));
