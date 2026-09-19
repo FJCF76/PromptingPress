@@ -1382,78 +1382,115 @@ class ComponentPropsTest extends TestCase
      * because they were never broken. Do not "repair" them into count assertions: a count
      * pin here would fight every legitimate slot addition for no coverage gain.
      */
-    public function testFaqSchemaDeclaresItsNamedStyleSlots(): void
+    /**
+     * faq's FOUR SLOT TESTS, REPRICED TO THE SURFACE THAT REPLACED THEM (#1046).
+     *
+     * They asserted four different things and only one of them was about slots:
+     *
+     *   testFaqSchemaDeclaresItsNamedStyleSlots   the seven named slots exist, typed
+     *   testFaqRendersHeadingColorSlot            #100's regression: a dark faq band
+     *                                             could not reach its heading
+     *   testFaqRendersAllSevenSlots               every slot paints, verbatim
+     *   testFaqRejectsInjectionInStyleSlot        a slot value cannot smuggle CSS
+     *
+     * The first three are claims about the SLOT MECHANISM and retire with it — their
+     * successor is FaqRoleDefaultsEmitTest, which pins the EMITTED declarations rather
+     * than the schema text, and the band-scoped block rather than an inline attribute.
+     * The fourth is a claim about INJECTION, which did not retire: it moved to a
+     * different door. Both are kept here, pointed at the new door.
+     */
+    public function testFaqDeclaresRolesAndNoStyleSlots(): void
     {
         $schema = json_decode(file_get_contents(dirname(__DIR__) . '/components/faq/schema.json'), true);
-        $slots = $schema['styling']['style_slots'];
-        $expected = [
-            '--faq-bg' => 'gradient',
-            '--faq-item-bg' => 'gradient',
-            '--faq-heading-color' => 'color',
-            '--faq-question-color' => 'color',
-            '--faq-answer-color' => 'color',
-            '--faq-item-border-color' => 'color',
-            '--faq-question-open-color' => 'color',
-        ];
-        foreach ($expected as $name => $type) {
-            $this->assertArrayHasKey($name, $slots, "faq must declare {$name}.");
-            $this->assertSame($type, $slots[$name]['type'], "{$name} must be type {$type}.");
-            $this->assertArrayHasKey('default', $slots[$name]);
-            $this->assertNotEmpty($slots[$name]['description']);
+        $this->assertArrayNotHasKey(
+            'style_slots',
+            $schema['styling'] ?? [],
+            'faq is on the UDC and must declare no style slots'
+        );
+
+        // The seven the retired test named, each at the role that owns it now — so the
+        // coverage this file used to carry is re-homed rather than dropped.
+        $roles = pp_udc_component_roles('faq');
+        foreach ([
+            '--faq-bg'                  => ['_band', 'background', 'fill'],
+            '--faq-item-bg'             => ['item', 'background', 'fill'],
+            '--faq-heading-color'       => ['heading', 'typography', 'color'],
+            '--faq-question-color'      => ['question', 'typography', 'color'],
+            '--faq-answer-color'        => ['answer', 'typography', 'color'],
+            '--faq-item-border-color'   => ['item', 'border', 'color'],
+            '--faq-question-open-color' => ['question-open', 'typography', 'color'],
+        ] as $retired => [$role, $group, $param]) {
+            $this->assertArrayHasKey($role, $roles, "{$retired} routes to a role faq does not declare");
+            $this->assertContains(
+                $group,
+                $roles[$role]['groups'] ?? [],
+                "{$retired}'s replacement needs {$role} to permit the `{$group}` group"
+            );
+            $this->assertNull(
+                pp_udc_validate_map([$role => [$group => [$param => '#123456']]], 'faq'),
+                "{$retired} must still be reachable as {$role}.{$group}.{$param}"
+            );
         }
     }
 
-    public function testStatsSchemaDeclaresItsNamedStyleSlots(): void
+    /**
+     * #100's REGRESSION, RE-ASSERTED ON THE v2 SURFACE.
+     *
+     * The production bug was that faq could not reach brand fidelity on a dark surface
+     * because its heading had no authorable colour. That is still the claim; the door is
+     * a `udc` map on the band rather than a slot, and the value lands in a band-scoped
+     * block rather than an inline style attribute — which is why the render assertion
+     * moved to the emitter.
+     */
+    public function testAFaqHeadingColourIsStillAuthorableOnADarkBand(): void
     {
-        $schema = json_decode(file_get_contents(dirname(__DIR__) . '/components/stats/schema.json'), true);
-        $slots = $schema['styling']['style_slots'];
-        $expected = [
-            '--stats-bg' => 'gradient',
-            '--stats-heading-color' => 'color',
-            '--stats-number-color' => 'color',
-            '--stats-label-color' => 'color',
-        ];
-        foreach ($expected as $name => $type) {
-            $this->assertArrayHasKey($name, $slots, "stats must declare {$name}.");
-            $this->assertSame($type, $slots[$name]['type'], "{$name} must be type {$type}.");
-            $this->assertArrayHasKey('default', $slots[$name]);
-            $this->assertNotEmpty($slots[$name]['description']);
+        $this->assertNull(
+            pp_udc_validate_map(['heading' => ['typography' => ['color' => '#ffffff']]], 'faq'),
+            'the #100 capability must survive its slot'
+        );
+        $css = pp_udc_band_css([
+            'component' => 'faq',
+            'id'        => 'pp-1a2b3c4d',
+            'props'     => [],
+            'udc'       => ['heading' => ['typography' => ['color' => '#ffffff']]],
+        ]);
+        $this->assertStringContainsString('.faq__heading{color:#ffffff;}', $css);
+    }
+
+    /**
+     * THE INJECTION CLAIM DID NOT RETIRE WITH THE SLOT — it changed doors.
+     *
+     * A slot value carrying `#fff; background:url(evil)` used to be the way to smuggle a
+     * second declaration into an inline style attribute. There is no inline attribute
+     * any more, so the same payload is tried against the `udc` map, where the shared
+     * value grammar refuses it before it can reach the emitter at all. The old test
+     * asserted the payload did not appear in the HTML; this one asserts the write is
+     * REFUSED, which is the stronger property and the one the engine actually offers.
+     */
+    public function testFaqRejectsInjectionThroughTheUdcMap(): void
+    {
+        foreach ([
+            '#fff; background:url(evil)',
+            'red; }',
+            'url(evil)',
+            '#fff/*x*/',
+        ] as $payload) {
+            $this->assertNotNull(
+                pp_udc_validate_map(['heading' => ['typography' => ['color' => $payload]]], 'faq'),
+                "the udc grammar must refuse {$payload}"
+            );
         }
-    }
 
-    public function testFaqRendersHeadingColorSlot(): void
-    {
-        // The exact production regression #100 fixes: faq could not reach brand
-        // fidelity on a dark surface because it had no --faq-heading-color slot.
-        $html = $this->render('faq', array_merge($this->faqProps(), [
-            '__pp_style' => ['--faq-heading-color' => '#ffffff'],
-        ]));
-        $this->assertStringContainsString('--faq-heading-color: #ffffff', $html);
-    }
-
-    public function testFaqRendersAllSevenSlots(): void
-    {
-        $overrides = [
-            '--faq-bg' => 'linear-gradient(135deg, #1a1a2e, #16121f)',
-            '--faq-item-bg' => '#222222',
-            '--faq-heading-color' => '#ffffff',
-            '--faq-question-color' => '#eeeeee',
-            '--faq-answer-color' => '#cccccc',
-            '--faq-item-border-color' => '#333333',
-            '--faq-question-open-color' => '#ea3900',
-        ];
-        $html = $this->render('faq', array_merge($this->faqProps(), ['__pp_style' => $overrides]));
-        foreach ($overrides as $slot => $value) {
-            $this->assertStringContainsString("{$slot}: {$value}", $html, "{$slot} did not render.");
-        }
-    }
-
-    public function testFaqRejectsInjectionInStyleSlot(): void
-    {
-        $html = $this->render('faq', array_merge($this->faqProps(), [
-            '__pp_style' => ['--faq-heading-color' => '#fff; background:url(evil)'],
-        ]));
-        $this->assertStringNotContainsString('url(evil)', $html);
+        // And nothing of the kind reaches the page even if a payload were stored raw:
+        // the band block is built from validated values, and an unvalidated one produces
+        // no declaration rather than a smuggled one.
+        $css = pp_udc_band_css([
+            'component' => 'faq',
+            'id'        => 'pp-1a2b3c4d',
+            'props'     => [],
+            'udc'       => ['heading' => ['typography' => ['color' => '#fff; background:url(evil)']]],
+        ]);
+        $this->assertStringNotContainsString('url(evil)', $css);
     }
 
     // ── faq id / eyebrow / theme (#231) — parity with heading components ──
@@ -1484,21 +1521,10 @@ class ComponentPropsTest extends TestCase
         $this->assertStringNotContainsString('faq__eyebrow', $html);
     }
 
-    public function testFaqEyebrowColorSlotsRender(): void
-    {
-        $html = $this->render('faq', $this->faqProps([
-            'eyebrow' => 'KICKER',
-            '__pp_style' => ['--faq-eyebrow-color' => '#ffffff', '--faq-eyebrow-bg' => '#111111'],
-        ]));
-        $this->assertStringContainsString('--faq-eyebrow-color: #ffffff', $html);
-        $this->assertStringContainsString('--faq-eyebrow-bg: #111111', $html);
-    }
-
-    public function testFaqInvertedThemeAddsClass(): void
-    {
-        $html = $this->render('faq', $this->faqProps(['theme' => 'inverted']));
-        $this->assertStringContainsString('class="faq faq--inverted"', $html);
-    }
+    // faq's eyebrow-slot render test retired at #1046 with the slots. The capability is
+    // the `eyebrow` role's `typography.color` and `background.fill`, pinned as EMITTED
+    // declarations in FaqRoleDefaultsEmitTest and as reachable writes in
+    // testFaqDeclaresRolesAndNoStyleSlots above.
 
     public function testFaqDefaultThemeAddsNoModifierClass(): void
     {
@@ -1507,14 +1533,34 @@ class ComponentPropsTest extends TestCase
         $this->assertStringNotContainsString('faq--', $html);
     }
 
-    public function testFaqUnknownThemeClampsToDefault(): void
+    /**
+     * A STORED `theme` RENDERS NOTHING, WHATEVER IT SAYS (#1046).
+     *
+     * This replaces three tests that retired with the prop —
+     * testFaqInvertedThemeAddsClass, testFaqMutedThemeEmitsLegacyDarkClass and
+     * testFaqUnknownThemeClampsToDefault — and it is deliberately the INVERSION of the
+     * first two rather than their deletion, in the shape #994 used for chrome: the exact
+     * inputs that used to produce a class are asserted to produce none.
+     *
+     * IT IS ALSO NOT A HYPOTHETICAL. The write path refuses `theme` on faq now
+     * (`retired_prop`, with the `_band` route), but refusing a WRITE does not empty
+     * storage: a composition authored before this rebuild still carries the key, and
+     * restore_composition reports without blocking (#233). So every stored value has to
+     * render as the default band — never as an unstyled `faq--<garbage>` class, and
+     * never as a class whose CSS no longer exists.
+     *
+     * The `muted` -> `--dark` OUTPUT NAMING that #570 DG-4 pinned is not weakened by
+     * faq leaving: it is still proven on grid, stats, logos and embed, each with its own
+     * render-layer test in this file.
+     */
+    public function testAStoredFaqThemeEmitsNoVariantClassAtAll(): void
     {
-        // The write path rejects an unadvertised enum value outright (#579 strict
-        // enums), so this pins the RENDER-side contract for bytes already in storage:
-        // an unknown theme must not emit an unstyled faq--<garbage> class.
-        $html = $this->render('faq', $this->faqProps(['theme' => 'neon']));
-        $this->assertStringNotContainsString('faq--neon', $html);
-        $this->assertStringContainsString('class="faq"', $html);
+        foreach (['inverted', 'muted', 'dark', 'neon', '', '0'] as $stored) {
+            $html = $this->render('faq', $this->faqProps(['theme' => $stored]));
+            $this->assertStringContainsString('class="faq"', $html, "stored theme \"{$stored}\"");
+            $this->assertStringNotContainsString('faq--', $html, "stored theme \"{$stored}\" emitted a variant class");
+            $this->assertStringNotContainsString('style=', $html, "stored theme \"{$stored}\" emitted a style attribute");
+        }
     }
 
     // ── theme `muted` emits the legacy `--dark` class (#570 DG-4, render layer) ──
@@ -1523,11 +1569,11 @@ class ComponentPropsTest extends TestCase
     // the DG-4 regression proof: they must stay green, unchanged, forever. Proven at
     // the render layer (not just the helper) so the template wiring is pinned.
 
-    public function testFaqMutedThemeEmitsLegacyDarkClass(): void
-    {
-        $html = $this->render('faq', $this->faqProps(['theme' => 'muted']));
-        $this->assertStringContainsString('class="faq faq--dark"', $html);
-    }
+    // faq's DG-4 row retired at #1046 with its `theme` prop. The OUTPUT NAMING the rule
+    // protects (`muted` renders the legacy `--dark` class) is unchanged and still proven
+    // below on grid, and on stats/logos/embed further down — the rule lost one carrier,
+    // not its proof. testAStoredFaqThemeEmitsNoVariantClassAtAll asserts the other half:
+    // that faq now renders no class for that input at all.
 
     public function testGridMutedThemeEmitsLegacyDarkClass(): void
     {
@@ -1620,7 +1666,6 @@ class ComponentPropsTest extends TestCase
     {
         $v1 = [
             'grid'  => '--grid-heading-accent-color',
-            'faq'   => '--faq-heading-accent-color',
             'stats' => '--stats-heading-accent-color',
         ];
         foreach ($v1 as $component => $slot) {
@@ -1636,7 +1681,11 @@ class ComponentPropsTest extends TestCase
         // `.section__title` under a `heading` role family so its accent role is
         // `heading-accent`. What the audit cares about is that every component declaring
         // `title_accent` can colour it somewhere.
-        foreach (['hero' => 'title-accent', 'section' => 'heading-accent'] as $component => $role) {
+        // faq MOVED SIDES at #1046 rather than leaving the audit: it still declares
+        // `title_accent` and still has to be able to colour it, now through the
+        // `heading-accent` role. That is the whole point of an audit keyed on the
+        // CAPABILITY rather than on the mechanism.
+        foreach (['hero' => 'title-accent', 'section' => 'heading-accent', 'faq' => 'heading-accent'] as $component => $role) {
             $schema = json_decode(file_get_contents(dirname(__DIR__) . "/components/{$component}/schema.json"), true);
             $this->assertArrayHasKey('title_accent', $schema['props'],
                 "{$component} must still declare the title_accent prop.");
@@ -2201,12 +2250,13 @@ class ComponentPropsTest extends TestCase
     {
         $expected = [
             // hero's accent colour is the `title-accent` role's `typography.color` (#986),
-            // section's is the `heading-accent` role's (#1023) and cta's is the same role's
-            // at #1026. None of the three declares a slot, so none belongs in this roster —
-            // three still do. The name says "five" from when five did; the roster is the
-            // fact and the name is not worth a rename that would break a `--filter`.
+            // section's is the `heading-accent` role's (#1023), cta's is the same role's at
+            // #1026 and faq's at #1046. None of the four declares a slot, so none belongs
+            // in this roster — two still do. The name says "five" from when five did; the
+            // roster is the fact and the name is not worth a rename that would break a
+            // `--filter`. The capability audit that DOES follow each component across the
+            // move is testEveryComponentWithTitleAccentCanStyleIt.
             'grid'  => '--grid-heading-accent-color',
-            'faq'   => '--faq-heading-accent-color',
             'stats' => '--stats-heading-accent-color',
         ];
         foreach ($expected as $component => $slot) {

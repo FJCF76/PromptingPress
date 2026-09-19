@@ -660,11 +660,16 @@ final class AppliesWhenTest extends TestCase
             $prompt,
             'a background-conditional slot must advertise its condition to the agent BEFORE the write'
         );
-        // Prose-only conditionality. Re-pointed in #1023: the DISJUNCTION example was
-        // section's link-colour pair and left with its slot map, so the class pinned here
-        // is INTERACTION STATE — faq's open question — which is live and reaches the
-        // catalog. See SchemaValidationTest's prose-class census for the full live set.
-        $this->assertStringContainsString('the question is OPEN', $prompt);
+        // Prose-only conditionality. Re-pointed TWICE now, and the moves are the point:
+        // the DISJUNCTION example was section's link-colour pair and left with its slot
+        // map at #1023; the INTERACTION-STATE example was faq's open question and left at
+        // #1046, when the open state became a ROLE (`question-open`) whose selector states
+        // the condition instead of prose describing it. The class pinned here is
+        // ITEM-LEVEL — grid's icon box, whose size applies only when an item declares an
+        // image — which the clause grammar cannot reach because it addresses the BAND's
+        // props, not an item's. See SchemaValidationTest's prose-class census for the
+        // full live set and for what each retirement cost.
+        $this->assertStringContainsString('at least one item declares an image_url', $prompt);
         // A clause list AND a note, joined as ONE condition.
         $this->assertStringContainsString(
             'applies when layout = "cards" AND card_emphasis = "featured" AND the component sits at the top level',

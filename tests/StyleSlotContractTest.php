@@ -87,7 +87,7 @@ class StyleSlotContractTest extends TestCase
         // it is written out rather than counted: a component silently dropping out of
         // discovery would quietly disable its whole slot contract. The comment used to say
         // "FOUR, not seven" while listing THREE, which is how far it had drifted.
-        foreach (['embed', 'faq', 'grid', 'logos', 'stats', 'table'] as $known) {
+        foreach (['embed', 'grid', 'logos', 'stats', 'table'] as $known) {
             $this->assertContains($known, $found, "Schema discovery lost the {$known} component.");
         }
         // …and the v2 components must NOT be discovered here, or this suite would start
@@ -95,7 +95,7 @@ class StyleSlotContractTest extends TestCase
         // style-slot system in #958, hero in #986, section in #1023 and cta in #1026; their
         // authoring surface is roles, and the contract that replaced this one is the UDC
         // engine's own. nav and footer are chrome and were never in this set.
-        foreach (['hero', 'section', 'testimonials', 'cta'] as $v2) {
+        foreach (['hero', 'section', 'testimonials', 'cta', 'faq'] as $v2) {
             $this->assertNotContains($v2, $found, "{$v2} is a v2 component: it declares no style slots.");
         }
     }
@@ -380,12 +380,15 @@ class StyleSlotContractTest extends TestCase
 
         // Fail-closed floor: derivation over the real stylesheet must find a healthy
         // triple population, or a parser regression could silently gut the guard.
-        // 97 triples today, down from 147 when cta's forty slots and the nine rules that
-        // consumed them left at #1026 — a population that shrinks one component per rebuild
-        // sprint, so the floor moves with it. It sits close enough to catch a third of the
-        // remainder vanishing while leaving room for ordinary CSS evolution.
+        // 76 triples today, down from 97 when faq's twenty-one slots and the fourteen
+        // rules that consumed them left at #1046, and from 147 before cta's rebuild — a
+        // population that shrinks one component per rebuild sprint, so the floor moves
+        // with it. It sits close enough to catch a fifth of the remainder vanishing while
+        // leaving room for ordinary CSS evolution. FLOORS ARE LOWERED WITH THE MEASURED
+        // NUMBER IN HAND, never rounded down to whatever makes the run green: the gap
+        // between the count and the floor is the whole guard.
         $this->assertGreaterThan(
-            85,
+            65,
             $analysis['tripleCount'],
             'Slot-consumption derivation collapsed — the bypass guard would pass vacuously.'
         );
@@ -679,7 +682,10 @@ class StyleSlotContractTest extends TestCase
         // Fail-closed: the six must be the ONLY margin-bottom literals left on a band heading.
         // The four that already had the slot keep it; a seventh bare literal appearing on a
         // band title is the exact regression this row exists to prevent from recurring.
-        foreach (['grid' => '.grid__heading', 'faq' => '.faq__heading',
+        // faq left this roster at #1046: its heading rhythm is the `heading` role's
+        // `spacing.margin-bottom` breakpoint map (1.65rem desktop / 1.25rem phone), which
+        // is the same two literals #584 made each component own, now owned as data.
+        foreach (['grid' => '.grid__heading',
                   // testimonials, hero and section are absent: their heading rhythm is the
                   // `heading` role's `spacing.margin-bottom` default, not a
                   // --<comp>-heading-margin-bottom slot, so there is no slot for this
@@ -874,6 +880,20 @@ class StyleSlotContractTest extends TestCase
         // font-weight and line-height had to be PORTED rather than dropped — cta had no
         // unconditional rule for either, so they lived only inside those two media blocks.
         // The cross-block hazard this map exists for has no mechanism on cta any more.
+        // faq's TWO ROWS LEFT AT #1046 with its rebuild, and the long note below is kept
+        // because it records why `.faq__question` was never in this map — a reason that
+        // outlived the slot. The open-accordion state used a DIFFERENT slot from the
+        // resting one, which this whole-sheet clobber scan cannot tell from an accidental
+        // override; that distinction is now the `question` / `question-open` ROLE pair,
+        // cross-referenced in both directions by SchemaTruthfulnessTest's role-twin loop.
+        // The two rows that did leave are below, struck rather than deleted so the next
+        // reader can see the map shrank by rebuild rather than by neglect:
+        //   '.faq__heading' => ['--faq-heading-color', 'color']
+        //   '.faq__answer'  => ['--faq-answer-color', 'color']
+        // Both are `typography.color` on their roles now, emitted unlayered — which is
+        // what makes the clobber this map guards against structurally impossible for
+        // them, rather than merely unobserved.
+        //
         // faq (#100): this is the exact bug the "premium typography" comment above
         // already documented ("faq has no heading-color slot, so it keeps the token")
         // before #100 added one — .faq__heading/.faq__answer are re-declared in the
@@ -886,8 +906,6 @@ class StyleSlotContractTest extends TestCase
         // state" from "accidental override," so .faq__question would false-fail here.
         // The desktop cross-block rule for .faq__question is still fixed (routes
         // through --faq-question-color) — just not covered by this automated guard.
-        '.faq__heading'      => ['--faq-heading-color', 'color'],
-        '.faq__answer'       => ['--faq-answer-color', 'color'],
     ];
 
     /**
@@ -1079,18 +1097,20 @@ class StyleSlotContractTest extends TestCase
     {
         $triggerSlots = $this->borderTriggerSlots();
 
-        // Fail-closed floor: 7 such slots exist today. 13 at issue 332, minus section's two
-        // (`--section-border-width`, `--section-panel-border-width`) in #1023 and cta's four
+        // Fail-closed floor: 4 such slots exist today. 13 at issue 332, minus section's two
+        // (`--section-border-width`, `--section-panel-border-width`) in #1023, cta's four
         // (`--cta-border-width`, `--cta-border-color`, `--cta-eyebrow-border-width`,
-        // `--cta-eyebrow-border-color`) in #1026 — a v2 band's border is the `_band` or
-        // `eyebrow` role's `border` group, emitted by the engine into a band-scoped rule
-        // rather than an inline style attribute, so it never meets WP core's 3px trigger this
-        // immunity baseline exists to defeat. If discovery breaks, every assertion below
-        // would pass over an empty list.
+        // `--cta-eyebrow-border-color`) in #1026, and faq's three at #1046
+        // (`--faq-eyebrow-border-width`, `--faq-eyebrow-border-color`,
+        // `--faq-item-border-color`) — a v2 band's border is the `_band`, `eyebrow` or
+        // `item` role's `border` group, emitted by the engine into a band-scoped rule
+        // rather than an inline style attribute, so it never meets WP core's 3px trigger
+        // this immunity baseline exists to defeat. If discovery breaks, every assertion
+        // below would pass over an empty list.
         $this->assertGreaterThanOrEqual(
-            7,
+            4,
             count($triggerSlots),
-            'Discovery found fewer border-trigger slots than the 7 known today — '
+            'Discovery found fewer border-trigger slots than the 4 known today — '
             . 'the schema scan is broken and this guard would pass vacuously.'
         );
 
@@ -1168,16 +1188,16 @@ class StyleSlotContractTest extends TestCase
             }
         }
 
-        // Fail-closed: 6 styled components render a root style attr and grid renders a
-        // per-card one, so 7. Two left in #1023 with section's rebuild: its root
-        // attribute, and the per-row one issue 334 added — the panel rows are the
-        // `panel-row` / `panel-row-label` / `panel-row-value` roles now, and the engine
-        // emits no inline attribute at all. If the scan finds nothing, the loop above
-        // proved nothing.
+        // Fail-closed: 5 styled components render a root style attr and grid renders a
+        // per-card one, so 6. Two left in #1023 with section's rebuild (its root attribute
+        // and the per-row one issue 334 added — the panel rows are roles now), and faq's
+        // root attribute left at #1046. A v2 template emits `data-pp-band` and no `style`
+        // attribute at all, which is why each rebuild takes exactly one surface off this
+        // count. If the scan finds nothing, the loop above proved nothing.
         $this->assertGreaterThanOrEqual(
-            7,
+            6,
             $emitted,
-            'Found fewer inline slot surfaces than the 7 known today — the template scan is broken.'
+            'Found fewer inline slot surfaces than the 6 known today — the template scan is broken.'
         );
 
         // Every pp_render_style_vars() call must reach an emit site the loop above actually

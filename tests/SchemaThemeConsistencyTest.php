@@ -105,7 +105,11 @@ class SchemaThemeConsistencyTest extends TestCase
         // section left this roster at #1023 with the `theme` prop: a dark band is the
         // `_band` role's `background` group now, so there is no enum to advertise.
         // cta left at #1026 with its `theme` prop; section at #1023, testimonials at #958.
-        $bandComponents = ['faq', 'grid', 'embed', 'logos', 'stats'];
+        // faq left at #1046 with the `theme` prop itself: `retired_props` names the
+        // `_band` route now, and SchemaValidationTest's registry loop guards it in both
+        // directions. The components below still declare the enum and still have to
+        // advertise `muted` rather than the removed `dark` input (#605).
+        $bandComponents = ['grid', 'embed', 'logos', 'stats'];
         $schemas        = $this->loadSchemas();
 
         foreach ($bandComponents as $component) {
@@ -161,7 +165,9 @@ class SchemaThemeConsistencyTest extends TestCase
         // guard pins for every component still declaring the slots.
         // cta left at #1026: its band padding is the `_band` role's `spacing.padding-top` /
         // `padding-bottom`, both defaulting to the shared `@pp-band-padding` this test pins.
-        $bandComponents = ['grid', 'stats', 'faq', 'table', 'logos', 'embed'];
+        // faq left at #1046: its two padding slots are the `_band` role's
+        // `spacing.padding-top` / `padding-bottom` defaults, both `@pp-band-padding`.
+        $bandComponents = ['grid', 'stats', 'table', 'logos', 'embed'];
         $schemas        = $this->loadSchemas();
 
         $expected = 'var(--pp-band-padding)';

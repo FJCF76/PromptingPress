@@ -681,7 +681,11 @@ class CliSchemaCommandTest extends TestCase
         // dropped below the old floor. The floor stays a FLOOR rather than an exact count
         // so a component adding a slot does not fail this, while a walk that stops
         // discovering them still does.
-        $this->assertGreaterThan(90, $seen, 'discovery is not vacuous');
+        // 77 shipped slots today, down from 98 when faq's twenty-one left at #1046. The
+        // floor moves with the registry rather than being loosened: a walk that stops
+        // discovering slots must still fail, and each rebuild has to come here and lower
+        // it deliberately with the measured number in hand.
+        $this->assertGreaterThan(70, $seen, 'discovery is not vacuous');
     }
 
     public function testEveryRecipeEntryIsTheDeclaredDefinitionVerbatim(): void

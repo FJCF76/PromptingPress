@@ -463,10 +463,10 @@ the three PROSE-ONLY conditions the clause grammar could not express (a disjunct
 "inverted OR a background image"); a role's block is emitted only when its element renders,
 so that condition is structural and needs no note.
 
-## The four narrow bands: `table`, `embed`, `logos`, `faq`
+## The three narrow bands: `table`, `embed`, `logos`
 
-These four declare far fewer slots than `grid` — the widest surface left now that `hero`,
-`section` and `cta` have none at all — and the
+These three declare far fewer slots than `grid` — the widest surface left now that `hero`,
+`section`, `cta` and `faq` have none at all — and the
 gap is a contract, not an omission. Read this before assuming a slot is missing.
 
 **`table` (6 slots) — band padding and heading only.** `--table-padding-top` /
@@ -493,14 +493,24 @@ with your single value. Prefer it on strips that are all-labelled or all-unlabel
 focal-point or aspect-ratio slots — a client logo must be shown whole. That is the
 deliberate contrast with the testimonials avatar, which is a **crop** model.
 
-**`faq` (21 slots) — band, heading, eyebrow, accordion item, and question/answer ink.**
-The thing worth knowing: **ink is slotted, the type scale is not.**
-`--faq-question-color` and `--faq-question-open-color` are positional twins covering the
-closed and open states — set both or neither, or a colour you set reverts the moment the
-reader opens the item. `--faq-question-color` also colours the disclosure chevron for
-free (it is drawn in `currentColor`), so there is no chevron slot to look for. The
-question/answer type pair distinguishes the two **at identical size**, using weight
-(560 vs 430) and leading alone, which is why no `--faq-question-size` exists.
+**`faq` LEFT THIS SECTION AT #1046 — it is a v2 component and declares no slots at all.**
+Style it through the `udc` map on the band, on one of its ten roles. Two things the slot
+surface used to teach are still true and still worth knowing, because the roles inherited
+both:
+
+- **The closed and open states are positional twins.** `question` owns the resting row and
+  `question-open` owns the expanded one, and the open role's selector outranks the resting
+  one — so a colour set on `question` alone reverts the moment the reader opens the item.
+  Set both or neither. The same ranking applies to a `:hover` or `:focus-visible` map: set
+  it on `question-open` too when it must survive opening.
+- **The disclosure chevron has no role and needs none.** It is drawn with currentColor
+  borders, so it follows whatever `question` and `question-open` resolve to. Only its box
+  and stroke are stated defaults, and they stay in the stylesheet because a pseudo-element
+  has no role address (ruling A3).
+
+The question/answer type pair still distinguishes the two **at identical size**, using
+weight (560 vs 430) and leading alone — but it is authorable now, per breakpoint, on the
+`question` and `answer` roles.
 
 ### `--table-bg`, `--embed-bg` and `--logos-bg` do not exist
 

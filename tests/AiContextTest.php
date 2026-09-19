@@ -976,20 +976,43 @@ class AiContextTest extends TestCase
         }
     }
 
-    public function testSystemPromptIncludesStyleSlotsForFaq(): void
+    /**
+     * INVERTED AT #1046, not deleted.
+     *
+     * This was #100's regression pin: faq had no style slots, could not reach brand
+     * fidelity on a dark surface, and the test proved the AI-facing prompt surfaced the
+     * slots that fixed it. faq has no slots again — for the opposite reason — so the pin
+     * is inverted in the shape #994 used for chrome: the exact component that had to
+     * APPEAR under "Style slots:" must now appear under its roles instead.
+     *
+     * The capability #100 bought is what the assertion actually follows: a heading
+     * colour an author can reach. It is `heading` -> `typography.color` now, and the
+     * prompt has to say so, or the model is told faq is unstyleable — which is the
+     * failure #100 fixed, arriving through a different door.
+     */
+    public function testSystemPromptAdvertisesFaqsRolesRatherThanStyleSlots(): void
     {
-        // Regression pin for #100: faq previously had zero style slots (this test
-        // used to be one of the "unstyled" examples above). Confirms the AI-facing
-        // prompt now surfaces faq's new slots the same way it does for every other
-        // styled component.
         $prompt = pp_ai_system_prompt();
-        $lines = explode("\n", $prompt);
-        $found = false;
+        $lines  = explode("\n", $prompt);
+        $found  = false;
         foreach ($lines as $i => $line) {
             if (str_contains($line, '**faq**')) {
                 $next = $lines[$i + 1] ?? '';
-                $this->assertStringContainsString('Style slots:', $next);
-                $this->assertStringContainsString('--faq-heading-color', $next);
+                $this->assertStringNotContainsString(
+                    'Style slots:',
+                    $next,
+                    'faq is on the UDC and declares none — advertising slots would send the '
+                    . 'model to a surface that refuses every write'
+                );
+                $this->assertStringNotContainsString('--faq-', $next);
+                $this->assertStringContainsString(
+                    'UDC roles (style through the `udc` map, NOT style_component)',
+                    $next,
+                    'faq must advertise its roles, and say which action reaches them'
+                );
+                foreach (['heading', 'question', 'question-open', 'answer', 'item'] as $role) {
+                    $this->assertStringContainsString($role, $next, "the prompt must name faq's {$role} role");
+                }
                 $found = true;
             }
         }

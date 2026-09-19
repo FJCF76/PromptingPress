@@ -1586,6 +1586,30 @@ final class UdcEngineTest extends TestCase
                 'button2_text' => 'Read the docs',
                 'button2_url'  => '/docs',
             ],
+            // faq needs TWO fixtures, because two of its roles cannot coexist: `list`,
+            // `item`, `question`, `question-open` and `answer` exist only when there are
+            // items, and `empty` exists only when there are none.
+            //
+            // WHAT THIS LINT CAN AND CANNOT SEE FOR `question-open`, stated because the
+            // gap is structural rather than an oversight. The sweep extracts CLASS names
+            // from a selector, so `.faq__item[open] > .faq__question` is checked as
+            // `.faq__item` and `.faq__question` — both real, both rendered here. The
+            // `[open]` half is NOT checkable from server-rendered markup at all: it is a
+            // browser-managed attribute that <details> gains on interaction and that no
+            // template ever emits. Its proof is a rendered one — a real pointer click in
+            // Chromium, measured across three viewports — and it belongs there rather
+            // than in a markup lint that would have to fake the attribute to see it.
+            'faq' => [
+                [
+                    'eyebrow'      => 'QUESTIONS',
+                    'title'        => 'Common objections',
+                    'title_accent' => 'objections',
+                    'items'        => [
+                        ['question' => 'Does this replace our workflow?', 'answer' => '<p>It replaces the part that breaks.</p>'],
+                    ],
+                ],
+                ['title' => 'Common objections', 'items' => []],
+            ],
             'testimonials' => [
                 'title'        => 'What they say',
                 'title_accent' => 'they',
@@ -1903,12 +1927,14 @@ final class UdcEngineTest extends TestCase
                 $legacy[] = $name;
             }
         }
-        // SIX now: testimonials was rebuilt in Sprint 0, nav and footer joined as the
+        // FIVE now: testimonials was rebuilt in Sprint 0, nav and footer joined as the
         // CHROME container in Sprint 1 (ruling A1), hero in Sprint 1 (#986), section in
-        // Sprint 2 (#1023) and cta in Sprint 2 (#1026). The number is asserted rather than
-        // loosened so that a component quietly falling OFF the engine still trips this —
-        // and so that each rebuild has to come here and say which one moved.
-        $this->assertCount(6, $legacy, 'six components stay on the legacy system');
+        // Sprint 2 (#1023), cta in Sprint 2 (#1026) and faq in Sprint 2 (#1046). The
+        // number is asserted rather than loosened so that a component quietly falling OFF
+        // the engine still trips this — and so that each rebuild has to come here and say
+        // which one moved.
+        $this->assertCount(5, $legacy, 'five components stay on the legacy system');
+        $this->assertNotContains('faq', $legacy);
         $this->assertNotContains('testimonials', $legacy);
         $this->assertNotContains('nav', $legacy);
         $this->assertNotContains('footer', $legacy);

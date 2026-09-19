@@ -315,10 +315,19 @@ class DocsCoverageTest extends TestCase
         }
         $this->assertNotEmpty($keys, 'no component declares a retired prop any more.');
 
+        // ODD NUMBERS WERE MISSING UNTIL #1046, and the gap was invisible because every
+        // rebuild so far had retired an EVEN number of props: hero 4, section 4, cta 4,
+        // testimonials 2. faq retired exactly one, so the roster went 14 -> 15 and this
+        // map could not spell the total — the test failed with its own "extend $words"
+        // message, which is the guard working, but only after the arithmetic happened to
+        // land on a number nobody had provided. Filled in to 21 so the next rebuild meets
+        // a map rather than a gap.
         $words = [
-            2 => 'two', 4 => 'four', 6 => 'six', 8 => 'eight', 10 => 'ten',
-            12 => 'twelve', 14 => 'fourteen', 16 => 'sixteen', 18 => 'eighteen',
-            20 => 'twenty',
+            1 => 'one', 2 => 'two', 3 => 'three', 4 => 'four', 5 => 'five', 6 => 'six',
+            7 => 'seven', 8 => 'eight', 9 => 'nine', 10 => 'ten', 11 => 'eleven',
+            12 => 'twelve', 13 => 'thirteen', 14 => 'fourteen', 15 => 'fifteen',
+            16 => 'sixteen', 17 => 'seventeen', 18 => 'eighteen', 19 => 'nineteen',
+            20 => 'twenty', 21 => 'twenty-one',
         ];
         $total = count($keys);
         $this->assertArrayHasKey(
