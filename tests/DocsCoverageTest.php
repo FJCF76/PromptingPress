@@ -360,6 +360,48 @@ class DocsCoverageTest extends TestCase
     }
 
     /**
+     * AI_RULES.md tells whoever edits `assets/css/` WHICH components the structural-CSS
+     * lint holds to the v2 boundary. It named five and cta's rebuild made it six: the lint
+     * roster itself is derived from the registry (tests/js/css-lint.test.js walks the
+     * components directory), so the code followed the rebuild and only the sentence about
+     * it went stale. Both directions, because either is a live hazard: an unnamed v2
+     * component reads as one whose designable values may still go in the stylesheet, and a
+     * v1 component named here would send its slots to a role that does not exist.
+     */
+    public function testTheStructuralLintRosterInAiRulesMatchesTheRegistry(): void
+    {
+        $v2 = array_values(array_filter(self::allComponents(), 'pp_udc_is_v2_component'));
+        $v1 = array_values(array_diff(self::allComponents(), $v2));
+        $this->assertNotEmpty($v2, 'no component declares roles any more.');
+
+        $doc = 'AI_RULES.md';
+        $this->assertSame(
+            1,
+            preg_match('/As of #\d+ that covers ([^.]+)\./', $this->doc($doc), $m),
+            "{$doc} no longer states which components the structural-CSS lint covers."
+        );
+        $roster = $m[1];
+
+        foreach ($v2 as $component) {
+            $this->assertMatchesRegularExpression(
+                '/\b' . preg_quote($component, '/') . '\b/',
+                $roster,
+                "{$doc}'s structural-CSS lint roster omits `{$component}`, which declares "
+                . 'roles. Read as written, its designable values may still go in the '
+                . "stylesheet — the one thing the v2 boundary forbids. Roster reads: {$roster}"
+            );
+        }
+        foreach ($v1 as $component) {
+            $this->assertDoesNotMatchRegularExpression(
+                '/\b' . preg_quote($component, '/') . '\b/',
+                $roster,
+                "{$doc}'s structural-CSS lint roster names `{$component}`, which is still on "
+                . "style slots. Roster reads: {$roster}"
+            );
+        }
+    }
+
+    /**
      * The recipes table claims five components ship NO named recipe. That is a
      * schema-derivable claim, so adding a recipe later would leave the authoring
      * surface asserting it does not exist — and an agent would never try it.
