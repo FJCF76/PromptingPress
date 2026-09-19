@@ -313,19 +313,29 @@ class AiContextTest extends TestCase
             $prompt,
             'the widening must be stated as bounded, or the AI will try `none` everywhere'
         );
-        // #578 widened the type from one band-geometry cap to five slots. The prompt must
-        // name the uncapped measures that are still SLOTS, or an agent reading it will
-        // believe `none` is never valid on a measure and cannot restore their declared
-        // default. The set shrinks one rebuild sprint at a time — --hero-heading-measure
-        // left in #986, --section-heading-measure in #1023, --cta-body-measure in #1026 —
-        // so the prompt must also say what the v2 route is, or an agent on a rebuilt
-        // component reads a list it is not on and concludes the capability is gone. ONE
-        // slot is left, and the singular phrasing is deliberate: a list of one that still
-        // reads as a list is how a roster survives past its last member.
+        // #578 widened the type from one band-geometry cap to five slots. The prompt had to
+        // name the uncapped measures that were still SLOTS, or an agent reading it would
+        // believe `none` is never valid on a measure and could not restore their declared
+        // default. The set shrank one rebuild sprint at a time — --hero-heading-measure
+        // left in #986, --section-heading-measure in #1023, --cta-body-measure in #1026,
+        // and --faq-body-measure at #1046.
+        //
+        // IT IS NOW EMPTY, AND THE PROMPT SAYS SO IN THOSE TERMS. The previous cut kept a
+        // singular phrasing ("the one text measure that ships uncapped") on the argument
+        // that a list of one still reads as a list; the honest successor to a list of one
+        // is not a list of zero, it is a sentence saying the set is empty and naming where
+        // the capability went. An agent that reads a roster it is not on concludes the
+        // capability is gone — which is exactly what this assertion exists to prevent, and
+        // it prevents it better now than a phantom list would.
         $this->assertStringContainsString(
-            'the one text measure that ships uncapped (`--faq-body-measure`)',
+            'No text measure ships uncapped any more',
             $prompt,
-            'the length-or-none carrier set must be stated, not just --stats-max-width'
+            'the length-or-none carrier set must be stated, including when it empties'
+        );
+        $this->assertStringContainsString(
+            '`--stats-max-width`',
+            $prompt,
+            'the band-geometry cap is the only slot carrier left and must still be named'
         );
         $this->assertStringContainsString(
             'an uncapped measure is the role\'s `sizing.max-width` set to `none`',
