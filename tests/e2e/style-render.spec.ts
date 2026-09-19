@@ -3680,7 +3680,10 @@ test.describe('Safe-surface rendered proof', () => {
 
   // Strand 2. .stats__number had a color slot but no size slot at all, so the
   // headline figure's scale was simply not authorable.
-  test('#336 stats number size is slot-driven and defaults to the documented 2.5rem @smoke', async ({
+  // AUTHORED THROUGH THE ROLE SINCE #1066 PR2. `--stats-number-size` is the `number`
+  // role's `typography.size`; the documented 2.5rem default and the rendered override are
+  // the same claims, at the address they live at now.
+  test('#336 the stats number size is role-driven and defaults to the documented 2.5rem @smoke', async ({
     page,
   }) => {
     pageId = createPage('E2E Stats Number Size Slot');
@@ -3702,7 +3705,13 @@ test.describe('Safe-surface rendered proof', () => {
 
     await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
     await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
-    const res = await styleComponent(page, pageId, { '--stats-number-size': '73px' });
+    const res = await updateComposition(page, pageId, [
+      {
+        component: 'stats',
+        props: { id: 'pp-stats01', items: [{ number: '98%', label: 'Uptime' }] },
+        udc: { number: { typography: { size: '73px' } } },
+      },
+    ]);
     expect(res.success).toBe(true);
 
     await page.setViewportSize({ width: 1280, height: 900 });
@@ -3719,7 +3728,13 @@ test.describe('Safe-surface rendered proof', () => {
   // proves the two new slots are consumed; only the browser proves they WIN the
   // cascade, that the unset band is unmoved, and that the sibling label does not
   // follow the number's face.
-  test('#472 stats number font and weight are slot-driven; unset is unmoved and the label never follows @smoke', async ({
+  // AUTHORED THROUGH THE ROLE SINCE #1066 PR2, and the UNSET half is the interesting one:
+  // v1 declared `font-family: var(--stats-number-font, inherit)` and the role declares NO
+  // family default at all, because nothing in this theme declares font-family on a <span>
+  // so the inherited body face already lands. The assertion below — the unset number's
+  // family equals the BODY's — is what proves that silence is byte-identical rather than a
+  // dropped capability, and it is why the default was left out rather than transcribed.
+  test('#472 the stats number font and weight are role-driven; unset is unmoved and the label never follows @smoke', async ({
     page,
   }) => {
     pageId = createPage('E2E Stats Number Typography Slots');
@@ -3764,10 +3779,13 @@ test.describe('Safe-surface rendered proof', () => {
     // A literal stack, not var(--font-heading): the token resolves to the same
     // system stack the body already uses on a default install, so a token value
     // could not distinguish "the slot won" from "nothing happened".
-    const res = await styleComponent(page, pageId, {
-      '--stats-number-font': 'Georgia, serif',
-      '--stats-number-weight': '600',
-    });
+    const res = await updateComposition(page, pageId, [
+      {
+        component: 'stats',
+        props: { id: 'pp-stats02', items: [{ number: '1,250,000+', label: 'Documents processed' }] },
+        udc: { number: { typography: { family: 'Georgia, serif', weight: '600' } } },
+      },
+    ]);
     expect(res.success).toBe(true);
 
     // Both breakpoints, deliberately: .stats__number carries no media query today,
@@ -3843,18 +3861,24 @@ test.describe('#383 stats contained rounded card renders', () => {
     expect(metrics.docScroll).toBeLessThanOrEqual(metrics.docClient + 1);
   });
 
-  test('#383 --stats-radius rounds the band at 375 and 1280 @smoke', async ({ page }) => {
+  // #383's CONTAINED CARD, AUTHORED THROUGH THE ROLE SINCE #1066 PR2. The capability did
+  // not move: `--stats-radius` is `_band` -> `border.radius` and `--stats-max-width` is
+  // `_band` -> `sizing.max-width`. The RENDERED claim below is unchanged, which is the
+  // point — a role default is a claim about emitted CSS, and this is where it is proved.
+  test('#383 the band radius rounds the band at 375 and 1280 @smoke', async ({ page }) => {
     pageId = createPage('E2E Stats Card Radius');
-    setComposition(pageId, [
+    setComposition(pageId, [{ component: 'stats', props: { id: 'pp-seed', items: [{ number: '1', label: 'Seed' }] } }]);
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+    // Authored through the REAL path, not raw meta: a `udc` map only scopes to a band whose
+    // id the engine minted, and raw meta mints nothing (Section 14.1).
+    const res = await updateComposition(page, pageId, [
       {
         component: 'stats',
         props: { id: 'pp-stats01', items: [{ number: '98%', label: 'Uptime' }] },
+        udc: { _band: { border: { radius: '24px' } } },
       },
     ]);
-
-    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
-    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
-    const res = await styleComponent(page, pageId, { '--stats-radius': '24px' });
     expect(res.success).toBe(true);
 
     for (const width of [375, 1280]) {
@@ -3867,18 +3891,18 @@ test.describe('#383 stats contained rounded card renders', () => {
     }
   });
 
-  test('#383 --stats-max-width caps and centers the band at 1280 @smoke', async ({ page }) => {
+  test('#383 the band cap caps and centers the band at 1280 @smoke', async ({ page }) => {
     pageId = createPage('E2E Stats Card Max Width');
-    setComposition(pageId, [
+    setComposition(pageId, [{ component: 'stats', props: { id: 'pp-seed', items: [{ number: '1', label: 'Seed' }] } }]);
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+    const res = await updateComposition(page, pageId, [
       {
         component: 'stats',
         props: { id: 'pp-stats01', items: [{ number: '98%', label: 'Uptime' }] },
+        udc: { _band: { sizing: { 'max-width': '640px' } } },
       },
     ]);
-
-    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
-    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
-    const res = await styleComponent(page, pageId, { '--stats-max-width': '640px' });
     expect(res.success).toBe(true);
 
     await page.setViewportSize({ width: 1280, height: 900 });
@@ -3895,9 +3919,15 @@ test.describe('#383 stats contained rounded card renders', () => {
         right: document.documentElement.clientWidth - rect.right,
       };
     });
-    // The slot reaches the band, the band is capped to 640, and auto side-margins
-    // center it (equal gutters within a rounding tolerance) — a contained card, not
-    // a full-bleed band pinned to the left edge.
+    // The ROLE reaches the band, the band is capped to 640, and the `_band` role's own
+    // auto side-margin DEFAULTS center it (equal gutters within a rounding tolerance) — a
+    // contained card, not a full-bleed band pinned to the left edge.
+    //
+    // THIS IS THE TEST THAT PROVES THE AUTO MARGINS ARE LOAD-BEARING. They are inert at
+    // the default `max-width: none` (auto computes to 0 on a full-bleed band), which makes
+    // them look deletable; the moment a cap is authored they are the only thing standing
+    // between a centred card and one pinned to the container's left edge. Same defect
+    // class as #367 one element down.
     expect(geo.maxWidth).toBe('640px');
     expect(geo.width).toBeLessThanOrEqual(641);
     expect(geo.width).toBeGreaterThan(600);
@@ -3905,9 +3935,12 @@ test.describe('#383 stats contained rounded card renders', () => {
     expect(geo.left).toBeGreaterThan(100); // real gutters exist (not left-pinned)
   });
 
-  test('#383 --stats-max-width never overflows at 375 @smoke', async ({ page }) => {
+  test('#383 the band cap never overflows at 375 @smoke', async ({ page }) => {
     pageId = createPage('E2E Stats Card Max Width Mobile');
-    setComposition(pageId, [
+    setComposition(pageId, [{ component: 'stats', props: { id: 'pp-seed', items: [{ number: '1', label: 'Seed' }] } }]);
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+    const res = await updateComposition(page, pageId, [
       {
         component: 'stats',
         props: {
@@ -3917,14 +3950,11 @@ test.describe('#383 stats contained rounded card renders', () => {
             { number: '+30', label: 'Years' },
           ],
         },
+        // 640px cap is wider than the 375px viewport, so the band must fall back to the
+        // viewport width with no horizontal scroll (acceptance: no overflow at 375px).
+        udc: { _band: { sizing: { 'max-width': '640px' } } },
       },
     ]);
-
-    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
-    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
-    // 640px cap is wider than the 375px viewport, so the band must fall back to the
-    // viewport width with no horizontal scroll (acceptance: no overflow at 375px).
-    const res = await styleComponent(page, pageId, { '--stats-max-width': '640px' });
     expect(res.success).toBe(true);
 
     await page.setViewportSize({ width: 375, height: 900 });

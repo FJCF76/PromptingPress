@@ -47,6 +47,23 @@ consumer and should be pinned against that consumer instead.
 `grid` is gated on Addendum B / #1024, which is why it was never an eligible host for the
 re-homing this fixture replaces.
 
+## It does NOT work for Playwright, and that is structural
+
+**PHPUnit only.** The seam works by repointing `get_template_directory()` through a stub in
+`tests/bootstrap.php`, which exists only inside the PHP test process. The e2e suite drives a
+REAL WordPress install (wp-env serves the repo directory as the active theme), so nothing in
+that process ever reads the fixture root and `ppfixture` is not a registered component there.
+
+So an e2e test that needs a slot-bearing host must use **`grid`** — the last shipped
+component that declares style slots. That is a smaller treadmill than the one this fixture
+ends (one component left, not six), but it is a treadmill: when `grid` rebuilds, any e2e test
+still hosting on it has no host at all, and the honest move at that point is to delete it
+along with the slot engine rather than invent an e2e fixture theme.
+
+Discovered at #1066 PR2, when `validation.spec.ts`'s broken-media test — whose own comment
+says the signal it tests is component-agnostic — failed after stats rebuilt. It hosts on grid
+now.
+
 ## What it deliberately does NOT do
 
 - It does not fake the engine. `ppfixture.php` renders the `__pp_style` map through the
