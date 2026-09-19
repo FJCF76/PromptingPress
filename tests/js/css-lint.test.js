@@ -2018,27 +2018,38 @@ describe('CSS lint: premium layer honors padding/type/width slots (#302)', () =>
         expect(stripComments(COMPONENTS_CSS)).not.toMatch(/--cta-body-size/);
     });
 
-    // ---- Stats contained-card slots (issue 383) ----
-    // The band's radius + max-width must route through the slots with byte-identical
-    // unset fallbacks ('0' / 'none'), so an unset stats band stays full-bleed with
-    // square corners exactly as before 383. The rendered proof lives in style-render.spec.ts.
-    test('.stats radius + max-width route through --stats-radius / --stats-max-width', () => {
-        const bodies = bodiesForExactSelector('.stats');
-        expect(bodies.length).toBeGreaterThanOrEqual(1);
-        const radiusBodies = bodies.filter(b => /border-radius\s*:/.test(b));
-        const widthBodies = bodies.filter(b => /max-width\s*:/.test(b));
-        expect(radiusBodies.length).toBeGreaterThanOrEqual(1);
-        expect(widthBodies.length).toBeGreaterThanOrEqual(1);
-        radiusBodies.forEach(body => {
-            (body.match(/border-radius\s*:[^;}]+/g) || []).forEach(d => {
-                expect(d).toMatch(/border-radius\s*:\s*var\(\s*--stats-radius\s*,\s*0\s*\)/);
-            });
-        });
-        widthBodies.forEach(body => {
-            (body.match(/max-width\s*:[^;}]+/g) || []).forEach(d => {
-                expect(d).toMatch(/max-width\s*:\s*var\(\s*--stats-max-width\s*,\s*none\s*\)/);
-            });
-        });
+    // ---- Stats contained-card capability (issue 383), REPRICED AT #1066 PR2 ----
+    //
+    // The slots this pinned (`--stats-radius`, `--stats-max-width`) retired with stats'
+    // rebuild, and the claim they carried moves to the `_band` role rather than dying with
+    // them. The claim was never really about two slots: it was that an author can make the
+    // band a CONTAINED ROUNDED CARD instead of a full-bleed strip, and that an unset band
+    // stays byte-identically full-bleed and square.
+    //
+    // THE HALF THAT IS EASY TO LOSE is the centring. A capped band only sits in the middle
+    // because of auto side margins - `margin-inline: auto` in v1, and the two
+    // `spacing.margin-*: auto` defaults on `_band` now. They are INERT at the default
+    // `max-width: none` (measured: auto computes to 0 on a full-bleed band), which is
+    // exactly why they are easy to drop as "doing nothing" and why their absence would not
+    // show up until someone capped a band and found it pinned to the left edge. Same defect
+    // class as #367 one element down.
+    test('the stats band can still become a contained rounded card, and stays centred (#383)', () => {
+        const schema = JSON.parse(
+            fs.readFileSync(
+                path.resolve(__dirname, '../../components/stats/schema.json'), 'utf-8',
+            ),
+        );
+        const band = schema.roles._band;
+        expect(band).toBeDefined();
+        // The two capabilities the retired slots expressed.
+        expect(band.groups).toContain('sizing');
+        expect(band.groups).toContain('border');
+        // An unset band stays full-bleed and square: neither is DEFAULTED, only permitted.
+        expect((band.defaults.sizing || {})['max-width']).toBeUndefined();
+        expect((band.defaults.border || {}).radius).toBeUndefined();
+        // And the centring that makes a cap meaningful ships as a default.
+        expect([band.defaults.spacing['margin-left'], band.defaults.spacing['margin-right']])
+            .toEqual(['auto', 'auto']);
     });
 
     // ---- Own section/grid/cta padding (desktop + mobile) ----
@@ -2158,7 +2169,12 @@ describe('CSS lint: section-level bands share one rhythm definition (#431)', () 
         // reaches it through the zero-specificity baseline rather than a per-component
         // rule, because `_band` defaults emit into `pp-zero`, below this stylesheet.
         { comp: 'grid', cls: '.grid', slot: '--grid' },
-        { comp: 'stats', cls: '.stats', slot: '--stats' },
+        // stats left this table at #1066 PR2 — its band rhythm is the `_band` role's
+        // spacing default, resolving to the same shared `@pp-band-padding`. The behavioural
+        // pin that replaces it is the e2e #431 nine-band equality test, where stats is
+        // STILL a member: the shared value is asserted on the rendered page rather than on
+        // the stylesheet text. stats is the row that used to make this list look like it
+        // governed the whole theme; grid is the ONLY member left.
         // faq left this table at #1046 — its band rhythm is the `_band` role's spacing
         // default, resolving to the same shared `@pp-band-padding`. The behavioural pin
         // that replaces it is the e2e #431 nine-band equality test, where faq is STILL a
@@ -2173,7 +2189,10 @@ describe('CSS lint: section-level bands share one rhythm definition (#431)', () 
         // The behavioural pin that replaces it is the e2e #431 nine-band equality test,
         // where table is STILL a member: the shared value is now asserted on the rendered
         // page rather than on the stylesheet text.
-        { comp: 'logos', cls: '.logos', slot: '--logos' },
+        // logos left this table at #1066 PR2 with stats, for the same reason and with the
+        // same replacement: `_band` -> `spacing.padding-top` / `padding-bottom`, both
+        // `@pp-band-padding`, pinned on the rendered page by the e2e #431 nine-band
+        // equality test where logos is STILL a member.
         // embed left this table at #1066 with table — its band rhythm is the `_band`
         // role's spacing default, resolving to the same shared `@pp-band-padding`, and
         // both of its per-component adjacent rules went with the slot they kept alive.
@@ -2444,11 +2463,17 @@ describe('CSS lint: band-level headings share one responsive scale (#436)', () =
         { selectors: ['.grid__heading', 'main > .grid .grid__heading'], slot: '--grid-heading-size' },
         // faq's row left at #1046: the heading size is the `heading` role's
         // `typography.size`, referencing the same shared `@pp-band-heading-size`.
-        { selectors: ['.stats__heading'], slot: '--stats-heading-size' },
+        // stats' row left at #1066 PR2 with its slot; the size is the `heading` role's
+        // typography.size default now (@pp-band-heading-size, the same shared token),
+        // pinned against the EMITTED declaration in StatsRoleDefaultsEmitTest rather than
+        // against this stylesheet's text.
         // table's row left at #1066 with its slot; the size is the `heading` role's
         // typography.size default now, pinned against the EMITTED declaration in
         // TableRoleDefaultsEmitTest rather than against this stylesheet's text.
-        { selectors: ['.logos__heading'], slot: '--logos-heading-size' },
+        // logos' row left at #1066 PR2 with stats'; same replacement, pinned in
+        // LogosRoleDefaultsEmitTest. GRID IS THE ONLY MEMBER LEFT — this roster began as
+        // the whole theme's band headings and is now one component, which is the shape
+        // every one of these v1-era guards is converging on.
         // embed's row left at #1066 with its slot; the size is the `heading` role's
         // typography.size default now, pinned against the EMITTED declaration in
         // EmbedRoleDefaultsEmitTest.
@@ -2694,75 +2719,38 @@ describe('CSS lint: schema styling.tokens are reachable BY THE COMPONENT THAT LI
 // typography.size default (@pp-band-heading-size) is the single declaration, emitted by
 // the engine, and the schema is where it is pinned. The equivalent guard for a v2
 // component is the boundary test above: the stylesheet may not declare font-size at all.
-describe('CSS lint: band heading-color slots route through the slot (#438)', () => {
-    // Brace-matched extraction of every rule whose selector is EXACTLY `selector`.
-    // Same technique as the #431 suite; the `[{};,]` prefix isolates the base
-    // `.logos__heading` rule from the descendant `.logos--inverted .logos__heading`.
-    function bodiesForExactSelector(selector) {
-        const css = stripComments(COMPONENTS_CSS).replace(/\s+/g, ' ');
-        const re = new RegExp(
-            '[{};,]\\s*' + selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*\\{',
-            'g'
-        );
-        const bodies = [];
-        let match;
-        while ((match = re.exec(css)) !== null) {
-            let i = re.lastIndex;
-            let depth = 1;
-            const start = i;
-            while (i < css.length && depth > 0) {
-                if (css[i] === '{') depth++;
-                else if (css[i] === '}') depth--;
-                i++;
-            }
-            bodies.push(css.slice(start, i - 1));
-        }
-        return bodies;
-    }
+/**
+ * #438's band heading-color guard RETIRED AT #1066 PR2, and retiring it is what the
+ * block itself instructed rather than a decision taken over its head.
+ *
+ * The note it carried read: "four rows remain - logos and stats, base and inverted each.
+ * Both leave together in #1066's second half, at which point the roster is EMPTY and this
+ * whole block retires rather than being narrowed to nothing." That is this change.
+ *
+ * WHY NARROWING WAS NOT AN OPTION, in the block's own words: a `test.each` over an empty
+ * array fails the run with "No test found in suite", so an emptied roster could not have
+ * been left behind quietly - it would have failed CI as a broken suite rather than as a
+ * retired claim, and the next reader would have fixed the symptom.
+ *
+ * WHAT THE CLAIM WAS: every band heading routed `color` through a per-component slot with
+ * a fallback that preserved unset output - `@color-text` on the base rule, `@color-bg` on
+ * the `--inverted` twin. Six components carried rows here over its life.
+ *
+ * WHERE THE CLAIM LIVES NOW, per surviving subject rather than per issue number (#1038):
+ * every one of those components is on the Universal Design Contract, where a heading's
+ * colour is the `heading` role's `typography.color` default. For stats and logos that
+ * default is `currentColor`, which is the shape this guard structurally CANNOT express -
+ * it asserts a slot-and-fallback chain, and a role default is neither. The replacement
+ * pins are per component and assert the EMITTED declaration instead of this stylesheet's
+ * text: StatsRoleDefaultsEmitTest and LogosRoleDefaultsEmitTest here, with their
+ * table/embed/faq/cta siblings already in place.
+ *
+ * AND THE BEHAVIOUR THE TWO INVERTED ROWS GUARDED is not lost with them: a dark band's
+ * heading following the band's ink is asserted on the RENDERED page in
+ * tests/e2e/style-render.spec.ts, which is a stronger claim than the stylesheet text ever
+ * made - it survives a cascade change that leaves the declaration intact.
+ */
 
-    // selector, its heading-color slot, and the fallback that preserves unset output.
-    const HEADING_COLOR_RULES = [
-        { selector: '.logos__heading', slot: '--logos-heading-color', fallback: '--color-text' },
-        { selector: '.logos--inverted .logos__heading', slot: '--logos-heading-color', fallback: '--color-bg' },
-        // Widened in issue 581 (A-29). The original list named only the three components
-        // issue 438 had just given a heading-color slot; every OTHER band heading whose
-        // inverted rule is not already covered by the #222 theme-variant guard above was
-        // left unpinned. stats and testimonials carry the same base + inverted pair, and
-        // faq's inverted rule sits outside the three-tier chain the #222 guard checks.
-        // section / grid / cta need no entry here: the #222 THEMED list covers them.
-        { selector: '.stats__heading', slot: '--stats-heading-color', fallback: '--color-text' },
-        { selector: '.stats--inverted .stats__heading', slot: '--stats-heading-color', fallback: '--color-bg' },
-        // testimonials is absent: it is a v2 component whose CSS block is structural
-        // only. Its heading colour is the `heading` role's typography.color default.
-        // embed's TWO rows (base and inverted) left at #1066 with its `theme` prop.
-        // faq's row left at #1046 with the `theme` prop, and table's at #1066 — table's
-        // heading colour is `currentColor` on the `heading` role now, which is the one
-        // shape this guard structurally cannot express (it asserts a slot-and-fallback
-        // chain, and a role default is neither).
-        //
-        // NOTE FOR THE NEXT REBUILD: four rows remain — logos and stats, base and
-        // inverted each. Both leave together in #1066's second half, at which point the
-        // roster is EMPTY and this whole block retires rather than being narrowed to
-        // nothing. (An earlier draft of this note said embed would be the last declarer;
-        // the same change that wrote it had already removed embed's two rows.)
-        //
-        // WHAT KEEPS IT HONEST MEANWHILE is not a floor assertion — there isn't one. It
-        // is vitest itself: a `test.each` over an empty array fails the run with "No test
-        // found in suite", so the block cannot go silently empty. Verified by emptying
-        // the roster. Read that before removing another row.
-    ];
-
-    test.each(HEADING_COLOR_RULES)('$selector routes color through $slot to var($fallback)', ({ selector, slot, fallback }) => {
-        const bodies = bodiesForExactSelector(selector);
-        expect(bodies.length, `no exact rule for ${selector}`).toBeGreaterThanOrEqual(1);
-        const colorDecls = bodies.flatMap(b => b.match(/color\s*:[^;}]+/g) || [])
-            .filter(d => /^\s*color\s*:/.test(d)); // exclude background-color etc.
-        expect(colorDecls.length, `${selector} declares no color`).toBeGreaterThanOrEqual(1);
-        colorDecls.forEach(d => {
-            expect(d).toMatch(new RegExp('color\\s*:\\s*var\\(\\s*' + slot + '\\s*,\\s*var\\(\\s*' + fallback + '\\s*\\)'));
-        });
-    });
-});
 
 /**
  * THE v2 STRUCTURAL-CSS BOUNDARY (docs/v2/BUILD-SPEC-sprint0.md §2).
@@ -3068,7 +3056,41 @@ const NEGATIVE_PULL = /^(-[\d.]|calc\(\s*-\s*[\d.]+\s*\*)/;
             }
             // Floor: the slice must actually contain the sub-element rules, or every
             // check below reads an empty list and passes for the wrong reason.
-            expect(rules.length).toBeGreaterThan(5);
+            //
+            // RECORDED PER COMPONENT SINCE #1066 PR2, because a single `> 5` encoded an
+            // assumption the rebuilds keep falsifying: that a v2 block always has several
+            // structural rules left. stats keeps TWO (the band rule went entirely — its
+            // padding, background, max-width, auto margins and radius are all `_band`
+            // parameters now) and logos keeps FOUR. Under the old floor both would have
+            // failed for being CORRECT, and the tempting fix — lowering the number until
+            // the suite goes green — would have retired the anti-vacuity guard for every
+            // component at once.
+            //
+            // So the floor is now each component's own shipped count, and it is an EXACT
+            // match rather than a minimum: a block that shrinks has had a rule deleted and
+            // a block that grows has had one added, and both are decisions that belong in
+            // a diff someone reads. The `__` sub-element assertion below is the other half
+            // — it proves the slicer reached real content rather than a banner comment,
+            // which is the failure the original floor was actually written against.
+            const STRUCTURAL_RULE_COUNT = {
+                hero: 35, section: 13, faq: 11, table: 6, cta: 9,
+                nav: 18, footer: 16, testimonials: 10,
+                stats: 2, logos: 4,
+            };
+            const expected = STRUCTURAL_RULE_COUNT[component];
+            expect(
+                expected,
+                `${component} is on the UDC but has no recorded structural-rule count. Add it to ` +
+                'STRUCTURAL_RULE_COUNT with the number it actually ships, so a later shrink or ' +
+                'growth is reviewed rather than silent.'
+            ).toBeDefined();
+            expect(
+                rules.length,
+                `${component}'s structural block has ${rules.length} rules, recorded as ${expected}. ` +
+                'If a rule was deliberately added or removed, update the recorded count in the same ' +
+                'commit so the change is reviewed; if it was not, a designable value has moved into ' +
+                'or out of the stylesheet.'
+            ).toBe(expected);
             expect(
                 rules.some(r => r.selectors.some(sel => sel.includes('__'))),
                 'the slice must reach the component\'s sub-element rules'
@@ -3478,30 +3500,83 @@ describe('CSS lint: centered content blocks carry auto inline margins (#367)', (
     const centeredCapped = [...agg.entries()]
         .filter(([sel, p]) => isContentBlock(sel) && p.maxWidth && p.center);
 
-    // Not vacuous: `.stats__heading` (cap+center on one key) MUST be a member, or a
-    // selector rename would make the offender scan below silently pass on nothing.
-    test('finds the centered, max-width-capped content blocks it governs', () => {
-        expect(centeredCapped.length).toBeGreaterThan(0);
-        expect(centeredCapped.map(([sel]) => sel)).toContain('.stats__heading');
+    // THE STYLESHEET ARM IS EMPTY SINCE #1066 PR2, AND THAT IS ASSERTED RATHER THAN
+    // LEFT TO PASS VACUOUSLY. `.stats__heading` was this scan's non-vacuity anchor and
+    // its only member; stats' rebuild moved the cap, the centring and the auto margins
+    // into the `heading` role's defaults, so components.css now declares no centred,
+    // capped content block at all. An empty `centeredCapped` makes the offender filter
+    // below pass on nothing, which is exactly the failure the old anchor existed to
+    // prevent - so the emptiness is pinned as a FACT here, and the claim itself moves to
+    // the role arm below rather than being deleted with its last stylesheet member.
+    test('no centered, capped content block is left in the stylesheet', () => {
+        expect(centeredCapped.map(([sel]) => sel)).toEqual([]);
     });
 
-    test('every centered, capped content block also declares an auto inline margin', () => {
+    test('every centered, capped content block in the stylesheet declares an auto inline margin', () => {
         const offenders = centeredCapped
             .filter(([, p]) => !p.autoMargin)
             .map(([sel]) => sel);
         expect(offenders).toEqual([]);
     });
 
-    // Targeted regression pin for the exact #367 selector: it must keep BOTH the cap+center
-    // that make centering meaningful AND the auto margin that delivers it. Removing the
-    // auto margins (the bug) fails here even if the class scan above were ever narrowed.
-    test('.stats__heading is centered, capped, and carries an auto inline margin', () => {
-        const p = agg.get('.stats__heading');
-        expect(p).toBeDefined();
-        expect(p.maxWidth).toBe(true);
-        expect(p.center).toBe(true);
-        expect(p.autoMargin).toBe(true);
+    // ── THE #367 CLAIM, IN THE VOCABULARY IT LIVES IN NOW ────────────────────────
+    //
+    // The defect #367 recorded is not about a stylesheet: a block with a max-width cap
+    // inside a wider container does NOT centre just because its text is centred - the cap
+    // pins the box to the container's left edge and `text-align: center` only centres
+    // WITHIN that left-pinned box. The auto side margins are what deliver the centring,
+    // and they are the half a reader forgets because the text already looks centred.
+    //
+    // That is now a claim about ROLE DEFAULTS, so it is asserted against the schemas. Any
+    // role that defaults BOTH a `sizing.max-width` and `typography.align: center` must
+    // also default the two auto margins, or it ships the #367 defect at the one tier where
+    // the cap actually binds. Derived from the schemas rather than listed, so a role added
+    // in a later rebuild is covered the moment it lands.
+    //
+    // MEASURED, so this is not a rule invented from the declaration: stats' heading box at
+    // 1280 is x=320 w=640 inside a container at x=64 w=1152 - both centred on 640 - and
+    // `margin-left` COMPUTES to 224px there and 0 at 375. Porting the computed number
+    // instead of `auto` would have frozen the centring at one viewport.
+    const v2Schemas = fs.readdirSync(path.resolve(__dirname, '../../components'), { withFileTypes: true })
+        .filter(d => d.isDirectory())
+        .map(d => d.name)
+        .map(name => {
+            const file = path.join(path.resolve(__dirname, '../../components'), name, 'schema.json');
+            if (!fs.existsSync(file)) return null;
+            const schema = JSON.parse(fs.readFileSync(file, 'utf-8'));
+            return schema.roles ? { name, roles: schema.roles } : null;
+        })
+        .filter(Boolean);
+
+    const cappedCentredRoles = v2Schemas.flatMap(({ name, roles }) =>
+        Object.entries(roles)
+            .filter(([, role]) => {
+                const d = role.defaults || {};
+                return (d.sizing || {})['max-width'] !== undefined
+                    && (d.typography || {}).align === 'center';
+            })
+            .map(([roleName, role]) => ({ component: name, roleName, defaults: role.defaults || {} })),
+    );
+
+    test('the role arm finds the capped, centred roles it governs', () => {
+        // Fail-closed: schema discovery breaking would make the sweep below vacuous, and
+        // this guard exists precisely because its stylesheet twin just went empty.
+        expect(v2Schemas.length).toBeGreaterThanOrEqual(9);
+        expect(cappedCentredRoles.map(r => `${r.component}.${r.roleName}`)).toContain('stats.heading');
     });
+
+    test.each(cappedCentredRoles)(
+        '$component.$roleName caps and centres, so it must default auto inline margins (#367)',
+        ({ component, roleName, defaults }) => {
+            const spacing = defaults.spacing || {};
+            expect(
+                [spacing['margin-left'], spacing['margin-right']],
+                `${component}.${roleName} defaults a sizing.max-width AND typography.align: center, ` +
+                'but not both auto inline margins. A capped box inside a wider container does not ' +
+                'centre without them - the cap pins it left and only the text centres (#367).'
+            ).toEqual(['auto', 'auto']);
+        },
+    );
 
     // Targeted regression pin for the landed #354 fix, which the class scan cannot see
     // (its centering is inherited, never declared on this selector). The auto side-margins
@@ -3791,13 +3866,31 @@ describe('CSS lint: inverted dark-band links route through the on-inverted accen
         ).toMatch(/--color-accent-on-inverted-hover:\s*#[0-9a-fA-F]{6}/);
     });
 
-    test('inverted stats numbers route the fallback through --color-accent-on-inverted', () => {
-        const esc = '.stats--inverted .stats__number'.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const m = css.match(new RegExp(esc + '\\s*\\{([^}]*)\\}'));
-        expect(m).not.toBeNull();
-        // Slot still wins; the DEFAULT (fallback) is the on-inverted role, not the
-        // failing --color-accent.
-        expect(m[1]).toMatch(/var\(\s*--stats-number-color\s*,\s*var\([^;]*--color-accent-on-inverted\b/);
+    // THE STATS-NUMBER ROW RETIRED AT #1066 PR2 with the `.stats--inverted` class that
+    // carried it, and what replaces it is a CAPABILITY assertion rather than a rule scan.
+    //
+    // WHAT THE CLAIM WAS: on a dark band the large figure defaulted to
+    // `--color-accent-on-inverted` (8.33:1) instead of the light-surface `--color-accent`,
+    // which measures only 3.23:1 there - a value that clears the 3:1 LARGE-text bar and
+    // fails the 4.5:1 one, so it was readable only by virtue of being big.
+    //
+    // WHY THERE IS NO REPLACEMENT DEFAULT: stats has no `theme` prop any more, so there is
+    // no dark band for a default to be conditional ON. `number` defaults `@color-accent`,
+    // which is the measured-correct value on every band v1 could render unthemed, and an
+    // author who darkens `_band` owes `number` a write - stated in the role description and
+    // in the retired-prop route, and pinned as rendered contrast in style-render.spec.ts.
+    // The token must still exist for that write to have somewhere to point, which the
+    // sibling test below is what guards.
+    test('stats.number can carry the dark-band ink the retired rule used to supply (#437)', () => {
+        const schema = JSON.parse(
+            fs.readFileSync(
+                path.resolve(__dirname, '../../components/stats/schema.json'), 'utf-8',
+            ),
+        );
+        const number = schema.roles.number;
+        expect(number).toBeDefined();
+        expect(number.groups).toContain('typography');
+        expect(number.defaults.typography.color).toBe('@color-accent');
     });
 
     test('the on-inverted accent tokens are defined in base.css :root', () => {
@@ -3841,24 +3934,41 @@ describe('CSS lint: bg-image band accent routes through --color-accent-on-overla
         { sel: '.stats--has-bg-image .stats__number', slot: '--stats-number-color', role: '--color-accent-on-overlay' },
     ];
 
-    ROUTES.forEach(({ sel, slot, role }) => {
-        test(`${sel} routes through ${slot} then ${role}`, () => {
-            const rule = ruleFor(sel);
-            expect(rule).toBeDefined();
-            const re = new RegExp(
-                'color\\s*:\\s*var\\(\\s*' + slot.replace(/[-]/g, '\\-') +
-                '\\s*,\\s*var\\(\\s*' + role.replace(/[-]/g, '\\-') + '\\s*\\)\\s*\\)'
-            );
-            expect(rule.body).toMatch(re);
-        });
-
-        // Regression guard: the bg-image accent must NOT fall back to the bare accent
-        // (the 1.16:1 bug) or the on-inverted role (wrong surface).
-        test(`${sel} does not fall back to bare --color-accent or on-inverted`, () => {
-            const rule = ruleFor(sel);
-            expect(rule).toBeDefined();
-            expect(rule.body).not.toMatch(/var\(\s*--color-accent\s*\)/);
-            expect(rule.body).not.toMatch(/--color-accent-on-inverted/);
+    // THE ROSTER EMPTIED AT #1066 PR2 AND ITS STYLESHEET ARM RETIRES WITH IT. stats was
+    // the last member - section's row went at #1023 and cta's at #1026 - and stats'
+    // rebuild retires the `background_image` prop that emitted `.stats--has-bg-image`,
+    // so there is no rule left anywhere for this selector-and-fallback check to read.
+    //
+    // WHAT THE CLAIM WAS: a bg-image band lays a dark scrim over an ARBITRARY image, where
+    // the light-surface `--color-accent` measures 1.16:1 over the worst case (a white
+    // image) and fails AA outright. #461 routed the DEFAULT through the overlay accent
+    // role on all three bg-image bands, keeping the per-instance slot ahead of it.
+    //
+    // WHY IT IS NOT REPLACED BY AN EQUIVALENT ROLE DEFAULT, which is the part worth being
+    // explicit about rather than quietly dropping: a v2 band has NO automatic remap. The
+    // same is true of hero, section and cta, and it is deliberate - the engine cannot know
+    // that a background image is dark, so a default that assumed it would be wrong on a
+    // light image. Setting a background does not recolour anything; the author writes
+    // `typography.color` on each role over the scrim. The role-capability half of the old
+    // claim - that an author CAN reach those roles - is asserted below, and the rendered
+    // contrast of an authored over-scrim band is pinned in style-render.spec.ts.
+    test('the roles a stats bg-image band must re-ink can all carry typography (#461)', () => {
+        const schema = JSON.parse(
+            fs.readFileSync(
+                path.resolve(__dirname, '../../components/stats/schema.json'), 'utf-8',
+            ),
+        );
+        ['heading', 'heading-accent', 'number', 'label'].forEach(role => {
+            expect(
+                schema.roles[role],
+                `stats.${role} must exist: it is one of the roles an author has to re-ink ` +
+                'over a background image now that the automatic remap has retired',
+            ).toBeDefined();
+            expect(
+                schema.roles[role].groups,
+                `stats.${role} must permit typography, or the author cannot write the ink ` +
+                'the retired --has-bg-image rules used to supply',
+            ).toContain('typography');
         });
     });
 
@@ -3902,26 +4012,32 @@ describe('CSS lint: bg-image band title-accent + markers route through --color-a
         // docs already require of every v2 dark band.
     ];
 
-    TITLE_ROUTES.forEach(({ sel, slot }) => {
-        test(`${sel} routes through ${slot} then --color-accent-on-overlay`, () => {
-            const matches = rulesFor(sel);
-            expect(matches.length).toBeGreaterThan(0);
-            const re = new RegExp(
-                'color\\s*:\\s*var\\(\\s*' + slot.replace(/[-]/g, '\\-') +
-                '\\s*,\\s*var\\(\\s*\\-\\-color\\-accent\\-on\\-overlay\\s*\\)\\s*\\)'
-            );
-            expect(matches.some(r => re.test(r.body))).toBe(true);
-        });
-
-        // Regression guard: must NOT fall back to bare --color-accent or the inverted role.
-        test(`${sel} does not fall back to bare --color-accent or on-inverted`, () => {
-            const matches = rulesFor(sel);
-            expect(matches.length).toBeGreaterThan(0);
-            const rule = matches.find(r => /color\s*:/.test(r.body));
-            expect(rule).toBeDefined();
-            expect(rule.body).not.toMatch(/var\(\s*--color-accent\s*\)/);
-            expect(rule.body).not.toMatch(/--color-accent-on-inverted/);
-        });
+    // THE ROSTER EMPTIED AT #1066 PR2. `.stats--has-bg-image .stats__heading-accent` was
+    // its ONLY member, and the class retires with stats' `background_image` prop.
+    //
+    // WHAT THE CLAIM WAS, and why it was a separate issue from #461: the accented heading
+    // substring paints its OWN colour at (0,1,0) and does NOT inherit the near-white ink
+    // the band's heading rule supplies, so on a scrim band it rendered bare
+    // `--color-accent` at 1.16:1 even though the heading around it was readable. That is
+    // the trap this issue existed to record, and it is worth keeping in words because the
+    // v2 shape has the SAME hazard: re-inking `heading` on a dark band does not reach
+    // `heading-accent`, which is stated in the role's own description and asserted against
+    // the emitted CSS in StatsRoleDefaultsEmitTest.
+    //
+    // The token itself is still pinned in base.css by #461's surviving token test, and the
+    // rendered proof of an authored over-scrim accent lives in style-render.spec.ts.
+    test('stats.heading-accent is reachable and does not inherit the heading ink (#463)', () => {
+        const schema = JSON.parse(
+            fs.readFileSync(
+                path.resolve(__dirname, '../../components/stats/schema.json'), 'utf-8',
+            ),
+        );
+        expect(schema.roles['heading-accent']).toBeDefined();
+        expect(schema.roles['heading-accent'].groups).toContain('typography');
+        // Its own default is the light-surface accent, which is exactly why a dark or
+        // scrim band owes it a write: the value is correct on the band v1 could render
+        // and wrong on the one v2 makes easy.
+        expect(schema.roles['heading-accent'].defaults.typography.color).toBe('@color-accent');
     });
 
     // Section body list markers on the overlay band: --pp-list-marker-color is re-mapped

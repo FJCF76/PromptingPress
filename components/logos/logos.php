@@ -11,26 +11,31 @@
 
 $id      = $props['id']      ?? '';
 $title   = $props['title']   ?? '';
-$theme = $props['theme'] ?? 'default';
 $items   = $props['items']   ?? [];
 
-// theme coercion lives in pp_theme_class(); `muted` emits the legacy `--dark` class (#570 DG-4).
-$theme_class = pp_theme_class($theme, 'logos');
+// ── v2: the band id, and the one attribute this template emits for it (#1066) ──
+//
+// logos declares ROLES, not style slots, so there is no `__pp_style` map to render and no
+// `style` attribute at all - #708's guard left with the map it guarded. The engine
+// compiles the band's `udc` map into a band-scoped block in the document head; this
+// template's whole contribution is saying WHICH band.
+//
+// THE GUARD IS THE POINT, AND AN EMPTY ATTRIBUTE WOULD BE WORSE THAN NO ATTRIBUTE:
+// `[data-pp-band=""]` matches every other id-less band on the page, so a malformed stored
+// id would paint one band's design onto all of them. Reachable from stored data even
+// though the engine mints on WRITE - a raw `_pp_composition` meta write is not gated, and
+// restore_composition reports without blocking (#233). Validate, then emit or emit
+// nothing. Pinned behaviourally in TableEmbedLogosMarkupTest.
+$raw_band  = $props['__pp_udc_band'] ?? '';
+$band_id   = (is_scalar($raw_band) && pp_udc_valid_band_id((string) $raw_band)) ? (string) $raw_band : '';
+$band_attr = $band_id !== '' ? ' data-pp-band="' . esc_attr($band_id) . '"' : '';
 
-// #708: guard the raw `__pp_style` map before it reaches the typed
-// pp_render_style_vars(array $style, ...). A stored non-array raises a TypeError that
-// no caller catches, so the whole PUBLIC PAGE 500s. It arrives as `__pp_style` stored
-// INSIDE props: all four top-level `style` promotions are already is_array guarded, so
-// this read is the only reachable boundary and the only place a guard can help.
-// is_array, NOT is_scalar — an array IS the contract at this parameter. Degrades to no
-// inline custom properties and no `style` attribute at all, byte-identical to a band
-// that stored no style. Full reasoning in components/grid/grid.php.
-$raw_style = $props['__pp_style'] ?? null;
-$style     = is_array($raw_style) ? $raw_style : [];
-$slot_style = pp_render_style_vars($style, 'logos');
-$style_attr = $slot_style ? ' style="' . $slot_style . ';"' : '';
+// The engine decides whether a scrim is being painted; the template just consumes the
+// flag. It is what switches the focus ring to the on-overlay accent, where the ordinary
+// `--color-accent` measures 1.17:1 over a dark scrim (#986's mechanism, #1035's defect).
+$overlay_attr = !empty($props['__pp_udc_overlay']) ? ' data-pp-band-overlay' : '';
 ?>
-<section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="logos<?php echo esc_attr($theme_class); ?>" data-pp-component="logos"<?php echo $style_attr; ?>>
+<section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="logos" data-pp-component="logos"<?php echo $band_attr; ?><?php echo $overlay_attr; ?>>
     <div class="container">
 
         <?php if ($title) : ?>
