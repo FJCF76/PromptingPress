@@ -190,8 +190,8 @@ $overlay_attr = !empty($props['__pp_udc_overlay']) ? ' data-pp-band-overlay' : '
                   // default now.
                   //
                   // THE CANONICAL CASCADE REASONING LIVES IN `components/faq/schema.json`
-                  // under the `empty` role, the way faq.php:130 points at cta.php for the
-                  // positional-twin pair. It is stated there once because it is subtle and
+                  // under the `empty` role — the same move the band-id guard above makes
+                  // when it points at cta.php for its canonical reasoning. It is stated there once because it is subtle and
                   // this branch has now shipped two wrong drafts of it in this very
                   // comment: the first claimed a layered utility beats any authored
                   // colour (false for a role-aimed write), and the second claimed dropping

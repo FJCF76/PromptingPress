@@ -113,8 +113,13 @@ pp_get_component('faq', [
 - The summary reserves a 44px touch target (WCAG 2.5.5) in the stylesheet — but an
   authored `question` -> `sizing.min-height` emits unlayered and OUTRANKS it (measured:
   `12px` validates, emits, and renders). Treat 44px as an obligation you must not go
-  under, not a floor the component enforces. hero and nav carry theirs as the role's own
-  `sizing.min-height` default instead; faq's placement is filed as an open question.
+  under, not a floor the component enforces. The comparison is not clean either way, measured: only hero's
+  `cta-secondary` and nav's `logo` carry a 44px `sizing.min-height` ROLE DEFAULT, while
+  hero's PRIMARY `cta` role declares no defaults and takes its target from the shared
+  `.btn` rule in `pp-v1`, and nav's `.nav__toggle` keeps a structural 44x44 — the same
+  placement as faq's. Which pattern the theme wants is filed as an open question.
+- The obligation binds BOTH twins: `question-open` declares `sizing` too and outranks
+  `question`, so 44px on `question` alone still permits a 12px open row.
 - Over a background image with a scrim, the focus ring routes to the on-overlay accent —
   emitted by the engine (`data-pp-band-overlay`), never something an author must switch on.
 - Empty state shows a friendly message rather than an empty section.

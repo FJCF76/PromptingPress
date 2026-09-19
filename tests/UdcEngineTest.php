@@ -2532,12 +2532,20 @@ final class UdcEngineTest extends TestCase
      *   1. the refused role emits NOTHING — not a broken rule, nothing at all;
      *   2. THE ROLE DECLARED AFTER IT STILL EMITS INTACT.
      *
-     * The second is the whole point and is why an unbalanced `[` is worse than an
-     * unbalanced `>`. `.gf__a[open > .gf__b {` does not end at the brace: the unclosed
-     * bracket swallows forward to the next `]` or end-of-rule, so a single bad selector
-     * takes the rules printing after it in the same `<style>` element with it. Asserting
-     * only (1) would pass on an engine that emitted the broken selector AND lost the
-     * sibling — which is the failure this gate exists to prevent.
+     * EACH ASSERTION CATCHES A DIFFERENT MUTATION, and saying so precisely matters
+     * because an earlier draft of this docblock justified (2) with (1)'s job:
+     *   - (1) fails when the gate is REMOVED — replace the `continue;` with a no-op and
+     *     the refused selector reaches the sheet.
+     *   - (2) fails when the gate ABORTS the loop instead of skipping one role — replace
+     *     `continue;` with `break;` and the sibling never emits at all.
+     * Both were run against a scratch copy; each fails exactly its own assertion.
+     *
+     * WHY THE SIBLING IS WORTH ASSERTING AT ALL is a browser fact rather than a PHP one:
+     * `.gf__a[open > .gf__b {` does not end at the brace. The unclosed bracket swallows
+     * forward to the next `]` or end-of-rule, so a bad selector that DID reach the sheet
+     * would take the rules printing after it in the same `<style>` element with it. That
+     * is the damage the gate prevents; (2) is what keeps the gate from causing a milder
+     * version of it itself.
      *
      * The bad selector is charset-CLEAN and only unbalanced, so the charset gate cannot
      * take credit for the refusal: it isolates this gate.
