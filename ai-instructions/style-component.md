@@ -233,7 +233,7 @@ type table above and "Text measures" below. Stats does not expose `*-border-*` o
 
 ## Text measures — prefer the token over a per-band literal (#578)
 
-Five band components declare `--<component>-heading-measure` — embed, grid, logos, stats
+One band component still declares `--<component>-heading-measure` — grid
 and table — and of those only `embed` also declares `--<component>-body-measure`. (The
 rosters were wider: section's and cta's measures left with their rebuilds at #1023 and #1026,
 where a measure is the role's `sizing.max-width`.) They **default to the shared
@@ -506,15 +506,21 @@ authored `@color-bg-inverted` embed band:
 stays at `@color-accent` — 3.23:1 on `@color-bg-inverted`, under the AA floor — and no write can
 reach it. Filed as #1069.
 
-## The narrow band: `logos` (and the two that left)
+## The bands that left the slot surface
 
-`logos` declares far fewer slots than `grid` — the widest surface left now that `hero`,
-`section`, `testimonials`, `cta`, `faq`, `table` and `embed` have none at all — and the
-gap is a contract, not an omission. Read this before assuming a slot is missing.
+**`grid` is the only component in the theme that still declares style slots.** Everything
+below about `logos`, `stats`, `table` and `embed` is the RETIRED surface, kept for whoever
+meets a stored `--logos-*`, `--stats-*`, `--table-*` or `--embed-*` key on an old page.
+Writing any of those names is refused with `no_style_slots`, and the refusal lists the
+roles that replaced them.
 
-`table` and `embed` used to be described here beside it. Both moved to the v2 contract at
-#1066 and declare no slots; what remains below for each is the retired surface, kept for
-whoever meets a stored `--table-*` or `--embed-*` key on an old page.
+**`logos` and `stats` moved to the v2 contract at #1066** and declare no slots. logos' band
+padding, heading size/colour/measure/rhythm, strip gap and the two image caps are its eight
+roles; stats' band, heading, accented substring, list, item, figure and caption are its
+seven. Two things are worth knowing before you darken either: the `label` on both pins
+`@color-muted` as a direct declaration, so a band ink write does not reach it, and v1's
+inverted label carried an `opacity: 0.75` that has no UDC group — it ports as the measured
+composite `rgb(192, 195, 201)` written on `label` -> `typography.color`.
 
 **`table` is on the v2 contract since #1066 and has NO style slots.** Its band padding, heading
 size/colour/measure/rhythm, and everything v1 had no slot for at all — the table fill, the head
@@ -557,13 +563,27 @@ for it. The retired v1 surface, for reference only: `--embed-padding-top` / `-bo
 `--embed-heading-size` / `-color` / `-measure` / `-margin-bottom`, `--embed-body-measure`
 and `--embed-body-color`.
 
-**`logos` (8 slots) — band padding, heading, gap, and image size.**
-`--logos-image-size` is the one to know: it has **two** effective defaults, `3rem` on a
-logo-only strip and `2.5rem` on a labelled tile, and setting it replaces both branches
-with your single value. Prefer it on strips that are all-labelled or all-unlabelled.
-`logos` is a **fit** model (`object-fit: contain`), so it deliberately exposes no
-focal-point or aspect-ratio slots — a client logo must be shown whole. That is the
-deliberate contrast with the testimonials avatar, which is a **crop** model.
+**`grid` (38 slots) — the only component in the theme that still has any.**
+Everything the style-slot system does, it does for grid: card and step layouts, the
+featured-card treatment, per-item overrides through `items[].style`, the icon and banner
+image treatments, and the named recipes. When grid is rebuilt on the design contract, the
+slot engine has no shipped consumer left and this whole section retires with it. Until
+then, a `--grid-*` name is the only slot name any write will accept.
+
+**`logos` LEFT THIS SECTION AT #1066 — it is a v2 component and declares no slots at all.**
+Style it through the `udc` map on the band, on one of its eight roles. Two things the slot
+surface taught are still true, and one of them CHANGED SHAPE in the move:
+
+- **The two image caps are two roles now, and they are independent.** `--logos-image-size`
+  had **two** effective defaults — `3rem` on a logo-only strip, `2.5rem` on a labelled tile
+  — and setting it replaced both branches with your single value, deliberately. A role
+  carries one default, so the caps are the `image` and `image-labeled` roles, and the
+  label-driven switch survives by specificity rather than by fallback. Rendered default is
+  byte-identical (measured 48px / 40px); what changed is that "make the logos bigger" is
+  now two writes rather than one.
+- **It is still a fit model** (`object-fit: contain`, structural), so it exposes no
+  focal-point or aspect-ratio parameter — a client logo must be shown whole. That is the
+  deliberate contrast with the testimonials avatar, which is a **crop** model.
 
 **`faq` LEFT THIS SECTION AT #1046 — it is a v2 component and declares no slots at all.**
 Style it through the `udc` map on the band, on one of its ten roles. Two things the slot

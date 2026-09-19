@@ -302,14 +302,21 @@ class CliSchemaCommandTest extends TestCase
 
     public function testComponentWithoutRecipesReportsAnEmptyList(): void
     {
-        // THE SUBJECT MOVED FROM embed TO logos AT #1066. The claim is "a component with
-        // no recipes reports an empty recipe list while still reporting its styling
-        // surface" — so it needs a component that HAS a styling surface of the kind this
-        // report carries. embed is a v2 component now and reports roles instead, which is
-        // asserted one test up for nav. logos still declares slots and no recipes.
+        // THE SUBJECT MOVED embed -> logos AT #1066, AND logos -> stats IS NOT THE ANSWER
+        // THIS TIME: both went v2 in the same issue's second half. The claim is "a component
+        // with no recipes reports an empty recipe list while still reporting its styling
+        // surface", so it needs a component with a styling surface of the kind this report
+        // carries — and on v2 that surface is ROLES, which is exactly what the report now
+        // carries for these two. So the subject moves to a v2 component and the assertion
+        // follows it, rather than chasing the last v1 component that happens to fit.
+        //
+        // grid would also work and is deliberately NOT used: grid is the last slot-bearing
+        // component, so pinning this claim there would make it retire with grid for no
+        // reason. The claim is about the REPORT, and the report outlives the slot system.
         $report = pp_component_schema_report('logos');
         $this->assertSame([], $report['recipes']);
-        $this->assertNotEmpty($report['style_slots'], 'logos does declare style slots');
+        $this->assertSame([], $report['style_slots'], 'logos is v2: it declares no slots');
+        $this->assertNotEmpty($report['roles'], 'and its styling surface — its roles — is reported instead');
     }
 
     // ── applies_when: one vocabulary, all-or-nothing ─────────────────────────
@@ -690,11 +697,18 @@ class CliSchemaCommandTest extends TestCase
         // #1066 (and from 98 when faq's twenty-one left at #1046). The floor moves with the
         // registry rather than being loosened: a walk that stops discovering slots must
         // still fail, and each rebuild has to come here and lower it deliberately with the
-        // measured number in hand. NOTE the endgame: grid (38), stats (17) and logos (8)
-        // are all that is left, and stats and logos both go in #1066's second half — at
-        // which point this floor guards a single component and the file is worth
-        // re-founding on the role surface rather than lowered again.
-        $this->assertGreaterThan(55, $seen, 'discovery is not vacuous');
+        // measured number in hand.
+        //
+        // THE ENDGAME THIS NOTE PREDICTED ARRIVED AT #1066 PR2: stats (17) and logos (8)
+        // both went, leaving grid's 38 as the entire slot surface. The note said the file
+        // would then be worth re-founding on the role surface rather than lowered again,
+        // and the answer on inspection is NARROWER than that: `wp pp schema` reports slots
+        // AND roles already, and the role half is covered by its own assertions in this
+        // file. What this particular floor guards is the SLOT walk, which still has exactly
+        // one real subject. So it is lowered to grid's measured count, with the retirement
+        // condition stated rather than deferred again: when grid rebuilds, the slot walk has
+        // no subject and THIS assertion retires — it does not get lowered to zero.
+        $this->assertSame(38, $seen, 'discovery is not vacuous: grid is the whole slot surface now');
     }
 
     public function testEveryRecipeEntryIsTheDeclaredDefinitionVerbatim(): void

@@ -7,6 +7,7 @@
  */
 
 use PHPUnit\Framework\TestCase;
+use PromptingPress\Tests\Support\FixtureTheme;
 
 class OperateTest extends TestCase
 {
@@ -2001,9 +2002,11 @@ class OperateTest extends TestCase
         $this->assertSame('string', $testi['items[].quote']);
         $this->assertSame('string', $testi['items[].company']);
 
-        // stats — absent from the old registry entirely.
+        // stats — absent from the old registry entirely. Its `theme` retired at #1066 PR2,
+        // so the enum assertion that stood here moved to grid (the last declarer) below;
+        // the CONTENT fields are what this matrix is really about and they are unchanged.
         $stats = $this->fieldMap('stats');
-        $this->assertSame('enum', $stats['theme']);
+        $this->assertArrayNotHasKey('theme', $stats, 'stats is v2: its tone is the `_band` role');
         $this->assertSame('string', $stats['items[].number']);
         $this->assertSame('string', $stats['items[].label']);
         $this->assertArrayNotHasKey('items', $stats);            // the array itself is not a field
@@ -2028,7 +2031,10 @@ class OperateTest extends TestCase
         $embed = $this->fieldMap('embed');
         $this->assertSame('string', $embed['content']);
         $this->assertArrayNotHasKey('theme', $embed, 'embed is a v2 component: its theme is the `_band` role');
-        $this->assertSame('enum', $this->fieldMap('logos')['theme']);
+        // logos' `theme` retired at #1066 PR2 with stats'. GRID IS THE LAST ENUM-BEARING
+        // component, and the claim is that the matrix derives an `enum` TYPE correctly —
+        // not that any particular component has one — so it keeps its full value here.
+        $this->assertSame('enum', $this->fieldMap('grid')['theme']);
 
         // Unknown/unschema'd type returns empty (composability guard intact).
         $this->assertSame([], pp_get_component_fields('nonexistent'));
@@ -2885,30 +2891,42 @@ class OperateTest extends TestCase
 
     public function testInspectCompositionShowsCurrentStyleValues(): void
     {
-        $post_id = pp_create_page('Style inspect test');
-        pp_update_composition($post_id, [
-            // `stats` since #1026: `current` vs `default` is a SLOT report, and cta declares
-            // no slots now. stats' `--stats-bg` is the same shape of assertion, with its own
-            // declared default — and stats is the host by the #1023 rule (furthest down the
-            // usage-ordered rebuild queue), not grid, which #1024 has queued.
-            ['component' => 'stats', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello', 'items' => [['number' => '10', 'label' => 'Ten']]],
-             'style' => ['--stats-bg' => '#1a1a2e']],
-        ]);
+        // PER-TEST OPT-IN (#1025): this class also asserts registry-wide facts that must
+        // see only shipped components, so the fixture is activated for this test alone.
+        FixtureTheme::activate();
+        try {
+            $post_id = pp_create_page('Style inspect test');
+            pp_update_composition($post_id, [
+                // `stats` since #1026: `current` vs `default` is a SLOT report, and cta declares
+                // no slots now. The fixture's `--ppfixture-bg` is the same shape of assertion
+                // with its own declared default. stats hosted it from #1023 under the rule
+                // "furthest down the usage-ordered rebuild queue"; that rule ran out at #1066
+                // PR2 when stats and logos both rebuilt, which is exactly the treadmill #1025
+                // ended — the host is the fixture now and stops moving.
+                ['component' => 'ppfixture', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello', 'items' => [['number' => '10', 'label' => 'Ten']]],
+                 'style' => ['--ppfixture-bg' => '#1a1a2e']],
+            ]);
 
-        $result = pp_inspect_composition($post_id);
-        $slots = $result[0]['style_slots'];
+            $result = pp_inspect_composition($post_id);
+            $slots = $result[0]['style_slots'];
 
-        // Find the --stats-bg slot.
-        $bg_slot = null;
-        foreach ($slots as $s) {
-            if ($s['slot'] === '--stats-bg') {
-                $bg_slot = $s;
-                break;
+            // HOST MOVED TO THE FIXTURE AT #1066 PR2 (#1025). `pp_inspect_composition` reporting
+            // a slot's current-vs-default is a claim about the INSPECTOR, not about stats, and
+            // stats stopped having slots for it to report.
+            // Find the --ppfixture-bg slot.
+            $bg_slot = null;
+            foreach ($slots as $s) {
+                if ($s['slot'] === '--ppfixture-bg') {
+                    $bg_slot = $s;
+                    break;
+                }
             }
+            $this->assertNotNull($bg_slot);
+            $this->assertSame('#1a1a2e', $bg_slot['current']);
+            $this->assertSame('transparent', $bg_slot['default']);
+        } finally {
+            FixtureTheme::deactivate();
         }
-        $this->assertNotNull($bg_slot);
-        $this->assertSame('#1a1a2e', $bg_slot['current']);
-        $this->assertSame('transparent', $bg_slot['default']);
     }
 
     public function testInspectCompositionShowsActiveRecipe(): void

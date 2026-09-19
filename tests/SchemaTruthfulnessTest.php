@@ -161,7 +161,14 @@ class SchemaTruthfulnessTest extends TestCase
         // TableRoleDefaultsEmitTest::testTheHeadingFollowsTheBandAndRestatesNoGlobalType,
         // which asserts the emitted `font-size:var(--pp-band-heading-size)` rather than
         // the schema text.
-        $bands = ['grid', 'stats', 'logos'];
+        // stats and logos left at #1066 PR2, for the same reason table did: each heading
+        // size is the `heading` role's `typography.size`, referencing the same shared
+        // `@pp-band-heading-size` token this test exists to keep every band on, and the v2
+        // half of each claim is that component's RoleDefaultsEmitTest. GRID IS THE LAST
+        // MEMBER — when it rebuilds, this slot-shaped roster empties and the claim lives
+        // entirely in MeasureSurfaceTest's v2 arm, which already sweeps every v2 band's
+        // heading for the shared token.
+        $bands = ['grid'];
         foreach ($bands as $component) {
             $slot = "--{$component}-heading-size";
             $slots = $this->slots($component);
@@ -292,7 +299,7 @@ class SchemaTruthfulnessTest extends TestCase
             // subheading and the trust strip, which is why all four roles default to
             // 40rem. Role-side pins: MeasureSurfaceTest and SectionRoleDefaultsEmitTest.
             ['grid', '--grid-heading-size', 'var(--pp-band-heading-size)'],
-            ['stats', '--stats-heading-size', 'var(--pp-band-heading-size)'],
+            
 
             ['grid', '--grid-heading-margin-bottom', '1.65rem'],
             ['grid', '--grid-gap', '1rem'],
@@ -662,7 +669,21 @@ class SchemaTruthfulnessTest extends TestCase
         // house vocabulary — if every schema stopped saying "design token" tomorrow this
         // test would pass on an empty set and tell nobody.
         $this->assertGreaterThanOrEqual(1000, $scanned, 'the schema string walk collapsed');
-        $this->assertGreaterThanOrEqual(5, $claims, 'no schema string makes a design-token claim any more; this pin is inert');
+        // LOWERED FROM 5 TO 2 AT #1066 PR2, with the reason recorded rather than the
+        // number quietly edited. This claim vocabulary lived almost entirely in STYLE-SLOT
+        // descriptions — a slot's job was to say "this routes the site-wide --x design
+        // token", which is exactly the promise the scan polices. Slots are nearly gone:
+        // stats' seventeen and logos' eight retired here, and the only two claims left in
+        // the whole theme are grid's.
+        //
+        // WHY NOT DELETE THE PIN: grid still ships them, and the defect this caught (a
+        // schema promising a site-wide token that `update_design_token` refuses, shipped
+        // through four review rounds at #1023) is exactly the kind that reappears in the
+        // last component nobody is watching. WHEN GRID REBUILDS this floor reaches zero and
+        // the test should RETIRE rather than be lowered again — at that point no schema
+        // makes the promise, because the v2 way to reference a token is an `@name` the
+        // ENGINE validates at write time, not prose a reader has to trust.
+        $this->assertGreaterThanOrEqual(2, $claims, 'no schema string makes a design-token claim any more; this pin is inert');
 
         $this->assertSame(
             [],

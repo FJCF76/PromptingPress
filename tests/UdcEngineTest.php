@@ -1711,6 +1711,35 @@ final class UdcEngineTest extends TestCase
                 'title'   => 'Book a call',
                 'content' => '<p>Pick a slot. <a href="/contact">Contact us</a> if none fit.</p>',
             ],
+            // stats needs ONE fixture: every role renders together (heading, accented
+            // substring, list, item, figure, caption). logos needs TWO, for the reason
+            // section does — `item-labeled` and `image-labeled` only exist on an item that
+            // carries a label, and `item` / `image` only on one that does not, so no single
+            // strip renders all four. The sweep checks the union.
+            'stats' => [
+                [
+                    'title'        => 'By the numbers',
+                    'title_accent' => 'numbers',
+                    'items'        => [
+                        ['number' => '+30', 'label' => 'Years in practice'],
+                        ['number' => '98%', 'label' => 'Client retention'],
+                    ],
+                ],
+            ],
+            'logos' => [
+                [
+                    'title' => 'Trusted by',
+                    'items' => [
+                        ['image_url' => '/a.png', 'image_alt' => 'A'],
+                    ],
+                ],
+                [
+                    'title' => 'Trusted by',
+                    'items' => [
+                        ['image_url' => '/b.png', 'image_alt' => 'B', 'label' => 'Sector'],
+                    ],
+                ],
+            ],
             'table' => [
                 [
                     'title'   => 'Compare the plans',
@@ -2066,14 +2095,17 @@ final class UdcEngineTest extends TestCase
                 $legacy[] = $name;
             }
         }
-        // THREE now: testimonials was rebuilt in Sprint 0, nav and footer joined as the
+        // ONE now: testimonials was rebuilt in Sprint 0, nav and footer joined as the
         // CHROME container in Sprint 1 (ruling A1), hero in Sprint 1 (#986), section in
-        // Sprint 2 (#1023), cta in Sprint 2 (#1026), faq in Sprint 2 (#1046), and table
-        // and embed in Sprint 2 (#1066). Only grid, stats and logos remain. The
+        // Sprint 2 (#1023), cta in Sprint 2 (#1026), faq in Sprint 2 (#1046), table and
+        // embed in Sprint 2 (#1066), and stats and logos in that issue's second half.
+        // ONLY GRID REMAINS — when it rebuilds, the legacy system has no shipped component
+        // at all and this test retires with the branch it guards rather than asserting an
+        // empty set. The
         // number is asserted rather than loosened so that a component quietly falling OFF
         // the engine still trips this — and so that each rebuild has to come here and say
         // which one moved.
-        $this->assertCount(3, $legacy, 'three components stay on the legacy system');
+        $this->assertCount(1, $legacy, 'three components stay on the legacy system');
         $this->assertNotContains('embed', $legacy);
         $this->assertNotContains('table', $legacy);
         $this->assertNotContains('faq', $legacy);

@@ -81,6 +81,28 @@ final class FixtureTheme
             }
         }
 
+        // EVERYTHING ELSE THE THEME ROOT IS READ FOR, not just components/. The root is
+        // what get_template_directory() returns, and several readers resolve paths off it:
+        // pp_design_tokens() parses `assets/css/base.css` (its `:root` block IS the token
+        // registry), and the render path reads templates/. A root holding only components/
+        // makes those readers answer EMPTY, which surfaces as "design tokens are missing"
+        // rather than as "the fixture root is incomplete" — measured, on
+        // ActionsTest::testPpDesignTokensReturnsTokens.
+        foreach (['assets', 'templates', 'lib', 'style.css', 'functions.php'] as $entry) {
+            $src = $repo . '/' . $entry;
+            $dst = $root . '/' . $entry;
+            if (!file_exists($src) || file_exists($dst)) {
+                continue;
+            }
+            if (!@symlink($src, $dst)) {
+                if (is_dir($src)) {
+                    self::copyDir($src, $dst);
+                } else {
+                    copy($src, $dst);
+                }
+            }
+        }
+
         // …plus the fixture itself, which lives in the repo so it is reviewable.
         $fixtureSrc = $repo . '/tests/fixtures/components/' . self::COMPONENT;
         $fixtureDst = $components . '/' . self::COMPONENT;

@@ -34,6 +34,7 @@
  */
 
 use PHPUnit\Framework\TestCase;
+use PromptingPress\Tests\Support\FixtureTheme;
 
 class FriendlyErrorMessageBoundTest extends TestCase
 {
@@ -57,6 +58,11 @@ class FriendlyErrorMessageBoundTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        // THE BAND HERE IS A FIXTURE, NOT A SUBJECT (#1025). The mechanism under test
+        // is the slot engine; which component carries the slots is incidental, which is
+        // why this whole set was re-homed hero -> section -> stats over three rebuilds.
+        // It targets `ppfixture` now, so stats' rebuild is the last one that moved it.
+        FixtureTheme::activate();
         $GLOBALS['_pp_test_store'] = [
             'post_meta' => [],
             'posts'     => [],
@@ -67,6 +73,7 @@ class FriendlyErrorMessageBoundTest extends TestCase
 
     protected function tearDown(): void
     {
+        FixtureTheme::deactivate();
         if ($this->fixtureRoot !== null) {
             unset($GLOBALS['_pp_test_template_dir']);
             $this->deleteTree($this->fixtureRoot);
@@ -276,9 +283,9 @@ class FriendlyErrorMessageBoundTest extends TestCase
 
     public function testTheCompleteSlotListStillShipsInTheSamePayload(): void
     {
-        $friendly = $this->reject('stats', ['title' => 'Hi', 'items' => [['number' => '1', 'label' => 'One']]], ['--stats-bgs' => '#111111']);
+        $friendly = $this->reject('ppfixture', ['title' => 'Hi', 'items' => [['number' => '1', 'label' => 'One']]], ['--ppfixture-bgs' => '#111111']);
 
-        $declared = array_keys(pp_get_style_slots('stats'));
+        $declared = array_keys(pp_get_style_slots('ppfixture'));
         $this->assertSame(
             $declared,
             $friendly['alternatives'],
@@ -314,7 +321,7 @@ class FriendlyErrorMessageBoundTest extends TestCase
         // unbounded, which is the entire defect #661 exists to close.
         $huge = '--section-' . str_repeat('z', 9000);
 
-        $friendly = $this->reject('stats', ['title' => 'Hi', 'items' => [['number' => '1', 'label' => 'One']]], [$huge => '#111111']);
+        $friendly = $this->reject('ppfixture', ['title' => 'Hi', 'items' => [['number' => '1', 'label' => 'One']]], [$huge => '#111111']);
 
         // Asserted against the arithmetic ceiling, not READABLE_CEILING: the cap that
         // does the work here is PP_REFLECTED_NAME_MAX, and this case lands close enough
@@ -332,14 +339,14 @@ class FriendlyErrorMessageBoundTest extends TestCase
         // fallback when every key in the style map is in fact declared: array_diff
         // yields nothing, and the message must not quote a name it does not have.
         $post_id = $this->authorPage('No invalid keys', [
-            ['component' => 'stats', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'Hi']]]);
+            ['component' => 'ppfixture', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'Hi']]]);
 
         $friendly = _pp_build_friendly_error(
             new WP_Error('invalid_style_slot', 'Hand-built, no context.'),
-            ['post_id' => $post_id, 'component_index' => 0, 'style' => ['--stats-bg' => '#111']]
+            ['post_id' => $post_id, 'component_index' => 0, 'style' => ['--ppfixture-bg' => '#111']]
         );
 
-        $this->assertStringContainsString('a style setting that the stats component doesn\'t support', $friendly['user_message']);
+        $this->assertStringContainsString('a style setting that the ppfixture component doesn\'t support', $friendly['user_message']);
         $this->assertStringNotContainsString('I tried to set "', $friendly['user_message']);
     }
 
@@ -348,25 +355,25 @@ class FriendlyErrorMessageBoundTest extends TestCase
         // The near miss #625 is about. The old message never said which name was
         // rejected, so the author read a wall of settings without being told which of
         // their own words had failed.
-        $friendly = $this->reject('stats', ['title' => 'Hi', 'items' => [['number' => '1', 'label' => 'One']]], ['--stats-bgs' => '#111111']);
+        $friendly = $this->reject('ppfixture', ['title' => 'Hi', 'items' => [['number' => '1', 'label' => 'One']]], ['--ppfixture-bgs' => '#111111']);
 
-        $this->assertStringContainsString('"--stats-bgs"', $friendly['user_message']);
+        $this->assertStringContainsString('"--ppfixture-bgs"', $friendly['user_message']);
         // And the slot they meant is among the names they can see without opening
         // anything — the whole point of naming settings above the fold.
-        $this->assertStringContainsString('--stats-bg,', $friendly['user_message']);
+        $this->assertStringContainsString('--ppfixture-bg,', $friendly['user_message']);
     }
 
     public function testSeveralRejectedNamesKeepTheUnattributedOpening(): void
     {
         // Naming one of several would read as a claim about the whole set. raw_error
         // carries the specifics; the visible sentence stays honest about scope.
-        $friendly = $this->reject('stats', ['title' => 'Hi', 'items' => [['number' => '1', 'label' => 'One']]], [
-            '--stats-bgs' => '#111111',
+        $friendly = $this->reject('ppfixture', ['title' => 'Hi', 'items' => [['number' => '1', 'label' => 'One']]], [
+            '--ppfixture-bgs' => '#111111',
             '--section-qqq' => '#222222',
             '--section-www' => '#333333']);
 
-        $this->assertStringContainsString('a style setting that the stats component doesn\'t support', $friendly['user_message']);
-        $this->assertStringNotContainsString('"--stats-bgs"', $friendly['user_message']);
+        $this->assertStringContainsString('a style setting that the ppfixture component doesn\'t support', $friendly['user_message']);
+        $this->assertStringNotContainsString('"--ppfixture-bgs"', $friendly['user_message']);
         $this->assertLessThan(self::READABLE_CEILING, mb_strlen($friendly['user_message']));
     }
 
@@ -473,7 +480,7 @@ class FriendlyErrorMessageBoundTest extends TestCase
         // the validator refused. Quoting it would be a confident attribution built on
         // second-hand evidence, so the hedged opening is used instead.
         $post_id = $this->authorPage('Second hand', [
-            ['component' => 'stats', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'Hi']]]);
+            ['component' => 'ppfixture', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'Hi']]]);
 
         $friendly = _pp_build_friendly_error(
             new WP_Error('invalid_style_slot', 'Hand-built, no context.'),
@@ -481,9 +488,9 @@ class FriendlyErrorMessageBoundTest extends TestCase
         );
 
         $this->assertStringNotContainsString('I tried to set "', $friendly['user_message']);
-        $this->assertStringContainsString('a style setting that the stats component doesn\'t support', $friendly['user_message']);
+        $this->assertStringContainsString('a style setting that the ppfixture component doesn\'t support', $friendly['user_message']);
         // The orientation half is unaffected — it never depended on the attribution.
-        $this->assertStringContainsString('It has ' . count(pp_get_style_slots('stats')) . ' style settings', $friendly['user_message']);
+        $this->assertStringContainsString('It has ' . count(pp_get_style_slots('ppfixture')) . ' style settings', $friendly['user_message']);
     }
 
     public function testNamesThatCleanAwayNeverBecomeAnEmptyItemInAnExhaustiveList(): void
@@ -545,12 +552,12 @@ class FriendlyErrorMessageBoundTest extends TestCase
         // v2 at #986 and cta at #1026, and a v2 target rejects the whole style surface for a
         // DIFFERENT reason (`no_style_slots`), which is not the sentence this test pins. So
         // both sides have to be v1: the pair is grid (target) and a slot grid does not own.
-        $friendly = $this->reject('grid', ['title' => 'Hi', 'items' => [['title' => 'Card', 'text' => 'B']]], ['--stats-number-color' => '#111111']);
+        $friendly = $this->reject('grid', ['title' => 'Hi', 'items' => [['title' => 'Card', 'text' => 'B']]], ['--ppfixture-number-color' => '#111111']);
 
         $this->assertNotSame([], (array) $friendly['cross_component_hints'], 'Fixture premise: this key hints.');
         $this->assertSame(
             'I tried to change a setting on the grid component, but it isn\'t available there. '
-                . 'It does exist on the stats component. You could ask me to change it there instead.',
+                . 'It does exist on the ppfixture component. You could ask me to change it there instead.',
             $friendly['user_message']
         );
     }
@@ -560,14 +567,14 @@ class FriendlyErrorMessageBoundTest extends TestCase
         // raw_error was never the problem — it was already bounded at
         // PP_REFLECTED_ERROR_MAX and already collapsed. The risk in a message change is
         // that the two get conflated and this one is trimmed to match.
-        $friendly = $this->reject('stats', ['title' => 'Hi', 'items' => [['number' => '1', 'label' => 'One']]], ['--stats-bgs' => '#111111']);
+        $friendly = $this->reject('ppfixture', ['title' => 'Hi', 'items' => [['number' => '1', 'label' => 'One']]], ['--ppfixture-bgs' => '#111111']);
 
-        $this->assertStringContainsString('--stats-bgs', $friendly['raw_error']);
+        $this->assertStringContainsString('--ppfixture-bgs', $friendly['raw_error']);
         $this->assertLessThanOrEqual(PP_REFLECTED_ERROR_MAX, mb_strlen($friendly['raw_error']));
 
         // Every declared slot is still named there, uncut: this is the complete list
         // the author is meant to be able to reach.
-        foreach (array_keys(pp_get_style_slots('stats')) as $name) {
+        foreach (array_keys(pp_get_style_slots('ppfixture')) as $name) {
             $this->assertStringContainsString($name, $friendly['raw_error']);
         }
 

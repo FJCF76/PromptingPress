@@ -71,7 +71,20 @@ class MeasureSurfaceTest extends TestCase
     // mechanism — rather than discovering it one rebuild later. The capability it exists
     // to protect (one design-token write reaches every band heading) is worth keeping;
     // the slot-shaped assertions are not.
-    private const ROUTED = ['grid', 'stats', 'logos'];
+    // RE-FOUNDED AT #1066 PR2, which is the decision this constant's own note asked the
+    // stats/logos PR to make rather than defer. stats and logos left the slot surface with
+    // their rebuilds, leaving grid alone — and a one-element roster is not a surface audit,
+    // it is one component's test wearing one.
+    //
+    // THE CAPABILITY IS WORTH KEEPING AND THE SLOT SHAPE IS NOT: what this file exists to
+    // protect is that ONE `update_design_token` write to `--measure-heading` reaches every
+    // band heading in the theme. On v1 that was "every heading-measure slot defaults to
+    // var(--measure-heading)". On v2 it is "every band component's `heading` role defaults
+    // `sizing.max-width: @measure-heading`" — the same claim, one vocabulary later, and it
+    // now covers NINE components instead of three. The v2 arm is
+    // testOneDesignTokenWriteStillReachesEveryBandHeading below; this roster keeps only the
+    // components still on slots, and empties when grid rebuilds.
+    private const ROUTED = ['grid'];
 
     /**
      * EMPTY SINCE #1023, and kept rather than deleted because the emptiness is the fact.
@@ -360,6 +373,59 @@ class MeasureSurfaceTest extends TestCase
      * title has never carried a cap. Both exemptions are intentional differences, and a
      * later "consistency" pass that folds either one in must fail here first.
      */
+    /**
+     * THE v2 ARM, AND THE REASON THIS FILE SURVIVED ITS OWN ROSTER EMPTYING.
+     *
+     * The capability under audit has never been "a slot exists". It is that ONE
+     * `update_design_token` write to `--measure-heading` re-flows every band heading in the
+     * theme, so a site can tighten its measure once instead of nine times. The v1 spelling
+     * of that was a slot defaulting to `var(--measure-heading)`; the v2 spelling is the
+     * `heading` role defaulting `sizing.max-width: @measure-heading`.
+     *
+     * DERIVED, NOT LISTED, so a component rebuilt in a later sprint is covered the moment
+     * it lands rather than when someone remembers this file. The one deliberate exception
+     * is recorded inline: hero caps its title through a different role and section declares
+     * `none` outright, and both are v2 components whose own emit tests pin those values.
+     */
+    public function testOneDesignTokenWriteStillReachesEveryBandHeading(): void
+    {
+        // hero's cap lives on `title`, and section's `heading` declares `none` deliberately
+        // (the uncapped value its slot defaulted to). Both are pinned in their own emit
+        // tests; naming them here keeps this sweep honest rather than silently skipping.
+        // nav and footer are CHROME: template-owned, not composable bands, and their
+        // headings are a footer column label rather than a band heading. They are not part
+        // of the measure surface and never were.
+        $exceptions = ['hero', 'section', 'nav', 'footer'];
+
+        $checked = [];
+        foreach (glob(dirname(__DIR__) . '/components/*/schema.json') as $file) {
+            $component = basename(dirname($file));
+            $schema    = json_decode(file_get_contents($file), true);
+            $heading   = $schema['roles']['heading'] ?? null;
+            if ($heading === null || in_array($component, $exceptions, true)) {
+                continue;
+            }
+            $this->assertSame(
+                '@measure-heading',
+                $heading['defaults']['sizing']['max-width'] ?? null,
+                "{$component}'s `heading` role must cap through the SHARED @measure-heading "
+                . 'token — a literal here opts that band out of a site-wide measure retune, '
+                . 'silently, which is the whole defect this surface audit exists to catch'
+            );
+            $checked[] = $component;
+        }
+
+        sort($checked);
+        // Fail-closed AND exact: a shrinking sweep means a component stopped routing the
+        // token (or the schema glob broke), and a growing one is a new band that should be
+        // reviewed here rather than assumed compliant.
+        $this->assertSame(
+            ['cta', 'embed', 'faq', 'logos', 'stats', 'table', 'testimonials'],
+            $checked,
+            'the v2 band headings that route the shared measure token'
+        );
+    }
+
     public function testExactlyEightComponentsRouteTheSharedToken(): void
     {
         $routing = [];
@@ -462,16 +528,20 @@ class MeasureSurfaceTest extends TestCase
         // in #986: hero is a v2 component and its measure is the `content` role's
         // `sizing.max-width`. The naming lesson still holds for whoever adds the next
         // oddly-spelled measure slot, which is why the note stays.
-        // DELIBERATELY ABSENT: --stats-max-width. It caps the stats BAND's own box (a
-        // contained, centered card — issue 383), not a run of text, so it is band geometry
-        // rather than a text measure and carries no --measure-* default to fall out of step
-        // with. Asserted below by the exact-set comparison; recorded here so a future reader
-        // can tell an intentional boundary from an oversight.
+        // DELIBERATELY ABSENT, AND STILL ABSENT ON THE v2 SIDE: the stats band's own cap.
+        // It was `--stats-max-width` and is the `_band` role's `sizing.max-width` now. It
+        // caps the BAND's box (a contained, centered card — issue 383), not a run of text,
+        // so it is band geometry rather than a text measure and must NOT route
+        // `@measure-heading`. The boundary is recorded so a future reader can tell it from
+        // an oversight, and asserted on the address it lives at now: `_band` permits the
+        // cap but does not default one, so an unset band stays full-bleed.
+        $band = pp_udc_component_roles('stats')['_band'];
+        $this->assertContains('sizing', $band['groups'], 'the band cap must still be authorable');
         $this->assertArrayNotHasKey(
-            'role',
-            $this->slots('stats')['--stats-max-width'],
-            '--stats-max-width is band geometry, not a text measure — adding the measure role '
-            . 'would point the advisory at a slot that has no token to route.'
+            'max-width',
+            $band['defaults']['sizing'] ?? [],
+            'the stats band cap is geometry, not a text measure: defaulting it would both '
+            . 'un-full-bleed every band and drag band geometry into a text-measure retune'
         );
         sort($expected);
 
@@ -496,29 +566,65 @@ class MeasureSurfaceTest extends TestCase
      * the old rule sat in the section block, which is why no per-component audit ever
      * saw it.
      */
-    public function testEachSeveredHeadingReadsItsOwnSlotInItsOwnBlock(): void
+    /**
+     * #578's SEVERANCE, ASSERTED AT THE ADDRESS IT LIVES AT NOW.
+     *
+     * The defect #578 recorded: six band headings were capped from ONE shared selector list
+     * that read `var(--cta-heading-measure, …)`, so five of them were reading a slot they
+     * could neither SET (the write path refuses a foreign slot) nor RESOLVE (a slot custom
+     * property is emitted on its owner's root). It rendered as a literal wearing a `var()`
+     * costume. The fix gave each component its own slot, read inside its own block.
+     *
+     * Every member of that roster is now a v2 component — faq (#1046), table and embed
+     * (#1066), and logos and stats in #1066's second half — so there is no block-scoped
+     * slot read left anywhere to check. THE SEVERANCE SURVIVES AS A STRONGER FACT: a
+     * measure is a role's own `sizing.max-width`, emitted at a band-scoped selector, and no
+     * component can address another's role at all. That is asserted here rather than
+     * inferred, because "stronger by construction" is exactly the claim a rebuild is most
+     * tempted to assert without checking.
+     */
+    public function testNoComponentsHeadingMeasureCanBeReachedByAnother(): void
     {
-        $subjects = [
-            // faq's row left at #1046 and table's at #1066: each block declares no heading
-            // rule at all now, so there is no severed slot read left to check. The
-            // severance #578 made — those headings no longer reading a CTA slot —
-            // survives as a stronger fact: the measure is the component's own `heading`
-            // role's `sizing.max-width`, which no other component can address at all.
-            // embed's row left at #1066 with table's, and for the same reason: its block
-            // declares no heading rule at all now.
-            'logos' => '.logos__heading',
-            'stats' => '.stats__heading',
-        ];
+        $withHeading = [];
+        foreach (glob(dirname(__DIR__) . '/components/*/schema.json') as $file) {
+            $component = basename(dirname($file));
+            $schema    = json_decode(file_get_contents($file), true);
+            if (!isset($schema['roles']['heading']['defaults']['sizing']['max-width'])) {
+                continue;
+            }
+            $withHeading[] = $component;
 
-        foreach ($subjects as $component => $selector) {
-            $block = $this->componentBlock($component);
-            $this->assertMatchesRegularExpression(
-                '/max-width:\s*var\(\s*--' . $component . '-heading-measure\b/',
-                $block,
-                "{$selector} must cap through --{$component}-heading-measure inside the "
-                . "COMPONENT: {$component} block."
+            // The emitted selector is scoped to THIS band's id and THIS component, so the
+            // declaration cannot be read by a sibling band even if it wanted to.
+            $css = pp_udc_band_css([
+                'component' => $component,
+                'id'        => 'pp-1a2b3c4d',
+                'props'     => [],
+                'udc'       => ['heading' => ['sizing' => ['max-width' => '31rem']]],
+            ]);
+            $this->assertStringContainsString('31rem', $css, "{$component}'s authored measure must emit");
+            $this->assertStringContainsString(
+                '[data-pp-band="pp-1a2b3c4d"]',
+                $css,
+                "{$component}'s measure must be scoped to its own band, which is what makes "
+                . 'the #578 severance structural rather than conventional'
             );
         }
+
+        sort($withHeading);
+        // EIGHT, and section is in this list while being EXCLUDED from the token-routing
+        // sweep above — two sweeps asking two different questions of the same roster.
+        // Measured: section's `heading` caps at the LITERAL `40rem`, not at
+        // `@measure-heading`. So it is severed (its measure is its own role's, reachable by
+        // no other component) but not routed (a site-wide measure retune does not move it).
+        // That literal is section's own recorded decision, pinned in its emit test; it is
+        // named here so this roster's membership reads as deliberate rather than accidental.
+        $this->assertSame(
+            ['cta', 'embed', 'faq', 'logos', 'section', 'stats', 'table', 'testimonials'],
+            $withHeading,
+            'the components whose heading carries a measure — a shrink means one stopped '
+            . 'capping its heading, a growth means a new band to review here'
+        );
     }
 
     /**
@@ -824,6 +930,11 @@ class MeasureSurfaceTest extends TestCase
      */
     public function testAForeignComponentCannotAuthorTheCtaMeasureSlot(): void
     {
+        // HOST MOVED TO grid AT #1066 PR2. The claim is that a component cannot author
+        // ANOTHER component's slot (#578's severance), and it needs a component that still
+        // HAS slots to make it — logos stopped being one, so the refusal it produced was
+        // `no_style_slots` (a v2 component refusing every slot) rather than the
+        // cross-component refusal under test. grid is the last v1 component in the theme.
         $id = pp_create_page('Foreign slot', 'draft');
         // THE SUBJECT MOVED FROM table TO logos AT #1066, and the claim is unchanged:
         // this is about ONE component being unable to author ANOTHER's slot, which is why
@@ -832,7 +943,7 @@ class MeasureSurfaceTest extends TestCase
         // than the foreign slot, which is a different (and better) message, but not this
         // one. logos is still on slots and still renders a heading, so it carries the
         // original claim intact.
-        pp_update_composition($id, [['component' => 'logos', 'props' => $this->propsFor('logos')]]);
+        pp_update_composition($id, [['component' => 'grid', 'props' => $this->propsFor('logos')]]);
 
         $result = pp_execute_action('style_component', [
             'post_id'         => $id,

@@ -11,6 +11,7 @@ declare(strict_types=1);
 namespace PromptingPress\Tests;
 
 use PHPUnit\Framework\TestCase;
+use PromptingPress\Tests\Support\FixtureTheme;
 
 class SchemaValidationTest extends TestCase
 {
@@ -236,8 +237,11 @@ class SchemaValidationTest extends TestCase
         // selects has no home in the UDC taxonomy, which is why cta stays in $expectLayout
         // while leaving $expectTheme.
         $expectLayout = ['hero', 'section', 'grid', 'cta', 'testimonials'];
-        // embed left at #1066 with its `theme`, as faq did at #1046 and cta at #1026.
-        $expectTheme  = ['stats', 'logos', 'grid'];
+        // embed left at #1066 with its `theme`, as faq did at #1046 and cta at #1026 —
+        // and stats and logos left in #1066's second half. GRID IS THE LAST DECLARER of
+        // `theme` in the theme, so the next rebuild empties this set entirely and this
+        // half of the test retires rather than narrowing to nothing.
+        $expectTheme  = ['grid'];
 
         foreach ($expectTheme as $component) {
             $this->assertArrayNotHasKey(
@@ -448,13 +452,37 @@ class SchemaValidationTest extends TestCase
      * so this pin should survive the rest of the v2 programme; it carries both slot
      * families the test reads (band padding and band fill).
      */
-    public function testGetStyleSlotsReturnsStatsSlots(): void
+    /**
+     * THE SUBJECT MOVED, SO THE ASSERTION INVERTED RATHER THAN BEING DELETED (#1038).
+     *
+     * This read `pp_get_style_slots('stats')` and asserted two of its seventeen slots came
+     * back. stats declares none since #1066 PR2, and the claim that matters now is the
+     * opposite one: the getter must answer EMPTY for a v2 component, because every caller
+     * downstream branches on that emptiness — `style_component` refuses with
+     * `no_style_slots` rather than `invalid_style_slot`, and the friendly-error builder
+     * offers roles instead of slot names.
+     *
+     * Deleting it would have left the getter's v2 answer unpinned on the component whose
+     * rebuild made it v2, which is exactly the shape #1038 recorded.
+     */
+    public function testGetStyleSlotsAnswersEmptyForARebuiltComponent(): void
     {
-        $slots = pp_get_style_slots('stats');
+        foreach (['stats', 'logos'] as $component) {
+            $slots = pp_get_style_slots($component);
+            $this->assertIsArray($slots);
+            $this->assertSame(
+                [],
+                $slots,
+                "{$component} is on the design contract and must declare no style slots — " .
+                'a non-empty answer here sends every downstream caller down the v1 branch'
+            );
+        }
 
-        $this->assertIsArray($slots);
-        $this->assertArrayHasKey('--stats-padding-top', $slots);
-        $this->assertArrayHasKey('--stats-bg', $slots);
+        // NOT VACUOUS: a component still on slots must still answer with them, or this
+        // would pass just as well against a getter that always returned [].
+        $grid = pp_get_style_slots('grid');
+        $this->assertNotEmpty($grid, 'grid is still on slots — the getter must still answer');
+        $this->assertArrayHasKey('--grid-padding-top', $grid);
     }
 
     /** A v2 component reports NO style slots — the other half of the same contract. */
@@ -569,15 +597,24 @@ class SchemaValidationTest extends TestCase
      */
     public function testCompositionValidWithStyleSlots(): void
     {
-        $composition = [
-            [
-                'component' => 'stats',
-                'props'     => ['title' => 'Test', 'items' => [['number' => '10', 'label' => 'Sites']]],
-                'style'     => ['--stats-bg' => '#1a1a2e', '--stats-padding-top' => '8rem'],
-            ],
-        ];
-        $result = pp_validate_composition($composition);
-        $this->assertTrue($result);
+        // PER-TEST OPT-IN, NOT setUp(). This class is MIXED: most of it asserts registry
+        // baselines that must see only shipped components, so activating the fixture for the
+        // whole class would make those baselines start describing a component that does not
+        // ship. Only the slot-ENGINE tests host on the fixture (#1025).
+        FixtureTheme::activate();
+        try {
+            $composition = [
+                [
+                    'component' => 'ppfixture',
+                    'props'     => ['title' => 'Test', 'items' => [['number' => '10', 'label' => 'Sites']]],
+                    'style'     => ['--ppfixture-bg' => '#1a1a2e', '--ppfixture-padding-top' => '8rem'],
+                ],
+            ];
+            $result = pp_validate_composition($composition);
+            $this->assertTrue($result);
+        } finally {
+            FixtureTheme::deactivate();
+        }
     }
 
     public function testCompositionValidWithoutStyle(): void
@@ -3861,67 +3898,103 @@ class SchemaValidationTest extends TestCase
 
     public function testCompositionRejectsUnknownStyleSlot(): void
     {
-        $composition = [
-            [
-                'component' => 'stats',
-                'props'     => ['title' => 'Test', 'items' => [['number' => '10', 'label' => 'Sites']]],
-                'style'     => ['--stats-display' => 'none'],
-            ],
-        ];
-        $result = pp_validate_composition($composition);
-        $this->assertInstanceOf(\WP_Error::class, $result);
-        $this->assertEquals('invalid_style_slot', $result->get_error_code());
-        $this->assertStringContainsString('--stats-display', $result->get_error_message());
-        $this->assertStringContainsString('--stats-bg', $result->get_error_message());
+        // PER-TEST OPT-IN, NOT setUp(). This class is MIXED: most of it asserts registry
+        // baselines that must see only shipped components, so activating the fixture for the
+        // whole class would make those baselines start describing a component that does not
+        // ship. Only the slot-ENGINE tests host on the fixture (#1025).
+        FixtureTheme::activate();
+        try {
+            $composition = [
+                [
+                    'component' => 'ppfixture',
+                    'props'     => ['title' => 'Test', 'items' => [['number' => '10', 'label' => 'Sites']]],
+                    'style'     => ['--ppfixture-display' => 'none'],
+                ],
+            ];
+            $result = pp_validate_composition($composition);
+            $this->assertInstanceOf(\WP_Error::class, $result);
+            $this->assertEquals('invalid_style_slot', $result->get_error_code());
+            $this->assertStringContainsString('--ppfixture-display', $result->get_error_message());
+            $this->assertStringContainsString('--ppfixture-bg', $result->get_error_message());
+        } finally {
+            FixtureTheme::deactivate();
+        }
     }
 
     public function testCompositionRejectsInvalidStyleValue(): void
     {
-        $composition = [
-            [
-                'component' => 'stats',
-                'props'     => ['title' => 'Test', 'items' => [['number' => '10', 'label' => 'Sites']]],
-                'style'     => ['--stats-bg' => 'not-a-color'],
-            ],
-        ];
-        $result = pp_validate_composition($composition);
-        $this->assertInstanceOf(\WP_Error::class, $result);
-        $this->assertEquals('invalid_style_value', $result->get_error_code());
+        // PER-TEST OPT-IN, NOT setUp(). This class is MIXED: most of it asserts registry
+        // baselines that must see only shipped components, so activating the fixture for the
+        // whole class would make those baselines start describing a component that does not
+        // ship. Only the slot-ENGINE tests host on the fixture (#1025).
+        FixtureTheme::activate();
+        try {
+            $composition = [
+                [
+                    'component' => 'ppfixture',
+                    'props'     => ['title' => 'Test', 'items' => [['number' => '10', 'label' => 'Sites']]],
+                    'style'     => ['--ppfixture-bg' => 'not-a-color'],
+                ],
+            ];
+            $result = pp_validate_composition($composition);
+            $this->assertInstanceOf(\WP_Error::class, $result);
+            $this->assertEquals('invalid_style_value', $result->get_error_code());
+        } finally {
+            FixtureTheme::deactivate();
+        }
     }
 
     public function testCompositionRejectsInjectionInStyleValue(): void
     {
-        // RE-HOMED from hero to stats (#1023). hero left the slot system in #986, so this
-        // was already being refused as an unknown SLOT rather than for the injection in
-        // the value — a pass for the wrong reason, which the asserted code below now
-        // rules out.
-        $composition = [
-            [
-                'component' => 'stats',
-                'props'     => ['title' => 'Test', 'items' => [['number' => '10', 'label' => 'Sites']]],
-                'style'     => ['--stats-bg' => '#fff; background-image: url(evil)'],
-            ],
-        ];
-        $result = pp_validate_composition($composition);
-        $this->assertInstanceOf(\WP_Error::class, $result);
-        $this->assertSame(
-            'invalid_style_value',
-            $result->get_error_code(),
-            'the refusal must be about the VALUE — an unknown-slot refusal proves nothing about injection'
-        );
+        // PER-TEST OPT-IN, NOT setUp(). This class is MIXED: most of it asserts registry
+        // baselines that must see only shipped components, so activating the fixture for the
+        // whole class would make those baselines start describing a component that does not
+        // ship. Only the slot-ENGINE tests host on the fixture (#1025).
+        FixtureTheme::activate();
+        try {
+            // RE-HOMED from hero to stats (#1023). hero left the slot system in #986, so this
+            // was already being refused as an unknown SLOT rather than for the injection in
+            // the value — a pass for the wrong reason, which the asserted code below now
+            // rules out.
+            $composition = [
+                [
+                    'component' => 'ppfixture',
+                    'props'     => ['title' => 'Test', 'items' => [['number' => '10', 'label' => 'Sites']]],
+                    'style'     => ['--ppfixture-bg' => '#fff; background-image: url(evil)'],
+                ],
+            ];
+            $result = pp_validate_composition($composition);
+            $this->assertInstanceOf(\WP_Error::class, $result);
+            $this->assertSame(
+                'invalid_style_value',
+                $result->get_error_code(),
+                'the refusal must be about the VALUE — an unknown-slot refusal proves nothing about injection'
+            );
+        } finally {
+            FixtureTheme::deactivate();
+        }
     }
 
     public function testCompositionAllowsRecipeTrackingKey(): void
     {
-        $composition = [
-            [
-                'component' => 'stats',
-                'props'     => ['title' => 'Test', 'items' => [['number' => '10', 'label' => 'Sites']]],
-                'style'     => ['__recipe' => 'dark', '--stats-bg' => '#1a1a2e'],
-            ],
-        ];
-        $result = pp_validate_composition($composition);
-        $this->assertTrue($result);
+        // PER-TEST OPT-IN, NOT setUp(). This class is MIXED: most of it asserts registry
+        // baselines that must see only shipped components, so activating the fixture for the
+        // whole class would make those baselines start describing a component that does not
+        // ship. Only the slot-ENGINE tests host on the fixture (#1025).
+        FixtureTheme::activate();
+        try {
+            $composition = [
+                [
+                    'component' => 'ppfixture',
+                    'props'     => ['title' => 'Test', 'items' => [['number' => '10', 'label' => 'Sites']]],
+                    'style'     => ['__recipe' => 'dark', '--ppfixture-bg' => '#1a1a2e'],
+                ],
+            ];
+            $result = pp_validate_composition($composition);
+            $this->assertTrue($result);
+        } finally {
+            FixtureTheme::deactivate();
+        }
     }
 
     /**
@@ -4244,6 +4317,48 @@ class SchemaValidationTest extends TestCase
      * happens to documents that already store the old name.
      */
     private const SCHEMA_RENAME_MIGRATION_NOTES = [
+        // ── v2 Sprint 2 (#1066 PR2): stats' and logos' styling props retired ──
+        //
+        // These two are the LAST tone props in the theme: grid alone still declares one.
+        'stats' => [
+            'theme' => 'REMOVED in v2 (#1066). A bundle of band values, so the route names '
+                . 'three groups rather than only the fill: the tone is the `_band` role\'s '
+                . '`background.fill`, the `muted` framing is its `border.width-top` / '
+                . '`width-bottom` at 1px solid `@color-border`, and the `inverted` ink is its '
+                . '`typography.color`, which `heading` follows through `currentColor`. WHAT THE '
+                . 'ROUTE DOES NOT REACH: `number` and `label` pin their own colours as direct '
+                . 'declarations, so a band ink write does not move them — a dark stats band is '
+                . 'FOUR writes, not two, and v1 agreed (`.stats--inverted .stats__number` '
+                . 're-routed to `@color-accent-on-inverted`, 8.33:1, because the light-surface '
+                . 'accent measures 3.23:1 there). The v1 inverted label also carried '
+                . '`opacity: 0.75`, which has no UDC group; it ports as the pixel-measured '
+                . 'composite `rgb(192, 195, 201)`. `dark` was never an accepted input value '
+                . '(removed at #605, clamped to `default`).',
+            'background_image' => 'REMOVED in v2 (#1066). The band background is the `_band` '
+                . 'role\'s `background.image` — a Media Library ATTACHMENT ID, not a url '
+                . 'string — with its scrim on `background.overlay` and its focal point on '
+                . '`background.position`. Two v1 behaviours are explicit now: '
+                . '`background.size: "cover"` and `background.repeat: "no-repeat"`. AND THE '
+                . 'THREE CONTRAST CORRECTIONS RETIRE WITH THE CLASS: v1 keyed #461 (number), '
+                . '#463 (heading-accent) and #577 (label) on `.stats--has-bg-image` so an image '
+                . 'automatically re-inked the band. v2 has no automatic remap, exactly as hero, '
+                . 'section and cta have none — write `typography.color` on `heading`, '
+                . '`heading-accent`, `number` and `label` in the SAME map. The overlay <div> '
+                . 'is gone with them.',
+        ],
+        'logos' => [
+            'theme' => 'REMOVED in v2 (#1066). Same three-group route as stats\': the tone is '
+                . 'the `_band` role\'s `background.fill`, the `muted` framing is its '
+                . '`border.width-top` / `width-bottom` at 1px solid `@color-border`, and the '
+                . '`inverted` ink is its `typography.color`, which `heading` follows through '
+                . '`currentColor`. WHAT THE ROUTE DOES NOT REACH: `label` pins `@color-muted` '
+                . 'as a direct declaration, so a band ink write does not move it. v1\'s '
+                . 'inverted label was `@color-bg` at `opacity: 0.75`; `opacity` is in none of '
+                . 'the seven UDC groups, so it ports as the pixel-measured composite '
+                . '`rgb(192, 195, 201)` on `label` -> `typography.color`. The logo IMAGES were '
+                . 'never re-inked by the theme and still are not. `dark` was never an accepted '
+                . 'input value (removed at #605).',
+        ],
         // ── v2 Sprint 2 (#1066): embed's `theme` prop retired ──
         //
         // table is rebuilt in the same issue and appears NOWHERE in this register, which
@@ -4988,6 +5103,38 @@ class SchemaValidationTest extends TestCase
         //
         // `--embed-body-measure` was the LAST body-measure slot in the theme. Its claim
         // is re-homed to MeasureSurfaceTest's v2-side assertion rather than deleted.
+        // ── #1066 PR2: stats' seventeen and logos' eight ──
+        // stats is the largest slot map any component ever declared, and with logos it
+        // takes the theme from 25 live slots to grid's 38 alone.
+        'stats' => [
+            '--stats-padding-top' => 'REPLACED in v2 (#1066) by the `_band` role\'s `spacing.padding-top`.',
+            '--stats-padding-bottom' => 'REPLACED in v2 (#1066) by the `_band` role\'s `spacing.padding-bottom`.',
+            '--stats-bg' => 'REPLACED in v2 (#1066) by the `_band` role\'s `background.fill`. It was the LAST gradient-typed band slot outside grid, and the udc grammar accepts a gradient at that parameter directly.',
+            '--stats-heading-size' => 'REPLACED in v2 (#1066) by the `heading` role\'s `typography.size`, still referencing the shared `@pp-band-heading-size` token.',
+            '--stats-heading-color' => 'REPLACED in v2 (#1066) by the `heading` role\'s `typography.color` — but the DEFAULT CHANGED, from the pinned `var(--color-text)` this slot fell back to, to `currentColor`. v1 needed TWO rules to do what one now does (`.stats__heading` pinned the literal and `.stats--inverted .stats__heading` re-pointed it to `@color-bg`); both retire with the `theme` prop, and `currentColor` reproduces both — measured rgb(16, 24, 40) on an unauthored band, byte-identical.',
+            '--stats-heading-measure' => 'REPLACED in v2 (#1066) by the `heading` role\'s `sizing.max-width`, still defaulting to `@measure-heading`.',
+            '--stats-heading-margin-bottom' => 'REPLACED in v2 (#1066) by the `heading` role\'s `spacing.margin-bottom`, still `@space-lg`.',
+            '--stats-heading-accent-color' => 'REPLACED in v2 (#1066) by the `heading-accent` role\'s `typography.color`, still `@color-accent`. It EARNS a default where the heading\'s weight does not, because `@color-accent` was a declaration in stats\' own block rather than a value inherited from a global rule.',
+            '--stats-number-color' => 'REPLACED in v2 (#1066) by the `number` role\'s `typography.color`, still `@color-accent`. The `.stats--inverted` re-route to `@color-accent-on-inverted` retires with the theme class: a dark band owes this role a write, because the number\'s colour is a direct declaration a band ink write cannot reach.',
+            '--stats-number-size' => 'REPLACED in v2 (#1066) by the `number` role\'s `typography.size`, still the 2.5rem literal from stats\' own block.',
+            '--stats-number-font' => 'RETIRED in v2 (#1066) with NO replacement default, deliberately. v1 declared `font-family: var(--stats-number-font, inherit)` — an explicit `inherit`, which IS a declaration — but nothing in this theme declares `font-family` on a <span>, so the inherited body face already lands and silence is byte-identical (measured `system-ui, sans-serif` either way). The `number` role still declares the `typography` group, so a distinct numeral face is still authorable.',
+            '--stats-number-weight' => 'REPLACED in v2 (#1066) by the `number` role\'s `typography.weight`, still 700. It deliberately does NOT route `@font-weight-heading`, which is 650: a site with a distinct heading face is precisely the site whose rendered numbers would move.',
+            '--stats-label-color' => 'REPLACED in v2 (#1066) by the `label` role\'s `typography.color`, still `@color-muted`. The `.stats--inverted` twin carried `opacity: 0.75` alongside its colour; `opacity` is in none of the seven UDC groups, so that de-emphasis ports as the pixel-measured composite `rgb(192, 195, 201)` rather than as alpha — the same retirement #577 already made on this family, where base.css records \'do NOT re-introduce an opacity literal\'.',
+            '--stats-bg-position' => 'REPLACED in v2 (#1066) by the `_band` role\'s `background.position`. It was the LAST position-typed slot in the theme.',
+            '--stats-overlay-bg' => 'REPLACED in v2 (#1066) by the `_band` role\'s `background.overlay`, which composes into the band\'s own background layer list — so the `.stats__overlay` <div> this slot painted is gone entirely, as hero\'s, section\'s and cta\'s went at their rebuilds.',
+            '--stats-radius' => 'REPLACED in v2 (#1066) by the `_band` role\'s `border.radius`. Not DEFAULTED, only permitted: an unset band stays square, exactly as the inert `0` did.',
+            '--stats-max-width' => 'REPLACED in v2 (#1066) by the `_band` role\'s `sizing.max-width`. Not DEFAULTED, only permitted, so an unset band stays full-bleed. The auto side margins that CENTRE a capped band (#383) ARE defaulted on `_band` — they are inert at `max-width: none` and are what makes the contained card possible at all.',
+        ],
+        'logos' => [
+            '--logos-padding-top' => 'REPLACED in v2 (#1066) by the `_band` role\'s `spacing.padding-top`.',
+            '--logos-padding-bottom' => 'REPLACED in v2 (#1066) by the `_band` role\'s `spacing.padding-bottom`.',
+            '--logos-heading-size' => 'REPLACED in v2 (#1066) by the `heading` role\'s `typography.size`, still `@pp-band-heading-size`.',
+            '--logos-heading-color' => 'REPLACED in v2 (#1066) by the `heading` role\'s `typography.color`, with the same default change stats\' took: from the pinned `var(--color-text)` to `currentColor`, which reproduces BOTH v1 rules (the base pin and the `.logos--inverted` re-point) now that the theme class is gone.',
+            '--logos-heading-measure' => 'REPLACED in v2 (#1066) by the `heading` role\'s `sizing.max-width`, still `@measure-heading`.',
+            '--logos-heading-margin-bottom' => 'REPLACED in v2 (#1066) by the `heading` role\'s `spacing.margin-bottom`, still `@space-lg`.',
+            '--logos-image-size' => 'REPLACED in v2 (#1066) by TWO roles rather than one, and that is a capability CHANGE rather than a rename. v1 read this ONE slot at BOTH cap sites with different fallbacks (3rem unlabelled, 2.5rem labelled), so setting it collapsed the label-driven switch deliberately. A role carries one default and `max-height` cannot stay in structural CSS, so the caps are the `image` and `image-labeled` roles now and the switch survives by SPECIFICITY, (0,2,0) over (0,1,0). Rendered default byte-identical (measured 48px / 40px); what changed is that the two caps are independently authorable.',
+            '--logos-gap' => 'REPLACED in v2 (#1066) by the `list` role\'s `spacing.gap`, still `@space-lg`. It was the strip\'s rhythm; the intra-tile image-to-label nudge is a SEPARATE value and belongs to the `item-labeled` role\'s own `spacing.gap` (`@space-sm`).',
+        ],
         'embed' => [
             '--embed-padding-top' => 'REPLACED in v2 (#1066) by the `_band` role\'s `spacing.padding-top`. Its per-component adjacent-sibling rule went with it, at both tiers.',
             '--embed-padding-bottom' => 'REPLACED in v2 (#1066) by the `_band` role\'s `spacing.padding-bottom`.',
@@ -6506,9 +6653,11 @@ class SchemaValidationTest extends TestCase
         // `theme`, `button_variant` and `button2_variant` in #1026, 22 -> 19, and faq's
         // `theme` in #1046, 19 -> 18, and embed's `theme` in #1066, 18 -> 17. table is
         // rebuilt in that same issue and changes nothing here: it never declared an enum.
+        // stats' and logos' `theme` went in #1066's second half, 17 -> 15. GRID DECLARES
+        // THE LAST ONE.
         // Every retirement is recorded in
         // SCHEMA_RENAME_MIGRATION_NOTES / SLOT_RENAME_MIGRATION_NOTES.
-        $this->assertSame(17, $checked, 'the shipped `values` inventory changed — re-confirm the sweep reaches it');
+        $this->assertSame(15, $checked, 'the shipped `values` inventory changed — re-confirm the sweep reaches it');
     }
 
     /**
@@ -6673,10 +6822,11 @@ class SchemaValidationTest extends TestCase
             $seen,
             'every component except the recorded retirements and the four that never had `theme`'
         );
-        // THREE since #1066, when embed's `theme` joined the recorded retirements
-        // (grid, logos, stats remain). The derived assertion above is the real guard —
-        // this literal exists so a rebuild has to come here and say which component moved.
-        $this->assertSame(3, $seen, 'all three remaining theme-bearing components must be checked');
+        // ONE since #1066 PR2, when stats' and logos' `theme` joined the recorded
+        // retirements. GRID IS THE LAST THEME-BEARING COMPONENT IN THE THEME. The derived
+        // assertion above is the real guard — this literal exists so a rebuild has to come
+        // here and say which component moved, and the next one empties the set entirely.
+        $this->assertSame(1, $seen, 'grid is the last theme-bearing component and must be checked');
     }
 
     /**
@@ -6700,14 +6850,16 @@ class SchemaValidationTest extends TestCase
             'post_meta' => [], 'posts' => [], 'options' => [], 'next_id' => 100, 'custom_css' => '',
         ];
 
-        // RE-HOMED from section to stats (#1023): section has no `theme` prop any more, so
-        // a `theme: "dark"` band there is refused as a RETIRED prop, which proves nothing
-        // about the removed VALUE. stats still carries `theme` and is furthest down the
-        // rebuild queue.
-        $items       = [['number' => '10', 'label' => 'Sites']];
+        // RE-HOMED AGAIN, section -> stats (#1023) -> grid (#1066 PR2), and for the same
+        // reason each time: a component without a `theme` prop refuses `theme: "dark"` as a
+        // RETIRED prop, which proves nothing about the removed VALUE this test is about.
+        // GRID IS THE LAST COMPONENT THAT CAN HOST THIS CLAIM — when it rebuilds, `theme`
+        // leaves the theme entirely and the claim retires with the prop rather than moving
+        // a fourth time.
+        $items       = [['title' => 'Card', 'text' => 'Body']];
         $composition = [
-            ['component' => 'stats', 'props' => ['theme' => 'dark', 'items' => $items]],
-            ['component' => 'stats', 'props' => ['theme' => 'inverted', 'items' => $items]],
+            ['component' => 'grid', 'props' => ['theme' => 'dark', 'items' => $items]],
+            ['component' => 'grid', 'props' => ['theme' => 'inverted', 'items' => $items]],
         ];
 
         $result = \pp_validate_action('create_page', ['title' => 'Legacy theme page', 'composition' => $composition]);
@@ -6718,15 +6870,19 @@ class SchemaValidationTest extends TestCase
         $this->assertStringNotContainsString('legacy', $result->get_error_message());
 
         // Storage route: bytes that predate the removal still render, as the default.
+        // On GRID, because that is where the removed VALUE still has a live prop to be
+        // removed FROM — on a rebuilt component the same bytes render no modifier for a
+        // different reason (the whole prop retired), which would make this pass without
+        // testing the #605 clamp at all.
         ob_start();
-        \pp_get_component('stats', ['theme' => 'dark', 'items' => $items]);
+        \pp_get_component('grid', ['theme' => 'dark', 'items' => $items]);
         $html = ob_get_clean();
-        $this->assertStringNotContainsString('stats--dark', $html, 'a stored `dark` no longer paints the tinted band');
-        $this->assertStringNotContainsString('stats--inverted', $html);
+        $this->assertStringNotContainsString('grid--dark', $html, 'a stored `dark` no longer paints the tinted band');
+        $this->assertStringNotContainsString('grid--inverted', $html);
         // The band still renders — it just renders as the DEFAULT band, with no theme
         // modifier at all.
-        $this->assertStringContainsString('class="stats"', $html);
-        $this->assertStringContainsString('Sites', $html);
+        $this->assertStringContainsString('class="grid"', $html);
+        $this->assertStringContainsString('Card', $html);
     }
 
     /**
@@ -6791,13 +6947,7 @@ class SchemaValidationTest extends TestCase
         'grid slot --grid-item-icon-size' => 'layout=cards AND image_treatment=icon +note(046f6c6d)',
         'grid slot --grid-step-bg' => 'layout=steps',
         'grid slot --grid-step-text-color' => 'layout=steps',
-        'logos slot --logos-heading-size' => 'title present',
-        'logos slot --logos-heading-color' => 'title present',
-        'logos slot --logos-heading-measure' => 'title present',
         'logos prop items' => 'note +note(670c0bc6)',
-        'logos slot --logos-heading-margin-bottom' => 'title present',
-        'logos slot --logos-image-size' => 'items present',
-        'logos slot --logos-gap' => 'items present',
         'nav prop logo_text' => 'note +note(0bec3f53)',
         'nav prop logo_alt' => 'note +note(4fea14e5)',
         // RETIRED (#1023): section's 35 rows left with its slot map when the component
@@ -6807,18 +6957,6 @@ class SchemaValidationTest extends TestCase
         // layout-dependent surface is now enforced at WRITE time by `refuse_props_when`
         // (`inert_prop`), which is a refusal rather than an advisory and so is not part of
         // this census. See SchemaValidationTest's refuse_props_when pins.
-        'stats slot --stats-heading-size' => 'title present',
-        'stats slot --stats-heading-color' => 'title present',
-        'stats slot --stats-heading-measure' => 'title present',
-        'stats slot --stats-heading-margin-bottom' => 'title present',
-        'stats slot --stats-heading-accent-color' => 'title present',
-        'stats slot --stats-number-color' => 'items present',
-        'stats slot --stats-number-size' => 'items present',
-        'stats slot --stats-number-font' => 'items present',
-        'stats slot --stats-number-weight' => 'items present',
-        'stats slot --stats-label-color' => 'items present',
-        'stats slot --stats-bg-position' => 'background_image present',
-        'stats slot --stats-overlay-bg' => 'background_image present',
         // table's four rows left at #1066 with its slots, and embed's four with them. THE CONDITION ITSELF SURVIVES
         // AS A DIFFERENT KIND OF FACT: the `heading` role's defaults are emitted for every
         // table band whether or not a title renders, and an emitted declaration matching
@@ -7223,6 +7361,7 @@ class SchemaValidationTest extends TestCase
     public function testNoComponentPassesPpThemeClassAPrefixThatDiffersFromItsRootClass(): void
     {
         $checked = 0;
+        $callers = [];
 
         foreach ($this->allSchemas() as $component => $schema) {
             $template = $this->themeRoot . "/components/{$component}/{$component}.php";
@@ -7232,6 +7371,7 @@ class SchemaValidationTest extends TestCase
             if (!preg_match_all('/pp_theme_class\(\s*\$?\w+\s*,\s*\'([^\']+)\'/', file_get_contents($template), $m)) {
                 continue;
             }
+            $callers[] = $component;
             foreach ($m[1] as $prefix) {
                 $checked++;
                 $this->assertSame(
@@ -7243,14 +7383,24 @@ class SchemaValidationTest extends TestCase
             }
         }
 
-        // THREE since #1066: embed.php no longer calls pp_theme_class() at all, because
-        // the prop that fed it retired, exactly as faq.php stopped at #1046. The floor
-        // moves with the roster rather than being loosened — its job is to catch the
-        // sweep silently finding nothing. NOTE for the next rebuild: grid, logos and
-        // stats are the last three callers, and stats and logos both go in #1066's second
-        // half, leaving grid alone. A one-caller sweep is worth re-founding rather than
-        // narrowing again.
-        $this->assertGreaterThanOrEqual(3, $checked, 'the theme-bearing templates must still be swept');
+        // embed.php stopped calling pp_theme_class() at #1066 because the prop that fed it
+        // retired, exactly as faq.php stopped at #1046. THE FLOOR IS RE-FOUNDED AT #1066 PR2, which is what the note here asked for rather than
+        // another decrement. stats and logos were the other two callers and both left, so
+        // a `>= 3` floor would have had to become `>= 1` — and a one-caller floor cannot
+        // tell "the sweep found grid" from "the sweep found anything at all", which is the
+        // single thing the floor existed to catch.
+        //
+        // So the claim is now an EXACT SET rather than a count. It fails if grid stops
+        // calling pp_theme_class (the sweep broke, or grid rebuilt and this test should
+        // retire with it) AND it fails if a new caller appears (a component re-growing a
+        // theme prop, which is a decision, not an accident).
+        $this->assertSame(
+            ['grid'],
+            array_values(array_unique($callers)),
+            'grid is the last pp_theme_class caller in the theme. A caller appearing here is ' .
+            'a component re-growing a `theme` prop; a caller disappearing means grid rebuilt, ' .
+            'at which point this test retires with the helper rather than narrowing further.'
+        );
 
         $section = json_decode(file_get_contents($this->themeRoot . '/components/section/schema.json'), true);
         $this->assertSame('section', $section['styling']['root_class'], 'the root class itself is unprefixed');
@@ -7619,6 +7769,8 @@ class SchemaValidationTest extends TestCase
             'faq'          => ['items' => [['question' => 'Q?', 'answer' => 'A.']]],
             'table'        => ['headers' => ['H'], 'rows' => [['r']]],
             'embed'        => ['content' => '<p>E</p>'],
+            'stats'        => ['items' => [['number' => '10', 'label' => 'Ten']]],
+            'logos'        => ['items' => [['image_url' => '/a.png', 'image_alt' => 'A']]],
         ];
 
         foreach ($v2 as $component) {

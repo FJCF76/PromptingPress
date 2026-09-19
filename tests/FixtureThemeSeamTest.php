@@ -148,6 +148,60 @@ class FixtureThemeSeamTest extends TestCase
         }
     }
 
+    /**
+     * SOURCE TRIPWIRE: every suite that activates the fixture must also deactivate it.
+     *
+     * THIS CAUGHT A REAL LEAK THE HOUR IT WAS WRITTEN, which is why it exists as a
+     * tripwire rather than as advice in the README. Three suites were re-homed onto the
+     * fixture by a script that inserted `activate()` into `setUp()` and `deactivate()`
+     * into `tearDown()` — and those three had NO tearDown at all, so the insertion found
+     * nothing and silently did half the job. The fixture root then stayed in force for
+     * every later class in the process.
+     *
+     * THE SYMPTOM DID NOT LOOK LIKE A LEAK, which is the whole argument for pinning it:
+     * UdcEngineTest, UdcPresetStateMotionTest and UdcTruthSpineTest started failing, and
+     * they read like the UDC engine breaking rather than like a fixture bleeding in. What
+     * actually happened is that a registry-iterating suite met a component with no
+     * `roles` block. Total assertions dropped by ~4,900 and 30 extra tests failed.
+     *
+     * Asserted on the SOURCE rather than on behaviour because behaviour cannot see it:
+     * a leak only manifests in whatever class PHPUnit happens to run next, so the
+     * behavioural version of this test would be order-dependent and would pass whenever
+     * the leaking suite ran last.
+     */
+    public function testEverySuiteThatActivatesTheFixtureAlsoDeactivatesIt(): void
+    {
+        $dir = __DIR__;
+        $activators = [];
+        foreach (scandir($dir) as $entry) {
+            if (!str_ends_with($entry, '.php')) {
+                continue;
+            }
+            $src = file_get_contents($dir . '/' . $entry);
+            if (strpos($src, 'FixtureTheme::activate()') === false) {
+                continue;
+            }
+            $activators[] = $entry;
+            $this->assertStringContainsString(
+                'FixtureTheme::deactivate()',
+                $src,
+                "{$entry} activates the fixture theme root but never deactivates it. PHPUnit " .
+                'runs every class in one process, so the root stays in force for every LATER ' .
+                'class — which surfaces as the UDC suites failing, not as a leak. Add a ' .
+                'tearDown() that calls FixtureTheme::deactivate().'
+            );
+        }
+
+        // Fail-closed: if the scan stops finding activators, the loop above passes on
+        // nothing and this guard silently retires.
+        $this->assertGreaterThanOrEqual(
+            5,
+            count($activators),
+            'the scan found almost no suites opting into the fixture — either the opt-in was ' .
+            'renamed or this directory scan broke, and either way the pairing is unguarded'
+        );
+    }
+
     /** It stands in for a v1 component, so it must NOT look like a v2 one. */
     public function testTheFixtureIsAv1ComponentAndDeclaresNoRoles(): void
     {

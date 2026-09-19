@@ -67,7 +67,7 @@ $overlay_attr = !empty($props['__pp_udc_overlay']) ? ' data-pp-band-overlay' : '
                     // components/stats/stats.php and components/hero/hero.php respectively
                     // (#705's block lived in components/cta/cta.php until #1026 retired that
                     // component's background_image prop and moved it to the last declarer);
-                    // #708 (the `__pp_style` map into pp_render_style_vars, and grid's
+                    // #708 (the `__pp_style` map into the style-vars renderer, and grid's
                     // count($items)) has since LANDED too, and this file carries its
                     // guard at the top; its canonical block is in
                     // components/grid/grid.php. #738 (an associative `items` map fataling

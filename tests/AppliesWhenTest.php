@@ -28,17 +28,29 @@
 namespace PromptingPress\Tests;
 
 use PHPUnit\Framework\TestCase;
+use PromptingPress\Tests\Support\FixtureTheme;
 
 final class AppliesWhenTest extends TestCase
 {
     protected function setUp(): void
     {
         parent::setUp();
+        // THE BAND HERE IS A FIXTURE, NOT A SUBJECT (#1025). The mechanism under test
+        // is the slot engine; which component carries the slots is incidental, which is
+        // why this whole set was re-homed hero -> section -> stats over three rebuilds.
+        // It targets `ppfixture` now, so stats' rebuild is the last one that moved it.
+        FixtureTheme::activate();
         // Reset the in-memory store for test isolation (the repo's stub-suite idiom).
         $GLOBALS['_pp_test_store'] = [
             'post_meta' => [], 'posts' => [], 'options' => [], 'next_id' => 100,
             'custom_css' => '', 'filters' => [],
         ];
+    }
+
+    protected function tearDown(): void
+    {
+        FixtureTheme::deactivate();
+        parent::tearDown();
     }
 
     // ── The clause evaluator ─────────────────────────────────────────────────
@@ -243,17 +255,17 @@ final class AppliesWhenTest extends TestCase
     public function testAnInertSlotWarnsAndNamesTheUnmetCondition(): void
     {
         // Re-homed from section to stats in #1023: section's slot map left with the v2
-        // rebuild. `--stats-overlay-bg` carries the identical clause shape section's
+        // rebuild. `--ppfixture-overlay-bg` carries the identical clause shape section's
         // `--section-overlay-bg` did (`background_image is set`), so the pin is unchanged.
         $smells = $this->inertSmells([
-            ['component' => 'stats', 'props' => ['id' => 'h', 'items' => [['number' => '10', 'label' => 'Sites']]],
-             'style' => ['--stats-overlay-bg' => '#fff']],
+            ['component' => 'ppfixture', 'props' => ['id' => 'h', 'items' => [['number' => '10', 'label' => 'Sites']]],
+             'style' => ['--ppfixture-overlay-bg' => '#fff']],
         ]);
 
         $this->assertCount(1, $smells);
         $this->assertSame('h', $smells[0]['id']);
         $this->assertSame(0, $smells[0]['index']);
-        $this->assertStringContainsString('--stats-overlay-bg', $smells[0]['message']);
+        $this->assertStringContainsString('--ppfixture-overlay-bg', $smells[0]['message']);
         $this->assertStringContainsString('applies when background_image is set', $smells[0]['message']);
     }
 
@@ -289,13 +301,13 @@ final class AppliesWhenTest extends TestCase
         // Re-homed to stats (#1023). Two slots, one unmet clause each: both heading slots
         // condition on `title is set`, and this band has no title.
         $smells = $this->inertSmells([
-            ['component' => 'stats', 'props' => ['items' => [['number' => '10', 'label' => 'Sites']]],
-             'style' => ['--stats-heading-size' => '2rem', '--stats-heading-color' => '#fff']],
+            ['component' => 'ppfixture', 'props' => ['items' => [['number' => '10', 'label' => 'Sites']]],
+             'style' => ['--ppfixture-heading-size' => '2rem', '--ppfixture-heading-color' => '#fff']],
         ]);
 
         $this->assertCount(2, $smells, 'one warning per SLOT, not one per component');
-        $this->assertStringContainsString('--stats-heading-size', $smells[0]['message']);
-        $this->assertStringContainsString('--stats-heading-color', $smells[1]['message']);
+        $this->assertStringContainsString('--ppfixture-heading-size', $smells[0]['message']);
+        $this->assertStringContainsString('--ppfixture-heading-color', $smells[1]['message']);
     }
 
     /**
@@ -307,8 +319,8 @@ final class AppliesWhenTest extends TestCase
     {
         $smells = $this->inertSmells([
             ['component' => 'section', 'props' => ['title' => 'A', 'body' => '<p>x</p>']],
-            ['component' => 'stats', 'props' => ['items' => [['number' => '10', 'label' => 'Sites']]],
-             'style' => ['--stats-overlay-bg' => '#fff']],
+            ['component' => 'ppfixture', 'props' => ['items' => [['number' => '10', 'label' => 'Sites']]],
+             'style' => ['--ppfixture-overlay-bg' => '#fff']],
         ]);
 
         $this->assertCount(1, $smells);
@@ -318,18 +330,18 @@ final class AppliesWhenTest extends TestCase
     public function testAMetConditionIsSilent(): void
     {
         $this->assertSame([], $this->inertSmells([
-            // The condition on `--stats-overlay-bg` is `background_image is set`, so
+            // The condition on `--ppfixture-overlay-bg` is `background_image is set`, so
             // setting it is what makes the advisory silent.
-            ['component' => 'stats', 'props' => ['items' => [['number' => '10', 'label' => 'Sites']],
+            ['component' => 'ppfixture', 'props' => ['items' => [['number' => '10', 'label' => 'Sites']],
                                                  'background_image' => 'https://example.com/bg.png'],
-             'style' => ['--stats-overlay-bg' => '#fff']],
+             'style' => ['--ppfixture-overlay-bg' => '#fff']],
         ]));
     }
 
     public function testASlotWithNoAppliesWhenIsSilent(): void
     {
         $this->assertSame([], $this->inertSmells([
-            ['component' => 'stats', 'props' => ['items' => [['number' => '10', 'label' => 'Sites']]], 'style' => ['--stats-bg' => '#101010']],
+            ['component' => 'ppfixture', 'props' => ['items' => [['number' => '10', 'label' => 'Sites']]], 'style' => ['--ppfixture-bg' => '#101010']],
         ]));
     }
 
@@ -671,7 +683,7 @@ final class AppliesWhenTest extends TestCase
         $prompt = pp_ai_system_prompt();
 
         // A clause list, ANDed, on the slot catalog. Section's surface slots carried this
-        // before the v2 rebuild (#1023); `--stats-overlay-bg` carries the same clause now.
+        // before the v2 rebuild (#1023); `--ppfixture-overlay-bg` carries the same clause now.
         $this->assertStringContainsString(
             'applies when background_image is set',
             $prompt,

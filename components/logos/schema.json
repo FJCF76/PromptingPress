@@ -52,8 +52,6 @@
     "tokens": [
       "--color-muted",
       "--measure-heading",
-      "--pp-band-heading-size",
-      "--pp-band-padding",
       "--space-lg",
       "--space-sm"
     ]
@@ -67,7 +65,7 @@
   ],
   "retired_props": {
     "_note": "Props this component declared on 1.x that the v2 rebuild retired (#1066). Each value names the v2 surface that replaced it, so a refusal can offer a route instead of a list of live prop names. Guarded by SchemaValidationTest, which fails in BOTH directions: a key here that still exists in props, or a route naming a role this component does not declare, is a test failure rather than a message that lies.",
-    "theme": "the `_band` role, and it takes THREE groups rather than one. MEASURED, every value, at 375/768/1280 before the prop went: `default` painted NOTHING (`rgba(0, 0, 0, 0)`) with no border on any edge, which is why `_band` declares no `background.fill` and silence is the faithful port; `muted` painted `@color-surface` PLUS a 1px solid `@color-border` rule top and bottom (it emitted the legacy `logos--dark` class, #570 DG-4); `inverted` painted `@color-bg-inverted` and re-coloured the heading to `@color-bg`. So: the tone is `background.fill`; the `muted` framing is `border.width-top` / `width-bottom` = \"1px\" with `style-top` / `style-bottom` = \"solid\" and `color` = \"@color-border\"; the `inverted` ink is `typography.color` on `_band`, which `heading` follows through `currentColor`. `dark` was NOT an accepted input value: it was removed at #605 and `pp_theme_class()` clamped it to `default`. WHAT THE ROUTE DOES NOT REACH: `label` pins `@color-muted` as a direct declaration, so a `_band` ink write does not move it. v1's inverted label was `@color-bg` at `opacity: 0.75`; `opacity` is in none of the seven UDC groups, so that de-emphasis ports as the MEASURED COMPOSITE COLOUR `rgb(192, 195, 201)` on `label` -> `typography.color`. The logo IMAGES are unaffected by a band tone either way - they were never re-inked, and a dark strip of dark logos was as much the author's problem on v1 as it is here."
+    "theme": "the `_band` role, and it takes three groups rather than one. MEASURED at 375/768/1280 before the prop went: `default` painted NOTHING (`rgba(0, 0, 0, 0)`, no border on any edge); `muted` painted `@color-surface` plus a 1px solid `@color-border` rule top and bottom; `inverted` painted `@color-bg-inverted` and re-coloured the heading to `@color-bg`. So the tone is `background.fill`, the `muted` framing is `border.width-top` / `width-bottom` = \"1px\" with `style-top` / `style-bottom` = \"solid\" and `color` = \"@color-border\", and the `inverted` ink is `typography.color` on `_band`, which `heading` follows through `currentColor`. WHAT THE ROUTE DOES NOT REACH: `label` pins `@color-muted` as a direct declaration, so a band ink write does not move it — v1's inverted label was `@color-bg` at `opacity: 0.75`, and `opacity` has no UDC group, so it ports as the measured composite `rgb(192, 195, 201)`. The logo images were never re-inked and still are not. `dark` was never an accepted input (removed at #605). Full reasoning in components/logos/README.md."
   },
   "roles": {
     "_band": {

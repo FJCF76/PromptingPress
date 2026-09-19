@@ -127,12 +127,18 @@
  */
 
 use PHPUnit\Framework\TestCase;
+use PromptingPress\Tests\Support\FixtureTheme;
 
 class StoredBackgroundImageRenderGuardTest extends TestCase
 {
     protected function setUp(): void
     {
         parent::setUp();
+        // THE BAND HERE IS A FIXTURE, NOT A SUBJECT (#1025). The mechanism under test
+        // is the slot engine; which component carries the slots is incidental, which is
+        // why this whole set was re-homed hero -> section -> stats over three rebuilds.
+        // It targets `ppfixture` now, so stats' rebuild is the last one that moved it.
+        FixtureTheme::activate();
         $GLOBALS['_pp_test_store'] = [
             'post_meta'  => [],
             'posts'      => [],
@@ -141,6 +147,12 @@ class StoredBackgroundImageRenderGuardTest extends TestCase
             'custom_css' => '',
             'filters'    => [],
         ];
+    }
+
+    protected function tearDown(): void
+    {
+        FixtureTheme::deactivate();
+        parent::tearDown();
     }
 
     /**
@@ -215,7 +227,7 @@ class StoredBackgroundImageRenderGuardTest extends TestCase
         // it. Going through create_page here would be the wrong test: it REJECTS this
         // shape, which is precisely why the render path needs its own guard.
         pp_update_composition($id, [
-            ['component' => 'stats',   'props' => ['title' => 'Stats band', 'items' => [['number' => '40+', 'label' => 'Years']], 'background_image' => $bad]],
+            ['component' => 'ppfixture',   'props' => ['title' => 'Stats band', 'items' => [['number' => '40+', 'label' => 'Years']], 'background_image' => $bad]],
             // section's row left this guard at #1023 and cta's at #1026: each retired
             // `background_image`, so there is no pp_esc_image_src() call site left on either
             // to guard and no stored scalar to paint. A band background is `_band` ->
@@ -237,7 +249,7 @@ class StoredBackgroundImageRenderGuardTest extends TestCase
         // And not one background gate opened anywhere on it.
         $this->assertStringNotContainsString('background-image', $html, 'a malformed background_image paints NO background');
         $this->assertStringNotContainsString('--has-bg-image', $html, 'and sets no background-image modifier');
-        $this->assertStringNotContainsString('stats__overlay', $html, 'and renders no stats overlay');
+        $this->assertStringNotContainsString('ppfixture__overlay', $html, 'and renders no stats overlay');
         // failOnWarning is false and esc_* render an array as the literal `Array` without
         // fataling, so this is the assertion that separates DEGRADED from COERCED.
         $this->assertStringNotContainsString('Array', $html, 'the value is degraded, never coerced into the page');
@@ -268,7 +280,7 @@ class StoredBackgroundImageRenderGuardTest extends TestCase
     {
         $id = pp_create_page('Stored scalar background_image', 'draft');
         pp_update_composition($id, [
-            ['component' => 'stats',   'props' => ['title' => 'S', 'items' => [['number' => '1', 'label' => 'L']], 'background_image' => 42]],
+            ['component' => 'ppfixture',   'props' => ['title' => 'S', 'items' => [['number' => '1', 'label' => 'L']], 'background_image' => 42]],
         ]);
 
         $html = $this->renderStored($id);
@@ -277,7 +289,7 @@ class StoredBackgroundImageRenderGuardTest extends TestCase
         // `background_image` and then cta did. stats is the last one that paints a stored
         // scalar at all, so the count is the roster rather than a coincidence.
         $this->assertSame(1, substr_count($html, 'background-image:url(42)'), 'the last remaining band still paints the scalar');
-        $this->assertStringContainsString('stats--has-bg-image', $html);
+        $this->assertStringContainsString('ppfixture--has-bg-image', $html);
     }
 
     /**
@@ -304,7 +316,7 @@ class StoredBackgroundImageRenderGuardTest extends TestCase
         $breakout = 'https://example.com/a.jpg);background:url(https://evil.test/x.png';
         $id = pp_create_page('Stored url() breakout', 'draft');
         pp_update_composition($id, [
-            ['component' => 'stats',   'props' => ['title' => 'S', 'items' => [['number' => '1', 'label' => 'L']], 'background_image' => $breakout]],
+            ['component' => 'ppfixture',   'props' => ['title' => 'S', 'items' => [['number' => '1', 'label' => 'L']], 'background_image' => $breakout]],
         ]);
         $html = $this->renderStored($id);
 
@@ -315,7 +327,7 @@ class StoredBackgroundImageRenderGuardTest extends TestCase
         // 2. Stored-XSS vector: a data: URI of a non-image type must be rejected outright.
         $id2 = pp_create_page('Stored data: URI', 'draft');
         pp_update_composition($id2, [
-            ['component' => 'stats',   'props' => ['title' => 'S', 'items' => [['number' => '1', 'label' => 'L']], 'background_image' => 'data:image/svg+xml,<svg onload=alert(1)></svg>']],
+            ['component' => 'ppfixture',   'props' => ['title' => 'S', 'items' => [['number' => '1', 'label' => 'L']], 'background_image' => 'data:image/svg+xml,<svg onload=alert(1)></svg>']],
         ]);
         $html2 = $this->renderStored($id2);
 
@@ -333,7 +345,7 @@ class StoredBackgroundImageRenderGuardTest extends TestCase
         // here so the behaviour is recorded rather than discovered later. Closing it means
         // gating on the escaper's OUTPUT, a behaviour change filed separately.
         $this->assertSame(1, substr_count($html2, 'background-image:url()'), 'the rejected value renders an empty url()');
-        $this->assertStringContainsString('stats--has-bg-image', $html2, 'pre-existing: same on stats');
+        $this->assertStringContainsString('ppfixture--has-bg-image', $html2, 'pre-existing: same on stats');
     }
 
     /**
@@ -360,19 +372,19 @@ class StoredBackgroundImageRenderGuardTest extends TestCase
         // decodes as int 0, so the band renders exactly as it always did.
         $encoded = pp_create_page('Negative zero, encoded', 'draft');
         pp_update_composition($encoded, [
-            ['component' => 'stats', 'props' => ['title' => 'Encoded band', 'items' => [['number' => '1', 'label' => 'L']], 'background_image' => -0.0]],
+            ['component' => 'ppfixture', 'props' => ['title' => 'Encoded band', 'items' => [['number' => '1', 'label' => 'L']], 'background_image' => -0.0]],
         ]);
 
         $this->assertSame(0, pp_get_composition($encoded)[0]['props']['background_image'], 'json_encode round-trips -0.0 to int 0');
         $html = $this->renderStored($encoded);
         $this->assertStringContainsString('Encoded band', $html, 'the band renders');
-        $this->assertStringNotContainsString('stats--has-bg-image', $html, 'and paints no background, exactly as before the guard');
+        $this->assertStringNotContainsString('ppfixture--has-bg-image', $html, 'and paints no background, exactly as before the guard');
         $this->assertStringNotContainsString('background-image', $html);
 
         // Channel 2 — stored bytes that already carry the literal `-0.0` text, which is
         // the raw-meta reachability this whole file exists for. Here the flip is real.
         $raw = pp_create_page('Negative zero, raw', 'draft');
-        update_post_meta($raw, '_pp_composition', '[{"component":"stats","props":{"title":"Raw band","items":[{"number":"1","label":"One"}],"background_image":-0.0}}]');
+        update_post_meta($raw, '_pp_composition', '[{"component":"ppfixture","props":{"title":"Raw band","items":[{"number":"1","label":"One"}],"background_image":-0.0}}]');
 
         $stored = pp_get_composition($raw)[0]['props']['background_image'];
         $this->assertIsFloat($stored, 'the literal text decodes as a float, not an int');
@@ -380,8 +392,8 @@ class StoredBackgroundImageRenderGuardTest extends TestCase
 
         $html = $this->renderStored($raw);
         $this->assertStringContainsString('Raw band', $html, 'the band renders');
-        $this->assertStringContainsString('stats--has-bg-image', $html, 'and here the cast DOES open the gate');
-        $this->assertStringContainsString('stats__overlay', $html);
+        $this->assertStringContainsString('ppfixture--has-bg-image', $html, 'and here the cast DOES open the gate');
+        $this->assertStringContainsString('ppfixture__overlay', $html);
     }
 
     /**
@@ -399,7 +411,7 @@ class StoredBackgroundImageRenderGuardTest extends TestCase
     public function testTheStoredValueIsStillReportedAsAFinding(): void
     {
         foreach ([
-            'stats'   => ['title' => 'T', 'items' => [['number' => '1', 'label' => 'L']], 'background_image' => ['attachment_id' => 42]],
+            'ppfixture'   => ['title' => 'T', 'items' => [['number' => '1', 'label' => 'L']], 'background_image' => ['attachment_id' => 42]],
         ] as $component => $props) {
             $findings = _pp_composition_findings([
                 ['component' => $component, 'props' => $props],
@@ -423,7 +435,7 @@ class StoredBackgroundImageRenderGuardTest extends TestCase
         $bad = ['attachment_id' => 42, 'url' => '/bg.png'];
         $id  = pp_create_page('Stored value preserved', 'draft');
         pp_update_composition($id, [
-            ['component' => 'stats',   'props' => ['title' => 'T', 'items' => [['number' => '1', 'label' => 'L']], 'background_image' => $bad]],
+            ['component' => 'ppfixture',   'props' => ['title' => 'T', 'items' => [['number' => '1', 'label' => 'L']], 'background_image' => $bad]],
         ]);
 
         $this->renderStored($id);
@@ -448,7 +460,7 @@ class StoredBackgroundImageRenderGuardTest extends TestCase
     {
         $bad = ['attachment_id' => 42];
         $cases = [
-            'stats'   => ['title' => 'T', 'items' => [['number' => '1', 'label' => 'L']], 'background_image' => $bad],
+            'ppfixture'   => ['title' => 'T', 'items' => [['number' => '1', 'label' => 'L']], 'background_image' => $bad],
         ];
 
         foreach ($cases as $component => $props) {
@@ -479,12 +491,12 @@ class StoredBackgroundImageRenderGuardTest extends TestCase
     {
         $id = pp_create_page('Good backgrounds', 'draft');
         pp_update_composition($id, [
-            ['component' => 'stats',   'props' => ['title' => 'S', 'items' => [['number' => '1', 'label' => 'L']], 'background_image' => 'https://example.com/stats.jpg']],
+            ['component' => 'ppfixture',   'props' => ['title' => 'S', 'items' => [['number' => '1', 'label' => 'L']], 'background_image' => 'https://example.com/ppfixture.jpg']],
         ]);
 
         $html = $this->renderStored($id);
 
-        $this->assertStringContainsString('style="background-image:url(https://example.com/stats.jpg);"', $html);
-        $this->assertStringContainsString('<div class="stats__overlay" aria-hidden="true"></div>', $html);
+        $this->assertStringContainsString('style="background-image:url(https://example.com/ppfixture.jpg);"', $html);
+        $this->assertStringContainsString('<div class="ppfixture__overlay" aria-hidden="true"></div>', $html);
     }
 }

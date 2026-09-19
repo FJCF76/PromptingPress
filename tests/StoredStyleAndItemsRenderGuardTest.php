@@ -138,6 +138,7 @@
  */
 
 use PHPUnit\Framework\TestCase;
+use PromptingPress\Tests\Support\FixtureTheme;
 
 class StoredStyleAndItemsRenderGuardTest extends TestCase
 {
@@ -170,7 +171,7 @@ class StoredStyleAndItemsRenderGuardTest extends TestCase
         // per-cell wp_kses_post() boundary (#730) is a different typed sink on a
         // different prop, it is untouched by this rebuild, and it stays pinned in
         // StoredLinkAndRichTextRenderGuardTest.
-        'grid', 'stats', 'logos',
+        'grid',
     ];
 
     /**
@@ -323,6 +324,8 @@ class StoredStyleAndItemsRenderGuardTest extends TestCase
             'logos'        => ['title' => 'Logos heading', 'items' => [['image_url' => '/logo.png', 'image_alt' => 'Acme', 'label' => 'Acme']]],
             'table'        => ['title' => 'Table heading', 'headers' => ['Plan'], 'rows' => [['Free']]],
             'embed'        => ['title' => 'Embed heading', 'content' => '<iframe src="/e"></iframe>'],
+            // The #1025 fixture: the last carrier of the merged style+background attribute.
+            'ppfixture'    => ['title' => 'Fixture heading', 'items' => [['number' => '40+', 'label' => 'Years']]],
         ];
 
         return array_merge(['id' => 'pp-band-' . $component], $base[$component]);
@@ -398,7 +401,11 @@ class StoredStyleAndItemsRenderGuardTest extends TestCase
         // The section band left STYLE_COMPONENTS at #1023 (a v2 component paints no
         // stored style map), so it is no longer in the sweep and there is no section
         // body in this page to assert on.
-        $this->assertStringContainsString('40+', $html, 'the stats numbers still render');
+        // stats left STYLE_COMPONENTS at #1066 PR2 (a v2 component paints no stored style
+        // map), so this page no longer carries a stats band and the '40+' assertion that
+        // stood here went with it — the same bookkeeping section's exit made at #1023 and
+        // faq's at #1046. GRID IS THE ONLY BAND THIS CORRIDOR STILL SWEEPS, which is why
+        // the 'Card one' assertion above now carries the whole "content survived" claim.
         // faq left STYLE_COMPONENTS at #1046, so this page no longer carries an faq band
         // for the corridor to sweep — the same bookkeeping section's exit made at #1023.
         // testimonials is no longer in STYLE_COMPONENTS (it is v2 and paints no stored
@@ -406,7 +413,8 @@ class StoredStyleAndItemsRenderGuardTest extends TestCase
         // there are no quotes to assert on. The v2 equivalent of this guard — a
         // hostile stored `udc` map reaching the emitter without taking the page down —
         // is UdcEngineTest::testAHostileStoredUdcMapNeverFatalsTheRender.
-        $this->assertStringContainsString('Acme', $html, 'the logo names still render');
+        // logos left STYLE_COMPONENTS at #1066 PR2 with stats, so the 'Acme' assertion
+        // that stood here went with its band. Grid carries the content claim now.
 
         // And not one custom property was painted anywhere on the page.
         $this->assertStringNotContainsString('--hero-', $html, 'no hero custom property is emitted');
@@ -729,7 +737,11 @@ class StoredStyleAndItemsRenderGuardTest extends TestCase
         // The section band left STYLE_COMPONENTS at #1023 (a v2 component paints no
         // stored style map), so it is no longer in the sweep and there is no section
         // body in this page to assert on.
-        $this->assertStringContainsString('40+', $html, 'the stats numbers still render');
+        // stats left STYLE_COMPONENTS at #1066 PR2 (a v2 component paints no stored style
+        // map), so this page no longer carries a stats band and the '40+' assertion that
+        // stood here went with it — the same bookkeeping section's exit made at #1023 and
+        // faq's at #1046. GRID IS THE ONLY BAND THIS CORRIDOR STILL SWEEPS, which is why
+        // the 'Card one' assertion above now carries the whole "content survived" claim.
 
         // And nothing was coerced into the page.
         $this->assertStringNotContainsString('Array', $html, 'no corrupt value is painted as the literal word Array');
@@ -832,12 +844,21 @@ class StoredStyleAndItemsRenderGuardTest extends TestCase
         // `background.image`, emitted by the engine into the head, never into an inline
         // style attribute. There is therefore no merged `style=""` for a malformed map
         // to leave residue in, which is exactly what this test measures.
+        // section left this control set at #1023 and cta at #1026, the way hero left at
+        // #986: each retired `background_image`, so none paints a background to merge a
+        // malformed style map against. STATS WAS THE LAST SHIPPED ONE AND LEFT AT #1066 PR2,
+        // which emptied this set — and a `foreach` over an empty array asserts nothing while
+        // reporting green, which is the exact vacuous-pass shape this file exists to catch
+        // (PHPUnit flagged it as risky: "did not perform any assertions").
+        //
+        // So the control moves to the FIXTURE (#1025), which carries the merged shape on
+        // purpose: ppfixture.php renders the `__pp_style` map through the same
+        // pp_render_style_vars() call and merges it with a `background-image` declaration in
+        // one attribute, exactly as stats did. The claim is about the MERGE, not about
+        // stats, and the fixture is the only remaining place the merge exists.
+        FixtureTheme::activate();
         $background_props = [
-            // section left this control set at #1023 and cta at #1026, the way hero left at
-            // #986: each retired `background_image`, so none paints a background to merge a
-            // malformed style map against. stats is the last component that does, which
-            // makes it the last band this control can be run on at all.
-            'stats'   => ['background_image' => '/bg.png'],
+            FixtureTheme::COMPONENT => ['background_image' => 'https://example.com/bg.jpg'],
         ];
 
         foreach ($background_props as $component => $background) {
@@ -864,6 +885,11 @@ class StoredStyleAndItemsRenderGuardTest extends TestCase
             $this->assertStringNotContainsString('style="; ', $bad, $component . ': no empty leading segment');
             $this->assertStringNotContainsString(';;', $bad, $component . ': no doubled separator');
         }
+        FixtureTheme::deactivate();
+
+        // Non-vacuity, pinned out loud: the loop above must actually have run. It reported
+        // green on zero iterations for exactly one commit, which is how this guard got here.
+        $this->assertNotSame([], $background_props, 'the merged-attribute control must have a subject');
     }
 
     /**

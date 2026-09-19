@@ -253,7 +253,12 @@ class AiContextTest extends TestCase
         // count it cannot act on.
         foreach (array_keys($counts) as $component) {
             $this->assertStringContainsString(
-                $component === 'testimonials' ? "testimonials' " : "{$component}'s ",
+                // DERIVED, NOT LISTED. A component whose name already ends in `s` takes the
+                // bare apostrophe — `testimonials'`, and since #1066 PR2 `stats'` and
+                // `logos'` too. The hardcoded testimonials special-case was correct for one
+                // component and silently wrong for the next two; the rule it was standing in
+                // for is just English.
+                str_ends_with($component, 's') ? "{$component}' " : "{$component}'s ",
                 $prompt,
                 "the retired-prop inventory must name {$component}, which declares retired props"
             );
@@ -982,10 +987,20 @@ class AiContextTest extends TestCase
         // heading-size slot", not "#436's three components", so every current declarer
         // belongs in the roster and it is derived from that claim rather than from the
         // issue that introduced it.
+        // stats and logos left this roster at #1066 PR2, for the reason table and embed
+        // left earlier in the same issue: both are v2 components now, so the prompt
+        // announces their ROLES and the "Style slots:" assertion below is the one claim
+        // that cannot be true of them. GRID IS THE LAST DECLARER — and unlike the earlier
+        // draft this comment corrects, that is not an instruction to retire the test when
+        // grid goes: the SUBJECT is "the runtime prompt surfaces a component's heading-size
+        // slot", so when grid rebuilds the claim genuinely has no subject left and the
+        // test retires with the slot system rather than with any one component.
+        //
+        // The v2 half is covered by testTheRuntimePromptsV2RosterMatchesTheRegistry in
+        // DocsCoverageTest, which is registry-derived and picked stats and logos up the
+        // moment they declared roles.
         $expected = [
             'grid'  => '--grid-heading-size',
-            'stats' => '--stats-heading-size',
-            'logos' => '--logos-heading-size',
         ];
         foreach ($expected as $name => $slot) {
             $found = false;

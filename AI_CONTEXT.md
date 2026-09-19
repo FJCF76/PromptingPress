@@ -408,7 +408,7 @@ Token overrides survive theme updates — `base.css` is overwritten on update, b
 
 Style slots allow per-instance visual customization of components without CSS edits. Each component declares allowed CSS custom properties in its `schema.json` under `styling.style_slots`. Only declared slots are accepted — arbitrary CSS is rejected.
 
-**63 style slots** across 3 components: grid (38), stats (17), logos (8). `hero`, `section`, `testimonials`, `cta`, `faq`, `table` and `embed` declare NONE: they are v2 components on the Universal Design Contract, where named roles carry every designable value (see the `udc` section below).
+**38 style slots** across 1 components: grid (38). `hero`, `section`, `testimonials`, `cta`, `faq`, `table`, `embed`, `stats` and `logos` declare NONE: they are v2 components on the Universal Design Contract, where named roles carry every designable value (see the `udc` section below). GRID IS THE LAST COMPONENT ON STYLE SLOTS — when it rebuilds, the slot system has no shipped consumer left.
 
 None of `hero`, `section`, `testimonials`, `cta`, `faq`, `table` or `embed` is in that census: all seven are on the **Universal Design Contract** (v2), where the designable surface is a set of ROLES styled through the `udc` map on the band rather than through slots. `testimonials` was the first rebuilt (#958), `hero` the second (#986), `section` the third (#1023), `cta` the fourth (#1026), `faq` the fifth (#1046), and `table` and `embed` together the sixth and seventh (#1066). See the UDC section below and `docs/v2/BUILD-SPEC-sprint0.md`.
 

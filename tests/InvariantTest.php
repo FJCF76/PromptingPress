@@ -1309,11 +1309,21 @@ class InvariantTest extends TestCase
         // band background became the `_band` role's `background.image` — an attachment ID
         // resolved by the engine, so there is no URL string for a template to escape and
         // therefore nothing for this guard to protect. cta left at #1026, which also moved
-        // the CANONICAL #705 explanation into components/stats/stats.php — the last reader
-        // is now the only place the reasoning can live.
+        // the CANONICAL #705 explanation into components/stats/stats.php.
+        //
+        // AND STATS LEFT AT #1066 PR2, WHICH EMPTIES THIS ROSTER. It was the last declarer
+        // of `background_image`, so no shipped component reads the prop at all any more and
+        // the #705 guard has nothing left to guard. The reasoning did not evaporate with
+        // it: stats.php carries a forwarding note where the canonical block stood, and the
+        // GUARD ITSELF is still exercised — tests/fixtures/components/ppfixture carries the
+        // same read verbatim, so StoredBackgroundImageRenderGuardTest still proves a
+        // non-scalar degrades to "no image" instead of fataling the public page.
+        //
+        // The emptiness is asserted rather than left implicit, because an empty roster with
+        // a `foreach` above it is the vacuous-pass shape this very file exists to catch.
         sort($readers);
         $this->assertSame(
-            ['stats'],
+            [],
             $readers,
             'the set of components reading background_image changed — a new reader must carry'
             . ' the #705 guard (add it, then update this list)'
@@ -1578,7 +1588,12 @@ class InvariantTest extends TestCase
             // untouched. table never had an items read to lose — its typed boundary is
             // the per-CELL wp_kses_post() guard (#730), which this rebuild does not touch
             // and which is pinned in StoredLinkAndRichTextRenderGuardTest.
-            ['grid', 'logos', 'stats'],
+            // stats and logos left at #1066 PR2, for the reason every other rebuild left:
+            // a v2 component emits no inline style attribute, so it has no guarded-local
+            // contract here. GRID IS THE LAST CALLER in shipped code. (The fixture
+            // component carries the same call and the same guard, deliberately — but it is
+            // not shipped, and this roster is about what ships.)
+            ['grid'],
             $callers,
             'the set of components calling pp_render_style_vars() changed — a new caller must'
             . ' carry the #708 guard (add it, then update this list)'

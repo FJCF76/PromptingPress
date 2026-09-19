@@ -53,12 +53,18 @@
 require_once dirname(__DIR__) . '/lib/cli.php';
 
 use PHPUnit\Framework\TestCase;
+use PromptingPress\Tests\Support\FixtureTheme;
 
 final class CompositionFindingsBoundsTest extends TestCase
 {
     protected function setUp(): void
     {
         parent::setUp();
+        // THE BAND HERE IS A FIXTURE, NOT A SUBJECT (#1025). The mechanism under test
+        // is the slot engine; which component carries the slots is incidental, which is
+        // why this whole set was re-homed hero -> section -> stats over three rebuilds.
+        // It targets `ppfixture` now, so stats' rebuild is the last one that moved it.
+        FixtureTheme::activate();
         // Reset the in-memory store for test isolation (tests/bootstrap.php). Without this
         // the class is order-dependent: a class whose tearDown unsets the store leaves
         // nothing for pp_create_page() to write into, and every fixture here fatals.
@@ -68,6 +74,16 @@ final class CompositionFindingsBoundsTest extends TestCase
             'options'   => [],
             'next_id'   => 100,
         ];
+    }
+
+    protected function tearDown(): void
+    {
+        // MUST pair with the activate() above. PHPUnit runs every class in ONE process,
+        // so a fixture root left in force is inherited by every later class — which does
+        // not look like a leak, it looks like the UDC suites suddenly seeing a component
+        // that declares no roles. Pinned in FixtureThemeSeamTest.
+        FixtureTheme::deactivate();
+        parent::tearDown();
     }
 
     // ── Fixtures ────────────────────────────────────────────────────────────────
@@ -93,7 +109,7 @@ final class CompositionFindingsBoundsTest extends TestCase
      */
     private function pathologicalPage(int $bands = 40): int
     {
-        $composition = [['component' => 'stats', 'props' => [
+        $composition = [['component' => 'ppfixture', 'props' => [
             'id' => 'lead', 'title' => 'Lead', 'items' => [['number' => '1', 'label' => 'One']],
             'zzA' => 1, 'zzB' => 2, 'zzC' => 3, 'zzD' => 4,
         ]]];
@@ -114,7 +130,7 @@ final class CompositionFindingsBoundsTest extends TestCase
     {
         $id = pp_create_page('Slightly stale', 'draft');
         pp_update_composition($id, [
-            ['component' => 'stats', 'props' => ['id' => 's1', 'title' => 'One', 'items' => [['number' => '1', 'label' => 'One']], 'zzA' => 1]],
+            ['component' => 'ppfixture', 'props' => ['id' => 's1', 'title' => 'One', 'items' => [['number' => '1', 'label' => 'One']], 'zzA' => 1]],
         ]);
 
         return $id;
@@ -125,7 +141,7 @@ final class CompositionFindingsBoundsTest extends TestCase
     {
         $id = pp_create_page($title, 'draft');
         pp_update_composition($id, [
-            ['component' => 'stats', 'props' => ['id' => 's1', 'title' => 'One', 'items' => [['number' => '1', 'label' => 'One']]]],
+            ['component' => 'ppfixture', 'props' => ['id' => 's1', 'title' => 'One', 'items' => [['number' => '1', 'label' => 'One']]]],
         ]);
 
         return $id;
@@ -141,7 +157,7 @@ final class CompositionFindingsBoundsTest extends TestCase
     private function restoreAfterOneWrite(int $post_id): array
     {
         pp_execute_action('style_component', [
-            'post_id' => $post_id, 'component_index' => 0, 'style' => ['--stats-bg' => '#101014'],
+            'post_id' => $post_id, 'component_index' => 0, 'style' => ['--ppfixture-bg' => '#101014'],
         ]);
 
         return pp_execute_action('restore_composition', ['post_id' => $post_id, 'steps_back' => 1]);
@@ -294,7 +310,7 @@ final class CompositionFindingsBoundsTest extends TestCase
     {
         $id = $this->pathologicalPage();
         pp_execute_action('style_component', [
-            'post_id' => $id, 'component_index' => 0, 'style' => ['--stats-bg' => '#101014'],
+            'post_id' => $id, 'component_index' => 0, 'style' => ['--ppfixture-bg' => '#101014'],
         ]);
 
         $preview = pp_preview_action('restore_composition', ['post_id' => $id, 'steps_back' => 1]);
@@ -605,7 +621,7 @@ final class CompositionFindingsBoundsTest extends TestCase
     {
         $id     = $this->pathologicalPage();
         $result = pp_execute_action('style_component', [
-            'post_id' => $id, 'component_index' => 0, 'style' => ['--stats-bg' => '#101014'],
+            'post_id' => $id, 'component_index' => 0, 'style' => ['--ppfixture-bg' => '#101014'],
         ]);
 
         $this->assertTrue($result['ok']);
@@ -680,8 +696,8 @@ final class CompositionFindingsBoundsTest extends TestCase
         // whose value is stored but never read (advisory).
         $id = pp_create_page('Both kinds', 'draft');
         pp_update_composition($id, [
-            ['component' => 'stats', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'id' => 'h1', 'title' => 'T', 'zzUndeclared' => 1],
-             'style' => ['--stats-overlay-bg' => 'rgba(0,0,0,.5)']],
+            ['component' => 'ppfixture', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'id' => 'h1', 'title' => 'T', 'zzUndeclared' => 1],
+             'style' => ['--ppfixture-overlay-bg' => 'rgba(0,0,0,.5)']],
         ]);
 
         $findings = _pp_composition_findings(pp_get_composition($id));

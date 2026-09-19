@@ -1130,7 +1130,20 @@ class ApplyTest extends TestCase
         }
 
         $this->assertGreaterThan(0, $tokens, 'the design-token sweep must find font-family tokens');
-        $this->assertGreaterThan(0, $slots, 'the style-slot sweep must find font-family slots');
+        // THE SLOT SWEEP IS EMPTY SINCE #1066 PR2, and the emptiness is asserted rather
+        // than left to pass as a zero-iteration loop. `--stats-number-font` was the last
+        // font-family-typed style slot in the theme and retired with stats' slot map; grid
+        // declares none. The claim this half made — a shipped family value still validates
+        // against the grammar — survives on the OTHER two sweeps in this test: the design
+        // tokens (still non-zero, asserted above) and the v2 role defaults walked just
+        // above, which is where a family lives now.
+        $this->assertSame(
+            0,
+            $slots,
+            'no style slot is font-family-typed any more: stats\' was the last and retired '
+            . 'at #1066 PR2. A non-zero count means one came back and this sweep should be '
+            . 'guarding it again.'
+        );
         $this->assertGreaterThan(0, $params, 'the UDC role-default sweep must find a family default');
     }
 

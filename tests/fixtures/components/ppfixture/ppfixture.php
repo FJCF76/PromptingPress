@@ -34,6 +34,14 @@ $background_image     = is_scalar($raw_background_image) ? (string) $raw_backgro
 
 $theme_class = pp_theme_class($theme, 'ppfixture');
 
+// #705's THREE GATES, all of them, because the guard's whole point is that they move
+// together. A call-site-only guard would leave the modifier class and the overlay <div>
+// ON with nothing painting underneath — a dark scrim over the band's own background,
+// wearing the light on-overlay ink the modifier selects. That is the undesigned state the
+// guard exists to prevent, and a fixture carrying only the inline declaration could not
+// host the claim.
+$bg_image_class = $background_image ? ' ppfixture--has-bg-image' : '';
+
 $inline_styles = [];
 if ($slot_style) {
     $inline_styles[] = $slot_style;
@@ -43,7 +51,10 @@ if ($background_image) {
 }
 $style_attr = $inline_styles ? ' style="' . implode('; ', $inline_styles) . ';"' : '';
 ?>
-<section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="ppfixture<?php echo esc_attr($theme_class); ?>" data-pp-component="ppfixture"<?php echo $style_attr; ?>>
+<section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="ppfixture<?php echo esc_attr($theme_class); ?><?php echo esc_attr($bg_image_class); ?>" data-pp-component="ppfixture"<?php echo $style_attr; ?>>
+    <?php if ($background_image) : ?>
+        <div class="ppfixture__overlay" aria-hidden="true"></div>
+    <?php endif; ?>
     <div class="container">
         <?php if ($title) : ?>
             <h2 class="ppfixture__heading"><?php echo esc_html($title); ?></h2>
