@@ -83,11 +83,16 @@ class StyleSlotContractTest extends TestCase
     public function testDiscoveryFindsTheKnownStyledComponents(): void
     {
         $found = $this->styledComponents();
-        // SIX. This is the fail-closed floor for every discovery-driven check in the file, so
-        // it is written out rather than counted: a component silently dropping out of
-        // discovery would quietly disable its whole slot contract. The comment used to say
-        // "FOUR, not seven" while listing THREE, which is how far it had drifted.
-        foreach (['embed', 'grid', 'logos', 'stats', 'table'] as $known) {
+        // FOUR, and the number is written out rather than counted because this is the
+        // fail-closed floor for every discovery-driven check in the file: a component
+        // silently dropping out of discovery would quietly disable its whole slot
+        // contract. The comment used to say "FOUR, not seven" while listing THREE, then
+        // "SIX" while listing five — it has drifted at almost every rebuild, so it is
+        // stated as a count AND as a list that a reader can compare in one glance.
+        // table left at #1066; stats and logos leave in the same issue's second half, at
+        // which point grid and embed are all that remain and this file's own retirement
+        // becomes the question rather than another narrowing.
+        foreach (['embed', 'grid', 'logos', 'stats'] as $known) {
             $this->assertContains($known, $found, "Schema discovery lost the {$known} component.");
         }
         // …and the v2 components must NOT be discovered here, or this suite would start
@@ -95,7 +100,7 @@ class StyleSlotContractTest extends TestCase
         // style-slot system in #958, hero in #986, section in #1023 and cta in #1026; their
         // authoring surface is roles, and the contract that replaced this one is the UDC
         // engine's own. nav and footer are chrome and were never in this set.
-        foreach (['hero', 'section', 'testimonials', 'cta', 'faq'] as $v2) {
+        foreach (['hero', 'section', 'testimonials', 'cta', 'faq', 'table'] as $v2) {
             $this->assertNotContains($v2, $found, "{$v2} is a v2 component: it declares no style slots.");
         }
     }
@@ -648,9 +653,14 @@ class StyleSlotContractTest extends TestCase
     public function testIssue584HeadingRhythmRoutesEachComponentsOwnLiteral(): void
     {
         // component => [selector, expected fallback literal]
+        // table's row left at #1066. The CLAIM survives intact for the three that
+        // remain — it is about a slot routing its own literal so an unset band is
+        // byte-identical — and table's replacement asserts the same value one layer
+        // lower: TableRoleDefaultsEmitTest pins the EMITTED
+        // `margin-bottom:var(--space-lg)` on the `heading` role, which is what an unset
+        // band now renders from.
         $expected = [
             'stats'  => ['.stats__heading',         'var(--space-lg)'],
-            'table'  => ['.table-section__heading', 'var(--space-lg)'],
             'embed'  => ['.embed__heading',         'var(--space-lg)'],
             'logos'  => ['.logos__heading',         'var(--space-lg)'],
         ];
@@ -1191,16 +1201,17 @@ class StyleSlotContractTest extends TestCase
             }
         }
 
-        // Fail-closed: 5 styled components render a root style attr and grid renders a
-        // per-card one, so 6. Two left in #1023 with section's rebuild (its root attribute
-        // and the per-row one issue 334 added — the panel rows are roles now), and faq's
-        // root attribute left at #1046. A v2 template emits `data-pp-band` and no `style`
-        // attribute at all, which is why each rebuild takes exactly one surface off this
-        // count. If the scan finds nothing, the loop above proved nothing.
+        // Fail-closed: 4 styled components render a root style attr and grid renders a
+        // per-card one, so 5. Two left in #1023 with section's rebuild (its root attribute
+        // and the per-row one issue 334 added — the panel rows are roles now), faq's
+        // root attribute left at #1046 and table's at #1066. A v2 template emits
+        // `data-pp-band` and no `style` attribute at all, which is why each rebuild takes
+        // exactly one surface off this count. If the scan finds nothing, the loop above
+        // proved nothing.
         $this->assertGreaterThanOrEqual(
-            6,
+            5,
             $emitted,
-            'Found fewer inline slot surfaces than the 6 known today — the template scan is broken.'
+            'Found fewer inline slot surfaces than the 5 known today — the template scan is broken.'
         );
 
         // Every pp_render_style_vars() call must reach an emit site the loop above actually

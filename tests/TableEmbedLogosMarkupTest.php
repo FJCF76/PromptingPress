@@ -91,10 +91,20 @@ class TableEmbedLogosMarkupTest extends TestCase
     {
         $html = $this->render('table', $props + ['title' => 'Comparison']);
 
+        // THE `text-muted` UTILITY IS GONE (#1066) and the class list is asserted
+        // EXACTLY, not by substring, because that is the half worth pinning: the grey is
+        // the `empty` role's `typography.color` default now, and a utility class silently
+        // returning would put a layered `--color-muted` back in front of an author's
+        // `_band` write — the exact stranding #994 and #1046 removed it for.
         $this->assertStringContainsString(
-            '<p class="table-section__empty text-muted">No data.</p>',
+            '<p class="table-section__empty">No data.</p>',
             $html,
             'the empty branch renders the literal current copy'
+        );
+        $this->assertStringNotContainsString(
+            'text-muted',
+            $html,
+            'the utility class must not return: the `empty` role owns this line\'s colour'
         );
         $this->assertStringNotContainsString('<table', $html);
         $this->assertStringNotContainsString('table-wrap', $html);

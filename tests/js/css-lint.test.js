@@ -2167,7 +2167,12 @@ describe('CSS lint: section-level bands share one rhythm definition (#431)', () 
 // testimonials is absent from this table: it is a v2 component whose CSS block is
         // structural only, so it routes nothing through a slot. The value this row used to
         // guard is now a role default in components/testimonials/schema.json.
-                { comp: 'table', cls: '.table-section', slot: '--table' },
+        // table left this table at #1066 — its band rhythm is the `_band` role's spacing
+        // default, resolving to the same shared `@pp-band-padding`, and both of its
+        // per-component adjacent rules went with the slot they existed to keep alive.
+        // The behavioural pin that replaces it is the e2e #431 nine-band equality test,
+        // where table is STILL a member: the shared value is now asserted on the rendered
+        // page rather than on the stylesheet text.
         { comp: 'logos', cls: '.logos', slot: '--logos' },
         { comp: 'embed', cls: '.embed', slot: '--embed' },
         // hero is absent from this table (#986): it is a v2 component whose CSS block
@@ -2436,7 +2441,9 @@ describe('CSS lint: band-level headings share one responsive scale (#436)', () =
         // faq's row left at #1046: the heading size is the `heading` role's
         // `typography.size`, referencing the same shared `@pp-band-heading-size`.
         { selectors: ['.stats__heading'], slot: '--stats-heading-size' },
-        { selectors: ['.table-section__heading'], slot: '--table-heading-size' },
+        // table's row left at #1066 with its slot; the size is the `heading` role's
+        // typography.size default now, pinned against the EMITTED declaration in
+        // TableRoleDefaultsEmitTest rather than against this stylesheet's text.
         { selectors: ['.logos__heading'], slot: '--logos-heading-size' },
         { selectors: ['.embed__heading'], slot: '--embed-heading-size' },
 // testimonials is absent from this table: it is a v2 component whose CSS block is
@@ -2709,7 +2716,6 @@ describe('CSS lint: band heading-color slots route through the slot (#438)', () 
 
     // selector, its heading-color slot, and the fallback that preserves unset output.
     const HEADING_COLOR_RULES = [
-        { selector: '.table-section__heading', slot: '--table-heading-color', fallback: '--color-text' },
         { selector: '.logos__heading', slot: '--logos-heading-color', fallback: '--color-text' },
         { selector: '.embed__heading', slot: '--embed-heading-color', fallback: '--color-text' },
         { selector: '.logos--inverted .logos__heading', slot: '--logos-heading-color', fallback: '--color-bg' },
@@ -2724,9 +2730,15 @@ describe('CSS lint: band heading-color slots route through the slot (#438)', () 
         { selector: '.stats--inverted .stats__heading', slot: '--stats-heading-color', fallback: '--color-bg' },
         // testimonials is absent: it is a v2 component whose CSS block is structural
         // only. Its heading colour is the `heading` role's typography.color default.
-        // faq's row left at #1046 with the `theme` prop. NOTE FOR THE NEXT REBUILD: faq
-        // was the LAST row in this table, so the presence floor below is what keeps the
-        // block honest rather than vacuous — read it before removing another row.
+        // faq's row left at #1046 with the `theme` prop, and table's at #1066 — table's
+        // heading colour is `currentColor` on the `heading` role now, which is the one
+        // shape this guard structurally cannot express (it asserts a slot-and-fallback
+        // chain, and a role default is neither). NOTE FOR THE NEXT REBUILD: four rows
+        // remain, all of them logos/embed/stats, and logos and stats leave together in
+        // #1066's second half — at which point embed is the last declarer and this whole
+        // block retires rather than being narrowed to one row. The presence floor below
+        // is what keeps it honest rather than vacuous meanwhile; read it before removing
+        // another row.
     ];
 
     test.each(HEADING_COLOR_RULES)('$selector routes color through $slot to var($fallback)', ({ selector, slot, fallback }) => {
@@ -2879,6 +2891,40 @@ describe('CSS lint: v2 components keep NO designable value in their stylesheet',
         // unclassified would have made faq's reveal un-keepable AND un-authorable,
         // because the unlisted-property arm below is fail-closed.
         'animation',
+        // ── THE FIVE TABLE-MARKUP PROPERTIES (#1066) ────────────────────────────
+        //
+        // Same discipline as `cursor`/`transition`/`transform` (#994), `overflow-wrap`
+        // (#1023) and `animation` (#1046), and found the same way: `table` is the first
+        // v2 component with TABLE markup, so it is the first to reach any of these. All
+        // five were in NO set, and the unlisted-property arm below is fail-closed — so
+        // until they are classified, table's structural CSS can be neither kept here nor
+        // authored through a role. That is a capability deletion, which is the #901 class.
+        //
+        // `border-collapse` — selects the table's border BOX MODEL (separate or collapsed
+        // edges). It sets no border VALUE and no group emits it; the analogy is
+        // `box-sizing`, already structural here. Note it is not inert: the collapsed model
+        // is what makes `row`'s separator and `header`'s bottom rule share one edge, which
+        // is why the schema documents the CSS 2.1 17.6.2 conflict order rather than the
+        // cascade for those two roles.
+        //
+        // `caption-side` — WHERE the caption box sits, top or bottom. Placement, the
+        // `position`/`order` tier, not a value an author retunes for design.
+        //
+        // `overscroll-behavior-x` and `-webkit-overflow-scrolling` — scroll affordances,
+        // siblings of `overflow-x` which is already structural three lines up. They are
+        // what make `.table-wrap` a contained scroller instead of a rubber-banding one
+        // that steals the page's horizontal gesture.
+        //
+        // `vertical-align` — THE ONE JUDGMENT CALL HERE, said plainly rather than filed
+        // under the other four. It could be read as design, because `text-align` is in
+        // ALWAYS_DESIGN below. The distinction taken: `text-align` is design precisely
+        // BECAUSE `typography.align` exists to carry it, and no group emits this one; and
+        // what it does — align a cell's content against its SIBLING cells in the same row
+        // — is the `align-items` tier rather than the type tier. If a later ruling gives
+        // the sizing group a `vertical-align` param, this moves to ALWAYS_DESIGN in the
+        // SAME commit, per the one-home rule stated on `object-position` below.
+        'border-collapse', 'caption-side', 'vertical-align',
+        'overscroll-behavior-x', '-webkit-overflow-scrolling',
     ]);
 
     // Properties that are NEVER structural, whatever value they carry. A
@@ -3096,6 +3142,64 @@ const NEGATIVE_PULL = /^(-[\d.]|calc\(\s*-\s*[\d.]+\s*\*)/;
         // so this is a classification rather than a rule-level bypass.
         const beside = parseRules('.faq__item[open] > .faq__answer { animation: faq-open 150ms ease; font-size: 2rem; }');
         expect(designOffencesIn(beside)).not.toEqual([]);
+    });
+
+    /**
+     * THE #1066 CARVE-OUTS, PROVEN IN BOTH DIRECTIONS.
+     *
+     * table is the first v2 component with TABLE markup, so it is the first to reach any
+     * of five properties that were in NO set. The unlisted-property arm is fail-closed,
+     * which is what makes an unclassified property a capability DELETION rather than a
+     * missing convenience — it can be neither kept here nor authored through a role.
+     *
+     * An admission nobody can see the edge of is indistinguishable from a removed rule
+     * (the #1046 lesson), so this pins the admission AND its edge.
+     */
+    test('table joins the boundary rule', () => {
+        expect(v2Components).toContain('table');
+    });
+
+    test('the five table-markup properties are structural, and buy nothing adjacent', () => {
+        // The real shapes, as they ship in the `COMPONENT: table` block.
+        const real = parseRules(
+            '.table { border-collapse: collapse; }' +
+            '.table__caption { caption-side: bottom; }' +
+            '.table__cell { vertical-align: top; }' +
+            '.table-wrap { overscroll-behavior-x: contain; -webkit-overflow-scrolling: touch; }'
+        );
+        expect(
+            designOffencesIn(real),
+            'table\'s five structural table-markup properties must be admitted'
+        ).toEqual([]);
+
+        // THE EDGE, one per property: the classification buys that property and nothing
+        // beside it. A rule-level bypass would pass all five of these.
+        const beside = {
+            'border-collapse': '.table { border-collapse: collapse; background: #fff; }',
+            'caption-side':    '.table__caption { caption-side: bottom; color: #333; }',
+            'vertical-align':  '.table__cell { vertical-align: top; font-size: 0.9rem; }',
+            'overscroll':      '.table-wrap { overscroll-behavior-x: contain; border-radius: 8px; }',
+            'webkit-scroll':   '.table-wrap { -webkit-overflow-scrolling: touch; box-shadow: 0 2px 4px #0001; }',
+        };
+        Object.entries(beside).forEach(([name, css]) => {
+            expect(
+                designOffencesIn(parseRules(css)),
+                `${name} must be a classification, not a rule-level bypass`
+            ).not.toEqual([]);
+        });
+    });
+
+    test('the fail-closed arm still catches a property in no set', () => {
+        // THE POINT OF THE WHOLE EXERCISE. Classifying five properties must not be
+        // mistaken for relaxing the arm that FOUND them — the next v2 component with
+        // unfamiliar markup has to hit the same wall table did.
+        const unknown = parseRules('.table__cell { text-orientation: upright; }');
+        const offences = designOffencesIn(unknown);
+        expect(offences, 'an unclassified property must still be reported').not.toEqual([]);
+        expect(
+            offences.join('\n'),
+            'and it must say what to do about it'
+        ).toContain('classify it');
     });
 
     /** …and the structural declarations it must NOT flag. */

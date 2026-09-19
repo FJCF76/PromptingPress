@@ -1,12 +1,12 @@
 {
   "component": "table",
-  "description": "Data or comparison table. Wraps in a horizontal-scroll container whenever the table is wider than the band \u2014 at ANY viewport, not only on mobile: .table-wrap declares overflow-x: auto with no media query, and the table itself is width: max-content; min-width: 100%. Headers become <th scope='col'> elements.",
+  "description": "Data or comparison table. Wraps in a horizontal-scroll container whenever the table is wider than the band — at ANY viewport, not only on mobile: .table-wrap declares overflow-x: auto with no media query, and the table itself is width: max-content; min-width: 100%. Headers become <th scope='col'> elements. REBUILT ON THE UNIVERSAL DESIGN CONTRACT (v2): it declares no style slots. Every designable value — colour, type, spacing, border, shadow, size, motion — is set through the `udc` map on the band, per role. See docs/v2/BUILD-SPEC-sprint0.md §3.",
   "props": {
     "id": {
       "type": "string",
       "required": false,
       "default": "",
-      "description": "Optional HTML id attribute for anchor linking (e.g. navigation anchors)."
+      "description": "Optional HTML id attribute for anchor linking (e.g. navigation anchors). Also becomes the component's stable id."
     },
     "title": {
       "type": "string",
@@ -33,19 +33,266 @@
       "description": "Accessible table caption (rendered as <caption>). Recommended for data tables."
     }
   },
+  "roles": {
+    "_band": {
+      "selector": "",
+      "description": "The band itself — the <section>. THE DEFAULTS ARE WHAT v1'S BAND RENDERED, measured in Chromium at 375/768/1280 rather than read off the stylesheet: the shared band rhythm and NOTHING ELSE. There is no `background.fill` default because v1's `.table-section` measured `rgba(0, 0, 0, 0)` — transparent — and there is no border default because it measured 0px/none on all four edges, so the issue-332 border-immunity baseline in `pp-v1` has nothing of table's to erase. That is the difference from faq, whose unthemed band painted `@color-surface`, and from cta, whose band draws a 1px rule top and bottom. table is ALSO the only component in the whole migration that retires NO prop: it never declared `theme` and its `variant_classes` were already empty, so its entire change is slots to roles. `background.position` IS declared, and it is not dead: a band background image is `background.image` (an attachment id) with `background.overlay` for the scrim — a capability table never had on v1 — and without a focal-point default an authored image would pin top-left. SETTING `typography.color` HERE RE-INKS THE HEADING AND NOTHING ELSE YOU PROBABLY MEAN. The `heading` role follows this write through `currentColor`. Nothing else does, and the reason is that THE TABLE PAINTS ITS OWN LIGHT SURFACE, TWO LAYERS DEEP: `table` fills `@color-bg` and `head` fills `@color-surface`, both of which stay light when you darken this band, exactly as faq's items stay light on a dark faq band. So the ink roles split into two groups that need opposite treatment. ON THE TABLE'S OWN LIGHT SURFACE, and CORRECT as they are: `header` (on the head fill) and `cell` (on the table fill) pin `@color-text`, and a dark band must NOT re-ink them — doing so puts light text on a light table. ON THIS BAND'S FILL, and STRANDED by a dark write: `caption` and `empty`, both pinned `@color-muted`. `caption` is the one that is easy to miss and the reason is structural rather than visual: a <caption> box renders OUTSIDE the table's background box (CSS 2.1 §17.4), so `table`'s `@color-bg` never paints behind it — it sits on this band's fill like a bare paragraph. Measured: `@color-muted` (#5e6677) on an authored `@color-bg-inverted` band is about 3.1:1, under the 4.5:1 AA floor for the caption's 14px. A DARK TABLE BAND THEREFORE COSTS THREE WRITES: this role's fill, `caption` ink and `empty` ink. If you also darken `table` or `head`, you owe `cell` and `header` ink too — and `caption` is NOT part of that second group, because it was never on those surfaces.",
+      "groups": [
+        "typography",
+        "spacing",
+        "border",
+        "background",
+        "sizing",
+        "shadow",
+        "motion"
+      ],
+      "defaults": {
+        "spacing": {
+          "padding-top": "@pp-band-padding",
+          "padding-bottom": "@pp-band-padding"
+        },
+        "background": {
+          "position": "center"
+        }
+      }
+    },
+    "heading": {
+      "selector": ".table-section__heading",
+      "description": "The band heading (an <h2>). ITS `typography.color` IS `currentColor`, AND THAT IS A DELIBERATE DIVERGENCE FROM THE LITERAL v1 DECLARATION rather than a transcription of it. v1's rule was `color: var(--table-heading-color, var(--color-text))` — a pinned literal — so the literally faithful port would be `@color-text`. The reason it is not: v1 COULD NOT MAKE A DARK TABLE BAND AT ALL. table declared no `theme` prop and `variant_classes: []`, so `@color-text` is the only thing this heading ever rendered, and it is identical to `currentColor` on every band v1 could express. They diverge only where v1 was inexpressible — an authored `_band.background.fill`, which v2 makes trivial — and carrying the literal would pin the heading against the one band shape v2 newly makes easy. That is the defect #1026 shipped on cta and corrected. `currentColor` in the `color` property is defined to mean `inherit`, so an authored `_band` -> `typography.color` reaches this heading and an authored value on THIS role still wins. ITS WEIGHT, LEADING, TRACKING, FAMILY AND `text-wrap` ARE NOT RESTATED, and that is the opposite call from faq's heading for a measured reason rather than an inconsistency: faq's weight and leading came from `main > .faq .faq__heading` rules that existed ONLY inside media queries, so dropping them would have restyled every tier. table has no such rules — measured 650 / 1.2 ratio / -0.03em / system-ui / balance at all three tiers, every one of them from base.css's shared `h1`-`h6` rule — and restating a global value here would move it to the unlayered tier and beat that rule in every state. NO `text-align` EITHER: measured `start` with `margin-left: 0px` at every tier, which is the initial value and not a declaration. Do not add auto margins here reaching for stats' centred heading; this heading is left-pinned by design and always was.",
+      "groups": [
+        "typography",
+        "spacing",
+        "border",
+        "background",
+        "sizing",
+        "motion"
+      ],
+      "defaults": {
+        "typography": {
+          "size": "@pp-band-heading-size",
+          "color": "currentColor"
+        },
+        "spacing": {
+          "margin-bottom": "@space-lg"
+        },
+        "sizing": {
+          "max-width": "@measure-heading"
+        }
+      }
+    },
+    "wrap": {
+      "selector": ".table-wrap",
+      "description": "The scroll container around the table — the framed box a reader actually sees the edge of. Its border and radius are the frame; the SCROLLING is structural and stays in the stylesheet, because `overflow-x: auto`, `overscroll-behavior-x: contain`, `-webkit-overflow-scrolling: touch`, `width` and `max-width` are the affordance rather than a design value, and the whole point of this component is that the scroll is VIEWPORT-INDEPENDENT (no media query, guarded by DocsCoverageTest). Those four properties had no classification in the structural-CSS lint before this rebuild — table is the first v2 component with table markup — and two of them were claimed into STRUCTURAL at #1066 with a stated reason, exactly as `cursor` and `transition` were at #994. Declares no `background` default: measured transparent, so the table's own fill is what shows through the frame.",
+      "groups": [
+        "spacing",
+        "border",
+        "background",
+        "sizing",
+        "shadow",
+        "motion"
+      ],
+      "defaults": {
+        "border": {
+          "width": "1px",
+          "style": "solid",
+          "color": "@color-border",
+          "radius": "@radius"
+        }
+      }
+    },
+    "table": {
+      "selector": ".table",
+      "description": "The <table> itself. ITS FILL IS `@color-bg` AND THAT IS LOAD-BEARING FOR THE INK INSIDE IT, the same way faq's item fill is: the table stays light on a dark band, which is why `cell` pins its colour instead of following the band. THE CONSEQUENCE IS YOURS TO CARRY: if you darken this fill, set `cell` -> `typography.color` in the same write, and `header` too if you darkened `head`. `border-collapse: collapse` stays STRUCTURAL — it selects the border BOX MODEL rather than any border value, the `box-sizing` tier — but it is NOT inert, and the `row` role's description says what it does to the edges. `width: max-content` and `min-width: 100%` are structural too: they are what make the wrapper scroll instead of the table squashing. Its `typography.size` is a flat `0.9375rem`, measured identical at all three tiers, and `cell` deliberately declares no size of its own so it inherits this one.",
+      "groups": [
+        "typography",
+        "spacing",
+        "border",
+        "background",
+        "sizing",
+        "motion"
+      ],
+      "defaults": {
+        "typography": {
+          "size": "0.9375rem"
+        },
+        "background": {
+          "fill": "@color-bg"
+        }
+      }
+    },
+    "caption": {
+      "selector": ".table__caption",
+      "description": "The accessible <caption>, rendered below the table. IT IS NOT ON THE TABLE'S SURFACE, and that is the fact worth carrying away: a caption box renders OUTSIDE the table's background box (CSS 2.1 §17.4), so `table` -> `background.fill` never paints behind it — it sits on the BAND fill, like a bare paragraph in the container. That makes it a sibling of `empty` rather than of `cell`, and it is the role a dark-band write strands. Measured: its `@color-muted` (#5e6677) on an authored `@color-bg-inverted` band is about 3.1:1, under the 4.5:1 AA floor for 14px body text. ITS `typography.align` IS A REAL DECLARATION, not a reset that could be dropped: the HTML rendering spec gives `caption` a centred default, and this left alignment is table's own rule defeating it. Dropping it would centre every caption on every site. `caption-side: bottom` stays STRUCTURAL — it decides WHERE the box goes, the `position`/`order` tier, and no group emits it.",
+      "groups": [
+        "typography",
+        "spacing",
+        "border",
+        "background",
+        "sizing",
+        "motion"
+      ],
+      "defaults": {
+        "typography": {
+          "size": "0.875rem",
+          "color": "@color-muted",
+          "align": "left"
+        },
+        "spacing": {
+          "padding-top": "@space-sm",
+          "padding-bottom": "@space-sm",
+          "padding-left": "@space-md",
+          "padding-right": "@space-md"
+        }
+      }
+    },
+    "head": {
+      "selector": ".table__head",
+      "description": "The <thead> band across the top of the table. Its fill is `@color-surface`, a light tint ON TOP of the table's own light `@color-bg` — and like the table's fill it stays light when you darken the band, which is why `header` pins its ink. IT COMPETES WITH `header` FOR ONE VISUAL LINE, and the ranking is not the cascade: under `border-collapse: collapse` a shared edge is resolved by CSS 2.1 §17.6.2, whose last tiebreak is the ELEMENT the border was declared on — cell beats row beats rowgroup. This role is the ROWGROUP, so a border declared here loses a tie to the same border declared on `header`, whatever the source order or specificity. Declare the rule on `header` unless you specifically want the weaker claim.",
+      "groups": [
+        "typography",
+        "spacing",
+        "border",
+        "background",
+        "motion"
+      ],
+      "defaults": {
+        "background": {
+          "fill": "@color-surface"
+        }
+      }
+    },
+    "header": {
+      "selector": ".table__header",
+      "description": "One column header — a <th scope=\"col\">. TWO OF ITS DEFAULTS DEFEAT BROWSER DEFAULTS AND MUST NOT BE READ AS RESETS TO TIDY AWAY: the HTML rendering spec gives `th` a CENTRED, BOLD presentation, and v1 declared `text-align: left` and `font-weight: 700` as table's own rules to override the first and to pin the second. Dropping the alignment centres every header on every site; dropping the weight would leave the browser's `bold` in charge, which happens to compute to 700 today and is not a guarantee this theme should outsource. Note that the global-value rule does NOT cover this case — that rule is about the THEME's own layered rules changing tier when they become role defaults, and a browser default lives in the UA origin, which loses to any author declaration whatever layer it sits in. Its `color` PINS `@color-text` because this cell sits on `head`'s light `@color-surface` fill, which stays light on a dark band. ITS BOTTOM RULE NOW SHARES AN EDGE WITH `row`'s TOP RULE, and that is new in v2: 2px beats `row`'s 1px today, so nothing moves — but if you set this to `1px` you create a WIDTH TIE, which §17.6.2 breaks by element rank, so this <th> wins and an authored `row` -> `border.color-top` silently paints nothing at that one edge. On v1 the two edges were independent. `white-space: nowrap` stays structural.",
+      "groups": [
+        "typography",
+        "spacing",
+        "border",
+        "background",
+        "sizing",
+        "motion"
+      ],
+      "defaults": {
+        "typography": {
+          "align": "left",
+          "weight": "700",
+          "color": "@color-text"
+        },
+        "spacing": {
+          "padding-top": "@space-sm",
+          "padding-bottom": "@space-sm",
+          "padding-left": "@space-md",
+          "padding-right": "@space-md"
+        },
+        "border": {
+          "width-bottom": "2px",
+          "style-bottom": "solid",
+          "color-bottom": "@color-border"
+        }
+      }
+    },
+    "row": {
+      "selector": ".table__row",
+      "description": "One body row — a <tr>. ITS SEPARATOR IS ON THE TOP EDGE, WHERE v1'S WAS ON THE BOTTOM, and that move is the whole of how this rebuild keeps a capability the role grammar cannot spell. v1 drew `border-bottom` on every row and then suppressed it with `.table__row:last-child { border-bottom: none }`. THE REASON THAT PAIR CANNOT SURVIVE IS THE LAYER MODEL, not the selector charset: the base separator becomes an in-band ELEMENT role default, which emits UNLAYERED, while a `:last-child` suppression would stay in `pp-v1` — and unlayered beats every layer at any specificity, so the suppression would simply stop working. (The charset cannot spell `:last-child` either, but that is beside the point; a structural pseudo-class is also not one of the three states `pp_udc_states()` defines.) Moving the separator to the TOP edge reproduces v1 exactly, because `border-collapse: collapse` MERGES adjacent edges and the wider one wins: row 1's new 1px top edge merges into `header`'s 2px bottom rule and disappears into it, and the last row simply has no bottom edge. Verified before it shipped — 1, 2 and 3 rows at 375/768/1280, row boxes, gaps and painted screenshots all byte-identical to v1. THE `style` HALF IS LOAD-BEARING AND NOT DECORATION: `border-style`'s initial value is `none`, which is the LOWEST priority in the collapse model, so a width and a colour with no `style-top` paint NOTHING. Set them together or not at all. TWO COLLAPSE BEHAVIOURS HAVE NO v1 EQUIVALENT AND ARE WORTH KNOWING BEFORE YOU MEET THEM: `border.style-top: \"hidden\"` ERASES `header`'s 2px rule entirely, because `hidden` beats every width in §17.6.2; and `border.width-top: \"3px\"` overrides it, because wider wins. `:hover` IS A REAL MEASURED STATE, not an invention — v1 tinted a hovered row to `@color-surface` and this carries it. The `transition` property LIST stays structural (ruling A3 gives motion exactly two params, and a property list is neither); `motion.transition-duration` retunes the 0.15s without widening what is animated.",
+      "groups": [
+        "spacing",
+        "border",
+        "background",
+        "sizing",
+        "motion"
+      ],
+      "defaults": {
+        "border": {
+          "width-top": "1px",
+          "style-top": "solid",
+          "color-top": "@color-border"
+        },
+        "background": {
+          ":hover": {
+            "fill": "@color-surface"
+          }
+        }
+      }
+    },
+    "cell": {
+      "selector": ".table__cell",
+      "description": "One body cell — a <td>, and the component's rich-text surface: a cell takes block markup, lists and links through wp_kses_post(), the same contract as section.body. ITS COLOUR PINS `@color-text` because it sits on `table`'s light `@color-bg` fill, which stays light when you darken the band — see the `_band` role for the full split. IT DECLARES NO SIZE AND NO LEADING, deliberately, and the two absences have different reasons: the 15px it renders is INHERITED from the `table` role's `typography.size`, so declaring it here would pin a value the parent already owns and silently break `table` -> `typography.size` for every cell; the 1.6 leading comes from base.css's body rule, a global value, and restating it would move it to the unlayered tier. `vertical-align: top`, `white-space: normal` and `overflow-wrap: anywhere` stay STRUCTURAL — the first two are how cells of differing height relate, and the third is the affordance that lets a long unbroken token fit its column. That last one is why table is the only band component whose stressed render does NOT scroll the page sideways at 375px: `break-word` (what base.css gives the page) breaks a word visually but does not reduce intrinsic min-content size, while `anywhere` does. stats and logos lack it and overflow; see #1067.",
+      "groups": [
+        "typography",
+        "spacing",
+        "border",
+        "background",
+        "sizing",
+        "motion"
+      ],
+      "defaults": {
+        "typography": {
+          "color": "@color-text"
+        },
+        "spacing": {
+          "padding-top": "@space-sm",
+          "padding-bottom": "@space-sm",
+          "padding-left": "@space-md",
+          "padding-right": "@space-md"
+        }
+      }
+    },
+    "cell-link": {
+      "selector": ".table__cell a",
+      "description": "A link an author wrote into a cell's rich text. IT DECLARES NO DEFAULTS, AND THE EMPTY BLOCK IS THE POINT rather than an oversight — the same shape section's `body-link` and cta's `body-link` already ship. Measured, a link in a cell renders `@color-accent` underlined, byte-identical to what base.css gives every anchor on the page, and a role block is emitted UNLAYERED: restating those values as a DEFAULT would outrank the shared premium button rules for an author-written `<a class=\"btn\">` in a cell, which is the #545 defect reintroduced through a role selector. So the rule is that rule 2 forbids a DEFAULT, not a ROLE. With no default this role emits nothing at rest — zero cascade movement — while still giving an author an ADDRESS, which is what a dark surface needs: a container role's `typography.color` reaches a link only by INHERITANCE, and base.css's `a` rule is a direct declaration on the element, so an inherited value can never beat it (measured on faq, #1069). An authored colour HERE does win, because it is aimed at the element itself. If you darken `table` -> `background.fill`, set this as well as `cell` — `cell` alone leaves every link at `@color-accent` on your dark fill.",
+      "groups": [
+        "typography",
+        "spacing",
+        "border",
+        "background",
+        "sizing",
+        "motion"
+      ],
+      "defaults": {}
+    },
+    "empty": {
+      "selector": ".table-section__empty",
+      "description": "The \"No data.\" line a band with no headers or no rows renders. ITS COLOUR IS A ROLE DEFAULT AND THE MARKUP LOST A UTILITY CLASS TO MAKE THAT TRUE. v1 rendered this grey by putting `text-muted` on the element, which hardcodes `--color-muted` from utilities.css in `@layer pp-v1`; footer met the identical case at #994 and faq at #1046, and both ruled it the same way — the template drops the class so the role governs. WHICH WRITE THAT CLASS WOULD HAVE BEATEN is worth stating exactly, because it is half-true in both directions: a write aimed at THIS role emits unlayered and matches `.table-section__empty` directly, so it beats the layered utility and the class never blocked it; a `_band` write reaches this line only by INHERITANCE, and an inherited value is used only when no declaration matches the element, so layer order never enters and `.text-muted` wins. The `_band` write is the one the class stranded, which is the dark-band case. LIKE `caption`, THIS LINE SITS ON THE BAND FILL, so a dark band needs a write here — and unlike `cell` it is never inside the table's own light surface. Its padding is table's own rule (`@space-md` top and bottom, measured 16px), not a global: base.css zeroes every element's padding, so dropping it would close the line up against the heading above it.",
+      "groups": [
+        "typography",
+        "spacing",
+        "border",
+        "background",
+        "sizing",
+        "motion"
+      ],
+      "defaults": {
+        "typography": {
+          "color": "@color-muted"
+        },
+        "spacing": {
+          "padding-top": "@space-md",
+          "padding-bottom": "@space-md"
+        }
+      }
+    }
+  },
   "styling": {
     "root_class": "table-section",
     "variant_classes": [],
-    "tokens": ["--color-border", "--color-surface"],
-    "style_slots": {
-      "--table-padding-top": { "type": "length", "default": "var(--pp-band-padding)", "description": "Top padding of the band. Defaults to the shared symmetric band rhythm (fluid ~68-80px desktop, ~54px mobile); set an explicit length to override." },
-      "--table-padding-bottom": { "type": "length", "default": "var(--pp-band-padding)", "description": "Bottom padding of the band. Defaults to the shared symmetric band rhythm; set an explicit length to override." },
-      "--table-heading-size": { "type": "length", "default": "var(--pp-band-heading-size)", "description": "Section heading font size. Defaults to the shared responsive band-heading scale (fluid ~28px mobile to ~42px desktop), which every band heading in the theme routes. LEAVE IT UNSET unless THIS band must differ from the rest of the site: the shared scale is not a design token and no action in the write path can retune it, so setting this slot changes THIS band only and never the others.", "applies_when": [{"prop": "title", "present": true}] },
-      "--table-heading-color": { "type": "color", "default": "var(--color-text)", "description": "Section heading color. Defaults to the theme text colour (table has no inverted variant — it declares no theme classes at all). LEAVE IT UNSET unless THIS band must differ: recolouring every heading on the site is ONE update_design_token write on --color-text, not one slot write per band.", "applies_when": [{"prop": "title", "present": true}] },
-      "--table-heading-measure": { "type": "length", "role": "measure", "default": "var(--measure-heading)", "description": "Maximum width of the table section heading. Routes the shared --measure-heading design token (40rem) by default, so retuning that ONE token changes every routed band heading at once; set a length here only when THIS band must differ from the rest of the site.", "applies_when": [{"prop": "title", "present": true}] },
-      "--table-heading-margin-bottom": { "type": "length", "default": "var(--space-lg)", "description": "Space below the table section heading, before the table (header rhythm). Lower it to tighten the header, raise it for more separation. Not a band-fusing lever: the table always renders after the heading, so the seam with the band below is closed with --table-padding-bottom.", "applies_when": [{"prop": "title", "present": true}] }
-    }
+    "tokens": [
+      "--color-border",
+      "--color-surface",
+      "--color-bg",
+      "--color-text",
+      "--color-muted",
+      "--measure-heading",
+      "--radius",
+      "--space-sm",
+      "--space-md",
+      "--space-lg"
+    ]
   },
-  "safe_to_edit": ["table.php", "../../assets/css/components.css (COMPONENT: table section)"],
-  "do_not_touch": ["schema.json without updating this component's README.md and the repo-root AI_CONTEXT.md"]
+  "safe_to_edit": [
+    "table.php",
+    "../../assets/css/components.css (COMPONENT: table section — STRUCTURAL CSS ONLY: layout scaffolding and accessibility affordances. No colour, type, size, spacing, border or shadow value may be added there; every one of those belongs to a role above.)"
+  ],
+  "do_not_touch": [
+    "schema.json without updating this component's README.md and the repo-root AI_CONTEXT.md"
+  ]
 }

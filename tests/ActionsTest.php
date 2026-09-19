@@ -4743,19 +4743,24 @@ class ActionsTest extends TestCase
     {
         // The six components that could not execute band fusing. Zero is the value the
         // procedure actually asks for, so zero is the value authored here.
-        // cta's row left at #1026: its heading rhythm is the `heading` role's
-        // `spacing.margin-bottom`, which is authored in the band's `udc` map rather than
-        // through `style_component` — the action refuses a v2 component outright.
+        // cta's row left at #1026 and table's at #1066: each heading rhythm is the
+        // `heading` role's `spacing.margin-bottom` now, authored in the band's `udc` map
+        // rather than through `style_component` — the action refuses a v2 component
+        // outright. THE CLAIM THIS TEST MAKES IS UNCHANGED FOR THE FOUR THAT REMAIN, and
+        // it is a claim about `style_component` persisting a slot, not about any
+        // particular component, so narrowing keeps its full value. table's replacement is
+        // TableRoleDefaultsEmitTest, which asserts the EMITTED `margin-bottom` rather than
+        // a stored slot. Note table carried the only NON-ZERO value here; `1.5rem` moves
+        // to grid so the "a real length persists, not just a zero" half survives its
+        // departure.
         $cases = [
-            'grid'   => ['--grid-heading-margin-bottom'   => '0'],
+            'grid'   => ['--grid-heading-margin-bottom'   => '1.5rem'],
             'stats'  => ['--stats-heading-margin-bottom'  => '0'],
-            'table'  => ['--table-heading-margin-bottom'  => '1.5rem'],
             'embed'  => ['--embed-heading-margin-bottom'  => '0'],
             'logos'  => ['--logos-heading-margin-bottom'  => '0']];
         $props = [
             'grid'  => ['title' => 'Cards', 'items' => [['title' => 'Card', 'text' => 'B']]],
             'stats' => ['title' => 'Numbers', 'items' => [['number' => '10', 'label' => 'x']]],
-            'table' => ['title' => 'Plans', 'headers' => ['A'], 'rows' => [['1']]],
             'embed' => ['title' => 'Embed', 'content' => '[shortcode]'],
             'logos' => ['title' => 'Clients', 'items' => [[]]]];
 

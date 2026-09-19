@@ -162,11 +162,15 @@ class StoredStyleAndItemsRenderGuardTest extends TestCase
         // style map at all. Section's v2 equivalent — a hostile `udc` map reaching the
         // emitter — is guarded in UdcEngineTest alongside testimonials' and hero's.
         // cta left at #1026 with its slot map; it no longer calls pp_render_style_vars().
-        // faq left at #1046, the same way. Its #708 guard is not weakened by going: the
-        // guard existed because a stored non-array `__pp_style` reached a typed call, and
-        // a component that performs no such read cannot reach that call at all. The
-        // hostile-`udc` equivalent is guarded in UdcEngineTest with the others.
-        'grid', 'stats', 'logos', 'table', 'embed',
+        // faq left at #1046 and table at #1066, the same way. The #708 guard is not
+        // weakened by either going: the guard existed because a stored non-array
+        // `__pp_style` reached a typed call, and a component that performs no such read
+        // cannot reach that call at all. The hostile-`udc` equivalent is guarded in
+        // UdcEngineTest with the others. NOTE what table does NOT take with it: its
+        // per-cell wp_kses_post() boundary (#730) is a different typed sink on a
+        // different prop, it is untouched by this rebuild, and it stays pinned in
+        // StoredLinkAndRichTextRenderGuardTest.
+        'grid', 'stats', 'logos', 'embed',
     ];
 
     /**

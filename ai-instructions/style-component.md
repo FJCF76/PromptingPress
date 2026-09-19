@@ -474,7 +474,15 @@ These three declare far fewer slots than `grid` — the widest surface left now 
 `section`, `testimonials`, `cta` and `faq` have none at all — and the
 gap is a contract, not an omission. Read this before assuming a slot is missing.
 
-**`table` (6 slots) — band padding and heading only.** `--table-padding-top` /
+**`table` is on the v2 contract since #1066 and has NO style slots.** Its band padding, heading
+size/colour/measure/rhythm, and everything v1 had no slot for at all — the table fill, the head
+fill, header and cell ink, the rule widths, the caption — are the eleven roles in
+`components/table/schema.json`, set through the band's `udc` map. Sending any `--table-*` name to
+`style_component` is refused with `retired_prop`, and the refusal names the roles. Two things are
+worth knowing before you darken one: the table paints its OWN light surface (`table` fills
+`@color-bg`, `head` fills `@color-surface`) so `header` and `cell` ink stay pinned and must NOT be
+re-inked for a dark band; while `caption` and `empty` sit on the BAND fill and DO need a write.
+The retired v1 surface, for reference only: `--table-padding-top` /
 `-bottom`, plus `--table-heading-size` / `-color` / `-measure` / `-margin-bottom`. The
 table's own text surface — body type, caption ink, header fill, header ink, rule widths
 — has **no slots at all**, and `table` declares no `theme` prop and no variant classes,

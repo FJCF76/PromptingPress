@@ -56,7 +56,22 @@ class MeasureSurfaceTest extends TestCase
     // roster is about — one design-token write reaching every band heading — is
     // unchanged; only the address moved. The v2 half is pinned in
     // FaqRoleDefaultsEmitTest, against the EMITTED declaration rather than schema text.
-    private const ROUTED = ['grid', 'stats', 'table', 'embed', 'logos'];
+    // table left at #1066, on the identical footing: its `heading` role's
+    // `sizing.max-width` still defaults to `@measure-heading`, so ONE update_design_token
+    // write still reaches it, and TableRoleDefaultsEmitTest asserts that emitted
+    // `max-width:var(--measure-heading)` directly.
+    //
+    // A NOTE FOR WHOEVER TOUCHES THIS NEXT, because the trend is now the fact. This
+    // roster is named for the SLOT MECHANISM, and the slot mechanism is ending: stats and
+    // logos leave in #1066's second half, which leaves ROUTED = ['grid'] and, once grid's
+    // own rebuild lands, empty. A one-element roster is not a surface audit, it is a
+    // single component's test wearing one. Decide this FILE's fate in the PR that removes
+    // stats and logos — retire it in favour of the per-component emit tests, or re-found
+    // it on the ROLE address so it keeps auditing the capability rather than the
+    // mechanism — rather than discovering it one rebuild later. The capability it exists
+    // to protect (one design-token write reaches every band heading) is worth keeping;
+    // the slot-shaped assertions are not.
+    private const ROUTED = ['grid', 'stats', 'embed', 'logos'];
 
     /**
      * EMPTY SINCE #1023, and kept rather than deleted because the emptiness is the fact.
@@ -428,11 +443,11 @@ class MeasureSurfaceTest extends TestCase
     public function testEachSeveredHeadingReadsItsOwnSlotInItsOwnBlock(): void
     {
         $subjects = [
-            'table' => '.table-section__heading',
-            // faq's row left at #1046: its block declares no heading rule at all now, so
-            // there is no severed slot read left to check. The severance #578 made —
-            // faq's heading no longer reading a CTA slot — survives as a stronger fact:
-            // the heading's measure is its own role's `sizing.max-width`.
+            // faq's row left at #1046 and table's at #1066: each block declares no heading
+            // rule at all now, so there is no severed slot read left to check. The
+            // severance #578 made — those headings no longer reading a CTA slot —
+            // survives as a stronger fact: the measure is the component's own `heading`
+            // role's `sizing.max-width`, which no other component can address at all.
             'logos' => '.logos__heading',
             'embed' => '.embed__heading',
             'stats' => '.stats__heading',
@@ -752,7 +767,14 @@ class MeasureSurfaceTest extends TestCase
     public function testAForeignComponentCannotAuthorTheCtaMeasureSlot(): void
     {
         $id = pp_create_page('Foreign slot', 'draft');
-        pp_update_composition($id, [['component' => 'table', 'props' => $this->propsFor('table')]]);
+        // THE SUBJECT MOVED FROM table TO logos AT #1066, and the claim is unchanged:
+        // this is about ONE component being unable to author ANOTHER's slot, which is why
+        // #578 had to sever the shared six-selector rule. table can no longer make the
+        // point because it is a v2 component — its refusal now names its ROLES rather
+        // than the foreign slot, which is a different (and better) message, but not this
+        // one. logos is still on slots and still renders a heading, so it carries the
+        // original claim intact.
+        pp_update_composition($id, [['component' => 'logos', 'props' => $this->propsFor('logos')]]);
 
         $result = pp_execute_action('style_component', [
             'post_id'         => $id,
@@ -762,7 +784,7 @@ class MeasureSurfaceTest extends TestCase
 
         $this->assertFalse(
             $result['ok'],
-            'A table could never set --cta-heading-measure, which is exactly why capping its '
+            'A logos band could never set --cta-heading-measure, which is exactly why capping its '
             . 'heading through that slot made the cap unauthorable.'
         );
         // Assert the REASON, not just the failure: without this the test passes on a broken

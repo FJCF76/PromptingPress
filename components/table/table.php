@@ -48,20 +48,58 @@ $caption = $props['caption'] ?? '';
 //
 // So: keep prose in the header, keep the loop terse, and never quote a close tag in it.
 
-// #708: guard the raw `__pp_style` map before it reaches the typed
-// pp_render_style_vars(array $style, ...). A stored non-array raises a TypeError that
-// no caller catches, so the whole PUBLIC PAGE 500s. It arrives as `__pp_style` stored
-// INSIDE props: all four top-level `style` promotions are already is_array guarded, so
-// this read is the only reachable boundary and the only place a guard can help.
-// is_array, NOT is_scalar — an array IS the contract at this parameter. Degrades to no
-// inline custom properties and no `style` attribute at all, byte-identical to a band
-// that stored no style. Full reasoning in components/grid/grid.php.
-$raw_style = $props['__pp_style'] ?? null;
-$style     = is_array($raw_style) ? $raw_style : [];
-$slot_style = pp_render_style_vars($style, 'table');
-$style_attr = $slot_style ? ' style="' . $slot_style . ';"' : '';
+// ── v2: what stayed a prop, and why ─────────────────────────────────────────
+//
+// NOTHING RETIRED. table is the only component in the whole v2 migration whose rebuild
+// retires no prop at all: it never declared `theme`, and `styling.variant_classes` was
+// already empty, so there is no tone bundle to translate into `_band` groups and no
+// `retired_props` block to declare. Its entire change is style slots to roles.
+//
+// Every prop that was here still is: `id`, `title`, `headers`, `rows` and `caption`
+// carry what the band SAYS, not how it looks.
+//
+// NO `refuse_props_when`, AND THAT IS A CHECKED ANSWER RATHER THAN AN OMISSION. The
+// rebuild contract asks for props that are declared, well-typed and stored but paint
+// nothing in the configuration the band is in. table has no layout modes, so no prop can
+// be layout-dead. The one genuinely inert pair is `caption` without `headers`/`rows` —
+// the <caption> renders inside the gate below, so a caption stored on an empty table
+// paints nothing — and the shared `applies_when` grammar cannot express it:
+// pp_applies_when_clause_errors() bounds predicates to `equals` / `in` / `present`, and
+// pp_applies_when_clause_met() reads `present` by KEY and ignores its value, so
+// `present: false` is a synonym rather than an inverse. Widening a shared grammar on
+// behalf of one component is not this rebuild's call, so it stays filed as #1037.
+
+// ── v2: the band's styling identity ─────────────────────────────────────────
+//
+// Where v1 read a `__pp_style` map of 6 slots and painted it into an inline `style`
+// attribute, this emits one attribute and nothing else: `data-pp-band`. Every designable
+// value for this band is in a scoped block in the document head, keyed on that attribute
+// (lib/udc.php). No inline style means no specificity cliff.
+//
+// An absent or malformed id emits NO attribute. That is the whole guard: the engine
+// mints ids on WRITE only, so a band that reached storage without one (raw meta, data
+// written before the rule, or restore_composition, which reports without blocking per
+// #233) must render structurally rather than be handed a fabricated id here. An EMPTY
+// attribute would be worse than none — it would make `[data-pp-band=""]` match every
+// other id-less band on the page and paint one band's design onto another. The canonical
+// reasoning for this pair lives in components/cta/cta.php.
+$raw_band  = $props['__pp_udc_band'] ?? '';
+$band_id   = (is_scalar($raw_band) && pp_udc_valid_band_id((string) $raw_band)) ? (string) $raw_band : '';
+$band_attr = $band_id !== '' ? ' data-pp-band="' . esc_attr($band_id) . '"' : '';
+
+// THE FOCUS RING FOLLOWS THE OVERLAY (#986's mechanism). v1 table had no
+// `background_image` prop, so a scrim was not a state this component could reach;
+// `_band` -> `background.image` + `background.overlay` makes it one. `--color-accent`
+// measures 1.17:1 over the worst-case scrim, a WCAG 1.4.11 failure. The attribute is
+// emitted by the ENGINE, which is the only thing that knows a scrim is being painted.
+// Consuming it here is what keeps table out of #1035's reach (section and testimonials
+// never emit it, so a scrim band there keeps a 1.17:1 ring). What the existing rule in
+// components.css then covers is a `.btn` an author wrote into a cell's rich text;
+// widening that ring to every focusable is a separate blast radius and a recorded
+// out-of-scope decision, so a plain cell link keeps the bare accent ring as it always has.
+$overlay_attr = !empty($props['__pp_udc_overlay']) ? ' data-pp-band-overlay' : '';
 ?>
-<section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="table-section" data-pp-component="table"<?php echo $style_attr; ?>>
+<section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="table-section" data-pp-component="table"<?php echo $band_attr; ?><?php echo $overlay_attr; ?>>
     <div class="container">
 
         <?php if ($title) : ?>
@@ -100,7 +138,21 @@ $style_attr = $slot_style ? ' style="' . $slot_style . ';"' : '';
                 </table>
             </div>
         <?php else : ?>
-            <p class="table-section__empty text-muted">No data.</p>
+            <?php // THE `text-muted` UTILITY IS GONE (#1066), so the `empty` role owns
+                  // this line's colour instead of a utility class — the same call #994
+                  // made for footer and #1046 for faq. The measured grey is the role's
+                  // `typography.color` default now, and its 16px top and bottom padding
+                  // is the role's `spacing` default: base.css zeroes every element's
+                  // padding, so that one is table's own value and not a global.
+                  //
+                  // THE CANONICAL CASCADE REASONING LIVES IN `components/table/schema.json`
+                  // under the `empty` role, stated once because it is subtle in both
+                  // directions — a write aimed at the ROLE always beat the layered utility,
+                  // while a `_band` write reaches this line only by inheritance and lost to
+                  // it. The `_band` case is the one the class stranded, which is why a dark
+                  // band needs a write here (and on `caption`, which sits on the band fill
+                  // too — see that role). ?>
+            <p class="table-section__empty">No data.</p>
         <?php endif; ?>
 
     </div>

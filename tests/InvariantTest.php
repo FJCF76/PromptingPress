@@ -1569,13 +1569,16 @@ class InvariantTest extends TestCase
             // guarded-local contract left for it to satisfy here. It still appears in
             // the heading-helper roster above — it renders a title exactly as before.
             // hero joined testimonials outside this roster in #986, section in #1023, cta
-            // in #1026 and faq in #1046, each for the same reason: a v2 component emits no
-            // inline style attribute, so it has no guarded-local contract here. All five
-            // still appear in the heading-helper roster above — they render a title
-            // exactly as before. faq ALSO stays in the items-boundary roster below, which
-            // is the distinction worth keeping straight: the rebuild removed its STYLE
-            // read, not its typed `items` read, and #739's guard is untouched.
-            ['embed', 'grid', 'logos', 'stats', 'table'],
+            // in #1026, faq in #1046 and table in #1066, each for the same reason: a v2
+            // component emits no inline style attribute, so it has no guarded-local
+            // contract here. All six still appear in the heading-helper roster above —
+            // they render a title exactly as before. faq ALSO stays in the items-boundary
+            // roster below, which is the distinction worth keeping straight: the rebuild
+            // removed its STYLE read, not its typed `items` read, and #739's guard is
+            // untouched. table never had an items read to lose — its typed boundary is
+            // the per-CELL wp_kses_post() guard (#730), which this rebuild does not touch
+            // and which is pinned in StoredLinkAndRichTextRenderGuardTest.
+            ['embed', 'grid', 'logos', 'stats'],
             $callers,
             'the set of components calling pp_render_style_vars() changed — a new caller must'
             . ' carry the #708 guard (add it, then update this list)'

@@ -4953,6 +4953,35 @@ class SchemaValidationTest extends TestCase
      * make the problem quietly go away, which #603/#604 removed the machinery for.
      */
     private const SLOT_RENAME_MIGRATION_NOTES = [
+        // ── v2 Sprint 2 (#1066): table's 6 style slots retired ──
+        //
+        // The SMALLEST retired slot map in the whole migration (hero 49, section 47,
+        // cta 40, testimonials 27, faq 21, table 6) and the only one that retires NO
+        // PROP alongside it: table never declared `theme` and its `variant_classes` were
+        // already empty, so its entire change is slots to roles. The slot SYSTEM is gone
+        // from this component, not renamed and not deprecated.
+        //
+        // TWO NOTES ARE NOT PLAIN MOVES and say so: `--table-heading-color`'s DEFAULT
+        // changed (a pinned `@color-text` became `currentColor`, the #1046 ruling applied
+        // to a component that could not make a dark band AT ALL on v1, so the literal was
+        // identical to the inherited value everywhere v1 could express and divergent only
+        // where v1 was inexpressible); and the two padding slots take BOTH of table's
+        // per-component adjacent-sibling rules with them, because those rules existed
+        // only to keep `--table-padding-top` live at that specificity.
+        //
+        // WHAT THE SIX SLOTS NEVER COVERED, worth stating because it is most of the
+        // component: the table's own body type, caption ink, header fill, header ink and
+        // rule widths had NO slot at all on v1. Those are not migrations, they are the
+        // eleven roles' new surface, and they are why a six-slot retirement produced a
+        // thirty-declaration schema.
+        'table' => [
+            '--table-padding-top' => 'REPLACED in v2 (#1066) by the `_band` role\'s `spacing.padding-top`. Its per-component adjacent-sibling rule went with it: that rule existed only to keep this slot live at [0,2,1], and with no slot left the zero-specificity baseline gives the same value.',
+            '--table-padding-bottom' => 'REPLACED in v2 (#1066) by the `_band` role\'s `spacing.padding-bottom`.',
+            '--table-heading-size' => 'REPLACED in v2 (#1066) by the `heading` role\'s `typography.size`, still referencing the shared `@pp-band-heading-size` token.',
+            '--table-heading-color' => 'REPLACED in v2 (#1066) by the `heading` role\'s `typography.color` — but the DEFAULT CHANGED, from the pinned `var(--color-text)` this slot fell back to, to `currentColor`. v1 could not render a dark table band at all (no `theme` prop, `variant_classes: []`), so the two are identical on every band v1 could express; they diverge only on an authored `_band.background.fill`, which v2 newly makes trivial and which the pinned literal would have stranded at 1.006:1. Same ruling shape as faq\'s at #1046.',
+            '--table-heading-measure' => 'REPLACED in v2 (#1066) by the `heading` role\'s `sizing.max-width`, still defaulting to `@measure-heading`, so one `update_design_token` write still reaches it.',
+            '--table-heading-margin-bottom' => 'REPLACED in v2 (#1066) by the `heading` role\'s `spacing.margin-bottom`, still `@space-lg`.',
+        ],
         // ── v2 Sprint 2 (#1046): faq's 21 style slots retired ──
         //
         // The smallest of the five retired slot maps (hero 49, section 47, cta 40, testimonials 27, faq 21), and the same story:
@@ -6745,10 +6774,13 @@ class SchemaValidationTest extends TestCase
         'stats slot --stats-label-color' => 'items present',
         'stats slot --stats-bg-position' => 'background_image present',
         'stats slot --stats-overlay-bg' => 'background_image present',
-        'table slot --table-heading-size' => 'title present',
-        'table slot --table-heading-color' => 'title present',
-        'table slot --table-heading-measure' => 'title present',
-        'table slot --table-heading-margin-bottom' => 'title present',
+        // table's four rows left at #1066 with its slots. THE CONDITION ITSELF SURVIVES
+        // AS A DIFFERENT KIND OF FACT: the `heading` role's defaults are emitted for every
+        // table band whether or not a title renders, and an emitted declaration matching
+        // no element is inert rather than wrong — so there is nothing left for this ledger
+        // to describe. The ledger is about SLOT conditionality (a slot the AI catalog
+        // advertises that paints nothing in the band's configuration), and a role has no
+        // equivalent claim to get wrong.
     ];
 
     /** The populated census is exactly the ledger — no additions, no drops, no rewordings. */
@@ -7536,6 +7568,7 @@ class SchemaValidationTest extends TestCase
             'section'      => ['body' => '<p>B</p>'],
             'cta'          => ['button_text' => 'Go', 'button_url' => '/go'],
             'faq'          => ['items' => [['question' => 'Q?', 'answer' => 'A.']]],
+            'table'        => ['headers' => ['H'], 'rows' => [['r']]],
         ];
 
         foreach ($v2 as $component) {

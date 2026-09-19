@@ -1836,39 +1836,39 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
 }
 
 /* ==========================================================================
-   COMPONENT: table
+   COMPONENT: table  —  A v2 COMPONENT
    Data table with horizontal scroll at ANY viewport, not only on mobile: .table-wrap
    declares overflow-x: auto with no media query, and .table is width: max-content with
    min-width: 100%, so the wrapper scrolls whenever the table outgrows the band.
    ========================================================================== */
 
-.table-section {
-  /* Band padding joins the shared symmetric rhythm (issue 438): route each edge
-     through the component's own slot, falling back to --pp-band-padding so this
-     band agrees with every other band's own edges at every breakpoint instead of
-     hardcoding var(--space-xl) (64px), which rendered it 76.8/64 asymmetric when
-     adjacent. The adjacent-top edge routes through --pp-band-padding-adjacent-top
-     in the shared cascade below. */
-  padding-top: var(--table-padding-top, var(--pp-band-padding));
-  padding-bottom: var(--table-padding-bottom, var(--pp-band-padding));
-}
+/* STRUCTURAL CSS ONLY — this block is the v2 boundary (docs/v2/BUILD-SPEC-sprint0.md §2).
+   Layout scaffolding, wrapper geometry and accessibility affordances live here.
+   NO colour, type, size, spacing, border or shadow value may be added: every one of
+   those belongs to a role in components/table/schema.json and is emitted by the UDC
+   engine into a band-scoped block in the document head. tests/js/css-lint.test.js
+   enforces this on exactly this block; adding a designable declaration fails CI.
 
-.table-section__heading {
-  /* Band heading joins the shared responsive scale (issue 436): route font-size
-     through the component's own size slot, falling back to --pp-band-heading-size
-     so this heading agrees with every other band title at every viewport instead
-     of inheriting the flat h2 element rule (30px). The color slot (issue 438)
-     completes the minimal band-heading surface, falling back to the h2 default
-     var(--color-text) so unset output is unchanged. */
-  font-size: var(--table-heading-size, var(--pp-band-heading-size));
-  color: var(--table-heading-color, var(--color-text));
-  /* Heading rhythm (issue 584): band fusing needs this gap zeroable per instance.
-     The fallback is this rule's own prior literal — byte-identical unset. */
-  margin-bottom: var(--table-heading-margin-bottom, var(--space-lg));
-  /* table's own heading measure (issue 578), severed from the shared six-selector rule
-     that read --cta-heading-measure from inside the section block. */
-  max-width: var(--table-heading-measure, var(--measure-heading));
-}
+   The band root carries no rule at all now — its padding is the `_band` role's default,
+   so there is nothing structural left to say about it. Its two adjacent-sibling rules
+   further down this file went with the slot they existed to keep alive, for the reason
+   section's went at #1023, cta's at #1026 and faq's at #1046.
+
+   FIVE PROPERTIES IN THIS BLOCK HAD NO CLASSIFICATION UNTIL #1066, and they are the
+   reason a table was harder to rebuild than its six style slots suggested. table is the
+   first v2 component with TABLE markup, so it is the first to reach `border-collapse`,
+   `caption-side`, `vertical-align`, `overscroll-behavior-x` and
+   `-webkit-overflow-scrolling` — none of which were in the lint's STRUCTURAL set, its
+   ALWAYS_DESIGN set, or its spacing family. That arm is fail-closed, so until they were
+   classified each one could be neither kept here nor authored through a role, which is a
+   capability deletion rather than a missing convenience. All five were claimed into
+   STRUCTURAL with a stated reason, the same discipline #994 used for `cursor`,
+   `transition` and `transform`, #1023 for `overflow-wrap` and #1046 for `animation`.
+   The reasons are on the set itself, in tests/js/css-lint.test.js.
+
+   `border-collapse` IS NOT INERT, and the `row` role's description is where that is
+   explained: the collapsed model merges adjacent edges, which is what lets the row
+   separator move from the bottom edge to the top and still render byte-identically. */
 
 .table-wrap {
   width: 100%;
@@ -1876,62 +1876,49 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior-x: contain;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius);
 }
 
 .table {
   width: max-content;
   min-width: 100%;
+  /* Selects the border BOX MODEL, not a border value — the `box-sizing` tier. It is
+     load-bearing for the `row` role: under the collapsed model row 1's top edge merges
+     into the header's heavier bottom rule and vanishes into it, which is what makes a
+     top-edge separator reproduce v1's bottom-edge one exactly. */
   border-collapse: collapse;
-  font-size: 0.9375rem;
-  background-color: var(--color-bg);
 }
 
 .table__caption {
+  /* WHERE the caption box goes, not how it looks — the `position`/`order` tier. Note the
+     consequence the `caption` role carries: a caption box renders OUTSIDE the table's
+     background box (CSS 2.1 §17.4), so the table's own fill never paints behind it. */
   caption-side: bottom;
-  padding: var(--space-sm) var(--space-md);
-  font-size: 0.875rem;
-  color: var(--color-muted);
-  text-align: left;
-}
-
-.table__head {
-  background-color: var(--color-surface);
 }
 
 .table__header {
-  padding: var(--space-sm) var(--space-md);
-  text-align: left;
-  font-weight: 700;
-  color: var(--color-text);
-  border-bottom: 2px solid var(--color-border);
   white-space: nowrap;
 }
 
 .table__row {
-  border-bottom: 1px solid var(--color-border);
+  /* The property LIST only. Ruling A3 gives the motion group exactly two params and a
+     property list is neither, so the list stays here and `motion.transition-duration` on
+     the `row` role retunes the timing without widening what is animated. Same
+     arrangement faq's summary uses. */
   transition: background-color var(--transition);
 }
 
-.table__row:last-child {
-  border-bottom: none;
-}
-
-.table__row:hover {
-  background-color: var(--color-surface);
-}
-
 .table__cell {
-  padding: var(--space-sm) var(--space-md);
-  color: var(--color-text);
   vertical-align: top;
   white-space: normal;
+  /* THE AFFORDANCE THAT KEEPS A LONG TOKEN INSIDE ITS COLUMN, and the reason table is the
+     only band component whose stressed render does not scroll the page sideways at 375px.
+     `overflow-wrap: break-word` (what base.css gives the page) breaks a word visually but
+     does NOT reduce the element's intrinsic min-content size; `anywhere` does. stats and
+     logos have only the former and overflow — measured 1307/375 and 551/375, filed as
+     #1067. Classified structural at #1023 for exactly this reason: there is no UDC group
+     for it and there should not be, because "let long words overflow my layout" is not a
+     design decision anyone wants. */
   overflow-wrap: anywhere;
-}
-
-.table-section__empty {
-  padding: var(--space-md) 0;
 }
 
 /* ==========================================================================
@@ -3839,12 +3826,16 @@ main .btn:focus-visible {
      padding default is the shared `@pp-band-padding` on both edges, the same value this
      tier carries, so the adjacent rhythm winning the top edge is the intended
      arrangement rather than a collision. */
-  /* table/logos/embed join the per-component adjacent-top routing (issue 438) so
-     their adjacent-top edge tracks the same shared tier AND an explicit
-     --<comp>-padding-top wins on that edge too, not just their own base edges. */
-  main > [data-pp-component] + .table-section {
-    padding-top: var(--table-padding-top, var(--pp-band-padding-adjacent-top));
-  }
+  /* table's per-component adjacent rule was DELETED at #1066, for the reason section's
+     went at #1023, cta's at #1026 and faq's at #1046: it existed only to keep a
+     `--table-padding-top` slot live at this specificity, and with no slot left it
+     resolved to exactly what the zero-specificity baseline above already gives. table
+     needs no `:not()` exclusion either — its `_band` padding default is the shared
+     `@pp-band-padding` on both edges, the same value this tier carries, so the adjacent
+     rhythm winning the top edge is the intended arrangement rather than a collision. */
+  /* logos/embed keep the per-component adjacent-top routing (issue 438) so their
+     adjacent-top edge tracks the same shared tier AND an explicit --<comp>-padding-top
+     wins on that edge too, not just their own base edges. */
   main > [data-pp-component] + .logos {
     padding-top: var(--logos-padding-top, var(--pp-band-padding-adjacent-top));
   }
@@ -3949,10 +3940,8 @@ main .btn {
     padding-top: var(--stats-padding-top, var(--pp-band-padding-adjacent-top));
   }
   /* faq's mobile adjacent rule went with its desktop twin at #1046 — same reason. */
-  /* table/logos/embed adjacent-top on mobile too (issue 438). */
-  main > [data-pp-component] + .table-section {
-    padding-top: var(--table-padding-top, var(--pp-band-padding-adjacent-top));
-  }
+  /* table's mobile adjacent rule went with its desktop twin at #1066 — same reason. */
+  /* logos/embed adjacent-top on mobile too (issue 438). */
   main > [data-pp-component] + .logos {
     padding-top: var(--logos-padding-top, var(--pp-band-padding-adjacent-top));
   }

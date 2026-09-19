@@ -962,15 +962,18 @@ class AiContextTest extends TestCase
 
     public function testSystemPromptIncludesHeadingSizeSlotForNewlyStyledBands(): void
     {
-        // #436 regression pin: table/logos/embed each gained the shared band-heading
-        // size slot, so the AI-facing prompt must now surface it the same way it does
-        // faq's slots (see testSystemPromptIncludesStyleSlotsForFaq below).
+        // #436 regression pin: logos/embed each carry the shared band-heading size slot,
+        // so the AI-facing prompt must surface it. table's row left at #1066 — it is a v2
+        // component now, so the prompt announces its ROLES instead of its slots, and the
+        // assertion below ("Style slots:" on the next line) is the one claim that cannot
+        // be true of it. The v2 half is covered by
+        // testTheRuntimePromptsV2RosterMatchesTheRegistry in DocsCoverageTest, which is
+        // registry-derived and therefore picked table up the moment it declared roles.
         $prompt = pp_ai_system_prompt();
         $lines = explode("\n", $prompt);
         $expected = [
             'embed' => '--embed-heading-size',
             'logos' => '--logos-heading-size',
-            'table' => '--table-heading-size',
         ];
         foreach ($expected as $name => $slot) {
             $found = false;

@@ -165,9 +165,14 @@ class SchemaThemeConsistencyTest extends TestCase
         // guard pins for every component still declaring the slots.
         // cta left at #1026: its band padding is the `_band` role's `spacing.padding-top` /
         // `padding-bottom`, both defaulting to the shared `@pp-band-padding` this test pins.
-        // faq left at #1046: its two padding slots are the `_band` role's
-        // `spacing.padding-top` / `padding-bottom` defaults, both `@pp-band-padding`.
-        $bandComponents = ['grid', 'stats', 'table', 'logos', 'embed'];
+        // faq left at #1046 and table at #1066: their two padding slots are the `_band`
+        // role's `spacing.padding-top` / `padding-bottom` defaults, both
+        // `@pp-band-padding`. The claim is unchanged for the four that remain — this
+        // guard is about slot DEFAULTS agreeing, not about any particular component — and
+        // table's v2 half is asserted against the EMITTED declaration in
+        // TableRoleDefaultsEmitTest, which also pins that the fluid token is not frozen
+        // to one tier.
+        $bandComponents = ['grid', 'stats', 'logos', 'embed'];
         $schemas        = $this->loadSchemas();
 
         $expected = 'var(--pp-band-padding)';
