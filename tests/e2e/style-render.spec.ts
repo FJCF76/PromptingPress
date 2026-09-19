@@ -7854,36 +7854,13 @@ test.describe('Shared section-band rhythm (#431)', () => {
   // adjacent-sibling rhythm is a ZERO-SPECIFICITY baseline, so an authored band block has
   // to beat it on the unlayered tier alone, which is exactly the cascade #1023 measured
   // going wrong (authored 5px rendering 76.8px).
-  const NEW_BAND_SLOTS = [
-    { comp: 'logos', sel: '.logos', slot: '--logos-padding-top', px: '6px',
-      props: { id: 'pp-logo01', title: 'Logos', items: [{ image_url: 'https://example.com/l.png', image_alt: 'Logo' }] } },
-  ];
-
-  for (const { comp, sel, slot, px, props } of NEW_BAND_SLOTS) {
-    test(`#438 ${slot} wins on an adjacent ${comp} band at 1280 and 375`, async ({ page }) => {
-      pageId = createPage(`E2E Adjacent Slot ${comp}`);
-      setComposition(pageId, [
-        { component: 'section', props: { id: 'pp-sec01', body: '<p>Body.</p>' } },
-        { component: comp, props },
-      ]);
-
-      await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
-      await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
-
-      // component_index 1 = the target band (index 0 is the leading section).
-      const res = await styleComponent(page, pageId, { [slot]: px }, undefined, 1);
-      expect(res.success, `${slot} set: ${JSON.stringify(res)}`).toBe(true);
-
-      for (const width of [1280, 375]) {
-        await page.setViewportSize({ width, height: 900 });
-        await page.goto(`/?page_id=${pageId}`);
-        const band = page.locator(`main > ${sel}`);
-        await expect(band).toBeVisible({ timeout: 10000 });
-        const paddingTop = await band.evaluate((el) => getComputedStyle(el).paddingTop);
-        expect(paddingTop, `${slot} adjacent-top override @${width}`).toBe(px);
-      }
-    });
-  }
+  // logos' row left at #1066 PR2 with stats', and the slot-shaped loop that stood here
+  // retired with it rather than being narrowed to nothing: every component it covered is
+  // on the design contract now, and grid — the last slot-bearing component — has its own
+  // adjacent pin above (the `main > .cta` case leads this describe). The claim is carried
+  // in its STRONGER form by the v2 block immediately below, which drives the same
+  // adjacent-top edge through an authored `_band` -> `spacing.padding-top` and therefore
+  // has to beat a zero-specificity baseline on the unlayered tier alone.
 
   /**
    * THE v2 HALF OF THE SAME CLAIM (#1066), and it is the harder one.
@@ -7906,6 +7883,13 @@ test.describe('Shared section-band rhythm (#431)', () => {
       props: { id: 'pp-t1b2c3d4', title: 'Table', headers: ['A', 'B'], rows: [['1', '2']] } },
     { comp: 'embed', sel: '.embed', px: '7px',
       props: { id: 'pp-e1b2c3d4', title: 'Embed', content: '<p>Embedded.</p>' } },
+    // stats and logos joined at #1066 PR2, which is what makes this roster the whole
+    // claim rather than a sample: every band whose per-component padding rule was deleted
+    // is now pinned here, at both tiers.
+    { comp: 'stats', sel: '.stats', px: '9px',
+      props: { id: 'pp-s1b2c3d4', title: 'Stats', items: [{ number: '10', label: 'Ten' }] } },
+    { comp: 'logos', sel: '.logos', px: '11px',
+      props: { id: 'pp-l1b2c3d4', title: 'Logos', items: [{ image_url: 'https://example.com/l.png', image_alt: 'Logo' }] } },
   ]) {
     test(`#1066 an authored ${comp} _band padding-top wins on the adjacent edge at 1280 and 375`, async ({
       page,
@@ -8320,7 +8304,10 @@ test.describe('Band heading scale (#436)', () => {
     { band: 'section', sel: '.section__title', slot: '--section-heading-size' },
     { band: 'grid', sel: '.grid__heading', slot: '--grid-heading-size' },
     { band: 'cta', sel: '.cta__title', slot: '--cta-heading-size' },
-    { band: 'stats', sel: '.stats__heading', slot: '--stats-heading-size' },
+    // No `slot`: stats joined the UDC contract at #1066 PR2. It still joins the equality
+    // test below — its heading resolves the same shared --pp-band-heading-size scale, now
+    // as the `heading` role's default.
+    { band: 'stats', sel: '.stats__heading' },
     // No `slot`: table is on the UDC contract since #1066 and has none. It still joins
     // the equality test below, which is the point — its heading resolves the same shared
     // --pp-band-heading-size scale, now as the `heading` role's default.
@@ -8329,7 +8316,11 @@ test.describe('Band heading scale (#436)', () => {
     // and `sel` are read by the equality test below, which it still joins —
     // its heading resolves the same shared --pp-band-heading-size scale.
     { band: 'testimonials', sel: '.testimonials__heading' },
-    { band: 'logos', sel: '.logos__heading', slot: '--logos-heading-size' },
+    // No `slot`: logos joined at #1066 PR2 with stats. GRID IS THE LAST BAND IN THIS
+    // ROSTER THAT STILL CARRIES ONE, which makes the override half of this test a
+    // one-component claim and the EQUALITY half — every band resolving the same shared
+    // scale — the part that still spans the theme.
+    { band: 'logos', sel: '.logos__heading' },
     // No `slot`: embed joined the UDC contract at #1066 alongside table, same reasoning.
     { band: 'embed', sel: '.embed__heading' },
     // No `slot`: faq is on the UDC contract since #1046 and has none. It still joins
@@ -8418,46 +8409,61 @@ test.describe('Band heading scale (#436)', () => {
   // the correct component-name string — a typo there would validate but never
   // reach the DOM. Pixel values no scale step resolves to, so a fallback leak is
   // unmistakable.
-  test('#436 existing and all newly-minted heading slots override the shared scale at 375 and 1280', async ({
+  /**
+   * THE SLOT-OVERRIDE HALF RETIRED AT #1066 PR2, which is what this test's own note asked
+   * for rather than another narrowing: "when the last of the three goes this test retires
+   * rather than narrowing to zero." logos was the last of them here — grid still declares
+   * `--grid-heading-size`, and grid's override is independently driven by the #305
+   * premium-rule pin earlier in this file, so nothing is left uncovered.
+   *
+   * THE CLAIM IS REPLACED, NOT DROPPED. What #436 protects is that a band can override the
+   * shared responsive scale per instance. On v2 that is the `heading` role's
+   * `typography.size`, and the v2 version is the harder proof: an authored value has to beat
+   * a role default that is itself emitted unlayered, at both tiers, on every band at once.
+   * The equality roster above — every band resolving the SAME shared scale when unauthored —
+   * is untouched and still spans the theme.
+   */
+  test('#436 an authored heading size overrides the shared scale on every v2 band at 375 and 1280', async ({
     page,
   }) => {
-    pageId = createPage('E2E Band Heading Slot Override');
-    // cta's row left at #1026 with its slot map. Its heading size is the `heading` role's
-    // `typography.size`, defaulting to the same `@pp-band-heading-size` this block pins for
-    // every component still on slots — so the shared SCALE is unchanged; only the override
-    // address moved, and the emitted default is asserted in CtaRoleDefaultsEmitTest.
-    // table's and embed's rows left at #1066, the way cta's left at #1026. Each heading
-    // size is the `heading` role's `typography.size`, defaulting to the same
-    // `@pp-band-heading-size` this block pins for every component still on slots — so the
-    // shared SCALE is unchanged and both still join the equality roster above; only the
-    // override ADDRESS moved. logos is the row kept here; grid and stats still declare
-    // `--grid-heading-size` and `--stats-heading-size` too, and grid's is driven in its
-    // own premium-rule pin earlier in this file. When the last of the three goes this
-    // test retires rather than narrowing to zero.
-    setComposition(pageId, [
-      { component: 'logos', props: { id: 'pp-logo01', title: 'Logos', items: [{ image_url: 'https://example.com/l.png', image_alt: 'Logo' }] } },
-    ]);
+    // Distinct px per band so a cross-wired value is caught rather than masked.
+    const BANDS = [
+      { comp: 'stats', sel: '.stats__heading', px: '62px',
+        props: { id: 'pp-s2b2c3d4', title: 'Stats', items: [{ number: '10', label: 'Ten' }] } },
+      { comp: 'logos', sel: '.logos__heading', px: '58px',
+        props: { id: 'pp-l2b2c3d4', title: 'Logos', items: [{ image_url: 'https://example.com/l.png', image_alt: 'L' }] } },
+      { comp: 'table', sel: '.table-section__heading', px: '54px',
+        props: { id: 'pp-t2b2c3d4', title: 'Table', headers: ['A'], rows: [['1']] } },
+      { comp: 'embed', sel: '.embed__heading', px: '50px',
+        props: { id: 'pp-e2b2c3d4', title: 'Embed', content: '<p>E.</p>' } },
+    ];
 
+    pageId = createPage('E2E Band Heading Role Override');
+    setComposition(pageId, [{ component: 'stats', props: { id: 'pp-seed', items: [{ number: '1', label: 'S' }] } }]);
     await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
     await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
 
-    // The three slots minted in #436 that are still slots. Distinct px per component so a
-    // cross-wired value would be caught.
-    const overrides = [
-      { idx: 0, slot: '--logos-heading-size', px: '62px', sel: '.logos__heading' },
-    ];
-    for (const o of overrides) {
-      const r = await styleComponent(page, pageId, { [o.slot]: o.px }, undefined, o.idx);
-      expect(r.success, `${o.slot} set: ${JSON.stringify(r)}`).toBe(true);
-    }
+    // Through the REAL write path: a `udc` map only scopes to a band whose id the engine
+    // minted, and raw meta mints nothing (Section 14.1).
+    const res = await updateComposition(
+      page,
+      pageId,
+      BANDS.map(({ comp, px, props }) => ({
+        component: comp,
+        props,
+        udc: { heading: { typography: { size: px } } },
+      })),
+    );
+    expect(res.success, `authored heading sizes: ${JSON.stringify(res)}`).toBe(true);
 
     for (const width of [375, 1280]) {
       await page.setViewportSize({ width, height: 900 });
       await page.goto(`/?page_id=${pageId}`);
-      for (const o of overrides) {
-        const h = page.locator(`main ${o.sel}`).first();
-        await expect(h).toBeVisible({ timeout: 10000 });
-        expect(await h.evaluate((el) => getComputedStyle(el).fontSize), `${o.slot} @${width}`).toBe(o.px);
+      for (const { comp, sel, px } of BANDS) {
+        const heading = page.locator(sel).first();
+        await expect(heading, `${comp} heading renders`).toBeVisible({ timeout: 10000 });
+        const size = await heading.evaluate((el) => getComputedStyle(el).fontSize);
+        expect(size, `${comp} authored heading size @${width}`).toBe(px);
       }
     }
   });
