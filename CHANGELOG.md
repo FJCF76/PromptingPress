@@ -4,7 +4,7 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
-## [Unreleased — v2.0.0-alpha.2] — v2 Sprint 2: the chrome CSS retirement, and `section`, `cta`, `faq`, `table` + `embed` rebuilt on the design contract (#994, #992, #995, #1023, #988, #1026, #1046, #1066)
+## [Unreleased — v2.0.0-alpha.2] — v2 Sprint 2: the chrome CSS retirement, and `section`, `cta`, `faq`, `table`, `embed`, `stats` + `logos` rebuilt on the design contract (#994, #992, #995, #1023, #988, #1026, #1046, #1066, #1025)
 
 **The last two components still painted by the old stylesheet are on the engine.** The site header and footer declared roles you could author, while `assets/css/components.css` quietly owned how they actually looked. That split is what made styling a nav link silently erase its own hover. 88 declarations moved into role defaults, the CSS rules are gone, and the three bugs the split was causing are fixed.
 
@@ -91,6 +91,100 @@ Nothing to do unless you have a stored `pp_site_udc` map with a `"_preset"` on a
 - Chrome joins the structural-CSS boundary lint; the carve-out is removed and its lapse pinned.
 - The #992 characterization test is inverted rather than deleted: same fixture, same authored input, opposite expectations.
 - New pins: role defaults frozen value-for-value, breakpoint maps refused when they name only `d`, every role's defaults proved to reach the page, every shipped selector proved well-formed, and the chevron's negative margin pinned to the token it mirrors.
+
+---
+
+## `stats` and `logos` are on the design contract, and the slot system has one component left (#1066, #1025)
+
+**Eleven of twelve components are now on the engine.** `stats` declared **17** style slots
+and two styling props; it declares **7 roles and zero slots**. `logos` declared 8 slots and a
+`theme` prop; it declares **8 roles and zero slots**. Between them their stylesheet blocks go
+from 24 rules to six. `grid` is the only component still on style slots.
+
+### What changes for you
+
+**Fifteen roles, and most of them reach things no slot ever did.** stats: `_band`, `heading`,
+`heading-accent`, `list`, `item`, `number`, `label`. logos: `_band`, `heading`, `list`,
+`item`, `item-labeled`, `image`, `image-labeled`, `label`. Per breakpoint and per state.
+
+**The contained metrics card still works, and now you can see why.** stats' cap and radius
+(issue 383) are `_band` → `sizing.max-width` and `border.radius`. Neither is defaulted, so an
+unset band stays full-bleed and square. What *is* defaulted is the pair of auto side margins —
+inert at `max-width: none`, and the only reason a capped band centres instead of pinning left.
+
+### ⚠️ Breaking: three styling props are retired
+
+| Retired | Write this instead |
+|---|---|
+| `stats.theme` | `_band` → `background.fill` + `typography.color`, plus the `muted` framing on `border.width-top`/`width-bottom`. **And `number` + `label` ink** — see below. |
+| `stats.background_image` | `_band` → `background.image` (a Media Library **attachment id**, not a URL) with `background.overlay` and `background.position`. |
+| `logos.theme` | `_band` → `background.fill` + `typography.color`, plus `label` ink. |
+
+A write naming one is refused with `retired_prop` and the route. Clear a stored one by
+sending it as `null`; send every stale key on that band in the same call.
+
+### ⚠️ A dark stats band is FOUR writes, not two
+
+`_band` → `typography.color` reaches the heading and nothing else you probably mean.
+`number` and `label` pin their own colours as **direct declarations on the element**, and a
+direct declaration always beats an inherited value, whatever the cascade layer. v1 agreed and
+said so in CSS: `.stats--inverted .stats__number` re-routed to `@color-accent-on-inverted`
+(8.33:1) precisely because the light-surface accent measures **3.23:1** there.
+
+```json
+{
+  "_band":  { "background": { "fill": "@color-bg-inverted" }, "typography": { "color": "@color-bg" } },
+  "number": { "typography": { "color": "@color-accent-on-inverted" } },
+  "label":  { "typography": { "color": "rgb(192, 195, 201)" } }
+}
+```
+
+That last value is not arbitrary. v1's inverted label was `@color-bg` at `opacity: 0.75`, and
+**`opacity` has no group in the design vocabulary** — so the de-emphasis ports as the
+pixel-measured composite, ~10.2:1. That is the standing rule rather than a workaround: this
+same family's earlier `opacity: 0.85` was retired at #577 for measuring 3.87:1, and `base.css`
+records "do NOT re-introduce an opacity literal" beside the token that replaced it.
+
+### ⚠️ Breaking: a background image no longer re-inks the band
+
+v1 keyed three contrast corrections on `.stats--has-bg-image`, so setting an image
+automatically recoloured the number (#461), the accented heading substring (#463) and the
+label (#577). **All three retire with the class**, exactly as hero's, section's and cta's did:
+the engine cannot know an arbitrary image is dark. Setting a background recolours nothing —
+write `typography.color` on `heading`, `heading-accent`, `number` and `label` in the same map.
+The overlay `<div>` is gone too; the scrim composes into the band's own background layers.
+
+### ⚠️ Changed: logos' one image-size knob is two roles
+
+`--logos-image-size` was read at **both** cap sites with different fallbacks (3rem unlabelled,
+2.5rem labelled), so setting it collapsed the label-driven switch on purpose. A role carries
+one default, so the caps are the `image` and `image-labeled` roles now and the switch survives
+by specificity. The rendered default is byte-identical (measured 48px / 40px); what changed is
+that "make the logos bigger" is two writes, and setting `image` no longer touches labelled
+tiles. Write the same value to both to get v1's collapse back.
+
+### Widened: the figure's font-weight takes CSS keywords
+
+`--stats-number-weight` was a generically number-typed slot and refused `bold`. The `number`
+role's `typography.weight` is a purpose-built `font-weight` type and accepts the keywords.
+`600px`, `heavy` and `-100` are still refused.
+
+### The slot-engine tests stop moving house (#1025)
+
+Not user-facing, but it is why this change is shaped the way it is. The tests for
+`style_component`, `invalid_style_slot` and the slot advisories are about the **engine**, yet
+each named a real component as its fixture — so every rebuild re-homed the whole set
+(`hero` → `section` → `stats`). Measured at #1023: ~274 of that rebuild's 283 failures were
+that one class. This change adds a test-only fixture component and moves them there, so the
+remaining rebuild touches only its own tests. The fixture and its suites are deleted together
+when `grid` rebuilds — recorded in its README so the ending is planned rather than discovered.
+
+### Migration
+
+- `docs/howto-migrate-a-stats-band-to-v2.md` — seventeen slots, both props, and the four-write dark band
+- `docs/howto-migrate-a-logos-band-to-v2.md` — eight slots, and the one knob that became two roles
+
+An unstyled band of either kind renders identically. The values moved; the pixels did not.
 
 ---
 
