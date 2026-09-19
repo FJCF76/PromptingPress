@@ -2881,12 +2881,36 @@ function pp_udc_compile_band(array $item, string $layer, ?array &$drops = null):
         // raw CSS and the cost of checking is a regex.
         //
         // THE PERMITTED CHARSET, enumerated so the next reader knows what is
-        // deliberate: letters, digits, `_`, `.`, `-`, the SPACE (descendant), and
-        // `>` (child). Everything else is still out, and the exclusions matter as
-        // much as the inclusions — `,` would let one role own an unrelated
-        // selector list, `[` and `=` an attribute match, `:` a pseudo-class or (a
-        // colon being one character from a semicolon in effect) a place to end the
-        // selector early. None of those can be spelled here.
+        // deliberate: letters, digits, `_`, `.`, `-`, the SPACE (descendant),
+        // `>` (child), and the two BRACKETS. Everything else is still out, and the
+        // exclusions matter as much as the inclusions — `,` would let one role own
+        // an unrelated selector list, `:` a pseudo-class or (a colon being one
+        // character from a semicolon in effect) a place to end the selector early,
+        // and `=` plus the two quote characters an attribute VALUE match. None of
+        // those can be spelled here.
+        //
+        // THE BRACKETS JOINED IN #1046, and the shape of that widening is the whole
+        // of its security argument. Without `=` or a quote character, a bracketed
+        // term can only be an attribute PRESENCE test — `[open]`, `[disabled]`,
+        // `[aria-expanded]`. `[href="javascript:void(0)"]`, `[class*="btn"]` and
+        // every other value-matching form stays unspellable, because each needs a
+        // character this class still refuses. The existing refusal case in
+        // UdcEngineTest (`.a[data-x="y"]`) survives the widening UNCHANGED for
+        // exactly that reason, and it is the cheapest proof that the class grew by
+        // presence selectors and nothing else.
+        //
+        // The measured reason, matching the `>` precedent below: faq's accordion
+        // colours its open <summary> through `.faq__item[open] > .faq__question`,
+        // an ancestor state. Ruling A3 defers ancestor states as a value DIMENSION,
+        // so the open treatment is expressed the way nav's `link-current` expresses
+        // the current page — as its own role with its own selector. Before this, a
+        // role declaring that selector was SILENTLY SKIPPED here while
+        // pp_udc_validate_map() accepted authored values on it: stored, reported
+        // `ok: true`, painting nothing. That gap is wider than faq and is filed as
+        // #1048; this widening removes faq from its reach rather than closing it.
+        // An attribute presence term is inert as CSS source text, exactly as a child
+        // combinator is: it cannot open a string, a comment or a declaration, and it
+        // cannot escape the rule it sits in.
         //
         // WHAT THIS GATE DOES NOT CHECK, said plainly so the next reader does not
         // over-trust it: it bounds the CHARACTER SET, not the SHAPE. `> a`, `a >` and
@@ -2924,7 +2948,32 @@ function pp_udc_compile_band(array $item, string $layer, ?array &$drops = null):
         // name gates), and a maintainer widening this class again should inherit an
         // anchoring guarantee that is actually in force. Widen the CLASS if a ruling
         // says so; do not widen the ANCHORING.
-        if ($selector !== '' && !preg_match('/^[A-Za-z0-9_ .>\-]{1,120}\z/', $selector)) {
+        // THE BRACKETS ALSO HAVE TO BALANCE, AND THE CHARSET CANNOT SAY SO.
+        //
+        // A character class is a per-character test; "every `[` has its `]`" is a
+        // property of the whole string. That distinction is not academic here, and the
+        // repo has already paid for learning it once: `_pp_udc_delimiters_balanced()`
+        // exists because CSS Syntax L3's "consume a simple block" treats `[` exactly as
+        // it treats `(` — an unclosed one consumes across the terminating `;` and the
+        // closing `}` TO EOF (#965). Its docblock is the reference.
+        //
+        // The blast radius is why this is checked here rather than trusted to the
+        // schemas. A malformed `>` costs the one grouped rule it sits in. A malformed
+        // `[` costs every rule that PRINTS AFTER IT — and lib/wp.php concatenates every
+        // inline style on a handle into ONE `<style>` element, so that is the rest of
+        // this component's defaults, every band block below it, and the token tier
+        // sharing the handle. The input is repo-owned either way; this bounds what a
+        // theme bug can do, which is the same posture the charset itself takes.
+        //
+        // ONE OWNER, deliberately: this routes through the shared balance helper rather
+        // than counting brackets locally, because a second implementation of "is this
+        // delimiter-safe" is exactly the forked-grammar the architecture forbids. The
+        // helper also balances quotes and parens; the charset refuses all three
+        // characters outright, so those arms are inert here and cost a `strpbrk`.
+        if ($selector !== '' && !_pp_udc_delimiters_balanced($selector)) {
+            continue;
+        }
+        if ($selector !== '' && !preg_match('/^[A-Za-z0-9_ .>\[\]\-]{1,120}\z/', $selector)) {
             // DELIBERATELY NOT LEDGERED. A role selector comes only from a
             // repo-owned, integrity-checked component schema, never from an author
             // — the same reason a role DEFAULT's discard is filtered out of the

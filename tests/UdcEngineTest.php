@@ -407,22 +407,48 @@ final class UdcEngineTest extends TestCase
      * link in a current parent's dropdown. This proves the widening landed AND that it
      * widened nothing else — the exclusions are the gate.
      *
+     * `[` AND `]` JOINED AT #1046, for faq's `question-open` role
+     * (`.faq__item[open] > .faq__question`) — the accordion's expand affordance, which is
+     * an ANCESTOR state and therefore not expressible in the state dimension that ruling
+     * A3 confirmed. The widening is two characters and is self-bounding, which is the
+     * claim this test carries:
+     *
+     *   admitted   an attribute PRESENCE term — `[open]`, `[disabled]`, `[aria-expanded]`
+     *   refused    every attribute VALUE match, because `=`, `"` and `'` all stay out
+     *
+     * THE PROOF IS THE ROW THAT DID NOT MOVE. `.a[data-x="y"]` was in the refused list
+     * before this widening and is still in it after, unchanged — it carries an `=` and two
+     * quotes, so the class grew by presence selectors and by nothing else. A widening that
+     * had gone one character further would have flipped that row, and the diff would have
+     * shown it.
+     *
      * THE ANCHORS ARE TESTED SEPARATELY FROM THE CLASS, deliberately. `^...$` with no
      * `/m` is what makes the charset a whole-string claim; a class widening cannot
      * break it, but a careless rewrite of the pattern could, and a trailing-newline
      * payload is the classic way that shows up.
      */
-    public function testTheRoleSelectorCharsetAdmitsTheChildCombinatorAndNothingElse(): void
+    public function testTheRoleSelectorGateAdmitsTheChildCombinatorAndPresenceTermsAndNothingElse(): void
     {
         $accepted = [
             '.nav__menu ul li.current-menu-item > a',  // the #994 widening
+            '.faq__item[open] > .faq__question',       // the #1046 widening
             '.site-footer__nav ul',
             '.testimonials__quote',
             '.a-b_c.d e > f',
+            '.a[open]',                  // presence, on the role's own element
+            '[data-state] .b',           // presence, leading — still only a presence test
         ];
         $refused = [
             '.a, .b',                    // a selector LIST — one role owning two surfaces
-            '.a[data-x="y"]',            // an attribute match
+            '.a[data-x="y"]',            // an attribute VALUE match: UNCHANGED BY #1046.
+                                         // `=` and both quote characters stay excluded, so
+                                         // this row is the proof that the bracket widening
+                                         // admits presence terms and nothing more.
+            ".a[data-x='y']",            // the single-quoted spelling of the same thing
+            '.a[href^=http]',            // an UNQUOTED value match — `=` alone still refuses
+                                         // it, so the quotes are not the only thing holding
+                                         // the line
+            '.a[class*=btn]',            // the substring operator, same reason
             '.a:hover',                  // a pseudo-class; states are a separate dimension
             '.a{color:red}.b',           // a closed rule and a second selector
             ".a\n.b",                    // a newline with content after it
@@ -438,14 +464,14 @@ final class UdcEngineTest extends TestCase
         foreach ($accepted as $selector) {
             $this->assertSame(
                 1,
-                preg_match('/^[A-Za-z0-9_ .>\-]{1,120}\z/', $selector),
+                preg_match('/^[A-Za-z0-9_ .>\[\]\-]{1,120}\z/', $selector),
                 "the charset must accept {$selector}"
             );
         }
         foreach ($refused as $selector) {
             $this->assertSame(
                 0,
-                preg_match('/^[A-Za-z0-9_ .>\-]{1,120}\z/', $selector),
+                preg_match('/^[A-Za-z0-9_ .>\[\]\-]{1,120}\z/', $selector),
                 'the charset must refuse ' . json_encode($selector)
             );
         }
@@ -456,9 +482,51 @@ final class UdcEngineTest extends TestCase
         $source = file_get_contents(dirname(__DIR__) . '/lib/udc.php');
         $this->assertIsString($source);
         $this->assertStringContainsString(
-            "preg_match('/^[A-Za-z0-9_ .>\\-]{1,120}\\z/', \$selector)",
+            "preg_match('/^[A-Za-z0-9_ .>\\[\\]\\-]{1,120}\\z/', \$selector)",
             $source,
             'the compile-time selector gate must use exactly this pattern, anchors included'
+        );
+
+        // ── THE BALANCE HALF OF THE GATE (#1046) ────────────────────────────────
+        //
+        // A CHARACTER CLASS CANNOT SAY "EVERY `[` HAS ITS `]`", because that is a
+        // property of the whole string and a class is a per-character test. Admitting
+        // the brackets without this would have reopened the hole #965 closed for token
+        // VALUES: CSS Syntax L3 consumes an unclosed `[` across the terminating `;` and
+        // the closing `}` to EOF, and lib/wp.php concatenates every inline style on a
+        // handle into ONE `<style>` element — so one malformed selector would take every
+        // rule printed after it, the token tier included. That is categorically worse
+        // than the one dropped grouped rule a malformed `>` costs, which is why the
+        // widening carries a second gate and the child-combinator widening did not.
+        foreach (['.faq__item[open] > .faq__question', '.a[open]', '.testimonials__quote'] as $ok) {
+            $this->assertTrue(
+                _pp_udc_delimiters_balanced($ok),
+                "the balance gate must accept {$ok}"
+            );
+        }
+        foreach ([
+            '.faq__item[open > .faq__question',  // THE SWALLOW SHAPE: charset-clean, unbalanced
+            '.a]b',                              // a stray closer
+            '.a[open][',                         // trailing opener
+        ] as $bad) {
+            $this->assertSame(
+                1,
+                preg_match('/^[A-Za-z0-9_ .>\[\]\-]{1,120}\z/', $bad),
+                "precondition: {$bad} must pass the CHARSET, or this proves nothing"
+            );
+            $this->assertFalse(
+                _pp_udc_delimiters_balanced($bad),
+                "the balance gate must refuse {$bad} — the charset alone cannot see it"
+            );
+        }
+
+        // And the gate is wired to the helper, not to a local bracket count: a second
+        // implementation of "is this delimiter-safe" is the forked grammar the
+        // architecture forbids, and it is how the two copies drift apart.
+        $this->assertStringContainsString(
+            '!_pp_udc_delimiters_balanced($selector)',
+            $source,
+            'the selector gate must route through the shared balance owner'
         );
     }
 
