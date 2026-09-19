@@ -33,46 +33,29 @@
       "description": "Optional supporting line below the title. Plain text — HTML is escaped."
     },
     "title_align": {
-      "type": "enum",
-      "strict": true,
-      "values": [
-        "start",
-        "center"
-      ],
+      "type": "enum", "strict": true,
+      "values": ["start", "center"],
       "required": false,
       "default": "start",
       "description": "Alignment of the eyebrow/title/subheading header block. 'start' = left-aligned (default, unchanged historical behavior). 'center' = centered."
     },
     "layout": {
-      "type": "enum",
-      "strict": true,
-      "values": [
-        "cards",
-        "steps"
-      ],
+      "type": "enum", "strict": true,
+      "values": ["cards", "steps"],
       "required": false,
       "default": "cards",
       "description": "Structural layout. 'cards' = standard card grid. 'steps' = numbered process cards, each carrying a filled circular number badge above its title. Use 'steps' for How-it-works / process flows."
     },
     "card_emphasis": {
-      "type": "enum",
-      "strict": true,
-      "values": [
-        "featured",
-        "uniform"
-      ],
+      "type": "enum", "strict": true,
+      "values": ["featured", "uniform"],
       "required": false,
       "default": "featured",
       "description": "Whether the first card gets the emphasized 'featured' treatment (accent top bar, tinted fill, larger title, extra top padding, and — on the muted theme — a lift). 'featured' (default, unchanged historical behavior) emphasizes the first card, drawing the eye to a lead item. 'uniform' renders every card identically — use it for a symmetric/peer card row where all cards are equal (e.g. three specification cards whose checklists must line up, or an equal-weight feature/plan row). Cards-layout concept: it has NO VISUAL EFFECT on 'steps', because every featured rule is scoped :not(.grid--steps). The grid--uniform class is still EMITTED on steps markup — that is deliberate, so a future steps-specific first-card emphasis could be guarded with the same hook — so do not read the class's presence as evidence the treatment applied."
     },
     "theme": {
-      "type": "enum",
-      "strict": true,
-      "values": [
-        "default",
-        "muted",
-        "inverted"
-      ],
+      "type": "enum", "strict": true,
+      "values": ["default", "muted", "inverted"],
       "required": false,
       "default": "default",
       "description": "Background color/tone for this band. 'default' = the band's own default background (no tone override). 'muted' = light tinted surface band (renders the --color-surface background with framing top and bottom borders). 'inverted' = inverted dark background for strong contrast; use 'inverted' for a genuinely dark band."
@@ -86,10 +69,7 @@
     },
     "image_treatment": {
       "type": "enum",
-      "values": [
-        "banner",
-        "icon"
-      ],
+      "values": ["banner", "icon"],
       "required": false,
       "default": "banner",
       "strict": true,
@@ -101,443 +81,63 @@
       "required": true,
       "description": "Array of card items. Each: { title, text, bullets, image_url, image_alt, image_id, link_url, link_text }. When layout is 'steps', also include: { number }.",
       "items": {
-        "number": {
-          "type": "string",
-          "required": false,
-          "description": "Step number label (e.g. '1', '01', '1.'). Required when grid layout is 'steps'."
-        },
-        "title": {
-          "type": "string",
-          "required": false,
-          "description": "Card heading. Plain text — HTML is escaped."
-        },
-        "text": {
-          "type": "string",
-          "required": false,
-          "description": "Card body / supporting text. Inline HTML allowed: a, strong, em, br."
-        },
-        "text_role": {
-          "type": "enum",
-          "values": [
-            "mono",
-            "meta",
-            "label",
-            "kicker"
-          ],
-          "strict": true,
-          "required": false,
-          "description": "Optional typography role for the card text: 'mono' (code), 'meta' (captions), 'label', or 'kicker' (eyebrow). Adds a .text-<role> class. Unset (key absent, null, or empty) → default body text; a value outside the set is rejected at write. Set via update_component. 'meta'/'kicker' also set a preset text color; an explicit --grid-item-text-color style slot overrides that preset color at ALL breakpoints (the explicit slot always wins), while the role's size/weight/letter-spacing/transform still apply."
-        },
-        "bullets": {
-          "type": "array",
-          "item_type": "string",
-          "required": false,
-          "description": "Optional checklist lines rendered below text, each prefixed with a check mark. Plain text only — no HTML/markdown; each line is escaped independently. Use for scannable feature/benefit lists instead of cramming items into one text sentence.",
-          "items": {
-            "type": "string"
-          }
-        },
-        "image_url": {
-          "type": "string",
-          "required": false,
-          "format": "image_url"
-        },
-        "image_alt": {
-          "type": "string",
-          "required": false,
-          "default": "",
-          "description": "Alt text for the card image. Leave empty only if the image is purely decorative."
-        },
-        "image_id": {
-          "type": "number",
-          "required": false,
-          "default": 0,
-          "description": "Media Library attachment ID (NOT a URL). When it resolves to a real attachment, the image renders responsively with srcset/sizes via wp_get_attachment_image() instead of a single fixed-size <img>. Falls back to image_url when unset or unresolvable. Get an attachment id via the import_media apply."
-        },
-        "link_url": {
-          "type": "string",
-          "required": false,
-          "format": "link_url",
-          "description": "Optional card link destination. Accepts an absolute URL, a site-relative /path, an #anchor, mailto:, or tel:; a disallowed protocol (javascript:, data:) is rejected at write time."
-        },
-        "link_text": {
-          "type": "string",
-          "required": false,
-          "default": "Read more"
-        },
-        "style": {
-          "type": "object",
-          "required": false,
-          "description": "Optional per-card style overrides for THIS card only (issue 306). Accepts ONLY the CARD-SCOPED style slots — the ones flagged item_eligible in styling.style_slots because they are consumed on the .grid__item and its contents (issue 323): --grid-item-bg, --grid-item-border-color, --grid-item-border-width, --grid-item-radius, --grid-item-shadow, --grid-item-bar-color, --grid-item-bar-height, --grid-featured-texture-color, --grid-featured-shadow, --grid-item-padding, --grid-item-gap, --grid-item-text-align, --grid-item-icon-size, --grid-item-title-size, --grid-item-title-color, --grid-item-text-color, --grid-item-bullet-color, --grid-item-link-color, --grid-item-link-hover-color, --grid-step-bg, --grid-step-text-color. Validated by the shared style engine exactly like grid-level slots (unknown slot names and invalid values are rejected). Rendered as inline custom properties on this card's .grid__item, so a per-card slot overrides the grid-level value by cascade proximity. Container/heading slots (--grid-bg, --grid-gap, --grid-heading-*, --grid-heading-accent-color, --grid-eyebrow-*, --grid-subheading-*, --grid-padding-*) are read on the section/list/header, not the card, so a per-card override would render nothing — they are REJECTED here with invalid_style_slot naming the card; set those on the grid-level style instead. Use per-card style for one distinct card in a row: a dark CTA panel beside light checklist cards, or a green-on-dark terminal card. Set via the composition (update_component / update_composition / create_page), not style_component (which is component-scoped)."
-        }
+        "number":    { "type": "string", "required": false, "description": "Step number label (e.g. '1', '01', '1.'). Required when grid layout is 'steps'." },
+        "title":     { "type": "string", "required": false, "description": "Card heading. Plain text — HTML is escaped." },
+        "text":      { "type": "string", "required": false, "description": "Card body / supporting text. Inline HTML allowed: a, strong, em, br." },
+        "text_role": { "type": "enum", "values": ["mono", "meta", "label", "kicker"], "strict": true, "required": false, "description": "Optional typography role for the card text: 'mono' (code), 'meta' (captions), 'label', or 'kicker' (eyebrow). Adds a .text-<role> class. Unset (key absent, null, or empty) → default body text; a value outside the set is rejected at write. Set via update_component. 'meta'/'kicker' also set a preset text color; an explicit --grid-item-text-color style slot overrides that preset color at ALL breakpoints (the explicit slot always wins), while the role's size/weight/letter-spacing/transform still apply." },
+        "bullets":   { "type": "array", "item_type": "string", "required": false, "description": "Optional checklist lines rendered below text, each prefixed with a check mark. Plain text only — no HTML/markdown; each line is escaped independently. Use for scannable feature/benefit lists instead of cramming items into one text sentence.", "items": { "type": "string" } },
+        "image_url": { "type": "string", "required": false, "format": "image_url" },
+        "image_alt": { "type": "string", "required": false, "default": "", "description": "Alt text for the card image. Leave empty only if the image is purely decorative." },
+        "image_id":  { "type": "number", "required": false, "default": 0, "description": "Media Library attachment ID (NOT a URL). When it resolves to a real attachment, the image renders responsively with srcset/sizes via wp_get_attachment_image() instead of a single fixed-size <img>. Falls back to image_url when unset or unresolvable. Get an attachment id via the import_media apply." },
+        "link_url":  { "type": "string", "required": false, "format": "link_url", "description": "Optional card link destination. Accepts an absolute URL, a site-relative /path, an #anchor, mailto:, or tel:; a disallowed protocol (javascript:, data:) is rejected at write time." },
+        "link_text": { "type": "string", "required": false, "default": "Read more" },
+        "style":     { "type": "object", "required": false, "description": "Optional per-card style overrides for THIS card only (issue 306). Accepts ONLY the CARD-SCOPED style slots — the ones flagged item_eligible in styling.style_slots because they are consumed on the .grid__item and its contents (issue 323): --grid-item-bg, --grid-item-border-color, --grid-item-border-width, --grid-item-radius, --grid-item-shadow, --grid-item-bar-color, --grid-item-bar-height, --grid-featured-texture-color, --grid-featured-shadow, --grid-item-padding, --grid-item-gap, --grid-item-text-align, --grid-item-icon-size, --grid-item-title-size, --grid-item-title-color, --grid-item-text-color, --grid-item-bullet-color, --grid-item-link-color, --grid-item-link-hover-color, --grid-step-bg, --grid-step-text-color. Validated by the shared style engine exactly like grid-level slots (unknown slot names and invalid values are rejected). Rendered as inline custom properties on this card's .grid__item, so a per-card slot overrides the grid-level value by cascade proximity. Container/heading slots (--grid-bg, --grid-gap, --grid-heading-*, --grid-heading-accent-color, --grid-eyebrow-*, --grid-subheading-*, --grid-padding-*) are read on the section/list/header, not the card, so a per-card override would render nothing — they are REJECTED here with invalid_style_slot naming the card; set those on the grid-level style instead. Use per-card style for one distinct card in a row: a dark CTA panel beside light checklist cards, or a green-on-dark terminal card. Set via the composition (update_component / update_composition / create_page), not style_component (which is component-scoped)." }
       }
     }
   },
   "styling": {
     "root_class": "grid",
-    "variant_classes": [
-      "grid--steps",
-      "grid--dark",
-      "grid--inverted",
-      "grid--uniform",
-      "grid--image-icon"
-    ],
-    "tokens": [
-      "--color-bg",
-      "--color-surface",
-      "--color-border",
-      "--color-bg-inverted"
-    ],
+    "variant_classes": ["grid--steps", "grid--dark", "grid--inverted", "grid--uniform", "grid--image-icon"],
+    "tokens": ["--color-bg", "--color-surface", "--color-border", "--color-bg-inverted"],
     "style_slots": {
-      "--grid-padding-top": {
-        "type": "length",
-        "default": "var(--pp-band-padding)",
-        "description": "Top padding of the band. Defaults to the shared symmetric band rhythm (fluid ~68-80px desktop, ~54px mobile); set an explicit length to override."
-      },
-      "--grid-padding-bottom": {
-        "type": "length",
-        "default": "var(--pp-band-padding)",
-        "description": "Bottom padding of the band. Defaults to the shared symmetric band rhythm; set an explicit length to override."
-      },
-      "--grid-bg": {
-        "type": "gradient",
-        "default": "transparent",
-        "description": "Background color or gradient"
-      },
-      "--grid-heading-color": {
-        "type": "color",
-        "default": "var(--color-text)",
-        "description": "Heading text color. Defaults to the theme text colour (the inverted variant supplies its own light default). LEAVE IT UNSET unless THIS band must differ: recolouring every heading on the site is ONE update_design_token write on --color-text, not one slot write per band.",
-        "applies_when": [
-          {
-            "prop": "title",
-            "present": true
-          }
-        ]
-      },
-      "--grid-heading-accent-color": {
-        "type": "color",
-        "default": "var(--color-accent)",
-        "description": "Color of the title_accent substring within the heading. Ignored unless title_accent is set AND occurs as a substring of title — no accent span is rendered otherwise, so this slot has nothing to colour.",
-        "applies_when": [
-          {
-            "prop": "title",
-            "present": true
-          }
-        ]
-      },
-      "--grid-eyebrow-color": {
-        "type": "color",
-        "default": "var(--color-text)",
-        "description": "Eyebrow pill text color",
-        "applies_when": [
-          {
-            "prop": "eyebrow",
-            "present": true
-          }
-        ]
-      },
-      "--grid-eyebrow-bg": {
-        "type": "color",
-        "default": "var(--color-surface-accent)",
-        "description": "Eyebrow pill background color",
-        "applies_when": [
-          {
-            "prop": "eyebrow",
-            "present": true
-          }
-        ]
-      },
-      "--grid-eyebrow-radius": {
-        "type": "length",
-        "default": "3px",
-        "description": "Eyebrow pill corner radius. Set a large value (e.g. 999px) for a fully rounded pill.",
-        "applies_when": [
-          {
-            "prop": "eyebrow",
-            "present": true
-          }
-        ]
-      },
-      "--grid-eyebrow-border-width": {
-        "type": "length",
-        "default": "0",
-        "description": "Eyebrow pill border width. Set a non-zero width (with --grid-eyebrow-border-color) for an outlined pill; 0 (default) renders no border.",
-        "applies_when": [
-          {
-            "prop": "eyebrow",
-            "present": true
-          }
-        ]
-      },
-      "--grid-eyebrow-border-color": {
-        "type": "color",
-        "default": "transparent",
-        "description": "Eyebrow pill border color. Takes effect when --grid-eyebrow-border-width is non-zero.",
-        "applies_when": [
-          {
-            "prop": "eyebrow",
-            "present": true
-          }
-        ]
-      },
-      "--grid-eyebrow-text-transform": {
-        "type": "text-transform",
-        "default": "uppercase",
-        "description": "Eyebrow pill letter-casing. Default uppercase renders the kicker in caps; set none to keep it as authored (e.g. sentence case), or lowercase / capitalize.",
-        "applies_when": [
-          {
-            "prop": "eyebrow",
-            "present": true
-          }
-        ]
-      },
-      "--grid-subheading-color": {
-        "type": "color",
-        "default": "var(--color-muted)",
-        "description": "Subheading text color",
-        "applies_when": [
-          {
-            "prop": "subheading",
-            "present": true
-          }
-        ]
-      },
-      "--grid-subheading-margin-bottom": {
-        "type": "length",
-        "default": "var(--space-lg)",
-        "description": "Space between the subheading and the content below it",
-        "applies_when": [
-          {
-            "prop": "subheading",
-            "present": true
-          }
-        ]
-      },
-      "--grid-heading-margin-bottom": {
-        "type": "length",
-        "default": "1.65rem",
-        "description": "Space between the heading and the subheading below it. 1.65rem is the effective default at desktop (>=768px); below 768px it is 1.25rem.",
-        "applies_when": [
-          {
-            "prop": "title",
-            "present": true
-          }
-        ]
-      },
-      "--grid-heading-size": {
-        "type": "length",
-        "default": "var(--pp-band-heading-size)",
-        "description": "Heading font size. Defaults to the shared responsive band-heading scale (fluid ~28px mobile to ~42px desktop), which every band heading in the theme routes. LEAVE IT UNSET unless THIS band must differ from the rest of the site: the shared scale is not a design token and no action in the write path can retune it, so setting this slot changes THIS band only and never the others.",
-        "applies_when": [
-          {
-            "prop": "title",
-            "present": true
-          }
-        ]
-      },
-      "--grid-heading-measure": {
-        "type": "length",
-        "role": "measure",
-        "default": "var(--measure-heading)",
-        "description": "Maximum width of the grid heading — increase to let a long heading use the available horizontal space. Routes the shared --measure-heading design token (40rem) by default, so retuning that ONE token changes every routed band heading at once; set a length here only when THIS band must differ from the rest of the site.",
-        "applies_when": [
-          {
-            "prop": "title",
-            "present": true
-          }
-        ]
-      },
-      "--grid-gap": {
-        "type": "length",
-        "default": "1rem",
-        "description": "Gap between grid cards, on every layout. It is read on the .grid__list, so it is a GRID-LEVEL control only: it sets the spacing of the whole card row and is not settable per card (it carries no item_eligible flag, and a per-card value is rejected at write and dropped at render). 1rem is the effective default on a composed page (1.05rem at >=1024px, 0.85rem below 768px)."
-      },
-      "--grid-item-bg": {
-        "item_eligible": true,
-        "type": "gradient",
-        "default": "linear-gradient(180deg, var(--color-bg) 0%, var(--color-surface) 100%)",
-        "description": "Card background color or gradient. The stated gradient is the effective default on a composed page for the standard cards; the FEATURED first card defaults to an accent gradient instead, an inverted grid defaults its cards to var(--color-bg) so they stay light on a dark band, and a steps card falls back to var(--color-surface). Setting this replaces the fill layer on every card it applies to; the decorative texture stripe above it is a separate layer and stays"
-      },
-      "--grid-item-border-color": {
-        "item_eligible": true,
-        "type": "color",
-        "default": "var(--color-border)",
-        "description": "Card border color. The featured first card overrides this with its own accent border unless you set this slot."
-      },
-      "--grid-item-border-width": {
-        "item_eligible": true,
-        "type": "length",
-        "default": "1px",
-        "description": "Card border width"
-      },
-      "--grid-item-radius": {
-        "item_eligible": true,
-        "type": "length",
-        "default": "4px",
-        "description": "Card border radius. 4px on a composed page, at every viewport."
-      },
-      "--grid-item-shadow": {
-        "item_eligible": true,
-        "type": "shadow",
-        "default": "0 10px 24px rgba(15, 23, 42, 0.055)",
-        "description": "Card box shadow / glow (preset var(--shadow-sm|md|lg) or a bounded box-shadow). The stated value is the effective default on a composed page; the featured first card carries its own blue glow instead, via --grid-featured-shadow."
-      },
-      "--grid-item-bar-color": {
-        "item_eligible": true,
-        "type": "gradient",
-        "default": "var(--color-border)",
-        "description": "Card top-bar color or gradient (cards layout only; no bar exists on steps). The featured first card defaults to an accent gradient; setting this slot pins one bar color on every card",
-        "applies_when": [
-          {
-            "prop": "layout",
-            "equals": "cards"
-          }
-        ],
-        "conditionality_note": "the component sits at the top level of a composed page — these rules are scoped `main > .grid`, a composed-page context the clause grammar cannot express"
-      },
-      "--grid-item-bar-height": {
-        "item_eligible": true,
-        "type": "length",
-        "default": "2px",
-        "description": "Card top-bar height (cards layout only; the featured first card defaults to 4px). 0 removes the bar on every card",
-        "applies_when": [
-          {
-            "prop": "layout",
-            "equals": "cards"
-          }
-        ],
-        "conditionality_note": "the component sits at the top level of a composed page — these rules are scoped `main > .grid`, a composed-page context the clause grammar cannot express"
-      },
-      "--grid-featured-texture-color": {
-        "item_eligible": true,
-        "type": "color",
-        "default": "rgba(37, 99, 235, 0.055)",
-        "description": "Texture-stripe line color painted on the featured first card only (cards layout on composed pages). transparent removes the stripe. The stripe's COLOUR is what this slot reaches; its repeat PERIOD (2.75rem on the featured card, 3rem on the non-featured ones) is a stated default with no slot — the period is what makes the pattern read as texture rather than as ruled lines, and it is not a value composed from content. See components/grid/README.md, 'Stated defaults'",
-        "applies_when": [
-          {
-            "prop": "layout",
-            "equals": "cards"
-          },
-          {
-            "prop": "card_emphasis",
-            "equals": "featured"
-          }
-        ],
-        "conditionality_note": "the component sits at the top level of a composed page — these rules are scoped `main > .grid`, a composed-page context the clause grammar cannot express, and it paints the FIRST card only"
-      },
-      "--grid-featured-shadow": {
-        "item_eligible": true,
-        "type": "shadow",
-        "default": "var(--grid-item-shadow)",
-        "description": "Box shadow of the featured first card only (cards layout on composed pages); overrides the shared --grid-item-shadow there. When both are unset a built-in blue glow renders. Set none (or set --grid-item-shadow for all cards) to remove the featured glow",
-        "applies_when": [
-          {
-            "prop": "layout",
-            "equals": "cards"
-          },
-          {
-            "prop": "card_emphasis",
-            "equals": "featured"
-          }
-        ],
-        "conditionality_note": "the component sits at the top level of a composed page — these rules are scoped `main > .grid`, a composed-page context the clause grammar cannot express, and it paints the FIRST card only"
-      },
-      "--grid-item-padding": {
-        "item_eligible": true,
-        "type": "length",
-        "default": "2rem",
-        "description": "Card body padding. 2rem is the effective default at desktop (>=768px) on a composed page; below 768px it is 1.55rem, and the featured first card takes 2.25rem of top padding at >=1024px."
-      },
-      "--grid-item-gap": {
-        "item_eligible": true,
-        "type": "length",
-        "default": "var(--space-sm)",
-        "description": "Gap between card body elements"
-      },
-      "--grid-item-text-align": {
-        "item_eligible": true,
-        "type": "align",
-        "default": "left",
-        "description": "Alignment of the card's content within the card body. 'left' (default) is unchanged historical behavior; 'center' centers the content (use for centered emoji/label contact cards); also accepts 'right', 'start', 'end', 'justify'. Governs BOTH the text (title, text, bullets) via text-align AND the 'Read more' link/button, which follows the same alignment via the derived --pp-grid-link-align companion (issue 361: left/start/justify->flex-start, center->center, right/end->flex-end), so a centered card is fully centered. Item-eligible, so settable grid-wide or per-card."
-      },
-      "--grid-item-icon-size": {
-        "item_eligible": true,
-        "type": "length",
-        "default": "48px",
-        "description": "Icon size (width and height) of a card image when image_treatment is 'icon' — the fixed box the un-cropped icon renders in, above the title. No effect under the default 'banner' treatment (the 16:9 cover banner ignores it). Item-eligible, so settable grid-wide or per-card.",
-        "applies_when": [
-          {
-            "prop": "layout",
-            "equals": "cards"
-          },
-          {
-            "prop": "image_treatment",
-            "equals": "icon"
-          }
-        ],
-        "conditionality_note": "at least one item declares an image_url — the icon box IS that item's image wrapper"
-      },
-      "--grid-item-title-size": {
-        "item_eligible": true,
-        "type": "length",
-        "default": "1.14rem",
-        "description": "Card title font size. 1.14rem is the effective default at desktop (>=768px) on the default cards layout; below 768px it is 1.06rem, the featured first card takes 1.22rem at >=1024px, and a steps card takes 1.04rem."
-      },
-      "--grid-item-title-color": {
-        "item_eligible": true,
-        "type": "color",
-        "default": "var(--color-text)",
-        "description": "Card title text color"
-      },
-      "--grid-item-text-color": {
-        "item_eligible": true,
-        "type": "color",
-        "default": "var(--color-text-secondary)",
-        "description": "Card description text color. var(--color-text-secondary) is the effective default at desktop (>=768px); below 768px it is var(--color-muted). DUAL JOB: it also colours the card BULLET text, and it overrides the preset colour of the meta and kicker text roles at every breakpoint — so this one slot governs the whole non-title body of the card, not just the description paragraph. Note the bullet list has no desktop tier of its own: UNSET, bullets stay var(--color-muted) at every viewport while the description paragraph lightens to var(--color-text-secondary) at >=768px. Setting the slot makes both surfaces agree."
-      },
-      "--grid-item-bullet-color": {
-        "item_eligible": true,
-        "type": "color",
-        "default": "var(--color-accent)",
-        "description": "Checklist bullet marker color (grid card bullets)"
-      },
-      "--grid-item-link-color": {
-        "item_eligible": true,
-        "type": "color",
-        "default": "var(--color-accent)",
-        "description": "RESTING card link color. Its positional twin is --grid-item-link-hover-color: a colour set here and left unset there reverts to the default accent-hover under the pointer, so set both or neither."
-      },
-      "--grid-item-link-hover-color": {
-        "item_eligible": true,
-        "type": "color",
-        "default": "var(--color-accent-hover)",
-        "description": "HOVER card link color — the positional twin of --grid-item-link-color, which owns the resting colour. The hover MUST stay visually distinct from rest: setting both to the same value erases the hover feedback on the card link."
-      },
-      "--grid-step-bg": {
-        "item_eligible": true,
-        "type": "color",
-        "default": "var(--color-accent)",
-        "description": "Step badge background (fill) color (steps layout). The numeral text color is a separate slot, --grid-step-text-color (default var(--color-bg)) — pair the two for a light fill with ink numerals",
-        "applies_when": [
-          {
-            "prop": "layout",
-            "equals": "steps"
-          }
-        ]
-      },
-      "--grid-step-text-color": {
-        "item_eligible": true,
-        "type": "color",
-        "default": "var(--color-bg)",
-        "description": "Step numeral (number text) color (steps layout). Defaults to var(--color-bg) so unset renders byte-identically; set it to an ink color when --grid-step-bg is a light fill (e.g. a lime badge) so the numeral stays high-contrast, mirroring the --grid-item-bg/--grid-item-title-color fill+ink pairing on cards",
-        "applies_when": [
-          {
-            "prop": "layout",
-            "equals": "steps"
-          }
-        ]
-      }
+      "--grid-padding-top": { "type": "length", "default": "var(--pp-band-padding)", "description": "Top padding of the band. Defaults to the shared symmetric band rhythm (fluid ~68-80px desktop, ~54px mobile); set an explicit length to override." },
+      "--grid-padding-bottom": { "type": "length", "default": "var(--pp-band-padding)", "description": "Bottom padding of the band. Defaults to the shared symmetric band rhythm; set an explicit length to override." },
+      "--grid-bg": { "type": "gradient", "default": "transparent", "description": "Background color or gradient" },
+      "--grid-heading-color": { "type": "color", "default": "var(--color-text)", "description": "Heading text color. Defaults to the theme text colour (the inverted variant supplies its own light default). LEAVE IT UNSET unless THIS band must differ: recolouring every heading on the site is ONE update_design_token write on --color-text, not one slot write per band.", "applies_when": [{"prop": "title", "present": true}] },
+      "--grid-heading-accent-color": { "type": "color", "default": "var(--color-accent)", "description": "Color of the title_accent substring within the heading. Ignored unless title_accent is set AND occurs as a substring of title — no accent span is rendered otherwise, so this slot has nothing to colour.", "applies_when": [{"prop": "title", "present": true}] },
+      "--grid-eyebrow-color": { "type": "color", "default": "var(--color-text)", "description": "Eyebrow pill text color", "applies_when": [{"prop": "eyebrow", "present": true}] },
+      "--grid-eyebrow-bg": { "type": "color", "default": "var(--color-surface-accent)", "description": "Eyebrow pill background color", "applies_when": [{"prop": "eyebrow", "present": true}] },
+      "--grid-eyebrow-radius": { "type": "length", "default": "3px", "description": "Eyebrow pill corner radius. Set a large value (e.g. 999px) for a fully rounded pill.", "applies_when": [{"prop": "eyebrow", "present": true}] },
+      "--grid-eyebrow-border-width": { "type": "length", "default": "0", "description": "Eyebrow pill border width. Set a non-zero width (with --grid-eyebrow-border-color) for an outlined pill; 0 (default) renders no border.", "applies_when": [{"prop": "eyebrow", "present": true}] },
+      "--grid-eyebrow-border-color": { "type": "color", "default": "transparent", "description": "Eyebrow pill border color. Takes effect when --grid-eyebrow-border-width is non-zero.", "applies_when": [{"prop": "eyebrow", "present": true}] },
+      "--grid-eyebrow-text-transform": { "type": "text-transform", "default": "uppercase", "description": "Eyebrow pill letter-casing. Default uppercase renders the kicker in caps; set none to keep it as authored (e.g. sentence case), or lowercase / capitalize.", "applies_when": [{"prop": "eyebrow", "present": true}] },
+      "--grid-subheading-color": { "type": "color", "default": "var(--color-muted)", "description": "Subheading text color", "applies_when": [{"prop": "subheading", "present": true}] },
+      "--grid-subheading-margin-bottom": { "type": "length", "default": "var(--space-lg)", "description": "Space between the subheading and the content below it", "applies_when": [{"prop": "subheading", "present": true}] },
+      "--grid-heading-margin-bottom": { "type": "length", "default": "1.65rem", "description": "Space between the heading and the subheading below it. 1.65rem is the effective default at desktop (>=768px); below 768px it is 1.25rem.", "applies_when": [{"prop": "title", "present": true}] },
+      "--grid-heading-size": { "type": "length", "default": "var(--pp-band-heading-size)", "description": "Heading font size. Defaults to the shared responsive band-heading scale (fluid ~28px mobile to ~42px desktop), which every band heading in the theme routes. LEAVE IT UNSET unless THIS band must differ from the rest of the site: the shared scale is not a design token and no action in the write path can retune it, so setting this slot changes THIS band only and never the others.", "applies_when": [{"prop": "title", "present": true}] },
+      "--grid-heading-measure": { "type": "length", "role": "measure", "default": "var(--measure-heading)", "description": "Maximum width of the grid heading — increase to let a long heading use the available horizontal space. Routes the shared --measure-heading design token (40rem) by default, so retuning that ONE token changes every routed band heading at once; set a length here only when THIS band must differ from the rest of the site.", "applies_when": [{"prop": "title", "present": true}] },
+      "--grid-gap": { "type": "length", "default": "1rem", "description": "Gap between grid cards, on every layout. It is read on the .grid__list, so it is a GRID-LEVEL control only: it sets the spacing of the whole card row and is not settable per card (it carries no item_eligible flag, and a per-card value is rejected at write and dropped at render). 1rem is the effective default on a composed page (1.05rem at >=1024px, 0.85rem below 768px)." },
+      "--grid-item-bg": { "item_eligible": true, "type": "gradient", "default": "linear-gradient(180deg, var(--color-bg) 0%, var(--color-surface) 100%)", "description": "Card background color or gradient. The stated gradient is the effective default on a composed page for the standard cards; the FEATURED first card defaults to an accent gradient instead, an inverted grid defaults its cards to var(--color-bg) so they stay light on a dark band, and a steps card falls back to var(--color-surface). Setting this replaces the fill layer on every card it applies to; the decorative texture stripe above it is a separate layer and stays" },
+      "--grid-item-border-color": { "item_eligible": true, "type": "color", "default": "var(--color-border)", "description": "Card border color. The featured first card overrides this with its own accent border unless you set this slot." },
+      "--grid-item-border-width": { "item_eligible": true, "type": "length", "default": "1px", "description": "Card border width" },
+      "--grid-item-radius": { "item_eligible": true, "type": "length", "default": "4px", "description": "Card border radius. 4px on a composed page, at every viewport." },
+      "--grid-item-shadow": { "item_eligible": true, "type": "shadow", "default": "0 10px 24px rgba(15, 23, 42, 0.055)", "description": "Card box shadow / glow (preset var(--shadow-sm|md|lg) or a bounded box-shadow). The stated value is the effective default on a composed page; the featured first card carries its own blue glow instead, via --grid-featured-shadow." },
+      "--grid-item-bar-color": { "item_eligible": true, "type": "gradient", "default": "var(--color-border)", "description": "Card top-bar color or gradient (cards layout only; no bar exists on steps). The featured first card defaults to an accent gradient; setting this slot pins one bar color on every card", "applies_when": [{"prop": "layout", "equals": "cards"}], "conditionality_note": "the component sits at the top level of a composed page — these rules are scoped `main > .grid`, a composed-page context the clause grammar cannot express" },
+      "--grid-item-bar-height": { "item_eligible": true, "type": "length", "default": "2px", "description": "Card top-bar height (cards layout only; the featured first card defaults to 4px). 0 removes the bar on every card", "applies_when": [{"prop": "layout", "equals": "cards"}], "conditionality_note": "the component sits at the top level of a composed page — these rules are scoped `main > .grid`, a composed-page context the clause grammar cannot express" },
+      "--grid-featured-texture-color": { "item_eligible": true, "type": "color", "default": "rgba(37, 99, 235, 0.055)", "description": "Texture-stripe line color painted on the featured first card only (cards layout on composed pages). transparent removes the stripe. The stripe's COLOUR is what this slot reaches; its repeat PERIOD (2.75rem on the featured card, 3rem on the non-featured ones) is a stated default with no slot — the period is what makes the pattern read as texture rather than as ruled lines, and it is not a value composed from content. See components/grid/README.md, 'Stated defaults'", "applies_when": [{"prop": "layout", "equals": "cards"}, {"prop": "card_emphasis", "equals": "featured"}], "conditionality_note": "the component sits at the top level of a composed page — these rules are scoped `main > .grid`, a composed-page context the clause grammar cannot express, and it paints the FIRST card only" },
+      "--grid-featured-shadow": { "item_eligible": true, "type": "shadow", "default": "var(--grid-item-shadow)", "description": "Box shadow of the featured first card only (cards layout on composed pages); overrides the shared --grid-item-shadow there. When both are unset a built-in blue glow renders. Set none (or set --grid-item-shadow for all cards) to remove the featured glow", "applies_when": [{"prop": "layout", "equals": "cards"}, {"prop": "card_emphasis", "equals": "featured"}], "conditionality_note": "the component sits at the top level of a composed page — these rules are scoped `main > .grid`, a composed-page context the clause grammar cannot express, and it paints the FIRST card only" },
+      "--grid-item-padding": { "item_eligible": true, "type": "length", "default": "2rem", "description": "Card body padding. 2rem is the effective default at desktop (>=768px) on a composed page; below 768px it is 1.55rem, and the featured first card takes 2.25rem of top padding at >=1024px." },
+      "--grid-item-gap": { "item_eligible": true, "type": "length", "default": "var(--space-sm)", "description": "Gap between card body elements" },
+      "--grid-item-text-align": { "item_eligible": true, "type": "align", "default": "left", "description": "Alignment of the card's content within the card body. 'left' (default) is unchanged historical behavior; 'center' centers the content (use for centered emoji/label contact cards); also accepts 'right', 'start', 'end', 'justify'. Governs BOTH the text (title, text, bullets) via text-align AND the 'Read more' link/button, which follows the same alignment via the derived --pp-grid-link-align companion (issue 361: left/start/justify->flex-start, center->center, right/end->flex-end), so a centered card is fully centered. Item-eligible, so settable grid-wide or per-card." },
+      "--grid-item-icon-size": { "item_eligible": true, "type": "length", "default": "48px", "description": "Icon size (width and height) of a card image when image_treatment is 'icon' — the fixed box the un-cropped icon renders in, above the title. No effect under the default 'banner' treatment (the 16:9 cover banner ignores it). Item-eligible, so settable grid-wide or per-card.", "applies_when": [{"prop": "layout", "equals": "cards"}, {"prop": "image_treatment", "equals": "icon"}], "conditionality_note": "at least one item declares an image_url — the icon box IS that item's image wrapper" },
+      "--grid-item-title-size": { "item_eligible": true, "type": "length", "default": "1.14rem", "description": "Card title font size. 1.14rem is the effective default at desktop (>=768px) on the default cards layout; below 768px it is 1.06rem, the featured first card takes 1.22rem at >=1024px, and a steps card takes 1.04rem." },
+      "--grid-item-title-color": { "item_eligible": true, "type": "color", "default": "var(--color-text)", "description": "Card title text color" },
+      "--grid-item-text-color": { "item_eligible": true, "type": "color", "default": "var(--color-text-secondary)", "description": "Card description text color. var(--color-text-secondary) is the effective default at desktop (>=768px); below 768px it is var(--color-muted). DUAL JOB: it also colours the card BULLET text, and it overrides the preset colour of the meta and kicker text roles at every breakpoint — so this one slot governs the whole non-title body of the card, not just the description paragraph. Note the bullet list has no desktop tier of its own: UNSET, bullets stay var(--color-muted) at every viewport while the description paragraph lightens to var(--color-text-secondary) at >=768px. Setting the slot makes both surfaces agree." },
+      "--grid-item-bullet-color": { "item_eligible": true, "type": "color", "default": "var(--color-accent)", "description": "Checklist bullet marker color (grid card bullets)" },
+      "--grid-item-link-color": { "item_eligible": true, "type": "color", "default": "var(--color-accent)", "description": "RESTING card link color. Its positional twin is --grid-item-link-hover-color: a colour set here and left unset there reverts to the default accent-hover under the pointer, so set both or neither." },
+      "--grid-item-link-hover-color": { "item_eligible": true, "type": "color", "default": "var(--color-accent-hover)", "description": "HOVER card link color — the positional twin of --grid-item-link-color, which owns the resting colour. The hover MUST stay visually distinct from rest: setting both to the same value erases the hover feedback on the card link." },
+      "--grid-step-bg": { "item_eligible": true, "type": "color", "default": "var(--color-accent)", "description": "Step badge background (fill) color (steps layout). The numeral text color is a separate slot, --grid-step-text-color (default var(--color-bg)) — pair the two for a light fill with ink numerals", "applies_when": [{"prop": "layout", "equals": "steps"}] },
+      "--grid-step-text-color": { "item_eligible": true, "type": "color", "default": "var(--color-bg)", "description": "Step numeral (number text) color (steps layout). Defaults to var(--color-bg) so unset renders byte-identically; set it to an ink color when --grid-step-bg is a light fill (e.g. a lime badge) so the numeral stays high-contrast, mirroring the --grid-item-bg/--grid-item-title-color fill+ink pairing on cards", "applies_when": [{"prop": "layout", "equals": "steps"}] }
     },
     "recipes": {
       "dark-showcase": {
@@ -571,11 +171,6 @@
       }
     }
   },
-  "safe_to_edit": [
-    "grid.php",
-    "../../assets/css/components.css (COMPONENT: grid section)"
-  ],
-  "do_not_touch": [
-    "schema.json without updating this component's README.md and the repo-root AI_CONTEXT.md"
-  ]
+  "safe_to_edit": ["grid.php", "../../assets/css/components.css (COMPONENT: grid section)"],
+  "do_not_touch": ["schema.json without updating this component's README.md and the repo-root AI_CONTEXT.md"]
 }
