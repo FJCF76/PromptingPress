@@ -126,12 +126,29 @@ not at all.
 including a rule that was never about design.** This is the trap #994 walked into, and it
 is worth stating because the next component rebuild will meet it too.
 
+> **It did.** #1023 met it and was not bitten — section's `_band` border default is
+> zero-width and transparent, byte-identical to what the baseline forces, so the collision
+> was invisible. #1026 was bitten: cta's default is a real 1px rule top and bottom, the
+> value v1's `.cta--full-width` drew, and the baseline erased it. Measured in Chromium at
+> 375/768/1280, before and after the narrowing: `border-top-width` / `-style` on `.cta` read
+> `0px` / `none` where v1 read `1px` / `solid`, while `border-top-color` survived at
+> `rgb(217,224,235)` both ways. **That surviving colour is the signature to remember** — the
+> role default was emitting correctly the whole time, and only the two longhands the
+> baseline claims were gone, which is precisely why a schema check, an emitter check and a
+> specificity argument all pass in that state.
+>
+> The narrowing this time made the baseline's PREMISE its selector rather than a roster:
+> `[data-pp-component]:where([style])`. The roster had drifted twice for the same reason a
+> third would — a v2 component emits no style attribute, so the premise stops holding for
+> it the day it is rebuilt — and a selector that states the premise cannot drift again.
+
 Chrome's `_band` defaults (the header's background and bottom border, the footer's
 background, top border and band padding) emit into `pp-zero`. After the retirement deleted
 the `.site-header` and `.site-footer` rules, the background painted and the borders did
 not. The rule that beat them was the issue-332 border-trigger immunity baseline:
 
 ```css
+/* as it stood at #994; see the #1026 narrowing below */
 [data-pp-component], .grid__item, .section__panel-row { border-style: none; border-width: 0 }
 ```
 
@@ -143,10 +160,27 @@ where it had read `1px` / `solid`.
 The fix was to narrow the baseline rather than re-rank the tier, because the baseline's own
 premise does not hold for chrome: it exists for elements that carry inline slot custom
 properties, and chrome emits NO style attribute at all (ratified contract #223, pinned by a
-test). It is now
+test). It became
 `[data-pp-component]:not(:where([data-pp-chrome]))`, where `:where()` keeps the weight at
 (0,1,0) so the baseline still beats WordPress core's (0,0,1) rule and still loses on source
 order to every component rule that legitimately draws a border.
+
+**#1026 narrowed it once more, and differently: it made the premise the selector.** The
+chrome exclusion was the first correction of a roster that approximates a stated scope; the
+roster then drifted twice more, because a component that is rebuilt stops carrying an
+inline style attribute on the day it is rebuilt. The rule is now
+
+```css
+[data-pp-component]:where([style]):not(:where([data-pp-chrome])),
+.grid__item:where([style]) { border-style: none; border-width: 0 }
+```
+
+`:where([style])` contributes zero specificity, so the (0,1,0) weight the argument above
+depends on is unchanged, and core's `[style*="border-width"]` matches a strict SUBSET of
+`[style]` — so the immunity is exactly as strong while the scope is exactly the stated one.
+`.section__panel-row` left the list at the same time: section has been v2 since #1023, its
+rows carry no style attribute, and a selector that can no longer match is worse than an
+absent one.
 
 Two things generalize. A `pp-zero` default competes with EVERY `pp-v1` rule that matches its
 element, not only the ones written about that component. And the way you find out is by
@@ -182,9 +216,14 @@ enqueue are all unlayered, so they now beat the whole theme stylesheet at any sp
 rather than only at equal specificity. For site owners that is mostly a gain — their CSS
 wins more reliably. For the theme it means a plugin can override more than it used to,
 INCLUDING the ratified on-inverted and on-overlay accent routing: a plugin's
-`a { color: red }` at (0,0,1) now defeats `.cta--inverted .cta__title-accent` at (0,2,0),
+`a { color: red }` at (0,0,1) now defeats `.stats--has-bg-image .stats__label` at (0,2,0),
 and those rules exist to hold a contrast ratio. If that becomes a real problem, those
 specific rules are the candidates for hoisting out of the layer — not the sheet.
+(The example was a `.cta--inverted` rule until #1026 retired cta's variant classes with
+its `theme` and `background_image` props. The exposure is narrower each rebuild, for a
+reason worth stating: a v2 band's ink is an AUTHORED role value, emitted unlayered, so a
+plugin's bare-element rule cannot defeat it at all. What remains exposed is exactly the
+class-triggered AA routings the v1 components still carry.)
 
 **`!important` reverses the whole thing.** For important declarations the cascade inverts
 layer order and treats unlayered as WEAKEST. So `base.css`'s reduced-motion block, which
