@@ -702,6 +702,86 @@ class ComponentPropsTest extends TestCase
 
 
     /**
+     * THE BAND-ID AND OVERLAY ATTRIBUTES, added at #1026's coverage audit, which proved BOTH
+     * paths completely unpinned: weakening the id guard to `(pp_udc_valid_band_id(...) || true)`
+     * and suppressing `data-pp-band-overlay` left 5088 PHPUnit and 1530 vitest tests green.
+     *
+     * WHY THE EMPTY-ATTRIBUTE CASE IS THE ONE THAT MATTERS: `[data-pp-band=""]` would match
+     * every other id-less band on the page, so a malformed stored id does not merely fail to
+     * paint its own design — it paints one band's design onto all the others. The template's
+     * answer is to emit NO attribute at all, and that is what this pins.
+     *
+     * Reachable from stored data even though the write path refuses these shapes: a raw
+     * `_pp_composition` meta write is not gated, and restore_composition reports without
+     * blocking (#233).
+     */
+    public function testAMalformedBandIdEmitsNoAttributeAtAll(): void
+    {
+        foreach ([
+            'not an id',        // spaces
+            'pp-ZZZZ!!',        // outside the charset
+            'quote"]',          // attribute-breaking
+            str_repeat('a', 65), // over the 64-char cap
+            '',                 // empty
+            ['pp-1a2b3c4d'],    // non-scalar
+        ] as $bad) {
+            $html = $this->render('cta', $this->ctaProps(['__pp_udc_band' => $bad]));
+            $shown = is_scalar($bad) ? var_export($bad, true) : gettype($bad);
+            $this->assertStringNotContainsString(
+                'data-pp-band=""',
+                $html,
+                "an empty band id would match every other id-less band on the page ({$shown})"
+            );
+            $this->assertStringNotContainsString(
+                'data-pp-band',
+                $html,
+                "a malformed band id must emit NO attribute, not a broken one ({$shown})"
+            );
+            // The band must still render structurally — a bad id is not a reason to lose content.
+            $this->assertStringContainsString('data-pp-component="cta"', $html);
+        }
+
+        // Positive control, or every assertion above passes on a template that emits nothing.
+        $good = $this->render('cta', $this->ctaProps(['__pp_udc_band' => 'pp-1a2b3c4d']));
+        $this->assertStringContainsString('data-pp-band="pp-1a2b3c4d"', $good);
+
+        // A NON-STRING SCALAR IS ACCEPTED, AND THAT IS CORRECT — pinned because writing this
+        // test assumed the opposite. `true` casts to "1", which SATISFIES the id charset
+        // (/^[A-Za-z0-9_-]{1,64}\z/), so the template emits `data-pp-band="1"`. That is inert
+        // rather than dangerous: the engine only ever mints `pp-xxxxxxxx`, so "1" keys no
+        // emitted block and the band simply renders with its role defaults. The guard's job is
+        // to reject shapes that could break the attribute or match a SIBLING band, and "1"
+        // does neither. Pinned so a future tightening is a deliberate choice, not a surprise.
+        $cast = $this->render('cta', $this->ctaProps(['__pp_udc_band' => true]));
+        $this->assertStringContainsString('data-pp-band="1"', $cast);
+        $this->assertStringNotContainsString('data-pp-band=""', $cast);
+    }
+
+    /**
+     * `data-pp-band-overlay` is the engine's structural hook for the on-overlay focus ring
+     * (#986, ported to cta at #1026). The stylesheet keys
+     * `[data-pp-band-overlay] .btn:focus { outline-color: var(--color-accent-on-overlay) }`
+     * on it, so a template that stops emitting it silently drops an accessibility affordance
+     * with no other symptom.
+     */
+    public function testTheOverlayHookIsEmittedOnlyWhenTheEngineSaysSo(): void
+    {
+        $on = $this->render('cta', $this->ctaProps(['__pp_udc_overlay' => '1']));
+        $this->assertStringContainsString('data-pp-band-overlay', $on);
+
+        foreach (['', '0', null, false] as $off) {
+            $html = $this->render('cta', $this->ctaProps(['__pp_udc_overlay' => $off]));
+            $this->assertStringNotContainsString(
+                'data-pp-band-overlay',
+                $html,
+                'the overlay hook must appear only when the engine sets it: ' . var_export($off, true)
+            );
+        }
+        // Absent key behaves as falsy.
+        $this->assertStringNotContainsString('data-pp-band-overlay', $this->render('cta', $this->ctaProps()));
+    }
+
+    /**
      * REPRICED (#1026 review). This was `testCtaButton2VariantPrimaryIsBareBtn` and it passed a
      * RETIRED `button2_variant: 'primary'` through the fixture. cta.php has no handling for that
      * key any more, so every value — `primary`, `outline`, an invented one — produced the same

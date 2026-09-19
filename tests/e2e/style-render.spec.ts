@@ -11808,3 +11808,100 @@ test.describe('#584 slot families, as rendered', () => {
     }
   });
 });
+
+/*
+ * THE SECOND BUTTON'S FOCUS STATE AFTER THE HALO ERASURE (#1026, filed as #1041).
+ *
+ * This is the only ACCESSIBILITY claim in cta's rebuild that nothing verified, which is why
+ * #1026's coverage audit called it the highest-value gap in the change.
+ *
+ * The mechanism, stated so the assertions below read as consequences. `button-secondary` must
+ * declare `shadow.box: none` at rest, because `background.fill` clears the premium GRADIENT but
+ * nothing clears the premium BEVEL, and without it an outline-look button ships with a filled
+ * button's elevation. That resting value is emitted UNLAYERED, and an unlayered value outranks
+ * `@layer pp-v1` in EVERY state — including `main .btn:focus, main .btn:focus-visible`, which
+ * unlike the filled-primary rules carries NO `:not(.btn--outline)` exclusion. So v1's outline
+ * second button DID receive the three-layer focus halo and v2's does not.
+ *
+ * The schema discloses that and makes the claim that saves it: the 2px `outline` is a SEPARATE
+ * property from `box-shadow`, so it still paints and WCAG 1.4.11 still holds. Nothing measured
+ * that. The emit test asserts the CAUSE (`box-shadow:none` is emitted); only a browser read of
+ * a focused element can confirm the affordance survived.
+ *
+ * Both halves are pinned deliberately: the outline is the AFFORDANCE (a regression here is an
+ * accessibility failure), and `box-shadow: none` is the KNOWN LOSS (pinned so it stays a
+ * recorded decision instead of drifting back silently, in either direction).
+ */
+test.describe('#1026 the cta secondary button keeps a visible focus ring after the halo goes', () => {
+  let pageId = 0;
+
+  test.afterEach(() => {
+    if (pageId) {
+      try { deletePage(pageId); } catch { /* already cleaned */ }
+      pageId = 0;
+    }
+  });
+
+  test('a focused secondary button still paints its 2px outline, and no halo @smoke', async ({ page }) => {
+    pageId = createPage('E2E 1026 secondary focus');
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+    const res = await updateComposition(page, pageId, [
+      {
+        component: 'cta',
+        props: {
+          id: 'pp-focus01',
+          title: 'Focus ring',
+          button_text: 'Primary',
+          button_url: '/primary',
+          button2_text: 'Secondary',
+          button2_url: '/secondary',
+        },
+      },
+    ]);
+    expect(res?.data?.ok ?? res?.success, 'the fixture must author through the real path').toBeTruthy();
+
+    for (const width of [1280, 375]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`/?page_id=${pageId}`, { waitUntil: 'networkidle' });
+
+      const secondary = page.locator('.cta__button--secondary');
+      await expect(secondary).toBeVisible({ timeout: 10000 });
+
+      // PROGRAMMATIC FOCUS IS THE CORRECT PROBE HERE, and the reason is in the selector: the
+      // rule is `main .btn:focus, main .btn:focus-visible`, so it carries the PLAIN `:focus`
+      // arm and `.focus()` matches it. If it were `:focus-visible` only, this would have to be
+      // a keyboard walk.
+      //
+      // A keyboard walk was tried first and is NOT viable in this suite: e2e runs signed in,
+      // so the WordPress admin bar renders on the front end and its `.ab-item` links take the
+      // first several Tab stops. A fixed Tab count never reaches page content — it reads the
+      // admin bar's own 2px focus ring and passes for the wrong reason.
+      await secondary.evaluate((el: HTMLElement) => el.focus());
+
+      const read = await secondary.evaluate((el) => {
+        const cs = getComputedStyle(el);
+        return {
+          isFocused: document.activeElement === el,
+          outlineWidth: cs.outlineWidth,
+          outlineStyle: cs.outlineStyle,
+          outlineColor: cs.outlineColor,
+          boxShadow: cs.boxShadow,
+        };
+      });
+
+      expect(read.isFocused, `@${width}: the keyboard walk must land on the secondary button`).toBe(true);
+
+      // THE AFFORDANCE. This is the claim the schema makes and #1041 relies on.
+      expect(read.outlineStyle, `@${width}: focus outline style`).toBe('solid');
+      expect(read.outlineWidth, `@${width}: the 2px focus outline must still paint — it is the`
+        + ' only thing keeping this button WCAG 1.4.11 compliant after the halo was erased').toBe('2px');
+      expect(read.outlineColor, `@${width}: the outline must have a real colour`).not.toBe('transparent');
+      expect(read.outlineColor).not.toBe('rgba(0, 0, 0, 0)');
+
+      // THE KNOWN LOSS, pinned in both directions so it cannot drift back unnoticed.
+      expect(read.boxShadow, `@${width}: the three-layer premium halo is erased by the role's`
+        + ' unlayered shadow.box:none — recorded as a deliberate cost in #1041').toBe('none');
+    }
+  });
+});

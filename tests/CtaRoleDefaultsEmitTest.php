@@ -283,6 +283,12 @@ class CtaRoleDefaultsEmitTest extends TestCase
             'margin-bottom:var(--space-sm);',
             'border-radius:3px;',
             'background:var(--color-surface-accent);',
+            // GAPS CLOSED at #1026's coverage audit, which proved all three deletable in
+            // silence. The eyebrow's border WIDTH and COLOR were unasserted even though
+            // SectionRoleDefaultsEmitTest asserts exactly this pair on its panel — this file
+            // cites section's rebuild as its model and then omitted them.
+            'border-width:0;',
+            'border-color:transparent;',
         ] as $decl) {
             $this->assertMatchesRegularExpression(
                 '/\.cta__eyebrow\{[^}]*' . preg_quote($decl, '/') . '/',
@@ -335,6 +341,14 @@ class CtaRoleDefaultsEmitTest extends TestCase
         );
         $this->assertMatchesRegularExpression(
             '/\.cta__button--secondary\{[^}]*border-width:2px;[^}]*border-color:var\(--color-accent\);/',
+            $base,
+            'the second button must ship its 2px accent edge'
+        );
+        // GAP CLOSED: `border-style:solid` sat BETWEEN those two in the emitted block, so the
+        // spanning regex above crossed it without ever asserting it. Deleting it from the
+        // schema left 5088 PHPUnit and 1530 vitest tests green.
+        $this->assertMatchesRegularExpression(
+            '/\.cta__button--secondary\{[^}]*border-style:solid;/',
             $base
         );
         $this->assertMatchesRegularExpression(
