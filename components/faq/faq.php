@@ -28,6 +28,15 @@ $raw_title        = $props['title']        ?? 'Frequently Asked Questions';
 $title            = is_scalar($raw_title) ? (string) $raw_title : '';
 $raw_title_accent = $props['title_accent'] ?? '';
 $title_accent     = is_scalar($raw_title_accent) ? (string) $raw_title_accent : '';
+// UNGUARDED, AND THAT IS A FILED GAP RATHER THAN AN OVERSIGHT (#1051). This reaches
+// esc_html() below, which is the #736 class: an ARRAY eyebrow paints the literal word
+// `Array` into the band, an OBJECT one 500s the page. #736 enumerated its members by
+// SINK AND PROP (`title` on logos/table/embed) and #721 covers `hero.proof`; neither
+// names this one, and the admitting criterion those issues set means nothing widened
+// to cover it implicitly. Closing it HERE would widen a rebuild issue into the
+// data-integrity ruling #706 and #736 both declined to widen one prop at a time
+// without a census, so #1046 measured it, filed it and left it. See the note below
+// `$raw_items` for the same class still open on `$question`, its sibling in this file.
 $eyebrow      = $props['eyebrow']      ?? '';
 // ── #739: the `items` container guard, the third typed boundary on this prop ──
 //
@@ -74,7 +83,7 @@ $eyebrow      = $props['eyebrow']      ?? '';
 // `$question` is read UNGUARDED into esc_html(), so an OBJECT question (and an object
 // ELEMENT, at the offset read) still 500s this page before the schema call is reached,
 // and an ARRAY question still paints the literal `Array` in the summary. That is the
-// #736 class (esc_html coercion), still open.
+// #736 class (esc_html coercion), still open — as is `$eyebrow` above, filed at #1051.
 $raw_items = $props['items'] ?? [];
 $items     = is_array($raw_items) ? $raw_items : [];
 

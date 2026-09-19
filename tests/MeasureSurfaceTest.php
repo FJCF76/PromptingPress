@@ -700,18 +700,28 @@ class MeasureSurfaceTest extends TestCase
             );
         }
 
-        // And the round trip, on the surface that replaced the slot: a role whose measure
-        // an author narrowed must accept `none` back. faq's `answer` carries no measure by
-        // default, which makes it the honest subject — narrowing it is the only way to get
-        // a cap there at all.
-        $this->assertNull(
-            pp_udc_validate_map(['answer' => ['sizing' => ['max-width' => '34rem']]], 'faq'),
-            'narrowing the answer must be accepted'
-        );
-        $this->assertNull(
-            pp_udc_validate_map(['answer' => ['sizing' => ['max-width' => 'none']]], 'faq'),
-            'and putting it back to the declared default must be accepted too'
-        );
+        // And the round trip, ASSERTED ON THE EMITTED CSS rather than on the validator's
+        // verdict. Acceptance is one layer above the thing A-30 is about: an engine change
+        // that accepted `none` and then dropped the declaration at emission would leave a
+        // validation-only test green while the capability was gone — the repo's own
+        // assert-the-emission rule. faq's `answer` carries no measure by default, which
+        // makes it the honest subject: narrowing it is the only way to get a cap there.
+        foreach (['34rem', 'none'] as $value) {
+            $this->assertNull(
+                pp_udc_validate_map(['answer' => ['sizing' => ['max-width' => $value]]], 'faq'),
+                "the answer measure must accept {$value}"
+            );
+            $this->assertStringContainsString(
+                '.faq__answer{max-width:' . $value . ';}',
+                pp_udc_band_css([
+                    'component' => 'faq',
+                    'id'        => 'pp-1a2b3c4d',
+                    'props'     => [],
+                    'udc'       => ['answer' => ['sizing' => ['max-width' => $value]]],
+                ]),
+                "{$value} must REACH THE PAGE, not merely pass validation"
+            );
+        }
     }
 
     /**

@@ -66,7 +66,7 @@ Used by: #99, #100, #108, #111, #61 (and the #99 scaffold issue defines the reus
    with the field-by-field contract in `ai-instructions/add-component.md`. Use `length-or-none`
    **only** when the slot's declared default IS the keyword `none`, so the built-in uncapped state
    stays authorable (`--stats-max-width`,
-   `--faq-body-measure`); a width cap with a real length default stays plain
+   faq's `--faq-body-measure` left at #1046 and no text measure carries it now); a width cap with a real length default stays plain
    `length`. Declare `"role": "fill"` on a button/surface fill and `"role": "measure"` on a text
    measure — the roles are bounded by `pp_slot_roles()` and the runtime AI catalog emits them.
    If the slot only renders in a particular configuration, declare `applies_when` (the four

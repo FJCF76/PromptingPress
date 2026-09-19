@@ -440,7 +440,7 @@ Open `/assets/css/components.css` and add a labeled section at the bottom:
 
 .mycomponent {
   /* A band-level (full-width section) component shares ONE rhythm definition
-     with the others (grid, stats, faq, table, logos, embed — the v1 components
+     with the others (grid, stats, table, logos, embed — the v1 components
      that still route through a slot; section, cta and testimonials reach the SAME
      definition as a `@pp-band-padding` spacing default on their `_band` role since
      their v2 rebuilds, and hero is deliberately outside it, carrying its own

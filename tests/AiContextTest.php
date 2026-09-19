@@ -1020,8 +1020,23 @@ class AiContextTest extends TestCase
                     $next,
                     'faq must advertise its roles, and say which action reaches them'
                 );
-                foreach (['heading', 'question', 'question-open', 'answer', 'item'] as $role) {
-                    $this->assertStringContainsString($role, $next, "the prompt must name faq's {$role} role");
+                // DERIVED AND DELIMITED. A bare substring check is satisfied by the wrong
+                // role: `heading` by `heading-accent`, `question` by `question-open`, `item`
+                // by the word "items" in the prop list — so the prompt could drop two roles
+                // entirely and still pass. The roles are read from the registry and matched
+                // as delimited entries (each is followed by `:` in the emitted catalog), so
+                // this cannot go stale when a role is added or renamed.
+                foreach (array_keys(pp_udc_component_roles('faq')) as $role) {
+                    if ($role === '_band') {
+                        $this->assertStringContainsString('_band (the band itself)', $next);
+                        continue;
+                    }
+                    $this->assertMatchesRegularExpression(
+                        '/(?:^|[;:] )' . preg_quote($role, '/') . ':/',
+                        $next,
+                        "the prompt must name faq's `{$role}` role as its own entry — a bare "
+                        . 'substring is satisfied by a longer sibling role name'
+                    );
                 }
                 $found = true;
             }

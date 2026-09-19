@@ -627,6 +627,34 @@ final class UdcEngineTest extends TestCase
                 foreach (explode(' ', $normalised) as $part) {
                     $this->assertNotSame('', trim($part), "{$component}.{$role} has an empty compound");
                 }
+
+                // EVERY BRACKET TERM IS A WELL-FORMED ATTRIBUTE PRESENCE TEST (#1046).
+                //
+                // The charset widening admitted `[` and `]`, and the balance gate beside it
+                // proves they PAIR — neither says the pair contains anything sensible.
+                // `.a[]`, `.a[ ]`, `.a[[open]]` and a bare `[]` all clear the charset, the
+                // balance check AND the combinator rules above, and every one of them is
+                // invalid CSS. That matters here for the same reason a stray `>` does: an
+                // invalid member silently drops the whole grouped prefers-reduced-motion
+                // rule, taking an accessibility guarantee with it and reporting nothing.
+                //
+                // The `>` widening earned a shape rule; this one earns its own rather than
+                // inheriting a check written for a different character.
+                preg_match_all('/\[([^\]]*)\]/', $selector, $terms);
+                foreach ($terms[1] as $term) {
+                    $this->assertMatchesRegularExpression(
+                        '/^[A-Za-z][A-Za-z0-9_-]*\z/',
+                        $term,
+                        "{$component}.{$role} declares \"{$selector}\", whose bracket term "
+                        . "\"[{$term}]\" is not an attribute name — it passes the charset and "
+                        . 'the balance gate and is still invalid CSS'
+                    );
+                }
+                $this->assertSame(
+                    substr_count($selector, '['),
+                    count($terms[1]),
+                    "{$component}.{$role} has a nested or unmatched bracket term"
+                );
             }
         }
 

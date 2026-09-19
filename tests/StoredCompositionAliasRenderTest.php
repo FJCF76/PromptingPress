@@ -825,6 +825,9 @@ class StoredCompositionAliasRenderTest extends TestCase
         $this->assertStringContainsString('default, muted, inverted', $result->get_error_message());
     }
 
+    // NAME KEPT DELIBERATELY at its original numeral, the way MeasureSurfaceTest's and
+    // ComponentPropsTest's rosters keep theirs: renaming it on every rebuild breaks
+    // `--filter` continuity for no fact. The roster inside is the fact.
     public function testAFreshCanonicalThemeWritesValidatesReadsBackAndRendersOnAllSevenThemedBands(): void
     {
         // Acceptance criterion 5: fresh-generation correctness. Every band component
@@ -843,7 +846,7 @@ class StoredCompositionAliasRenderTest extends TestCase
             // solely for it is gone too. cta is absent since #1026, and its departure
             // carries one measured fact worth keeping: on a full-width cta the `muted` and
             // `dark` renders were BYTE-IDENTICAL to `default`, so retiring `theme` there
-            // cost exactly one rendered state (`inverted`) rather than three. The roster is
+            // cost exactly one rendered state (`inverted`) rather than three.
             // faq is absent since #1046, and its departure carries a measured fact of its
             // own, different from cta's: faq's `muted` was NOT byte-identical to `default`
             // — it drew a 1px `--color-border` rule top and bottom — so retiring `theme`

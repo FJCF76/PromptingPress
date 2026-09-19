@@ -134,13 +134,43 @@ class FaqRoleDefaultsEmitTest extends TestCase
             . 'is skipped in silence, so an absence here is how that failure looks'
         );
 
-        // It must OUTRANK the resting role, or the affordance never shows. Both are
-        // emitted at component grain, so the ranking is in the selectors themselves:
-        // the open one carries one more compound.
+        // It must OUTRANK the resting role, or the affordance never shows.
         $this->assertMatchesRegularExpression(
             '/\.faq__question\{[^}]*color:var\(--color-text\);/',
             $this->baseTier(),
             'the resting question colour is gone'
+        );
+
+        // THE RANKING ITSELF, WHICH THE SCHEMA AND THE README BOTH PROMISE IN PROSE and
+        // which nothing asserted until now. "An author who recolours the resting row and
+        // stops gets the accent back on the first click" is a CASCADE claim: the open
+        // role's selector must carry strictly more compound terms than the resting one,
+        // so that even a BAND-scoped authored value on `question` loses to the
+        // component-grain open default. Inverting the two selectors, or scoping the open
+        // role to the band, would ship silently without this.
+        $compounds = static fn (string $sel): int =>
+            preg_match_all('/[.\[]/', $sel);
+        $restingAuthored = '[data-pp-band="pp-1a2b3c4d"] .faq__question';
+        $openDefault     = '[data-pp-component="faq"] .faq__item[open] > .faq__question';
+        $this->assertGreaterThan(
+            $compounds($restingAuthored),
+            $compounds($openDefault),
+            'the open default must outrank an AUTHORED resting colour, which is the '
+            . 'behaviour both the schema and the README promise'
+        );
+
+        // And the authored open value must in turn beat the default: same selector shape,
+        // one more attribute term from the band scope.
+        $authoredOpen = pp_udc_band_css([
+            'component' => 'faq',
+            'id'        => 'pp-1a2b3c4d',
+            'props'     => [],
+            'udc'       => ['question-open' => ['typography' => ['color' => '#07c76f']]],
+        ]);
+        $this->assertStringContainsString(
+            '[data-pp-band="pp-1a2b3c4d"] .faq__item[open] > .faq__question{color:#07c76f;}',
+            $authoredOpen,
+            'an authored open value must reach the page on the band-scoped selector'
         );
     }
 
@@ -308,6 +338,84 @@ class FaqRoleDefaultsEmitTest extends TestCase
     }
 
     /**
+     * THE EMPTY LINE DOES NOT FOLLOW THE BAND, AND THE SCHEMA NOW SAYS SO. This pins the
+     * disclosure rather than the colour, because the review that found this found a
+     * CORRECT default under PROSE THAT PROMISED THE OPPOSITE: the `empty` role claimed an
+     * author "gets it — including on the dark band", which is true only of a write aimed
+     * at this role and false of the `_band` write the schema elsewhere calls the dark-band
+     * write.
+     *
+     * The mechanism is the fourth condition, operating on faq's own surface: a role
+     * default IS a declaration. It emits direct on `.faq__empty`, and `_band` reaches
+     * descendants only by inheritance, which a direct declaration always beats. That is
+     * why `heading` had to take `currentColor` to follow the band (#1046's 7A-2) and why
+     * `empty` COULD NOT take the same escape — its measured v1 value is muted grey, not
+     * body ink, so `currentColor` would have changed the rendered default rather than
+     * preserved it. The colour is right; only the promise about it was wrong.
+     *
+     * Measured consequence, which is why this is worth a test: `#5e6677` on a `#0f172a`
+     * band fill is 3.10:1, under the 4.5:1 AA floor for body text. It hides because an
+     * authored band usually HAS items, so the stranded line appears only once someone
+     * empties it.
+     */
+    public function testTheEmptyLineIsADirectDeclarationThatNoBandColourCanReach(): void
+    {
+        // The default is emitted on the ELEMENT, not on the band root. If it ever moved to
+        // the root it would become inheritable, the strandedness would vanish, and the
+        // disclosure this test guards would become a lie in the other direction.
+        $this->assertMatchesRegularExpression(
+            '/\[data-pp-component="faq"\] \.faq__empty\{[^}]*color:var\(--color-muted\);/',
+            $this->baseTier(),
+            'the empty line must carry its colour as a DIRECT declaration on its own element'
+        );
+
+        // An authored `_band` colour lands on the band root and names no descendant, so it
+        // cannot reach the line above except by inheritance.
+        $band = pp_udc_band_css([
+            'component' => 'faq',
+            'id'        => 'pp-1a2b3c4d',
+            'props'     => [],
+            'udc'       => ['_band' => ['typography' => ['color' => '#fcfdff']]],
+        ]);
+        $this->assertStringContainsString(
+            '[data-pp-band="pp-1a2b3c4d"]{color:#fcfdff;}',
+            $band,
+            'the band write must emit on the band root'
+        );
+        $this->assertStringNotContainsString(
+            '.faq__empty',
+            $band,
+            'a _band colour must not reach the empty line — if it ever does, the schema and '
+            . 'the how-to both tell authors to write a key they no longer need'
+        );
+
+        // THE DISCLOSURE ITSELF. The three places a dark-band author could look must all
+        // name `empty`, or the measured 3.10:1 render is undocumented again.
+        $roles = pp_udc_component_roles('faq');
+        // The ENUMERATION, not the bare word. `_band`'s description names `empty` twice —
+        // once in the non-following list and once pointing at the role — so asserting the
+        // substring alone passes even with the list member deleted. Proven: that mutation
+        // SURVIVED the first draft of this test.
+        $this->assertStringContainsString(
+            'The `question`, `answer` and `empty` roles do NOT',
+            $roles['_band']['description'],
+            "_band's description must name `empty` IN the list of roles that do not follow "
+            . 'it, not merely mention the role somewhere in the paragraph'
+        );
+        $this->assertStringContainsString(
+            'empty',
+            $roles['item']['description'],
+            "item's description must carve `empty` out of its question/answer remedy, whose "
+            . 'stated reason (the panel stays light) does not apply to a line on the band fill'
+        );
+        $this->assertStringContainsString(
+            '3.10:1',
+            $roles['empty']['description'],
+            "the empty role must carry the measured consequence, not just the rule"
+        );
+    }
+
+    /**
      * THE ITEM AND THE LIST — the two roles whose values are ordinary and whose ABSENCE
      * of a shadow is not.
      *
@@ -371,19 +479,63 @@ class FaqRoleDefaultsEmitTest extends TestCase
      *
      * The alternative — inlining `16px 32px` — would paint identically today and freeze
      * the band against a `--space-*` retune, which is the drift #972 removed from the
-     * button presets for the same reason. So the per-side form is the routing, and the
+     * button presets for the same reason. So the per-side form IS the routing, and the
      * shipped `button` preset does exactly this with `@btn-padding-y` / `@btn-padding-x`.
+     *
+     * THE FIRST CUT OF THIS TEST WAS VACUOUS IN TWO WAYS, both found by mutation rather
+     * than by reading, and the second one is the instructive half:
+     *
+     *   1. it named four of the eight padding declarations faq emits, so freezing
+     *      `answer.padding-left` or `question.padding-right` to `32px` left the whole
+     *      suite green;
+     *   2. its negative controls asserted the absence of `padding:16px` / `padding:32px`
+     *      — the SHORTHAND — while the engine emits LONGHANDS. The exact failure mode the
+     *      test existed to catch was the one spelling it could not see.
+     *
+     * So the sweep is derived now: every padding declaration faq emits must route a
+     * token, with ONE carve-out stated rather than silently tolerated.
      */
-    public function testEveryPaddingRoutesATokenPerSideRatherThanFreezingAShorthand(): void
+    public function testNoFaqRolePaddingIsAFrozenLiteral(): void
     {
-        $base = $this->baseTier();
-        $this->assertMatchesRegularExpression('/\.faq__question\{[^}]*padding-top:var\(--space-md\);/', $base);
-        $this->assertMatchesRegularExpression('/\.faq__question\{[^}]*padding-left:var\(--space-lg\);/', $base);
-        $this->assertMatchesRegularExpression('/\.faq__answer\{[^}]*padding-top:0;/', $base);
-        $this->assertMatchesRegularExpression('/\.faq__answer\{[^}]*padding-bottom:var\(--space-md\);/', $base);
+        preg_match_all('/\[data-pp-component="faq"\] (\.faq__[a-z-]+)\{([^}]*)\}/', $this->css, $blocks, PREG_SET_ORDER);
+        $this->assertNotEmpty($blocks, 'no faq role blocks emitted — the sweep would pass vacuously');
 
-        $this->assertStringNotContainsString('padding:16px', $this->css, 'a frozen literal would not follow a --space-* retune');
-        $this->assertStringNotContainsString('padding:32px', $this->css);
+        $swept = 0;
+        foreach ($blocks as [, $selector, $body]) {
+            // THE EYEBROW IS THE CARVE-OUT, and it is faithful rather than an oversight:
+            // v1 declared `padding: 0.35rem 0.85rem` as a LITERAL shorthand on this
+            // element — not a token — and cta, section and hero all carry the identical
+            // literal in their own eyebrow roles. Freezing what v1 froze is the port;
+            // tokenising it here would be a design change wearing a refactor's clothes,
+            // and it would silently diverge this eyebrow from the other three.
+            if ($selector === '.faq__eyebrow') {
+                $this->assertStringContainsString(
+                    'padding:0.35rem 0.85rem;',
+                    $body,
+                    'the eyebrow carve-out exists for a specific literal — if that literal '
+                    . 'changed, the carve-out needs re-deciding rather than widening'
+                );
+                continue;
+            }
+
+            preg_match_all('/(padding(?:-top|-right|-bottom|-left)?):([^;]+);/', $body, $decls, PREG_SET_ORDER);
+            foreach ($decls as [, $prop, $value]) {
+                $swept++;
+                $this->assertMatchesRegularExpression(
+                    '/^(var\(--(space|pp)-[a-z-]+\)|0)$/',
+                    trim($value),
+                    "{$selector} freezes {$prop}:{$value} instead of routing a --space-* token; "
+                    . 'a frozen literal paints the same today and stops following a retune'
+                );
+            }
+        }
+        $this->assertGreaterThanOrEqual(
+            8,
+            $swept,
+            'the sweep must reach every padding faq emits — 8 today (question 4 + gap-less '
+            . 'answer 4 and empty 2 less the two it shares); a smaller number means the '
+            . 'regex stopped matching and the guard went quiet'
+        );
     }
 
     /**
@@ -399,14 +551,45 @@ class FaqRoleDefaultsEmitTest extends TestCase
      */
     public function testNoRoleRestatesAGlobalValue(): void
     {
-        foreach (['outline', 'text-decoration', 'cursor', 'list-style', 'min-height'] as $global) {
-            $this->assertStringNotContainsString(
-                $global,
-                $this->css,
-                "{$global} belongs to base.css or to faq's structural block; a role default "
-                . 'would be emitted unlayered and beat it in every state'
-            );
+        // DERIVED, NOT LISTED. The first cut named five properties, and three of them —
+        // `outline`, `cursor`, `list-style` — are not params in ANY group of the taxonomy,
+        // so the engine could not emit them at any value and those assertions were
+        // tautologies dressed as guards. Worse, the docblock claimed they protected the
+        // summary's focus ring, which nothing was checking.
+        //
+        // The self-checking form: every property faq emits must be one the engine's own
+        // groups declare. That cannot go stale when the taxonomy grows, and it catches the
+        // real thing — a role default reaching a property no role should own.
+        $emittable = [];
+        foreach (pp_udc_groups() as $group) {
+            foreach ($group['params'] as $param) {
+                $emittable[$param['property']] = true;
+            }
         }
+        // The background shorthand's companions and the overlay carrier are emitted by the
+        // background composer rather than named as params.
+        $emittable['background'] = true;
+        $emittable['background-image'] = true;
+
+        preg_match_all('/\{([^{}]*)\}/', $this->css, $bodies);
+        $checked = 0;
+        foreach ($bodies[1] as $body) {
+            foreach (explode(';', $body) as $decl) {
+                $prop = trim(explode(':', $decl)[0] ?? '');
+                if ($prop === '') {
+                    continue;
+                }
+                $checked++;
+                $this->assertArrayHasKey(
+                    $prop,
+                    $emittable,
+                    "faq emits `{$prop}`, which no group in pp_udc_groups() declares — a role "
+                    . 'default reaching a property the engine does not own is a value no author '
+                    . 'can reach and no envelope can report on'
+                );
+            }
+        }
+        $this->assertGreaterThan(30, $checked, 'the property sweep must actually read the emitted declarations');
 
         // There is no role for the answer's links at all — measured, they render exactly
         // what base.css gives every anchor, and a role block here would outrank the shared

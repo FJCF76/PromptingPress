@@ -384,10 +384,13 @@ class FriendlyErrorSlotContextTest extends TestCase
             'post_id'         => $post_id,
             'component_index' => 0,
             // `--grid-item-bar-color` rather than `--grid-item-bg`: the hint engine resolves
-            // by NAME, and faq declares `--faq-item-bg`, which the matcher reaches first.
-            // The slot has to be one only ONE component declares, or the test pins the
-            // matcher's tie-break instead of the hint. (The fixture moved off cta at #1026;
-            // see #1025 on why the slot-engine fixtures keep re-homing.)
+            // by NAME, and UNTIL #1046 faq declared `--faq-item-bg`, which the matcher
+            // reached first. faq has no slots now, so that collision is gone and
+            // `--grid-item-bg` would be unambiguous — the fixture is kept as it is because
+            // the rule it encodes still holds: the slot has to be one only ONE component
+            // declares, or the test pins the matcher's tie-break instead of the hint.
+            // (The fixture moved off cta at #1026; see #1025 on why the slot-engine
+            // fixtures keep re-homing.)
             'style'           => ['--grid-item-bar-color' => '#101010'],
         ]);
 

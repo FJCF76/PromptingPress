@@ -122,7 +122,8 @@ background-only migration silently drops a border:
 
 On `inverted`, setting `_band` → `typography.color` is enough for the HEADING: it defaults
 to `currentColor`, so it follows the band. It is deliberately NOT enough for the question
-and the answer — see step 5.
+and the answer — see step 5 — and it is not enough for the empty state either, which
+step 5 closes at the end.
 
 ## Step 5: If you darken the panels, you own the ink inside them
 
@@ -130,7 +131,7 @@ v1 kept the accordion items light even on an inverted band, the same choice grid
 its cards. That is still the default, and it is why `question` and `answer` pin their
 colours instead of following the band.
 
-So a dark BAND is one write:
+So a dark BAND with items is one write:
 
 ```json
 "udc": { "_band": { "background": { "fill": "#0f172a" }, "typography": { "color": "#fcfdff" } } }
@@ -152,6 +153,29 @@ the band looks right until a reader OPENS an item, at which point the row revert
 default accent — **measured at 3.21:1 against a `#111827` panel**, which is a real contrast
 failure that only exists in the open state. That number is not hypothetical: it is what the
 three-role version of this example rendered when it was checked at 375 and 1280.
+
+### The empty state is the one a dark band leaves behind
+
+Everything above assumes the band HAS items. A faq band with none renders one line —
+`.faq__empty` — and that line follows neither the band nor the panels:
+
+```json
+"udc": {
+  "_band": { "background": { "fill": "#0f172a" }, "typography": { "color": "#fcfdff" } },
+  "empty": { "typography": { "color": "#d1d5db" } }
+}
+```
+
+Without the second key the line keeps its default `@color-muted`. That is not the band
+colour failing to inherit by accident — a role default emits as a DIRECT declaration
+(`[data-pp-component="faq"] .faq__empty{color:var(--color-muted);}`, unlayered), and a
+direct declaration always beats an inherited one, whatever the band says. Measured, the
+line resolves to `#5e6677` on `#0f172a`: **3.10:1**, under the 4.5:1 AA floor for body
+text.
+
+It is easy to miss because an authored band usually has items, so the failing line is
+invisible until the day someone empties it — a band awaiting content, or one whose items
+were all skipped as damaged. Set `empty` whenever you set a dark `_band` fill.
 
 The band will validate, write and report `ok` in every one of these cases. The engine does
 not interpret colours, so this is the one check that is yours rather than the system's.

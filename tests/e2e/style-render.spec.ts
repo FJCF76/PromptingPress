@@ -7886,6 +7886,155 @@ test.describe('Shared section-band rhythm (#431)', () => {
  * band after a faq resolves the adjacent tier (7px) at 1280 AND 375 — pre-fix it
  * read 5px (the own tier) at both, since the `+` missed the band at both.
  */
+/**
+ * THE OPEN ACCORDION, IN A BROWSER (#1046).
+ *
+ * `question-open` is the role the role-selector charset was widened for, and until this
+ * suite it was pinned only by CSS-TEXT and PHP-string assertions. Two files say in prose
+ * that the `[open]` half "is NOT checkable from server-rendered markup at all: its proof
+ * is a rendered one" — so the proof belongs in the repo, not in a probe that was deleted
+ * before the PR. Found by this change's own testing specialist, which noticed that the
+ * same diff removed the only e2e mechanism that could produce the state.
+ *
+ * Three claims, none of which a text assertion can make:
+ *   1. the emitted `[open]` selector is valid CSS that a browser actually applies;
+ *   2. the default open ink beats the RESTING ink on the same element;
+ *   3. an AUTHORED `question-open` value beats the default, at every tier.
+ */
+test.describe('FAQ open-state role (#1046)', () => {
+  let pageId: number;
+
+  test.afterEach(() => {
+    if (pageId) deletePage(pageId);
+  });
+
+  test('#1046 the open summary takes the accent, and an authored value wins, at three tiers @smoke', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E 1046 faq open state');
+    setComposition(pageId, [{ component: 'faq', props: { id: 'pp-seed', items: [{ question: 'Q?', answer: 'A.' }] } }]);
+
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+
+    // Two bands: one unauthored (the DEFAULT open treatment) and one that authors the
+    // open role with a value no token resolves to, so a default-wins bug is unmistakable.
+    const res = await updateComposition(page, pageId, [
+      {
+        component: 'faq',
+        props: { id: 'pp-faqdef', title: 'Default', items: [{ question: 'Default question?', answer: 'A.' }] },
+      },
+      {
+        component: 'faq',
+        props: { id: 'pp-faqset', title: 'Authored', items: [{ question: 'Authored question?', answer: 'A.' }] },
+        udc: { 'question-open': { typography: { color: 'rgb(7, 199, 111)' } } },
+      },
+    ]);
+    expect(res.success, `udc write: ${JSON.stringify(res)}`).toBe(true);
+
+    for (const width of [1280, 768, 375]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`/?page_id=${pageId}`);
+      await expect(page.locator('#pp-faqdef .faq__question')).toBeVisible({ timeout: 10000 });
+
+      const ink = (id: string) =>
+        page.locator(`#${id} .faq__question`).evaluate((el) => getComputedStyle(el).color);
+      const chevron = (id: string) =>
+        page
+          .locator(`#${id} .faq__question`)
+          .evaluate((el) => getComputedStyle(el, '::after').borderRightColor);
+
+      // CLOSED: both rows sit on the resting ink, whatever either band authored for OPEN.
+      const restDefault = await ink('pp-faqdef');
+      const restAuthored = await ink('pp-faqset');
+      expect(restDefault, `closed default @${width}`).toBe('rgb(16, 24, 40)');
+      expect(restAuthored, `closed authored @${width}`).toBe('rgb(16, 24, 40)');
+
+      // OPEN, by a real click on the control. scrollIntoViewIfNeeded first: on a short
+      // band the summary can sit under the sticky header, where a hit-target check never
+      // passes and the click retries until the test times out.
+      for (const id of ['pp-faqdef', 'pp-faqset']) {
+        const summary = page.locator(`#${id} .faq__question`).first();
+        await summary.scrollIntoViewIfNeeded({ timeout: 5000 });
+        await summary.click({ timeout: 10000 });
+      }
+      await expect(page.locator('#pp-faqdef .faq__item[open]')).toHaveCount(1);
+
+      // THE READ POLLS RATHER THAN SLEEPS. `.faq__question` carries
+      // `transition: color var(--transition)` — 150ms — so an immediate read after the
+      // click returns an INTERMEDIATE colour and the assertion fails on a band that is
+      // painting correctly. The first cut of this test did exactly that. A fixed sleep
+      // would work and would rot the moment the duration is retuned (or an author sets
+      // `motion.transition-duration`); polling asserts the settled value and is
+      // indifferent to the timing.
+      //
+      // The DEFAULT open treatment: the accent, not the resting ink. This is the
+      // assertion that fails if the emitted `[open]` selector is text-valid and
+      // CSS-invalid — the failure no schema or string check can see.
+      await expect
+        .poll(() => ink('pp-faqdef'), { message: `open default @${width}`, timeout: 5000 })
+        .toBe('rgb(49, 87, 244)');
+
+      // The AUTHORED value beats the default on the same state.
+      await expect
+        .poll(() => ink('pp-faqset'), { message: `open authored @${width}`, timeout: 5000 })
+        .toBe('rgb(7, 199, 111)');
+
+      // And the chevron follows both, for free — it is drawn in currentColor, which is
+      // why it needs no role of its own.
+      await expect
+        .poll(() => chevron('pp-faqdef'), { message: `chevron default @${width}`, timeout: 5000 })
+        .toBe('rgb(49, 87, 244)');
+      await expect
+        .poll(() => chevron('pp-faqset'), { message: `chevron authored @${width}`, timeout: 5000 })
+        .toBe('rgb(7, 199, 111)');
+    }
+  });
+
+  /**
+   * THE OVERLAY FOCUS RING ON A <summary> (#1046, the #1035 class).
+   *
+   * faq renders no `.btn`, so the `[data-pp-band-overlay] .btn:focus` rule could never
+   * reach its focusable control. `_band.background.image` + `overlay` makes the scrim
+   * state reachable for faq for the first time, so the rule names `.faq__question` — and
+   * whether that actually paints depends on base.css's `:focus-visible` reaching the
+   * element, which only a browser can answer.
+   */
+  test('#1046 a summary over a scrim takes the on-overlay focus ring', async ({ page }) => {
+    pageId = createPage('E2E 1046 faq overlay ring');
+    setComposition(pageId, [{ component: 'faq', props: { id: 'pp-seed', items: [{ question: 'Q?', answer: 'A.' }] } }]);
+
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+
+    const mediaId = importTestImage('pp1046-faq-overlay');
+    const res = await updateComposition(page, pageId, [
+      {
+        component: 'faq',
+        props: { id: 'pp-faqovl', title: 'Scrim', items: [{ question: 'Q?', answer: 'A.' }] },
+        udc: { _band: { background: { image: String(mediaId), overlay: 'rgba(0,0,0,0.55)' } } },
+      },
+    ]);
+    expect(res.success, `udc write: ${JSON.stringify(res)}`).toBe(true);
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+    const band = page.locator('#pp-faqovl');
+    await expect(band).toBeVisible({ timeout: 10000 });
+
+    // The engine, not the author, decides the band is overlaid.
+    await expect(band).toHaveAttribute('data-pp-band-overlay', '');
+
+    // Keyboard focus, because the ring is `:focus-visible`-gated in base.css.
+    await page.locator('#pp-faqovl .faq__question').first().focus();
+    const ring = await page
+      .locator('#pp-faqovl .faq__question')
+      .first()
+      .evaluate((el) => getComputedStyle(el).outlineColor);
+    expect(ring, 'the summary over a scrim must take the on-overlay accent').toBe('rgb(250, 251, 255)');
+  });
+});
+
 test.describe('Band-after-faq adjacent rhythm (#432)', () => {
   let pageId: number;
 

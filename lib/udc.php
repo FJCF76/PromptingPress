@@ -2967,9 +2967,15 @@ function pp_udc_compile_band(array $item, string $layer, ?array &$drops = null):
         //
         // ONE OWNER, deliberately: this routes through the shared balance helper rather
         // than counting brackets locally, because a second implementation of "is this
-        // delimiter-safe" is exactly the forked-grammar the architecture forbids. The
-        // helper also balances quotes and parens; the charset refuses all three
-        // characters outright, so those arms are inert here and cost a `strpbrk`.
+        // delimiter-safe" is exactly the forked-grammar the architecture forbids.
+        //
+        // ORDER MATTERS FOR WHAT THE MESSAGE WOULD SAY, not for what is admitted. This
+        // gate runs BEFORE the charset gate below, and the helper balances quotes and
+        // parens as well as brackets — so a selector carrying `(`, `'` or `"` is refused
+        // HERE, by the helper's own arms, rather than by the charset that would have
+        // refused it a line later. Both outcomes are the same skip; the distinction is
+        // recorded because an earlier draft of this comment claimed those arms were
+        // "inert", which is true of what gets through and false of which gate decides.
         if ($selector !== '' && !_pp_udc_delimiters_balanced($selector)) {
             continue;
         }

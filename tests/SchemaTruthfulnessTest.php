@@ -1056,15 +1056,25 @@ class SchemaTruthfulnessTest extends TestCase
             $roles = pp_udc_component_roles($component);
             $this->assertArrayHasKey($rest, $roles, "{$component} must declare the {$rest} role");
             $this->assertArrayHasKey($twin, $roles, "{$component} must declare its twin {$twin}");
-            $this->assertStringContainsString(
-                $twin,
+            // BACKTICK-DELIMITED, BECAUSE A BARE SUBSTRING MAKES HALF THIS CLAIM VACUOUS.
+            // `question` is a substring of `question-open`, so asserting that the OPEN
+            // role's description "contains question" is satisfied by its own name and by
+            // any sentence about a <summary> row. The slot-era version was genuinely
+            // bidirectional (`--faq-question-color` is not a substring of
+            // `--faq-question-open-color`); the rename to roles silently removed that, and
+            // a mutation proved it — stripping both real cross-references left this green.
+            // The schemas write role references backtick-quoted, so requiring the delimiter
+            // restores the claim.
+            $this->assertMatchesRegularExpression(
+                '/`' . preg_quote($twin, '/') . '`/',
                 (string) ($roles[$rest]['description'] ?? ''),
-                "{$component}.{$rest} must name {$twin} so an author setting one finds the other."
+                "{$component}.{$rest} must name `{$twin}` so an author setting one finds the other."
             );
-            $this->assertStringContainsString(
-                $rest,
+            $this->assertMatchesRegularExpression(
+                '/`' . preg_quote($rest, '/') . '`(?!-)/',
                 (string) ($roles[$twin]['description'] ?? ''),
-                "{$component}.{$twin} must name {$rest} — the cross-reference works both ways."
+                "{$component}.{$twin} must name `{$rest}` as its own token — a bare substring "
+                . 'is satisfied by the twin\'s own name and proves nothing.'
             );
         }
     }

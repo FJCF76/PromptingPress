@@ -1411,6 +1411,7 @@ class ComponentPropsTest extends TestCase
         // The seven the retired test named, each at the role that owns it now — so the
         // coverage this file used to carry is re-homed rather than dropped.
         $roles = pp_udc_component_roles('faq');
+        $i = 0;
         foreach ([
             '--faq-bg'                  => ['_band', 'background', 'fill'],
             '--faq-item-bg'             => ['item', 'background', 'fill'],
@@ -1426,10 +1427,24 @@ class ComponentPropsTest extends TestCase
                 $roles[$role]['groups'] ?? [],
                 "{$retired}'s replacement needs {$role} to permit the `{$group}` group"
             );
-            $this->assertNull(
-                pp_udc_validate_map([$role => [$group => [$param => '#123456']]], 'faq'),
-                "{$retired} must still be reachable as {$role}.{$group}.{$param}"
+            // AND IT MUST PAINT, not merely validate. The retired test's claim was "every
+            // slot paints, verbatim"; asserting only that the write is ACCEPTED keeps the
+            // address and drops the claim. A distinctive value per subject, read back out
+            // of the emitter, is the same proof the slot test made.
+            $value = sprintf('#%06x', 0x112200 + $i * 17);
+            $css   = pp_udc_band_css([
+                'component' => 'faq',
+                'id'        => 'pp-1a2b3c4d',
+                'props'     => [],
+                'udc'       => [$role => [$group => [$param => $value]]],
+            ]);
+            $this->assertStringContainsString(
+                $value,
+                $css,
+                "{$retired}'s replacement ({$role}.{$group}.{$param}) validated but never "
+                . 'reached the page — acceptance is not emission'
             );
+            $i++;
         }
     }
 
@@ -1569,11 +1584,16 @@ class ComponentPropsTest extends TestCase
     // the DG-4 regression proof: they must stay green, unchanged, forever. Proven at
     // the render layer (not just the helper) so the template wiring is pinned.
 
-    // faq's DG-4 row retired at #1046 with its `theme` prop. The OUTPUT NAMING the rule
-    // protects (`muted` renders the legacy `--dark` class) is unchanged and still proven
-    // below on grid, and on stats/logos/embed further down — the rule lost one carrier,
-    // not its proof. testAStoredFaqThemeEmitsNoVariantClassAtAll asserts the other half:
-    // that faq now renders no class for that input at all.
+    // faq's DG-4 row retired at #1046 with its `theme` prop, and the note that first
+    // replaced it OVERSTATED what remains — it claimed the rule was "still proven below on
+    // grid, and on stats/logos/embed further down". Grepped: `grid--dark` is asserted here
+    // and `stats--dark` appears only in a NEGATIVE assertion in SchemaValidationTest;
+    // `logos--dark` and `embed--dark` appear nowhere. The rule keeps exactly two carriers —
+    // grid's render-layer row below, and the helper's own unit tests in
+    // tests/ThemeClassHelperTest.php — so no coverage was lost, but the count was wrong by
+    // four and would have told the next rebuild that grid's row was safe to delete.
+    // testAStoredFaqThemeEmitsNoVariantClassAtAll asserts the other half: that faq now
+    // renders no class for that input at all.
 
     public function testGridMutedThemeEmitsLegacyDarkClass(): void
     {
