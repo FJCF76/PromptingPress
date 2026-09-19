@@ -709,6 +709,13 @@ class StyleSlotContractTest extends TestCase
      * and the rendered #583 strip measures 48px unlabelled / 40px labelled). It is corrected
      * here because --logos-image-size overrides both caps, so the note is now describing
      * behaviour this issue changes. Pinned so the correction cannot silently revert.
+     *
+     * REPRICED AT #1066: the slot retired with logos' whole slot map and the two caps
+     * became two ROLES. The note had to change or it would describe a defeat mechanism
+     * that no longer exists — and it also had to stay UNDER THE 400-CHARACTER BOUND that
+     * `SchemaValidationTest::testEveryShippedDefinitionObjectConformsToTheClosedContract`
+     * enforces on bounded prose, which the first rewrite blew past at 515. Both guards
+     * fired on the same edit, which is the system working.
      */
     public function testIssue584LogosConditionalityNoteMatchesTheStylesheet(): void
     {
@@ -717,9 +724,21 @@ class StyleSlotContractTest extends TestCase
             true
         );
         $note = $schema['props']['items']['conditionality_note'] ?? '';
+        // THE TWO MEASURED NUMBERS SURVIVE THE REBUILD UNCHANGED, which is why they are
+        // still the first two assertions: the label-driven switch is the subject, and
+        // #1066 moved where it is expressed without moving what it renders.
         $this->assertStringContainsString('2.5rem labelled', $note);
         $this->assertStringContainsString('3rem unlabelled', $note);
-        $this->assertStringContainsString('--logos-image-size overrides both', $note);
+
+        // THE THIRD ASSERTION IS REPRICED, NOT DROPPED. It read
+        // `'--logos-image-size overrides both'` — a claim about a slot logos no longer
+        // declares. The note's JOB is unchanged: warn an author that this condition is
+        // item-level and tell them how to defeat it. The v2 answer is "write both roles",
+        // and the retired slot is still named so an author meeting it on an aged page can
+        // match it up, which is what the shipped note says.
+        $this->assertStringContainsString('`image` and `image-labeled`', $note);
+        $this->assertStringContainsString('write both for a flat strip', $note);
+        $this->assertStringContainsString('`--logos-image-size`, which overrode both, is retired', $note);
     }
 
     // RETIRED (#1026): SEVEN TESTS AND THEIR PROVIDER, together, because they pinned ONE

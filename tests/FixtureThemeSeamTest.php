@@ -181,13 +181,25 @@ class FixtureThemeSeamTest extends TestCase
      */
     public function testEverySuiteThatActivatesTheFixtureAlsoDeactivatesIt(): void
     {
-        $dir = __DIR__;
+        // RECURSIVE SINCE THE #1066 PR2 REVIEW. A flat scandir() of tests/ skipped
+        // tests/Support/ — which is exactly where a shared base class would live, and a
+        // base class activating for its subclasses is the highest-leverage place for this
+        // leak to appear. Nothing there activates today; the point is that it would be
+        // unguarded if it did, and a floor of five activators would not have noticed.
+        // FixtureTheme.php itself is excluded: it DEFINES activate(), so every scan would
+        // report the helper as an unpaired caller of its own method.
+        $dir        = __DIR__;
         $activators = [];
-        foreach (scandir($dir) as $entry) {
-            if (!str_ends_with($entry, '.php')) {
+        $files      = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($dir, \FilesystemIterator::SKIP_DOTS)
+        );
+        foreach ($files as $file) {
+            $path = $file->getPathname();
+            if (!str_ends_with($path, '.php') || basename($path) === 'FixtureTheme.php') {
                 continue;
             }
-            $src = file_get_contents($dir . '/' . $entry);
+            $entry = ltrim(str_replace($dir, '', $path), '/');
+            $src   = file_get_contents($path);
             if (strpos($src, 'FixtureTheme::activate()') === false) {
                 continue;
             }
@@ -225,24 +237,53 @@ class FixtureThemeSeamTest extends TestCase
                 if (preg_match('/function (\w+)\s*\(/', $line, $m)) {
                     $fn = $m[1];
                 }
-                // ANCHORED ON A LINE THAT STARTS WITH THE CALL, which is real code. A
-                // substring match also hits this guard's OWN search expression one screen
-                // up — the scanner reporting itself, which is the self-match trap and cost
-                // one debugging round to see.
-                if (trim($line) !== 'FixtureTheme::activate();') {
+                // THE ANCHOR IS A SUFFIX TEST, and it has been wrong twice — both times
+                // in the direction that makes this guard assert on NOTHING, which is the
+                // failure mode a tripwire can least afford.
+                //
+                // First it was a substring match, which also hit this guard's OWN search
+                // expression a few lines up: the scanner reported itself. Then it was
+                // `trim($line) !== 'FixtureTheme::activate();'`, exact-match — which
+                // skipped any call not alone on its line and, worse, skipped a
+                // fully-qualified `\PromptingPress\Tests\Support\FixtureTheme::activate();`
+                // that the file-level check above still counts, so such a file became an
+                // "activator" silently exempt from this half. The fix after that was a
+                // regex, and the regex was MANGLED by PHP's single-quote escaping into
+                // `[^\w\]` — an unterminated character class that made preg_match() return
+                // false for every line, so the loop below ran zero times and the whole
+                // guard passed on an empty set. Two planted defects went undetected before
+                // the assertion count gave it away.
+                //
+                // A suffix test needs no escaping, covers the qualified form for free, and
+                // cannot match this comment or the line below it.
+                $stripped = trim(preg_replace('#//.*$#', '', $line));
+                if (!str_ends_with($stripped, 'FixtureTheme::activate();')) {
                     continue;
                 }
                 if ($fn === 'setUp') {
                     continue;
                 }
-                $following = ($lines[$i + 1] ?? '') . ($lines[$i + 2] ?? '');
-                $this->assertStringContainsString(
-                    'try {',
-                    $following,
+
+                // `finally`, NOT `try {`. The original assertion accepted
+                // `activate(); try { … } catch (\Throwable $e) { … } deactivate();`, which
+                // is WORSE than the bug it guards: a bare catch also swallows PHPUnit's own
+                // ExpectationFailedException, so the test reports green while the assertion
+                // it contains never held. Only `finally` guarantees the call runs on both
+                // paths without changing what a failure means.
+                //
+                // Scoped to the rest of the METHOD rather than two lines, because the block
+                // between activate() and its finally is as long as the test needs to be.
+                $rest = implode("\n", array_slice($lines, $i + 1, 60));
+                $body = explode("\n    public function ", $rest)[0];
+                $this->assertMatchesRegularExpression(
+                    '/\bfinally\s*\{[^}]*FixtureTheme::deactivate\(\);/s',
+                    $body,
                     "{$entry}::{$fn}() activates the fixture inside a test method without a " .
-                    'try/finally. A failing assertion would skip deactivate() and leak the ' .
-                    'fixture root into every later class. Wrap the body: activate(); try { … } ' .
-                    'finally { deactivate(); }'
+                    '`finally { FixtureTheme::deactivate(); }`. A failing assertion would ' .
+                    'skip a trailing deactivate() and leak the fixture root into every later ' .
+                    'class. A `catch` is not a substitute — it would also swallow the ' .
+                    'assertion failure. Wrap the body: activate(); try { … } finally { ' .
+                    'deactivate(); }'
                 );
             }
         }

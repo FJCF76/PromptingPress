@@ -222,8 +222,11 @@ class LogosRoleDefaultsEmitTest extends TestCase
      * labeled tile. A role carries at most ONE default per parameter, so the single knob
      * had to become two roles. Both emit unlayered element-tier blocks, so neither wins by
      * layer; the labeled one wins because `.logos__item--labeled .logos__image` is (0,2,0)
-     * against `.logos__image`'s (0,1,0), before the shared `[data-pp-component]` attribute
-     * both carry.
+     * against `.logos__image`'s (0,1,0) — or (0,3,0) against (0,2,0) once the
+     * `[data-pp-component="logos"]` attribute both selectors carry is counted, which is
+     * what the browser actually compares. The assertion below checks the CLASS COUNT,
+     * because the attribute is constant across both and the class is the part a selector
+     * rewrite can lose.
      *
      * If that edge were ever lost — a selector rewritten, the roles reordered by an author
      * who assumed source order decided it — both roles would still emit, both would still
@@ -393,8 +396,13 @@ class LogosRoleDefaultsEmitTest extends TestCase
             }
         }
 
-        // Fail-closed: logos declares 13 defaults across six roles today.
-        $this->assertGreaterThan(9, $checked, 'the sweep stopped reaching the shipped defaults');
+        // FAIL-CLOSED, AND THE FLOOR IS SET AGAINST A COUNTED NUMBER. logos declares 15
+        // defaults across seven of its eight roles (`item` defaults nothing by design),
+        // counted from the schema rather than estimated — the first version of this
+        // comment said "13 across six" and set the floor at 9, which would have let six of
+        // the fifteen vanish with the sweep still green. 12 keeps a margin for a
+        // legitimate removal without becoming the golden file this file disavows.
+        $this->assertGreaterThan(12, $checked, 'the sweep stopped reaching the shipped defaults');
     }
 
     /**

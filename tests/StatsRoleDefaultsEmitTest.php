@@ -7,8 +7,8 @@
  * EmbedRoleDefaultsEmitTest exist one to five rebuilds earlier (the order is section #1023
  * -> cta #1026 -> faq #1046 -> table/embed #1066 PR1 -> stats/logos #1066 PR2, so table is
  * the nearest and section the furthest). stats' rebuild moved twenty-one declarations out
- * of the stylesheet and into seven roles, six of which carry defaults, and every claim made
- * about that move — "this is the value v1 rendered", "the centring is `auto`, not a
+ * of the stylesheet and into seven roles — all seven carrying defaults, twenty-four of them —
+ * and every claim made about that move — "this is the value v1 rendered", "the centring is `auto`, not a
  * number", "the number declines a family", "the band paints nothing" — is otherwise pinned
  * only against the schema's JSON TEXT. That is one layer above the thing the claim is about.
  *
@@ -479,9 +479,15 @@ class StatsRoleDefaultsEmitTest extends TestCase
             }
         }
 
-        // Fail-closed: a walk that stops reaching the shipped defaults must not read as
-        // compliance. stats declares 20 defaults across six roles today.
-        $this->assertGreaterThan(15, $checked, 'the sweep stopped reaching the shipped defaults');
+        // FAIL-CLOSED, AND THE FLOOR IS SET AGAINST A COUNTED NUMBER. stats declares 24
+        // defaults across all seven of its roles today (counted from the schema, not
+        // estimated — the first version of this comment said "20 across six" and set the
+        // floor at 15, which would have let nine of the twenty-four vanish with the sweep
+        // still green). 19 keeps a deliberate margin for a legitimate removal while still
+        // catching a walk that has stopped reaching most of them: a floor that tracks the
+        // count exactly would be the golden file this file's docblock disavows, failing on
+        // every legitimate addition and teaching the next author to retune it unread.
+        $this->assertGreaterThan(19, $checked, 'the sweep stopped reaching the shipped defaults');
     }
 
     /**

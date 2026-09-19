@@ -6947,7 +6947,15 @@ class SchemaValidationTest extends TestCase
         'grid slot --grid-item-icon-size' => 'layout=cards AND image_treatment=icon +note(046f6c6d)',
         'grid slot --grid-step-bg' => 'layout=steps',
         'grid slot --grid-step-text-color' => 'layout=steps',
-        'logos prop items' => 'note +note(670c0bc6)',
+        // DIGEST UPDATED AT #1066, DELIBERATELY: the prose changed and the clause list did
+        // not, which is exactly the case this digest exists to surface. The note used to
+        // tell an author to defeat the label-driven cap with `--logos-image-size`; that
+        // slot retired with logos' whole slot map, so the note now names the two roles
+        // (`image` and `image-labeled`) that carry the two caps instead. Verified against
+        // the renderer and the emitted CSS: the CONDITION itself — that the cap depends on
+        // the item's own `label`, which the clause grammar cannot reach — is unchanged,
+        // which is why this row keeps its clause rendering and changes only the digest.
+        'logos prop items' => 'note +note(71c84873)',
         'nav prop logo_text' => 'note +note(0bec3f53)',
         'nav prop logo_alt' => 'note +note(4fea14e5)',
         // RETIRED (#1023): section's 35 rows left with its slot map when the component

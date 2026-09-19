@@ -232,9 +232,10 @@ contract fixes one layer down. The bounded value set lives in `pp_slot_roles()`
   invisible-but-clickable button.
 - **`measure`** — mark a length slot `measure` when it caps the width of **text**: a
   band heading, a prose column, or a content column. The name is exactly why this
-  cannot be a `-measure` suffix rule — hero's real measure is spelled
-  `--hero-content-width`, so a suffix rule would miss the one slot the hero docs point
-  every author at. Its consumer is deferred (issue #610); the runtime AI catalog
+  cannot be a `-measure` suffix rule — hero's real measure was spelled
+  `--hero-content-width` (a name now RETIRED with hero's slot map at #986, kept here
+  because it is the clearest example there is), so a suffix rule would have missed the
+  one slot the hero docs pointed every author at. Its consumer is deferred (issue #610); the runtime AI catalog
   already emits the marker so an agent is told a literal here opts that band out of a
   later site-wide `--measure-*` retune.
 

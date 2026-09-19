@@ -337,10 +337,36 @@ class AiContextTest extends TestCase
             $prompt,
             'the length-or-none carrier set must be stated, including when it empties'
         );
+        // REPRICED AT #1066, ONE LEVEL UP FROM THE NOTE ABOVE, and by its own argument.
+        // That note recorded the TEXT-measure roster emptying at #1046 and concluded that
+        // "the honest successor to a list of one is not a list of zero, it is a sentence
+        // saying the set is empty and naming where the capability went". The SLOT roster
+        // has now emptied the same way: `--stats-max-width` was the last carrier of any
+        // kind and retired with stats' rebuild. So this asserted that the cap "is the only
+        // slot carrier left and must still be named"; it is named as the one that LEFT,
+        // and what must be stated is that nothing carries the type now.
+        //
+        // The danger this guards against is unchanged and is why the assertion is repriced
+        // rather than deleted: an agent told a type exists, shown no carrier and given no
+        // route, concludes the capability is gone and reaches for the pre-#579 `100%`
+        // workaround. So the prompt must say BOTH halves — no slot carries it, and the
+        // route is a role parameter — and both are asserted.
         $this->assertStringContainsString(
-            '`--stats-max-width`',
+            'NO SHIPPED STYLE SLOT CARRIES IT ANY MORE',
             $prompt,
-            'the band-geometry cap is the only slot carrier left and must still be named'
+            'an empty carrier set must be stated as empty, not left to be inferred'
+        );
+        $this->assertStringContainsString(
+            '`--stats-max-width` was the last',
+            $prompt,
+            'the last carrier must still be named, or an author meeting it on an aged page '
+            . 'has nothing to match it against'
+        );
+        $this->assertStringContainsString(
+            'THE TYPE IS NOT GONE, ONLY ITS SLOT CARRIERS ARE',
+            $prompt,
+            'without this an agent reads an empty roster as a removed capability and falls '
+            . 'back to the pre-#579 `100%` workaround'
         );
         $this->assertStringContainsString(
             'an uncapped measure is the role\'s `sizing.max-width` set to `none`',

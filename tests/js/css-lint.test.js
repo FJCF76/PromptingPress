@@ -3512,12 +3512,19 @@ describe('CSS lint: centered content blocks carry auto inline margins (#367)', (
         expect(centeredCapped.map(([sel]) => sel)).toEqual([]);
     });
 
-    test('every centered, capped content block in the stylesheet declares an auto inline margin', () => {
-        const offenders = centeredCapped
-            .filter(([, p]) => !p.autoMargin)
-            .map(([sel]) => sel);
-        expect(offenders).toEqual([]);
-    });
+    // THE OFFENDER SCAN THAT USED TO SIT HERE IS RETIRED (#1066 PR2 review), and the
+    // reason is the pairing, not the emptiness. It filtered `centeredCapped` for members
+    // lacking an auto margin — over a list the test directly above asserts is EMPTY, so it
+    // could never fail. Worse, the two INVERT each other: the day someone adds a CORRECT
+    // centred, capped block to the stylesheet (one that does declare its auto margins),
+    // this scan would still pass and the emptiness assertion above would go red, reporting
+    // a correct block as a defect.
+    //
+    // Keeping a guard that cannot fail beside one that fails on the right answer is worse
+    // than keeping neither. The emptiness pin above stays, because "components.css
+    // declares no centred, capped block" is a real fact worth knowing when it changes. The
+    // #367 CLAIM — that such a block needs its auto margins — moves to the role arm below,
+    // which is where every such block now lives and which is derived rather than listed.
 
     // ── THE #367 CLAIM, IN THE VOCABULARY IT LIVES IN NOW ────────────────────────
     //

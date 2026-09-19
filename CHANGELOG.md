@@ -99,7 +99,7 @@ Nothing to do unless you have a stored `pp_site_udc` map with a `"_preset"` on a
 **Eleven of twelve components are now on the engine.** `stats` declared **17** style slots
 and two styling props; it declares **7 roles and zero slots**. `logos` declared 8 slots and a
 `theme` prop; it declares **8 roles and zero slots**. Between them their stylesheet blocks go
-from 24 rules to six. `grid` is the only component still on style slots.
+from 31 rules (19 for stats, 12 for logos) to six. `grid` is the only component still on style slots.
 
 ### What changes for you
 

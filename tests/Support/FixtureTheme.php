@@ -49,6 +49,33 @@ final class FixtureTheme
      * components/ directory is what the registry reads in production, and a nested
      * fixture root inside it would be discovered by any tool that globs components/*.
      */
+    /** register_shutdown_function() is idempotent by flag, not by call site. */
+    private static bool $shutdownRegistered = false;
+
+    /**
+     * Remove the fixture root at process end. Symlinks are UNLINKED, never followed —
+     * the tree is mostly symlinks into the real repo, and a recursive delete that
+     * followed them would delete the theme.
+     */
+    private static function removeDir(string $dir): void
+    {
+        if (!is_dir($dir) || is_link($dir)) {
+            return;
+        }
+        foreach (scandir($dir) ?: [] as $entry) {
+            if ($entry === '.' || $entry === '..') {
+                continue;
+            }
+            $path = $dir . '/' . $entry;
+            if (is_link($path) || !is_dir($path)) {
+                @unlink($path);
+                continue;
+            }
+            self::removeDir($path);
+        }
+        @rmdir($dir);
+    }
+
     public static function root(): string
     {
         if (self::$root !== null && is_dir(self::$root)) {
@@ -56,8 +83,31 @@ final class FixtureTheme
         }
 
         $repo = dirname(__DIR__, 2);
-        $root = sys_get_temp_dir() . '/pp-fixture-theme-' . getmypid();
+
+        // A PER-RUN PATH, NOT A PER-PID ONE, and cleaned up when the process ends.
+        //
+        // This was `'/pp-fixture-theme-' . getmypid()` and never removed, which is a trap
+        // on a machine that recycles pids (a CI box running many short jobs is exactly
+        // that). A surviving directory is ADOPTED WHOLESALE by the `file_exists($dst)`
+        // skip below, so a component DELETED from the repo since the last run would still
+        // be registered — a stale roster silently reintroduced into a suite whose whole
+        // job is to iterate the registry. Worse, a DANGLING symlink there reads as
+        // `file_exists() === false`, so the skip does not fire, `symlink()` then fails
+        // because the path exists, and the copyDir() fallback fails on mkdir() — a
+        // RuntimeException with a confusing message, from a directory nobody remembers.
+        //
+        // `uniqid()` makes collision a non-question, and the shutdown hook means the
+        // temp directory does not accumulate one tree per run either. Registered once,
+        // guarded by a flag, because root() is called from every activate().
+        $root       = sys_get_temp_dir() . '/pp-fixture-theme-' . getmypid() . '-' . uniqid();
         $components = $root . '/components';
+
+        if (!self::$shutdownRegistered) {
+            self::$shutdownRegistered = true;
+            register_shutdown_function(static function () use ($root): void {
+                self::removeDir($root);
+            });
+        }
 
         if (!is_dir($components) && !mkdir($components, 0777, true) && !is_dir($components)) {
             throw new \RuntimeException("FixtureTheme: could not create {$components}");
