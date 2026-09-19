@@ -3755,9 +3755,13 @@ main .btn:focus-visible {
    something an author can forget to switch on.
    `.cta--has-bg-image` LEFT THIS LIST AT #1026, when the `background_image` prop that
    derived it retired: a v2 cta emits the attribute instead, so the class term could
-   only ever have matched a band that no longer exists. `.hero--cover` is kept as it
-   was left at #986 rather than adjusted from this change — see the note filed against
-   it, which is a hero question and not cta's to answer. */
+   only ever have matched a band that no longer exists. `.hero--cover` is kept BYTE-IDENTICAL
+   as #986 left it rather than adjusted from this change, because it is a hero question and
+   not cta's to answer — but it is a real defect and #1039 records it: `.hero--cover` is a
+   LAYOUT class that paints no background, so a `cover` hero with no scrim takes this
+   near-white ring on the page ground at 1.02:1, which is worse than the ordinary accent
+   ring's 5.43:1. The engine-emitted term above is the correct key; the layout term is the
+   one to drop, and #1039 carries the zero-impact argument for dropping it. */
 [data-pp-band-overlay] .btn:focus,
 .hero--cover .btn:focus {
   outline-color: var(--color-accent-on-overlay);
