@@ -82,7 +82,7 @@ byte-identical to v1. **An `inline` cta now paints them too.** For the v1 inline
 | `body` | `.cta__body` | the supporting line: ink, size, weight, leading |
 | `body-link` | `.cta__body a` | links inside the body — **declares nothing** (see below) |
 | `buttons` | `.cta__buttons` | the pair row's gap |
-| `button` | `.cta__button` | the primary button — **declares nothing** (see below) |
+| `button` | `.cta__button--primary` | the primary button, and only it — **declares nothing** (see below) |
 | `button-secondary` | `.cta__button--secondary` | the second button — the only role here with colour-bearing defaults |
 
 ### Two roles declare nothing, and that is the deliberate part

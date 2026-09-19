@@ -228,7 +228,16 @@ $overlay_attr = !empty($props['__pp_udc_overlay']) ? ' data-pp-band-overlay' : '
             </div>
             <?php endif; ?>
 
-<?php // The wrapper control tags below start at column 0 ON PURPOSE. PHP emits
+<?php // THE PRIMARY CARRIES ITS OWN MODIFIER (`cta__button--primary`) so the `button` role
+      // has a FLAT class selector, exactly as hero's primary does (#986). A role selector's
+      // charset admits no `:`, so `.cta__button:not(.cta__button--secondary)` is not
+      // expressible — and WITHOUT the modifier `.cta__button` matches BOTH anchors, which
+      // would make a role documented as "the primary button" silently style the pair for
+      // every group `button-secondary` does not itself declare (spacing, sizing, motion).
+      // It costs no emitted CSS: `button` declares no defaults, so nothing is emitted for
+      // that selector until an author writes a value on it.
+      //
+      // The wrapper control tags below start at column 0 ON PURPOSE. PHP emits
       // everything outside its tags verbatim, so an INDENTED control tag still
       // prints its own leading spaces even when the branch is false. At column 0
       // there is no leading whitespace to print, and the closing tag eats the
@@ -238,7 +247,7 @@ $overlay_attr = !empty($props['__pp_udc_overlay']) ? ' data-pp-band-overlay' : '
 <?php if ($has_button2) : ?>
             <div class="cta__buttons">
 <?php endif; ?>
-            <a href="<?php echo esc_url($button_url); ?>" class="cta__button btn">
+            <a href="<?php echo esc_url($button_url); ?>" class="cta__button cta__button--primary btn">
                 <?php echo esc_html($button_text); ?>
             </a>
 <?php if ($has_button2) : ?>

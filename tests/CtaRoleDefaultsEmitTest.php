@@ -341,8 +341,14 @@ class CtaRoleDefaultsEmitTest extends TestCase
      */
     public function testTheTwoRolesThatDeclareNothingEmitNothing(): void
     {
+        // MATCH THE ROLE'S ACTUAL SELECTOR, `.cta__button--primary`. This regex read
+        // `/\.cta__button\{/` while the role selected `.cta__button`; once the role gained
+        // the primary modifier that pattern could no longer be produced by ANY `button`
+        // declaration, so the assertion would have passed whatever the role emitted — the
+        // vacuous-negative trap. The `\{` is still load-bearing: without it the pattern
+        // would also match `.cta__button--secondary{`, which is a block that MUST exist.
         $this->assertDoesNotMatchRegularExpression(
-            '/\.cta__button\{/',
+            '/\.cta__button--primary\{/',
             $this->css,
             'the `button` role must emit NO block: every value it renders comes from the '
             . 'shared .btn and premium rules in pp-v1, and restating one here moves it to '

@@ -572,7 +572,7 @@ class ComponentPropsTest extends TestCase
     public function testCtaButtonVariantPrimaryIsBareBtn(): void
     {
         $html = $this->render('cta', $this->ctaProps(['button_variant' => 'primary']));
-        $this->assertStringContainsString('class="cta__button btn"', $html);
+        $this->assertStringContainsString('class="cta__button cta__button--primary btn"', $html);
         $this->assertStringNotContainsString('btn--', $html);
     }
 
@@ -582,14 +582,14 @@ class ComponentPropsTest extends TestCase
     public function testCtaButtonVariantInvalidFallsBackToPrimary(): void
     {
         $html = $this->render('cta', $this->ctaProps(['button_variant' => 'neon']));
-        $this->assertStringContainsString('class="cta__button btn"', $html);
+        $this->assertStringContainsString('class="cta__button cta__button--primary btn"', $html);
         $this->assertStringNotContainsString('btn--', $html);
     }
 
     public function testCtaButtonVariantDefaultsToPrimary(): void
     {
         $html = $this->render('cta', $this->ctaProps());
-        $this->assertStringContainsString('class="cta__button btn"', $html);
+        $this->assertStringContainsString('class="cta__button cta__button--primary btn"', $html);
         $this->assertStringNotContainsString('btn--', $html);
     }
 
@@ -615,13 +615,13 @@ class ComponentPropsTest extends TestCase
         // Pin the exact indentation so a future re-indent of those tags fails here
         // instead of quietly widening the diff on every existing page.
         $this->assertMatchesRegularExpression(
-            '/\n {12}<a href="#" class="cta__button btn">/',
+            '/\n {12}<a href="#" class="cta__button cta__button--primary btn">/',
             $baseline,
             'the primary anchor must keep exactly its pre-474 indentation — the false '
             . 'button2 branch must emit no bytes at all'
         );
         $this->assertDoesNotMatchRegularExpression(
-            '/\n {13,}<a href="#" class="cta__button btn">/',
+            '/\n {13,}<a href="#" class="cta__button cta__button--primary btn">/',
             $baseline,
             'stray indentation leaked from the unset second button branch'
         );
@@ -687,7 +687,7 @@ class ComponentPropsTest extends TestCase
         ]));
 
         $this->assertStringContainsString('<div class="cta__buttons">', $html, 'the pair needs its own flex row');
-        $this->assertStringContainsString('class="cta__button btn"', $html, 'primary keeps the bare .btn');
+        $this->assertStringContainsString('class="cta__button cta__button--primary btn"', $html, 'primary keeps the bare .btn');
         // BOTH buttons are a bare `.btn` since #1026. `button2_variant` retired with the
         // other three styling props, so the renderer emits no `btn--outline` modifier and
         // the second button's look is the `button-secondary` ROLE — which carries v1's
@@ -778,7 +778,7 @@ class ComponentPropsTest extends TestCase
         // and no empty text wrapper (which would add a stray flex gap / break
         // the inline space-between layout).
         $html = $this->render('cta', ['button_text' => 'Empezar', 'button_url' => '/signup']);
-        $this->assertStringContainsString('class="cta__button btn"', $html);
+        $this->assertStringContainsString('class="cta__button cta__button--primary btn"', $html);
         $this->assertStringContainsString('Empezar', $html);
         $this->assertStringNotContainsString('cta__title', $html);
         $this->assertStringNotContainsString('<h2', $html);
