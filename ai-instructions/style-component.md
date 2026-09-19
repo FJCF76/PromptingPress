@@ -468,11 +468,15 @@ the three PROSE-ONLY conditions the clause grammar could not express (a disjunct
 "inverted OR a background image"); a role's block is emitted only when its element renders,
 so that condition is structural and needs no note.
 
-## The three narrow bands: `table`, `embed`, `logos`
+## The narrow band: `logos` (and the two that left)
 
-These three declare far fewer slots than `grid` — the widest surface left now that `hero`,
-`section`, `testimonials`, `cta` and `faq` have none at all — and the
+`logos` declares far fewer slots than `grid` — the widest surface left now that `hero`,
+`section`, `testimonials`, `cta`, `faq`, `table` and `embed` have none at all — and the
 gap is a contract, not an omission. Read this before assuming a slot is missing.
+
+`table` and `embed` used to be described here beside it. Both moved to the v2 contract at
+#1066 and declare no slots; what remains below for each is the retired surface, kept for
+whoever meets a stored `--table-*` or `--embed-*` key on an old page.
 
 **`table` is on the v2 contract since #1066 and has NO style slots.** Its band padding, heading
 size/colour/measure/rhythm, and everything v1 had no slot for at all — the table fill, the head
@@ -491,12 +495,27 @@ the horizontal scroll is **viewport-independent** (`overflow-x: auto` with no me
 query), so a wide table scrolls at 1440px exactly as it does at 375px. Widen the band or
 cut columns; there is no slot that switches it off.
 
-**`embed` (8 slots) — band padding, heading, and the content column.**
-`--embed-body-measure` (default `40rem`) caps the embedded content's column and
-`--embed-body-color` sets its inherited ink. Neither reaches into a plugin's own markup
-further than inheritance does: a shortcode that sets its own colours wins, and that is
-expected — `embed` is the sanctioned escape hatch for plugin-rendered content, not a
-styling surface for it.
+**`embed` is on the v2 contract since #1066 and has NO style slots.** Its band padding,
+heading and content column are the four roles in `components/embed/schema.json` — `_band`,
+`heading`, `content` and `content-link` — set through the band's `udc` map. Sending any
+`--embed-*` name to `style_component` is refused with `retired_prop`, and the refusal names
+the roles. The `theme` prop retired with them.
+
+THE ONE THING TO KNOW BEFORE DARKENING AN EMBED BAND, because it reaches less than you
+expect: `content` is arbitrary author HTML, and a `_band` -> `typography.color` write is
+used only where nothing else declares a colour. A bare paragraph inherits it. An
+author-written `<h2>`-`<h6>` does NOT (base.css pins `@color-text`, 1.006:1 on an inverted
+band), nor does a `<blockquote>`, nor does a link — links have the `content-link` role,
+which ships with no defaults precisely so that an authored value there wins without a
+default outranking the premium button rules for an `<a class="btn">`. So a dark embed band
+costs the `_band` write plus one per element the embedded content actually uses.
+
+Neither the old slots nor the new roles reach into a plugin's own markup further than
+inheritance does: a shortcode that sets its own colours wins, and that is expected —
+`embed` is the sanctioned escape hatch for plugin-rendered content, not a styling surface
+for it. The retired v1 surface, for reference only: `--embed-padding-top` / `-bottom`,
+`--embed-heading-size` / `-color` / `-measure` / `-margin-bottom`, `--embed-body-measure`
+and `--embed-body-color`.
 
 **`logos` (8 slots) — band padding, heading, gap, and image size.**
 `--logos-image-size` is the one to know: it has **two** effective defaults, `3rem` on a

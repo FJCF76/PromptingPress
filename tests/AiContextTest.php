@@ -971,8 +971,11 @@ class AiContextTest extends TestCase
         // registry-derived and therefore picked table up the moment it declared roles.
         $prompt = pp_ai_system_prompt();
         $lines = explode("\n", $prompt);
+        // embed's row left at #1066 with table's, for the same reason. logos is the last
+        // declarer of a `--*-heading-size` slot that this test can reach; when it goes,
+        // this test retires rather than narrowing to zero (an empty roster would pass
+        // vacuously, which is the #1038 shape).
         $expected = [
-            'embed' => '--embed-heading-size',
             'logos' => '--logos-heading-size',
         ];
         foreach ($expected as $name => $slot) {

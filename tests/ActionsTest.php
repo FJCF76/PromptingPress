@@ -4756,12 +4756,10 @@ class ActionsTest extends TestCase
         $cases = [
             'grid'   => ['--grid-heading-margin-bottom'   => '1.5rem'],
             'stats'  => ['--stats-heading-margin-bottom'  => '0'],
-            'embed'  => ['--embed-heading-margin-bottom'  => '0'],
             'logos'  => ['--logos-heading-margin-bottom'  => '0']];
         $props = [
             'grid'  => ['title' => 'Cards', 'items' => [['title' => 'Card', 'text' => 'B']]],
             'stats' => ['title' => 'Numbers', 'items' => [['number' => '10', 'label' => 'x']]],
-            'embed' => ['title' => 'Embed', 'content' => '[shortcode]'],
             'logos' => ['title' => 'Clients', 'items' => [[]]]];
 
         foreach ($cases as $component => $style) {

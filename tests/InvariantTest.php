@@ -1578,7 +1578,7 @@ class InvariantTest extends TestCase
             // untouched. table never had an items read to lose — its typed boundary is
             // the per-CELL wp_kses_post() guard (#730), which this rebuild does not touch
             // and which is pinned in StoredLinkAndRichTextRenderGuardTest.
-            ['embed', 'grid', 'logos', 'stats'],
+            ['grid', 'logos', 'stats'],
             $callers,
             'the set of components calling pp_render_style_vars() changed — a new caller must'
             . ' carry the #708 guard (add it, then update this list)'

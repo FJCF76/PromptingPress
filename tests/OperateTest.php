@@ -2021,10 +2021,14 @@ class OperateTest extends TestCase
         $this->assertSame('number', $logos['items[].image_id']);
         $this->assertSame('image_url', $this->fieldFormat('logos', 'items[].image_url'));
 
-        // embed — absent before; content/title/theme.
+        // embed — absent before; content/title. Its `theme` retired at #1066, so the
+        // enum assertion moved to logos, which still declares one — the CLAIM is that the
+        // field matrix derives an `enum` TYPE correctly, not that embed in particular has
+        // one, so it keeps its full value on any component that still does.
         $embed = $this->fieldMap('embed');
         $this->assertSame('string', $embed['content']);
-        $this->assertSame('enum', $embed['theme']);
+        $this->assertArrayNotHasKey('theme', $embed, 'embed is a v2 component: its theme is the `_band` role');
+        $this->assertSame('enum', $this->fieldMap('logos')['theme']);
 
         // Unknown/unschema'd type returns empty (composability guard intact).
         $this->assertSame([], pp_get_component_fields('nonexistent'));

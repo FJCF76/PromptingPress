@@ -236,7 +236,8 @@ class SchemaValidationTest extends TestCase
         // selects has no home in the UDC taxonomy, which is why cta stays in $expectLayout
         // while leaving $expectTheme.
         $expectLayout = ['hero', 'section', 'grid', 'cta', 'testimonials'];
-        $expectTheme  = ['stats', 'logos', 'embed', 'grid'];
+        // embed left at #1066 with its `theme`, as faq did at #1046 and cta at #1026.
+        $expectTheme  = ['stats', 'logos', 'grid'];
 
         foreach ($expectTheme as $component) {
             $this->assertArrayNotHasKey(
@@ -4243,6 +4244,27 @@ class SchemaValidationTest extends TestCase
      * happens to documents that already store the old name.
      */
     private const SCHEMA_RENAME_MIGRATION_NOTES = [
+        // ── v2 Sprint 2 (#1066): embed's `theme` prop retired ──
+        //
+        // table is rebuilt in the same issue and appears NOWHERE in this register, which
+        // is the fact rather than an omission: it never declared `theme`, so it retires
+        // no prop at all and its whole change is style slots to roles.
+        'embed' => [
+            'theme' => 'REMOVED in v2 (#1066). It was a bundle of band values and the route '
+                . 'names three groups rather than only the fill, because `muted` drew borders '
+                . 'a background-only route would silently drop: the tone is the `_band` '
+                . 'role\'s `background.fill`, the `muted` framing is its `border.width-top` / '
+                . '`width-bottom` at 1px solid `@color-border`, and the `inverted` ink is its '
+                . '`typography.color`, which the `heading` role follows through `currentColor` '
+                . 'and which the `content` role receives by inheritance. `dark` was not an '
+                . 'accepted input value (removed at #605) and is not part of the route. WHAT '
+                . 'THE ROUTE DOES NOT REACH, because embed\'s content is arbitrary author '
+                . 'HTML: an inherited band colour is used only where nothing else declares '
+                . 'one, so an author-written `<h2>`-`<h6>` (base.css pins `@color-text`, '
+                . '1.006:1 on an inverted band), a `<blockquote>` and a link keep their own '
+                . 'base.css declarations. A link has the `content-link` role; the other two '
+                . 'need the embedded content\'s own markup to carry them.',
+        ],
         // ── v2 Sprint 2 (#1046): faq's `theme` prop retired ──
         'faq' => [
             'theme' => 'REMOVED in v2 (#1046). It was a bundle of band values and the route '
@@ -4953,6 +4975,29 @@ class SchemaValidationTest extends TestCase
      * make the problem quietly go away, which #603/#604 removed the machinery for.
      */
     private const SLOT_RENAME_MIGRATION_NOTES = [
+        // ── v2 Sprint 2 (#1066): embed's 8 style slots retired ──
+        //
+        // TWO NOTES ARE NOT PLAIN MOVES. `--embed-heading-color`'s DEFAULT changed (a
+        // pinned `@color-text` became `currentColor`, the #1046 ruling), and
+        // `--embed-body-color` has NO v2 replacement at all — which is the interesting
+        // one, and is a deliberate silence rather than a gap: v1 declared
+        // `color: var(--embed-body-color, inherit)`, an explicit `inherit`, and no rule
+        // in this theme matches a bare <div> for `color`, so an inherited `_band` value
+        // already lands and silence is byte-identical. The `content` role still declares
+        // the `typography` group, so an author can set it; only the DEFAULT is absent.
+        //
+        // `--embed-body-measure` was the LAST body-measure slot in the theme. Its claim
+        // is re-homed to MeasureSurfaceTest's v2-side assertion rather than deleted.
+        'embed' => [
+            '--embed-padding-top' => 'REPLACED in v2 (#1066) by the `_band` role\'s `spacing.padding-top`. Its per-component adjacent-sibling rule went with it, at both tiers.',
+            '--embed-padding-bottom' => 'REPLACED in v2 (#1066) by the `_band` role\'s `spacing.padding-bottom`.',
+            '--embed-heading-size' => 'REPLACED in v2 (#1066) by the `heading` role\'s `typography.size`, still referencing the shared `@pp-band-heading-size` token.',
+            '--embed-heading-color' => 'REPLACED in v2 (#1066) by the `heading` role\'s `typography.color` — but the DEFAULT CHANGED, from the pinned `var(--color-text)` this slot fell back to, to `currentColor`. The only dark embed band v1 could render was `theme: "inverted"`, which is retired, so the two are identical on every band v1 could express and diverge only on an authored `_band.background.fill`, where the literal lands at 1.006:1.',
+            '--embed-heading-measure' => 'REPLACED in v2 (#1066) by the `heading` role\'s `sizing.max-width`, still defaulting to `@measure-heading`.',
+            '--embed-heading-margin-bottom' => 'REPLACED in v2 (#1066) by the `heading` role\'s `spacing.margin-bottom`, still `@space-lg`.',
+            '--embed-body-measure' => 'REPLACED in v2 (#1066) by the `content` role\'s `sizing.max-width`, which KEEPS ITS OWN 40rem LITERAL rather than routing `@measure-heading`. That separation is #578\'s and is deliberate: the two resolve to the same 640px today, and folding them would re-flow embedded content on the next heading-scale retune.',
+            '--embed-body-color' => 'RETIRED in v2 (#1066) with NO replacement default, deliberately. v1 declared `color: var(--embed-body-color, inherit)` — an explicit `inherit`, which IS a declaration — but no rule in this theme matches a bare <div> for `color`, so an inherited `_band` -> `typography.color` already lands and silence is byte-identical. The `content` role declares the `typography` group, so an author can still set it. The v1 inverted twin (`.embed--inverted .embed__content`) retired with the `theme` class.',
+        ],
         // ── v2 Sprint 2 (#1066): table's 6 style slots retired ──
         //
         // The SMALLEST retired slot map in the whole migration (hero 49, section 47,
@@ -6457,9 +6502,11 @@ class SchemaValidationTest extends TestCase
         // went in #958, section's `theme`, `title_align` and `--section-inline-items-align`
         // in #1023 — offset by the new `body_items_align` prop, so 25 -> 22 — and cta's
         // `theme`, `button_variant` and `button2_variant` in #1026, 22 -> 19, and faq's
-        // `theme` in #1046, 19 -> 18. Every retirement is recorded in
+        // `theme` in #1046, 19 -> 18, and embed's `theme` in #1066, 18 -> 17. table is
+        // rebuilt in that same issue and changes nothing here: it never declared an enum.
+        // Every retirement is recorded in
         // SCHEMA_RENAME_MIGRATION_NOTES / SLOT_RENAME_MIGRATION_NOTES.
-        $this->assertSame(18, $checked, 'the shipped `values` inventory changed — re-confirm the sweep reaches it');
+        $this->assertSame(17, $checked, 'the shipped `values` inventory changed — re-confirm the sweep reaches it');
     }
 
     /**
@@ -6624,10 +6671,10 @@ class SchemaValidationTest extends TestCase
             $seen,
             'every component except the recorded retirements and the four that never had `theme`'
         );
-        // FOUR since #1046, when faq's `theme` joined the recorded retirements. The
-        // derived assertion above is the real guard — this literal exists so a rebuild
-        // has to come here and say which component moved.
-        $this->assertSame(4, $seen, 'all four remaining theme-bearing components must be checked');
+        // THREE since #1066, when embed's `theme` joined the recorded retirements
+        // (grid, logos, stats remain). The derived assertion above is the real guard —
+        // this literal exists so a rebuild has to come here and say which component moved.
+        $this->assertSame(3, $seen, 'all three remaining theme-bearing components must be checked');
     }
 
     /**
@@ -6716,10 +6763,6 @@ class SchemaValidationTest extends TestCase
         // STYLE-SLOT concept — "this slot has no effect unless that prop is set" — and
         // a v2 component has no slots. Its roles are unconditional by construction,
         // which testTheV2ComponentHasNoLayoutGatedConditionalityLeft() pins.
-        'embed slot --embed-heading-size' => 'title present',
-        'embed slot --embed-heading-color' => 'title present',
-        'embed slot --embed-heading-measure' => 'title present',
-        'embed slot --embed-heading-margin-bottom' => 'title present',
         'footer prop logo_text' => 'note +note(13cd2dd9)',
         'footer prop logo_id' => 'note +note(54994bfc)',
         'footer prop logo_alt' => 'note +note(48b1256c)',
@@ -6774,7 +6817,7 @@ class SchemaValidationTest extends TestCase
         'stats slot --stats-label-color' => 'items present',
         'stats slot --stats-bg-position' => 'background_image present',
         'stats slot --stats-overlay-bg' => 'background_image present',
-        // table's four rows left at #1066 with its slots. THE CONDITION ITSELF SURVIVES
+        // table's four rows left at #1066 with its slots, and embed's four with them. THE CONDITION ITSELF SURVIVES
         // AS A DIFFERENT KIND OF FACT: the `heading` role's defaults are emitted for every
         // table band whether or not a title renders, and an emitted declaration matching
         // no element is inert rather than wrong — so there is nothing left for this ledger
@@ -7198,10 +7241,14 @@ class SchemaValidationTest extends TestCase
             }
         }
 
-        // FOUR since #1046: faq.php no longer calls pp_theme_class() at all, because the
-        // prop that fed it retired. The floor moves with the roster rather than being
-        // loosened — its job is to catch the sweep silently finding nothing.
-        $this->assertGreaterThanOrEqual(4, $checked, 'the theme-bearing templates must still be swept');
+        // THREE since #1066: embed.php no longer calls pp_theme_class() at all, because
+        // the prop that fed it retired, exactly as faq.php stopped at #1046. The floor
+        // moves with the roster rather than being loosened — its job is to catch the
+        // sweep silently finding nothing. NOTE for the next rebuild: grid, logos and
+        // stats are the last three callers, and stats and logos both go in #1066's second
+        // half, leaving grid alone. A one-caller sweep is worth re-founding rather than
+        // narrowing again.
+        $this->assertGreaterThanOrEqual(3, $checked, 'the theme-bearing templates must still be swept');
 
         $section = json_decode(file_get_contents($this->themeRoot . '/components/section/schema.json'), true);
         $this->assertSame('section', $section['styling']['root_class'], 'the root class itself is unprefixed');
@@ -7569,6 +7616,7 @@ class SchemaValidationTest extends TestCase
             'cta'          => ['button_text' => 'Go', 'button_url' => '/go'],
             'faq'          => ['items' => [['question' => 'Q?', 'answer' => 'A.']]],
             'table'        => ['headers' => ['H'], 'rows' => [['r']]],
+            'embed'        => ['content' => '<p>E</p>'],
         ];
 
         foreach ($v2 as $component) {

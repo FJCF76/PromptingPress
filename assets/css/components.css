@@ -2570,75 +2570,51 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
 }
 
 /* ==========================================================================
-   COMPONENT: embed
+   COMPONENT: embed  —  A v2 COMPONENT
    Generic WP shortcode / plugin content wrapper.
    ========================================================================== */
 
-.embed {
-  /* Band padding joins the shared symmetric rhythm (issue 438); see .table-section. */
-  padding-top: var(--embed-padding-top, var(--pp-band-padding));
-  padding-bottom: var(--embed-padding-bottom, var(--pp-band-padding));
-}
+/* THIS BLOCK IS EMPTY, AND THAT IS THE POINT (#1066).
+   ------------------------------------------------------------------------------
+   embed is the first component in the theme with NO structural CSS at all. Every rule it
+   had was a value a role owns now:
 
-.embed__heading {
-  /* Band heading joins the shared responsive scale (issue 436); color slot (issue
-     438) falls back to the h2 default var(--color-text) so unset output is unchanged. */
-  font-size: var(--embed-heading-size, var(--pp-band-heading-size));
-  color: var(--embed-heading-color, var(--color-text));
-  /* Heading rhythm (issue 584): band fusing needs this gap zeroable per instance.
-     The fallback is this rule's own prior literal — byte-identical unset. */
-  margin-bottom: var(--embed-heading-margin-bottom, var(--space-lg));
-  /* embed's own heading measure (issue 578), severed from the shared six-selector rule
-     that read --cta-heading-measure from inside the section block. */
-  max-width: var(--embed-heading-measure, var(--measure-heading));
-}
+     .embed                       padding      -> `_band`  spacing.padding-top / -bottom
+     .embed__heading              size         -> `heading` typography.size
+                                  colour       -> `heading` typography.color (currentColor)
+                                  rhythm       -> `heading` spacing.margin-bottom
+                                  measure      -> `heading` sizing.max-width
+     .embed__content              measure      -> `content` sizing.max-width
+                                  colour       -> NOTHING: v1's `inherit` was an explicit
+                                                  declaration, but no rule in this theme
+                                                  matches a bare <div> for `color`, so an
+                                                  inherited `_band` value already lands and
+                                                  silence is the byte-identical port
+     .embed--dark / --inverted    the three theme variants, retired with the `theme` prop
+     .embed--inverted a           #437's dark-band link ink -> the `content-link` role
 
-.embed__content {
-  /* Was a bare 40rem literal, so an operator could not narrow or widen embedded body
-     copy at all (issue 578). The literal stays the fallback: this is a BODY measure, not
-     a heading one, so it deliberately does NOT route --measure-heading — the two are
-     independent surfaces that happen to share a number today. */
-  max-width: var(--embed-body-measure, 40rem);
-  /* Body ink joins the slot surface (issue 577). The heading half of issue 438's work
-     was routed and this half was not, leaving --embed-heading-color slotted beside an
-     unrouted token reference on the inverted twin below. The fallback is `inherit`
-     (the .hero__title idiom in this sheet), so an unset slot resolves to whatever the
-     element already inherited and the base band is byte-identical under any ancestor,
-     not just the shipped body color. */
-  color: var(--embed-body-color, inherit);
-}
+   WHY NOTHING SURVIVES, said plainly so nobody "restores" a rule here. embed renders a
+   <section>, a .container, an optional <h2> and a wrapper <div>. It has no layout to
+   scaffold, no wrapper geometry beyond the shared .container, and no accessibility
+   affordance of its own — the focus ring over a scrim is the shared
+   `[data-pp-band-overlay] .btn:focus` rule further down this file, which embed reaches by
+   emitting the engine's attribute rather than by declaring anything here.
 
-/* Embed variants */
-.embed--dark {
-  background-color: var(--color-surface);
-  border-top: 1px solid var(--color-border);
-  border-bottom: 1px solid var(--color-border);
-}
+   `.embed__content`'s `max-width` is the one that looks structural and is not. `max-width`
+   IS in the structural-CSS lint's allowed set, so a 40rem literal here would pass — but it
+   is a MEASURE, the same design value section's rebuild moved onto roles at #1023, and
+   keeping it here on a classification technicality is exactly the split authority the v2
+   boundary exists to end. It is the `content` role's `sizing.max-width`, and the schema
+   records why it keeps its own literal rather than routing `--measure-heading`.
 
-.embed--inverted {
-  background-color: var(--color-bg-inverted);
-}
+   `.embed` still appears in the shared `scroll-margin-top` list near the top of this file.
+   That rule spans ten components and belongs to none of them, which is why the lint
+   exempts multi-component selectors and why it is not a violation of this emptiness.
 
-.embed--inverted .embed__heading {
-  /* Route the inverted heading through the same slot (issue 438); unset falls back
-     to var(--color-bg). */
-  color: var(--embed-heading-color, var(--color-bg));
-}
-
-.embed--inverted .embed__content {
-  /* Route the inverted body through the same slot (issue 577), matching the heading
-     rule above; unset falls back to var(--color-bg) exactly as before. */
-  color: var(--embed-body-color, var(--color-bg));
-}
-
-.embed--inverted a {
-  /* Dark-band body link → on-inverted accent role for AA (issue 437). */
-  color: var(--color-accent-on-inverted);
-}
-
-.embed--inverted a:hover {
-  color: var(--color-accent-on-inverted-hover);
-}
+   The band root carries no rule either — its padding is the `_band` role's default. Both
+   of embed's per-component adjacent-sibling rules went with the slot they existed to keep
+   alive, for the reason section's went at #1023, cta's at #1026, faq's at #1046 and
+   table's at #1066. */
 
 /* ==========================================================================
    COMPONENT: testimonials  —  THE FIRST v2 COMPONENT
@@ -3833,14 +3809,15 @@ main .btn:focus-visible {
      needs no `:not()` exclusion either — its `_band` padding default is the shared
      `@pp-band-padding` on both edges, the same value this tier carries, so the adjacent
      rhythm winning the top edge is the intended arrangement rather than a collision. */
-  /* logos/embed keep the per-component adjacent-top routing (issue 438) so their
-     adjacent-top edge tracks the same shared tier AND an explicit --<comp>-padding-top
-     wins on that edge too, not just their own base edges. */
+  /* embed's per-component adjacent rule was DELETED at #1066 alongside table's, for the
+     reason section's went at #1023, cta's at #1026 and faq's at #1046: it existed only to
+     keep a `--embed-padding-top` slot live at this specificity, and with no slot left it
+     resolved to exactly what the zero-specificity baseline above already gives. */
+  /* logos keeps the per-component adjacent-top routing (issue 438) so its adjacent-top
+     edge tracks the same shared tier AND an explicit --logos-padding-top wins on that
+     edge too, not just its own base edges. */
   main > [data-pp-component] + .logos {
     padding-top: var(--logos-padding-top, var(--pp-band-padding-adjacent-top));
-  }
-  main > [data-pp-component] + .embed {
-    padding-top: var(--embed-padding-top, var(--pp-band-padding-adjacent-top));
   }
 }
 
@@ -3940,13 +3917,11 @@ main .btn {
     padding-top: var(--stats-padding-top, var(--pp-band-padding-adjacent-top));
   }
   /* faq's mobile adjacent rule went with its desktop twin at #1046 — same reason. */
-  /* table's mobile adjacent rule went with its desktop twin at #1066 — same reason. */
-  /* logos/embed adjacent-top on mobile too (issue 438). */
+  /* table's and embed's mobile adjacent rules went with their desktop twins at #1066 —
+     same reason. */
+  /* logos adjacent-top on mobile too (issue 438). */
   main > [data-pp-component] + .logos {
     padding-top: var(--logos-padding-top, var(--pp-band-padding-adjacent-top));
-  }
-  main > [data-pp-component] + .embed {
-    padding-top: var(--embed-padding-top, var(--pp-band-padding-adjacent-top));
   }
   /* HERO IS NOT IN THIS LIST, AND THAT IS THE v2 SHAPE (#986).
      It used to be, with a fallback of its own (--space-xl rather than the shared

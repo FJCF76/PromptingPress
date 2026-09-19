@@ -179,10 +179,26 @@ class TableEmbedLogosMarkupTest extends TestCase
         $this->assertStringNotContainsString('embed__content', $noContent);
     }
 
-    public function testEmbedInvertedThemeEmitsTheInvertedModifier(): void
+    /**
+     * THE INVERTED MODIFIER IS GONE (#1066), and this test asserts its ABSENCE rather
+     * than being deleted with the prop.
+     *
+     * Deleting it would have been the #1038 mistake in its purest form: the claim it
+     * made ("a theme value reaches the rendered class list") is exactly the claim that
+     * must now be FALSE, and nothing else in this file would notice a variant class
+     * quietly returning. A stored `theme` on an existing band is the ordinary state of
+     * every page written before the rebuild, so the shape is reachable, not theoretical.
+     */
+    public function testEmbedEmitsNoThemeModifierNowThatTheThemePropIsRetired(): void
     {
+        // A STORED theme, which is what a pre-rebuild band actually holds. The write path
+        // refuses it; storage still carries it, and the renderer must ignore it.
         $html = $this->render('embed', ['theme' => 'inverted', 'content' => 'x']);
-        $this->assertStringContainsString('class="embed embed--inverted"', $html);
+
+        $this->assertStringContainsString('class="embed"', $html, 'the root class stands alone');
+        $this->assertStringNotContainsString('embed--inverted', $html);
+        $this->assertStringNotContainsString('embed--dark', $html);
+        $this->assertStringNotContainsString('embed--', $html, 'no variant class survives the rebuild');
     }
 
     // ── logos ────────────────────────────────────────────────────────────────

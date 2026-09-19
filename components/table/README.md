@@ -58,6 +58,10 @@ So the roles fall into two groups that need **opposite** treatment:
 
 `caption` is the one that is easy to miss, and the reason is structural rather than visual: a `<caption>` box renders **outside** the table's background box (CSS 2.1 §17.4), so `table` → `background.fill` never paints behind it. It sits on the band fill like a bare paragraph. Measured: `@color-muted` (`#5e6677`) on an authored `@color-bg-inverted` band is about **3.1:1**, under the 4.5:1 floor for its 14px.
 
+> **The fill and the ink are two writes.** `currentColor` on the `heading` role follows the band's
+> `typography.color`, not its `background.fill`. A band given a dark fill and no ink keeps the inherited
+> `@color-text` and renders its heading at about **1.04:1**. Write both, always.
+
 **A dark table band therefore costs three writes:** `_band` → `background.fill`, `caption` → `typography.color`, `empty` → `typography.color`. If you *also* darken `table` or `head`, you owe `cell` and `header` ink too — and `caption` is not part of that second group, because it was never on those surfaces.
 
 ### The row separator moved to the top edge

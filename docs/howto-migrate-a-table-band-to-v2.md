@@ -102,6 +102,11 @@ items light on a dark band. So:
 **outside** the table's background box (CSS 2.1 §17.4), so `table` → `background.fill` never
 paints behind it.
 
+> **The fill and the ink are two writes, and setting only the fill is the common mistake.**
+> `currentColor` on the `heading` role follows the band's `typography.color`, not its
+> `background.fill`. Give a band a dark fill and no ink and the heading keeps the inherited
+> `@color-text`, rendering at about **1.04:1**. Write both together.
+
 **A dark table band is three writes:**
 
 ```json

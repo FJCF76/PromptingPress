@@ -92,7 +92,7 @@ class StyleSlotContractTest extends TestCase
         // table left at #1066; stats and logos leave in the same issue's second half, at
         // which point grid and embed are all that remain and this file's own retirement
         // becomes the question rather than another narrowing.
-        foreach (['embed', 'grid', 'logos', 'stats'] as $known) {
+        foreach (['grid', 'logos', 'stats'] as $known) {
             $this->assertContains($known, $found, "Schema discovery lost the {$known} component.");
         }
         // …and the v2 components must NOT be discovered here, or this suite would start
@@ -100,7 +100,7 @@ class StyleSlotContractTest extends TestCase
         // style-slot system in #958, hero in #986, section in #1023 and cta in #1026; their
         // authoring surface is roles, and the contract that replaced this one is the UDC
         // engine's own. nav and footer are chrome and were never in this set.
-        foreach (['hero', 'section', 'testimonials', 'cta', 'faq', 'table'] as $v2) {
+        foreach (['hero', 'section', 'testimonials', 'cta', 'faq', 'table', 'embed'] as $v2) {
             $this->assertNotContains($v2, $found, "{$v2} is a v2 component: it declares no style slots.");
         }
     }
@@ -659,10 +659,14 @@ class StyleSlotContractTest extends TestCase
         // lower: TableRoleDefaultsEmitTest pins the EMITTED
         // `margin-bottom:var(--space-lg)` on the `heading` role, which is what an unset
         // band now renders from.
+        // table's row left at #1066 and embed's with it. TWO remain, and the claim is
+        // unchanged for both — it is about a slot routing its own literal so an unset
+        // band is byte-identical. Each departed component's replacement asserts the same
+        // value one layer lower, against the EMITTED `margin-bottom:var(--space-lg)` on
+        // its `heading` role.
         $expected = [
-            'stats'  => ['.stats__heading',         'var(--space-lg)'],
-            'embed'  => ['.embed__heading',         'var(--space-lg)'],
-            'logos'  => ['.logos__heading',         'var(--space-lg)'],
+            'stats'  => ['.stats__heading', 'var(--space-lg)'],
+            'logos'  => ['.logos__heading', 'var(--space-lg)'],
         ];
 
         foreach ($expected as $component => [$selector, $literal]) {
@@ -1201,17 +1205,17 @@ class StyleSlotContractTest extends TestCase
             }
         }
 
-        // Fail-closed: 4 styled components render a root style attr and grid renders a
-        // per-card one, so 5. Two left in #1023 with section's rebuild (its root attribute
+        // Fail-closed: 3 styled components render a root style attr and grid renders a
+        // per-card one, so 4. Two left in #1023 with section's rebuild (its root attribute
         // and the per-row one issue 334 added — the panel rows are roles now), faq's
-        // root attribute left at #1046 and table's at #1066. A v2 template emits
-        // `data-pp-band` and no `style` attribute at all, which is why each rebuild takes
-        // exactly one surface off this count. If the scan finds nothing, the loop above
-        // proved nothing.
+        // root attribute left at #1046, and table's and embed's at #1066. A v2 template
+        // emits `data-pp-band` and no `style` attribute at all, which is why each rebuild
+        // takes exactly one surface off this count. If the scan finds nothing, the loop
+        // above proved nothing.
         $this->assertGreaterThanOrEqual(
-            5,
+            4,
             $emitted,
-            'Found fewer inline slot surfaces than the 5 known today — the template scan is broken.'
+            'Found fewer inline slot surfaces than the 4 known today — the template scan is broken.'
         );
 
         // Every pp_render_style_vars() call must reach an emit site the loop above actually

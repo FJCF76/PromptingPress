@@ -71,7 +71,7 @@ class MeasureSurfaceTest extends TestCase
     // mechanism — rather than discovering it one rebuild later. The capability it exists
     // to protect (one design-token write reaches every band heading) is worth keeping;
     // the slot-shaped assertions are not.
-    private const ROUTED = ['grid', 'stats', 'embed', 'logos'];
+    private const ROUTED = ['grid', 'stats', 'logos'];
 
     /**
      * EMPTY SINCE #1023, and kept rather than deleted because the emptiness is the fact.
@@ -249,23 +249,57 @@ class MeasureSurfaceTest extends TestCase
         }
     }
 
-    /** The prose components that still declare a body measure; testimonials never did. */
-    public function testTheFourProseComponentsDeclareABodyMeasure(): void
+    /**
+     * THE BODY MEASURE, NOW ASSERTED ON THE v2 SIDE — because the slot side is EMPTY.
+     *
+     * section left the slot roster at #1023, cta at #1026, faq at #1046 and embed at
+     * #1066. embed was the LAST declarer, and an empty `foreach` is a test that cannot
+     * fail: the #1038 shape exactly, and the reason this method was rewritten rather than
+     * narrowed to nothing or deleted.
+     *
+     * THE CLAIM SURVIVES INTACT AND IS WHAT IS ASSERTED HERE: a component that renders a
+     * prose body can cap that body's measure, INDEPENDENTLY of the band heading measure.
+     * #578 separated those two surfaces deliberately — they resolve to the same 640px
+     * today and that is a coincidence, so folding one into the other would silently
+     * re-flow embedded content on the next heading-scale retune.
+     *
+     * Derived from the registry rather than listed, so a later rebuild joins it the day
+     * it declares the role. faq is the deliberate exception and is asserted as one: v1
+     * declared `max-width: var(--faq-body-measure, none)` and RENDERED `none` at every
+     * tier, so its `answer` role declares no measure and that is the faithful port.
+     */
+    public function testEveryProseBodyRoleCanStillCapItsOwnMeasure(): void
     {
-        // section left this roster at #1023, cta at #1026 and faq at #1046. On the first
-        // two the body measure is the `body` role's `sizing.max-width`; on faq there is
-        // no measure at all, and that is the faithful port rather than an omission — v1
-        // declared `max-width: var(--faq-body-measure, none)` and RENDERED `none` at
-        // every tier, so the `answer` role declares nothing. ONE prose component still
-        // declares the slot, and the method name is left alone deliberately: renaming it
-        // to match today's count would erase the roster's history without adding a fact.
-        foreach (['embed'] as $component) {
-            $this->assertArrayHasKey(
-                "--{$component}-body-measure",
-                $this->slots($component),
-                "{$component} must declare a body measure."
+        // component => the role that renders its prose body.
+        $bodyRoles = ['section' => 'body', 'cta' => 'body', 'embed' => 'content', 'faq' => 'answer'];
+        $checked   = 0;
+
+        foreach ($bodyRoles as $component => $role) {
+            $roles = pp_udc_component_roles($component);
+            $this->assertArrayHasKey($role, $roles, "{$component} must still declare a `{$role}` role");
+            $this->assertContains(
+                'sizing',
+                $roles[$role]['groups'],
+                "{$component}.{$role} must permit `sizing`, or its body measure is unauthorable"
             );
+            $checked++;
         }
+        $this->assertGreaterThanOrEqual(4, $checked, 'the roster went empty — this test would prove nothing');
+
+        // embed keeps a real DEFAULT, and it is its own literal rather than the shared
+        // heading token. That is the #578 separation, pinned where it can be seen.
+        $this->assertSame(
+            '40rem',
+            pp_udc_component_roles('embed')['content']['defaults']['sizing']['max-width'] ?? null,
+            'embed\'s body measure must keep its own literal, not route @measure-heading'
+        );
+
+        // faq's absence is the deliberate one.
+        $this->assertArrayNotHasKey(
+            'sizing',
+            pp_udc_component_roles('faq')['answer']['defaults'] ?? [],
+            'faq\'s answer renders `none` on v1 and must declare no measure — silence is the port'
+        );
         $this->assertArrayNotHasKey(
             '--testimonials-body-measure',
             $this->slots('testimonials'),
@@ -397,10 +431,10 @@ class MeasureSurfaceTest extends TestCase
             $expected[] = "--{$component}-heading-measure";
         }
         // section's body measure went with its slot map at #1023 (the `body` role's
-        // `sizing.max-width`), the way hero's content measure went at #986.
-        foreach (['embed'] as $component) {
-            $expected[] = "--{$component}-body-measure";
-        }
+        // `sizing.max-width`), the way hero's content measure went at #986, and embed's
+        // — the LAST body-measure slot in the theme — at #1066. The v2 half of that
+        // claim is testEveryProseBodyRoleCanStillCapItsOwnMeasure above, which is
+        // registry-derived and asserts the capability rather than the slot name.
         // hero's measure used to be spelled --hero-content-width — the reason the engine
         // reads a declared role rather than a `-measure` name suffix. It left this surface
         // in #986: hero is a v2 component and its measure is the `content` role's
@@ -448,8 +482,9 @@ class MeasureSurfaceTest extends TestCase
             // severance #578 made — those headings no longer reading a CTA slot —
             // survives as a stronger fact: the measure is the component's own `heading`
             // role's `sizing.max-width`, which no other component can address at all.
+            // embed's row left at #1066 with table's, and for the same reason: its block
+            // declares no heading rule at all now.
             'logos' => '.logos__heading',
-            'embed' => '.embed__heading',
             'stats' => '.stats__heading',
         ];
 
@@ -681,9 +716,10 @@ class MeasureSurfaceTest extends TestCase
         foreach (self::EXEMPT as $component) {
             $cases["{$component} heading"] = [$component, "--{$component}-heading-measure", '30rem'];
         }
-        foreach (['embed'] as $component) {
-            $cases["{$component} body"] = [$component, "--{$component}-body-measure", '34rem'];
-        }
+        // The body-measure row left this provider at #1066 with embed's slot map — it was
+        // the last one. Its claim (a body measure is authorable independently of the
+        // heading measure) is asserted on the v2 side in
+        // testEveryProseBodyRoleCanStillCapItsOwnMeasure, which is registry-derived.
         return $cases;
     }
 

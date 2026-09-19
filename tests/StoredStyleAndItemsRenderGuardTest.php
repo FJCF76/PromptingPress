@@ -170,7 +170,7 @@ class StoredStyleAndItemsRenderGuardTest extends TestCase
         // per-cell wp_kses_post() boundary (#730) is a different typed sink on a
         // different prop, it is untouched by this rebuild, and it stays pinned in
         // StoredLinkAndRichTextRenderGuardTest.
-        'grid', 'stats', 'logos', 'embed',
+        'grid', 'stats', 'logos',
     ];
 
     /**

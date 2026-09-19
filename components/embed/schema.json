@@ -1,12 +1,12 @@
 {
   "component": "embed",
-  "description": "A generic content embed block. Renders an optional heading and passes content through do_shortcode(). Use for WP plugin shortcodes (contact forms, calendars, etc.) that belong to WP rather than to the PromptingPress composition model. This is the only sanctioned way to introduce arbitrary content into a composition.",
+  "description": "A generic content embed block. Renders an optional heading and passes content through do_shortcode(). Use for WP plugin shortcodes (contact forms, calendars, etc.) that belong to WP rather than to the PromptingPress composition model. This is the only sanctioned way to introduce arbitrary content into a composition. REBUILT ON THE UNIVERSAL DESIGN CONTRACT (v2): it declares no style slots. Every designable value — colour, type, spacing, border, shadow, size, motion — is set through the `udc` map on the band, per role. See docs/v2/BUILD-SPEC-sprint0.md §3.",
   "props": {
     "id": {
       "type": "string",
       "required": false,
       "default": "",
-      "description": "Optional HTML id attribute for anchor linking (e.g. navigation anchors)."
+      "description": "Optional HTML id attribute for anchor linking (e.g. navigation anchors). Also becomes the component's stable id."
     },
     "title": {
       "type": "string",
@@ -18,30 +18,103 @@
       "type": "string",
       "required": true,
       "description": "WP shortcode string or pre-rendered HTML. Rich HTML (sanitized via wp_kses_post), then passed through do_shortcode(). Example: '[contact-form-7 id=\"123\"]'."
+    }
+  },
+  "retired_props": {
+    "_note": "Props this component declared on 1.x that the v2 rebuild retired (#1066). Each value names the v2 surface that replaced it, so a refusal can offer a route instead of a list of live prop names. Guarded by SchemaValidationTest, which fails in BOTH directions: a key here that still exists in props, or a route naming a role this component does not declare, is a test failure rather than a message that lies.",
+    "theme": "the `_band` role — and it takes MORE than a background, which is why the route names three groups rather than one. MEASURED, all three values, before the prop went: `default` painted NOTHING (`rgba(0, 0, 0, 0)`) with no border on any edge, which is why `_band` declares no `background.fill` at all and silence is the faithful port; `muted` painted `@color-surface` PLUS a 1px solid `@color-border` rule top and bottom (it emitted the legacy `embed--dark` class, #570 DG-4); `inverted` painted `@color-bg-inverted`, re-coloured the heading to `@color-bg` and re-coloured the content ink to the same. So: the tone is `background.fill`; the `muted` framing is `border.width-top` / `width-bottom` = \"1px\" with `style-top` / `style-bottom` = \"solid\" and `color` = \"@color-border\"; the `inverted` ink is `typography.color` on `_band`, which the `heading` role follows through `currentColor` and which the `content` role receives by inheritance. `dark` was NOT an accepted input value and is not part of this route: it was removed at #605 and `pp_theme_class()` clamped it to `default`. WHAT THE ROUTE DOES NOT REACH, stated because a route that omits it is a route that lies: `content` is arbitrary author HTML, and `_band` -> `typography.color` reaches only the elements that INHERIT their colour. base.css declares `color` directly on `h1`-`h6` (`@color-text`, which lands at 1.006:1 on an inverted band), on `blockquote` (`@color-muted`) and on `a` — and a direct declaration always beats an inherited value, whatever layer it sits in. An author-written heading or blockquote inside the embedded content therefore needs its own treatment, and a link has the `content-link` role. A dark embed band costs this write PLUS one per element the embedded content actually uses."
+  },
+  "roles": {
+    "_band": {
+      "selector": "",
+      "description": "The band itself — the <section>. Set the band's own background here to make a dark or tinted band; the v1 `theme` prop is gone because a preset bundle of colours is exactly what the UDC expresses directly. THE DEFAULTS ARE WHAT v1's UNTHEMED BAND RENDERED, measured in Chromium at 375/768/1280 rather than read off the stylesheet: the shared band rhythm and nothing else. NO `background.fill`, because v1's `.embed` measured `rgba(0, 0, 0, 0)` — that is the difference from faq, whose unthemed band painted `@color-surface`. NO border on any edge, so the issue-332 border-immunity baseline in `pp-v1` has nothing of embed's to erase; the framing rules belonged to `.embed--dark`, the retired `theme: \"muted\"` variant. A band background image is `background.image` (an attachment id) with `background.overlay` for the scrim, a capability embed never had on v1. SETTING `typography.color` HERE REACHES LESS OF THIS BAND THAN OF ANY OTHER, and that is the one thing worth knowing about this component: `content` is arbitrary author HTML sanitized by wp_kses_post(), and an inherited colour is used only where nothing else declares one. The `heading` role follows this write through `currentColor`, and a bare paragraph or a <strong> inside `content` inherits it. An author-written `<h2>`-`<h6>` does NOT — base.css pins those to `@color-text`, 1.006:1 on an inverted band — and neither does a `<blockquote>` (`@color-muted`) or a link (which has the `content-link` role). Those are direct declarations on the element, and a direct declaration always beats an inherited value regardless of cascade layer. So a dark embed band costs this write plus one per element the embedded content actually uses. THE FILL AND THE INK ARE TWO WRITES, AND SETTING ONLY THE FIRST IS THE COMMON MISTAKE: `currentColor` on the `heading` role follows this band's `typography.color`, NOT its `background.fill`. A band given a dark fill and no ink keeps the inherited `@color-text` and renders its heading at about 1.04:1 — measured, and pinned as a rendered e2e case so the half-done band is a fact rather than a warning. Write `background.fill` and `typography.color` together, always.",
+      "groups": [
+        "typography",
+        "spacing",
+        "border",
+        "background",
+        "sizing",
+        "shadow",
+        "motion"
+      ],
+      "defaults": {
+        "spacing": {
+          "padding-top": "@pp-band-padding",
+          "padding-bottom": "@pp-band-padding"
+        },
+        "background": {
+          "position": "center"
+        }
+      }
     },
-    "theme": {
-      "type": "enum", "strict": true,
-      "values": ["default", "muted", "inverted"],
-      "required": false,
-      "default": "default",
-      "description": "Background color/tone for this band. 'default' = the band's own default background (no tone override). 'muted' = light tinted surface band (renders the --color-surface background with framing top and bottom borders). 'inverted' = inverted dark background for strong contrast; use 'inverted' for a genuinely dark band."
+    "heading": {
+      "selector": ".embed__heading",
+      "description": "The band heading (an <h2>). ITS `typography.color` IS `currentColor`, AND THAT IS A DELIBERATE DIVERGENCE FROM THE LITERAL v1 DECLARATION rather than a transcription of it. v1's rule was `color: var(--embed-heading-color, var(--color-text))` with a `.embed--inverted` twin falling back to `var(--color-bg)` — a pinned literal on both arms — so the literally faithful port would be `@color-text`. The reason it is not: the only way v1 could render a dark embed band was `theme: \"inverted\"`, which supplied that second rule, and the prop is retired. Carrying the literal forward would pin the heading against the one band shape v2 newly makes easy — measured, `@color-text` on an authored `@color-bg-inverted` band is 1.006:1, invisible, the same defect #1026 shipped and corrected. `currentColor` in the `color` property is defined to mean `inherit`, so an authored `_band` -> `typography.color` reaches this heading and an authored value on this role still wins. It is IDENTICAL to `@color-text` on every band v1 could actually express, which is why only a dark-band read distinguishes the two. ITS WEIGHT, LEADING, TRACKING, FAMILY AND `text-wrap` ARE NOT RESTATED: measured 650 / 1.2 ratio / -0.03em / system-ui / balance at all three tiers, every one of them from base.css's shared `h1`-`h6` rule, and restating a global value here would move it to the unlayered tier and beat that rule in every state. NO `text-align` either — measured `start` with `margin-left: 0px`, which is the initial value and not a declaration.",
+      "groups": [
+        "typography",
+        "spacing",
+        "border",
+        "background",
+        "sizing",
+        "motion"
+      ],
+      "defaults": {
+        "typography": {
+          "size": "@pp-band-heading-size",
+          "color": "currentColor"
+        },
+        "spacing": {
+          "margin-bottom": "@space-lg"
+        },
+        "sizing": {
+          "max-width": "@measure-heading"
+        }
+      }
+    },
+    "content": {
+      "selector": ".embed__content",
+      "description": "The embedded content column — whatever the shortcode or the pasted HTML renders. ITS MEASURE KEEPS ITS OWN LITERAL AND DELIBERATELY DOES NOT ROUTE `@measure-heading`: it is a BODY measure, not a heading one, and #578 separated the two so that retuning band heading measure never re-flows embedded content. Both resolve to 640px today; that is a coincidence the schema states rather than a shared source, and folding them would be a silent behaviour change on the next heading-scale retune. IT DECLARES NO COLOUR, and that is the FOURTH CONDITION resolving to silence rather than to `currentColor`. v1 declared `color: var(--embed-body-color, inherit)` — an explicit `inherit`, which IS a declaration and not the same as declaring nothing. What decides the port is whether any rule MATCHES this element: cta's heading needed `currentColor` because base.css's `h1`-`h6` rule matches an <h2> directly and would have beaten an inherited band colour. This is a <div>, and no rule in the theme declares `color` on a bare div, so an inherited `_band` value already lands. `inherit` and silence are byte-identical here and silence is the smaller declaration; the role still declares the `typography` group, so an author can set it. IT DECLARES NO SIZE OR LEADING either — measured 16px / 1.6, both base.css's body rule, a global value. WHAT AN AUTHORED COLOUR HERE DOES NOT REACH is the same list the `_band` role gives, for the same reason: this role's value lands on the wrapper and reaches its descendants by inheritance only, so an author-written heading, blockquote or link inside the content keeps its own base.css declaration.",
+      "groups": [
+        "typography",
+        "spacing",
+        "border",
+        "background",
+        "sizing",
+        "motion"
+      ],
+      "defaults": {
+        "sizing": {
+          "max-width": "40rem"
+        }
+      }
+    },
+    "content-link": {
+      "selector": ".embed__content a",
+      "description": "A link inside the embedded content. IT DECLARES NO DEFAULTS, AND THE EMPTY BLOCK IS THE POINT rather than an oversight — the same shape section's `body-link` and cta's `body-link` already ship. Measured, a link here renders `@color-accent` underlined with a `@color-accent-hover` hover, byte-identical to what base.css gives every anchor on the page, and a role block is emitted UNLAYERED: restating those values as a DEFAULT would outrank the shared premium button rules for an author-written `<a class=\"btn\">`, which is the #545 defect reintroduced through a role selector. THAT EXPOSURE IS REAL ON THIS COMPONENT RATHER THAN THEORETICAL: `content` goes through wp_kses_post(), which admits `class`, and a measured `<a class=\"btn\">` inside an embed renders the FULL premium treatment — gradient fill, light label, 4px radius, 4px focus offset. So the rule is that rule 2 forbids a DEFAULT, not a ROLE. With no default this role emits nothing at rest — zero cascade movement — while still giving an author an ADDRESS. THIS ROLE IS WHAT REPLACES `.embed--inverted a`, the #437 rule that routed a dark band's link ink through `@color-accent-on-inverted` and that retires with the `theme` class. Without it the capability would simply be deleted: a container role's `typography.color` reaches a link only by INHERITANCE, and base.css's `a` rule is a direct declaration on the element, so an inherited value can never beat it (measured on faq, where its absence leaves a documented dark-panel write shipping a 3.21:1 link — #1069). An authored colour HERE does win, because it is aimed at the element itself. A dark embed band with links therefore needs this write as well as `_band`.",
+      "groups": [
+        "typography",
+        "spacing",
+        "border",
+        "background",
+        "sizing",
+        "motion"
+      ],
+      "defaults": {}
     }
   },
   "styling": {
     "root_class": "embed",
-    "variant_classes": ["embed--dark", "embed--inverted"],
-    "tokens": ["--color-bg", "--color-bg-inverted"],
-    "style_slots": {
-      "--embed-padding-top": { "type": "length", "default": "var(--pp-band-padding)", "description": "Top padding of the band. Defaults to the shared symmetric band rhythm (fluid ~68-80px desktop, ~54px mobile); set an explicit length to override." },
-      "--embed-padding-bottom": { "type": "length", "default": "var(--pp-band-padding)", "description": "Bottom padding of the band. Defaults to the shared symmetric band rhythm; set an explicit length to override." },
-      "--embed-heading-size": { "type": "length", "default": "var(--pp-band-heading-size)", "description": "Section heading font size. Defaults to the shared responsive band-heading scale (fluid ~28px mobile to ~42px desktop), which every band heading in the theme routes. LEAVE IT UNSET unless THIS band must differ from the rest of the site: the shared scale is not a design token and no action in the write path can retune it, so setting this slot changes THIS band only and never the others.", "applies_when": [{"prop": "title", "present": true}] },
-      "--embed-heading-color": { "type": "color", "default": "var(--color-text)", "description": "Section heading color. Defaults to the theme text colour (the inverted variant supplies its own light default). LEAVE IT UNSET unless THIS band must differ: recolouring every heading on the site is ONE update_design_token write on --color-text, not one slot write per band.", "applies_when": [{"prop": "title", "present": true}] },
-      "--embed-heading-measure": { "type": "length", "role": "measure", "default": "var(--measure-heading)", "description": "Maximum width of the embed section heading. Routes the shared --measure-heading design token (40rem) by default, so retuning that ONE token changes every routed band heading at once; set a length here only when THIS band must differ from the rest of the site.", "applies_when": [{"prop": "title", "present": true}] },
-      "--embed-heading-margin-bottom": { "type": "length", "default": "var(--space-lg)", "description": "Space below the embed section heading, before the embedded content (header rhythm). Lower it to tighten the header, raise it for more separation. Not a band-fusing lever: the content always renders after the heading, so the seam with the band below is closed with --embed-padding-bottom.", "applies_when": [{"prop": "title", "present": true}] },
-      "--embed-body-measure": { "type": "length", "role": "measure", "default": "40rem", "description": "Maximum width of the EMBEDDED CONTENT column. Deliberately a body measure, not a heading one: it keeps its own 40rem default rather than routing --measure-heading, so retuning band heading measure never re-flows embedded content." },
-      "--embed-body-color": { "type": "color", "default": "inherit", "description": "Embedded content text color. Defaults to the inherited body text color on a default or muted band and to the inverted-background text color on an inverted band; set an explicit color to override." }
-    }
+    "variant_classes": [],
+    "tokens": [
+      "--measure-heading",
+      "--space-lg"
+    ]
   },
-  "safe_to_edit": ["embed.php", "../../assets/css/components.css (COMPONENT: embed section)"],
-  "do_not_touch": ["schema.json without updating this component's README.md and the repo-root AI_CONTEXT.md"]
+  "safe_to_edit": [
+    "embed.php",
+    "../../assets/css/components.css (COMPONENT: embed section — STRUCTURAL CSS ONLY: layout scaffolding and accessibility affordances. No colour, type, size, spacing, border or shadow value may be added there; every one of those belongs to a role above. NOTE that embed's block is EMPTY — it is the first component in the theme with no structural CSS at all, because every rule it had was a value a role now owns.)"
+  ],
+  "do_not_touch": [
+    "schema.json without updating this component's README.md and the repo-root AI_CONTEXT.md"
+  ]
 }

@@ -2174,7 +2174,11 @@ describe('CSS lint: section-level bands share one rhythm definition (#431)', () 
         // where table is STILL a member: the shared value is now asserted on the rendered
         // page rather than on the stylesheet text.
         { comp: 'logos', cls: '.logos', slot: '--logos' },
-        { comp: 'embed', cls: '.embed', slot: '--embed' },
+        // embed left this table at #1066 with table — its band rhythm is the `_band`
+        // role's spacing default, resolving to the same shared `@pp-band-padding`, and
+        // both of its per-component adjacent rules went with the slot they kept alive.
+        // The behavioural pin that replaces it is the e2e #431 nine-band equality test,
+        // where embed is STILL a member.
         // hero is absent from this table (#986): it is a v2 component whose CSS block
         // is structural only, so it routes nothing through a slot and declares no
         // per-component adjacent rule. Its opt-out from the shared band rhythm survives
@@ -2445,7 +2449,9 @@ describe('CSS lint: band-level headings share one responsive scale (#436)', () =
         // typography.size default now, pinned against the EMITTED declaration in
         // TableRoleDefaultsEmitTest rather than against this stylesheet's text.
         { selectors: ['.logos__heading'], slot: '--logos-heading-size' },
-        { selectors: ['.embed__heading'], slot: '--embed-heading-size' },
+        // embed's row left at #1066 with its slot; the size is the `heading` role's
+        // typography.size default now, pinned against the EMITTED declaration in
+        // EmbedRoleDefaultsEmitTest.
 // testimonials is absent from this table: it is a v2 component whose CSS block is
         // structural only, so it routes nothing through a slot. The value this row used to
         // guard is now a role default in components/testimonials/schema.json.
@@ -2717,9 +2723,7 @@ describe('CSS lint: band heading-color slots route through the slot (#438)', () 
     // selector, its heading-color slot, and the fallback that preserves unset output.
     const HEADING_COLOR_RULES = [
         { selector: '.logos__heading', slot: '--logos-heading-color', fallback: '--color-text' },
-        { selector: '.embed__heading', slot: '--embed-heading-color', fallback: '--color-text' },
         { selector: '.logos--inverted .logos__heading', slot: '--logos-heading-color', fallback: '--color-bg' },
-        { selector: '.embed--inverted .embed__heading', slot: '--embed-heading-color', fallback: '--color-bg' },
         // Widened in issue 581 (A-29). The original list named only the three components
         // issue 438 had just given a heading-color slot; every OTHER band heading whose
         // inverted rule is not already covered by the #222 theme-variant guard above was
@@ -2730,6 +2734,7 @@ describe('CSS lint: band heading-color slots route through the slot (#438)', () 
         { selector: '.stats--inverted .stats__heading', slot: '--stats-heading-color', fallback: '--color-bg' },
         // testimonials is absent: it is a v2 component whose CSS block is structural
         // only. Its heading colour is the `heading` role's typography.color default.
+        // embed's TWO rows (base and inverted) left at #1066 with its `theme` prop.
         // faq's row left at #1046 with the `theme` prop, and table's at #1066 — table's
         // heading colour is `currentColor` on the `heading` role now, which is the one
         // shape this guard structurally cannot express (it asserts a slot-and-fallback
@@ -3030,11 +3035,31 @@ const NEGATIVE_PULL = /^(-[\d.]|calc\(\s*-\s*[\d.]+\s*\*)/;
         return stripComments(css.slice(bodyStart + 2, next === -1 ? undefined : next));
     };
 
+    // A v2 component may legitimately reach ZERO structural rules, and embed is the first
+    // one that has (#1066): every rule it had was a value a role owns now, and it has no
+    // layout to scaffold and no affordance of its own. That is the end state this whole
+    // boundary is aiming at, so the rule has to be able to express it — but it must not
+    // become an escape hatch, and it must not let a BROKEN SLICER look like compliance
+    // (which is the entire reason the floor below exists). So: the rule-free components
+    // are named here, and a named one is asserted to have EXACTLY zero rules while every
+    // other v2 component keeps the original floor. A rule creeping back into embed's block
+    // fails; a slicer that stops finding any block fails for every other component.
+    const INTENTIONALLY_RULE_FREE = ['embed'];
+
     v2Components.forEach(component => {
         test(`${component}'s CSS block declares only structure`, () => {
             const block = componentBlock(component);
             expect(block, `no CSS banner block found for ${component}`).not.toBe('');
             const rules = parseRules(block);
+            if (INTENTIONALLY_RULE_FREE.includes(component)) {
+                expect(
+                    rules,
+                    `${component}'s block is recorded as rule-free: every value it had belongs ` +
+                    'to a role. A rule here means either a designable value came back or a ' +
+                    'structural need appeared that the schema does not record.'
+                ).toEqual([]);
+                return;
+            }
             // Floor: the slice must actually contain the sub-element rules, or every
             // check below reads an empty list and passes for the wrong reason.
             expect(rules.length).toBeGreaterThan(5);
@@ -3157,6 +3182,14 @@ const NEGATIVE_PULL = /^(-[\d.]|calc\(\s*-\s*[\d.]+\s*\*)/;
      */
     test('table joins the boundary rule', () => {
         expect(v2Components).toContain('table');
+    });
+
+    test('embed joins the boundary rule, with an empty block', () => {
+        expect(v2Components).toContain('embed');
+        // BOTH HALVES. Membership alone would pass if the banner were deleted outright,
+        // and emptiness alone would pass if the component fell out of discovery.
+        expect(componentBlock('embed')).not.toBe('');
+        expect(parseRules(componentBlock('embed'))).toEqual([]);
     });
 
     test('the five table-markup properties are structural, and buy nothing adjacent', () => {
@@ -3610,11 +3643,23 @@ describe('CSS lint: inverted dark-band links route through the on-inverted accen
         // prop in its v2 rebuild, exactly as testimonials' did. Body links are the
         // `body-link` role now, and that role carries its own `:hover` — which is the
         // §1b requirement that a role's states move with its resting values.
-        // EMBED IS THE LAST ROW STANDING, and that is why this block survives rather than
-        // going with cta's. embed is still a v1 component: it still emits
-        // `.embed--inverted` and still remaps its body links automatically, so the
-        // regression this pins is still reachable there.
-        '.embed--inverted a',
+        // EMBED'S ROW WENT AT #1066, AND IT WAS THE LAST ONE. This roster is now empty,
+        // and that is the honest end of the AUTOMATIC remap rather than a gap: no
+        // component emits an `--inverted` class any more, so there is no rule left for
+        // any row to name. The `forEach` below therefore runs zero times, which would be
+        // vacuous on its own — so the capability's survival is asserted directly,
+        // immediately after it, rather than left to an empty loop to imply.
+        //
+        // WHAT WAS LOST AND WHAT REPLACED IT, stated because this is a real capability
+        // change and not a rename: v1 remapped a dark band's body links AUTOMATICALLY,
+        // keyed on the theme class. v2 has no automatic remap — the author writes it —
+        // and the address is a `*-link` role with EMPTY defaults: `body-link` on section
+        // and cta, `content-link` on embed, `cell-link` on table. Empty defaults are what
+        // keep a role from outranking the premium button rules for an author-written
+        // `<a class=\"btn\">` (#545 through a role selector) while still giving the author
+        // somewhere to aim. A container role's ink cannot substitute: it reaches a link
+        // only by inheritance, and base.css's `a` rule is a direct declaration on the
+        // element (measured, #1069).
         // cta's row went at #1026, exactly as section's went at #1023 and testimonials'
         // in Sprint 0. `.cta--inverted` died with the `theme` prop, so the selector this
         // row named no longer exists. A cta body link is the `body-link` role now, which
@@ -3647,6 +3692,38 @@ describe('CSS lint: inverted dark-band links route through the on-inverted accen
             const hoverBody = ruleBody(`${selector}:hover`);
             expect(hoverBody).not.toBeNull();
             expect(hoverBody).toMatch(/--color-accent-on-inverted-hover\b/);
+        });
+    });
+
+    // THE EMPTIED ROSTER'S REPLACEMENT CLAIM. Read the long note on
+    // DARK_BAND_LINK_VARIANTS first: the automatic remap is gone, and what has to stay
+    // true is that every rich-text surface still has a LINK ADDRESS with EMPTY defaults.
+    // Without this the empty roster above would simply be an absence nothing notices,
+    // which is the #1038 shape.
+    test('every rich-text surface still declares a link role, and none of them defaults', () => {
+        const componentsDir = path.resolve(__dirname, '../../components');
+        // component => the role that addresses a link inside its rich text.
+        const LINK_ROLES = {
+            section: 'body-link',
+            cta: 'body-link',
+            embed: 'content-link',
+            table: 'cell-link',
+        };
+        Object.entries(LINK_ROLES).forEach(([component, role]) => {
+            const schema = JSON.parse(
+                fs.readFileSync(path.join(componentsDir, component, 'schema.json'), 'utf-8'),
+            );
+            const declared = schema.roles && schema.roles[role];
+            expect(declared, `${component} must declare a \`${role}\` role`).toBeTruthy();
+            expect(
+                declared.defaults,
+                `${component}.${role} must declare NO defaults: a default outranks the premium ` +
+                'button rules for an author-written .btn (#545 through a role selector)',
+            ).toEqual({});
+            expect(
+                declared.groups,
+                `${component}.${role} must permit typography, or the author has no ink to set`,
+            ).toContain('typography');
         });
     });
 

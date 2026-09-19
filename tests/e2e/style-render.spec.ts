@@ -7817,13 +7817,16 @@ test.describe('Shared section-band rhythm (#431)', () => {
   // a distinct px per component (no token resolves to it) catches a fallback leak
   // or a cross-wired slot name. This is the render-level proof that the slot the
   // schema declares reaches the DOM through pp_render_style_vars.
+  // table's and embed's rows left at #1066 with their slots. THE CLAIM DID NOT LEAVE
+  // WITH THEM — it moved one block down, to the v2 test that follows this loop, which
+  // drives the same adjacent-top edge through an authored `_band` -> `spacing.padding-top`
+  // instead of a slot. That is the stronger version of the same proof: on v2 the
+  // adjacent-sibling rhythm is a ZERO-SPECIFICITY baseline, so an authored band block has
+  // to beat it on the unlayered tier alone, which is exactly the cascade #1023 measured
+  // going wrong (authored 5px rendering 76.8px).
   const NEW_BAND_SLOTS = [
-    { comp: 'table', sel: '.table-section', slot: '--table-padding-top', px: '5px',
-      props: { id: 'pp-tbl01', title: 'Table', headers: ['A', 'B'], rows: [['1', '2']] } },
     { comp: 'logos', sel: '.logos', slot: '--logos-padding-top', px: '6px',
       props: { id: 'pp-logo01', title: 'Logos', items: [{ image_url: 'https://example.com/l.png', image_alt: 'Logo' }] } },
-    { comp: 'embed', sel: '.embed', slot: '--embed-padding-top', px: '7px',
-      props: { id: 'pp-emb01', title: 'Embed', content: 'https://example.com/video' } },
   ];
 
   for (const { comp, sel, slot, px, props } of NEW_BAND_SLOTS) {
@@ -7851,6 +7854,79 @@ test.describe('Shared section-band rhythm (#431)', () => {
       }
     });
   }
+
+  /**
+   * THE v2 HALF OF THE SAME CLAIM (#1066), and it is the harder one.
+   *
+   * On v1 a band's own padding rule sat at [0,2,1] and simply outranked the shared
+   * adjacent-sibling rhythm. On v2 there is no per-component rule at all: the rhythm is a
+   * `:where(...)` baseline with ZERO specificity, the band's DEFAULT rides `@layer pp-zero`
+   * BELOW the stylesheet (so the baseline is meant to win the top edge), and only an
+   * AUTHORED band block — which is unlayered — may override it.
+   *
+   * That is the cascade #1023 measured going wrong in the other direction: an authored
+   * `_band` padding-top of 5px rendered 76.8px, because the baseline still carried the old
+   * [0,2,1]. This is the rendered pin that the fix stays fixed, on the two components whose
+   * per-component rules were deleted most recently.
+   *
+   * Both tiers, because the mobile and desktop baselines are separate rules.
+   */
+  for (const { comp, sel, px, props } of [
+    { comp: 'table', sel: '.table-section', px: '5px',
+      props: { id: 'pp-t1b2c3d4', title: 'Table', headers: ['A', 'B'], rows: [['1', '2']] } },
+    { comp: 'embed', sel: '.embed', px: '7px',
+      props: { id: 'pp-e1b2c3d4', title: 'Embed', content: '<p>Embedded.</p>' } },
+  ]) {
+    test(`#1066 an authored ${comp} _band padding-top wins on the adjacent edge at 1280 and 375`, async ({
+      page,
+    }) => {
+      pageId = createPage(`E2E Adjacent Authored ${comp}`);
+      setComposition(pageId, [
+        { component: 'section', props: { id: 'pp-sec01', body: '<p>Body.</p>' } },
+        { component: comp, id: props.id, props, udc: { _band: { spacing: { 'padding-top': px } } } },
+      ]);
+
+      for (const width of [1280, 375]) {
+        await page.setViewportSize({ width, height: 900 });
+        await page.goto(`/?page_id=${pageId}`);
+        const band = page.locator(`main > ${sel}`);
+        await expect(band).toBeVisible({ timeout: 10000 });
+        const paddingTop = await band.evaluate((el) => getComputedStyle(el).paddingTop);
+        expect(paddingTop, `authored _band adjacent-top @${width}`).toBe(px);
+      }
+    });
+  }
+
+  /**
+   * AND THE UNAUTHORED HALF, which is the other direction of the same cascade and the one
+   * a "make the authored value win" fix can silently break: with NOTHING authored, an
+   * adjacent table or embed band must still take the SHARED adjacent tier rather than its
+   * own `pp-zero` default. Both resolve to the same token today, so this asserts the band
+   * agrees with a v1 sibling rendered beside it rather than asserting a literal.
+   */
+  test('#1066 an UNAUTHORED adjacent table/embed band still takes the shared rhythm', async ({ page }) => {
+    pageId = createPage('E2E Adjacent Unauthored v2 bands');
+    setComposition(pageId, [
+      { component: 'section', props: { id: 'pp-sec01', body: '<p>Body.</p>' } },
+      { component: 'table', props: { id: 'pp-tbl02', title: 'Table', headers: ['A'], rows: [['1']] } },
+      { component: 'logos', props: { id: 'pp-logo02', title: 'Logos', items: [{ image_url: 'https://example.com/l.png', image_alt: 'L' }] } },
+      { component: 'embed', props: { id: 'pp-emb02', title: 'Embed', content: '<p>E.</p>' } },
+    ]);
+
+    for (const width of [1280, 375]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`/?page_id=${pageId}`);
+      const tops: string[] = [];
+      for (const sel of ['.table-section', '.logos', '.embed']) {
+        const band = page.locator(`main > ${sel}`);
+        await expect(band).toBeVisible({ timeout: 10000 });
+        tops.push(await band.evaluate((el) => getComputedStyle(el).paddingTop));
+      }
+      // logos is the v1 control: it still routes its own slot rule, so if the two v2 bands
+      // agree with it, they are on the shared tier rather than on their own default.
+      expect(new Set(tops).size, `adjacent rhythm drift @${width}: ${JSON.stringify(tops)}`).toBe(1);
+    }
+  });
 });
 
 /*
@@ -8215,13 +8291,17 @@ test.describe('Band heading scale (#436)', () => {
     { band: 'grid', sel: '.grid__heading', slot: '--grid-heading-size' },
     { band: 'cta', sel: '.cta__title', slot: '--cta-heading-size' },
     { band: 'stats', sel: '.stats__heading', slot: '--stats-heading-size' },
-    { band: 'table', sel: '.table-section__heading', slot: '--table-heading-size' },
+    // No `slot`: table is on the UDC contract since #1066 and has none. It still joins
+    // the equality test below, which is the point — its heading resolves the same shared
+    // --pp-band-heading-size scale, now as the `heading` role's default.
+    { band: 'table', sel: '.table-section__heading' },
     // No `slot`: testimonials is on the UDC contract and has none. Only `band`
     // and `sel` are read by the equality test below, which it still joins —
     // its heading resolves the same shared --pp-band-heading-size scale.
     { band: 'testimonials', sel: '.testimonials__heading' },
     { band: 'logos', sel: '.logos__heading', slot: '--logos-heading-size' },
-    { band: 'embed', sel: '.embed__heading', slot: '--embed-heading-size' },
+    // No `slot`: embed joined the UDC contract at #1066 alongside table, same reasoning.
+    { band: 'embed', sel: '.embed__heading' },
     // No `slot`: faq is on the UDC contract since #1046 and has none. It still joins
     // the equality test below, which is the point — its heading resolves the same
     // shared --pp-band-heading-size scale, now as the `heading` role's default.
@@ -8316,10 +8396,14 @@ test.describe('Band heading scale (#436)', () => {
     // `typography.size`, defaulting to the same `@pp-band-heading-size` this block pins for
     // every component still on slots — so the shared SCALE is unchanged; only the override
     // address moved, and the emitted default is asserted in CtaRoleDefaultsEmitTest.
+    // table's and embed's rows left at #1066, the way cta's left at #1026. Each heading
+    // size is the `heading` role's `typography.size`, defaulting to the same
+    // `@pp-band-heading-size` this block pins for every component still on slots — so the
+    // shared SCALE is unchanged and both still join the equality roster above; only the
+    // override ADDRESS moved. logos is the last slot-driven override, and when it goes
+    // this test retires rather than narrowing to zero.
     setComposition(pageId, [
-      { component: 'table', props: { id: 'pp-tbl01', title: 'Table', headers: ['A', 'B'], rows: [['1', '2']] } },
       { component: 'logos', props: { id: 'pp-logo01', title: 'Logos', items: [{ image_url: 'https://example.com/l.png', image_alt: 'Logo' }] } },
-      { component: 'embed', props: { id: 'pp-emb01', title: 'Embed', content: 'https://example.com/video' } },
     ]);
 
     await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
@@ -8328,9 +8412,7 @@ test.describe('Band heading scale (#436)', () => {
     // The three slots minted in #436 that are still slots. Distinct px per component so a
     // cross-wired value would be caught.
     const overrides = [
-      { idx: 0, slot: '--table-heading-size', px: '61px', sel: '.table-section__heading' },
-      { idx: 1, slot: '--logos-heading-size', px: '62px', sel: '.logos__heading' },
-      { idx: 2, slot: '--embed-heading-size', px: '63px', sel: '.embed__heading' },
+      { idx: 0, slot: '--logos-heading-size', px: '62px', sel: '.logos__heading' },
     ];
     for (const o of overrides) {
       const r = await styleComponent(page, pageId, { [o.slot]: o.px }, undefined, o.idx);
@@ -8516,21 +8598,60 @@ test.describe('#437 inverted link contrast (rendered)', () => {
       minRatio: 4.5,
     },
     {
-      name: 'embed content link on the dark band → on-inverted (AA)',
+      // THE SAME CLAIM, THROUGH THE v2 ADDRESS (#1066). v1 remapped this link
+      // AUTOMATICALLY, keyed on `.embed--inverted`, and that class died with embed's
+      // `theme` prop. The AA GUARANTEE IS WHAT THIS ROW IS ABOUT, and it survives — the
+      // author writes it on the `content-link` role instead of the theme choosing it.
+      //
+      // Retiring the row rather than re-pointing it would have been the #1038 mistake: the
+      // subject is "a link on a dark embed band clears 4.5:1", not "a variant class exists".
+      // What genuinely changed is that the guarantee is now the author's, which is the loss
+      // the component README records rather than one this rewrite hides — and this row is
+      // what proves the v2 route can actually deliver it.
+      name: 'embed content link on an authored dark band → on-inverted (AA)',
       composition: [
         {
           component: 'embed',
+          id: 'pp-e437a001',
           props: {
             id: 'pp-embed01',
-            theme: 'inverted',
-            heading: 'Inverted embed',
+            title: 'Inverted embed',
             content: '<p>Embedded copy with an <a href="/somewhere">embed link</a>.</p>',
+          },
+          udc: {
+            _band: { background: { fill: '@color-bg-inverted' }, typography: { color: '@color-bg' } },
+            'content-link': { typography: { color: '@color-accent-on-inverted' } },
           },
         },
       ],
-      linkSelector: '.embed--inverted a',
+      linkSelector: '.embed__content a',
       mode: 'contrast',
       minRatio: 4.5,
+    },
+    {
+      // THE COUNTER-DIRECTION, and it is the half that would otherwise go unrecorded: with
+      // the band darkened and `content-link` NOT written, the link keeps base.css's
+      // `@color-accent` and FAILS AA. That is the documented cost of the automatic remap
+      // going away, and pinning it means the cost is measured rather than asserted — and
+      // that a future change which quietly reintroduces an automatic remap has to come here
+      // and say so.
+      name: 'embed content link on an authored dark band with NO content-link write stays accent',
+      composition: [
+        {
+          component: 'embed',
+          id: 'pp-e437b001',
+          props: {
+            id: 'pp-embed02',
+            title: 'Inverted embed',
+            content: '<p>Embedded copy with an <a href="/somewhere">embed link</a>.</p>',
+          },
+          udc: {
+            _band: { background: { fill: '@color-bg-inverted' }, typography: { color: '@color-bg' } },
+          },
+        },
+      ],
+      linkSelector: '.embed__content a',
+      mode: 'staysAccent',
     },
     {
       name: 'grid card link stays on --color-accent (light card, AA)',
@@ -9901,15 +10022,20 @@ test.describe('#583 stressed-state rendered coverage (table, embed, logos)', () 
    */
   const HEADING_CASES = [
     {
+      // No `slot` since #1066: table is on the UDC and its heading measure is the
+      // `heading` role's `sizing.max-width`, still referencing `@measure-heading`. The
+      // case stays in the table because every claim it makes still applies — the cap
+      // binds at 1280, goes inert at 375, and is ROUTED rather than frozen. Only the
+      // handle for step (3) changes, from the component's slot to the shared token the
+      // role references, exactly as faq's did at #1046.
       name: 'table',
       selector: '.table-section__heading',
-      slot: '--table-heading-measure',
       props: () => ({ component: 'table', props: { ...WIDE_TABLE_PROPS, title: LONG_TITLE } }),
     },
     {
+      // No `slot` since #1066: embed joined the UDC alongside table, same reasoning.
       name: 'embed',
       selector: '.embed__heading',
-      slot: '--embed-heading-measure',
       props: () => ({
         component: 'embed',
         props: { id: 'pp-emb583', title: LONG_TITLE, content: '<p>Embedded body copy.</p>' },
@@ -10335,12 +10461,24 @@ test.describe('#583 stressed-state rendered coverage (table, embed, logos)', () 
         8,
       ) +
       '</p>';
+    // THE INVERTED ARM IS AUTHORED NOW (#1066), not themed. `theme` retired with embed's
+    // rebuild, so the dark band is a `_band` write — and the claim this test makes is
+    // unchanged and worth more in the new shape: the content measure must hold at BOTH
+    // widths on a band whose ink and fill the author moved, which is exactly where a
+    // measure that quietly became a literal would show up.
     pageId = createPage('E2E 583 embed long content');
     setComposition(pageId, [
       { component: 'embed', props: { id: 'pp-emb-base', title: 'Base band', content: LONG_BODY } },
       {
         component: 'embed',
-        props: { id: 'pp-emb-inv', theme: 'inverted', title: 'Inverted band', content: LONG_BODY },
+        id: 'pp-e583inv1',
+        props: { id: 'pp-emb-inv', title: 'Inverted band', content: LONG_BODY },
+        udc: {
+          _band: {
+            background: { fill: '@color-bg-inverted' },
+            typography: { color: '@color-bg' },
+          },
+        },
       },
     ]);
 
@@ -10372,7 +10510,12 @@ test.describe('#583 stressed-state rendered coverage (table, embed, logos)', () 
       expect(got.baseWidth, `@${width}: base embed content width`).toBe(expected);
       expect(got.invWidth, `@${width}: inverted embed content width`).toBe(expected);
       expect(got.baseColor, `@${width}: base content ink`).toBe(INK);
-      expect(got.invColor, `@${width}: inverted content ink (unslotted literal today)`).toBe(
+      // THE FOURTH CONDITION, RENDERED. `content` declares NO colour default — v1's
+      // explicit `inherit` ports to silence, because nothing in this theme matches a bare
+      // <div> for `color` — so this ink can only be `@color-bg` if the authored `_band`
+      // value reached it by inheritance. A literal default on the role would read the same
+      // on the BASE band and wrong here, which is what makes this the load-bearing half.
+      expect(got.invColor, `@${width}: authored band ink reaches the content by inheritance`).toBe(
         PAGE_BG,
       );
       expect(got.invBandBg, `@${width}: inverted band paint`).toBe(INVERTED_BG);
@@ -10652,13 +10795,25 @@ test.describe('#583 stressed-state rendered coverage (table, embed, logos)', () 
           items: [BASE_LOGOS_PROPS.items[1]],
         },
       },
+      // embed's arm is AUTHORED since #1066 — `theme` retired — and it carries the
+      // `content-link` write the v1 theme used to apply automatically. Both halves are
+      // deliberate: without the `_band` write there is no dark band to measure, and
+      // without the `content-link` write the link would sit at the bare accent, which is
+      // pinned as its own case in the #437 block rather than conflated with this one.
       {
         component: 'embed',
+        id: 'pp-e583inv2',
         props: {
           id: 'pp-emb-inv',
-          theme: 'inverted',
           title: 'Inverted embed band',
           content: '<p>Inverted body copy with an <a href="/x">inline link</a>.</p>',
+        },
+        udc: {
+          _band: {
+            background: { fill: '@color-bg-inverted' },
+            typography: { color: '@color-bg' },
+          },
+          'content-link': { typography: { color: '@color-accent-on-inverted' } },
         },
       },
     ]);
@@ -10671,8 +10826,12 @@ test.describe('#583 stressed-state rendered coverage (table, embed, logos)', () 
     const embedBody = await measureContrast(page, '#pp-emb-inv .embed__content');
     const embedLink = await measureContrast(page, '#pp-emb-inv .embed__content a');
 
-    // Both bands re-route their heading to var(--color-bg) on the inverted paint, so the
-    // 1.02:1 failure the #570 corpus reports does NOT occur on the shipped dark variant.
+    // Both bands put their heading on var(--color-bg) against the dark paint, so the
+    // 1.02:1 failure the #570 corpus reports does NOT occur — logos through its shipped
+    // `.logos--inverted` rule, embed through `currentColor` on the `heading` role picking
+    // up the authored `_band` ink. Same rendered outcome, two different mechanisms, and
+    // the embed half is the one that would break silently if the heading role were ever
+    // "tidied" back to a pinned literal.
     expect(logosHeading, `inverted logos heading ${logosHeading.toFixed(2)}:1`).toBeCloseTo(
       INK_ON_INVERTED,
       1,
@@ -10685,7 +10844,8 @@ test.describe('#583 stressed-state rendered coverage (table, embed, logos)', () 
       INK_ON_INVERTED,
       1,
     );
-    // Dark-band body link routed to the on-inverted accent role (#437).
+    // Dark-band body link on the on-inverted accent role — AUTHORED on `content-link`
+    // since #1066, where v1's theme applied it automatically (#437).
     expect(embedLink, `inverted embed link ${embedLink.toFixed(2)}:1`).toBeCloseTo(
       ACCENT_LINK_ON_INVERTED,
       1,
@@ -10705,14 +10865,32 @@ test.describe('#583 stressed-state rendered coverage (table, embed, logos)', () 
   /**
    * SIMULATION, not shipped behaviour — deliberately NOT @smoke.
    *
-   * There is no --table-bg or --logos-bg slot, and `theme: "inverted"` re-routes both
-   * headings (proved above), so the "heading default dies on a dark paint" failure the
-   * #570 corpus records has no product path today. The corpus produced it by injecting
+   * There is no --logos-bg slot and `theme: "inverted"` re-routes its heading (proved
+   * above), so the "heading default dies on a dark paint" failure the #570 corpus records
+   * has no product path on logos today. The corpus produced it by injecting
    * `main .logos { background: #101418 }` client-side; this reproduces that injection
    * exactly so the figure is generated rather than cited. It is entry evidence for the
-   * deferred band-background gate (#590), not a regression pin — if it ever starts
-   * failing, that means a band-background capability shipped and #590's prerequisites
-   * apply.
+   * deferred band-background gate (#590), not a regression pin.
+   *
+   * TABLE'S HALF STOPPED BEING A SIMULATION AT #1066 AND BECAME A REAL AUTHORING HAZARD,
+   * which is why it stays here and is now the more interesting row of the two.
+   * `_band` -> `background.fill` is a real band background, so the failure has a product
+   * path — and the rebuild gave the `heading` role `currentColor` so that an authored band
+   * INK reaches it. The trap is that those are two different writes:
+   *
+   *   fill only            the heading still resolves the INHERITED `@color-text`, because
+   *                        `currentColor` follows the band's `color`, not its background.
+   *                        Exactly what this injection reproduces: ~1.04:1.
+   *   fill + typography.color   the heading follows the ink and is legible. Asserted in the
+   *                        #583 inverted-bands test above.
+   *
+   * So this row is no longer "entry evidence for a deferred gate" for table; it is the
+   * rendered proof of what a HALF-DONE dark band looks like, which is the shape a careful
+   * author actually ships. The schemas, READMEs and how-tos all say the fill and the ink
+   * are one write; this is what happens when they are not.
+   *
+   * logos keeps the original reading — no band-background capability, so its half is still
+   * a pure simulation — and goes the same way when logos rebuilds.
    *
    * Corpus: 1.02:1. Here, with shipped tokens: 1.04:1.
    */
@@ -10739,7 +10917,10 @@ test.describe('#583 stressed-state rendered coverage (table, embed, logos)', () 
     const logosLabel = await measureContrast(page, '.logos__label');
     const tableCell = await measureContrast(page, '.table__cell');
 
-    expect(tableHeading, `table heading on a dark paint ${tableHeading.toFixed(2)}:1`).toBeCloseTo(
+    // TABLE: a fill with no ink. `currentColor` follows the band's `color`, which this
+    // injection does not touch, so the heading keeps `@color-text` and fails. This is the
+    // half-done dark band, pinned — not a claim that `currentColor` does not work.
+    expect(tableHeading, `table heading on a fill-only dark band ${tableHeading.toFixed(2)}:1`).toBeCloseTo(
       1.04,
       1,
     );
@@ -10751,8 +10932,12 @@ test.describe('#583 stressed-state rendered coverage (table, embed, logos)', () 
       3.21,
       1,
     );
-    // The correction the #570 screenshot evidence made: the CELLS stay safe, because
-    // `.table` paints its own light island regardless of the band behind it.
+    // The correction the #570 screenshot evidence made, AND the fact the v2 ink split is
+    // built on (#1066): the CELLS stay safe, because `.table` paints its own light island
+    // regardless of the band behind it. That is why the `cell` and `header` roles PIN
+    // `@color-text` instead of following the band, and why the schema tells a dark-band
+    // author to leave them alone. A change that made them follow the band would show up
+    // here first, as a cell going light on its own light fill.
     expect(
       tableCell,
       `table cell is unaffected by the band paint ${tableCell.toFixed(2)}:1`,
@@ -11502,41 +11687,76 @@ test.describe('#577 dead and defeated style slots render', () => {
     expect(after['padding-top'], 'featured body top follows the slot').toBe(LOUD_PX);
   });
 
-  // ── A-10 — embed body ink joins the slot surface ───────────────────────────
+  // ── A-10 — embed body ink, RE-POINTED TO THE ROLE (#1066) ──────────────────
+  //
+  // A-10 gave embed's content ink a slot where it previously had none. #1066 retired that
+  // slot WITHOUT a replacement default, which is the one retirement in this rebuild that
+  // is a deliberate silence rather than a move — v1 declared `color: var(--embed-body-color,
+  // inherit)`, an explicit `inherit`, and no rule in this theme matches a bare <div> for
+  // `color`, so silence renders byte-identically.
+  //
+  // A-10'S CLAIM SURVIVES AND IS WHAT IS ASSERTED HERE: the content ink is AUTHORABLE, and
+  // authoring it works on a band whose fill the author moved as well as on the default one.
+  // Retiring the test with the slot would have dropped exactly that, and the unset half —
+  // "the base band must still INHERIT rather than pin" — is now load-bearing rather than
+  // incidental, because it is the only rendered proof that the role's silence is a silence.
 
-  test('#577 A-10: --embed-body-color drives embed content ink on the base AND inverted band', async ({
+  test('#577/#1066 A-10: embed content ink is authorable on the role, and unset it still inherits', async ({
     page,
   }) => {
     pageId = createPage('E2E 577 embed body color');
     setComposition(pageId, [
       { component: 'embed', props: { id: 'pp-emb-plain', title: 'Embed', content: '<p>Embedded copy.</p>' } },
-      { component: 'embed', props: { id: 'pp-emb-inv', theme: 'inverted', title: 'Embed', content: '<p>Embedded copy.</p>' } },
+      {
+        component: 'embed',
+        id: 'pp-e577a010',
+        props: { id: 'pp-emb-inv', title: 'Embed', content: '<p>Embedded copy.</p>' },
+        udc: {
+          _band: { background: { fill: '@color-bg-inverted' }, typography: { color: '@color-bg' } },
+        },
+      },
     ]);
 
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto(`/?page_id=${pageId}`);
     await expect(page.locator('#pp-emb-inv .embed__content')).toBeVisible({ timeout: 10000 });
-    // Byte-identical unset, BOTH bands. The base band is the one that gained a `color`
-    // declaration where it previously had none, so its `inherit` fallback has to be
-    // pinned or a future change from `inherit` to a literal lands unnoticed on every
-    // default and muted embed.
+    // UNSET, BOTH BANDS, and this is the half that proves the silence. The base band must
+    // inherit the page ink; the authored dark band must inherit the ink the author put on
+    // `_band`. A literal default on the `content` role would satisfy the first and fail the
+    // second, which is exactly the #1026 defect shape one element further in.
     const beforePlain = await computed(page, '#pp-emb-plain .embed__content', ['color']);
     const beforeInv = await computed(page, '#pp-emb-inv .embed__content', ['color']);
     expect(beforePlain.color, 'unset base embed content must still inherit the body ink').toBe(INK);
-    expect(beforeInv.color, 'unset inverted embed content').toBe(PAGE_BG);
+    expect(beforeInv.color, 'unset content on an authored dark band inherits the band ink').toBe(PAGE_BG);
 
     await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
     await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
-    const res0 = await styleComponent(page, pageId, { '--embed-body-color': LOUD_HEX }, undefined, 0);
-    expect(res0.success).toBe(true);
-    const res1 = await styleComponent(page, pageId, { '--embed-body-color': LOUD_HEX }, undefined, 1);
-    expect(res1.success).toBe(true);
+    const res = await updateComposition(page, pageId, [
+      {
+        component: 'embed',
+        id: 'pp-e577b010',
+        props: { id: 'pp-emb-plain', title: 'Embed', content: '<p>Embedded copy.</p>' },
+        udc: { content: { typography: { color: LOUD_HEX } } },
+      },
+      {
+        component: 'embed',
+        id: 'pp-e577a010',
+        props: { id: 'pp-emb-inv', title: 'Embed', content: '<p>Embedded copy.</p>' },
+        udc: {
+          _band: { background: { fill: '@color-bg-inverted' }, typography: { color: '@color-bg' } },
+          content: { typography: { color: LOUD_HEX } },
+        },
+      },
+    ]);
+    expect(res.success, `udc write: ${JSON.stringify(res)}`).toBe(true);
 
     await page.goto(`/?page_id=${pageId}`);
     const plain = await computed(page, '#pp-emb-plain .embed__content', ['color']);
     const inv = await computed(page, '#pp-emb-inv .embed__content', ['color']);
-    expect(plain.color, 'base embed content follows the slot').toBe(LOUD_COLOR);
-    expect(inv.color, 'inverted embed content follows the slot').toBe(LOUD_COLOR);
+    expect(plain.color, 'base embed content follows the role').toBe(LOUD_COLOR);
+    // And on the dark band the role's authored value must BEAT the inherited `_band` ink,
+    // which is the ranking that makes the role worth declaring at all.
+    expect(inv.color, 'authored content ink outranks the inherited band ink').toBe(LOUD_COLOR);
   });
 
   // ── A-43 — the hero subtitle stops defeating --line-height-body ────────────
@@ -11934,19 +12154,14 @@ test.describe('#584 slot families, as rendered', () => {
           props: { id: 'pp-x3', title: 'Stats', items: [{ number: '10', label: 'Teams' }] },
         },
       },
-      {
-        slot: '--table-heading-margin-bottom',
-        sel: '.table-section__heading',
-        band: {
-          component: 'table',
-          props: { id: 'pp-x4', title: 'Table', headers: ['A'], rows: [['1']] },
-        },
-      },
-      {
-        slot: '--embed-heading-margin-bottom',
-        sel: '.embed__heading',
-        band: { component: 'embed', props: { id: 'pp-x5', title: 'Embed', content: 'Embedded.' } },
-      },
+      // table's and embed's rows left at #1066, the way hero's did at #986 and cta's at
+      // #1026: each heading rhythm is the `heading` role's `spacing.margin-bottom`
+      // (defaulting to `@space-lg`, the literal v1's rule carried), not a slot. THE
+      // BAND-FUSING CAPABILITY #584 EXISTS FOR IS UNCHANGED for both — set that parameter
+      // to `0` — and it is exercised end-to-end for the v2 shape by the authored-band row
+      // in the #438 adjacent block above, which drives `_band` -> `spacing.padding-top`
+      // through the real `udc` write. The emitted defaults are asserted at the CSS level
+      // in TableRoleDefaultsEmitTest and EmbedRoleDefaultsEmitTest.
       {
         slot: '--logos-heading-margin-bottom',
         sel: '.logos__heading',
@@ -11973,18 +12188,22 @@ test.describe('#584 slot families, as rendered', () => {
         ),
       BANDS.map((b) => b.sel),
     );
-    // FOUR bands now, not six: hero left this slot family in #986 and cta at #1026 (on both,
-    // the heading rhythm is a role's `spacing.margin-bottom`). The ready selector moved to
-    // `.stats__heading` with cta's departure — it was `.cta__title`, the first band in the
-    // list, and a ready selector that names a band no longer in the list waits forever. Four
-    // are var(--space-lg) = 32px. These are the exact literals the remaining slots carry
-    // as their fallbacks, measured rather than restated from the stylesheet. The leading
-    // '4px' left with cta: that was its `--cta-heading-margin-bottom` fallback of
-    // var(--space-xs), and it is now the `heading` role's `spacing.margin-bottom` default,
-    // asserted at the emitted-CSS level in CtaRoleDefaultsEmitTest instead of here.
+    // TWO bands now, not six: hero left this slot family in #986, cta at #1026, and table
+    // and embed at #1066 — on all four the heading rhythm is a role's
+    // `spacing.margin-bottom`. The ready selector moved to `.stats__heading` with cta's
+    // departure (it was `.cta__title`, and a ready selector naming a band no longer in the
+    // list waits forever); stats is still here, so it stays. Both remaining bands are
+    // var(--space-lg) = 32px, and these are the exact literals their slots carry as
+    // fallbacks, measured rather than restated from the stylesheet. The leading '4px' left
+    // with cta (its `--cta-heading-margin-bottom` fell back to var(--space-xs)).
+    //
+    // THE ROSTER IS DOWN TO stats AND logos, AND BOTH LEAVE IN #1066'S SECOND HALF. When
+    // they do, this test retires rather than narrowing to zero — an empty roster asserts
+    // nothing, which is the #1038 shape. The capability it guards (band fusing needs a
+    // zeroable heading margin on every band) is asserted for the v2 shape in each
+    // component's RoleDefaultsEmitTest, which pins the emitted `margin-bottom` default
+    // that an author sets to `0`.
     expect(unset, 'unset heading rhythm must be unchanged').toEqual([
-      '32px',
-      '32px',
       '32px',
       '32px',
     ]);

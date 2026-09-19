@@ -161,7 +161,7 @@ class SchemaTruthfulnessTest extends TestCase
         // TableRoleDefaultsEmitTest::testTheHeadingFollowsTheBandAndRestatesNoGlobalType,
         // which asserts the emitted `font-size:var(--pp-band-heading-size)` rather than
         // the schema text.
-        $bands = ['grid', 'stats', 'logos', 'embed'];
+        $bands = ['grid', 'stats', 'logos'];
         foreach ($bands as $component) {
             $slot = "--{$component}-heading-size";
             $slots = $this->slots($component);

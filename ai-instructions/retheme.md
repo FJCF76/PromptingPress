@@ -47,7 +47,7 @@ text. Links (and dim accent text like inverted stats numbers) on inverted bands
 therefore route through `--color-accent-on-inverted` (default `#9dafee`, 8.33:1 on the
 default inverted bg) with `--color-accent-on-inverted-hover` for hover. What still routes
 this way automatically is narrow, so it is worth naming exactly: the inverted **stats**
-number and the inverted **embed** body link. A section's `panel_cta` is NOT included: it
+number. (The inverted **embed** body link was the other member until #1066 retired embed's `theme`; a dark embed band's links are the `content-link` role now, which the author writes.) A section's `panel_cta` is NOT included: it
 sits inside the light panel, not on the band (see the panel exclusion below).
 
 **NO BUTTON ROUTES THIS AUTOMATICALLY ANY MORE.** An `outline` or `ghost` button on an
@@ -177,7 +177,7 @@ made `--section-bg` win over the `muted` / `inverted` theme paint (before, the t
 literal silently defeated it), which meant an `inverted` section painted light by
 `--section-bg` kept its `pp-section--inverted` class and therefore its near-white heading,
 body and link routing — light-on-light. Both the slot and the class retired with #1023.
-The same trap is still live on `grid`, `stats`, `logos` and `embed` until their own
+The same trap is still live on `grid`, `stats` and `logos` until their own
 rebuilds. `cta` left that list at #1026, the same way and for the same reason.
 
 Example retheme — warm neutral:
@@ -263,9 +263,9 @@ it rounds every card and panel too, and no longer reaches the button at all.
 
 ### The global button color tokens (the site-wide button surface)
 
-> **HERO, SECTION, CTA AND FAQ ARE NOT ON THIS SURFACE ANY MORE (#986, #1023, #1026, #1046).**
+> **HERO, SECTION, CTA, FAQ, TABLE AND EMBED ARE NOT ON THIS SURFACE ANY MORE (#986, #1023, #1026, #1046, #1066).**
 > Everything in this section describes the v1 per-instance STYLE SLOT cascade, which still
-> governs grid, stats, logos, embed and table. `hero`, `section`, `testimonials`, `faq` and
+> governs grid, stats and logos. `hero`, `section`, `testimonials`, `faq`, `table`, `embed` and
 > `cta` are v2 components with no style slots: their buttons and text are ROLES, styled
 > through the band's `udc` map. Any `--hero-button-*`, `--hero-button2-*`, `--hero-accent*`,
 > `--section-*` or `--cta-*` name below is HISTORY — writing one is refused with

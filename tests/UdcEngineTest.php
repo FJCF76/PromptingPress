@@ -1699,6 +1699,13 @@ final class UdcEngineTest extends TestCase
             // SELECTOR still has to match something the template renders, and a role
             // whose selector matches nothing is the silent-skip this lint exists to
             // catch. A cell's rich text goes through wp_kses_post(), which admits `a`.
+            // embed's THREE roles all render from one band, so a single set is enough —
+            // but the set carries a LINK, because `content-link`'s selector still has to
+            // match something the template renders even though the role defaults nothing.
+            'embed' => [
+                'title'   => 'Book a call',
+                'content' => '<p>Pick a slot. <a href="/contact">Contact us</a> if none fit.</p>',
+            ],
             'table' => [
                 [
                     'title'   => 'Compare the plans',
@@ -2028,14 +2035,15 @@ final class UdcEngineTest extends TestCase
                 $legacy[] = $name;
             }
         }
-        // FOUR now: testimonials was rebuilt in Sprint 0, nav and footer joined as the
+        // THREE now: testimonials was rebuilt in Sprint 0, nav and footer joined as the
         // CHROME container in Sprint 1 (ruling A1), hero in Sprint 1 (#986), section in
-        // Sprint 2 (#1023), cta in Sprint 2 (#1026), faq in Sprint 2 (#1046) and table in
-        // Sprint 2 (#1066). The
+        // Sprint 2 (#1023), cta in Sprint 2 (#1026), faq in Sprint 2 (#1046), and table
+        // and embed in Sprint 2 (#1066). Only grid, stats and logos remain. The
         // number is asserted rather than loosened so that a component quietly falling OFF
         // the engine still trips this — and so that each rebuild has to come here and say
         // which one moved.
-        $this->assertCount(4, $legacy, 'four components stay on the legacy system');
+        $this->assertCount(3, $legacy, 'three components stay on the legacy system');
+        $this->assertNotContains('embed', $legacy);
         $this->assertNotContains('table', $legacy);
         $this->assertNotContains('faq', $legacy);
         $this->assertNotContains('testimonials', $legacy);

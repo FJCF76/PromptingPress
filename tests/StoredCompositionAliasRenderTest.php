@@ -558,7 +558,10 @@ class StoredCompositionAliasRenderTest extends TestCase
             ['component' => 'testimonials', 'props' => ['title' => 'Quotes', 'layout' => 'stack', 'items' => [['quote' => 'Great.', 'author' => 'Ada']]]],
             ['component' => 'stats',        'props' => ['title' => 'Numbers', 'theme' => 'inverted', 'items' => [['number' => '10', 'label' => 'Customers']]]],
             ['component' => 'logos',        'props' => ['title' => 'Logos', 'theme' => 'muted', 'items' => [['image_url' => 'https://example.com/acme.png', 'image_alt' => 'Acme']]]],
-            ['component' => 'embed',        'props' => ['title' => 'Embed', 'content' => '<p>hi</p>', 'theme' => 'inverted']],
+            // embed's `theme` retired at #1066, so it carries none here. It stays in the
+            // roster for the reason testimonials does: this contract is about PROPS
+            // surviving a round trip, and its remaining props do.
+            ['component' => 'embed',        'props' => ['title' => 'Embed', 'content' => '<p>hi</p>']],
         ];
         pp_update_composition($id, $canonical);
 
@@ -851,10 +854,15 @@ class StoredCompositionAliasRenderTest extends TestCase
             // own, different from cta's: faq's `muted` was NOT byte-identical to `default`
             // — it drew a 1px `--color-border` rule top and bottom — so retiring `theme`
             // there cost two rendered states rather than one, and `retired_props` names
-            // the `border` group alongside `background` for exactly that reason. The
-            // roster is FOUR bands now and still means the same thing — every component
-            // that declares `theme` round-trips its canonical values.
-            'embed'        => ['title' => 'E', 'content' => '<p>hi</p>'],
+            // the `border` group alongside `background` for exactly that reason.
+            // embed is absent since #1066, and its measured fact is faq's shape again with
+            // one addition: `muted` drew the same 1px framing rule, AND `inverted`
+            // re-coloured the CONTENT ink as well as the heading — which is why its route
+            // names `typography.color` on `_band` and then goes on to say what an
+            // inherited colour does NOT reach inside arbitrary author HTML. table is
+            // rebuilt in that same issue and never appears here at all: it never declared
+            // `theme`. The roster is THREE bands now and still means the same thing —
+            // every component that declares `theme` round-trips its canonical values.
             'logos'        => ['title' => 'L', 'items' => [['image_url' => 'https://example.com/a.png', 'image_alt' => 'A']]],
         ];
 

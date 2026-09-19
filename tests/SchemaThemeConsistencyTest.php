@@ -109,7 +109,12 @@ class SchemaThemeConsistencyTest extends TestCase
         // `_band` route now, and SchemaValidationTest's registry loop guards it in both
         // directions. The components below still declare the enum and still have to
         // advertise `muted` rather than the removed `dark` input (#605).
-        $bandComponents = ['grid', 'embed', 'logos', 'stats'];
+        // embed left this roster at #1066 with its `theme` prop. THREE remain, and the
+        // claim is unchanged for them: a `theme` enum must advertise `muted`, never the
+        // `dark` alias #605 removed. embed's replacement is the `retired_props` route,
+        // which states all three measured values — and SchemaValidationTest checks that
+        // route in both directions.
+        $bandComponents = ['grid', 'logos', 'stats'];
         $schemas        = $this->loadSchemas();
 
         foreach ($bandComponents as $component) {
@@ -172,7 +177,7 @@ class SchemaThemeConsistencyTest extends TestCase
         // table's v2 half is asserted against the EMITTED declaration in
         // TableRoleDefaultsEmitTest, which also pins that the fluid token is not frozen
         // to one tier.
-        $bandComponents = ['grid', 'stats', 'logos', 'embed'];
+        $bandComponents = ['grid', 'stats', 'logos'];
         $schemas        = $this->loadSchemas();
 
         $expected = 'var(--pp-band-padding)';
