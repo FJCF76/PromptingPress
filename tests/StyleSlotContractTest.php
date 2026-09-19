@@ -83,15 +83,20 @@ class StyleSlotContractTest extends TestCase
     public function testDiscoveryFindsTheKnownStyledComponents(): void
     {
         $found = $this->styledComponents();
-        // FOUR, and the number is written out rather than counted because this is the
-        // fail-closed floor for every discovery-driven check in the file: a component
-        // silently dropping out of discovery would quietly disable its whole slot
-        // contract. The comment used to say "FOUR, not seven" while listing THREE, then
-        // "SIX" while listing five — it has drifted at almost every rebuild, so it is
-        // stated as a count AND as a list that a reader can compare in one glance.
-        // table left at #1066; stats and logos leave in the same issue's second half, at
-        // which point grid and embed are all that remain and this file's own retirement
-        // becomes the question rather than another narrowing.
+        // THREE: grid, logos, stats. The number is written out rather than counted
+        // because this is the fail-closed floor for every discovery-driven check in the
+        // file — a component silently dropping out of discovery would quietly disable its
+        // whole slot contract.
+        //
+        // THIS COMMENT HAS DRIFTED AT ALMOST EVERY REBUILD and the drift is the reason it
+        // is stated as a count AND a list a reader can compare in one glance: it said
+        // "FOUR, not seven" while listing THREE, then "SIX" while listing five, then
+        // "FOUR" while listing four with a tail sentence naming embed — which #1066 had
+        // just made v2. Count the list below before editing this line.
+        //
+        // table and embed left at #1066; stats and logos leave in the same issue's second
+        // half, at which point GRID ALONE remains and this file's own retirement becomes
+        // the question rather than another narrowing.
         foreach (['grid', 'logos', 'stats'] as $known) {
             $this->assertContains($known, $found, "Schema discovery lost the {$known} component.");
         }
@@ -659,11 +664,12 @@ class StyleSlotContractTest extends TestCase
         // lower: TableRoleDefaultsEmitTest pins the EMITTED
         // `margin-bottom:var(--space-lg)` on the `heading` role, which is what an unset
         // band now renders from.
-        // table's row left at #1066 and embed's with it. TWO remain, and the claim is
-        // unchanged for both — it is about a slot routing its own literal so an unset
-        // band is byte-identical. Each departed component's replacement asserts the same
-        // value one layer lower, against the EMITTED `margin-bottom:var(--space-lg)` on
-        // its `heading` role.
+        // table's row left at #1066 and embed's with it. TWO remain here (stats, logos)
+        // of the three components still on slots — grid's heading rhythm is pinned in its
+        // own premium-rule block rather than this one. The claim is unchanged for both:
+        // a slot routes its own literal so an unset band is byte-identical. Each departed
+        // component's replacement asserts the same value one layer lower, against the
+        // EMITTED `margin-bottom:var(--space-lg)` on its `heading` role.
         $expected = [
             'stats'  => ['.stats__heading', 'var(--space-lg)'],
             'logos'  => ['.logos__heading', 'var(--space-lg)'],
@@ -759,12 +765,20 @@ class StyleSlotContractTest extends TestCase
             . 'per-instance item gaps are intentionally absent.'
         );
 
-        // The band-background family stays out, entirely.
+        // The band-background family stays out of the stylesheet, entirely — but since
+        // #1066 the three names are absent for two different reasons. `--logos-bg` is
+        // still DEFERRED to the band-background gate. `--table-bg` and `--embed-bg` are
+        // not deferred any more: both components are on the Universal Design Contract,
+        // where a band tone is the `_band` role's `background.fill`, and a v2 component
+        // declares no style slots at all — so their names are barred by the stronger
+        // v2 boundary rule rather than by a withheld gate.
         foreach (['--logos-bg', '--embed-bg', '--table-bg'] as $absent) {
             $this->assertStringNotContainsString(
                 $absent,
                 $this->stripComments($this->css),
-                "{$absent} is deferred to the band-background gate and must not appear."
+                "{$absent} must not appear: --logos-bg is deferred to the band-background "
+                . 'gate, and --table-bg/--embed-bg would be style slots on components that '
+                . 'declare none.'
             );
         }
     }

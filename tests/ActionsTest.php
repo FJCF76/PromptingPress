@@ -1129,6 +1129,103 @@ class ActionsTest extends TestCase
         $this->assertStringContainsString('this band can be repaired on its own', $result['error']);
     }
 
+    /**
+     * THE SAME REFUSAL ON THE NEWEST RETIRED KEY (#1066), BECAUSE THE FIXTURE IS THE ONLY
+     * THING THAT IS GENERIC HERE.
+     *
+     * The gate is data-driven — it reads whatever `retired_props` the component's schema
+     * declares — so a second component cannot re-prove the MECHANISM. What it proves is
+     * the shipped MESSAGE for the key an author is actually most likely to meet: embed's
+     * `theme` is the ordinary state of every embed band written before the rebuild, and
+     * the migration doc (docs/howto-migrate-an-embed-band-to-v2.md) sends them here.
+     *
+     * The route is asserted by the surface it NAMES, not by quoting the schema's
+     * paragraph: the note is prose that will be re-worded, while `_band` and the null
+     * clear are the two things the author has to act on.
+     *
+     * TABLE HAS NO TWIN HERE, DELIBERATELY: it is the only v2 rebuild that retires no
+     * prop at all, so a `retired_prop` on a table band is unreachable by construction.
+     */
+    public function testARetiredEmbedThemeIsRefusedWithItsOwnCodeAndTheBandRoute(): void
+    {
+        $id = pp_create_page('Retired embed theme', 'draft');
+        // The stored shape: a band written before #1066 still carries the key, because
+        // refusing a WRITE does not empty storage (#233 — restore reports without blocking).
+        pp_update_composition($id, [
+            ['component' => 'embed', 'props' => ['content' => '[form]', 'theme' => 'inverted']],
+        ]);
+
+        $result = pp_execute_action('update_component', [
+            'post_id' => $id, 'component_index' => 0, 'props' => ['title' => 'Edited'],
+        ]);
+
+        $this->assertFalse($result['ok'], 'a stale retired key blocks the band until it is cleared');
+        $this->assertSame('retired_prop', $result['error_code'], 'not unknown_prop: this moved, it was not typo\'d');
+        $this->assertStringContainsString('was retired when embed moved to the v2 styling system', $result['error']);
+        $this->assertStringContainsString('_band', $result['error'], 'the ROUTE — the role that carries the tone now');
+        $this->assertStringContainsString('{"theme": null}', $result['error'], 'the CURE');
+    }
+
+    /**
+     * `style_component` ON THE TWO NEWEST v2 COMPONENTS, THROUGH THE ACTION (#1066).
+     *
+     * Both READMEs make this promise in the same words — "a `style_component` write naming
+     * any of them is refused with `no_style_slots`, and the refusal lists the component's
+     * roles" — and ai-instructions/style-component.md repeats it in the per-component table.
+     * Until this test that promise was covered for the CODE (`_pp_no_style_slots_clause` is
+     * derived from `pp_udc_is_v2_component()`, so it cannot drift) and not for these two
+     * SUBJECTS, which is the thing a reader of those docs checks.
+     *
+     * THE ROLE LIST IS THE HALF WORTH ASSERTING, not the code alone. A bare "no style slots"
+     * was true and useless — it reads as "this component can no longer be styled", which is
+     * false for every component it fires on (#1007). So the refusal is asserted to carry the
+     * ROUTE: the roles, and the two actions that can reach them.
+     *
+     * The retired slot names are the real ones an author's stored page carries, so this is
+     * also the write-path half of the migration docs' opening move.
+     */
+    public function testStyleComponentRefusesTableAndEmbedAndNamesTheirRoles(): void
+    {
+        $cases = [
+            'table' => [
+                ['headers' => ['A'], 'rows' => [['1']]],
+                '--table-heading-size',
+                ['_band', 'heading', 'wrap', 'cell-link', 'empty'],
+            ],
+            'embed' => [
+                ['content' => '[shortcode]'],
+                '--embed-heading-color',
+                ['_band', 'heading', 'content', 'content-link'],
+            ],
+        ];
+
+        foreach ($cases as $component => [$props, $retiredSlot, $roles]) {
+            $id = pp_create_page("Retired {$component} slot", 'draft');
+            pp_update_composition($id, [['component' => $component, 'props' => $props]]);
+
+            $result = pp_execute_action('style_component', [
+                'post_id'         => $id,
+                'component_index' => 0,
+                'style'           => [$retiredSlot => '2rem'],
+            ]);
+
+            $this->assertFalse($result['ok'], "{$component} declares no slots, so this must refuse");
+            $this->assertSame('no_style_slots', $result['error_code'], $component);
+            // NOT the dead end. The refusal names where the value went.
+            $this->assertStringNotContainsString('Available slots: (none)', $result['error'], $component);
+            $this->assertStringContainsString('`udc` map', $result['error'], "{$component}: the ROUTE");
+            $this->assertStringContainsString('update_composition', $result['error'], "{$component}: and how to reach it");
+            foreach ($roles as $role) {
+                $this->assertStringContainsString(
+                    $role,
+                    $result['error'],
+                    "{$component}: the refusal must list its `{$role}` role, or the author is told "
+                    . 'what they cannot do and not what they can'
+                );
+            }
+        }
+    }
+
     /** And a genuine misspelling still reads as one, on the same component. */
     public function testAMisspelledPropIsStillAnOrdinaryUnknownProp(): void
     {
@@ -4746,7 +4843,7 @@ class ActionsTest extends TestCase
         // cta's row left at #1026 and table's at #1066: each heading rhythm is the
         // `heading` role's `spacing.margin-bottom` now, authored in the band's `udc` map
         // rather than through `style_component` — the action refuses a v2 component
-        // outright. THE CLAIM THIS TEST MAKES IS UNCHANGED FOR THE FOUR THAT REMAIN, and
+        // outright. THE CLAIM THIS TEST MAKES IS UNCHANGED FOR THE THREE THAT REMAIN, and
         // it is a claim about `style_component` persisting a slot, not about any
         // particular component, so narrowing keeps its full value. table's replacement is
         // TableRoleDefaultsEmitTest, which asserts the EMITTED `margin-bottom` rather than

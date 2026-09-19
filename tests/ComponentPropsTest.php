@@ -1565,8 +1565,18 @@ class ComponentPropsTest extends TestCase
      * never as a class whose CSS no longer exists.
      *
      * The `muted` -> `--dark` OUTPUT NAMING that #570 DG-4 pinned is not weakened by
-     * faq leaving: it is still proven on grid, stats, logos and embed, each with its own
-     * render-layer test in this file.
+     * faq leaving — but the count this note used to give was wrong, and the correction
+     * lives beside the surviving row (see the block above
+     * testGridMutedThemeEmitsLegacyDarkClass). It claimed four render-layer carriers
+     * here; grepping found ONE (`grid--dark`), with `stats--dark` appearing only in a
+     * NEGATIVE assertion elsewhere and `logos--dark` / `embed--dark` asserted nowhere.
+     * The rule keeps exactly two carriers: grid's render-layer row, and the helper's own
+     * unit tests in tests/ThemeClassHelperTest.php.
+     *
+     * RESTATED AT #1066 because embed was one of the four this note named, and embed's
+     * `theme` retired with this rebuild — so leaving the sentence would have re-asserted
+     * a carrier that had just stopped existing, in the one file that already records why
+     * the number was wrong. Two halves of one claim, repriced together (#1038).
      */
     public function testAStoredFaqThemeEmitsNoVariantClassAtAll(): void
     {

@@ -5029,7 +5029,9 @@ class SchemaValidationTest extends TestCase
         ],
         // ── v2 Sprint 2 (#1046): faq's 21 style slots retired ──
         //
-        // The smallest of the five retired slot maps (hero 49, section 47, cta 40, testimonials 27, faq 21), and the same story:
+        // The third-smallest of the SEVEN retired slot maps (hero 49, section 47, cta 40,
+        // testimonials 27, faq 21, embed 8, table 6) — this line said "the smallest of the five"
+        // until #1066 added the two blocks above it. Same story either way:
         // the slot SYSTEM is gone from this component, not renamed and not deprecated.
         // Each note names the role and parameter that owns the value today.
         //

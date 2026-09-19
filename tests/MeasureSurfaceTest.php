@@ -263,8 +263,13 @@ class MeasureSurfaceTest extends TestCase
      * today and that is a coincidence, so folding one into the other would silently
      * re-flow embedded content on the next heading-scale retune.
      *
-     * Derived from the registry rather than listed, so a later rebuild joins it the day
-     * it declares the role. faq is the deliberate exception and is asserted as one: v1
+     * The map below is WRITTEN OUT, not derived, and the distinction is worth stating
+     * because an earlier draft of this sentence claimed the opposite: "which role renders
+     * a component's prose body" is a judgement about markup that no registry field
+     * records, so it cannot be derived. What that costs is real — a later rebuild has to
+     * come here and add its row — and the `assertGreaterThanOrEqual(4, $checked)` below is
+     * what stops the map silently shrinking instead. faq is the deliberate exception and
+     * is asserted as one: v1
      * declared `max-width: var(--faq-body-measure, none)` and RENDERED `none` at every
      * tier, so its `answer` role declares no measure and that is the faithful port.
      */
@@ -300,11 +305,28 @@ class MeasureSurfaceTest extends TestCase
             pp_udc_component_roles('faq')['answer']['defaults'] ?? [],
             'faq\'s answer renders `none` on v1 and must declare no measure — silence is the port'
         );
+        // THE NEGATIVE CONTROL, RE-POINTED AT THE v2 ADDRESS (#1066 review).
+        //
+        // It used to read `assertArrayNotHasKey('--testimonials-body-measure',
+        // $this->slots('testimonials'))`. testimonials has been v2 since #958, so
+        // `slots()` returned `[]` and the assertion could not fail — vacuous, inside a
+        // method whose whole docblock is about not shipping assertions that cannot fail.
+        // Caught by substituting an invented name, which also passed.
+        //
+        // The CLAIM it was making is still worth holding: testimonials renders quotes,
+        // not prose, and deliberately carries no body measure on either system. Asserted
+        // where that is now decidable — on the role's defaults.
+        // THE ROLE'S EXISTENCE FIRST. Without this the `?? []` below makes the assertion
+        // pass on an empty array if `quote` is ever renamed or dropped — which would
+        // reproduce, in the replacement, the exact vacuity the replacement was written to
+        // fix. Caught on the #1066 adversarial pass.
+        $testimonials = pp_udc_component_roles('testimonials');
+        $this->assertArrayHasKey('quote', $testimonials, 'testimonials must still declare a `quote` role');
         $this->assertArrayNotHasKey(
-            '--testimonials-body-measure',
-            $this->slots('testimonials'),
-            'testimonials is NOT among the four body-measure components in this pass — its '
-            . 'stack layout keeps a 42rem literal by ruling. Do not add it without a decision.'
+            'sizing',
+            $testimonials['quote']['defaults'] ?? [],
+            'testimonials never declared a body measure on either system, and the quote '
+            . 'role must not acquire one by drift'
         );
     }
 

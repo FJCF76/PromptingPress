@@ -85,7 +85,7 @@ and does **not** reach:
 |---|---|---|
 | an author-written `<h2>`–`<h6>` | `base.css` pins `@color-text` | **1.006:1** — invisible |
 | a `<blockquote>` | `base.css` pins `@color-muted` | ~3.1:1 |
-| a link | `base.css` pins `@color-accent` | ~2.7:1 |
+| a link | `base.css` pins `@color-accent` | **3.23:1** (its hover, `@color-accent-hover`, is 2.59:1) |
 
 Each is a **direct declaration on the element**, and a direct declaration always beats an
 inherited value regardless of cascade layer.
@@ -100,7 +100,7 @@ either give it a light surface or do not darken the band.
 |---|---|
 | `default` | nothing to write — the `_band` defaults already paint nothing |
 | `muted` | `_band` → `background.fill: "@color-surface"` **plus** `border.width-top` / `width-bottom` = `"1px"`, `style-top` / `style-bottom` = `"solid"`, `color` = `"@color-border"` |
-| `inverted` | `_band` → `background.fill: "@color-bg-inverted"` + `typography.color: "@color-bg"`, **plus** `content-link` → `typography.color` |
+| `inverted` | `_band` → `background.fill: "@color-bg-inverted"` + `typography.color: "@color-bg"`, **plus** `content-link` → `typography.color` **and its `:hover`** |
 
 Use the per-edge `border.width-top` / `width-bottom`, never the `width` shorthand: the shorthand
 emits all four edges, which on a full-bleed band draws hairlines down both viewport edges.
@@ -116,10 +116,27 @@ A dark band, complete:
 {
   "udc": {
     "_band":        { "background": { "fill": "@color-bg-inverted" }, "typography": { "color": "@color-bg" } },
-    "content-link": { "typography": { "color": "@color-accent-on-inverted" } }
+    "content-link": {
+      "typography": {
+        "color": "@color-accent-on-inverted",
+        ":hover": { "color": "@color-accent-on-inverted-hover" }
+      }
+    }
   }
 }
 ```
+
+**Set the `:hover` in the same write, not as a follow-up**, and the reason is not the one you
+would guess. v1 remapped both states together because one class did it. On v2, writing only the
+resting colour does **not** leave the hover on `base.css`'s `a:hover` — the authored value is
+emitted **unlayered**, and unlayered beats every layer, so it wins on hover too. Measured: the
+link holds `@color-accent-on-inverted` in both states and **stops responding to hover entirely**.
+
+So the cost is a lost affordance, not a contrast failure. (The contrast failure is a different
+scene: a dark band with **no** `content-link` write at all leaves the link at `@color-accent`,
+measured **3.23:1** resting.) A role's states move with its resting value — that is the rule,
+and this is the surface where forgetting it is least visible, because nothing looks wrong until
+someone tries to hover.
 
 ## Step 6: `content-link` replaces the automatic remap
 
@@ -130,6 +147,25 @@ It ships with **no defaults**, and that is the point rather than an omission: a 
 `base.css`'s anchor values would be emitted unlayered and would outrank the premium button rules
 for an author-written `<a class="btn">` in the content. With no default it costs nothing until
 you use it.
+
+> **What an AUTHORED value here reaches, which is more than v1's rule did.** Your write emits
+> unlayered at `.embed__content a`, so it lands on an `<a class="btn">` in the content as well as
+> on a prose link, in both states. v1's `.embed--inverted a` weighed `(0,1,1)` inside `pp-v1` and
+> lost to `main .btn:not(...)` at `(0,4,1)`, so the automatic remap left buttons alone. Measured:
+> the dark-band write above puts `@color-accent-on-inverted` on the gradient's `@color-accent` at
+> **2.58:1**, where the button's own label is 5.37:1. The selector cannot be narrowed to
+> `a:not(.btn)` — the role-selector charset admits neither `:` nor `(`. So either keep composed
+> buttons out of a surface whose links you recolour, or accept the button taking the same ink.
+
+**It carries states, and v1's automatic remap carried two.** `.embed--inverted a` set the resting
+colour and `.embed--inverted a:hover` set the hover; both retire together. Write both:
+
+```json
+{ "udc": { "content-link": { "typography": {
+  "color": "@color-accent-on-inverted",
+  ":hover": { "color": "@color-accent-on-inverted-hover" }
+} } } }
+```
 
 ## Clearing the stored slot map and the stored `theme`
 

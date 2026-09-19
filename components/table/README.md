@@ -141,7 +141,7 @@ And the deliberate silences:
 
 ## Retired style slots
 
-All six, at #1066. Each is refused at write with `retired_prop`, and the refusal names the role that replaced it.
+All six, at #1066. A `style_component` write naming any of them is refused with `no_style_slots`, and the refusal lists the component's roles. (`retired_prop` is the code for a retired PROP, which table has none of — the two are different refusals and it is worth keeping them straight.)
 
 | v1 slot | v2 address |
 |---|---|

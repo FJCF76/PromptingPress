@@ -2738,12 +2738,18 @@ describe('CSS lint: band heading-color slots route through the slot (#438)', () 
         // faq's row left at #1046 with the `theme` prop, and table's at #1066 — table's
         // heading colour is `currentColor` on the `heading` role now, which is the one
         // shape this guard structurally cannot express (it asserts a slot-and-fallback
-        // chain, and a role default is neither). NOTE FOR THE NEXT REBUILD: four rows
-        // remain, all of them logos/embed/stats, and logos and stats leave together in
-        // #1066's second half — at which point embed is the last declarer and this whole
-        // block retires rather than being narrowed to one row. The presence floor below
-        // is what keeps it honest rather than vacuous meanwhile; read it before removing
-        // another row.
+        // chain, and a role default is neither).
+        //
+        // NOTE FOR THE NEXT REBUILD: four rows remain — logos and stats, base and
+        // inverted each. Both leave together in #1066's second half, at which point the
+        // roster is EMPTY and this whole block retires rather than being narrowed to
+        // nothing. (An earlier draft of this note said embed would be the last declarer;
+        // the same change that wrote it had already removed embed's two rows.)
+        //
+        // WHAT KEEPS IT HONEST MEANWHILE is not a floor assertion — there isn't one. It
+        // is vitest itself: a `test.each` over an empty array fails the run with "No test
+        // found in suite", so the block cannot go silently empty. Verified by emptying
+        // the roster. Read that before removing another row.
     ];
 
     test.each(HEADING_COLOR_RULES)('$selector routes color through $slot to var($fallback)', ({ selector, slot, fallback }) => {
@@ -3679,6 +3685,18 @@ describe('CSS lint: inverted dark-band links route through the on-inverted accen
         return m ? m[1] : null;
     }
 
+    // THE ROSTER'S EMPTINESS IS ASSERTED, NOT ASSUMED (#1045's roster-count shape).
+    // `HEADING_COLOR_RULES` gets this for free because `test.each` refuses an empty
+    // array; a `forEach` does not — it just contributes no tests, silently. The
+    // docblock above says the roster is empty and says why, but a comment is not a
+    // gate: without this line the block's deadness is an accident that reads exactly
+    // like coverage. If a future rebuild re-introduces an `--inverted` link rule, this
+    // fails and sends the author to the two replacement tests below rather than
+    // letting a half-live loop run beside them.
+    test('the automatic dark-band link remap has no rows left, and that is asserted', () => {
+        expect(DARK_BAND_LINK_VARIANTS).toHaveLength(0);
+    });
+
     DARK_BAND_LINK_VARIANTS.forEach(selector => {
         test(`${selector} remaps link color to --color-accent-on-inverted`, () => {
             const body = ruleBody(selector);
@@ -3725,6 +3743,52 @@ describe('CSS lint: inverted dark-band links route through the on-inverted accen
                 `${component}.${role} must permit typography, or the author has no ink to set`,
             ).toContain('typography');
         });
+    });
+
+    /**
+     * THE STATE HALF, WHICH THE ROSTER ABOVE DOES NOT COVER (#1066).
+     *
+     * The retired `.embed--inverted a` rule was a PAIR: a resting colour and a `:hover`
+     * routed through `--color-accent-on-inverted-hover`. Emptying DARK_BAND_LINK_VARIANTS
+     * deleted TWO generated tests per row, and repricing only the resting one is the
+     * #1046 both-halves defect — the one this block is most exposed to, because the
+     * resting half is the half the rendered contrast runner exercises.
+     *
+     * A link role that could not carry a state would silently cap every dark band's hover
+     * at base.css's `@color-accent-hover` (about 2.6:1 on `@color-bg-inverted`, against
+     * 11.4:1 for the on-inverted-hover token). So the capability is asserted here, and the
+     * rendered proof that an authored `:hover` actually EMITS lives in style-render.spec.ts.
+     */
+    test('a link role can carry its states, so a dark band\'s hover is authorable', () => {
+        const componentsDir = path.resolve(__dirname, '../../components');
+        const LINK_ROLES = {
+            section: 'body-link',
+            cta: 'body-link',
+            embed: 'content-link',
+            table: 'cell-link',
+        };
+        // The engine's state dimension is a sub-map INSIDE a group, so "can carry a state"
+        // is exactly "declares the group the state would live in". Asserting the group is
+        // therefore the whole claim, not a proxy for it.
+        Object.entries(LINK_ROLES).forEach(([component, role]) => {
+            const schema = JSON.parse(
+                fs.readFileSync(path.join(componentsDir, component, 'schema.json'), 'utf-8'),
+            );
+            const declared = schema.roles[role];
+            expect(
+                declared.groups,
+                `${component}.${role} must permit typography so an author can write a :hover ` +
+                'colour — v1 remapped the dark-band hover automatically and that rule retired',
+            ).toContain('typography');
+        });
+
+        // AND THE TOKEN THE HOVER ROUTES TO MUST STILL EXIST. It lost its last
+        // component-level reader when `.embed--inverted a:hover` was deleted at #1066, so
+        // without this nothing would notice it being dropped from base.css.
+        expect(
+            BASE_CSS,
+            '--color-accent-on-inverted-hover is what a dark band\'s link hover routes to',
+        ).toMatch(/--color-accent-on-inverted-hover:\s*#[0-9a-fA-F]{6}/);
     });
 
     test('inverted stats numbers route the fallback through --color-accent-on-inverted', () => {

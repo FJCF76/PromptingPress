@@ -217,8 +217,10 @@ class EmbedRoleDefaultsEmitTest extends TestCase
      * embed's rebuild is the one that empties a stylesheet block entirely, so the risk
      * here is the opposite of every other component's: not a value left behind in CSS,
      * but a value invented in the schema to fill the space. A count is the cheapest guard
-     * against that, and it is asserted as a RANGE rather than a number so a legitimate
-     * reordering or a whitespace change does not fail it while a new role default does.
+     * against that. It is an EXACT count rather than a range, deliberately: a range would
+     * admit exactly the thing this guards (one more default quietly appearing), and the
+     * emission is small enough that the exact number is stable across reordering — the
+     * declaration COUNT does not change when declarations swap places.
      */
     public function testTheEmissionStaysAsSmallAsTheComponentIs(): void
     {
@@ -248,5 +250,72 @@ class EmbedRoleDefaultsEmitTest extends TestCase
                 "{$global} comes from base.css for every element embed renders; no role may restate it"
             );
         }
+    }
+
+    /**
+     * EVERY RETIRED SLOT'S REPLACEMENT PAINTS AT ITS NEW ADDRESS — AND THE ONE THAT HAS
+     * NO REPLACEMENT IS STILL AUTHORABLE.
+     *
+     * The shape faq's rebuild left behind (ComponentPropsTest::
+     * testFaqDeclaresRolesAndNoStyleSlots), applied to embed's eight. SchemaValidationTest's
+     * SLOT_RENAME_MIGRATION_NOTES already checks that each note's route names a role this
+     * component declares, a group that role permits and a parameter the taxonomy knows —
+     * every one of which is a REGISTRY fact, and none of which is emission. The notes are
+     * the only migration path an author gets, so a route that validates and paints nothing
+     * sends them somewhere the page never changes.
+     *
+     * `--embed-body-color` IS THE SEVENTH-AND-A-HALF ROW, and it is why this sweep is not
+     * a flat table. It retired with NO replacement DEFAULT, deliberately — silence and v1's
+     * explicit `inherit` are byte-identical on a bare <div>. But the note promises more than
+     * silence: "the `content` role declares the `typography` group, so an author can still
+     * set it". That promise is a capability, and it is asserted as one below rather than
+     * taken on the note's word.
+     */
+    public function testEveryRetiredSlotsReplacementPaintsAtItsNewAddress(): void
+    {
+        // The seven with a replacement default, each at the role that owns the value now.
+        $routes = [
+            '--embed-padding-top'           => ['_band',   'spacing',    'padding-top',    '7px'],
+            '--embed-padding-bottom'        => ['_band',   'spacing',    'padding-bottom', '9px'],
+            '--embed-heading-size'          => ['heading', 'typography', 'size',          '13px'],
+            '--embed-heading-color'         => ['heading', 'typography', 'color',      '#123456'],
+            '--embed-heading-measure'       => ['heading', 'sizing',     'max-width',     '11px'],
+            '--embed-heading-margin-bottom' => ['heading', 'spacing',    'margin-bottom', '19px'],
+            '--embed-body-measure'          => ['content', 'sizing',     'max-width',     '23px'],
+            // …and the eighth, whose route is the GROUP rather than a default.
+            '--embed-body-color'            => ['content', 'typography', 'color',      '#654321'],
+        ];
+
+        $roles = pp_udc_component_roles('embed');
+        foreach ($routes as $retired => [$role, $group, $param, $value]) {
+            $this->assertArrayHasKey($role, $roles, "{$retired} routes to a role embed does not declare");
+            $this->assertContains(
+                $group,
+                $roles[$role]['groups'] ?? [],
+                "{$retired}'s replacement needs `{$role}` to permit the `{$group}` group"
+            );
+            $css = pp_udc_band_css([
+                'component' => 'embed',
+                'id'        => 'pp-1a2b3c4d',
+                'props'     => [],
+                'udc'       => [$role => [$group => [$param => $value]]],
+            ]);
+            $this->assertStringContainsString(
+                $value,
+                $css,
+                "{$retired}'s replacement ({$role}.{$group}.{$param}) validated but never reached "
+                . 'the page — the migration note would send an author somewhere nothing happens'
+            );
+        }
+
+        // AND THE DELIBERATE SILENCE IS STILL A SILENCE. `--embed-body-color`'s route is the
+        // only one that must NOT also appear as a shipped default: the whole argument for
+        // dropping it is that an inherited `_band` value already lands on a bare <div>.
+        $this->assertArrayNotHasKey(
+            'typography',
+            $roles['content']['defaults'] ?? [],
+            "the `content` role must remain authorable-but-undefaulted for colour — a default "
+            . 'here would strand the content on a dark band, which is what the note rules out'
+        );
     }
 }

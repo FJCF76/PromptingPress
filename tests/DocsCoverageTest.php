@@ -768,13 +768,25 @@ class DocsCoverageTest extends TestCase
     // ── The three band-background slots that do not exist ────────────────────
 
     /**
-     * `--table-bg`, `--embed-bg` and `--logos-bg` are a DEFERRED family, not a
-     * shipped one. Two things must hold at once and this pins both: no schema may
-     * declare them (that would be the gate shipping by accident), and every doc
-     * that names them must mark them absent in the same breath — the deferred
-     * gate's entry criteria are documented precisely where an agent looks for the
-     * slots, so a naive "never mention them" rule would forbid the disclosure the
-     * issue asks for.
+     * `--table-bg`, `--embed-bg` and `--logos-bg` are undeclared, and since #1066
+     * they are undeclared for TWO different reasons — the shared assertion below
+     * outlived the single reason that first motivated it.
+     *
+     * `--logos-bg` is still the DEFERRED family this test was written for: logos
+     * is on style slots, its `muted` variant paints `--color-surface` directly,
+     * and the gate's entry criterion (ship the ink and framing slots in the same
+     * change, or do not ship) is still live.
+     *
+     * `--table-bg` and `--embed-bg` are NOT deferred any more. Both components
+     * went to the Universal Design Contract at #1066, so a band tone on either is
+     * the `_band` role's `background.fill` — a shipped capability, not a withheld
+     * one. Their names stay barred here for the stronger reason that a v2
+     * component declares NO style slots at all, so any `--table-*` / `--embed-*`
+     * key reappearing is a v2 boundary violation.
+     *
+     * Two things must hold at once and this pins both: no schema may declare them,
+     * and every doc that names them must mark them absent in the same breath — a
+     * naive "never mention them" rule would forbid the disclosure logos still owes.
      */
     public function testDeferredBandBackgroundSlotsAreUndeclaredAndAlwaysMarkedAbsent(): void
     {

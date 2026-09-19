@@ -1627,8 +1627,10 @@ function _pp_validate_token_value(string $value, ?string $type, ?array $allowed 
             //
             // The RULE is "the declared default must be authorable", not "measure slots
             // get `none`". Every measure slot with a real length default
-            // (--grid-heading-measure, --embed-body-measure and
-            // the other routed heading measures) deliberately
+            // (--grid-heading-measure, --logos-heading-measure and --stats-heading-measure,
+            // the three that remain after table's and embed's left at #1066 —
+            // --embed-body-measure was named here until then and was the last BODY measure
+            // in the theme) deliberately
             // stays plain `length`: they have no third state, and the shipped
             // friendly-error path steers "remove this cap" to `100%` for them. Do not
             // widen this type to a padding, radius or font-size slot without a decision —

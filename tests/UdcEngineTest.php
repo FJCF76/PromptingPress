@@ -1699,6 +1699,11 @@ final class UdcEngineTest extends TestCase
             // SELECTOR still has to match something the template renders, and a role
             // whose selector matches nothing is the silent-skip this lint exists to
             // catch. A cell's rich text goes through wp_kses_post(), which admits `a`.
+            //
+            // THAT CLAIM WAS FALSE WHEN FIRST WRITTEN and is true now: the sweep checked
+            // class tokens only, so the `a` went unchecked and removing these links left
+            // the suite green. The element half was added at #1066 (see the sweep below);
+            // these fixtures are what it reads.
             // embed's THREE roles all render from one band, so a single set is enough —
             // but the set carries a LINK, because `content-link`'s selector still has to
             // match something the template renders even though the role defaults nothing.
@@ -1851,6 +1856,32 @@ final class UdcEngineTest extends TestCase
                 if ($selector === '') {
                     continue; // `_band` is the band element itself.
                 }
+                // ── THE ELEMENT HALF, ADDED AT #1066 ────────────────────────────
+                //
+                // This sweep checked CLASS tokens only, which left a real gap the moment
+                // a role's selector ended in a bare element: `.table__cell a` and
+                // `.embed__content a` were checked for `table__cell` / `embed__content`
+                // and never for the `a`. Measured at the time it was found: removing the
+                // links from those fixtures entirely left the whole suite green, so the
+                // fixtures' own comment ("its SELECTOR still has to match something the
+                // template renders") was describing a check that did not exist.
+                //
+                // A trailing bare element term is exactly the shape a `*-link` role takes,
+                // and it is the shape most likely to match nothing — an author-written
+                // anchor lives in rich text, so whether one renders at all depends on the
+                // fixture. Checked as a TAG now, against the same rendered html.
+                if (preg_match('/(?:^|[\s>])([a-z][a-z0-9]*)\s*$/', $selector, $tagM)) {
+                    $tag = $tagM[1];
+                    $this->assertMatchesRegularExpression(
+                        '/<' . preg_quote($tag, '/') . '\b/i',
+                        $html,
+                        "{$component}.{$role} ends in the element `{$tag}`, which the component's "
+                        . 'fixture never renders — the role would emit a block matching nothing, '
+                        . 'and this sweep exists to catch exactly that silent skip'
+                    );
+                    $checked++;
+                }
+
                 // Every class the selector names must exist in the rendered markup.
                 preg_match_all('/\.([A-Za-z0-9_-]+)/', $selector, $m);
                 $this->assertNotEmpty($m[1], "{$component}.{$role} has a selector with no class to match");

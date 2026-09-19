@@ -24,7 +24,7 @@ A generic content embed block. Renders an optional heading and passes `content` 
 |---|---|---|
 | `default` | **nothing** — `rgba(0, 0, 0, 0)`, no border on any edge | the `_band` role's defaults declare no fill at all; silence is the faithful port |
 | `muted` | `@color-surface` **plus a `1px solid var(--color-border)` rule top and bottom** | `_band` → `background.fill`, plus `border.width-top` / `width-bottom` = `"1px"`, `style-top` / `style-bottom` = `"solid"`, `color` = `"@color-border"` |
-| `inverted` | `@color-bg-inverted` fill, heading re-coloured to `@color-bg`, **content ink re-coloured to the same**, and links re-routed to `@color-accent-on-inverted` | `_band` → `background.fill` + `typography.color` (the `heading` role follows through `currentColor`, `content` receives it by inheritance), plus `content-link` → `typography.color` for the links |
+| `inverted` | `@color-bg-inverted` fill, heading re-coloured to `@color-bg`, **content ink re-coloured to the same**, and links re-routed to `@color-accent-on-inverted` | `_band` → `background.fill` + `typography.color` (the `heading` role follows through `currentColor`, `content` receives it by inheritance), plus `content-link` → `typography.color` **and its `:hover`** for the links |
 
 `dark` was never an accepted input (removed at #605) and is not part of the route.
 
@@ -66,7 +66,7 @@ A link inside the content renders `@color-accent` underlined with an `@color-acc
 
 The rule is that **rule 2 forbids a default, not a role.** With no default, `content-link` emits nothing at rest — zero cascade movement — while still giving you an address.
 
-**This role is what replaces `.embed--inverted a`**, the #437 rule that routed a dark band's link ink through `@color-accent-on-inverted` and that retires with the `theme` class. Without it, the capability would simply be deleted: `content` → `typography.color` reaches a link only by inheritance, and inheritance cannot beat `base.css`'s own `a` rule (measured on faq, where the absence of such a role leaves a documented dark-panel write shipping a 3.21:1 link — #1069).
+**This role is what replaces `.embed--inverted a` AND `.embed--inverted a:hover`**, the #437 PAIR that routed a dark band's link ink through `@color-accent-on-inverted` / `@color-accent-on-inverted-hover` and that retires with the `theme` class. Write both states in one map, and note what a resting-only write actually does — it is not what it sounds like. The authored value is emitted **unlayered**, so it beats `base.css`'s `a:hover` too: measured, the link holds `@color-accent-on-inverted` in **both** states and stops responding to hover at all. A lost affordance rather than a contrast failure. (The contrast failure belongs to a different case: a dark band with no `content-link` write leaves the link at `@color-accent`, **3.23:1**.) A role's states move with its resting value. Without it, the capability would simply be deleted: `content` → `typography.color` reaches a link only by inheritance, and inheritance cannot beat `base.css`'s own `a` rule (measured on faq, where the absence of such a role leaves a documented dark-panel write shipping a 3.21:1 link — #1069).
 
 ## Usage
 
@@ -80,7 +80,12 @@ The rule is that **rule 2 forbids a default, not a role.** With no default, `con
   },
   "udc": {
     "_band":        { "background": { "fill": "@color-bg-inverted" }, "typography": { "color": "@color-bg" } },
-    "content-link": { "typography": { "color": "@color-accent-on-inverted" } }
+    "content-link": {
+      "typography": {
+        "color": "@color-accent-on-inverted",
+        ":hover": { "color": "@color-accent-on-inverted-hover" }
+      }
+    }
   }
 }
 ```
@@ -101,7 +106,7 @@ The rule is that **rule 2 forbids a default, not a role.** With no default, `con
 
 ## Retired style slots
 
-All eight, at #1066. Each is refused at write with `retired_prop`, and the refusal names the role that replaced it.
+All eight, at #1066. A `style_component` write naming any of them is refused with `no_style_slots`, and the refusal lists the component's roles. The retired `theme` PROP is the one that returns `retired_prop`, and that refusal does name its route — the two codes are different refusals for different surfaces.
 
 | v1 slot | v2 address |
 |---|---|

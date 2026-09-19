@@ -8400,8 +8400,10 @@ test.describe('Band heading scale (#436)', () => {
     // size is the `heading` role's `typography.size`, defaulting to the same
     // `@pp-band-heading-size` this block pins for every component still on slots — so the
     // shared SCALE is unchanged and both still join the equality roster above; only the
-    // override ADDRESS moved. logos is the last slot-driven override, and when it goes
-    // this test retires rather than narrowing to zero.
+    // override ADDRESS moved. logos is the row kept here; grid and stats still declare
+    // `--grid-heading-size` and `--stats-heading-size` too, and grid's is driven in its
+    // own premium-rule pin earlier in this file. When the last of the three goes this
+    // test retires rather than narrowing to zero.
     setComposition(pageId, [
       { component: 'logos', props: { id: 'pp-logo01', title: 'Logos', items: [{ image_url: 'https://example.com/l.png', image_alt: 'Logo' }] } },
     ]);
@@ -8620,7 +8622,17 @@ test.describe('#437 inverted link contrast (rendered)', () => {
           },
           udc: {
             _band: { background: { fill: '@color-bg-inverted' }, typography: { color: '@color-bg' } },
-            'content-link': { typography: { color: '@color-accent-on-inverted' } },
+            // BOTH STATES, because the rule this replaces was a PAIR. `.embed--inverted a`
+            // and `.embed--inverted a:hover` retired together, so a resting-only write here
+            // would reproduce half the capability and leave the hover on base.css's
+            // `@color-accent-hover` — about 2.6:1 on this fill. The hover half is asserted
+            // by its own test below, because this runner reads the resting colour only.
+            'content-link': {
+              typography: {
+                color: '@color-accent-on-inverted',
+                ':hover': { color: '@color-accent-on-inverted-hover' },
+              },
+            },
           },
         },
       ],
@@ -8806,6 +8818,195 @@ test.describe('#437 inverted link contrast (rendered)', () => {
       }
     });
   }
+
+  /**
+   * THE HALF-DONE DARK BAND, AS A REAL AUTHORED SCENE (#1066) — not a simulation.
+   *
+   * The `#583` block further down injects a background client-side, because on `logos`
+   * there is no product path to a painted band. On `table` and `embed` there now IS one:
+   * `_band` -> `background.fill`. So the hazard is tested the way an author meets it.
+   *
+   * THE HAZARD: `currentColor` on the `heading` role follows the band's INK, not its
+   * FILL. Two separate writes. An author who sets only the fill gets a dark band with a
+   * heading still resolving the inherited `@color-text` — nothing errors, nothing is
+   * reported, and it only looks wrong once you see it.
+   *
+   * Both components, because the schema for each makes this claim and a claim made in two
+   * schemas needs proof for both — the #1066 review caught embed's copy asserting a
+   * rendered pin that existed only for table.
+   */
+  for (const { comp, sel, headingSel } of [
+    { comp: 'table', sel: '.table-section', headingSel: '.table-section__heading' },
+    { comp: 'embed', sel: '.embed', headingSel: '.embed__heading' },
+  ]) {
+    test(`#1066 a ${comp} band with a fill and NO ink strands its heading`, async ({ page }) => {
+      const INK = 'rgb(16, 24, 40)'; //      --color-text         #101828
+      const LIGHT = 'rgb(252, 253, 255)'; // --color-bg           #fcfdff
+
+      pageId = createPage(`E2E 1066 half-done ${comp}`);
+      setComposition(pageId, [{ component: 'section', props: { id: 'pp-seed', body: '<p>Seed.</p>' } }]);
+      await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+      await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+
+      const band = comp === 'table'
+        ? { title: 'Half done', headers: ['A', 'B'], rows: [['1', '2']] }
+        : { title: 'Half done', content: '<p>Copy.</p>' };
+
+      // FILL ONLY — the mistake.
+      const res = await updateComposition(page, pageId, [{
+        component: comp, id: `pp-h1d${comp === 'table' ? 'tbl' : 'emb'}01`, props: band,
+        udc: { _band: { background: { fill: '@color-bg-inverted' } } },
+      }]);
+      expect(res.success, `fill-only write: ${JSON.stringify(res)}`).toBe(true);
+
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await page.goto(`/?page_id=${pageId}`);
+      await expect(page.locator(`main > ${sel}`)).toBeVisible({ timeout: 10000 });
+      const stranded = await page.locator(headingSel).first().evaluate(
+        (el: Element) => getComputedStyle(el).color,
+      );
+      expect(
+        stranded,
+        `${comp}: a fill with no ink leaves the heading on the inherited @color-text — ` +
+        'this is the hazard the schema, README and how-to all name',
+      ).toBe(INK);
+
+      // AND THE CORRECTION, so the test proves the remedy as well as the defect.
+      await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+      await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+      const res2 = await updateComposition(page, pageId, [{
+        component: comp, id: `pp-h1d${comp === 'table' ? 'tbl' : 'emb'}02`, props: band,
+        udc: { _band: { background: { fill: '@color-bg-inverted' }, typography: { color: '@color-bg' } } },
+      }]);
+      expect(res2.success, `fill+ink write: ${JSON.stringify(res2)}`).toBe(true);
+
+      await page.goto(`/?page_id=${pageId}`);
+      const fixed = await page.locator(headingSel).first().evaluate(
+        (el: Element) => getComputedStyle(el).color,
+      );
+      expect(fixed, `${comp}: with the ink written, currentColor follows it`).toBe(LIGHT);
+    });
+  }
+
+  /**
+   * THE HOVER HALF (#1066), and it needs a test of its own because the runner above
+   * reads a RESTING colour and never hovers.
+   *
+   * v1's automatic remap was a PAIR: `.embed--inverted a` AND `.embed--inverted a:hover`.
+   * Both retired with the `theme` class. Repricing only the resting half is the #1046
+   * both-halves defect, and this block is where it would land unnoticed — the resting
+   * half is the one the contrast runner exercises, so the suite would stay green while a
+   * dark band's link hover sat on base.css's `@color-accent-hover` at about 2.6:1
+   * against the 11.4:1 `--color-accent-on-inverted-hover` gives.
+   *
+   * Measured with a REAL POINTER, so a `:hover` that validates but never emits fails here
+   * rather than passing a computed-value check.
+   */
+  test('#1066 an authored content-link :hover emits and beats base.css a:hover', async ({ page }) => {
+    // The shipped token values this asserts against, named rather than inlined twice.
+    const ON_INVERTED = 'rgb(157, 175, 238)'; //       --color-accent-on-inverted        #9dafee
+    const ON_INVERTED_HOVER = 'rgb(193, 205, 252)'; // --color-accent-on-inverted-hover  #c1cdfc
+    const ACCENT_HOVER_1066 = 'rgb(36, 71, 223)'; //   --color-accent-hover              #2447df
+
+    pageId = createPage('E2E 1066 content-link hover');
+    setComposition(pageId, [{ component: 'section', props: { id: 'pp-seed', body: '<p>Seed.</p>' } }]);
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+    const res = await updateComposition(page, pageId, [
+      {
+        component: 'embed',
+        id: 'pp-e437h001',
+        props: { id: 'pp-embed-h', title: 'Hover', content: '<p>Copy with a <a href="/x">link</a>.</p>' },
+        udc: {
+          _band: { background: { fill: '@color-bg-inverted' }, typography: { color: '@color-bg' } },
+          'content-link': {
+            typography: {
+              color: '@color-accent-on-inverted',
+              ':hover': { color: '@color-accent-on-inverted-hover' },
+            },
+          },
+        },
+      },
+    ]);
+    expect(res.success, `udc write: ${JSON.stringify(res)}`).toBe(true);
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+    const link = page.locator('.embed__content a').first();
+    await expect(link).toBeVisible({ timeout: 10000 });
+
+    const rest = await link.evaluate((el: Element) => getComputedStyle(el).color);
+    await link.scrollIntoViewIfNeeded({ timeout: 3000 });
+    await link.hover({ timeout: 3000 });
+    await page.waitForTimeout(250);
+    const hovered = await link.evaluate((el: Element) => getComputedStyle(el).color);
+    await page.mouse.move(0, 0);
+
+    expect(rest, 'resting link ink follows the authored content-link colour').toBe(ON_INVERTED);
+    expect(hovered, 'hovered link ink follows the authored :hover').toBe(ON_INVERTED_HOVER);
+    // And it must genuinely CHANGE. A hover equal to rest would satisfy a naive
+    // "is it a token" check while proving the state never emitted at all.
+    expect(hovered, 'the hover must differ from rest, or the state did not emit').not.toBe(rest);
+
+    // ── THE COUNTER-DIRECTION, IN THE SAME TEST AND ON PURPOSE ──────────────
+    //
+    // This is the red proof, built in rather than performed once: the SAME band with the
+    // `:hover` write REMOVED must land on base.css's `@color-accent-hover` instead. That
+    // is the exact defect this test exists for — the resting half repriced, the hover half
+    // forgotten — so asserting it here means the test cannot pass vacuously if the state
+    // machinery stops working, and it records the measured cost of the omission.
+    //
+    // (A mutation-in-a-copy proof is not available for a rendered test: wp-env serves the
+    // real theme directory, so a copied tree renders the shared code. A second authored
+    // scene is the honest substitute, and it is permanent rather than a one-off.)
+    // Back to the admin surface: `updateComposition` posts through admin-ajax and needs
+    // the nonce the chat page carries, which the front-end navigation above dropped.
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+    const res2 = await updateComposition(page, pageId, [
+      {
+        component: 'embed',
+        id: 'pp-e437h002',
+        props: { id: 'pp-embed-h', title: 'Hover', content: '<p>Copy with a <a href="/x">link</a>.</p>' },
+        udc: {
+          _band: { background: { fill: '@color-bg-inverted' }, typography: { color: '@color-bg' } },
+          'content-link': { typography: { color: '@color-accent-on-inverted' } },
+        },
+      },
+    ]);
+    expect(res2.success, `resting-only write: ${JSON.stringify(res2)}`).toBe(true);
+
+    await page.goto(`/?page_id=${pageId}`);
+    const link2 = page.locator('.embed__content a').first();
+    await expect(link2).toBeVisible({ timeout: 10000 });
+    await link2.scrollIntoViewIfNeeded({ timeout: 3000 });
+    await link2.hover({ timeout: 3000 });
+    await page.waitForTimeout(250);
+    const hovered2 = await link2.evaluate((el: Element) => getComputedStyle(el).color);
+    await page.mouse.move(0, 0);
+
+    // MEASURED, AND NOT WHAT REASONING PREDICTED. The obvious expectation is that the
+    // hover falls back to base.css's `a:hover` (@color-accent-hover). It does NOT: the
+    // authored RESTING colour is emitted UNLAYERED, and unlayered beats every layer, so
+    // it wins on hover too. The real cost of omitting the `:hover` is therefore that the
+    // link STOPS RESPONDING TO HOVER AT ALL — it holds the resting colour in both states.
+    //
+    // That is a lost affordance rather than a contrast failure, and it is worth pinning
+    // precisely because the plausible-sounding version (a 2.6:1 fallback) is wrong. The
+    // 2.6:1 case is real but belongs to a DIFFERENT scene: a dark band with no
+    // `content-link` write at all, which the `staysAccent` row above covers.
+    expect(
+      hovered2,
+      'with no :hover write the authored resting colour wins on hover too — unlayered ' +
+      'beats base.css a:hover, so the link stops responding to hover entirely',
+    ).toBe(ON_INVERTED);
+    expect(hovered2, 'and specifically it does NOT reach the on-inverted hover token').not.toBe(
+      ON_INVERTED_HOVER,
+    );
+    expect(hovered2, 'nor base.css a:hover, which the unlayered authored value outranks').not.toBe(
+      ACCENT_HOVER_1066,
+    );
+  });
 });
 
 
@@ -12132,7 +12333,7 @@ test.describe('#584 slot families, as rendered', () => {
 
   // ── A-41: the band-fusing step is now executable on all ten bands ─────────────────
 
-  test('#584 heading rhythm: the six new slots zero their band heading margin @smoke', async ({
+  test('#584 heading rhythm: the surviving slots zero their band heading margin @smoke', async ({
     page,
   }) => {
     // The whole justification for the row: band fusing requires margin-bottom 0 on the upper

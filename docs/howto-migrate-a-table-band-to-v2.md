@@ -136,6 +136,13 @@ nothing until you use it:
 { "udc": { "cell-link": { "typography": { "color": "@color-accent-on-inverted" } } } }
 ```
 
+> **This reaches an `<a class="btn">` in a cell too.** The write emits unlayered at
+> `.table__cell a`, which matches a composed button as well as a prose link, in both states — v1
+> had no equivalent, because its class rules lost to `main .btn:not(...)`. Measured, an
+> on-inverted ink on the premium gradient is **2.58:1** against the button's own 5.37:1 label. The
+> selector cannot be narrowed to `a:not(.btn)` (the role-selector charset admits neither `:` nor
+> `(`), so keep composed buttons out of cells whose links you recolour, or accept the shared ink.
+
 ## Step 6: Borders collapse, and that is new
 
 The row separator moved from the bottom edge to the **top** edge. Under

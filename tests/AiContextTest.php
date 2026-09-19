@@ -971,11 +971,20 @@ class AiContextTest extends TestCase
         // registry-derived and therefore picked table up the moment it declared roles.
         $prompt = pp_ai_system_prompt();
         $lines = explode("\n", $prompt);
-        // embed's row left at #1066 with table's, for the same reason. logos is the last
-        // declarer of a `--*-heading-size` slot that this test can reach; when it goes,
-        // this test retires rather than narrowing to zero (an empty roster would pass
-        // vacuously, which is the #1038 shape).
+        // embed's row left at #1066 with table's, for the same reason.
+        //
+        // AND THE ROSTER GREW BACK, because an earlier draft of this comment was WRONG.
+        // It claimed logos was "the last declarer of a `--*-heading-size` slot" and
+        // instructed a future rebuild to retire the test when logos went. grid and stats
+        // both declare one — verified in their schemas — so that instruction would have
+        // retired live coverage of two components, which is the #1038 shape pre-authorised
+        // in a comment. The SUBJECT here is "the runtime prompt surfaces a component's
+        // heading-size slot", not "#436's three components", so every current declarer
+        // belongs in the roster and it is derived from that claim rather than from the
+        // issue that introduced it.
         $expected = [
+            'grid'  => '--grid-heading-size',
+            'stats' => '--stats-heading-size',
             'logos' => '--logos-heading-size',
         ];
         foreach ($expected as $name => $slot) {
