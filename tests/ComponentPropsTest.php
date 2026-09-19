@@ -1578,6 +1578,130 @@ class ComponentPropsTest extends TestCase
         }
     }
 
+    /**
+     * faq's BAND-ID GUARD, pinned at the render layer the way cta's was at #1026.
+     *
+     * WHY A SECOND COPY RATHER THAN A REFERENCE TO cta's. UdcEngineTest sweeps every v2
+     * template for the STRINGS this guard is made of (`__pp_udc_band`,
+     * `pp_udc_valid_band_id`, `data-pp-band`), which proves the code is present and
+     * nothing about what it does: a template could read the id, call the validator,
+     * ignore the verdict and still pass that sweep. The behaviour is per template, so the
+     * assertion has to be too — and #1026 measured the cost of assuming otherwise, where
+     * weakening cta's identical guard to `(pp_udc_valid_band_id(...) || true)` left the
+     * whole suite green.
+     *
+     * THE EMPTY-ATTRIBUTE CASE IS THE ONE THAT MATTERS, and it is worse on faq than the
+     * general argument suggests. `[data-pp-band=""]` matches every other id-less band on
+     * the page, so a malformed stored id does not merely fail to paint this band's design
+     * — it paints it onto the others. faq is the component most likely to meet it: its
+     * bands predate the rebuild by definition, and a composition written before #1046
+     * carries no band id at all.
+     *
+     * Reachable from stored data even though the write path mints on write: a raw
+     * `_pp_composition` meta write is not gated, and restore_composition reports without
+     * blocking (#233).
+     */
+    public function testAMalformedFaqBandIdEmitsNoAttributeAtAll(): void
+    {
+        foreach ([
+            'not an id',         // spaces
+            'pp-ZZZZ!!',         // outside the charset
+            'quote"]',           // attribute-breaking
+            str_repeat('a', 65), // over the 64-char cap
+            '',                  // empty
+            ['pp-1a2b3c4d'],     // non-scalar
+        ] as $bad) {
+            $html  = $this->render('faq', $this->faqProps(['__pp_udc_band' => $bad]));
+            $shown = is_scalar($bad) ? var_export($bad, true) : gettype($bad);
+            $this->assertStringNotContainsString(
+                'data-pp-band=""',
+                $html,
+                "an empty band id would match every other id-less band on the page ({$shown})"
+            );
+            $this->assertStringNotContainsString(
+                'data-pp-band',
+                $html,
+                "a malformed band id must emit NO attribute, not a broken one ({$shown})"
+            );
+            // The band must still render structurally — a bad id is not a reason to lose
+            // the questions, and faq loses more than most when it does: the JSON-LD block
+            // goes with the markup.
+            $this->assertStringContainsString('data-pp-component="faq"', $html);
+            $this->assertStringContainsString('faq__question', $html);
+        }
+
+        // Positive control, or every assertion above passes on a template that emits nothing.
+        $good = $this->render('faq', $this->faqProps(['__pp_udc_band' => 'pp-1a2b3c4d']));
+        $this->assertStringContainsString('data-pp-band="pp-1a2b3c4d"', $good);
+        $this->assertStringNotContainsString('style=', $good, 'a v2 band carries no inline style attribute');
+    }
+
+    /**
+     * `data-pp-band-overlay` ON faq, WHICH IS THE FIRST NON-BUTTON CONSUMER OF THE HOOK.
+     *
+     * The stylesheet keys `[data-pp-band-overlay] .faq__question:focus { outline-color:
+     * var(--color-accent-on-overlay) }` on this attribute (#1046, the #986 mechanism), and
+     * that rule is the whole of faq's WCAG 1.4.11 answer over a scrim — the bare accent
+     * measures 1.17:1 there. `.btn` terms in the same rule can never reach it, because faq
+     * renders no button at all. So a template that stops emitting the attribute drops an
+     * accessibility affordance with no other symptom, and the CSS-side pin in
+     * tests/js/css-lint.test.js cannot see it: that file reads the stylesheet, not the
+     * markup, and a rule whose trigger is never emitted still reads as present there.
+     *
+     * The rendered half — that the ring actually PAINTS once the attribute is on the band
+     * — belongs in Playwright and is asserted there ('a summary over a scrim takes the
+     * on-overlay focus ring'). What belongs here is the half that is pure string output:
+     * the attribute appears when the engine sets the flag and never otherwise.
+     */
+    public function testTheFaqOverlayHookIsEmittedOnlyWhenTheEngineSaysSo(): void
+    {
+        $on = $this->render('faq', $this->faqProps(['__pp_udc_overlay' => '1']));
+        $this->assertStringContainsString('data-pp-band-overlay', $on);
+
+        foreach (['', '0', null, false] as $off) {
+            $html = $this->render('faq', $this->faqProps(['__pp_udc_overlay' => $off]));
+            $this->assertStringNotContainsString(
+                'data-pp-band-overlay',
+                $html,
+                'the overlay hook must appear only when the engine sets it: ' . var_export($off, true)
+            );
+        }
+        // Absent key behaves as falsy — the ordinary case, and the one every band on a
+        // page with no background image takes.
+        $this->assertStringNotContainsString('data-pp-band-overlay', $this->render('faq', $this->faqProps()));
+    }
+
+    /**
+     * THE EMPTY STATE LOST ITS UTILITY CLASS, AND THAT IS THE POINT OF THE CHANGE (#1046).
+     *
+     * v1 rendered the "No questions yet." line as `class="faq__empty text-muted"`.
+     * `.text-muted` hardcodes `--color-muted` in utilities.css, so the one line on the
+     * band that an author might most want to re-ink on a dark band was governed by a
+     * utility rather than by the component — and the `empty` role's `typography.color`
+     * default now carries the identical measured grey instead. footer's rebuild met the
+     * same case at #994 and dropped the class for the same reason, where
+     * FooterChromeTest pins the absence at the markup layer.
+     *
+     * ASSERTED AT THE MARKUP LAYER BECAUSE NOTHING ELSE CAN SEE IT.
+     * FaqRoleDefaultsEmitTest proves the role emits the colour; a template that kept the
+     * class would leave that assertion green while re-introducing a second source of
+     * truth for the same value. This is the other half of that claim.
+     */
+    public function testTheFaqEmptyStateCarriesNoUtilityClass(): void
+    {
+        $html = $this->render('faq', $this->faqProps(['items' => []]));
+        $this->assertStringContainsString(
+            '<p class="faq__empty">No questions yet.</p>',
+            $html,
+            'the empty line must carry its role selector and nothing else — a utility '
+            . 'class here is a second source of truth for a value the `empty` role owns'
+        );
+        $this->assertStringNotContainsString('text-muted', $html);
+        // And the accordion really is absent, or the assertion above could be read off a
+        // band that rendered both states.
+        $this->assertStringNotContainsString('faq__list', $html);
+    }
+
     // ── theme `muted` emits the legacy `--dark` class (#570 DG-4, render layer) ──
     // The canonical value `muted` emits the legacy `--dark` surface-band class. That
     // is an OUTPUT NAME the #605 input-alias removal deliberately kept, so these are

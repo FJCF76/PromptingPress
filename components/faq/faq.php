@@ -184,15 +184,23 @@ $overlay_attr = !empty($props['__pp_udc_overlay']) ? ' data-pp-band-overlay' : '
                 <?php endforeach; ?>
             </div>
         <?php else : ?>
-            <?php // THE `text-muted` UTILITY IS GONE, and that is the whole reason this
-                  // line's colour is authorable (#1046). The class hardcodes
-                  // `--color-muted` from utilities.css in `@layer pp-v1`, and a class
-                  // rule like that WINS over an authored colour — so keeping it would
-                  // have made the empty state the one line on the band nobody can
-                  // re-ink, least readably on the dark band v2 makes easy. footer's
-                  // rebuild met the identical case at #994 and dropped the class for
-                  // the identical reason; the measured grey is the `empty` role's
-                  // `typography.color` default now. ?>
+            <?php // THE `text-muted` UTILITY IS GONE (#1046). The class hardcodes
+                  // `--color-muted` from utilities.css in `@layer pp-v1`, and WHICH
+                  // AUTHORED WRITE IT WOULD HAVE BEATEN IS WORTH STATING EXACTLY,
+                  // because an earlier draft of this comment said "a class rule like
+                  // that WINS over an authored colour" flat, which is only half true:
+                  //   - a write aimed at THIS role emits UNLAYERED and matches
+                  //     `.faq__empty` directly, so it BEATS the layered utility. The
+                  //     class was never what blocked that write.
+                  //   - a `_band` write emits unlayered too, but on the band ROOT, and
+                  //     reaches this line only by INHERITANCE. An inherited value is
+                  //     used only when NO declaration matches the element, so layer
+                  //     order never enters and `.text-muted` WINS. That write is the
+                  //     one the class would have stranded — and the dark band is
+                  //     exactly the case that needs it.
+                  // So the class is gone for the reason #994 gave footer: one source of
+                  // truth, and the inherited route left open. The measured grey is the
+                  // `empty` role's `typography.color` default now. ?>
             <p class="faq__empty">No questions yet.</p>
         <?php endif; ?>
 

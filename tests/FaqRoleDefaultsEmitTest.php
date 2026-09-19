@@ -605,6 +605,61 @@ class FaqRoleDefaultsEmitTest extends TestCase
     }
 
     /**
+     * THE THREE DECLARATIONS THE PER-ROLE TESTS ABOVE LEFT UNREAD.
+     *
+     * Found by sweeping the emitted sheet against the schema rather than by reading the
+     * tests, which is the only way an absence of this kind shows up: every declaration
+     * below IS emitted today, is named in the schema, and would survive its own deletion
+     * with the whole suite green. The roster test below sees that a role emits SOMETHING;
+     * it cannot see that a role emits the RIGHT thing, and these three roles have so few
+     * declarations that "something" and "everything" looked alike.
+     *
+     *   `_band` -> `background.position`   the sibling emit tests for cta (#1026) and
+     *                                     section (#1023) both assert theirs and faq's was
+     *                                     simply missed. It is the companion that centres
+     *                                     an authored `background.image`, so its absence
+     *                                     would go unnoticed until a scrim band cropped
+     *                                     from the top-left — the one faq state the
+     *                                     rebuild newly makes reachable.
+     *   `heading-accent` -> colour        ComponentPropsTest pins this value in the SCHEMA
+     *                                     TEXT, which is the layer this whole file exists
+     *                                     to get below: a correct key emits nothing if the
+     *                                     role's selector or group wiring breaks.
+     *   `question` -> `spacing.gap`       the padding sweep above matches `padding*` only,
+     *                                     so the summary's flex gap — the space between
+     *                                     the label and the chevron — was outside every
+     *                                     assertion in the file.
+     */
+    public function testTheThreeRemainingDefaultsAlsoReachTheSheet(): void
+    {
+        $base = $this->baseTier();
+
+        // Scoped to the band's own pp-zero block, for the reason the border sweep above
+        // records: a whole-sheet search for `background-position` would be satisfied by
+        // any future role that sets one and would prove nothing about the band.
+        $this->assertMatchesRegularExpression(
+            '/@layer pp-zero\{:where\(\[data-pp-component="faq"\]\)\{[^}]*background-position:center;/',
+            $this->css,
+            'the band must default background-position:center — it is what centres an '
+            . 'authored background image, the state faq reaches for the first time on v2'
+        );
+
+        $this->assertStringContainsString(
+            '.faq__heading-accent{color:var(--color-accent);}',
+            $base,
+            'the accented substring emits no colour — the schema key can be right while '
+            . 'the emission is wrong, which is what this file is for'
+        );
+
+        $this->assertMatchesRegularExpression(
+            '/\.faq__question\{[^}]*gap:var\(--space-md\);/',
+            $base,
+            "the summary's gap routes @space-md: v1 declared it in the shorthand "
+            . '`gap: var(--space-md)` on the flex row, and it is the space the chevron sits in'
+        );
+    }
+
+    /**
      * THE ROLE ROSTER ITSELF, asserted once so a silently DROPPED role cannot hide behind
      * the per-role tests above — each of those would simply stop running.
      */
