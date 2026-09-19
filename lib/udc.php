@@ -2969,13 +2969,23 @@ function pp_udc_compile_band(array $item, string $layer, ?array &$drops = null):
         // than counting brackets locally, because a second implementation of "is this
         // delimiter-safe" is exactly the forked-grammar the architecture forbids.
         //
-        // ORDER MATTERS FOR WHAT THE MESSAGE WOULD SAY, not for what is admitted. This
-        // gate runs BEFORE the charset gate below, and the helper balances quotes and
-        // parens as well as brackets — so a selector carrying `(`, `'` or `"` is refused
-        // HERE, by the helper's own arms, rather than by the charset that would have
-        // refused it a line later. Both outcomes are the same skip; the distinction is
-        // recorded because an earlier draft of this comment claimed those arms were
-        // "inert", which is true of what gets through and false of which gate decides.
+        // WHICH GATE DECIDES WHAT, measured rather than reasoned, because two earlier
+        // drafts of this comment got it wrong in opposite directions. The helper balances
+        // quotes and parens as well as brackets, but the charset below refuses `(`, `)`,
+        // `'` and `"` outright — so for those characters the helper only ever decides the
+        // UNBALANCED case, and a BALANCED one falls through to the charset:
+        //
+        //   `.a(b)`  balanced=true   charset=false  -> refused by the CHARSET
+        //   `.a"b"`  balanced=true   charset=false  -> refused by the CHARSET
+        //   `.a(b`   balanced=false  charset=false  -> refused HERE
+        //   `.a[b`   balanced=false  charset=TRUE   -> refused HERE, and ONLY here
+        //
+        // That last row is why this gate exists at all. Brackets are the one delimiter
+        // class the charset ADMITS (widened at #1046 for `question-open`), so this is the
+        // only thing standing between an unbalanced `[` and the emitter printing
+        // `.faq__item[open > .faq__question{...}`, which swallows the following role to
+        // end-of-rule. For every other delimiter the helper is a cheap early exit, not the
+        // decider. Order therefore changes which gate reports, never what is admitted.
         if ($selector !== '' && !_pp_udc_delimiters_balanced($selector)) {
             continue;
         }

@@ -1588,7 +1588,9 @@ class ComponentPropsTest extends TestCase
     // replaced it OVERSTATED what remains — it claimed the rule was "still proven below on
     // grid, and on stats/logos/embed further down". Grepped: `grid--dark` is asserted here
     // and `stats--dark` appears only in a NEGATIVE assertion in SchemaValidationTest;
-    // `logos--dark` and `embed--dark` appear nowhere. The rule keeps exactly two carriers —
+    // `logos--dark` and `embed--dark` are ASSERTED nowhere (they do appear — in both
+    // schemas' `variant_classes`, in components.css, in both READMEs and in a
+    // StyleSlotContractTest docblock — but nothing TESTS them). The rule keeps exactly two carriers —
     // grid's render-layer row below, and the helper's own unit tests in
     // tests/ThemeClassHelperTest.php — so no coverage was lost, but the count was wrong by
     // four and would have told the next rebuild that grid's row was safe to delete.

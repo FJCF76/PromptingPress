@@ -159,8 +159,12 @@ class FaqRoleDefaultsEmitTest extends TestCase
             . 'behaviour both the schema and the README promise'
         );
 
-        // And the authored open value must in turn beat the default: same selector shape,
-        // one more attribute term from the band scope.
+        // And the authored open value must in turn beat the default — BY SOURCE ORDER,
+        // not by weight. Both selectors carry two attribute terms and two classes, so they
+        // TIE at (0,4,0); the band block wins because the emitter writes component defaults
+        // before band CSS, and the last equal-weight rule wins. Worth stating precisely,
+        // because "the band is more specific" is the kind of comment that survives a
+        // reordering of the emitter and then quietly documents the opposite of the truth.
         $authoredOpen = pp_udc_band_css([
             'component' => 'faq',
             'id'        => 'pp-1a2b3c4d',
@@ -530,11 +534,12 @@ class FaqRoleDefaultsEmitTest extends TestCase
             }
         }
         $this->assertGreaterThanOrEqual(
-            8,
+            10,
             $swept,
-            'the sweep must reach every padding faq emits — 8 today (question 4 + gap-less '
-            . 'answer 4 and empty 2 less the two it shares); a smaller number means the '
-            . 'regex stopped matching and the guard went quiet'
+            'the sweep must reach every padding faq emits — 10 today: question 4, answer 4 '
+            . 'and empty 2, with the eyebrow carved out above and the _band pair outside '
+            . "this regex (it emits in pp-zero, not on a `.faq__*` selector). A smaller "
+            . 'number means the regex stopped matching and the guard went quiet'
         );
     }
 
