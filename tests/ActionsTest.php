@@ -471,11 +471,15 @@ class ActionsTest extends TestCase
         // specific rule path — and never blocks on it.
         $post_id = pp_create_page('Dangling var snapshot');
         pp_update_composition($post_id, [
-            // `grid` since #1026 (it was `cta` from #1023 and `section` before that): the
+            // `stats` since #1026 (it was `cta` from #1023 and `section` before that): the
             // subject is a DANGLING var() reference surviving a restore without blocking
             // (#233), which is the slot engine's behaviour on whichever component still has
-            // slots — see #1025 on the re-homing and its durable fix.
-            ['component' => 'grid', 'props' => ['title' => 'A', 'items' => [['title' => 'Card', 'text' => 'B']]], 'style' => ['--grid-item-bg' => 'var(--nonexistent-token)']],
+            // slots. stats is the host BY RULE, not by convenience — 17 slots, zero live
+            // bands on the owner's site, so it sits furthest down the usage-ordered rebuild
+            // queue and will not force a fourth re-home. An interim version of this fixture
+            // used `grid`, which is wrong: grid is next by usage and only gated on #1024's
+            // item-grain ruling. See #1025 for why this keeps happening and the durable fix.
+            ['component' => 'stats', 'props' => ['title' => 'A', 'items' => [['number' => '10', 'label' => 'Ten']]], 'style' => ['--stats-bg' => 'var(--nonexistent-token)']],
         ]);
         pp_update_composition($post_id, [['component' => 'section', 'props' => ['title' => 'B']]]);
 
@@ -483,7 +487,7 @@ class ActionsTest extends TestCase
 
         // The write succeeds and the snapshot is preserved verbatim.
         $this->assertTrue($result['ok'], $result['error'] ?? 'restore failed');
-        $this->assertSame('var(--nonexistent-token)', pp_get_composition($post_id)[0]['style']['--grid-item-bg']);
+        $this->assertSame('var(--nonexistent-token)', pp_get_composition($post_id)[0]['style']['--stats-bg']);
 
         // ...and the dangling reference is reported as a blocking-class finding.
         $errors = array_values(array_filter(
@@ -509,7 +513,7 @@ class ActionsTest extends TestCase
         // not var() acceptance.
         $post_id = pp_create_page('Valid var snapshot');
         pp_update_composition($post_id, [
-            ['component' => 'grid', 'props' => ['title' => 'A', 'items' => [['title' => 'Card', 'text' => 'B']]], 'style' => ['--grid-item-title-color' => 'transparent', '--grid-heading-accent-color' => 'var(--color-accent)']],
+            ['component' => 'stats', 'props' => ['title' => 'A', 'items' => [['number' => '10', 'label' => 'Ten']]], 'style' => ['--stats-label-color' => 'transparent', '--stats-heading-accent-color' => 'var(--color-accent)']],
         ]);
         pp_update_composition($post_id, [['component' => 'section', 'props' => ['title' => 'B', 'body' => 'Body text']]]);
 
@@ -4687,21 +4691,25 @@ class ActionsTest extends TestCase
     {
         // #230: the issue's style-slot examples — a transparent surface background, and a
         // slot that follows the brand accent via var().
-        // The band was a `section` until #1023 and a `cta` until #1026; it is a `grid` now.
+        // The band was a `section` until #1023 and a `cta` until #1026; it is a `stats` now.
         // The re-homing is mechanical each time and the reason is not: this test is about
         // the slot ENGINE's value grammar, not about any component, so its fixture has to be
         // whichever component still has slots. #1025 records why that keeps happening and
         // what the durable fix is; until then the rule is to land on a component NOT due for
-        // rebuild, which is why it is grid and not the next one in the queue.
+        // rebuild — which is STATS, the host #1023 chose for exactly this reason (17 slots,
+        // zero live bands on the owner's site, so furthest down the usage-ordered queue).
+        // An interim version of this fixture read `grid`, citing that same rule and then
+        // breaking it: grid is next by usage and only gated on #1024's item-grain ruling, so
+        // landing here would have guaranteed a fourth re-home one sprint later.
         $post_id = pp_create_page('Style test');
         pp_update_composition($post_id, [
-            ['component' => 'grid', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello', 'items' => [['title' => 'Card', 'text' => 'B']]]],
+            ['component' => 'stats', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello', 'items' => [['number' => '10', 'label' => 'Ten']]]],
         ]);
 
         $result = pp_validate_action('style_component', [
             'post_id'         => $post_id,
             'component_index' => 0,
-            'style'           => ['--grid-item-bg' => 'transparent', '--grid-heading-accent-color' => 'var(--color-accent)'],
+            'style'           => ['--stats-bg' => 'transparent', '--stats-heading-accent-color' => 'var(--color-accent)'],
         ]);
         $this->assertTrue($result);
     }
@@ -4710,13 +4718,13 @@ class ActionsTest extends TestCase
     {
         $post_id = pp_create_page('Style test');
         pp_update_composition($post_id, [
-            ['component' => 'grid', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello', 'items' => [['title' => 'Card', 'text' => 'B']]]],
+            ['component' => 'stats', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello', 'items' => [['number' => '10', 'label' => 'Ten']]]],
         ]);
 
         $result = pp_validate_action('style_component', [
             'post_id'         => $post_id,
             'component_index' => 0,
-            'style'           => ['--grid-item-bg' => 'var(--nonexistent-token)'],
+            'style'           => ['--stats-bg' => 'var(--nonexistent-token)'],
         ]);
         $this->assertInstanceOf(WP_Error::class, $result);
         $this->assertEquals('invalid_style_value', $result->get_error_code());

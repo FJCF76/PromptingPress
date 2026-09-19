@@ -1036,9 +1036,14 @@ class AiContextTest extends TestCase
         ];
         $GLOBALS['_pp_test_store']['post_meta'][60]['_pp_composition'] = wp_json_encode([
             [
-                // `grid` since #1026 (`cta` before it): this pins that the page context carries style slots, a
-                // recipe and typed editable props, and hero has none of the first two
-                // since #986. grid still declares all three, including a link url.
+                // `grid` since #1026 (`cta` before it), and GRID IS FORCED HERE — it is the one
+                // re-homed fixture in this sprint that could not follow the #1023 rule of
+                // landing on `stats`. The subject is a page context carrying style slots AND A
+                // RECIPE and typed editable props, and grid is the ONLY component in the theme
+                // that declares recipes at all (3 of them; cta's `dark-bold` / `accent-framed`
+                // retired with its slot map, and stats has never had any). A stats fixture
+                // could not exercise the recipe half, so moving it would silently narrow the
+                // test. Revisit when grid rebuilds (#1024); #1025 is the durable fix.
                 'component' => 'grid',
                 'props' => ['id' => 'pp-test123', 'title' => 'Welcome', 'items' => [['title' => 'Card', 'text' => 'B']]],
                 'style' => ['--grid-bg' => '#0d1117', '--grid-heading-color' => '#f0f0f0', '__recipe' => 'dark-bold'],

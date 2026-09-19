@@ -162,7 +162,9 @@ $has_button2 = is_scalar($button2_text) && (string) $button2_text !== '';
 // pp_applies_when_clause_errors() bounds predicates to `equals` / `in` / `present`, and
 // pp_applies_when_clause_met() reads `present` by KEY and ignores its value, so
 // `present: false` is a synonym rather than an inverse. Widening a shared grammar on
-// behalf of one component is not this rebuild's call; filed instead.
+// behalf of one component is not this rebuild's call, so it is filed as #1037 rather than
+// done here. (The issue number is cited on purpose: an earlier draft said only "filed
+// instead", which is unverifiable from the repo and leaves a reader no way to find it.)
 
 // ── v2: the band's styling identity ─────────────────────────────────────────
 //

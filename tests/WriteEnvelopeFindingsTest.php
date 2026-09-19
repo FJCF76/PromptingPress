@@ -73,9 +73,15 @@ final class WriteEnvelopeFindingsTest extends TestCase
     /**
      * The inert-slot trap band. Re-homed from section to stats at #1023: section is a v2
      * component and declares no style slots, so it can no longer hold an inert one. stats
-     * is the host chosen for every re-homed slot fixture in this sprint — 17 slots, 12 of
+     * is the host chosen for every re-homed slot fixture in this sprint — 17 slots, 14 of
      * them conditional, and zero live bands on the owner's site, so it is furthest down
      * the usage-ordered rebuild queue (#1025 records why this keeps happening).
+     *
+     * TWO FIXTURES CANNOT FOLLOW THAT RULE, named here so this claim stays true: the
+     * applies_when clause-SHAPE pair in AppliesWhenTest needs a component whose conditional
+     * slots span one- and two-clause lists, and the page-context fixture in AiContextTest
+     * needs a component that declares a RECIPE. Only grid satisfies either, so both stay
+     * there with the reason recorded at each site. Every other re-homed fixture is on stats.
      *
      * `background_image` is deliberately UNSET: that is what makes `--stats-overlay-bg`
      * inert, which is the whole subject of the trap.

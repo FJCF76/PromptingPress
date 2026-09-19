@@ -2883,20 +2883,21 @@ class OperateTest extends TestCase
     {
         $post_id = pp_create_page('Style inspect test');
         pp_update_composition($post_id, [
-            // `grid` since #1026: `current` vs `default` is a SLOT report, and cta declares
-            // no slots now. grid's `--grid-bg` is the same shape of assertion, with
-            // its own declared default.
-            ['component' => 'grid', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello', 'items' => [['title' => 'Card', 'text' => 'B']]],
-             'style' => ['--grid-bg' => '#1a1a2e']],
+            // `stats` since #1026: `current` vs `default` is a SLOT report, and cta declares
+            // no slots now. stats' `--stats-bg` is the same shape of assertion, with its own
+            // declared default — and stats is the host by the #1023 rule (furthest down the
+            // usage-ordered rebuild queue), not grid, which #1024 has queued.
+            ['component' => 'stats', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello', 'items' => [['number' => '10', 'label' => 'Ten']]],
+             'style' => ['--stats-bg' => '#1a1a2e']],
         ]);
 
         $result = pp_inspect_composition($post_id);
         $slots = $result[0]['style_slots'];
 
-        // Find the --grid-bg slot.
+        // Find the --stats-bg slot.
         $bg_slot = null;
         foreach ($slots as $s) {
-            if ($s['slot'] === '--grid-bg') {
+            if ($s['slot'] === '--stats-bg') {
                 $bg_slot = $s;
                 break;
             }

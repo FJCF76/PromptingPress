@@ -264,6 +264,13 @@ final class AppliesWhenTest extends TestCase
             // grid since #1026; cta's two-button family carried this two-clause condition
             // until its slots retired, and hero's equivalent left at #986. The fixture has
             // to carry a slot with TWO unmet clauses or the test degenerates into the
+            // GRID, NOT STATS, AND DELIBERATELY SO. The #1023 rule sends a re-homed slot
+            // fixture to `stats` (furthest down the rebuild queue), and every other one in
+            // this sprint went there. This pair cannot: the subject is the SHAPE of an
+            // applies_when clause list — a two-clause slot beside a one-clause sibling — and
+            // grid is the only component whose 20 conditional slots span both. Moving it to
+            // stats would change what the test tests. It will need revisiting when grid
+            // rebuilds (#1024); #1025 is the durable fix for the whole pattern.
             // one-clause case its sibling below already covers — `--grid-featured-shadow`
             // applies when `layout = "cards"` AND `card_emphasis = "featured"`, and this
             // band satisfies neither. See #1025 on why this keeps re-homing.
