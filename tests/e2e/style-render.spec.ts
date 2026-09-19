@@ -1878,32 +1878,38 @@ test.describe('Safe-surface rendered proof', () => {
     expect(fontSize).toBe('41px');
   });
 
-  // Header-rhythm axis (#352): faq's heading->list gap is authorable via
-  // --faq-heading-margin-bottom, the faq analogue of #343's section/grid
-  // title->subheading slot (faq renders no subheading, so the slot governs the gap
-  // before the accordion list). faq re-declares this margin in THREE places — the
-  // base rule plus the desktop (>=768px) and mobile (<768px) premium rules — so a
-  // single-viewport pin could pass while the other breakpoint's literal still
-  // clobbered the slot (the #86/#349 mobile-hid-it lesson). Assert at 1280 (desktop
-  // rule, 1.65rem fallback) AND 375 (mobile rule, 1.25rem fallback). Two faq
-  // instances in one render prove both halves: index 0 SETS the slot and must win at
-  // both breakpoints; index 1 leaves it UNSET and must compute today's literal
-  // (26.4px desktop / 20px mobile) — the byte-identical-unset guard.
-  test('#352 faq honors --faq-heading-margin-bottom at both breakpoints, unset unchanged @smoke', async ({
+  // Header-rhythm axis (#352), REPRICED TO THE ROLE AT #1046. The claim is unchanged and
+  // is the reason this test is not simply deleted: faq re-declared this margin in THREE
+  // places — a base rule plus the desktop and mobile premium rules — so a single-viewport
+  // pin could pass while the other breakpoint's literal still clobbered the authored
+  // value (the #86/#349 mobile-hid-it lesson). That risk did not retire with the slot; it
+  // is exactly what a breakpoint MAP has to survive.
+  //
+  // What changed is the door (a `udc` map, not `style_component`) and the unset values,
+  // which are now the `heading` role's own defaults rather than media-query literals —
+  // the same 26.4px / 20px, from one place instead of three.
+  test('#352/#1046 faq honors an authored heading rhythm at both breakpoints, unset unchanged @smoke', async ({
     page,
   }) => {
-    pageId = createPage('E2E FAQ Heading Margin Slot');
-    setComposition(pageId, [
-      { component: 'faq', props: { id: 'pp-faq01', title: 'Set gap', items: [{ question: 'Q?', answer: 'A.' }] } },
-      { component: 'faq', props: { id: 'pp-faq02', title: 'Unset gap', items: [{ question: 'Q?', answer: 'A.' }] } },
-    ]);
+    pageId = createPage('E2E FAQ Heading Rhythm Role');
+    setComposition(pageId, [{ component: 'faq', props: { id: 'pp-seed', items: [{ question: 'Q?', answer: 'A.' }] } }]);
 
     await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
     await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
 
-    // A pixel value no token resolves to, so a premium-rule clobber is unmistakable.
-    const res = await styleComponent(page, pageId, { '--faq-heading-margin-bottom': '48px' }, undefined, 0);
-    expect(res.success).toBe(true);
+    // A pixel value no token resolves to, so a stylesheet clobber is unmistakable.
+    const res = await updateComposition(page, pageId, [
+      {
+        component: 'faq',
+        props: { id: 'pp-faq01', title: 'Set gap', items: [{ question: 'Q?', answer: 'A.' }] },
+        udc: { heading: { spacing: { 'margin-bottom': '48px' } } },
+      },
+      {
+        component: 'faq',
+        props: { id: 'pp-faq02', title: 'Unset gap', items: [{ question: 'Q?', answer: 'A.' }] },
+      },
+    ]);
+    expect(res.success, `udc write: ${JSON.stringify(res)}`).toBe(true);
 
     const marginBottom = (id: string) =>
       page.locator(`#${id} .faq__heading`).evaluate((el) => getComputedStyle(el).marginBottom);
@@ -1913,13 +1919,14 @@ test.describe('Safe-surface rendered proof', () => {
       await page.goto(`/?page_id=${pageId}`);
       await expect(page.locator('#pp-faq01 .faq__heading')).toBeVisible({ timeout: 10000 });
 
-      // Set slot wins at BOTH breakpoints (mobile is the case that ships broken when a
-      // media-query literal is left un-routed through the slot).
-      expect(await marginBottom('pp-faq01')).toBe('48px');
+      // The authored value wins at BOTH breakpoints — mobile is the case that ships
+      // broken when a media-query literal is left outranking the authored tier.
+      expect(await marginBottom('pp-faq01'), `set @${width}`).toBe('48px');
 
-      // Unset output byte-identical to today: 1.65rem (26.4px) desktop, 1.25rem (20px)
-      // mobile. No default changed.
-      expect(await marginBottom('pp-faq02')).toBe(width >= 768 ? '26.4px' : '20px');
+      // Unset output byte-identical to v1: 1.65rem (26.4px) desktop, 1.25rem (20px)
+      // mobile. The `p` tier of the role's map is what carries the second one, and a map
+      // that collapsed to a single tier fails right here.
+      expect(await marginBottom('pp-faq02'), `unset @${width}`).toBe(width >= 768 ? '26.4px' : '20px');
     }
   });
 
@@ -2569,17 +2576,8 @@ test.describe('Safe-surface rendered proof', () => {
         '--grid-eyebrow-border-color': 'transparent',
       },
     },
-    {
-      component: 'faq',
-      props: { id: 'pp-faq01', items: [{ question: 'Q?', answer: 'A.' }] },
-      slots: {
-        '--faq-item-border-color': '#ff0080',
-        '--faq-eyebrow-border-width': '0px',
-        '--faq-eyebrow-border-color': 'transparent',
-      },
-    },
-    // HERO'S AND SECTION'S ROWS ARE RETIRED, AND THE CASE IS INAPPLICABLE RATHER THAN
-    // UNPINNED (#986, #1023).
+    // HERO'S, SECTION'S, CTA'S AND NOW FAQ'S ROWS ARE RETIRED, AND THE CASE IS
+    // INAPPLICABLE RATHER THAN UNPINNED (#986, #1023, #1026, #1046).
     //
     // It was left here with an EMPTY slot map during the repricing, which made it vacuous:
     // `styleComponent()` refuses a v2 component with `no_style_slots`, so the row failed on
@@ -2637,13 +2635,14 @@ test.describe('Safe-surface rendered proof', () => {
     const covered = new Set(BORDER_TRIGGER_CASES.flatMap((c) => Object.keys(c.slots)));
 
     // Fail-closed floor: 13 trigger slots existed at issue 332; 11 remained after section's
-    // two left with its slot map (#1023), and 7 remain after cta's four
-    // (`--cta-border-width`, `--cta-border-color`, `--cta-eyebrow-border-width`,
-    // `--cta-eyebrow-border-color`) left at #1026. The floor tracks the v1 surface, which
+    // two left with its slot map (#1023), 7 after cta's four left at #1026, and 4 remain
+    // after faq's three (`--faq-item-border-color`, `--faq-eyebrow-border-width`,
+    // `--faq-eyebrow-border-color`) left at #1046. The floor tracks the v1 surface, which
     // shrinks one rebuild sprint at a time — it is NOT a statement that the theme has fewer
-    // borders. cta's band still draws 1px top and bottom; it draws them from a role default
-    // that WP core's substring selector can never see.
-    expect(declared.size).toBeGreaterThanOrEqual(7);
+    // borders. faq's items still draw a 1px rule and cta's band still draws one top and
+    // bottom; they draw them from role defaults that WP core's substring selector can
+    // never see, because a v2 component emits no inline style attribute for it to match.
+    expect(declared.size).toBeGreaterThanOrEqual(4);
     expect([...covered].sort()).toEqual([...declared].sort());
   });
 
@@ -2749,6 +2748,20 @@ test.describe('Safe-surface rendered proof', () => {
       props: { id: 'pp-hero01', layout: 'split', title: 'Hero', image_url: '/x.png', image_alt: 'x' },
       udc: {
         media: { border: { width: '2px', style: 'solid', color: '#345678' } },
+        eyebrow: { border: { width: '3px', style: 'solid', color: '#876543' } },
+      },
+    },
+    {
+      // #1046. faq is the row whose INNER element is the one the retired slot map
+      // actually bordered: `--faq-item-border-color` fed `.faq__item`, so the accordion
+      // panel is where a re-introduced sink would show. The band root carries no border
+      // at all on faq, which is why the inner selector is the meaningful one here.
+      component: 'faq',
+      rootSel: 'main > .faq',
+      innerSel: '.faq__item',
+      props: { id: 'pp-faq01', eyebrow: 'Q', title: 'Questions', items: [{ question: 'Q?', answer: 'A.' }] },
+      udc: {
+        item: { border: { width: '2px', style: 'solid', color: '#345678' } },
         eyebrow: { border: { width: '3px', style: 'solid', color: '#876543' } },
       },
     },
@@ -7961,7 +7974,10 @@ test.describe('Band heading scale (#436)', () => {
     { band: 'testimonials', sel: '.testimonials__heading' },
     { band: 'logos', sel: '.logos__heading', slot: '--logos-heading-size' },
     { band: 'embed', sel: '.embed__heading', slot: '--embed-heading-size' },
-    { band: 'faq', sel: '.faq__heading', slot: '--faq-heading-size' },
+    // No `slot`: faq is on the UDC contract since #1046 and has none. It still joins
+    // the equality test below, which is the point — its heading resolves the same
+    // shared --pp-band-heading-size scale, now as the `heading` role's default.
+    { band: 'faq', sel: '.faq__heading' },
   ];
 
   // Hero first so every band renders in-flow; faq last for stable ordering to
@@ -8204,7 +8220,10 @@ test.describe('#437 inverted link contrast (rendered)', () => {
     linkSelector: string;
     mode: 'contrast' | 'staysAccent';
     minRatio?: number;
-    openDetails?: boolean;
+    // `openDetails` retired with faq's row at #1046 — it existed to force the one
+    // scene whose link lived inside a closed <details>, and nothing else in this table
+    // renders a disclosure. Removed rather than left as an unused flag: an option no
+    // case sets reads as coverage that is not there.
     /**
      * A v2 band's design (#1023). Its presence switches the fixture to the REAL write
      * path: a `udc` map only scopes to a band whose id the engine minted, and raw meta
@@ -8283,26 +8302,15 @@ test.describe('#437 inverted link contrast (rendered)', () => {
       linkSelector: '.grid--inverted .grid__item-link',
       mode: 'staysAccent',
     },
-    {
-      name: 'faq answer link stays on --color-accent (light panel, AA)',
-      composition: [
-        {
-          component: 'faq',
-          props: {
-            id: 'pp-faq01',
-            theme: 'inverted',
-            title: 'Inverted faq',
-            items: [
-              { question: 'Question?', answer: '<p>Answer with a <a href="/somewhere">faq link</a>.</p>' },
-            ],
-          },
-        },
-      ],
-      linkSelector: '.faq--inverted .faq__answer a',
-      mode: 'contrast',
-      minRatio: 4.5,
-      openDetails: true,
-    },
+    // faq's row RETIRED at #1046 with the `theme` prop and the `.faq--inverted` class it
+    // selected on. The case it made was "an answer link on a light panel inside a dark
+    // band keeps the plain accent, which is AA there" — and it depended on the variant
+    // class existing to key the scene. A v2 dark faq band is an author's
+    // `_band.background.fill`, which the engine cannot detect, so there is no class to
+    // select and no automatic routing to assert: the band's own contrast is the author's,
+    // exactly as #986 ruled for hero and #1026 for cta. The measured fact the row
+    // recorded is preserved in components/faq/README.md — the accordion panels keep
+    // their light fill, so the ink inside them does not follow the band.
     {
       name: 'stats number on the dark band clears the 3:1 large-text bar',
       composition: [
@@ -8381,11 +8389,6 @@ test.describe('#437 inverted link contrast (rendered)', () => {
       for (const width of [375, 1280]) {
         await page.setViewportSize({ width, height: 900 });
         await page.goto(`/?page_id=${pageId}`);
-        if (c.openDetails) {
-          await page.locator('.faq__item').first().evaluate((el: HTMLDetailsElement) => {
-            el.open = true;
-          });
-        }
         await expect(page.locator(c.linkSelector).first()).toBeVisible({ timeout: 10000 });
         // WCAG relative-luminance contrast of the link's computed text color against
         // its EFFECTIVE background — walk ancestors past transparent links/wrappers to
@@ -9694,9 +9697,14 @@ test.describe('#583 stressed-state rendered coverage (table, embed, logos)', () 
       }),
     },
     {
+      // No `slot` since #1046: faq is on the UDC and its heading measure is the
+      // `heading` role's `sizing.max-width`, still referencing `@measure-heading`. The
+      // case stays in the table because every claim it makes still applies — the cap
+      // binds at 1280, goes inert at 375, and is ROUTED rather than frozen. Only the
+      // handle for step (3) changes, from the component's slot to the shared token the
+      // role references, which is the v2 shape of "authorable, not a literal".
       name: 'faq',
       selector: '.faq__heading',
-      slot: '--faq-heading-measure',
       props: () => ({
         component: 'faq',
         props: { id: 'pp-faq583', title: LONG_TITLE, items: [{ question: 'Q?', answer: 'A.' }] },
@@ -9741,12 +9749,19 @@ test.describe('#583 stressed-state rendered coverage (table, embed, logos)', () 
       );
       await expectNoViewportOverflow(page, `${heading.name} long heading @375`);
 
-      // (3) The ROUTE, not the number: drive the component's own slot and the heading must
-      // follow. This pins that an AUTHORABLE measure still reaches the heading.
-      // Verified by mutation: replacing the var() with the literal turns this red.
-      // Back to 1280 first — at 375 the container binds and no cap value is observable.
+      // (3) The ROUTE, not the number: drive the handle the band actually routes and the
+      // heading must follow. This pins that an AUTHORABLE measure still reaches the
+      // heading. Verified by mutation: replacing the var() with the literal turns this
+      // red. Back to 1280 first — at 375 the container binds and no cap value is
+      // observable.
+      //
+      // A v2 band has no slot to drive (#1046), and the honest analogue is the SHARED
+      // TOKEN its role default references: if the role froze the number instead of
+      // routing `@measure-heading`, this goes red in exactly the same way the slot
+      // version did.
+      const measureHandle = 'slot' in heading ? (heading as { slot: string }).slot : '--measure-heading';
       await open(page, 1280, heading.selector);
-      await page.addStyleTag({ content: `:root { ${heading.slot}: 30rem; }` });
+      await page.addStyleTag({ content: `:root { ${measureHandle}: 30rem; }` });
       const driven = await measureHeadingBox(page, heading.selector);
       const drivenCap = Math.round((desktop.capPx / 40) * 30);
       expect(driven.maxWidth, 'the heading measure is still slot-routed, not a literal').toBe(
@@ -11119,8 +11134,20 @@ test.describe('#577 dead and defeated style slots render', () => {
   // so faq consumed a grid slot on a faq element: it could neither set it (the write
   // path rejects a foreign slot) nor resolve it (inline slot properties land on the
   // owning component's root).
+  //
+  // REPRICED AT #1046, AND BOTH HALVES SURVIVE — which is the whole reason this is not
+  // deleted. The severance has two claims, and the rebuild only moved one of them:
+  //
+  //   "faq follows its own handle"   faq's radius is the `item` role's `border.radius`
+  //                                  now, authored through the `udc` map
+  //   "grid is unaffected"           unchanged — grid is still on slots, and this is
+  //                                  the half that would silently lose coverage if the
+  //                                  test were retired with faq's slot
+  //
+  // Deleting it because "faq no longer has that slot" is exactly the #1038 mistake: the
+  // subject is the SEVERANCE, and a severance needs both sides on the page at once.
 
-  test('#577 A-7: --faq-item-radius drives the faq item; --grid-item-radius no longer reaches it', async ({
+  test('#577/#1046 A-7: faq and grid item radii are severed — each follows only its own handle', async ({
     page,
   }) => {
     pageId = createPage('E2E 577 faq item radius');
@@ -11132,7 +11159,8 @@ test.describe('#577 dead and defeated style slots render', () => {
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto(`/?page_id=${pageId}`);
     await expect(page.locator('#pp-faq01 .faq__item')).toBeVisible({ timeout: 10000 });
-    // Byte-identical unset: 4px on BOTH sides of the split.
+    // Byte-identical unset: 4px on BOTH sides of the split, still, one through a role
+    // default and one through a slot fallback.
     const beforeFaq = await computed(page, '#pp-faq01 .faq__item', ['border-top-left-radius']);
     const beforeGrid = await computed(page, '#pp-grid01 .grid__item', ['border-top-left-radius']);
     expect(beforeFaq['border-top-left-radius'], 'unset faq item radius').toBe('4px');
@@ -11140,18 +11168,34 @@ test.describe('#577 dead and defeated style slots render', () => {
 
     await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
     await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
-    // component_index 1 = the faq band.
-    const res = await styleComponent(page, pageId, { '--faq-item-radius': '18px' }, undefined, 1);
-    expect(res.success).toBe(true);
-    // component_index 0 = the grid band; a DIFFERENT value proves the two are severed.
+
+    // faq's half, through the v2 door: a `udc` map on the band.
+    const res = await updateComposition(page, pageId, [
+      { component: 'grid', props: { id: 'pp-grid01', title: 'Grid', items: [{ title: 'One', text: 'A' }] } },
+      {
+        component: 'faq',
+        props: { id: 'pp-faq01', title: 'FAQ', items: [{ question: 'Q?', answer: 'A.' }] },
+        udc: { item: { border: { radius: '18px' } } },
+      },
+    ]);
+    expect(res.success, `udc write: ${JSON.stringify(res)}`).toBe(true);
+
+    // grid's half, unchanged: component_index 0, a DIFFERENT value, through the slot it
+    // still owns. Two different doors, two different values, one page.
     const res2 = await styleComponent(page, pageId, { '--grid-item-radius': '2px' }, undefined, 0);
     expect(res2.success).toBe(true);
 
     await page.goto(`/?page_id=${pageId}`);
     const afterFaq = await computed(page, '#pp-faq01 .faq__item', ['border-top-left-radius']);
     const afterGrid = await computed(page, '#pp-grid01 .grid__item', ['border-top-left-radius']);
-    expect(afterFaq['border-top-left-radius'], 'faq follows its OWN slot').toBe('18px');
+    expect(afterFaq['border-top-left-radius'], 'faq follows its OWN role').toBe('18px');
     expect(afterGrid['border-top-left-radius'], 'grid follows its own slot').toBe('2px');
+
+    // AND THE SEVERANCE ITSELF, which is what the A-7 name is about: driving the grid
+    // slot must not move the faq item. Pre-#577 it did, from one shared selector.
+    await page.addStyleTag({ content: ':root { --grid-item-radius: 31px; }' });
+    const drivenFaq = await computed(page, '#pp-faq01 .faq__item', ['border-top-left-radius']);
+    expect(drivenFaq['border-top-left-radius'], 'a grid slot must never reach a faq item').toBe('18px');
   });
 
   // ── A-8a — the ONE declaration that actually defeated --grid-item-padding ──
