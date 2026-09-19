@@ -240,7 +240,9 @@ property in every state, so the button keeps its resting paint under the pointer
 - **[`components/cta/README.md`](../components/cta/README.md)** — the 11 roles, their
   defaults, and why two of them declare nothing.
 - **[How to migrate a `section` band](howto-migrate-a-section-band-to-v2.md)** — the same
-  mechanics, on the other rebuilt band.
+  mechanics, on the widest rebuilt band.
+- **[How to migrate an `faq` band](howto-migrate-a-faq-band-to-v2.md)** — the same mechanics
+  again, where the surprise is the open row rather than the buttons.
 - **[Why the stylesheet is in a cascade layer](explanation-cascade-layers.md)** — what wins
   when your map and the theme stylesheet disagree, and §1c on the border baseline cta's
   rebuild had to narrow.

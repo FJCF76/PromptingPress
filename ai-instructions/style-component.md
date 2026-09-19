@@ -170,7 +170,7 @@ not.
 |------|----------|-----------|
 | `color` | `#1a1a2e`, `rgb(26, 26, 46)`, `transparent`, `currentColor`, `var(--color-accent)` | `_pp_validate_color()` |
 | `length` | `8rem`, `50%`, `clamp(3rem, 6vw, 5rem)`, `calc(100% - 2rem)`, `0` | `_pp_validate_length()` |
-| `length-or-none` | `none`, `60rem`, `100%` — the `length` grammar plus the keyword `none` ("no cap"). Carried by the width-cap slots whose **declared default IS `none`**, so the built-in uncapped state stays authorable: `--stats-max-width` (band geometry) plus the one measure that ships uncapped. (`--faq-body-measure` left at #1046 with faq's rebuild; faq's `answer` role declares no measure at all, because v1 rendered `none`.) (`--cta-body-measure` left at #1026 with cta's rebuild; cta's `body` role declares no `max-width` at all, which is the same uncapped render stated as silence rather than as `none`.) Every other measure slot has a real length default and stays plain `length`. A plain `length` slot still rejects `none`. On a v2 component there is no `length-or-none` slot to reach: an uncapped measure is the role's `sizing.max-width` set to `none`, which the v2 grammar accepts on that parameter directly. | `_pp_validate_length()` (with the `none` keyword) |
+| `length-or-none` | `none`, `60rem`, `100%` — the `length` grammar plus the keyword `none` ("no cap"). Carried by the width-cap slots whose **declared default IS `none`**, so the built-in uncapped state stays authorable: since #1046 the band-geometry cap `--stats-max-width` is the ONLY slot left that carries it — no text measure ships uncapped any more. (`--faq-body-measure` was the last and left at #1046 with faq's rebuild; faq's `answer` role declares no measure at all, because v1 rendered `none`.) (`--cta-body-measure` left at #1026 with cta's rebuild; cta's `body` role declares no `max-width` at all, which is the same uncapped render stated as silence rather than as `none`.) Every other measure slot has a real length default and stays plain `length`. A plain `length` slot still rejects `none`. On a v2 component there is no `length-or-none` slot to reach: an uncapped measure is the role's `sizing.max-width` set to `none`, which the v2 grammar accepts on that parameter directly. | `_pp_validate_length()` (with the `none` keyword) |
 | `number` | `700`, `1.5` | `_pp_validate_number()` |
 | `duration` | `250ms`, `0.3s` | `_pp_validate_duration()` |
 | `font-family` | `"Inter", sans-serif`, `system-ui, sans-serif`, `-apple-system, BlinkMacSystemFont`, `var(--font-heading)` — a comma-separated list where every name is one of three shapes: an **unquoted** name of letters, digits, spaces, `-` or `_`; a **fully quoted** name (`"Helvetica Neue"`, `'Cascadia Code'`) whose quote character does not recur inside it; or a **single token reference** (`var(--font-mono)`, no fallback, no nesting — unlike `color`, this is not checked against the token registry, so a typo validates and paints nothing). Quote any name carrying other characters, a non-ASCII face name included — quoting is not a licence for anything, since the shared reject set still applies to the whole value on every surface (`{ } ; < >`, backslash, `/*`, `url(`, `@import` are rejected inside quotes too). Empty names (`Inter,, serif`) and trailing commas are rejected. **Two extra limits apply wherever the value reaches raw CSS source text** — every v2 `udc` parameter, and the `:root` block the theme emits for design-token overrides (a v1 style slot is unaffected; its sink is an escaped `style` attribute). First, brackets must be closed, matching pairs: `(` with `)` and `[` with `]`, properly nested (`"Foo (Display)"` ok, `"Foo (Display"` rejected, `[full-start] 1fr [full-end]` ok, `([)]` rejected). Second, each of `'` and `"` must appear an even number of times across the whole value (`"Foo's Font"` rejected however written; `'Foo "Display Font'` rejected; `'Foo "Display" Font'` ok). **Where it bites differs by surface:** a `udc` value breaking either limit is REFUSED at write; a design-token override breaking one is accepted at write but DROPPED at render, and `wp pp readiness status` then reports it. | `_pp_validate_font_family()` (+ the shared delimiter gate on `udc` values and design-token overrides) |
@@ -418,17 +418,22 @@ deliberately marking. When you do mark one, `--<c>-eyebrow-text-transform: none`
 case against the uppercase default) usually differentiates more cleanly than a colour
 change, because it does not compete with the band's accent.
 
-**One thing does not move with the rest.** The pill's **geometry** —
-`padding: 0.35rem 0.85rem` — is uniform across all six components by construction and is
-a stated default with no slot: those two values are off the `--space-*` scale, so they are
-not token-reachable either. Colour, background, border, radius and casing all move per
-band; the pill's shape does not. If differentiating an eyebrow leaves you needing a
-different pill *shape*, that is the reopening condition for the geometry — record it as an
-incident rather than working around it.
+**One thing does not move with the rest — ON THE SLOT SYSTEM.** The pill's **geometry** —
+`padding: 0.35rem 0.85rem` — is uniform across all six components by construction, and on
+the one still on slots (`grid`) it is a stated default with no slot: those two values are
+off the `--space-*` scale, so they are not token-reachable either. Colour, background,
+border, radius and casing all move per band there; the pill's shape does not. If
+differentiating a `grid` eyebrow leaves you needing a different pill *shape*, that is the
+reopening condition for the geometry — record it as an incident rather than working around
+it. **On the five v2 components the shape DOES move:** `hero`, `section`, `testimonials`,
+`cta` and `faq` each declare `spacing` on the `eyebrow` role, so the same two values are the
+role's `spacing.padding` default and an authored map overrides them per breakpoint.
 
 **Out of scope here, deliberately:** the eyebrow's TYPE triple (`0.8125rem` / `600` /
-`0.04em`, hand-written in all six components) is not authorable and is not settled by this
-guidance. `base.css` ships a documented `--text-kicker-*` family at `0.75rem` / `700` /
+`0.04em`, the same three values on all six) reaches no style SLOT and is not settled by this
+guidance — on `grid` there is nothing to set it with, and on the five v2 components it is the
+`eyebrow` role's `typography.size` / `weight` / `letter-spacing` default, authorable but
+deliberately left alone until #574 resolves. `base.css` ships a documented `--text-kicker-*` family at `0.75rem` / `700` /
 `0.08em`, and the eyebrow does **not** route it even though "kicker" is the token's own
 documented job. Those tokens are live — the `.text-kicker` utility class consumes all
 three, and a grid item with `text_role: "kicker"` renders it — so retuning
@@ -466,7 +471,7 @@ so that condition is structural and needs no note.
 ## The three narrow bands: `table`, `embed`, `logos`
 
 These three declare far fewer slots than `grid` — the widest surface left now that `hero`,
-`section`, `cta` and `faq` have none at all — and the
+`section`, `testimonials`, `cta` and `faq` have none at all — and the
 gap is a contract, not an omission. Read this before assuming a slot is missing.
 
 **`table` (6 slots) — band padding and heading only.** `--table-padding-top` /
