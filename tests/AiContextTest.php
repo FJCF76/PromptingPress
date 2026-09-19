@@ -263,7 +263,7 @@ class AiContextTest extends TestCase
         $this->assertStringContainsString('A `length-or-none`-typed slot', $prompt);
         $this->assertStringContainsString('PLUS the keyword `none`', $prompt);
         $this->assertStringContainsString(
-            'A plain `length` slot (padding, font-size, radius, and every measure with a real length default, e.g. `--cta-heading-measure`) still rejects it.',
+            'A plain `length` slot (padding, font-size, radius, and every measure with a real length default, e.g. `--grid-heading-measure`) still rejects it.',
             $prompt,
             'the widening must be stated as bounded, or the AI will try `none` everywhere'
         );
@@ -271,11 +271,13 @@ class AiContextTest extends TestCase
         // name the uncapped measures that are still SLOTS, or an agent reading it will
         // believe `none` is never valid on a measure and cannot restore their declared
         // default. The set shrinks one rebuild sprint at a time — --hero-heading-measure
-        // left in #986, --section-heading-measure in #1023 — so the prompt must also say
-        // what the v2 route is, or an agent on a rebuilt component reads a list it is not
-        // on and concludes the capability is gone.
+        // left in #986, --section-heading-measure in #1023, --cta-body-measure in #1026 —
+        // so the prompt must also say what the v2 route is, or an agent on a rebuilt
+        // component reads a list it is not on and concludes the capability is gone. ONE
+        // slot is left, and the singular phrasing is deliberate: a list of one that still
+        // reads as a list is how a roster survives past its last member.
         $this->assertStringContainsString(
-            'the two text measures that ship uncapped (`--cta-body-measure`, `--faq-body-measure`)',
+            'the one text measure that ships uncapped (`--faq-body-measure`)',
             $prompt,
             'the length-or-none carrier set must be stated, not just --stats-max-width'
         );

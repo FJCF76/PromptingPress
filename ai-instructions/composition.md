@@ -98,12 +98,15 @@ so a closing band does not have to become a `hero` just to offer a secondary act
 ```
 
 Omit `button2_text` and the CTA renders exactly as it always has — one button, no
-wrapper element. The two buttons take independent per-instance RESTING colors
-(`--cta-button-bg` / `-color` / `-shadow` for the primary, `--cta-button2-*` for the
-second); neither reaches the other. Hover is isolated the same way (`--cta-button-hover-bg`
-for the primary, `--cta-button2-hover-bg` for the second), and a filled button keeps the
-premium hover gradient until its own hover-fill slot is set. At mobile
-widths the pair stacks one button per row.
+wrapper element. At mobile widths the pair stacks one button per row.
+
+**cta is a v2 component (#1026), so the two buttons are ROLES, not slot families.** The
+primary is `button` and the second is `button-secondary`, each with its own block and its
+own `":hover"` maps nested inside its groups. They are independent by construction rather
+than by a re-pointing rule: nothing is emitted on the band root, so nothing inherits from
+one button to the other. `button` declares NO defaults, so `"_preset": "button"` lands
+whole; `button-secondary` carries v1's outline treatment, so an unauthored pair still reads
+as one filled action beside one outlined one.
 
 ### section.styling — there is no `theme` prop
 

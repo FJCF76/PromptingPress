@@ -1026,7 +1026,7 @@ function pp_validate_composition_smells(array $composition): array {
                         $warnings[] = $warning;
                         // An inert slot renders NOTHING, so no other advisory about its
                         // VALUE can be true. Without this, a cta with no `button2_text` and
-                        // `--cta-button2-bg: transparent` also collected the transparent_fill
+                        // a fill-marked slot set to `transparent` also collected the transparent_fill
                         // warning, which tells the author to switch to the `outline` variant
                         // for a button that is not on the page at all — two entries on the
                         // halting channel, one of them unactionable.
