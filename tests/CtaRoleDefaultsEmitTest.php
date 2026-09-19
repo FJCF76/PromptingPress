@@ -54,6 +54,19 @@ class CtaRoleDefaultsEmitTest extends TestCase
     }
 
     /**
+     * The `t` tier. It had no reader at all until #1026's review: `baseTier()` stops at the
+     * FIRST `@media` and `phoneTier()` reads only the 767px block, so every `t` value in a
+     * breakpoint map was unasserted — four of them on `body` alone.
+     */
+    private function tabletTier(): string
+    {
+        if (!preg_match('/@media \(min-width: 768px\) and \(max-width: 1023px\)\{(.*?)\}\s*(?:@media|$)/s', $this->css, $m)) {
+            $this->fail('no tablet tier emitted');
+        }
+        return $m[1];
+    }
+
+    /**
      * THE BAND BORDER, PER EDGE, AND THE LAYER IT RIDES.
      *
      * This is the default that made the A1 baseline narrowing necessary, so it is asserted
@@ -184,11 +197,23 @@ class CtaRoleDefaultsEmitTest extends TestCase
     /**
      * THE HEADING DECLARES NO COLOUR, and that absence is the whole claim.
      *
-     * v1's rule was `color: var(--cta-heading-color, inherit)` — the fallback is the
-     * INHERITED value, not a value — so the faithful port is no default. Measured, the
-     * heading rendered `--color-text` by inheritance, which is why copying that literal in
-     * would have looked byte-identical on a light band while silently pinning the heading
-     * against the inheritance a dark band needs.
+     * v1's rule was `color: var(--cta-heading-color, inherit)`, and the faithful port is
+     * `currentColor` — NOT the absence of a declaration. The first draft of this test got
+     * that wrong and PINNED THE DEFECT: it forbade every `color` on the role, on the reading
+     * that "the fallback is the inherited value, not a value, so declare nothing." That
+     * reading is false, and the light-band measurement could not tell the difference.
+     *
+     * `inherit` was an EXPLICIT DECLARATION doing real work. base.css gives every h1-h6 an
+     * explicit `color: var(--color-text)`, and A RULE THAT MATCHES AN ELEMENT BEATS AN
+     * INHERITED VALUE REGARDLESS OF LAYER. With nothing declared here the <h2> takes
+     * base.css's #101828 and stops following the band, so an authored dark band renders its
+     * heading at about 1.01:1 — invisible. On a LIGHT band the two are byte-identical, which
+     * is exactly why measuring only the light band proved nothing.
+     *
+     * So the assertion below keeps its original INTENT — no literal or token colour may pin
+     * the heading — while requiring the one value that restores the inheritance. footer's
+     * `heading` role took this same correction at #994, where the reasoning is recorded in
+     * the stylesheet.
      *
      * Its weight, leading and tracking come from base.css's shared `h2` rule via
      * `--font-weight-heading` / `--letter-spacing-heading`, so they are not restated either.
@@ -204,12 +229,27 @@ class CtaRoleDefaultsEmitTest extends TestCase
             '/\.cta__title\{[^}]*margin-bottom:var\(--space-xs\);/',
             $base
         );
-        $this->assertDoesNotMatchRegularExpression(
-            '/\.cta__title\{[^}]*(?<![-a-z])color:/',
-            $this->css,
-            'the heading must NOT default a colour: v1 fell back to `inherit`, and a literal '
-            . 'here pins the heading against the band it should follow'
+        // REQUIRED: the value that makes the heading follow the band.
+        $this->assertMatchesRegularExpression(
+            '/\.cta__title\{[^}]*(?<![-a-z])color:currentColor;/',
+            $base,
+            'the heading must default `color: currentColor`, or base.css\'s explicit h1-h6 '
+            . 'colour wins by matching the element and the heading stops following the band'
         );
+        // FORBIDDEN: any colour that is not currentColor — a literal or a token would pin
+        // the heading against the band, which is what the original intent guarded.
+        preg_match_all('/\.cta__title\{[^}]*\}/', $this->css, $blocks);
+        foreach ($blocks[0] as $block) {
+            preg_match_all('/(?<![-a-z])color:([^;]+);/', $block, $values);
+            foreach ($values[1] as $value) {
+                $this->assertSame(
+                    'currentColor',
+                    trim($value),
+                    'the heading may declare ONLY `currentColor`: a literal or token here pins '
+                    . 'it against the band it should follow (the emitted block was: ' . $block . ')'
+                );
+            }
+        }
         $this->assertDoesNotMatchRegularExpression('/\.cta__title\{[^}]*font-weight/', $this->css);
         $this->assertDoesNotMatchRegularExpression('/\.cta__title\{[^}]*letter-spacing/', $this->css);
     }
@@ -413,5 +453,75 @@ class CtaRoleDefaultsEmitTest extends TestCase
                 "emitted an unscoped selector: {$selector}"
             );
         }
+    }
+
+    /**
+     * THE DEFAULTS NOTHING ELSE IN THIS FILE READ, added after #1026's review proved all five
+     * deletable: removing `_band.border.radius`, `_band.shadow.box`, `_band.background.position`,
+     * `eyebrow.border.style` and `button-secondary.border[':hover'].color` from the schema left
+     * 5086 PHPUnit and 1525 vitest tests green.
+     *
+     * Two are easy to mistake for covered. The `box-shadow:none` this file asserts elsewhere is
+     * scoped to `.cta__button--secondary`, NOT the band — they are different roles and different
+     * selectors. And `background-position:center` is the only thing that centres an authored
+     * `_band.background.image`, so losing it silently re-frames every photo band.
+     */
+    public function testTheBandDefaultsThatNoOtherTestReads(): void
+    {
+        $base = $this->baseTier();
+
+        // The BAND rule, which the engine builds differently from every other role: it is
+        // `:where(...)` inside `@layer pp-zero` so it loses to the design system by construction.
+        $this->assertMatchesRegularExpression(
+            '/@layer pp-zero\{:where\(\[data-pp-component="cta"\]\)\{[^}]*border-radius:0;/',
+            $base,
+            'the band must default border-radius:0'
+        );
+        $this->assertMatchesRegularExpression(
+            '/@layer pp-zero\{:where\(\[data-pp-component="cta"\]\)\{[^}]*box-shadow:none;/',
+            $base,
+            'the BAND must default box-shadow:none — distinct from the button-secondary one'
+        );
+        $this->assertMatchesRegularExpression(
+            '/@layer pp-zero\{:where\(\[data-pp-component="cta"\]\)\{[^}]*background-position:center;/',
+            $base,
+            'the band must default background-position:center, which is what centres an '
+            . 'authored _band.background.image'
+        );
+
+        // The eyebrow's border STYLE. Without it the pill's `border-width: 0` has no style to
+        // apply if an author sets only a width, and #332's baseline is not in play here.
+        $this->assertMatchesRegularExpression(
+            '/\.cta__eyebrow\{[^}]*border-style:solid;/',
+            $base,
+            'the eyebrow must default border-style:solid'
+        );
+
+        // The second button's HOVER RING. The docblock on the rest+hover test claims both
+        // halves are asserted together; the hover fill and hover ink were, the ring was not.
+        $this->assertMatchesRegularExpression(
+            '/\.cta__button--secondary:hover\{[^}]*border-color:var\(--color-accent\);/',
+            // The FULL sheet, not $base: the engine emits state blocks AFTER the breakpoint
+            // tiers, and baseTier() truncates at the first @media, so it never sees them.
+            $this->css,
+            'the second button must ship its hover RING with its hover fill and ink'
+        );
+    }
+
+    /**
+     * THE TABLET TIER, which had no reader before #1026's review. `body` carries four
+     * breakpoint maps and its `t` values were never asserted, so a `t` entry could be dropped
+     * or changed without a single failure.
+     */
+    public function testTheBodyTabletTierIsEmitted(): void
+    {
+        $tablet = $this->tabletTier();
+        $this->assertMatchesRegularExpression(
+            '/\.cta__body\{[^}]*color:var\(--color-text-secondary\);/',
+            $tablet,
+            'the tablet body ink must match the desktop value it was measured to share'
+        );
+        $this->assertMatchesRegularExpression('/\.cta__body\{[^}]*font-size:1\.04rem;/', $tablet);
+        $this->assertMatchesRegularExpression('/\.cta__body\{[^}]*line-height:1\.66;/', $tablet);
     }
 }

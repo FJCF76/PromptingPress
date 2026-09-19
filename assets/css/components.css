@@ -3534,6 +3534,20 @@ main .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary) {
      `secondary` second button still cross-fades while a `primary` one snaps. The split is by
      variant, not by whether the button looks filled.
 
+     THE VARIANT PROXY BROKE AT #1026, AND THIS EXCLUSION NO LONGER MEANS WHAT IT SAYS. The
+     three `:not()` arms above test for CLASSES, which were the v1 proxy for "this button's
+     fill is visible at rest". No component emits those classes any more — `button_variant`
+     and its siblings retired with hero (#986), section (#1023) and cta (#1026) — so a v2
+     button that LOOKS outlined is a bare `.btn` and MATCHES this snap selector. cta's
+     `button-secondary` role is exactly that case: transparent fill and a 2px accent ring,
+     both visible at rest, and it now snaps rather than ramping. So the sentence above
+     describes a set that is currently EMPTY for composed bands, and the "honest animation"
+     it promises is not what a v2 outline-look button gets. The cost is disclosed on that
+     role in components/cta/schema.json. Narrowing this selector to exempt v2 roles is not
+     cheaply expressible (a role selector admits no `:not()`), so the real lever is either a
+     structural class the roles can carry or widening the `motion` group beyond duration and
+     timing-function, which ruling A3 bounded. Tracked with the shadow-grammar gap at #1041.
+
      Two consequences, both accepted with the issue-540 decision rather than overlooked:
        1. the ring's cross-fade goes on EVERY filled premium button, unset ones included, where
           both endpoints (--color-accent -> --color-accent-hover) were already unmasked;

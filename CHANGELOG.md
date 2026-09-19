@@ -169,8 +169,9 @@ no layout-scoped role defaults, so one value serves both, and the defaults are w
 ### ⚠️ Narrowed: a dark or image band owns its own contrast
 
 The `.cta--inverted` and `.cta--has-bg-image` classes carried seven AA corrections —
-on-inverted and on-overlay ink for the body, its links and the accented heading substring,
-and a separation ring keeping a filled button visible against a scrim. Both classes derive
+on-inverted and on-overlay ink for **the heading**, the accented heading substring, the body
+and its links (rest and hover), the `outline`/`ghost` buttons, and a separation ring keeping a
+filled button visible against a scrim. Both classes derive
 from the retired props, so all seven are gone. This is the same ruling #986 made for
 `.hero--cover`: v2 has no variant-scoped role defaults and does not guess.
 
@@ -195,7 +196,7 @@ With `button2_variant` retired both buttons render as a bare `.btn` and pick up 
 snap list, so the second button's transition narrows from five properties to three
 (`box-shadow, color, transform`). `motion` carries only duration and timing-function by
 ruling A3, so the property list is not authorable. hero's second CTA already shipped this
-at #1007.
+at #986, its own rebuild, for the same reason.
 
 ### Upgrading
 

@@ -497,6 +497,91 @@ describe('CSS lint: secondary/ghost buttons never get a filled gradient', () => 
  * shorthand in components.css carries that note where a future longhand edit would break it.
  */
 
+describe('CSS lint: global button hover tier (#539), narrowed to its surviving subjects', () => {
+    // RESTORED, NARROWED (#1026). The original describe was deleted whole on the reading that
+    // #539's contract had moved to the rendered e2e pins. Three of its six tests had SURVIVING
+    // subjects and no replacement in either unit suite, and the e2e block does not cover them:
+    // it hovers three FILLED buttons inside `main` and never touches `.btn:hover` or any
+    // outline variant. Proven by planting: stripping both global knobs out of `.btn:hover`
+    // left 5086 PHPUnit + 1525 vitest tests green.
+    //
+    // What is gone for good is the ORDERING half — the parameterised per-instance chains
+    // (`--hero-button-hover-bg`, `--cta-button-hover-bg`, `--section-panel-cta-hover-*`). Those
+    // retired with their components at #986 / #1023 / #1026, and two links that cannot both
+    // exist cannot be mis-ordered. Everything below reads a chain that still ships.
+    const NO_COMMENTS = COMPONENTS_CSS.replace(/\/\*[\s\S]*?\*\//g, '');
+    const bodiesFor = (sel) => {
+        const want = sel.replace(/\s+/g, ' ').trim();
+        const out = [];
+        const re = /([^{}]+)\{([^{}]*)\}/g;
+        let m;
+        while ((m = re.exec(NO_COMMENTS)) !== null) {
+            if (m[1].replace(/\s+/g, ' ').trim() === want) out.push(m[2]);
+        }
+        return out;
+    };
+    // The premium primary is declared TWICE — a superseded rule and the true cascade winner.
+    // `last` is the live winner in that pair.
+    const bodyFor = (sel) => {
+        const all = bodiesFor(sel);
+        return all.length ? all[all.length - 1] : null;
+    };
+    const NOT3 = ':not(.btn--outline):not(.btn--ghost):not(.btn--secondary)';
+
+    /*
+     * The bare `.btn:hover` is the live hover winner OUTSIDE `main` — every header and footer
+     * button — so it is the one rule that carries the whole global hover surface for them.
+     * Both knobs, both falling through to today's literal so unset stays byte-identical.
+     */
+    test('.btn:hover routes both global hover knobs', () => {
+        const body = bodyFor('.btn:hover');
+        expect(body).not.toBeNull();
+        expect(body).toContain('background-color: var(--btn-hover-bg, var(--color-accent-hover));');
+        expect(body).toContain('border-color: var(--btn-hover-border-color, var(--color-accent-hover));');
+    });
+
+    /*
+     * The global hover RING reaches the outline variant, and that is load-bearing to pin.
+     * `.btn--outline:hover` repaints background-color and color but declares NO border-color,
+     * so `.btn:hover`'s border-color is its ring. That mirrors REST exactly (`.btn--outline`
+     * also declares no border-color, so --btn-border-color already rings it), which is the
+     * whole justification for putting the knob in the shared rule. If someone gives
+     * `.btn--outline:hover` its own border-color, or moves it ABOVE `.btn:hover`, the global
+     * ring silently stops reaching outline buttons site-wide and no other assertion notices.
+     */
+    test('the outline variant inherits the global hover ring from .btn:hover', () => {
+        const outlineHover = bodyFor('.btn--outline:hover');
+        expect(outlineHover).not.toBeNull();
+        expect(outlineHover).not.toMatch(/border-color\s*:/);
+        const iBase = NO_COMMENTS.indexOf('.btn:hover');
+        const iOutline = NO_COMMENTS.indexOf('.btn--outline:hover');
+        expect(iBase).toBeGreaterThan(-1);
+        expect(iOutline).toBeGreaterThan(iBase);
+    });
+
+    test('the global hover fill NEVER enters a border chain in the premium rule', () => {
+        // Border is INDEPENDENT of the fill in `main .btn:not(...)` at rest (it routes
+        // --btn-border-color but deliberately does not follow --btn-bg, matching the bare .btn
+        // primitive). The hover twin must keep that independence, or a fill-only site retheme
+        // silently starts moving the premium ring too.
+        const body = bodyFor('main .btn' + NOT3 + ':hover');
+        expect(body).not.toBeNull();
+        const border = body.match(/border-color\s*:([^;]+)/)[1];
+        expect(border).toContain('--btn-hover-border-color');
+        expect(border).not.toContain('--btn-hover-bg');
+    });
+
+    test('BOTH premium hover rules carry the tier, so the superseded one cannot drift', () => {
+        // #514/#530 keep the superseded and the live premium rules uniform on purpose: the
+        // superseded one is the shape a reader hits first, so a drifted copy teaches the wrong
+        // chain. The chain head was `--cta-button-hover-bg` until #1026 retired it; the global
+        // knob leads now, and BOTH copies must still route it.
+        const hits = NO_COMMENTS.match(/background:\s*var\(--btn-hover-bg,/g);
+        expect(hits).not.toBeNull();
+        expect(hits.length).toBe(2);
+    });
+});
+
 /**
  * The filled premium button's fill and ring SNAP; nothing else about its motion changes (#540).
  *

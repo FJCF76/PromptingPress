@@ -41,9 +41,9 @@ names. To clear a stored one, send it as `null` through `update_component`.
 **Two things `theme` and `background_image` took with them, stated because they were
 automatic and are now explicit.** A `background_image` band used to get `background-size:
 cover` and `background-repeat: no-repeat` for free; write `background.size` / `repeat`. And
-both classes carried AA corrections — on-inverted and on-overlay ink for the body, its
-links and the accented heading substring, plus a separation ring on the filled button over a
-scrim. Those are gone: v2 has no variant-scoped role defaults and does not guess, exactly as
+both classes carried seven AA corrections — on-inverted and on-overlay ink for the
+HEADING, the accented heading substring, the body, its links at rest and on hover, and the
+`outline`/`ghost` buttons, plus a separation ring on the filled button over a scrim. Those are gone: v2 has no variant-scoped role defaults and does not guess, exactly as
 #986 ruled for `.hero--cover`. **A band with a dark fill or a scrim owns its own contrast.**
 
 The one affordance that stayed automatic is the **focus ring** over a scrim, because #986
@@ -130,7 +130,7 @@ SHORTHAND (which clears the gradient), nothing clears the premium BEVEL.
 
 Two costs, stated rather than discovered: these are the `button-secondary` preset's own
 values duplicated, so applying a DIFFERENT preset here is partly suppressed — temporary,
-until #974 lets a role name its own preset as its default — and the button's transition
+until #1018 makes a role able to name its own preset as its default — and the button's transition
 narrows from five properties to three, because a bare `.btn` picks up the #540 snap list and
 `motion` carries only duration and timing-function by ruling A3.
 
@@ -221,7 +221,7 @@ and all three of those happened here.
   preference for explicitness, because the cost of being wrong here is the #545 defect
   (an author's nested button repainted accent-on-accent) rather than a missing value.
 - **`button-secondary` duplicates the `button-secondary` preset's values.** **What would
-  reopen it:** #974 landing, which lets a role name its own preset as its default and
+  reopen it:** #1018 landing, which would let a role name its own preset as its default and
   retires the duplication outright.
 
 The bar for adding a control is a NAMED INCIDENT, not a hypothetical: a report where the
@@ -229,9 +229,13 @@ default produced a wrong render that no authored value could fix.
 
 ## Retired style slots
 
-All 40 `--cta-*` slots are retired. Each carries its own migration note naming the role that
-replaced it; `wp pp check page` reports any stored one as `invalid_style_slot` with that
-route. The mapping is mechanical: find the element the slot named, find the role whose
+All 40 `--cta-*` slots are retired — not renamed and not deprecated. Every one is recorded
+slot by slot in `SLOT_RENAME_MIGRATION_NOTES` in `tests/SchemaValidationTest.php`, each
+naming the role and parameter that owns the value today. **Those per-slot routes are a test
+fixture, not a runtime message:** `wp pp check page` reports a stored slot as
+`invalid_style_slot` with the GENERIC v2 clause, which says cta declares no style slots and
+lists its eleven roles, rather than the individual slot's route. Read a role's real
+parameters from `schema.json`, or with `wp pp schema cta`. The mapping is mechanical: find the element the slot named, find the role whose
 selector is that element, put the value in the group that owns the property.
 
 `--cta-accent` and `--cta-accent-hover` are the two that do NOT map one-to-one: they were

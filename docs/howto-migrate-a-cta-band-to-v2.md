@@ -27,7 +27,7 @@ document covers what is DIFFERENT about cta, which is most of what will surprise
 wp pp check page --post_id=$PID
 ```
 
-Four codes matter, and they mean different things:
+Three codes matter, and they mean different things:
 
 | Code | Means |
 |---|---|
@@ -82,20 +82,35 @@ that specifies nothing is byte-identical to v1.** An `inline` band is not:
 
 ### 2. A dark band or a scrim owns its own contrast
 
-The `.cta--inverted` and `.cta--has-bg-image` classes carried seven AA corrections: the
-body's ink, its links' ink and hover, the accented heading substring, and a separation ring
-that kept a filled button visible against a scrim. Both classes derive from the retired
-props, so all seven are gone. This is the same ruling #986 made for `.hero--cover`.
+The `.cta--inverted` and `.cta--has-bg-image` classes carried seven AA corrections, and it is
+worth having all seven named because the list decides what you have to write: **the heading's
+own ink**, the accented heading substring, the body's ink, its links' ink, its links' hover,
+the `outline`/`ghost` buttons' ink and ring, and a separation ring that kept a FILLED button
+visible against a scrim. Both classes derive from the retired props, so all seven are gone.
+This is the same ruling #986 made for `.hero--cover`.
 
-Set them yourself, reaching for the role tokens the theme already measures:
+Set them yourself, reaching for the role tokens the theme already measures. **Start with the
+band's own ink** — that is the line most easily missed, and the one the heading depends on:
 
 ```json
+"_band":        {"background": {"fill": "@color-bg-inverted"},
+                 "typography": {"color": "@color-bg"}},
 "body":         {"typography": {"color": "@color-bg"}},
 "body-link":    {"typography": {"color": "@color-accent-on-inverted",
                                 ":hover": {"color": "@color-accent-on-inverted-hover"}}},
 "heading-accent": {"typography": {"color": "@color-accent-on-inverted"}},
 "button":       {"border": {"color": "@color-accent-on-inverted"}}
 ```
+
+**Why `_band` carries a `typography.color` and the heading does not appear in this list.**
+The `heading` role ships `typography.color: currentColor`, which in the `color` property means
+`inherit` — so the heading follows whatever ink the BAND carries, and setting `_band` once is
+what recolours it. That indirection is deliberate and it is also load-bearing: `base.css`
+gives every `h1`-`h6` an explicit `color: var(--color-text)`, and a rule that MATCHES an
+element beats an inherited value regardless of layer, so a heading with no declaration of its
+own would stay `#101828` on your dark band — about 1.01:1, invisible. `currentColor` is the
+declaration that restores the inheritance. If you would rather be explicit than rely on it,
+set `"heading": {"typography": {"color": "@color-bg"}}` and it wins over both.
 
 Over a scrim, use `@color-accent-on-overlay` (4.59:1 against the worst case) and
 `@color-muted-on-overlay` instead.
@@ -214,7 +229,7 @@ and your own values outrank both — check what you set on that role.
 **A preset did less than you expected.** Role defaults out-rank presets, so a preset supplies
 only the parameters the role does not already default. `button` declares nothing precisely so
 a preset lands whole; `button-secondary` declares the outline treatment, so a preset applied
-there is partly suppressed. Set the value directly beside the preset (tracked: #974).
+there is partly suppressed. Set the value directly beside the preset (tracked: #1018).
 
 **Your dark band's buttons look wrong on hover.** You set a resting colour without its
 `":hover"`. An unlayered resting value outranks the stylesheet's hover rule for the same

@@ -409,24 +409,35 @@ test.describe('Post-Apply Validation', () => {
     expect(callCount).toBe(2);
   });
 
-  // @smoke — exercises both action commands the v0.12.0 presentation-controls
-  // sprint touches: a PROP (button_variant, via update_component) and a STYLE SLOT
-  // (the new --cta-shadow type, via style_component), then asserts both reach the
-  // rendered page. This is the cross-layer "apply → render" proof for the new
-  // bounded style surface and the button variant contract.
-  test('@smoke style apply: button_variant + shadow render on the page', async ({
+  // @smoke — the cross-layer "apply -> render" proof for the bounded style surface:
+  // a PROP through update_component and a STYLE SLOT through style_component, both
+  // asserted on the rendered page.
+  //
+  // REPRICED ONTO grid AT #1026, not deleted. It was written on cta (`button_variant`
+  // plus the then-new `--cta-shadow` slot), and cta's rebuild retired the prop AND all
+  // 40 slots — so every step became unconstructable: update_component refuses
+  // `button_variant` with `retired_prop`, style_component refuses the slot with
+  // `no_style_slots`, cta emits no `btn--outline` class and no inline style attribute
+  // at all. The CAPABILITY under test is not cta's, though; it is the generic
+  // prop-and-slot authoring path, so the fixture moves to a component that still has
+  // both. grid is the widest one left: `card_emphasis` is a prop that emits a root
+  // variant class, and `--grid-item-shadow` is a shadow-typed slot that lands as an
+  // inline custom property.
+  test('@smoke style apply: a prop + a shadow slot render on the page', async ({
     page,
   }) => {
-    // 1. Page with a single CTA component.
+    // 1. Page with a single grid component.
     pageId = createPage('E2E Style Apply Smoke');
     setComposition(pageId, [
       {
-        component: 'cta',
+        component: 'grid',
         props: {
           id: 'pp-smoke01',
-          title: 'Smoke CTA',
-          button_text: 'Go',
-          button_url: '#',
+          title: 'Smoke grid',
+          items: [
+            { title: 'One', text: 'First card.' },
+            { title: 'Two', text: 'Second card.' },
+          ],
         },
       },
     ]);
@@ -470,28 +481,28 @@ test.describe('Post-Apply Validation', () => {
         { pid, name, key, value },
       );
 
-    // 3a. update_component sets the button_variant PROP.
+    // 3a. update_component sets the card_emphasis PROP.
     const r1 = await dispatch(pageId, 'update_component', 'props', {
-      button_variant: 'outline',
+      card_emphasis: 'uniform',
     });
     expect(r1.success).toBe(true);
 
-    // 3b. style_component sets the --cta-shadow STYLE SLOT (new shadow type).
+    // 3b. style_component sets the --grid-item-shadow STYLE SLOT (shadow type).
     const r2 = await dispatch(pageId, 'style_component', 'style', {
-      '--cta-shadow': 'var(--shadow-md)',
+      '--grid-item-shadow': 'var(--shadow-md)',
     });
     expect(r2.success).toBe(true);
 
-    // 4. Front-end render: the button carries .btn--outline and the section carries
-    //    the inline --cta-shadow custom property (proving both reached the DOM).
+    // 4. Front-end render: the root carries .grid--uniform from the prop and the inline
+    //    --grid-item-shadow custom property from the slot, proving both reached the DOM.
     await page.goto(`/?page_id=${pageId}`);
-    const cta = page.locator('.cta[data-pp-component="cta"]');
-    await expect(cta).toBeVisible({ timeout: 10000 });
+    const grid = page.locator('.grid[data-pp-component="grid"]');
+    await expect(grid).toBeVisible({ timeout: 10000 });
 
-    await expect(page.locator('.cta__button.btn--outline')).toBeVisible();
+    await expect(page.locator('.grid.grid--uniform')).toBeVisible();
 
-    const styleAttr = (await cta.getAttribute('style')) || '';
-    expect(styleAttr).toContain('--cta-shadow');
+    const styleAttr = (await grid.getAttribute('style')) || '';
+    expect(styleAttr).toContain('--grid-item-shadow');
     expect(styleAttr).toContain('var(--shadow-md)');
   });
 });

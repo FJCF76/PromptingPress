@@ -6,7 +6,7 @@ Use the `style_component` action to change the visual appearance of a specific c
 >
 > `hero` and `testimonials` are. Run `wp pp schema hero` (or read the component catalog) — if it lists **UDC roles** instead of style slots, `style_component` will refuse it with `no_style_slots`, and everything below about slots does not apply to it.
 >
-> **Every `--hero-*` slot name later in this file is HISTORY.** The v1 cascade sections are kept because they still govern cta, section, grid, faq, stats, logos, embed and table, and hero appears in them as the example it used to be. Writing any of those names is refused. The v2 equivalent for each is a role in the band's `udc` map — see "Brand-accent hero CTA buttons" below for the worked translation.
+> **Every `--hero-*` slot name later in this file is HISTORY.** The v1 cascade sections are kept because they still govern grid, faq, stats, logos, embed and table (section left at #1023 and cta at #1026), and hero appears in them as the example it used to be. Writing any of those names is refused. The v2 equivalent for each is a role in the band's `udc` map — see "Brand-accent hero CTA buttons" below for the worked translation.
 >
 > Style a v2 component by putting a `udc` map on the BAND, beside `props`, through `update_composition` / `update_component` / `add_component` / `create_page`:
 >
@@ -213,9 +213,10 @@ only as its plain-color half.
 
 The `shadow` type is bounded: a preset (`var(--shadow-none\|sm\|md\|lg)` or `none`)
 or a single-layer `box-shadow` (2-4 px/rem lengths plus an rgb/rgba/hsl/hsla color).
-`inset`, multi-layer shadows, and `url()` are rejected. The hero, section, grid (card),
-cta, and testimonials (card) components each expose namespaced `*-border-color`,
-`*-border-width`, `*-radius`, and `*-shadow` slots.
+`inset`, multi-layer shadows, and `url()` are rejected. The grid (card), faq and stats components each expose namespaced `*-border-color`,
+`*-border-width`, `*-radius`, and `*-shadow` slots. hero, section, testimonials and cta
+exposed them until their rebuilds (#986, #1023, #958, #1026); on a v2 component that framing
+is the role's own `border` and `shadow` groups.
 
 The `stats` band exposes two of these framing slots — `--stats-radius` (length,
 default `0`) and `--stats-max-width` (**length-or-none**, default `none`) — for a
@@ -232,9 +233,11 @@ type table above and "Text measures" below. Stats does not expose `*-border-*` o
 
 ## Text measures — prefer the token over a per-band literal (#578)
 
-Every band component declares `--<component>-heading-measure`, and `section`, `cta`,
-`faq` and `embed` also declare `--<component>-body-measure`. Eight of the ten heading
-measures **default to the shared `--measure-heading` design token** (`40rem`), so the
+Six band components declare `--<component>-heading-measure` — embed, faq, grid, logos, stats
+and table — and of those `faq` and `embed` also declare `--<component>-body-measure`. (The
+rosters were wider: section's and cta's measures left with their rebuilds at #1023 and #1026,
+where a measure is the role's `sizing.max-width`.) They **default to the shared
+`--measure-heading` design token** (`40rem`), so the
 normal way to change band heading measure across a site is ONE `update_design_token`
 write, not ten `style_component` writes.
 
@@ -264,8 +267,8 @@ leave the slot unset and tune the `--measure-*` tokens.
 there.** First, `--measure-heading` routes **band headings, not item titles** — the
 `main > .grid--steps .grid__item-title { max-width: 17rem }` cap is deliberately outside
 the measure surface, so no measure retune reaches a step title. Second, the
-`--<component>-body-measure` family covers `section`, `cta`, `faq` and `embed`
-**only**. `testimonials` is **not** among them, so the `layout: "stack"` reading measure
+`--<component>-body-measure` family covers `faq` and `embed` **only** (section's and cta's
+retired at #1023 and #1026). `testimonials` is **not** among them, so the `layout: "stack"` reading measure
 (`42rem`) is a stated default, not something a measure retune moves.
 
 THE BRANCH-FALLBACK SLOTS ARE GONE, and what replaced them is better. `--section-body-measure`
@@ -347,7 +350,7 @@ card, so they are rejected here — set those on the grid-level style. Set it th
 
 The `position` and `ratio` types (#108) control image focal point and aspect ratio,
 per-instance. `position` accepts 1-2 keyword/length tokens (no functions, no `var()`);
-`ratio` accepts `auto` (natural proportions) or a number/fraction. `--{cta,stats}-bg-position`
+`ratio` accepts `auto` (natural proportions) or a number/fraction. `--stats-bg-position`
 controls the `background_image` CSS background. No v1 component has a content-image
 focal-point or crop-ratio slot left. Not exposed on logos (fixed `object-fit: contain`
 layout, not a crop model).
@@ -363,8 +366,8 @@ point is `_band`'s `background.position`. A hero band
 background is `_band` `background.image` plus `background.position` — never `image_url`,
 which on `layout: "cover"` is now REFUSED at write with `inert_prop`.
 
-**The scrim over a `background_image` has its own per-instance slot on the two v1 bands
-that still carry one: `--{cta,stats}-overlay-bg`** (stats was the last to get one, #577).
+**The scrim over a `background_image` has its own per-instance slot on the one v1 band
+that still carries one: `--stats-overlay-bg`** (stats was the last to get one, #577, and cta's left at #1026).
 On a v2 component the scrim is the `_band` role's `background.overlay`, authored beside
 `background.image` in the same map — hero left this slot family in #986 and section in
 #1023, and writing either retired slot is refused with `no_style_slots`.
@@ -373,7 +376,7 @@ particular photo needs a darker or lighter scrim than the site default, instead 
 retuning `--overlay-bg` and moving every image band at once. Two things to know before
 you lighten one: the band's text defaults are calibrated against the SHIPPED scrim over a
 worst-case white image, so lightening it weakens contrast the theme is relying on; and
-de-emphasised ink on those bands (a cta `body`, a stats `label`) is already at the edge
+de-emphasised ink on that band (a stats `label`; a cta `body` was the other until #1026) is already at the edge
 of AA, which is why it routes the `--color-muted-on-overlay` role rather than an
 `opacity` literal. Do not express de-emphasis on an image band with `opacity` — see
 `ai-instructions/retheme.md` for the measurements.
@@ -392,7 +395,7 @@ The `text-transform` type (#370) controls letter-casing. It accepts exactly one
 `text-transform` keyword: `none`, `uppercase`, `lowercase`, or `capitalize` — a closed
 set (the CJK `full-width`/`full-size-kana` values and bare `unset`/`initial` are
 rejected, the same tight-vocabulary posture as `align`). The eyebrow/kicker pill
-exposes it on all six section-header components as `--{hero,section,faq,grid,cta,testimonials}-eyebrow-text-transform`,
+exposes it on the two that still have the slot, as `--{faq,grid}-eyebrow-text-transform` (hero, section, testimonials and cta take the `eyebrow` role's `typography.transform` instead),
 defaulting to `uppercase` (today's baked rendering). Set it to `none` when a reference
 shows the kicker in sentence case, or `lowercase`/`capitalize` for those looks. An unset
 slot leaves the eyebrow byte-identically uppercase.
@@ -547,13 +550,13 @@ To make two adjacent same-background bands read as **one continuous, seamless ba
    the single slot could not do.
 
    Since #584 every band component still on the slot system carries this slot —
-   `--{grid,cta,faq,stats,table,embed,logos}-heading-margin-bottom` (hero's left in #986,
+   `--{grid,faq,stats,table,embed,logos}-heading-margin-bottom` (hero's left in #986, cta's at #1026,
    section's and testimonials' with their own rebuilds) —
    so the band's header rhythm is authorable everywhere. Unset, each keeps the spacing it
    always had.
 
    Read step 3 as "the LAST element", not "the heading". The heading is only that element on a
-   band whose heading is the last thing it renders; on `hero`, `cta`, `stats`, `table`, `embed`
+   band whose heading is the last thing it renders; on `stats`, `table`, `embed`
    and `logos` a required content prop always renders after the heading (the CTA group, the
    number row, the table, the embed, the strip), so on those bands the heading-margin slot is
    the INTERNAL header rhythm and step 2's `--<upper>-padding-bottom: 0` is what closes the
