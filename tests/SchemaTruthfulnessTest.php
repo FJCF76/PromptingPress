@@ -154,7 +154,10 @@ class SchemaTruthfulnessTest extends TestCase
         // section is absent since #1023 for the mirror-image reason: its `heading` role
         // DOES route the shared scale, as `@pp-band-heading-size`, so the token still
         // governs it — through the engine rather than through a slot.
-        $bands = ['grid', 'faq', 'stats', 'table', 'logos', 'embed'];
+        // faq left at #1046: its heading size is the `heading` role's `typography.size`,
+        // referencing the same shared `@pp-band-heading-size` token this test exists to
+        // keep every band on. The v2 half of that claim is FaqRoleDefaultsEmitTest.
+        $bands = ['grid', 'stats', 'table', 'logos', 'embed'];
         foreach ($bands as $component) {
             $slot = "--{$component}-heading-size";
             $slots = $this->slots($component);
@@ -285,7 +288,6 @@ class SchemaTruthfulnessTest extends TestCase
             // subheading and the trust strip, which is why all four roles default to
             // 40rem. Role-side pins: MeasureSurfaceTest and SectionRoleDefaultsEmitTest.
             ['grid', '--grid-heading-size', 'var(--pp-band-heading-size)'],
-            ['faq', '--faq-heading-size', 'var(--pp-band-heading-size)'],
             ['stats', '--stats-heading-size', 'var(--pp-band-heading-size)'],
 
             ['grid', '--grid-heading-margin-bottom', '1.65rem'],
@@ -296,8 +298,6 @@ class SchemaTruthfulnessTest extends TestCase
             ['grid', '--grid-item-padding', '2rem'],
             ['grid', '--grid-item-title-size', '1.14rem'],
             ['grid', '--grid-item-text-color', 'var(--color-text-secondary)'],
-            ['faq', '--faq-heading-margin-bottom', '1.65rem'],
-            ['faq', '--faq-answer-color', 'var(--color-text-secondary)'],
         ];
     }
 
@@ -897,7 +897,7 @@ class SchemaTruthfulnessTest extends TestCase
     {
         $doc = file_get_contents($this->themeRoot . '/AI_CONTEXT.md');
         $this->assertStringContainsString('All 10 section-level components', $doc);
-        foreach (['table', 'faq'] as $component) {
+        foreach (['table', 'faq'] as $component) { // both still declare and render `id`
             $this->assertMatchesRegularExpression(
                 '/All 10 section-level components \([^)]*\b' . $component . '\b[^)]*\)/',
                 $doc,
@@ -1021,7 +1021,12 @@ class SchemaTruthfulnessTest extends TestCase
             // its `typography.color` and its `:hover` typography.color sit in the same
             // map and cannot be set apart by accident. docs/explanation-cascade-layers.md
             // §1b is the reason they had to move together.
-            'faq' => ['--faq-question-color', '--faq-question-open-color'],
+            // faq's pair left the SLOT list at #1046 and is re-asserted below as roles.
+            // It did not stop being a positional twin — `question` still owns the closed
+            // row and `question-open` the expanded one, and they still have to name each
+            // other or an author sets one and watches it revert on the first click. The
+            // slot pair became a ROLE pair, so the assertion follows the subject instead
+            // of retiring with the slot names.
         ];
         foreach ($positionalTwins as $component => [$rest, $twin]) {
             $slots = $this->slots($component);
@@ -1036,6 +1041,40 @@ class SchemaTruthfulnessTest extends TestCase
                 $rest,
                 $slots[$twin]['description'],
                 "{$twin} must name {$rest} — the cross-reference works in both directions."
+            );
+        }
+
+        // THE SAME DISCIPLINE ON THE v2 SIDE (#1046). A role pair can drift apart exactly
+        // as a slot pair could, and faq's is the sharper case: `question-open`'s selector
+        // carries one more compound than `question`'s, so the open value does not merely
+        // sit beside the resting one — it OUTRANKS it. An author who recolours the
+        // resting row and stops gets the accent back on the first click.
+        $roleTwins = [
+            'faq' => ['question', 'question-open'],
+        ];
+        foreach ($roleTwins as $component => [$rest, $twin]) {
+            $roles = pp_udc_component_roles($component);
+            $this->assertArrayHasKey($rest, $roles, "{$component} must declare the {$rest} role");
+            $this->assertArrayHasKey($twin, $roles, "{$component} must declare its twin {$twin}");
+            // BACKTICK-DELIMITED, BECAUSE A BARE SUBSTRING MAKES HALF THIS CLAIM VACUOUS.
+            // `question` is a substring of `question-open`, so asserting that the OPEN
+            // role's description "contains question" is satisfied by its own name and by
+            // any sentence about a <summary> row. The slot-era version was genuinely
+            // bidirectional (`--faq-question-color` is not a substring of
+            // `--faq-question-open-color`); the rename to roles silently removed that, and
+            // a mutation proved it — stripping both real cross-references left this green.
+            // The schemas write role references backtick-quoted, so requiring the delimiter
+            // restores the claim.
+            $this->assertMatchesRegularExpression(
+                '/`' . preg_quote($twin, '/') . '`/',
+                (string) ($roles[$rest]['description'] ?? ''),
+                "{$component}.{$rest} must name `{$twin}` so an author setting one finds the other."
+            );
+            $this->assertMatchesRegularExpression(
+                '/`' . preg_quote($rest, '/') . '`(?!-)/',
+                (string) ($roles[$twin]['description'] ?? ''),
+                "{$component}.{$twin} must name `{$rest}` as its own token — a bare substring "
+                . 'is satisfied by the twin\'s own name and proves nothing.'
             );
         }
     }

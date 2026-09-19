@@ -135,9 +135,12 @@ class SectionBodyListTest extends TestCase
      * through a role selector.
      *
      * It cannot be fixed by narrowing the selector: the role-selector gate in lib/udc.php
-     * admits `[A-Za-z0-9_ .>-]` only, so `:not(.btn)` is not expressible — and widening a
-     * gate that guards a string interpolated into CSS to work around one component's
-     * default would be the wrong trade.
+     * admits `[A-Za-z0-9_ .>\[\]-]` only, so `:not(.btn)` is not expressible — a bracket
+     * term is an attribute PRESENCE test, and `:` is what a negation would need. The gate
+     * WAS widened later, by `[` and `]` at #1046 for faq's `[open]` role, which does not
+     * reopen this: that widening admits no `:` and was routed through the EXISTING
+     * balance gate (#965's `_pp_udc_delimiters_balanced()`, which already had three
+     * callers) precisely because a string interpolated into CSS is what it guards.
      *
      * Leaving the role silent restores v1 exactly. Measured after the change: the prose
      * link is unchanged (accent + underline) and the nested button is rgb(252,253,255) on

@@ -86,6 +86,12 @@ class StoredCompositionAliasRenderTest extends TestCase
             if ($style) {
                 $props['__pp_style'] = $style;
             }
+            // THE BAND IDENTITY PROMOTION, as the real loop does it (#1046). Without this
+            // the helper rendered a v2 band with no `data-pp-band` attribute — markup no
+            // page ever produces, because templates/composition.php, templates/front-page.php
+            // and the editor preview all promote first. A v1 band is unaffected: the
+            // promoter only adds keys when the item carries a usable id.
+            $props = pp_udc_promote_band_identity(is_array($item) ? $item : [], $props);
             pp_get_component((string) $item['component'], $props);
         }
         return ob_get_clean();
@@ -328,9 +334,14 @@ class StoredCompositionAliasRenderTest extends TestCase
     public function testAFreshCanonicalCompositionWritesValidatesReadsBackAndRenders(): void
     {
         $authored = [
-            ['component' => 'faq', 'props' => ['title' => 'Fresh', 'items' => [['question' => 'Q', 'answer' => 'A']]], 'style' => [
-                '--faq-heading-color' => '#f0f0f0',
-                '--faq-heading-size'  => '4rem']],
+            // faq's band carries a `udc` map instead of a `style` map since #1046 — the
+            // same two values, addressed as role parameters. Kept in this fixture rather
+            // than dropped: the test's subject is that an AUTHORED design map survives a
+            // real write/read round trip byte-identically, and that subject applies to
+            // the v2 surface exactly as it did to the v1 one. Dropping the band would
+            // have quietly narrowed the test to slot-bearing components only.
+            ['component' => 'faq', 'props' => ['title' => 'Fresh', 'items' => [['question' => 'Q', 'answer' => 'A']]], 'udc' => [
+                'heading' => ['typography' => ['color' => '#f0f0f0', 'size' => '4rem']]]],
             ['component' => 'grid', 'props' => ['title' => 'Cards', 'items' => [
                 ['title' => 'One', 'text' => 'a', 'style' => ['--grid-item-bg' => '#101014']]]], 'style' => ['--grid-heading-measure' => '40rem']],
             ['component' => 'stats', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'Band'], 'style' => [
@@ -344,7 +355,7 @@ class StoredCompositionAliasRenderTest extends TestCase
 
         // Read back: every authored style map survives the round trip untouched.
         $stored = pp_get_composition($id);
-        $this->assertSame($authored[0]['style'], $stored[0]['style'], 'hero style map is byte-identical');
+        $this->assertSame($authored[0]['udc'], $stored[0]['udc'], 'the faq udc map is byte-identical');
         $this->assertSame($authored[1]['style'], $stored[1]['style'], 'grid style map is byte-identical');
         $this->assertSame(
             $authored[1]['props']['items'][0]['style'],
@@ -355,8 +366,31 @@ class StoredCompositionAliasRenderTest extends TestCase
 
         // Render: every authored declaration reaches the page.
         $html = $this->renderStored($id);
-        $this->assertStringContainsString('--faq-heading-color: #f0f0f0', $html);
-        $this->assertStringContainsString('--faq-heading-size: 4rem', $html);
+        // faq's two values land in the band-scoped block the ENGINE emits into the
+        // document head, not in an inline style attribute on the section — the v2
+        // emission shape. `renderStored()` above walks the composition and renders
+        // component MARKUP only, which is the whole page on v1 and half of it on v2, so
+        // the assertion reads the other half from the emitter. It follows the value to
+        // where it paints rather than retiring with the slot.
+        $bandCss = pp_udc_page_css($stored);
+        $this->assertMatchesRegularExpression(
+            '/\[data-pp-band="pp-[0-9a-f]{8}"\] \.faq__heading\{font-size:4rem;color:#f0f0f0;\}/',
+            $bandCss,
+            'both authored values must reach the page, in the BAND-scoped block (not the '
+            . 'component-defaults tier), which is what makes them this band\'s design'
+        );
+        $this->assertStringNotContainsString('--faq-heading-color', $html);
+        // Scoped to faq's own <section>: the grid and stats bands on this same page are
+        // still v1 and still emit their style attributes, which is the point of keeping
+        // all three in one fixture.
+        preg_match('/<section[^>]*data-pp-component="faq"[^>]*>/', $html, $faqTag);
+        $this->assertNotEmpty($faqTag, 'the faq band must render');
+        $this->assertStringNotContainsString(
+            'style=',
+            $faqTag[0],
+            'a v2 band emits data-pp-band and no inline style attribute'
+        );
+        $this->assertStringContainsString('data-pp-band="', $faqTag[0]);
         $this->assertStringContainsString('--grid-heading-measure: 40rem', $html);
         $this->assertStringContainsString('--grid-item-bg: #101014', $html);
         $this->assertStringContainsString('--stats-label-color: #334455', $html);
@@ -791,6 +825,9 @@ class StoredCompositionAliasRenderTest extends TestCase
         $this->assertStringContainsString('default, muted, inverted', $result->get_error_message());
     }
 
+    // NAME KEPT DELIBERATELY at its original numeral, the way MeasureSurfaceTest's and
+    // ComponentPropsTest's rosters keep theirs: renaming it on every rebuild breaks
+    // `--filter` continuity for no fact. The roster inside is the fact.
     public function testAFreshCanonicalThemeWritesValidatesReadsBackAndRendersOnAllSevenThemedBands(): void
     {
         // Acceptance criterion 5: fresh-generation correctness. Every band component
@@ -809,10 +846,14 @@ class StoredCompositionAliasRenderTest extends TestCase
             // solely for it is gone too. cta is absent since #1026, and its departure
             // carries one measured fact worth keeping: on a full-width cta the `muted` and
             // `dark` renders were BYTE-IDENTICAL to `default`, so retiring `theme` there
-            // cost exactly one rendered state (`inverted`) rather than three. The roster is
-            // FIVE bands now and still means the same thing — every component that declares
-            // `theme` round-trips its canonical values.
-            'faq'          => ['title' => 'F', 'items' => [['question' => 'q', 'answer' => 'a']]],
+            // cost exactly one rendered state (`inverted`) rather than three.
+            // faq is absent since #1046, and its departure carries a measured fact of its
+            // own, different from cta's: faq's `muted` was NOT byte-identical to `default`
+            // — it drew a 1px `--color-border` rule top and bottom — so retiring `theme`
+            // there cost two rendered states rather than one, and `retired_props` names
+            // the `border` group alongside `background` for exactly that reason. The
+            // roster is FOUR bands now and still means the same thing — every component
+            // that declares `theme` round-trips its canonical values.
             'embed'        => ['title' => 'E', 'content' => '<p>hi</p>'],
             'logos'        => ['title' => 'L', 'items' => [['image_url' => 'https://example.com/a.png', 'image_alt' => 'A']]],
         ];

@@ -407,22 +407,48 @@ final class UdcEngineTest extends TestCase
      * link in a current parent's dropdown. This proves the widening landed AND that it
      * widened nothing else — the exclusions are the gate.
      *
+     * `[` AND `]` JOINED AT #1046, for faq's `question-open` role
+     * (`.faq__item[open] > .faq__question`) — the accordion's expand affordance, which is
+     * an ANCESTOR state and therefore not expressible in the state dimension that ruling
+     * A3 confirmed. The widening is two characters and is self-bounding, which is the
+     * claim this test carries:
+     *
+     *   admitted   an attribute PRESENCE term — `[open]`, `[disabled]`, `[aria-expanded]`
+     *   refused    every attribute VALUE match, because `=`, `"` and `'` all stay out
+     *
+     * THE PROOF IS THE ROW THAT DID NOT MOVE. `.a[data-x="y"]` was in the refused list
+     * before this widening and is still in it after, unchanged — it carries an `=` and two
+     * quotes, so the class grew by presence selectors and by nothing else. A widening that
+     * had gone one character further would have flipped that row, and the diff would have
+     * shown it.
+     *
      * THE ANCHORS ARE TESTED SEPARATELY FROM THE CLASS, deliberately. `^...$` with no
      * `/m` is what makes the charset a whole-string claim; a class widening cannot
      * break it, but a careless rewrite of the pattern could, and a trailing-newline
      * payload is the classic way that shows up.
      */
-    public function testTheRoleSelectorCharsetAdmitsTheChildCombinatorAndNothingElse(): void
+    public function testTheRoleSelectorGateAdmitsTheChildCombinatorAndPresenceTermsAndNothingElse(): void
     {
         $accepted = [
             '.nav__menu ul li.current-menu-item > a',  // the #994 widening
+            '.faq__item[open] > .faq__question',       // the #1046 widening
             '.site-footer__nav ul',
             '.testimonials__quote',
             '.a-b_c.d e > f',
+            '.a[open]',                  // presence, on the role's own element
+            '[data-state] .b',           // presence, leading — still only a presence test
         ];
         $refused = [
             '.a, .b',                    // a selector LIST — one role owning two surfaces
-            '.a[data-x="y"]',            // an attribute match
+            '.a[data-x="y"]',            // an attribute VALUE match: UNCHANGED BY #1046.
+                                         // `=` and both quote characters stay excluded, so
+                                         // this row is the proof that the bracket widening
+                                         // admits presence terms and nothing more.
+            ".a[data-x='y']",            // the single-quoted spelling of the same thing
+            '.a[href^=http]',            // an UNQUOTED value match — `=` alone still refuses
+                                         // it, so the quotes are not the only thing holding
+                                         // the line
+            '.a[class*=btn]',            // the substring operator, same reason
             '.a:hover',                  // a pseudo-class; states are a separate dimension
             '.a{color:red}.b',           // a closed rule and a second selector
             ".a\n.b",                    // a newline with content after it
@@ -438,14 +464,14 @@ final class UdcEngineTest extends TestCase
         foreach ($accepted as $selector) {
             $this->assertSame(
                 1,
-                preg_match('/^[A-Za-z0-9_ .>\-]{1,120}\z/', $selector),
+                preg_match('/^[A-Za-z0-9_ .>\[\]\-]{1,120}\z/', $selector),
                 "the charset must accept {$selector}"
             );
         }
         foreach ($refused as $selector) {
             $this->assertSame(
                 0,
-                preg_match('/^[A-Za-z0-9_ .>\-]{1,120}\z/', $selector),
+                preg_match('/^[A-Za-z0-9_ .>\[\]\-]{1,120}\z/', $selector),
                 'the charset must refuse ' . json_encode($selector)
             );
         }
@@ -456,9 +482,102 @@ final class UdcEngineTest extends TestCase
         $source = file_get_contents(dirname(__DIR__) . '/lib/udc.php');
         $this->assertIsString($source);
         $this->assertStringContainsString(
-            "preg_match('/^[A-Za-z0-9_ .>\\-]{1,120}\\z/', \$selector)",
+            "preg_match('/^[A-Za-z0-9_ .>\\[\\]\\-]{1,120}\\z/', \$selector)",
             $source,
             'the compile-time selector gate must use exactly this pattern, anchors included'
+        );
+
+        // ── THE BALANCE HALF OF THE GATE (#1046) ────────────────────────────────
+        //
+        // A CHARACTER CLASS CANNOT SAY "EVERY `[` HAS ITS `]`", because that is a
+        // property of the whole string and a class is a per-character test. Admitting
+        // the brackets without this would have reopened the hole #965 closed for token
+        // VALUES: CSS Syntax L3 consumes an unclosed `[` across the terminating `;` and
+        // the closing `}` to EOF, and lib/wp.php concatenates every inline style on a
+        // handle into ONE `<style>` element — so one malformed selector would take every
+        // rule printed after it, the token tier included. That is categorically worse
+        // than the one dropped grouped rule a malformed `>` costs, which is why the
+        // widening carries a second gate and the child-combinator widening did not.
+        foreach (['.faq__item[open] > .faq__question', '.a[open]', '.testimonials__quote'] as $ok) {
+            $this->assertTrue(
+                _pp_udc_delimiters_balanced($ok),
+                "the balance gate must accept {$ok}"
+            );
+        }
+        foreach ([
+            '.faq__item[open > .faq__question',  // THE SWALLOW SHAPE: charset-clean, unbalanced
+            '.a]b',                              // a stray closer
+            '.a[open][',                         // trailing opener
+        ] as $bad) {
+            $this->assertSame(
+                1,
+                preg_match('/^[A-Za-z0-9_ .>\[\]\-]{1,120}\z/', $bad),
+                "precondition: {$bad} must pass the CHARSET, or this proves nothing"
+            );
+            $this->assertFalse(
+                _pp_udc_delimiters_balanced($bad),
+                "the balance gate must refuse {$bad} — the charset alone cannot see it"
+            );
+        }
+
+        // And the gate is wired to the helper, not to a local bracket count: a second
+        // implementation of "is this delimiter-safe" is the forked grammar the
+        // architecture forbids, and it is how the two copies drift apart.
+        $this->assertStringContainsString(
+            '!_pp_udc_delimiters_balanced($selector)',
+            $source,
+            'the selector gate must route through the shared balance owner'
+        );
+    }
+
+    /**
+     * THE BRACKETED SELECTOR IN THE GROUPED REDUCED-MOTION RULE (#1046).
+     *
+     * The shape test below bounds combinator placement and nothing else, which was
+     * sufficient while every role selector was classes and combinators. faq's
+     * `question-open` puts an ATTRIBUTE TERM inside the one rule where a single bad
+     * selector is catastrophic: _pp_udc_reduced_motion_guard() groups every
+     * motion-carrying role into ONE comma-separated rule, and CSS discards the WHOLE
+     * grouped rule when any selector in the list is invalid. The failure would be a lost
+     * accessibility guarantee with no error anywhere — the band would animate for a
+     * reader who asked the OS not to.
+     *
+     * So the claim is asserted at the level it matters: the selector is IN the grouped
+     * rule, and the grouped rule still carries every member. Verified in Chromium as well
+     * as here — `document.styleSheets` parsed the emitted rule with all three selectors
+     * kept (`selectorText.split(',').length === 3`) and `transition-duration: 0.01ms`
+     * intact. A syntax argument on paper is what this test exists to replace.
+     */
+    public function testABracketedRoleSelectorSurvivesInsideTheGroupedReducedMotionRule(): void
+    {
+        $css = pp_udc_band_css([
+            'component' => 'faq',
+            'id'        => 'pp-1a2b3c4d',
+            'props'     => [],
+            'udc'       => [
+                'question'      => ['motion' => ['transition-duration' => '300ms']],
+                'question-open' => ['motion' => ['transition-duration' => '400ms']],
+                'item'          => ['motion' => ['transition-duration' => '250ms']],
+            ],
+        ]);
+
+        $this->assertMatchesRegularExpression(
+            '/@media \(prefers-reduced-motion: reduce\)\{([^}]*)\{transition-duration:0\.01ms;\}\}/',
+            $css,
+            'the reduced-motion guard must be emitted for a motion-carrying faq band'
+        );
+        preg_match('/@media \(prefers-reduced-motion: reduce\)\{([^{]*)\{/', $css, $m);
+        $group = $m[1];
+
+        // Every motion-carrying role must be IN the group — including the bracketed one.
+        $this->assertStringContainsString('.faq__item[open] > .faq__question', $group);
+        $this->assertStringContainsString('.faq__question', $group);
+        $this->assertStringContainsString('.faq__item', $group);
+        $this->assertSame(
+            3,
+            count(explode(',', $group)),
+            'the group must carry all three motion-carrying selectors — a dropped member '
+            . 'is how this guard fails silently'
         );
     }
 
@@ -508,6 +627,34 @@ final class UdcEngineTest extends TestCase
                 foreach (explode(' ', $normalised) as $part) {
                     $this->assertNotSame('', trim($part), "{$component}.{$role} has an empty compound");
                 }
+
+                // EVERY BRACKET TERM IS A WELL-FORMED ATTRIBUTE PRESENCE TEST (#1046).
+                //
+                // The charset widening admitted `[` and `]`, and the balance gate beside it
+                // proves they PAIR — neither says the pair contains anything sensible.
+                // `.a[]`, `.a[ ]`, `.a[[open]]` and a bare `[]` all clear the charset, the
+                // balance check AND the combinator rules above, and every one of them is
+                // invalid CSS. That matters here for the same reason a stray `>` does: an
+                // invalid member silently drops the whole grouped prefers-reduced-motion
+                // rule, taking an accessibility guarantee with it and reporting nothing.
+                //
+                // The `>` widening earned a shape rule; this one earns its own rather than
+                // inheriting a check written for a different character.
+                preg_match_all('/\[([^\]]*)\]/', $selector, $terms);
+                foreach ($terms[1] as $term) {
+                    $this->assertMatchesRegularExpression(
+                        '/^[A-Za-z][A-Za-z0-9_-]*\z/',
+                        $term,
+                        "{$component}.{$role} declares \"{$selector}\", whose bracket term "
+                        . "\"[{$term}]\" is not an attribute name — it passes the charset and "
+                        . 'the balance gate and is still invalid CSS'
+                    );
+                }
+                $this->assertSame(
+                    substr_count($selector, '['),
+                    count($terms[1]),
+                    "{$component}.{$role} has a nested or unmatched bracket term"
+                );
             }
         }
 
@@ -1518,6 +1665,30 @@ final class UdcEngineTest extends TestCase
                 'button2_text' => 'Read the docs',
                 'button2_url'  => '/docs',
             ],
+            // faq needs TWO fixtures, because two of its roles cannot coexist: `list`,
+            // `item`, `question`, `question-open` and `answer` exist only when there are
+            // items, and `empty` exists only when there are none.
+            //
+            // WHAT THIS LINT CAN AND CANNOT SEE FOR `question-open`, stated because the
+            // gap is structural rather than an oversight. The sweep extracts CLASS names
+            // from a selector, so `.faq__item[open] > .faq__question` is checked as
+            // `.faq__item` and `.faq__question` — both real, both rendered here. The
+            // `[open]` half is NOT checkable from server-rendered markup at all: it is a
+            // browser-managed attribute that <details> gains on interaction and that no
+            // template ever emits. Its proof is a rendered one — a real pointer click in
+            // Chromium, measured across three viewports — and it belongs there rather
+            // than in a markup lint that would have to fake the attribute to see it.
+            'faq' => [
+                [
+                    'eyebrow'      => 'QUESTIONS',
+                    'title'        => 'Common objections',
+                    'title_accent' => 'objections',
+                    'items'        => [
+                        ['question' => 'Does this replace our workflow?', 'answer' => '<p>It replaces the part that breaks.</p>'],
+                    ],
+                ],
+                ['title' => 'Common objections', 'items' => []],
+            ],
             'testimonials' => [
                 'title'        => 'What they say',
                 'title_accent' => 'they',
@@ -1835,12 +2006,14 @@ final class UdcEngineTest extends TestCase
                 $legacy[] = $name;
             }
         }
-        // SIX now: testimonials was rebuilt in Sprint 0, nav and footer joined as the
+        // FIVE now: testimonials was rebuilt in Sprint 0, nav and footer joined as the
         // CHROME container in Sprint 1 (ruling A1), hero in Sprint 1 (#986), section in
-        // Sprint 2 (#1023) and cta in Sprint 2 (#1026). The number is asserted rather than
-        // loosened so that a component quietly falling OFF the engine still trips this —
-        // and so that each rebuild has to come here and say which one moved.
-        $this->assertCount(6, $legacy, 'six components stay on the legacy system');
+        // Sprint 2 (#1023), cta in Sprint 2 (#1026) and faq in Sprint 2 (#1046). The
+        // number is asserted rather than loosened so that a component quietly falling OFF
+        // the engine still trips this — and so that each rebuild has to come here and say
+        // which one moved.
+        $this->assertCount(5, $legacy, 'five components stay on the legacy system');
+        $this->assertNotContains('faq', $legacy);
         $this->assertNotContains('testimonials', $legacy);
         $this->assertNotContains('nav', $legacy);
         $this->assertNotContains('footer', $legacy);
@@ -2341,4 +2514,200 @@ final class UdcEngineTest extends TestCase
             );
         }
     }
+
+    /**
+     * THE BALANCE GATE, ASSERTED AS BEHAVIOUR — because as source text it was a no-op.
+     *
+     * #1046's review measured this: replacing the `continue;` in BOTH selector-gate bodies
+     * with a no-op left the suite byte-identical at 5099 tests / 30644 assertions. The only
+     * things holding the gate were two source-STRING assertions in this file, and a source
+     * string cannot tell you whether the verdict is ACTED ON — the exact I35 shape filed as
+     * #1048, reproduced in the guard that was added to make #1046's `[`/`]` widening safe.
+     *
+     * So this drives the real compiler against a synthetic component, through the fixture
+     * seam ApplyTest/PreflightTest/SetupTest/CliSchemaCommandTest already use
+     * (`$GLOBALS['_pp_test_template_dir']` + the registry invalidate flag), and asserts the
+     * two halves that matter:
+     *
+     *   1. the refused role emits NOTHING — not a broken rule, nothing at all;
+     *   2. THE ROLE DECLARED AFTER IT STILL EMITS INTACT.
+     *
+     * EACH ASSERTION CATCHES A DIFFERENT MUTATION, and saying so precisely matters
+     * because an earlier draft of this docblock justified (2) with (1)'s job:
+     *   - (1) fails when the gate is REMOVED — replace the `continue;` with a no-op and
+     *     the refused selector reaches the sheet.
+     *   - (2) fails when the gate ABORTS the loop instead of skipping one role — replace
+     *     `continue;` with `break;` and the sibling never emits at all.
+     * Both were run against a scratch copy; each fails exactly its own assertion.
+     *
+     * WHY THE SIBLING IS WORTH ASSERTING AT ALL is a browser fact rather than a PHP one:
+     * `.gf__a[open > .gf__b {` does not end at the brace. The unclosed bracket swallows
+     * forward to the next `]` or end-of-rule, so a bad selector that DID reach the sheet
+     * would take the rules printing after it in the same `<style>` element with it. That
+     * is the damage the gate prevents; (2) is what keeps the gate from causing a milder
+     * version of it itself.
+     *
+     * The bad selector is charset-CLEAN and only unbalanced, so the charset gate cannot
+     * take credit for the refusal: it isolates this gate.
+     */
+    /**
+     * BALANCED BUT MALFORMED BRACKETS, refused behaviourally (#1046 adversarial).
+     *
+     * The charset cannot see this class and neither can the balance gate: `.a[]`, `.a[[b]]`
+     * and `.a[b c]` are all BALANCED and all pass `/^[A-Za-z0-9_ .>\[\]\-]{1,120}\z/`, so
+     * before the well-formedness check they reached the emitter as invalid CSS — a shape no
+     * bracket could reach at all until #1046 widened the class by `[` and `]`.
+     *
+     * WHY IT IS WORSE THAN ONE BAD RULE. `_pp_udc_reduced_motion_guard()` emits ONE rule
+     * whose selector is a comma-joined list of every motion-carrying selector, and CSS
+     * discards an entire rule when any member of a plain list is invalid. So a single
+     * bracket typo in a single role selector deletes the `prefers-reduced-motion`
+     * neutralisation for EVERY role of that band — an accessibility guarantee lost with no
+     * other symptom. That grouping is engine-wide and filed separately; this gate is the
+     * containment.
+     *
+     * Asserted through the real compiler rather than against a copy of the regex, because
+     * the regex is not what refuses these — the strip-and-check is — and a test that
+     * re-implements the check proves a string rather than a behaviour. The sibling role
+     * declared after the bad one must still emit, for the same reason it does in the
+     * balance-gate test above.
+     */
+    public function testARoleSelectorWithMalformedBracketsIsRefusedEvenThoughItIsBalanced(): void
+    {
+        foreach (['.gf__a[]', '.gf__a[[b]]', '.gf__a[b c]'] as $badSelector) {
+            // Precondition: this shape really does get past the other two gates, or the
+            // test is proving something the older gates already caught.
+            $this->assertTrue(
+                _pp_udc_delimiters_balanced($badSelector),
+                "{$badSelector} must be BALANCED, or the balance gate takes the credit"
+            );
+            $this->assertSame(
+                1,
+                preg_match('/^[A-Za-z0-9_ .>\[\]\-]{1,120}\z/', $badSelector),
+                "{$badSelector} must pass the CHARSET, or the charset takes the credit"
+            );
+
+            $root = sys_get_temp_dir() . '/pp-wf-' . getmypid() . '-' . bin2hex(random_bytes(4));
+            $dir  = $root . '/components/wffix';
+            mkdir($dir, 0755, true);
+            file_put_contents($dir . '/wffix.php', "<?php // fixture component\n");
+            file_put_contents($dir . '/schema.json', json_encode([
+                'component' => 'wffix',
+                'props'     => [],
+                'roles'     => [
+                    'bad'  => [
+                        'selector' => $badSelector,
+                        'groups'   => ['typography'],
+                        'defaults' => ['typography' => ['color' => '#111111']],
+                    ],
+                    'good' => [
+                        'selector' => '.gf__c',
+                        'groups'   => ['typography'],
+                        'defaults' => ['typography' => ['color' => '#222222']],
+                    ],
+                ],
+            ], JSON_UNESCAPED_SLASHES));
+
+            $prevRoot = $GLOBALS['_pp_test_template_dir'] ?? null;
+            $GLOBALS['_pp_test_template_dir']                = $root;
+            $GLOBALS['_pp_registered_components_invalidate'] = true;
+
+            try {
+                $roles = pp_udc_component_roles('wffix');
+                $this->assertArrayHasKey('bad', $roles, 'the fixture component did not load');
+
+                $css = pp_udc_component_defaults_css('wffix');
+                $this->assertStringNotContainsString(
+                    '#111111',
+                    $css,
+                    "a malformed bracket term must be refused: {$badSelector}"
+                );
+                $this->assertStringContainsString(
+                    '.gf__c{color:#222222;}',
+                    $css,
+                    'the role declared after the refused one must still emit intact'
+                );
+            } finally {
+                if ($prevRoot === null) {
+                    unset($GLOBALS['_pp_test_template_dir']);
+                } else {
+                    $GLOBALS['_pp_test_template_dir'] = $prevRoot;
+                }
+                $GLOBALS['_pp_registered_components_invalidate'] = true;
+                @unlink($dir . '/schema.json');
+                @unlink($dir . '/wffix.php');
+                @rmdir($dir);
+                @rmdir($root . '/components');
+                @rmdir($root);
+            }
+        }
+    }
+
+    public function testARoleWhoseSelectorTheBalanceGateRefusesEmitsNothingAndSwallowsNoSibling(): void
+    {
+        $root = sys_get_temp_dir() . '/pp-gate-' . getmypid() . '-' . bin2hex(random_bytes(4));
+        $dir  = $root . '/components/gatefix';
+        mkdir($dir, 0755, true);
+        file_put_contents($dir . '/gatefix.php', "<?php // fixture component\n");
+        file_put_contents($dir . '/schema.json', json_encode([
+            'component' => 'gatefix',
+            'props'     => [],
+            'roles'     => [
+                // Charset-clean and UNBALANCED: only the balance gate can refuse it.
+                'bad'  => [
+                    'selector' => '.gf__a[open > .gf__b',
+                    'groups'   => ['typography'],
+                    'defaults' => ['typography' => ['color' => '#111111']],
+                ],
+                // Declared AFTER the bad one, so it is what a swallow would consume.
+                'good' => [
+                    'selector' => '.gf__c',
+                    'groups'   => ['typography'],
+                    'defaults' => ['typography' => ['color' => '#222222']],
+                ],
+            ],
+        ], JSON_UNESCAPED_SLASHES));
+
+        $prevRoot = $GLOBALS['_pp_test_template_dir'] ?? null;
+        $GLOBALS['_pp_test_template_dir']               = $root;
+        $GLOBALS['_pp_registered_components_invalidate'] = true;
+
+        try {
+            // Precondition: the fixture really loaded, or both assertions below pass
+            // vacuously against an empty registry.
+            $roles = pp_udc_component_roles('gatefix');
+            $this->assertArrayHasKey('bad', $roles, 'the fixture component did not load');
+            $this->assertArrayHasKey('good', $roles, 'the fixture component did not load');
+
+            $css = pp_udc_component_defaults_css('gatefix');
+
+            $this->assertStringNotContainsString(
+                '.gf__a',
+                $css,
+                'a selector the balance gate refuses must be SKIPPED, not emitted — an '
+                . 'unbalanced `[` reaching the sheet is the swallow this gate prevents'
+            );
+            $this->assertStringNotContainsString('#111111', $css, 'the refused role emitted its value anyway');
+            $this->assertStringContainsString(
+                '.gf__c{color:#222222;}',
+                $css,
+                'the role declared AFTER the refused one must still emit intact — if this '
+                . 'fails, the bad selector swallowed its sibling, which is the whole reason '
+                . 'an unbalanced bracket is worse than an unbalanced child combinator'
+            );
+        } finally {
+            if ($prevRoot === null) {
+                unset($GLOBALS['_pp_test_template_dir']);
+            } else {
+                $GLOBALS['_pp_test_template_dir'] = $prevRoot;
+            }
+            $GLOBALS['_pp_registered_components_invalidate'] = true;
+            @unlink($dir . '/schema.json');
+            @unlink($dir . '/gatefix.php');
+            @rmdir($dir);
+            @rmdir($root . '/components');
+            @rmdir($root);
+        }
+    }
+
 }

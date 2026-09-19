@@ -513,10 +513,11 @@ function pp_css_grammar_summary(): string {
  * @param string $value      The candidate value.
  * @param bool   $allow_none Accept the keyword `none`. Set ONLY by the
  *                           `length-or-none` slot type — the width caps whose DECLARED
- *                           DEFAULT is `none`: the band-geometry cap --stats-max-width
- *                           (#579) plus the measures that ship uncapped (#578) and are
- *                           still on the slot system, --faq-body-measure and
- *                           --faq-body-measure (--hero-heading-measure left in #986 and
+ *                           DEFAULT is `none`. Since #1046 the band-geometry cap
+ *                           --stats-max-width (#579) is the ONLY carrier left: every
+ *                           uncapped MEASURE slot #578 added has retired with its
+ *                           component (faq's --faq-body-measure at #1046,
+ *                           --cta-body-measure at #1026, --hero-heading-measure in #986,
  *                           --section-heading-measure in #1023; on a v2 component an
  *                           uncapped measure is the role's `sizing.max-width` set to
  *                           `none`) — never by plain `length`:
@@ -1618,8 +1619,8 @@ function _pp_validate_token_value(string $value, ?string $type, ?array $allowed 
             // keyword `none` — the third state the plain `length` grammar could not
             // express (issue #579, A-30). --stats-max-width was the first; #578 added
             // the four measure slots that are uncapped by default and must therefore be
-            // restorable to that default. One of those four is left on the slot system,
-            // --faq-body-measure (--cta-body-measure left at #1026): --hero-heading-measure retired
+            // restorable to that default. NO measure slot carries it any more — --faq-body-measure was the last and left
+            // at #1046, --cta-body-measure at #1026: --hero-heading-measure retired
             // in #986 and --section-heading-measure in #1023, where the same "the
             // declared default must be authorable" rule is satisfied by the v2 grammar
             // accepting `none` on `sizing.max-width` directly.

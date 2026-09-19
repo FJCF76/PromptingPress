@@ -75,17 +75,30 @@ function parseRules(css = stripComments(COMPONENTS_CSS)) {
     // a closing brace of its own. A counter mistakes that brace for the media block's
     // and reports every following rule as top-level, which is exactly how a
     // mobile-scoped regression would hide from a media-aware-looking scan.
+    // THE STACK KEEPS THE AT-RULE NAME, not just its media text (#1046). It used to
+    // push `null` for every non-media at-rule, which was enough to find the nearest
+    // enclosing @media and threw away the one other thing a caller needs: WHICH at-rule
+    // a rule sits inside. faq's `@keyframes faq-open` is the case that needed it — its
+    // `from`/`to` blocks parse as ordinary rules carrying `opacity`, and `opacity` is
+    // ALWAYS_DESIGN, so the v2 boundary rule flagged a keyframe body as an authorable
+    // value with nowhere to be authored.
     const pattern = /@([\w-]+)([^{;]*)\{|([^{}]+)\{([^{}]*)\}|\}|;/g;
     const stack = [];
     let match;
     while ((match = pattern.exec(css)) !== null) {
         if (match[1] !== undefined) {
-            stack.push(match[1] === 'media' ? match[2].trim() : null);
+            stack.push({ at: match[1], media: match[1] === 'media' ? match[2].trim() : null });
         } else if (match[3] !== undefined) {
             const selectors = match[3].split(',').map(s => s.trim().replace(/\s+/g, ' '));
             // Nearest enclosing @media, looking outward past non-media at-rules.
-            const media = [...stack].reverse().find(m => m !== null) ?? null;
-            rules.push({ selectors, body: match[4], media, index: match.index });
+            const media = [...stack].reverse().find(f => f.media !== null)?.media ?? null;
+            rules.push({
+                selectors,
+                body: match[4],
+                media,
+                atRules: stack.map(f => f.at),
+                index: match.index,
+            });
         } else if (match[0] === '}') {
             stack.pop();
         }
@@ -969,7 +982,11 @@ describe('CSS lint: theme variants survive the desktop typography cascade (#222)
         // var(--faq-heading-color, var(--pp-faq-heading-theme-color, var(--color-text)))
         // with the plumbing declared on .faq--inverted — but it was never listed here, so
         // the one mechanism most likely to regress was the one nothing pinned.
-        { el: '.faq__heading', slot: '--faq-heading-color', themeVar: '--pp-faq-heading-theme-color', desktop: true },
+        // faq's row left at #1046 with its rebuild. The three-tier chain has no v2
+        // analogue for the same reason section's and cta's did not: a role default is
+        // emitted UNLAYERED, above every rule in this stylesheet, so nothing here can
+        // outrank it and there is no theme variable left to sit between the slot and the
+        // token. grid keeps the row because grid keeps the chain.
     ];
 
     // Theme-variant rules (`.grid--inverted .grid__heading`) and page-specific ID
@@ -1073,7 +1090,7 @@ describe('CSS lint: theme variants survive the desktop typography cascade (#222)
         // `.pp-section--inverted` nor `.section--has-bg-image` is emitted any more. A dark
         // or image-backed section band is the `_band` role's `background` group, and its
         // text colours are `typography.color` on the text roles.
-        { variant: '.faq--inverted', vars: ['--pp-faq-heading-theme-color'] },
+        // `.faq--inverted` left at #1046 with the `theme` prop that emitted it.
     ];
 
     VARIANT_DECLARES.forEach(({ variant, vars }) => {
@@ -2068,7 +2085,8 @@ describe('CSS lint: premium layer honors padding/type/width slots (#302)', () =>
         // baseline rule above, which its `pp-zero` band default yields to by design.
         ['main > [data-pp-component] + .grid', '--grid-padding-top'],
         ['main > [data-pp-component] + .stats', '--stats-padding-top'],
-        ['main > [data-pp-component] + .faq', '--faq-padding-top'],
+        // faq's adjacent row left at #1046: with no slot to keep live, the rule was
+        // deleted and the zero-specificity baseline serves the edge directly.
 // testimonials is absent from this table: it is a v2 component whose CSS block is
         // structural only, so it routes nothing through a slot. The value this row used to
         // guard is now a role default in components/testimonials/schema.json.
@@ -2141,7 +2159,11 @@ describe('CSS lint: section-level bands share one rhythm definition (#431)', () 
         // rule, because `_band` defaults emit into `pp-zero`, below this stylesheet.
         { comp: 'grid', cls: '.grid', slot: '--grid' },
         { comp: 'stats', cls: '.stats', slot: '--stats' },
-        { comp: 'faq', cls: '.faq', slot: '--faq' },
+        // faq left this table at #1046 — its band rhythm is the `_band` role's spacing
+        // default, resolving to the same shared `@pp-band-padding`. The behavioural pin
+        // that replaces it is the e2e #431 nine-band equality test, where faq is STILL a
+        // member: the shared value is now asserted on the rendered page rather than on
+        // the stylesheet text.
 // testimonials is absent from this table: it is a v2 component whose CSS block is
         // structural only, so it routes nothing through a slot. The value this row used to
         // guard is now a role default in components/testimonials/schema.json.
@@ -2411,7 +2433,8 @@ describe('CSS lint: band-level headings share one responsive scale (#436)', () =
         // `heading` role's `typography.size` default (@pp-band-heading-size), which is
         // the same token this guard pins for every component still on slots.
         { selectors: ['.grid__heading', 'main > .grid .grid__heading'], slot: '--grid-heading-size' },
-        { selectors: ['.faq__heading', 'main > .faq .faq__heading'], slot: '--faq-heading-size' },
+        // faq's row left at #1046: the heading size is the `heading` role's
+        // `typography.size`, referencing the same shared `@pp-band-heading-size`.
         { selectors: ['.stats__heading'], slot: '--stats-heading-size' },
         { selectors: ['.table-section__heading'], slot: '--table-heading-size' },
         { selectors: ['.logos__heading'], slot: '--logos-heading-size' },
@@ -2701,7 +2724,9 @@ describe('CSS lint: band heading-color slots route through the slot (#438)', () 
         { selector: '.stats--inverted .stats__heading', slot: '--stats-heading-color', fallback: '--color-bg' },
         // testimonials is absent: it is a v2 component whose CSS block is structural
         // only. Its heading colour is the `heading` role's typography.color default.
-        { selector: '.faq--inverted .faq__heading', slot: '--faq-heading-color', fallback: '--color-bg' },
+        // faq's row left at #1046 with the `theme` prop. NOTE FOR THE NEXT REBUILD: faq
+        // was the LAST row in this table, so the presence floor below is what keeps the
+        // block honest rather than vacuous — read it before removing another row.
     ];
 
     test.each(HEADING_COLOR_RULES)('$selector routes color through $slot to var($fallback)', ({ selector, slot, fallback }) => {
@@ -2845,6 +2870,15 @@ describe('CSS lint: v2 components keep NO designable value in their stylesheet',
         // no ancestor-state dimension (deliberately, see pp_udc_states()), so no
         // role could express it at any value.
         'cursor', 'transition', 'transition-property', 'transform',
+        // `animation` — faq's 150ms disclosure reveal (#1046). Same discipline as the
+        // three above and the same outcome: the motion group carries two params by
+        // ruling A3 and an animation NAME is neither, a keyframe body has no role
+        // address at all (see isKeyframeBody below), and base.css already collapses
+        // animation durations globally under `prefers-reduced-motion` — so the
+        // accessibility case is covered without a per-component control. Leaving it
+        // unclassified would have made faq's reveal un-keepable AND un-authorable,
+        // because the unlisted-property arm below is fail-closed.
+        'animation',
     ]);
 
     // Properties that are NEVER structural, whatever value they carry. A
@@ -3015,6 +3049,55 @@ const NEGATIVE_PULL = /^(-[\d.]|calc\(\s*-\s*[\d.]+\s*\*)/;
         });
     });
 
+    /**
+     * THE #1046 CARVE-OUTS, PROVEN IN BOTH DIRECTIONS.
+     *
+     * Two things were admitted for faq's accordion: `animation` into STRUCTURAL, and a
+     * keyframe BODY out of the sweep entirely. An admission nobody can see the edge of
+     * is indistinguishable from a removed rule, so both edges are pinned here.
+     */
+    test('faq joins the boundary rule', () => {
+        expect(v2Components).toContain('faq');
+    });
+
+    test('a keyframe body is exempt; the same declarations outside one are not', () => {
+        // The real shape, as it ships.
+        const real = parseRules(
+            '@keyframes faq-open { from { opacity: 0; transform: translateY(-4px) } to { opacity: 1 } }'
+        );
+        expect(
+            designOffencesIn(real),
+            'a keyframe body has no role address at any value and must not be flagged'
+        ).toEqual([]);
+
+        // THE EDGE: the identical declarations one level out are still design.
+        const outside = parseRules('.faq__answer { opacity: 0; transform: translateY(-4px); }');
+        expect(
+            designOffencesIn(outside),
+            'the exemption must be the keyframe body, not the properties'
+        ).not.toEqual([]);
+
+        // AND THE EDGE THE NARROWING EXISTS FOR: a real selector nested inside a
+        // keyframes block is not a keyframe body and must still be judged in full.
+        // (No browser honours this, which is precisely why it would be a quiet place
+        // to park a value if the exemption keyed on the at-rule alone.)
+        const smuggled = parseRules('@keyframes x { .faq__answer { color: #333 } }');
+        expect(
+            designOffencesIn(smuggled),
+            'only from/to/percentage selectors are keyframe bodies'
+        ).not.toEqual([]);
+    });
+
+    test('animation is structural; the values it animates are still judged', () => {
+        const anim = parseRules('.faq__item[open] > .faq__answer { animation: faq-open 150ms ease; }');
+        expect(designOffencesIn(anim)).toEqual([]);
+
+        // It buys `animation` and nothing adjacent: a font-size beside it still fails,
+        // so this is a classification rather than a rule-level bypass.
+        const beside = parseRules('.faq__item[open] > .faq__answer { animation: faq-open 150ms ease; font-size: 2rem; }');
+        expect(designOffencesIn(beside)).not.toEqual([]);
+    });
+
     /** …and the structural declarations it must NOT flag. */
     test('detection proof: real structural declarations are not flagged', () => {
         const structural = parseRules(
@@ -3064,9 +3147,37 @@ const NEGATIVE_PULL = /^(-[\d.]|calc\(\s*-\s*[\d.]+\s*\*)/;
         });
     });
 
+    // A KEYFRAME BODY HAS NO ROLE ADDRESS AT ANY VALUE (#1046).
+    //
+    // `@keyframes faq-open` is the first keyframes block inside a v2 component's slice,
+    // and it exposed a gap the property Sets cannot close. parseRules emits `from` and
+    // `to` as ordinary rules whose bodies carry `opacity` and `transform`; `opacity` is
+    // ALWAYS_DESIGN, so the boundary flagged them — correctly by the letter of the rule
+    // and wrongly by its purpose. The purpose is that every designable value must be
+    // AUTHORABLE through a role, and a keyframe body cannot be: ruling A3 gives the
+    // motion group exactly two params (`transition-duration`, `timing-function`) and an
+    // animation's keyframes are neither. Moving `opacity` out of ALWAYS_DESIGN would
+    // hole the boundary for every v2 component; leaving the block flagged would make the
+    // 150ms reveal unkeepable AND unauthorable, which is the capability deletion the
+    // #901 class names.
+    //
+    // So the boundary claims it, the same way #994 claimed `cursor`, `transition` and
+    // `transform`, and #1046 claims `animation` beside them in STRUCTURAL.
+    //
+    // THE EXEMPTION IS AS NARROW AS THE CASE. Both conditions must hold: the rule sits
+    // inside a `@keyframes` at-rule, AND every one of its selectors is a keyframe
+    // SELECTOR (`from`, `to`, or a percentage). A rule that merely appears after a
+    // keyframes block, or a real class selector nested inside one, is still judged in
+    // full — so this cannot become a place to park design values.
+    const KEYFRAME_SELECTOR = /^(from|to|\d+(?:\.\d+)?%)$/;
+    const isKeyframeBody = (rule) =>
+        (rule.atRules || []).includes('keyframes')
+        && rule.selectors.every(sel => KEYFRAME_SELECTOR.test(sel.trim()));
+
     function designOffencesIn(rules) {
         const offences = [];
         rules.forEach(rule => {
+                if (isKeyframeBody(rule)) return;
                 // The shared scroll-margin list names many components at once; it is
                 // an accessibility affordance and belongs to no single one. Scoped to
                 // that ACTUAL case — selectors spanning more than one component — so
@@ -3928,6 +4039,15 @@ describe('CSS lint: dark-band focus ring routes through the AA accent roles (#54
         // being something a layout class could describe. Emitted only when an image
         // and an overlay are both present — see pp_udc_promote_band_identity().
         '[data-pp-band-overlay] .btn:focus',
+        // faq's <summary>, added at #1046 and THE FIRST ENTRY HERE THAT IS NOT A BUTTON.
+        // faq renders no `.btn` at all, so the row above could never reach its focusable
+        // control. That was not a gap while faq was a v1 component — v1 faq declared no
+        // `background_image` prop, so a scrim was not a state it could reach — and the
+        // rebuild creates the case by giving `_band` the `background.image` +
+        // `background.overlay` pair. Caught before it shipped rather than filed after,
+        // which is the difference from #1035 (section and testimonials, which reached the
+        // case and kept the 1.17:1 bare accent).
+        '[data-pp-band-overlay] .faq__question:focus',
         // The v1 classes, still correct for the components that express the case that
         // way. `.hero--cover` is now redundant with the attribute on a v2 hero and is
         // kept deliberately: it costs nothing and it keeps the rule true for a hero

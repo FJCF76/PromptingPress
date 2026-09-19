@@ -51,7 +51,12 @@ class MeasureSurfaceTest extends TestCase
     // `@measure-heading`, so one `update_design_token` write still reaches the band. What
     // changed is the address, not the routing — which is why the roster below is named for
     // the slot mechanism rather than for the capability.
-    private const ROUTED = ['grid', 'faq', 'stats', 'table', 'embed', 'logos'];
+    // faq left at #1046. Its heading measure is the `heading` role's
+    // `sizing.max-width`, still defaulting to `@measure-heading`, so the CAPABILITY this
+    // roster is about — one design-token write reaching every band heading — is
+    // unchanged; only the address moved. The v2 half is pinned in
+    // FaqRoleDefaultsEmitTest, against the EMITTED declaration rather than schema text.
+    private const ROUTED = ['grid', 'stats', 'table', 'embed', 'logos'];
 
     /**
      * EMPTY SINCE #1023, and kept rather than deleted because the emptiness is the fact.
@@ -229,12 +234,17 @@ class MeasureSurfaceTest extends TestCase
         }
     }
 
-    /** The four prose components declare a body measure; testimonials deliberately does not. */
+    /** The prose components that still declare a body measure; testimonials never did. */
     public function testTheFourProseComponentsDeclareABodyMeasure(): void
     {
-        // section left this roster at #1023 and cta at #1026: on both, the body measure is
-        // the `body` role's `sizing.max-width`. Two prose components still declare the slot.
-        foreach (['faq', 'embed'] as $component) {
+        // section left this roster at #1023, cta at #1026 and faq at #1046. On the first
+        // two the body measure is the `body` role's `sizing.max-width`; on faq there is
+        // no measure at all, and that is the faithful port rather than an omission — v1
+        // declared `max-width: var(--faq-body-measure, none)` and RENDERED `none` at
+        // every tier, so the `answer` role declares nothing. ONE prose component still
+        // declares the slot, and the method name is left alone deliberately: renaming it
+        // to match today's count would erase the roster's history without adding a fact.
+        foreach (['embed'] as $component) {
             $this->assertArrayHasKey(
                 "--{$component}-body-measure",
                 $this->slots($component),
@@ -334,14 +344,23 @@ class MeasureSurfaceTest extends TestCase
                 . 'plain `length` grammar rather than silently widening to accept `none`.'
             );
         }
-        // --section-heading-measure left this set at #1023 and --cta-body-measure at #1026.
-        // Both are role defaults now, and both stay uncapped: section's `heading` declares
-        // `none` explicitly, while cta's `body` declares NO max-width at all — which is the
-        // faithful port, because v1 declared `none` and rendered `none`, and `none` IS the
-        // initial value. An absent default and an explicit `none` render identically here;
-        // the difference is that cta's says nothing rather than saying the initial value.
+        // --section-heading-measure left this set at #1023, --cta-body-measure at #1026 and
+        // --faq-body-measure at #1046. All three are the v2 side now, and all three stay
+        // uncapped: section's `heading` declares `none` explicitly, while cta's `body` and
+        // faq's `answer` declare NO max-width at all — the faithful port, because v1
+        // declared `none`, rendered `none`, and `none` IS the initial value. An absent
+        // default and an explicit `none` render identically; the difference is that those
+        // two say nothing rather than saying the initial value.
+        //
+        // THE SET IS EMPTY, AND EMPTY IS AN ASSERTION HERE RATHER THAN AN ABSENCE. The
+        // loops above still run over every slot-bearing component, so this pin says "no
+        // slot declares an uncapped default any more", which is a fact a new slot would
+        // break. The capability it guards — A-30's "a declared default must be
+        // authorable" — did not leave with the last slot: on the v2 side `length-or-none`
+        // is the declared PARAM type, so `none` is writable through the udc map by
+        // construction, and no per-component pin can drift away from it.
         $this->assertSame(
-            ['--faq-body-measure'],
+            [],
             $this->sortedKeys($noneDefaulted),
             'The set of uncapped-by-default measure slots changed. That is a render decision, '
             . 'not a refactor — update this pin deliberately.'
@@ -364,7 +383,7 @@ class MeasureSurfaceTest extends TestCase
         }
         // section's body measure went with its slot map at #1023 (the `body` role's
         // `sizing.max-width`), the way hero's content measure went at #986.
-        foreach (['faq', 'embed'] as $component) {
+        foreach (['embed'] as $component) {
             $expected[] = "--{$component}-body-measure";
         }
         // hero's measure used to be spelled --hero-content-width — the reason the engine
@@ -410,7 +429,10 @@ class MeasureSurfaceTest extends TestCase
     {
         $subjects = [
             'table' => '.table-section__heading',
-            'faq'   => '.faq__heading',
+            // faq's row left at #1046: its block declares no heading rule at all now, so
+            // there is no severed slot read left to check. The severance #578 made —
+            // faq's heading no longer reading a CTA slot — survives as a stronger fact:
+            // the heading's measure is its own role's `sizing.max-width`.
             'logos' => '.logos__heading',
             'embed' => '.embed__heading',
             'stats' => '.stats__heading',
@@ -644,43 +666,62 @@ class MeasureSurfaceTest extends TestCase
         foreach (self::EXEMPT as $component) {
             $cases["{$component} heading"] = [$component, "--{$component}-heading-measure", '30rem'];
         }
-        foreach (['faq', 'embed'] as $component) {
+        foreach (['embed'] as $component) {
             $cases["{$component} body"] = [$component, "--{$component}-body-measure", '34rem'];
         }
         return $cases;
     }
 
     /**
-     * The declared default must be authorable — the third-state defect A-30 closed. An
-     * operator who narrows an uncapped heading must be able to put it back.
+     * A-30's SUBJECT, RE-HOMED TO THE SURFACE THAT STILL HAS IT (#1046).
      *
-     * @dataProvider noneDefaultedMeasureSlots
+     * This used to author `none` through `style_component` on the one slot that declared
+     * it. 'section heading' left the provider at #1023, 'faq body' at #1046, and an empty
+     * data provider is a PHPUnit ERROR — so retiring the slot half silently was never an
+     * option, and neither was deleting the claim.
+     *
+     * THE CLAIM SURVIVES THE SLOT: "a declared default must be authorable" is what A-30
+     * closed, and on the v2 side it holds by construction rather than by convention —
+     * `length-or-none` is the declared PARAM TYPE in the engine's own taxonomy, so every
+     * role that can default to `none` can also be written back to `none`, with no
+     * per-component pin to drift. Asserted at the engine rather than per slot, which is
+     * the stronger place for it: it cannot be true for one component and false for
+     * another.
      */
-    public function testTheUncappedDefaultIsAuthorable(string $component, string $slot): void
+    public function testTheUncappedDefaultIsAuthorable(): void
     {
-        $id = pp_create_page("None {$slot}", 'draft');
-        pp_update_composition($id, [['component' => $component, 'props' => $this->propsFor($component)]]);
+        $sizing = pp_udc_groups()['sizing']['params'];
+        foreach (['max-width', 'max-height'] as $param) {
+            $this->assertSame(
+                'length-or-none',
+                $sizing[$param]['type'] ?? null,
+                "sizing.{$param} must keep the grammar that lets an uncapped default be "
+                . 'restored — A-30 is a property of the type, not of any one component.'
+            );
+        }
 
-        $result = pp_execute_action('style_component', [
-            'post_id'         => $id,
-            'component_index' => 0,
-            'style'           => [$slot => 'none'],
-        ]);
-
-        $this->assertTrue($result['ok'], $result['error'] ?? "{$slot} must accept its own default");
-        $this->assertStringContainsString("{$slot}: none", $this->renderStored($id));
-    }
-
-    public static function noneDefaultedMeasureSlots(): array
-    {
-        // 'section heading' left this provider at #1023 with the slot. Section's heading
-        // is uncapped by a ROLE default now (`heading` -> `sizing.max-width: none`), and
-        // A-30's "the declared default must be authorable" holds there by construction:
-        // `length-or-none` is the declared param type, so `none` is writable through the
-        // udc map exactly as it was through the slot.
-        return [
-            'faq body' => ['faq', '--faq-body-measure'],
-        ];
+        // And the round trip, ASSERTED ON THE EMITTED CSS rather than on the validator's
+        // verdict. Acceptance is one layer above the thing A-30 is about: an engine change
+        // that accepted `none` and then dropped the declaration at emission would leave a
+        // validation-only test green while the capability was gone — the repo's own
+        // assert-the-emission rule. faq's `answer` carries no measure by default, which
+        // makes it the honest subject: narrowing it is the only way to get a cap there.
+        foreach (['34rem', 'none'] as $value) {
+            $this->assertNull(
+                pp_udc_validate_map(['answer' => ['sizing' => ['max-width' => $value]]], 'faq'),
+                "the answer measure must accept {$value}"
+            );
+            $this->assertStringContainsString(
+                '.faq__answer{max-width:' . $value . ';}',
+                pp_udc_band_css([
+                    'component' => 'faq',
+                    'id'        => 'pp-1a2b3c4d',
+                    'props'     => [],
+                    'udc'       => ['answer' => ['sizing' => ['max-width' => $value]]],
+                ]),
+                "{$value} must REACH THE PAGE, not merely pass validation"
+            );
+        }
     }
 
     /**

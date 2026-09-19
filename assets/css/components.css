@@ -1182,75 +1182,62 @@
 }
 
 /* ==========================================================================
-   COMPONENT: faq
+   COMPONENT: faq  —  A v2 COMPONENT
    Native details/summary accordion. No JS required.
    ========================================================================== */
 
-.faq {
-  padding-top: var(--faq-padding-top, var(--pp-band-padding));
-  padding-bottom: var(--faq-padding-bottom, var(--pp-band-padding));
-  background: var(--faq-bg, var(--color-surface));
-}
+/* STRUCTURAL CSS ONLY — this block is the v2 boundary (docs/v2/BUILD-SPEC-sprint0.md §2).
+   Layout scaffolding, wrapper geometry and accessibility affordances live here.
+   NO colour, type, size, spacing, border, shadow or aspect-ratio value may be added:
+   every one of those belongs to a role in components/faq/schema.json and is emitted by
+   the engine into a band-scoped block. tests/js/css-lint.test.js enforces it on exactly
+   this banner slice.
+
+   WHAT LEFT THIS BLOCK AT #1046, so the next reader does not go looking for it:
+   21 style slots and the three `theme` variant rules (`.faq--dark`, `.faq--inverted` and
+   its heading override, plus the `--pp-faq-heading-theme-color` plumbing they fed). The
+   band root carries no rule of its own any more — its fill and rhythm are the `_band`
+   role's defaults, emitted into `pp-zero` so the shared adjacent-band rhythm still wins
+   the top edge, which is the arrangement #430/#431 need and the reason that tier is
+   layered below this stylesheet at all.
+
+   THE PIECES THAT STAYED, each for a stated reason rather than by omission:
+   - `min-height: 44px` on the summary is the WCAG 2.5.5 touch target, an accessibility
+     affordance. IT IS NOT UNREACHABLE, and calling it a floor would be false: it sits in
+     `pp-v1` while `question` declares the `sizing` group, so an authored `min-height`
+     emits unlayered and wins (measured: 12px validates, emits and renders). The 44px is
+     an obligation on the author, not a limit this component enforces, and it binds
+     `question-open` as well — that role declares `sizing` too and outranks this one.
+     Measured, the theme is not consistent here: only hero's `cta-secondary` and nav's
+     `logo` carry a 44px role default; hero's primary `cta` and nav's `.nav__toggle` keep
+     theirs in the stylesheet, as faq does — and all three are author-reachable, because
+     each of those roles declares `sizing`. Placement, not immunity.
+   - `transition: color var(--transition)` stays because the motion group carries exactly
+     two params by ruling A3 and a property LIST is not one of them. An authored
+     `motion.transition-duration` overrides the timing and leaves the list intact — which
+     is the whole arrangement lib/udc.php describes, and it is why the open-state recolour
+     still eases instead of snapping.
+   - The `::after` chevron and the `::-webkit-details-marker` suppression are
+     PSEUDO-ELEMENTS, which ruling A3 defers; no role can address them at any value. The
+     chevron's ink needs no role either way: it is drawn in `currentColor`, so it follows
+     whatever the `question` and `question-open` roles resolve to, for free.
+   - `@keyframes faq-open` and the `animation` that plays it: the motion group has no
+     animation param, and a keyframe body has no role address at all. Classified
+     structural with the same reasoning #994 used for `cursor`, `transition` and
+     `transform` — the boundary claims a homeless property rather than leaving it
+     unauthorable AND un-keepable, which would be a capability deletion. */
 
 .faq__eyebrow {
   display: inline-block;
-  padding: 0.35rem 0.85rem;
-  margin-bottom: var(--space-sm);
-  border: var(--faq-eyebrow-border-width, 0) solid var(--faq-eyebrow-border-color, transparent);
-  border-radius: var(--faq-eyebrow-radius, 3px);
-  font-size: 0.8125rem;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: var(--faq-eyebrow-text-transform, uppercase);
-  color: var(--faq-eyebrow-color, var(--color-text));
-  background: var(--faq-eyebrow-bg, var(--color-surface-accent));
-}
-
-.faq__heading {
-  /* Route the heading size through the slot (issue 304). This base rule governs
-     widths below the desktop premium typography breakpoint, where the heading
-     renders at the h2 base size (base.css); the desktop clamp is routed through
-     the same slot below. Fallback keeps unset output byte-identical. */
-  font-size: var(--faq-heading-size, var(--pp-band-heading-size));
-  /* Header rhythm: the gap below the heading (before the accordion list). faq
-     renders no subheading, so this is the faq analogue of #343's title->subheading
-     slot. Route the heading's own bottom margin through a slot so faq's header
-     rhythm is slot-driven like section/grid; the desktop and mobile premium rules
-     below route the same slot. No header-scoping needed: the heading is an <h2>,
-     not the header's last child, so base.css's `p:last-child` reset never reached
-     it. Today's literal stays the fallback — unset output byte-identical (issue 352). */
-  margin-bottom: var(--faq-heading-margin-bottom, var(--space-lg));
-  color: var(--faq-heading-color, var(--pp-faq-heading-theme-color, var(--color-text)));
-  /* faq's own heading measure (issue 578), severed from the shared six-selector rule
-     that read --cta-heading-measure from inside the section block. Fallback routes the
-     shared --measure-heading token (40rem), the value this heading renders today. */
-  max-width: var(--faq-heading-measure, var(--measure-heading));
-}
-
-.faq__heading-accent {
-  color: var(--faq-heading-accent-color, var(--color-accent));
 }
 
 .faq__list {
   display: flex;
   flex-direction: column;
-  gap: var(--space-sm);
 }
 
 .faq__item {
-  border: 1px solid var(--faq-item-border-color, var(--color-border));
-  /* faq's own item radius (issue 577). The shared premium rule in the final cascade
-     used to cap grid cards AND faq items from ONE selector reading --grid-item-radius,
-     so faq consumed a GRID slot on a faq element: faq
-     could neither set it (the write path rejects a foreign slot as
-     invalid_style_slot) nor have it resolve (inline slot properties land on the owning
-     component's root). Severing that selector requires a faq-side name, which is why
-     this slot is forced rather than optional. The fallback is 4px, not var(--radius):
-     faq only ever renders inside <main>, where the final-cascade rule below wins with
-     4px, so a 6px terminal here would be unreachable AND disagree with the schema's
-     stated default. */
-  border-radius: var(--faq-item-radius, 4px);
-  background: var(--faq-item-bg, var(--color-bg));
+  /* What clips the open answer to the item's authored radius. */
   overflow: hidden;
 }
 
@@ -1258,14 +1245,32 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: var(--space-md) var(--space-lg);
-  font-weight: 600;
-  color: var(--faq-question-color, var(--color-text));
   cursor: pointer;
   list-style: none;
-  gap: var(--space-md);
+  /* WCAG 2.5.5: the row is a control and this is its 44px target. NOTE THE LIMIT OF THIS
+     RULE — it is layered in `pp-v1`, so an authored `question` -> `sizing.min-height`
+     outranks it and CAN shrink the target. Type and padding cannot; `sizing` can. */
   min-height: 44px;
+  /* Ruling A3: the property LIST is structural, the timing is authorable. */
   transition: color var(--transition);
+}
+
+/* THE FOCUS RING HAS TO BE INSET, AND #1046 MEASURED WHY.
+   base.css gives every focusable element `outline: 2px solid var(--color-accent)` at
+   `outline-offset: 2px`, which paints OUTWARD from the border box. `.faq__item` declares
+   `overflow: hidden` (it clips the open answer to the item's radius) and carries a 1px
+   border, so the item's padding box — the clip box — begins exactly at the summary's
+   border box. The whole outward stroke therefore lands in the clipped region.
+   Measured in Chromium: 0 accent pixels painted in the 6px strip spanning the summary's
+   top edge, on a band where the computed outline was `solid 2px rgb(49,87,244)`. A
+   keyboard user got NO visible focus indicator on any faq summary, closed or open, at any
+   tier — WCAG 2.4.7 — and it also made the on-overlay ring rule below inert, because
+   recolouring an outline that never paints changes nothing.
+   An inset ring is inside the clip box and survives: 2170 accent pixels with -3px
+   (2px stroke, 1px clear of the edge). This is an accessibility affordance, so it belongs
+   in the structural block by this block's own rule, not in a role. */
+.faq__question:focus-visible {
+  outline-offset: -3px;
 }
 
 /* Remove default marker in WebKit */
@@ -1286,23 +1291,17 @@
   transition: transform var(--transition);
 }
 
-.faq__item[open] > .faq__question {
-  color: var(--faq-question-open-color, var(--color-accent));
-}
+/* THE OPEN SUMMARY'S INK IS A ROLE NOW, and this rule is where it used to live.
+   `.faq__item[open] > .faq__question` is an ANCESTOR STATE: the attribute sits on the
+   <details>, the styled element is its <summary> child. Ruling A3 defers ancestor states
+   as a value DIMENSION, so the treatment is expressed as its own role instead —
+   `question-open` in components/faq/schema.json, the same shape nav's `link-current`
+   takes for the current page. #1046 widened the role-selector charset by `[` and `]` so
+   the role could spell it. What stays here is the ROTATION below, because a
+   pseudo-element has no role address at any value. */
 
 .faq__item[open] > .faq__question::after {
   transform: rotate(225deg);
-}
-
-.faq__answer {
-  padding: 0 var(--space-lg) var(--space-md);
-  color: var(--faq-answer-color, var(--color-muted));
-  line-height: 1.6;
-  /* faq's prose measure (issue 578). Default `none`: the answer has never been capped —
-     it already sits inside the accordion item's own padded box — so `none` (max-width's
-     initial value) is byte-identical and the slot exists to let an operator tighten a
-     long answer to a reading measure without touching this file. */
-  max-width: var(--faq-body-measure, none);
 }
 
 @keyframes faq-open {
@@ -1320,33 +1319,20 @@
   animation: faq-open 150ms ease;
 }
 
-.faq__empty {
-  padding: var(--space-md) 0;
-}
-
-/* FAQ background variants. .faq already carries a --color-surface band by
-   default, so --dark only adds the framing borders (mirrors .grid--dark /
-   .pp-section--dark). --inverted swaps the band for the inverted surface and
-   supplies the theme-color DEFAULT the desktop typography rule resolves at
-   use-time — the desktop `main > .faq .faq__heading` rule outranks any theme
-   selector, so the theme cannot win by specificity and instead feeds the
-   heading's own fallback chain (slot > theme > token), the issue 222 pattern.
-   .faq__item keeps its light background, so question/answer text stays dark —
-   no theming needed there (mirrors .grid--inverted keeping cards light). */
-.faq--dark {
-  background: var(--faq-bg, var(--color-surface));
-  border-top: 1px solid var(--color-border);
-  border-bottom: 1px solid var(--color-border);
-}
-
-.faq--inverted {
-  background: var(--faq-bg, var(--color-bg-inverted));
-  --pp-faq-heading-theme-color: var(--color-bg);
-}
-
-.faq--inverted .faq__heading {
-  color: var(--faq-heading-color, var(--color-bg));
-}
+/* THE THREE `theme` VARIANT RULES WERE DELETED HERE (#1046), not moved, and the prop
+   with them. `.faq--dark` (the `muted` input, #570 DG-4) added a 1px `--color-border`
+   rule top and bottom over the same fill; `.faq--inverted` swapped the fill for
+   `--color-bg-inverted` and set `--pp-faq-heading-theme-color`, which the desktop
+   typography rule resolved at use-time through the heading's slot > theme > token chain
+   (the issue-222 pattern). None of that has a v2 trigger: a band's tone is an author's
+   value in `_band` -> `background.fill`, its framing is `border.width-top` /
+   `width-bottom`, and its ink is `typography.color`, which the `heading` role follows
+   through `currentColor`. The three-tier chain is gone with them — a role default cannot
+   be outranked by a media-query rule in this stylesheet, because it is emitted unlayered
+   and this sheet is in `pp-v1`, so the whole mechanism that chain existed to work around
+   no longer applies. The question, the answer and the items were never re-themed even on
+   the inverted band (the items keep their own light fill), which is why only two of the
+   three values needed a route at all and why `item` records the consequence. */
 
 /* ==========================================================================
    COMPONENT: grid
@@ -2980,11 +2966,14 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
 
 /* Premium body-section typography. */
 @media (min-width: 768px) {
-  /* `main > .section .section__title` left this list at #1023: section's heading weight
-     and line-height are the `heading` role's typography defaults now, responsive so the
-     desktop 1.12 and the phone 1.15 both survive. */
-  main > .grid .grid__heading,
-  main > .faq .faq__heading {
+  /* `main > .section .section__title` left this list at #1023 and
+     `main > .faq .faq__heading` at #1046: each component's heading weight and
+     line-height are its `heading` role's typography defaults now, responsive so the
+     desktop 1.12 and the phone 1.15 both survive.
+     THE FAQ SELECTOR WAS REMOVED FROM THIS LIST, NOT THE RULE. grid has not been
+     rebuilt and still needs both values from here; deleting the rule because faq left
+     would have silently restyled every grid heading at this breakpoint. */
+  main > .grid .grid__heading {
     font-weight: 560;
     line-height: 1.12;
   }
@@ -3000,8 +2989,9 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
      to live in the shared rule above as a bare clamp(), outranking the base
      .section__title / .grid__heading rules ([0,1,0]) and silently ignoring a
      declared --section-heading-size / --grid-heading-size. Route each through its
-     size slot so a set slot still wins at this [0,2,1] specificity. faq routes
-     through --faq-heading-size too (issue 304). The fallback is now the shared
+     size slot so a set slot still wins at this [0,2,1] specificity. (faq routed
+     through --faq-heading-size here until #1046; its size is the `heading` role's
+     `typography.size` now and its selector left this rule.) The fallback is now the shared
      --pp-band-heading-size (issue 436) instead of a per-rule clamp(): the shared
      clamp is already fluid at every viewport, so this desktop rule and the base
      rule resolve to the same value when the slot is unset (~38.4px at 1280px,
@@ -3013,8 +3003,9 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
      rule below) at [0,2,1], outranking the base [0,1,0] rules and silently ignoring
      a declared --section-heading-margin-bottom / --grid-heading-margin-bottom. Route
      each through its slot with 1.65rem as the fallback so unset output is unchanged.
-     faq now routes the same way through --faq-heading-margin-bottom (issue 352);
-     faq was left a bare literal in issue 343's scope and is completed here.
+     (faq routed the same way through --faq-heading-margin-bottom from issue 352 until
+     #1046, when the gap became the `heading` role's `spacing.margin-bottom` breakpoint
+     map — this 1.65rem is its `d`/`t` tier and the 1.25rem below is its `p` tier.)
 
      issue 436 note: the font-size fallback here is now the shared --pp-band-heading-size
      instead of this rule's old per-rule clamp(2.25rem, 3vw, 2.62rem). Because that
@@ -3035,11 +3026,13 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
 
 
 
-  main > .faq .faq__heading {
-    color: var(--faq-heading-color, var(--pp-faq-heading-theme-color, var(--color-text)));
-    font-size: var(--faq-heading-size, var(--pp-band-heading-size));
-    margin-bottom: var(--faq-heading-margin-bottom, 1.65rem);
-  }
+  /* faq's desktop heading rule was DELETED at #1046, with its phone twin below. All
+     three values are the `heading` role's defaults now — the size as the shared
+     `@pp-band-heading-size` token, the margin as a breakpoint map carrying this 1.65rem
+     beside the phone tier's 1.25rem, and the colour as `currentColor` rather than the
+     three-tier slot > theme > token chain this rule used to resolve. That chain existed
+     because this rule outranked every theme selector; a role default is emitted
+     unlayered, above this whole stylesheet, so there is nothing left to out-rank. */
 
   /* THE SECTION BODY'S THREE RULES WERE DELETED HERE (#1023), not moved. They set the
      body's colour, size, weight and line-height, and capped the text-only measure at
@@ -3090,19 +3083,16 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
     line-height: 1.66;
   }
 
-  main > .faq .faq__question {
-    color: var(--faq-question-color, var(--color-text));
-    font-size: 1rem;
-    font-weight: 560;
-    line-height: 1.45;
-  }
-
-  main > .faq .faq__answer {
-    color: var(--faq-answer-color, var(--color-text-secondary));
-    font-size: 1rem;
-    font-weight: 430;
-    line-height: 1.68;
-  }
+  /* faq's desktop question and answer rules were DELETED at #1046. Their values are the
+     `question` and `answer` roles' defaults, responsive, so the 1rem/560/1.45 summary
+     and the 1rem/430/1.68 answer survive here alongside the phone tier's 0.98rem/1.42
+     and 1.65 — and the answer's `@color-text-secondary` survives beside the phone
+     `@color-muted` it overrode from the unscoped base rule.
+     THE SUMMARY'S WEIGHT IS THE ONE THAT WAS EASY TO LOSE. The base rule in faq's own
+     block declared `font-weight: 600` and NEVER RENDERED: this rule and its phone twin
+     both said 560 and the two media queries partition every width. Read off the
+     stylesheet the 600 looks like the default and the 560 like an override; measured in
+     Chromium at all three tiers, 560 is the only value the summary has ever had. */
 
   /* cta's desktop body rule was DELETED at #1026, with its phone twin below. Its four
      values are the `body` role's defaults now, responsive, so 1.04rem / 430 / 1.66 /
@@ -3118,11 +3108,10 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
 }
 
 @media (max-width: 767px) {
-  /* `main > .section .section__title` left this list at #1023: section's heading weight
-     and line-height are the `heading` role's typography defaults now, responsive so the
-     desktop 1.12 and the phone 1.15 both survive. */
-  main > .grid .grid__heading,
-  main > .faq .faq__heading {
+  /* `main > .section .section__title` left this list at #1023 and
+     `main > .faq .faq__heading` at #1046 — see the desktop twin above, including why
+     the faq SELECTOR left and the rule stayed. */
+  main > .grid .grid__heading {
     font-weight: 560;
     line-height: 1.15;
   }
@@ -3137,9 +3126,8 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
 
 
 
-  main > .faq .faq__heading {
-    margin-bottom: var(--faq-heading-margin-bottom, 1.25rem);
-  }
+  /* faq's phone heading rule went with its desktop twin at #1046: this 1.25rem is the
+     `p` tier of the `heading` role's `spacing.margin-bottom` map. */
 
 
   /* Section's mobile body rule was DELETED at #1023, the last of its four type rules.
@@ -3147,17 +3135,19 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
      line-height (1.65) survive alongside the desktop 1.065rem / 1.76 — v1 needed two
      rules in two media blocks to say that; the role says it once. */
 
-  /* grid and faq took their mobile body size from --cta-body-size (issue 578): a CTA
-     slot on a grid card and a faq answer. Neither could set it (the write path rejects a
-     foreign slot) nor have it resolve (inline slot properties land on the owning root),
-     so its unset result was always the 1rem literal — severing it is byte-identical. The
-     literal stays here; neither component declares a body-size slot to route instead.
+  /* grid took its mobile body size from --cta-body-size (issue 578): a CTA slot on a
+     grid card. It could neither set it (the write path rejects a foreign slot) nor have
+     it resolve (inline slot properties land on the owning root), so its unset result was
+     always the 1rem literal — severing it is byte-identical. The literal stays here;
+     grid declares no body-size slot to route instead. THE FAQ HALF LEFT THIS RULE AT
+     #1046: the answer's size is the `answer` role's `typography.size` now, and the
+     selector was removed from the list rather than the rule being deleted, because grid
+     still needs every value in it.
      The split was FROM cta, which kept reading the slot it owned; at #1026 cta stopped
      having slots at all, so what this rule is split from is now a role default rather than
      a sibling rule. The literal here is unaffected either way — that is the whole point of
      #578's severance, and it is why this rule needed no repricing when cta was rebuilt. */
-  main > .grid .grid__item-text,
-  main > .faq .faq__answer {
+  main > .grid .grid__item-text {
     font-size: 1rem;
     font-weight: 430;
     line-height: 1.65;
@@ -3178,11 +3168,9 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
     padding: var(--grid-item-padding, 1.55rem);
   }
 
-  main > .faq .faq__question {
-    font-size: 0.98rem;
-    font-weight: 560;
-    line-height: 1.42;
-  }
+  /* faq's phone question rule was DELETED at #1046: 0.98rem and 1.42 are the `p` tier
+     of the `question` role's size and line-height maps, and the 560 weight is flat
+     across every tier because this rule and its desktop twin always agreed on it. */
 }
 
 /* True final cascade: composed card-grid hierarchy. */
@@ -3782,7 +3770,30 @@ main .btn:focus-visible {
    near-white ring on the page ground at 1.02:1, which is worse than the ordinary accent
    ring's 5.43:1. The engine-emitted term above is the correct key; the layout term is the
    one to drop, and #1039 carries the zero-impact argument for dropping it. */
+/* `.faq__question` JOINED THIS LIST AT #1046, and it is the first entry that is not a
+   button. faq's focusable control is the <summary> row — the component renders no `.btn`
+   at all — so the `.btn` terms above could never have reached it. That did not matter
+   while faq was a v1 component, because v1 faq declared no `background_image` prop and a
+   scrim was not a state it could reach; `_band` -> `background.image` + `background.overlay`
+   makes it one, which is the #1035 class arriving on a component before the band that
+   would have exposed it. `:focus` rather than `:focus-visible` matches the two terms it
+   sits with; base.css hides the ring for non-keyboard focus through `:focus:not(:focus-visible)`,
+   so the rendered behaviour is the keyboard one either way.
+
+   AND ONE LIMIT THIS ENTRY INHERITS, measured at #1046 and worth stating where it bites
+   hardest. The comment above calls `[data-pp-band-overlay]` engine-emitted "which is the
+   only thing that knows a scrim is being painted". That is not what the code does:
+   `pp_udc_band_has_overlay()` tests only that `background.image` and `background.overlay`
+   are PRESENT in the stored map, never that the attachment resolves. Delete the attachment
+   — or clone a site without its uploads rows — and the attribute stays on a band that now
+   paints its ordinary light `@color-surface` fill, where `--color-accent-on-overlay`
+   (#fafbff) lands at roughly 1:1. faq feels this worse than the buttons above it: the
+   <summary> is the component's ONLY focusable control, so there is no other ring to fall
+   back on, and the inset offset this block sets makes that outline the whole affordance.
+   No finding and no emit-drop row reports it. Filed as #1060; this entry stays correct for
+   every band whose scrim actually paints. */
 [data-pp-band-overlay] .btn:focus,
+[data-pp-band-overlay] .faq__question:focus,
 .hero--cover .btn:focus {
   outline-color: var(--color-accent-on-overlay);
 }
@@ -3821,9 +3832,13 @@ main .btn:focus-visible {
   main > [data-pp-component] + .stats {
     padding-top: var(--stats-padding-top, var(--pp-band-padding-adjacent-top));
   }
-  main > [data-pp-component] + .faq {
-    padding-top: var(--faq-padding-top, var(--pp-band-padding-adjacent-top));
-  }
+  /* faq's per-component adjacent rule was DELETED at #1046, for the reason section's
+     and cta's were: it existed only to keep a `--faq-padding-top` slot live at this
+     specificity, and with no slot left it resolved to exactly what the zero-specificity
+     baseline above already gives. faq needs no `:not()` exclusion either — its `_band`
+     padding default is the shared `@pp-band-padding` on both edges, the same value this
+     tier carries, so the adjacent rhythm winning the top edge is the intended
+     arrangement rather than a collision. */
   /* table/logos/embed join the per-component adjacent-top routing (issue 438) so
      their adjacent-top edge tracks the same shared tier AND an explicit
      --<comp>-padding-top wins on that edge too, not just their own base edges. */
@@ -3842,8 +3857,9 @@ main .btn:focus-visible {
    This premium rule re-declared padding-top/bottom as bare clamp() literals,
    outranking the base .section/.grid/.cta rules ([0,1,0]) and silently ignoring a
    declared --*-padding-top/bottom. Split per component and route through the slot
-   with the shared --pp-band-padding as the fallback. faq now routes through
-   --faq-padding-top/bottom too (issue 304). The clamp() literal moved into the one
+   with the shared --pp-band-padding as the fallback. (faq routed through
+   --faq-padding-top/bottom here from issue 304 until #1046; its band rhythm is the
+   `_band` role's spacing default now.) The clamp() literal moved into the one
    rhythm definition (issue 431); stats/testimonials get their own tier via their
    base rules, which now route through the same --pp-band-padding. */
 /* `.section`'s band padding rule was DELETED at #1023: it is the `_band` role's
@@ -3856,18 +3872,16 @@ main .btn:focus-visible {
   padding-bottom: var(--grid-padding-bottom, var(--pp-band-padding));
 }
 
-.faq {
-  padding-top: var(--faq-padding-top, var(--pp-band-padding));
-  padding-bottom: var(--faq-padding-bottom, var(--pp-band-padding));
-}
-
-/* The card radius used to be capped for grid AND faq from ONE selector reading the
-   GRID slot; issue 577 split it so each component drives its own — see the .faq__item
-   comment in the COMPONENT: faq block. Both sides keep the 4px literal as the
-   fallback, so unset output is byte-identical on both components. */
-main > .faq .faq__item {
-  border-radius: var(--faq-item-radius, 4px);
-}
+/* `.faq`'s band padding rule was DELETED at #1046, and its item-radius rule with it.
+   The padding is the `_band` role's `spacing.padding-top` / `padding-bottom` default
+   now, resolving to the same shared `@pp-band-padding`; the default emits into
+   `pp-zero`, below this stylesheet, which is what keeps the adjacent-sibling rhythm
+   above able to win the top edge.
+   THE ITEM RADIUS IS THE OTHER HALF OF #577 AND ITS GRID TWIN STAYS BELOW. That issue
+   split ONE selector that capped grid cards and faq items together from the grid slot;
+   faq's half is the `item` role's `border.radius` now, grid's half is still a slot and
+   still needs this rule. Splitting the pair again here is the same discipline: remove
+   the component that rebuilt, never the rule the other one depends on. */
 main > .grid .grid__item {
   border-radius: var(--grid-item-radius, 4px);
   /* Later-cascade winner for cards 2..N: route it through --grid-item-border-color
@@ -3934,9 +3948,7 @@ main .btn {
   main > [data-pp-component] + .stats {
     padding-top: var(--stats-padding-top, var(--pp-band-padding-adjacent-top));
   }
-  main > [data-pp-component] + .faq {
-    padding-top: var(--faq-padding-top, var(--pp-band-padding-adjacent-top));
-  }
+  /* faq's mobile adjacent rule went with its desktop twin at #1046 — same reason. */
   /* table/logos/embed adjacent-top on mobile too (issue 438). */
   main > [data-pp-component] + .table-section {
     padding-top: var(--table-padding-top, var(--pp-band-padding-adjacent-top));
@@ -3955,8 +3967,8 @@ main .btn {
      below is what keeps the default reachable — see the note by the desktop twin. */
 
   /* Own mobile padding, routed through the padding slots so a declared
-     --*-padding-top/bottom takes effect at mobile too (issue 302). faq now routes
-     through --faq-padding-top/bottom too (issue 304). Fallbacks route through the
+     --*-padding-top/bottom takes effect at mobile too (issue 302). (faq's mobile
+     restatement left at #1046 with its desktop twin.) Fallbacks route through the
      shared --pp-band-padding (3.35rem at this breakpoint). cta/stats/testimonials
      no longer need a per-component restatement here — their base rules already
      fall back to --pp-band-padding, so they join the same mobile tier (issue 431). */
@@ -3968,9 +3980,7 @@ main .btn {
     padding-bottom: var(--grid-padding-bottom, var(--pp-band-padding));
   }
 
-  .faq {
-    padding-top: var(--faq-padding-top, var(--pp-band-padding));
-    padding-bottom: var(--faq-padding-bottom, var(--pp-band-padding));
-  }
+  /* faq's mobile restatement went with its desktop twin (#1046) — the `_band` default
+     already falls back to the shared `--pp-band-padding` at this breakpoint. */
 }
 }

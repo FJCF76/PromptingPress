@@ -236,7 +236,7 @@ class SchemaValidationTest extends TestCase
         // selects has no home in the UDC taxonomy, which is why cta stays in $expectLayout
         // while leaving $expectTheme.
         $expectLayout = ['hero', 'section', 'grid', 'cta', 'testimonials'];
-        $expectTheme  = ['stats', 'logos', 'embed', 'grid', 'faq'];
+        $expectTheme  = ['stats', 'logos', 'embed', 'grid'];
 
         foreach ($expectTheme as $component) {
             $this->assertArrayNotHasKey(
@@ -284,7 +284,7 @@ class SchemaValidationTest extends TestCase
 
         // The departed components are accounted for rather than dropped: every slot each
         // one used to declare carries a migration note.
-        foreach (['hero' => 49, 'section' => 47, 'cta' => 40] as $component => $retiredCount) {
+        foreach (['hero' => 49, 'section' => 47, 'cta' => 40, 'faq' => 21] as $component => $retiredCount) {
             $schema = json_decode(file_get_contents($this->themeRoot . "/components/{$component}/schema.json"), true);
             $this->assertArrayNotHasKey(
                 'style_slots',
@@ -374,10 +374,39 @@ class SchemaValidationTest extends TestCase
 
     /**
      * Tests that every declared style slot has the required keys: type, default, description.
+     *
+     * THE ROSTER IS DERIVED, NOT LISTED, and #1046 is why. It used to read
+     * `['hero','section','grid','cta']` — a hand-picked four, three of which have since
+     * been rebuilt onto the UDC and now declare ZERO slots, so the sweep was quietly
+     * running against one real component while four others (stats 17, embed 8, logos 8,
+     * table 6) sat outside it entirely.
+     *
+     * That gap had teeth. #1046's review found that `testStatsSchemaDeclaresItsNamedStyleSlots`
+     * was deleted inside faq's slot-test retirement block even though STATS HAS NOT BEEN
+     * REBUILT, and nothing caught it: deleting the `default` key from `--stats-label-color`
+     * left the entire PHP suite green, because the only generic sweep that would have seen
+     * it was iterating a list stats was never on. Deriving the roster from the schemas
+     * closes that for every slot-bearing component at once and cannot go stale the next
+     * time a component leaves the slot system — the fix is the shape #1038 asked for
+     * (resolve by SURVIVING SUBJECT, not by the issue that introduced the test).
      */
     public function testStyleSlotStructure(): void
     {
-        $components = ['hero', 'section', 'grid', 'cta'];
+        $components = [];
+        foreach (glob($this->themeRoot . '/components/*/schema.json') as $file) {
+            $schema = json_decode(file_get_contents($file), true);
+            if (($schema['styling']['style_slots'] ?? []) !== []) {
+                $components[] = basename(dirname($file));
+            }
+        }
+        sort($components);
+        // Fail-closed: if every component is eventually rebuilt this test must be RETIRED
+        // deliberately, not allowed to pass vacuously on an empty roster.
+        $this->assertNotEmpty(
+            $components,
+            'no slot-bearing component found — the sweep would pass vacuously; retire this '
+            . 'test deliberately if the slot system is genuinely gone'
+        );
         $validTypes = ['color', 'length', 'length-or-none', 'number', 'shadow', 'gradient', 'position', 'ratio', 'align', 'text-transform', 'font-family', 'enum'];
 
         foreach ($components as $component) {
@@ -4214,6 +4243,17 @@ class SchemaValidationTest extends TestCase
      * happens to documents that already store the old name.
      */
     private const SCHEMA_RENAME_MIGRATION_NOTES = [
+        // ── v2 Sprint 2 (#1046): faq's `theme` prop retired ──
+        'faq' => [
+            'theme' => 'REMOVED in v2 (#1046). It was a bundle of band values and the route '
+                . 'names all three groups rather than only the fill, because `muted` drew '
+                . 'borders a background-only route would silently drop: the tone is the '
+                . '`_band` role\'s `background.fill`, the `muted` framing is its '
+                . '`border.width-top` / `width-bottom` at 1px solid `@color-border`, and the '
+                . '`inverted` ink is its `typography.color`, which the `heading` role follows '
+                . 'through `currentColor`. `dark` was not an accepted input value (removed at '
+                . '#605) and is not part of the route.',
+        ],
         // ── v2 Sprint 1 (#986): hero's four styling props retired ──
         //
         // The rule that decided which props die: a prop dies IFF the UDC can express
@@ -4913,6 +4953,41 @@ class SchemaValidationTest extends TestCase
      * make the problem quietly go away, which #603/#604 removed the machinery for.
      */
     private const SLOT_RENAME_MIGRATION_NOTES = [
+        // ── v2 Sprint 2 (#1046): faq's 21 style slots retired ──
+        //
+        // The smallest of the five retired slot maps (hero 49, section 47, cta 40, testimonials 27, faq 21), and the same story:
+        // the slot SYSTEM is gone from this component, not renamed and not deprecated.
+        // Each note names the role and parameter that owns the value today.
+        //
+        // THREE NOTES ARE NOT PLAIN MOVES and say so: `--faq-heading-color`'s DEFAULT
+        // changed (a pinned token became `currentColor`, ruled at #1046 = 7A-2 B),
+        // `--faq-body-measure` has no default at all on the v2 side because v1 rendered
+        // `none`, and `--faq-question-open-color` is the slot that forced the engine to
+        // widen the role-selector charset — its element is an ancestor state no role
+        // could previously spell.
+        'faq' => [
+            '--faq-padding-top' => 'REPLACED in v2 (#1046) by the `_band` role\'s `spacing.padding-top`.',
+            '--faq-padding-bottom' => 'REPLACED in v2 (#1046) by the `_band` role\'s `spacing.padding-bottom`.',
+            '--faq-bg' => 'REPLACED in v2 (#1046) by the `_band` role\'s `background.fill`. A gradient is accepted there directly, as it was here.',
+            '--faq-item-bg' => 'REPLACED in v2 (#1046) by the `item` role\'s `background.fill`. Note: the role\'s description records what this slot\'s description also said — the items stay light on a dark band by design, so darkening this fill means setting the `question` and `answer` ink in the same write.',
+            '--faq-eyebrow-color' => 'REPLACED in v2 (#1046) by the `eyebrow` role\'s `typography.color`.',
+            '--faq-eyebrow-bg' => 'REPLACED in v2 (#1046) by the `eyebrow` role\'s `background.fill`.',
+            '--faq-eyebrow-radius' => 'REPLACED in v2 (#1046) by the `eyebrow` role\'s `border.radius`.',
+            '--faq-eyebrow-border-width' => 'REPLACED in v2 (#1046) by the `eyebrow` role\'s `border.width`.',
+            '--faq-eyebrow-border-color' => 'REPLACED in v2 (#1046) by the `eyebrow` role\'s `border.color`.',
+            '--faq-eyebrow-text-transform' => 'REPLACED in v2 (#1046) by the `eyebrow` role\'s `typography.transform`.',
+            '--faq-heading-size' => 'REPLACED in v2 (#1046) by the `heading` role\'s `typography.size`, which keeps the shared `@pp-band-heading-size` scale as its default.',
+            '--faq-heading-color' => 'REPLACED in v2 (#1046) by the `heading` role\'s `typography.color` — WITH A CHANGED DEFAULT, stated because it is the one value this rebuild did not port literally. The slot fell back to a pinned `--color-text` through a theme variable; the role defaults to `currentColor`, so the heading follows the band. Identical on every band v1 could express; different only on a band made dark through `_band` -> `background.fill`, which v1 had no way to author. Ruled at #1046.',
+            '--faq-heading-measure' => 'REPLACED in v2 (#1046) by the `heading` role\'s `sizing.max-width`, still defaulting to the shared `@measure-heading` token.',
+            '--faq-body-measure' => 'REPLACED in v2 (#1046) by the `answer` role\'s `sizing.max-width` — which declares NO default, because v1 declared `none` and rendered `none`. Setting a length there caps a long answer exactly as this slot did; `none` puts it back, because `length-or-none` is the param\'s declared type.',
+            '--faq-heading-accent-color' => 'REPLACED in v2 (#1046) by the `heading-accent` role\'s `typography.color`.',
+            '--faq-heading-margin-bottom' => 'REPLACED in v2 (#1046) by the `heading` role\'s `spacing.margin-bottom`, as a BREAKPOINT MAP: 1.65rem on desktop and tablet, 1.25rem on phone. The slot had one value and two media-scoped fallbacks; the role says both tiers in one place.',
+            '--faq-question-color' => 'REPLACED in v2 (#1046) by the `question` role\'s `typography.color`. Its positional twin is the `question-open` role — set both or neither, exactly as the two slots required.',
+            '--faq-answer-color' => 'REPLACED in v2 (#1046) by the `answer` role\'s `typography.color`, as a BREAKPOINT MAP: `@color-text-secondary` on desktop and tablet, `@color-muted` on phone. The slot had a single fallback per rule and the phone tier came from a different rule entirely.',
+            '--faq-item-border-color' => 'REPLACED in v2 (#1046) by the `item` role\'s `border.color`.',
+            '--faq-item-radius' => 'REPLACED in v2 (#1046) by the `item` role\'s `border.radius`.',
+            '--faq-question-open-color' => 'REPLACED in v2 (#1046) by the `question-open` role\'s `typography.color`. THE ROLE DID NOT EXIST BEFORE THIS SLOT NEEDED IT: its element is `.faq__item[open] > .faq__question`, an ancestor state, and the role-selector charset admitted no `[` until #1046 widened it by two characters. The chevron still follows this colour for free — it is drawn in `currentColor`.',
+        ],
         // ── v2 Sprint 1 (#986): hero's 49 style slots retired ──
         //
         // The largest slot map in the theme, and the same story testimonials told in
@@ -6352,10 +6427,10 @@ class SchemaValidationTest extends TestCase
         // Shrinks one rebuild sprint at a time: testimonials' `theme` and `title_align`
         // went in #958, section's `theme`, `title_align` and `--section-inline-items-align`
         // in #1023 — offset by the new `body_items_align` prop, so 25 -> 22 — and cta's
-        // `theme`, `button_variant` and `button2_variant` in #1026, 22 -> 19. Every
-        // retirement is recorded in SCHEMA_RENAME_MIGRATION_NOTES /
-        // SLOT_RENAME_MIGRATION_NOTES.
-        $this->assertSame(19, $checked, 'the shipped `values` inventory changed — re-confirm the sweep reaches it');
+        // `theme`, `button_variant` and `button2_variant` in #1026, 22 -> 19, and faq's
+        // `theme` in #1046, 19 -> 18. Every retirement is recorded in
+        // SCHEMA_RENAME_MIGRATION_NOTES / SLOT_RENAME_MIGRATION_NOTES.
+        $this->assertSame(18, $checked, 'the shipped `values` inventory changed — re-confirm the sweep reaches it');
     }
 
     /**
@@ -6520,7 +6595,10 @@ class SchemaValidationTest extends TestCase
             $seen,
             'every component except the recorded retirements and the four that never had `theme`'
         );
-        $this->assertSame(5, $seen, 'all five remaining theme-bearing components must be checked');
+        // FOUR since #1046, when faq's `theme` joined the recorded retirements. The
+        // derived assertion above is the real guard — this literal exists so a rebuild
+        // has to come here and say which component moved.
+        $this->assertSame(4, $seen, 'all four remaining theme-bearing components must be checked');
     }
 
     /**
@@ -6613,24 +6691,6 @@ class SchemaValidationTest extends TestCase
         'embed slot --embed-heading-color' => 'title present',
         'embed slot --embed-heading-measure' => 'title present',
         'embed slot --embed-heading-margin-bottom' => 'title present',
-        'faq slot --faq-item-bg' => 'items present',
-        'faq slot --faq-eyebrow-color' => 'eyebrow present',
-        'faq slot --faq-eyebrow-bg' => 'eyebrow present',
-        'faq slot --faq-eyebrow-radius' => 'eyebrow present',
-        'faq slot --faq-eyebrow-border-width' => 'eyebrow present',
-        'faq slot --faq-eyebrow-border-color' => 'eyebrow present',
-        'faq slot --faq-eyebrow-text-transform' => 'eyebrow present',
-        'faq slot --faq-heading-size' => 'title present',
-        'faq slot --faq-heading-color' => 'title present',
-        'faq slot --faq-heading-measure' => 'title present',
-        'faq slot --faq-body-measure' => 'items present',
-        'faq slot --faq-heading-accent-color' => 'title present',
-        'faq slot --faq-heading-margin-bottom' => 'title present',
-        'faq slot --faq-question-color' => 'items present',
-        'faq slot --faq-answer-color' => 'items present',
-        'faq slot --faq-item-border-color' => 'items present',
-        'faq slot --faq-item-radius' => 'items present',
-        'faq slot --faq-question-open-color' => 'items present +note(9ce573ee)',
         'footer prop logo_text' => 'note +note(13cd2dd9)',
         'footer prop logo_id' => 'note +note(54994bfc)',
         'footer prop logo_alt' => 'note +note(48b1256c)',
@@ -6866,9 +6926,29 @@ class SchemaValidationTest extends TestCase
         $featured = $schemas['grid']['styling']['style_slots']['--grid-featured-shadow'];
         $this->assertStringContainsString('main > .grid', $featured['conditionality_note']);
 
-        // INTERACTION STATE — the open question.
-        $open = $schemas['faq']['styling']['style_slots']['--faq-question-open-color'];
-        $this->assertStringContainsString('OPEN', $open['conditionality_note']);
+        // INTERACTION STATE — THE CLASS LOST ITS LAST DECLARING SURFACE AT #1046, and
+        // that is recorded here rather than quietly deleted, because the class is why
+        // this test exists.
+        //
+        // faq's `--faq-question-open-color` was the ONLY `conditionality_note` in all
+        // twelve schemas describing an interaction state: "the question is OPEN — the
+        // accordion's expanded state, which is interaction state rather than authored
+        // data". It was prose because the `applies_when` grammar reads stored PROPS and
+        // an open accordion is not stored anywhere.
+        //
+        // The condition did not become expressible; it stopped needing to be expressed.
+        // The open state is a ROLE now (`question-open`, selector
+        // `.faq__item[open] > .faq__question`), so the thing that used to be a note
+        // about when a slot applies is the selector itself — checked by the engine, not
+        // described to an author. The other three classes below still have live
+        // examples and still cannot be expressed at all.
+        $this->assertArrayHasKey(
+            'question-open',
+            pp_udc_component_roles('faq'),
+            'the interaction-state class left this census only because faq expresses it '
+            . 'as a role — if that role goes, the class needs a new carrier or an '
+            . 'explicit retirement'
+        );
 
         // ITEM-LEVEL — the logos label-driven image-height switch: no doc stated it
         // anywhere before #580, and it is item-level, so the grammar cannot reach it.
@@ -7086,7 +7166,10 @@ class SchemaValidationTest extends TestCase
             }
         }
 
-        $this->assertGreaterThanOrEqual(5, $checked, 'the theme-bearing templates must still be swept');
+        // FOUR since #1046: faq.php no longer calls pp_theme_class() at all, because the
+        // prop that fed it retired. The floor moves with the roster rather than being
+        // loosened — its job is to catch the sweep silently finding nothing.
+        $this->assertGreaterThanOrEqual(4, $checked, 'the theme-bearing templates must still be swept');
 
         $section = json_decode(file_get_contents($this->themeRoot . '/components/section/schema.json'), true);
         $this->assertSame('section', $section['styling']['root_class'], 'the root class itself is unprefixed');
@@ -7452,6 +7535,7 @@ class SchemaValidationTest extends TestCase
             'testimonials' => ['items' => [['quote' => 'q', 'author' => 'a']]],
             'section'      => ['body' => '<p>B</p>'],
             'cta'          => ['button_text' => 'Go', 'button_url' => '/go'],
+            'faq'          => ['items' => [['question' => 'Q?', 'answer' => 'A.']]],
         ];
 
         foreach ($v2 as $component) {
@@ -7486,6 +7570,116 @@ class SchemaValidationTest extends TestCase
         ]);
         $this->assertInstanceOf(\WP_Error::class, $v1);
         $this->assertStringContainsString('Available slots: --grid-', $v1->get_error_message());
+    }
+
+
+    /**
+     * EVERY MIGRATION NOTE'S ROUTE MUST BE A ROUTE THE ENGINE ACTUALLY HAS.
+     *
+     * These notes are the ONLY migration path an author gets when their stored page still
+     * carries a `--<component>-*` slot the theme no longer declares: the write is refused
+     * and the message hands them this text. #1046's review measured what was guarding
+     * them — `detectMigrationNoteDefects()` checks three things only (the note is a
+     * non-empty string, it mentions an issue number, and the slot name is no longer live).
+     * Nothing checked that the role, group or parameter it names EXISTS. Proof: rewriting
+     * a note to route to a `panel-row-nonexistent` role's `flexbox.wobble` left the whole
+     * suite green.
+     *
+     * So the route is parsed out of the note and checked against the live registry: the
+     * role must exist on that component, the role must PERMIT the group it names, and the
+     * taxonomy must declare the parameter. A note that sends an author somewhere the
+     * engine will refuse is worse than no note, because it reads as authoritative.
+     *
+     * THE ROLE CHECK IS PHRASING-INDEPENDENT, AND THAT IS THE POINT. Two review cycles
+     * were spent widening a route regex and each time another phrasing turned up behind
+     * it: the plain "by the `role` role's `group.param`", then two state forms, then
+     * "the `cta` role's `:hover` state." with no group at all, and "the `cta` and
+     * `title-accent` roles" with neither. Each round the docblock claimed the skip set
+     * was all removals and each round it was not.
+     *
+     * So the primary assertion no longer depends on phrasing: ANY role named as
+     * "`<name>` role" in a note must EXIST on that component. That cannot be dodged by
+     * rewording. The richer group/param checks are layered on top wherever a route is
+     * parseable, because those are worth having where they apply.
+     *
+     * Measured today: 184 notes, 174 with a parseable group route, 187 role mentions, and
+     * only FOUR notes naming no role at all. Those four are counted, not characterised —
+     * characterising the skip set is precisely what kept going wrong (three rounds running
+     * it was called "all removals" while it contained moves).
+     */
+    public function testEveryMigrationNoteRoutesSomewhereTheEngineActuallyHas(): void
+    {
+        $checked    = 0;
+        $rolesNamed = 0;
+        $groups     = pp_udc_groups();
+
+        foreach (self::SLOT_RENAME_MIGRATION_NOTES as $component => $entries) {
+            $roles = pp_udc_component_roles($component);
+
+            foreach ($entries as $slot => $note) {
+                // PHRASING-INDEPENDENT: every role a note names must exist. Matches
+                // "`x` role", "`x` and `y` roles", "`x` role's ..." alike.
+                preg_match_all('/`([A-Za-z_][A-Za-z0-9_-]*)`(?=(?: and `[A-Za-z_][A-Za-z0-9_-]*`)* roles?\b)/', $note, $named);
+                foreach ($named[1] as $namedRole) {
+                    $this->assertArrayHasKey(
+                        $namedRole,
+                        $roles,
+                        "{$component}'s note for {$slot} names a `{$namedRole}` role that does not exist"
+                    );
+                    $rolesNamed++;
+                }
+
+                $param = null;
+                if (preg_match('/`([A-Za-z_][A-Za-z0-9_-]*)` role\'s `([a-z-]+)\.([a-z-]+)`/', $note, $m)) {
+                    [, $role, $group, $param] = $m;              // plain move
+                } elseif (preg_match('/`([A-Za-z_][A-Za-z0-9_-]*)` role\'s `([a-z-]+)` `:[a-z-]+` `([a-z-]+)`/', $note, $m)) {
+                    [, $role, $group, $param] = $m;              // state move, param named
+                } elseif (preg_match('/`([A-Za-z_][A-Za-z0-9_-]*)` role\'s `:[a-z-]+` state, nested inside `([a-z-]+)`/', $note, $m)) {
+                    [, $role, $group] = $m;                      // state move, group only
+                } else {
+                    continue; // names no parseable group route; the role check above still ran
+                }
+                $this->assertContains(
+                    $group,
+                    $roles[$role]['groups'] ?? [],
+                    "{$component}'s note for {$slot} routes to `{$group}`, which the `{$role}` role does not permit"
+                );
+                $this->assertArrayHasKey(
+                    $group,
+                    $groups,
+                    "{$component}'s note for {$slot} names a `{$group}` group the taxonomy does not declare"
+                );
+                if ($param !== null) {
+                    $this->assertArrayHasKey(
+                        $param,
+                        $groups[$group]['params'] ?? [],
+                        "{$component}'s note for {$slot} names `{$group}.{$param}`, which the taxonomy does not declare"
+                    );
+                }
+                $checked++;
+            }
+        }
+
+        // Fail-closed floor: if the note wording drifts so the parser stops matching, this
+        // guard would pass having verified nothing. The number only ever grows as more
+        // components are rebuilt, so a DROP is the signal.
+        // Both floors pinned just under the measured values, so a single component's
+        // notes drifting out of either parser is the signal. The first floor here was 100
+        // against a then-measured 161, which would have hidden a 61-route drop — more than
+        // hero's entire matched set — the same "guard went quiet" failure a floor exists to
+        // prevent.
+        $this->assertGreaterThanOrEqual(
+            170,
+            $checked,
+            'the group-route parser matched fewer notes than expected — the note wording '
+            . 'drifted and this guard went quiet rather than failing'
+        );
+        $this->assertGreaterThanOrEqual(
+            180,
+            $rolesNamed,
+            'the role parser matched fewer role mentions than expected (187 today) — this '
+            . 'is the phrasing-independent half and it going quiet is the worse failure'
+        );
     }
 
 }

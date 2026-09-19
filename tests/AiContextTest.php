@@ -313,19 +313,29 @@ class AiContextTest extends TestCase
             $prompt,
             'the widening must be stated as bounded, or the AI will try `none` everywhere'
         );
-        // #578 widened the type from one band-geometry cap to five slots. The prompt must
-        // name the uncapped measures that are still SLOTS, or an agent reading it will
-        // believe `none` is never valid on a measure and cannot restore their declared
-        // default. The set shrinks one rebuild sprint at a time — --hero-heading-measure
-        // left in #986, --section-heading-measure in #1023, --cta-body-measure in #1026 —
-        // so the prompt must also say what the v2 route is, or an agent on a rebuilt
-        // component reads a list it is not on and concludes the capability is gone. ONE
-        // slot is left, and the singular phrasing is deliberate: a list of one that still
-        // reads as a list is how a roster survives past its last member.
+        // #578 widened the type from one band-geometry cap to five slots. The prompt had to
+        // name the uncapped measures that were still SLOTS, or an agent reading it would
+        // believe `none` is never valid on a measure and could not restore their declared
+        // default. The set shrank one rebuild sprint at a time — --hero-heading-measure
+        // left in #986, --section-heading-measure in #1023, --cta-body-measure in #1026,
+        // and --faq-body-measure at #1046.
+        //
+        // IT IS NOW EMPTY, AND THE PROMPT SAYS SO IN THOSE TERMS. The previous cut kept a
+        // singular phrasing ("the one text measure that ships uncapped") on the argument
+        // that a list of one still reads as a list; the honest successor to a list of one
+        // is not a list of zero, it is a sentence saying the set is empty and naming where
+        // the capability went. An agent that reads a roster it is not on concludes the
+        // capability is gone — which is exactly what this assertion exists to prevent, and
+        // it prevents it better now than a phantom list would.
         $this->assertStringContainsString(
-            'the one text measure that ships uncapped (`--faq-body-measure`)',
+            'No text measure ships uncapped any more',
             $prompt,
-            'the length-or-none carrier set must be stated, not just --stats-max-width'
+            'the length-or-none carrier set must be stated, including when it empties'
+        );
+        $this->assertStringContainsString(
+            '`--stats-max-width`',
+            $prompt,
+            'the band-geometry cap is the only slot carrier left and must still be named'
         );
         $this->assertStringContainsString(
             'an uncapped measure is the role\'s `sizing.max-width` set to `none`',
@@ -976,20 +986,58 @@ class AiContextTest extends TestCase
         }
     }
 
-    public function testSystemPromptIncludesStyleSlotsForFaq(): void
+    /**
+     * INVERTED AT #1046, not deleted.
+     *
+     * This was #100's regression pin: faq had no style slots, could not reach brand
+     * fidelity on a dark surface, and the test proved the AI-facing prompt surfaced the
+     * slots that fixed it. faq has no slots again — for the opposite reason — so the pin
+     * is inverted in the shape #994 used for chrome: the exact component that had to
+     * APPEAR under "Style slots:" must now appear under its roles instead.
+     *
+     * The capability #100 bought is what the assertion actually follows: a heading
+     * colour an author can reach. It is `heading` -> `typography.color` now, and the
+     * prompt has to say so, or the model is told faq is unstyleable — which is the
+     * failure #100 fixed, arriving through a different door.
+     */
+    public function testSystemPromptAdvertisesFaqsRolesRatherThanStyleSlots(): void
     {
-        // Regression pin for #100: faq previously had zero style slots (this test
-        // used to be one of the "unstyled" examples above). Confirms the AI-facing
-        // prompt now surfaces faq's new slots the same way it does for every other
-        // styled component.
         $prompt = pp_ai_system_prompt();
-        $lines = explode("\n", $prompt);
-        $found = false;
+        $lines  = explode("\n", $prompt);
+        $found  = false;
         foreach ($lines as $i => $line) {
             if (str_contains($line, '**faq**')) {
                 $next = $lines[$i + 1] ?? '';
-                $this->assertStringContainsString('Style slots:', $next);
-                $this->assertStringContainsString('--faq-heading-color', $next);
+                $this->assertStringNotContainsString(
+                    'Style slots:',
+                    $next,
+                    'faq is on the UDC and declares none — advertising slots would send the '
+                    . 'model to a surface that refuses every write'
+                );
+                $this->assertStringNotContainsString('--faq-', $next);
+                $this->assertStringContainsString(
+                    'UDC roles (style through the `udc` map, NOT style_component)',
+                    $next,
+                    'faq must advertise its roles, and say which action reaches them'
+                );
+                // DERIVED AND DELIMITED. A bare substring check is satisfied by the wrong
+                // role: `heading` by `heading-accent`, `question` by `question-open`, `item`
+                // by the word "items" in the prop list — so the prompt could drop two roles
+                // entirely and still pass. The roles are read from the registry and matched
+                // as delimited entries (each is followed by `:` in the emitted catalog), so
+                // this cannot go stale when a role is added or renamed.
+                foreach (array_keys(pp_udc_component_roles('faq')) as $role) {
+                    if ($role === '_band') {
+                        $this->assertStringContainsString('_band (the band itself)', $next);
+                        continue;
+                    }
+                    $this->assertMatchesRegularExpression(
+                        '/(?:^|[;:] )' . preg_quote($role, '/') . ':/',
+                        $next,
+                        "the prompt must name faq's `{$role}` role as its own entry — a bare "
+                        . 'substring is satisfied by a longer sibling role name'
+                    );
+                }
                 $found = true;
             }
         }

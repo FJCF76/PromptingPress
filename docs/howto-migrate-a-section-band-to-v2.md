@@ -215,5 +215,6 @@ phone-only gap between stacked panel rows. All four are listed in
 
 - **[Tutorial — style a band on the design contract](tutorial-style-a-band-on-the-design-contract.md)** — if you have not written a `udc` map before, start there.
 - **[`components/section/README.md`](../components/section/README.md)** — the 19 roles, the defaults and every retired slot's migration note.
+- **The other two rebuilt bands, each with its own surprise:** [`cta`](howto-migrate-a-cta-band-to-v2.md) (its buttons) and [`faq`](howto-migrate-a-faq-band-to-v2.md) (its open row).
 - **[Why the stylesheet is in a cascade layer](explanation-cascade-layers.md)** — what wins when your map and the theme stylesheet disagree.
 - **[What a write is allowed to refuse](explanation-validation-scope.md)** — why the retired names refuse instead of being silently dropped.

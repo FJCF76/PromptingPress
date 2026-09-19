@@ -164,7 +164,7 @@ and still gets the near-white routing, because the attribute records that a scri
 not how dark it is.
 
 **ON A v2 COMPONENT THIS WHOLE TRAP IS GONE, and the reason is worth knowing because it
-is the shape of every future sprint.** `hero`, `section`, `testimonials` and `cta` have no
+is the shape of every future sprint.** `hero`, `section`, `testimonials`, `cta` and `faq` have no
 `theme` prop, no band class, and no dark-band ROUTING: a band you make dark with `_band`
 `background.fill` (or `background.image` + `overlay`) does not silently recolour its text
 for you, so there is no class-versus-literal conflict to fall into. The trade is that YOU
@@ -177,7 +177,7 @@ made `--section-bg` win over the `muted` / `inverted` theme paint (before, the t
 literal silently defeated it), which meant an `inverted` section painted light by
 `--section-bg` kept its `pp-section--inverted` class and therefore its near-white heading,
 body and link routing — light-on-light. Both the slot and the class retired with #1023.
-The same trap is still live on `grid`, `faq`, `stats`, `logos` and `embed` until their own
+The same trap is still live on `grid`, `stats`, `logos` and `embed` until their own
 rebuilds. `cta` left that list at #1026, the same way and for the same reason.
 
 Example retheme — warm neutral:
@@ -263,9 +263,9 @@ it rounds every card and panel too, and no longer reaches the button at all.
 
 ### The global button color tokens (the site-wide button surface)
 
-> **HERO, SECTION AND CTA ARE NOT ON THIS SURFACE ANY MORE (#986, #1023, #1026).**
+> **HERO, SECTION, CTA AND FAQ ARE NOT ON THIS SURFACE ANY MORE (#986, #1023, #1026, #1046).**
 > Everything in this section describes the v1 per-instance STYLE SLOT cascade, which still
-> governs grid, faq, stats, logos, embed and table. `hero`, `section`, `testimonials` and
+> governs grid, stats, logos, embed and table. `hero`, `section`, `testimonials`, `faq` and
 > `cta` are v2 components with no style slots: their buttons and text are ROLES, styled
 > through the band's `udc` map. Any `--hero-button-*`, `--hero-button2-*`, `--hero-accent*`,
 > `--section-*` or `--cta-*` name below is HISTORY — writing one is refused with

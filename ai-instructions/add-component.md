@@ -305,7 +305,7 @@ declare, nothing to populate, nothing to resolve.
 
 | Surface | Resolves at | Consequence |
 |---|---|---|
-| prop **key** names | nowhere | there is no prop-key alias surface (#604). A retired prop name is rejected at write and unread at render — one answer on both paths, at both depths: top-level props (#147) and nested `items[]` fields (#643). The CODE depends on whether the component declares the name in its `retired_props` block: the fourteen v2-rebuild keys (hero's `button_variant`, `button2_variant`, `spacing`, `width`; section's `theme`, `title_align`, `background_image`, `panel_cta_variant`; cta's `theme`, `background_image`, `button_variant`, `button2_variant`; testimonials' `theme`, `title_align`) return `retired_prop` with a message naming the `udc` surface that replaced them and the `null` clear; every other undeclared key returns `unknown_prop`. |
+| prop **key** names | nowhere | there is no prop-key alias surface (#604). A retired prop name is rejected at write and unread at render — one answer on both paths, at both depths: top-level props (#147) and nested `items[]` fields (#643). The CODE depends on whether the component declares the name in its `retired_props` block: the fifteen v2-rebuild keys (hero's `button_variant`, `button2_variant`, `spacing`, `width`; section's `theme`, `title_align`, `background_image`, `panel_cta_variant`; cta's `theme`, `background_image`, `button_variant`, `button2_variant`; testimonials' `theme`, `title_align`; faq's `theme`) return `retired_prop` with a message naming the `udc` surface that replaced them and the `null` clear; every other undeclared key returns `unknown_prop`. |
 | style **slot** names | nowhere | there is no slot alias surface (#603). An undeclared slot name is rejected at write with `invalid_style_slot` and dropped at render. |
 | prop **values** | nowhere | there is no value-alias surface (#605 took the last entry, #606 took the field). An unadvertised value is rejected at write with `invalid_prop_value`, at both depths — top-level props (#579) and nested `items[]` enum fields (#600). |
 | the `variant` prop | nowhere | retired in #69. Rejected on every write path (#388) and, since #604, not decoded on any read path either. |
@@ -440,10 +440,10 @@ Open `/assets/css/components.css` and add a labeled section at the bottom:
 
 .mycomponent {
   /* A band-level (full-width section) component shares ONE rhythm definition
-     with the others (grid, stats, faq, table, logos, embed — the v1 components
-     that still route through a slot; section, cta and testimonials reach the SAME
-     definition as a `@pp-band-padding` spacing default on their `_band` role since
-     their v2 rebuilds, and hero is deliberately outside it, carrying its own
+     with the others (grid, stats, table, logos, embed — the v1 components
+     that still route through a slot; section, cta, testimonials and faq reach the
+     SAME definition as a `@pp-band-padding` spacing default on their `_band` role
+     since their v2 rebuilds, and hero is deliberately outside it, carrying its own
      `@space-2xl`/`@space-xl` scale). Route its
      vertical padding through the component's own slot, falling back to the
      shared --pp-band-padding, so it agrees with every other band by default and

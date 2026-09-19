@@ -162,7 +162,11 @@ class StoredStyleAndItemsRenderGuardTest extends TestCase
         // style map at all. Section's v2 equivalent — a hostile `udc` map reaching the
         // emitter — is guarded in UdcEngineTest alongside testimonials' and hero's.
         // cta left at #1026 with its slot map; it no longer calls pp_render_style_vars().
-        'grid', 'stats', 'faq', 'logos', 'table', 'embed',
+        // faq left at #1046, the same way. Its #708 guard is not weakened by going: the
+        // guard existed because a stored non-array `__pp_style` reached a typed call, and
+        // a component that performs no such read cannot reach that call at all. The
+        // hostile-`udc` equivalent is guarded in UdcEngineTest with the others.
+        'grid', 'stats', 'logos', 'table', 'embed',
     ];
 
     /**
@@ -391,7 +395,8 @@ class StoredStyleAndItemsRenderGuardTest extends TestCase
         // stored style map), so it is no longer in the sweep and there is no section
         // body in this page to assert on.
         $this->assertStringContainsString('40+', $html, 'the stats numbers still render');
-        $this->assertStringContainsString('Q one', $html, 'the faq questions still render');
+        // faq left STYLE_COMPONENTS at #1046, so this page no longer carries an faq band
+        // for the corridor to sweep — the same bookkeeping section's exit made at #1023.
         // testimonials is no longer in STYLE_COMPONENTS (it is v2 and paints no stored
         // style map), so this composition no longer carries a testimonials band and
         // there are no quotes to assert on. The v2 equivalent of this guard — a

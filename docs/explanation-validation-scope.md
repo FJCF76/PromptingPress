@@ -161,7 +161,9 @@ naming components, so a new component's block is covered the moment it is added:
 - a `refuse_props_when` clause that the shared grammar rejects fails, as does an empty
   `when`, a prop the component does not declare, or a missing `message`.
 
-**Style slots need no such registry and must not grow one.** All 123 retired slots belong
+**Style slots need no such registry and must not grow one.** All 184 retired slots
+(testimonials 27, hero 49, section 47, cta 40, faq 21 — the count is the arithmetic, so a
+rebuild that leaves it alone is visible here) belong
 to components `pp_udc_is_v2_component()` already identifies, and every one is replaced
 by the same thing — the band's `udc` map — so that route is derived at runtime and
 cannot drift. Only props need naming, because their replacements differ per prop.
