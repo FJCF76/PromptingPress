@@ -803,58 +803,25 @@ class StyleSlotContractTest extends TestCase
     // way a hand-written rule and its `:hover` twin could.
     //
     // WHAT STILL GUARDS #554's CONTRACT (a site-wide button retheme reaches every filled
-    // surface): `--btn-*` is now the only per-property link in those chains, so css-lint's
-    // premium-fill pins read it directly, and the rendered half stays in
-    // tests/e2e/style-render.spec.ts.
+    // surface): `--btn-*` is now the only per-property link in those chains, and the guard is
+    // RENDERED rather than textual — tests/e2e/style-render.spec.ts's '#458 the global button
+    // surface is a real one-knob' for the resting half and its '#539 ... survives a hover' for
+    // the hover half. Both read the four knobs against real buttons. (An earlier draft of this
+    // note credited css-lint.test.js's premium-fill pins; those were retired in the same
+    // change, so the e2e pair is the whole of it.)
 
-    /**
-     * The ORDER of custom properties in one declaration of a filled button's rule, in a
-     * given STATE. The exactly-once guard lives in the shared reader below, for the reason
-     * hoverChainOrder() documents: a second declaration of the same property later in the
-     * block wins the cascade, so reading the first would assert a chain that never paints.
-     */
-    private function filledChainOrder(
-        string $component,
-        string $selector,
-        string $state,
-        string $property
-    ): array {
-        $body  = $this->filledRuleBody($component, $selector, $state);
-        $label = $state === '' ? 'rest' : trim($state, ':');
-
-        $this->assertSame(
-            1,
-            preg_match_all('/' . preg_quote($property, '/') . '\s*:/', $body),
-            "{$selector} ({$label}) must declare {$property} exactly once, or the chain read "
-            . 'below is not the one that paints.'
-        );
-
-        preg_match('/' . preg_quote($property, '/') . '\s*:([^;]+);/', $body, $decl);
-        preg_match_all('/--[a-z0-9-]+/', $decl[1] ?? '', $tokens);
-
-        return $tokens[0];
-    }
-
-    /** The ORDER of custom properties in a filled button's hover border chain. */
-    private function hoverBorderOrder(string $component, string $selector): array
-    {
-        return $this->hoverChainOrder($component, $selector, 'border-color');
-    }
-
-    /**
-     * The ORDER of custom properties in one declaration of a filled button's hover rule.
-     *
-     * The exactly-once guard is the load-bearing part: a SECOND declaration of the same
-     * property later in the block wins the cascade, so reading the first one would assert the
-     * order of a chain that never paints.
-     */
-    private function hoverChainOrder(string $component, string $selector, string $property): array
-    {
-        // Delegates to the state-generalised reader (#565) rather than repeating the
-        // exactly-once guard: two copies of a load-bearing cascade guard is two places for it
-        // to rot. The hover callers keep their own name because it reads better at the call site.
-        return $this->filledChainOrder($component, $selector, ':hover', $property);
-    }
+    // THE CHAIN-READING HELPERS WENT WITH THOSE SEVEN TESTS, and one of them had to:
+    // filledChainOrder() called $this->filledRuleBody(), which is declared NOWHERE in this
+    // file. That call was unreachable — the only path to it ran through hoverChainOrder() and
+    // hoverBorderOrder(), whose last caller was a test in the list above — so PHP never
+    // resolved it and the suite stayed green over a method that does not exist. Leaving the
+    // subtree would leave a latent fatal for the next author who reached for a
+    // "read this button's chain order" helper. The three that are gone:
+    // filledChainOrder(), hoverChainOrder(), hoverBorderOrder().
+    //
+    // Nothing replaces them here. A v2 button's values are asserted on the EMITTED CSS
+    // (tests/CtaRoleDefaultsEmitTest.php) rather than by reading the order of links inside a
+    // stylesheet fallback chain, because an unlayered role block does not participate in one.
 
     // RETIRED (#1026): testIssue538FillFollowIsScopedToTheFilledSecondButton and its
     // provider nonFilledSecondButtonHoverRules. #538 ruled that the border FOLLOWS the fill

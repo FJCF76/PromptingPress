@@ -29,13 +29,17 @@
    `initial` (unset), so each consuming rule resolves its own literal until the token is
    set and an unset button is byte-identical; the two hover knobs register `initial` for the
    same reason; --btn-text keeps a concrete --color-bg
-   default (its value equals the universal ink literal). Per-component slots
-   (--cta-button-* / --cta-accent / --hero-button-* / --hero-accent) still win over the
-   global tokens when set — --btn-* sits between those slots and the literal fallback. These tokens are NOT
+   default (its value equals the universal ink literal). THERE IS NO PER-COMPONENT TIER LEFT
+   ABOVE THEM: --cta-button-* / --cta-accent left at #1026, --hero-button-* / --hero-accent at
+   #986 and --section-panel-cta-* at #1023, so --btn-* now sits directly against the literal
+   fallback and no component slot can outrank it. A band that wants its own button values
+   sets them on its button ROLE, which is emitted unlayered and outranks this whole
+   stylesheet rather than competing inside a var() chain. These tokens are NOT
    exposed as component style_slots: they are the site-wide tier, and a nested .btn an author
-   hand-writes into a rich-text prop is MEANT to follow them. What a section's __pp_style cannot
-   leak into a nested button is the PER-INSTANCE slot families, which issue 545 neutralises on
-   every composed .btn that is not a renderer-owned button element (see that block below).
+   hand-writes into a rich-text prop is MEANT to follow them. The #545 neutralisation block
+   that used to keep per-instance slot families out of such a button is retired (#1026) — with
+   no per-instance button slots left anywhere, there is nothing to neutralise (see the note at
+   its old site below).
    ========================================================================== */
 
 .btn {

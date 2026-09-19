@@ -478,10 +478,16 @@ describe('CSS lint: secondary/ghost buttons never get a filled gradient', () => 
  * mis-ordered. A replacement pin would pass vacuously.
  *
  * #539's CONTRACT SURVIVES AND IS STILL CHECKED, which is the part worth being precise
- * about: "a site-wide button retheme reaches every filled surface" is now a property of a
- * single-link chain, and the surviving premium-fill pins in this file read `--btn-bg` /
- * `--btn-hover-bg` / `--btn-border-color` / `--btn-hover-border-color` directly. What is
- * gone is the ORDERING half, which only had meaning while something sat above the knob.
+ * about — including precise about WHERE, because this file is not the place. "A site-wide
+ * button retheme reaches every filled surface" is now a property of a single-link chain,
+ * and it is pinned as RENDERED computed style, not as CSS text: see style-render.spec.ts's
+ * `#458 the global button surface is a real one-knob` ('setting --btn-* at :root restyles
+ * every composed primary incl. section-panel + shadow') for the rest half, and its `#539
+ * the global button surface survives a hover` ('setting --btn-hover-bg /
+ * --btn-hover-border-color reaches every filled surface') for the hover half. Those read
+ * all four knobs against real buttons, which is strictly stronger than the text pin that
+ * used to live here. What is gone is the ORDERING half, which only had meaning while
+ * something sat above the knob.
  *
  * #412/#514's MECHANISM survives too, and outlived its slots: a flat value resolves the
  * `background` SHORTHAND to `background: <color>`, which resets `background-image` and
@@ -3253,6 +3259,221 @@ describe('CSS lint: no ID selectors in shipped stylesheets (#412)', () => {
     });
 });
 
+
+describe('CSS lint: inverted dark-band links route through the on-inverted accent role (#437)', () => {
+    // The light-surface accent (--color-accent) measures only 3.23:1 on the dark
+    // inverted band and fails WCAG AA for body text. Every inverted variant whose
+    // links sit DIRECTLY on the dark band must remap `a` color to the
+    // --color-accent-on-inverted role (hover → --color-accent-on-inverted-hover).
+    //
+    // Deliberately NOT enumerated here:
+    //  - Light card/panel inverted variants (grid, faq, testimonials-grid) keep their
+    //    light `.grid__item`/`.faq__item`/`.testimonials__item` background, so links
+    //    there stay on --color-accent (already AA on a light card). Routing them
+    //    through the light on-inverted tint would drop them to ~2:1. The
+    //    rendered-contrast E2E covers those directly.
+    //  - grid cards and the testimonials GRID layout keep their light card even on
+    //    the inverted band, so their body links stay on --color-accent (AA on the
+    //    light card). Routing them through the on-inverted tint would drop them to
+    //    ~2:1. The rendered-contrast E2E covers those directly.
+    //
+    // Since #439, cta.body and testimonials.quote render an inline-HTML subset
+    // (a/strong/em/br), so both CAN now carry a real body link. Where that link
+    // sits DIRECTLY on the dark band it must be remapped: cta__body always sits on
+    // the band, and the testimonials quote sits on the band in the STACK layout
+    // (transparent card). The CTA button (.cta__button) is untouched — the remap is
+    // scoped to .cta__body, and the premium `main .btn` cascade out-orders it anyway.
+    const css = stripComments(COMPONENTS_CSS);
+
+    // The dark-band inverted variants that actually render body-link markup
+    // (wp_kses_post body/content): the link color routes through the on-inverted role
+    // (hover → on-inverted-hover). Buttons (.btn) are never affected — the premium
+    // `main .btn` cascade out-orders these (0,1,1) rules.
+    const DARK_BAND_LINK_VARIANTS = [
+        // #551 carved the panel CTA out of the band-wide anchor rule (the panel is a
+        // LIGHT surface). The on-inverted ROUTING this describe pins is unchanged — only
+        // the selector's reach narrowed, so the pin follows the selector.
+        // section's row is gone (#1023): the `--inverted` class died with the `theme`
+        // prop in its v2 rebuild, exactly as testimonials' did. Body links are the
+        // `body-link` role now, and that role carries its own `:hover` — which is the
+        // §1b requirement that a role's states move with its resting values.
+        // EMBED IS THE LAST ROW STANDING, and that is why this block survives rather than
+        // going with cta's. embed is still a v1 component: it still emits
+        // `.embed--inverted` and still remaps its body links automatically, so the
+        // regression this pins is still reachable there.
+        '.embed--inverted a',
+        // cta's row went at #1026, exactly as section's went at #1023 and testimonials'
+        // in Sprint 0. `.cta--inverted` died with the `theme` prop, so the selector this
+        // row named no longer exists. A cta body link is the `body-link` role now, which
+        // carries its own `:hover` — the §1b requirement that a role's states move with
+        // its resting values, and the reason the v2 route cannot half-apply.
+        // testimonials is absent. The `--inverted` class died with the `theme` prop in
+        // the v2 rebuild, so the selector this row named no longer exists — and the
+        // standing rule is that contrast fixes belong in token values chosen by the
+        // authoring layer, never baked into component CSS. A dark v2 band sets its
+        // link and text role colours to meet contrast; the AI-facing docs say so.
+    ];
+
+    function ruleBody(selector) {
+        const esc = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        // `a\s*\{` so the color rule is matched, never the sibling `a:hover {`.
+        const m = css.match(new RegExp(esc + '\\s*\\{([^}]*)\\}'));
+        return m ? m[1] : null;
+    }
+
+    DARK_BAND_LINK_VARIANTS.forEach(selector => {
+        test(`${selector} remaps link color to --color-accent-on-inverted`, () => {
+            const body = ruleBody(selector);
+            expect(body).not.toBeNull();
+            expect(body).toMatch(/color:\s*var\([^;]*--color-accent-on-inverted\b/);
+            // Must NOT fall back to the bare light-surface accent as the default.
+            expect(body).not.toMatch(/var\(\s*--color-accent\s*[,)]/);
+        });
+
+        test(`${selector} defines a hover routed through --color-accent-on-inverted-hover`, () => {
+            const hoverBody = ruleBody(`${selector}:hover`);
+            expect(hoverBody).not.toBeNull();
+            expect(hoverBody).toMatch(/--color-accent-on-inverted-hover\b/);
+        });
+    });
+
+    test('inverted stats numbers route the fallback through --color-accent-on-inverted', () => {
+        const esc = '.stats--inverted .stats__number'.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const m = css.match(new RegExp(esc + '\\s*\\{([^}]*)\\}'));
+        expect(m).not.toBeNull();
+        // Slot still wins; the DEFAULT (fallback) is the on-inverted role, not the
+        // failing --color-accent.
+        expect(m[1]).toMatch(/var\(\s*--stats-number-color\s*,\s*var\([^;]*--color-accent-on-inverted\b/);
+    });
+
+    test('the on-inverted accent tokens are defined in base.css :root', () => {
+        expect(BASE_CSS).toMatch(/--color-accent-on-inverted:\s*#[0-9a-fA-F]{6}/);
+        expect(BASE_CSS).toMatch(/--color-accent-on-inverted-hover:\s*#[0-9a-fA-F]{6}/);
+    });
+});
+
+describe('CSS lint: bg-image band accent routes through --color-accent-on-overlay (#461)', () => {
+    // A bg-image band lays a dark rgba(0,0,0,.55) overlay over an ARBITRARY image.
+    // The light-surface accent (--color-accent) is only 1.16:1 over the overlay-over-
+    // white worst case and fails WCAG AA. #461 routed the default accent on all three
+    // bg-image variants (section link, cta body link, stats number) through the overlay
+    // accent role — NOT --color-accent-on-inverted (tuned to the solid inverted bg, not
+    // the arbitrary-image overlay). The per-instance slot must still win. These pins
+    // guard against a regression back to the bare accent OR to the inverted role.
+    const stripped = stripComments(COMPONENTS_CSS);
+    const rules = [];
+    const ruleRe = /([^{}]+)\{([^{}]*)\}/g;
+    let m;
+    while ((m = ruleRe.exec(stripped)) !== null) {
+        rules.push({ selector: m[1].trim(), body: m[2] });
+    }
+    const ruleFor = (sel) => rules.find(r => r.selector.split(',').some(s => s.trim() === sel));
+
+    // Each entry: selector, the slot it must route through, and the overlay role fallback.
+    const ROUTES = [
+        // #551 carved the panel CTA out of the band-wide anchor rule (the panel is a LIGHT
+        // surface). The overlay ROUTING pinned here is unchanged — only the selector's reach
+        // narrowed, so the pin follows the selector.
+        // section's two rows are gone (#1023): `.section--has-bg-image` is not emitted
+        // any more. A v2 band carrying a background image owns its own contrast — the
+        // author sets `typography.color` on `body-link`, including its `:hover`.
+        // cta's two rows went at #1026, the same way section's went at #1023 and for the
+        // same reason: `.cta--has-bg-image` is no longer emitted, so there is no rule left
+        // to pin. A v2 band carrying a background image owns its own contrast.
+        // STATS IS THE LAST ROW, and it is why this block survives its siblings: stats is
+        // still a v1 component that routes the overlay accent AUTOMATICALLY, so the
+        // regression this guards (falling back to the bare accent at 1.16:1, or to the
+        // on-inverted role tuned to the wrong surface) is still reachable there.
+        { sel: '.stats--has-bg-image .stats__number', slot: '--stats-number-color', role: '--color-accent-on-overlay' },
+    ];
+
+    ROUTES.forEach(({ sel, slot, role }) => {
+        test(`${sel} routes through ${slot} then ${role}`, () => {
+            const rule = ruleFor(sel);
+            expect(rule).toBeDefined();
+            const re = new RegExp(
+                'color\\s*:\\s*var\\(\\s*' + slot.replace(/[-]/g, '\\-') +
+                '\\s*,\\s*var\\(\\s*' + role.replace(/[-]/g, '\\-') + '\\s*\\)\\s*\\)'
+            );
+            expect(rule.body).toMatch(re);
+        });
+
+        // Regression guard: the bg-image accent must NOT fall back to the bare accent
+        // (the 1.16:1 bug) or the on-inverted role (wrong surface).
+        test(`${sel} does not fall back to bare --color-accent or on-inverted`, () => {
+            const rule = ruleFor(sel);
+            expect(rule).toBeDefined();
+            expect(rule.body).not.toMatch(/var\(\s*--color-accent\s*\)/);
+            expect(rule.body).not.toMatch(/--color-accent-on-inverted/);
+        });
+    });
+
+    // The overlay tokens must be declared in base.css with a type comment so the AI
+    // token validator can reason about them, exactly like the on-inverted pair.
+    test('base.css declares the overlay accent tokens with color type comments', () => {
+        expect(BASE_CSS).toMatch(/--color-accent-on-overlay:[^;]*;\s*\/\*\s*color:/);
+        expect(BASE_CSS).toMatch(/--color-accent-on-overlay-hover:[^;]*;\s*\/\*\s*color:/);
+    });
+});
+
+describe('CSS lint: bg-image band title-accent + markers route through --color-accent-on-overlay (#463)', () => {
+    // #461 routed the default LINK/NUMBER on the three bg-image bands through the overlay
+    // accent role. #463 closes the remaining bare-accent surfaces on those same overlay
+    // bands: the accented title substring (which paints its OWN color and does NOT inherit
+    // the near-white band title, so it hit --color-accent at 1.16:1), the section body list
+    // markers, and .hero--cover's title-accent (same --overlay-bg scrim idiom). Each default
+    // routes through --color-accent-on-overlay — NOT the bare accent (the 1.16:1 bug) and NOT
+    // --color-accent-on-inverted (tuned to the solid inverted bg). Per-instance slots still win.
+    const stripped = stripComments(COMPONENTS_CSS);
+    const rules = [];
+    const ruleRe = /([^{}]+)\{([^{}]*)\}/g;
+    let m;
+    while ((m = ruleRe.exec(stripped)) !== null) {
+        rules.push({ selector: m[1].trim(), body: m[2] });
+    }
+    const rulesFor = (sel) => rules.filter(r => r.selector.split(',').some(s => s.trim() === sel));
+
+    // The four accented title substrings on overlay bands. Each carries its own `color`
+    // rule that must route slot → overlay role.
+    const TITLE_ROUTES = [
+        // section's row is gone (#1023), for the same reason hero's went at #986.
+        // cta's row is gone (#1026), for the same reason section's went at #1023 and
+        // hero's at #986. Stats keeps its row and is now the only one: it still re-colours
+        // its heading-accent from a band class, so the bare-accent regression is still
+        // reachable on it and still worth a pin.
+        { sel: '.stats--has-bg-image .stats__heading-accent', slot: '--stats-heading-accent-color' },
+        // hero's row is gone (#986): `.hero--cover` no longer re-colours the accent.
+        // A v2 band carrying a background image owns its own contrast — the author sets
+        // `typography.color` on the `title-accent` role, which is what the AI-facing
+        // docs already require of every v2 dark band.
+    ];
+
+    TITLE_ROUTES.forEach(({ sel, slot }) => {
+        test(`${sel} routes through ${slot} then --color-accent-on-overlay`, () => {
+            const matches = rulesFor(sel);
+            expect(matches.length).toBeGreaterThan(0);
+            const re = new RegExp(
+                'color\\s*:\\s*var\\(\\s*' + slot.replace(/[-]/g, '\\-') +
+                '\\s*,\\s*var\\(\\s*\\-\\-color\\-accent\\-on\\-overlay\\s*\\)\\s*\\)'
+            );
+            expect(matches.some(r => re.test(r.body))).toBe(true);
+        });
+
+        // Regression guard: must NOT fall back to bare --color-accent or the inverted role.
+        test(`${sel} does not fall back to bare --color-accent or on-inverted`, () => {
+            const matches = rulesFor(sel);
+            expect(matches.length).toBeGreaterThan(0);
+            const rule = matches.find(r => /color\s*:/.test(r.body));
+            expect(rule).toBeDefined();
+            expect(rule.body).not.toMatch(/var\(\s*--color-accent\s*\)/);
+            expect(rule.body).not.toMatch(/--color-accent-on-inverted/);
+        });
+    });
+
+    // Section body list markers on the overlay band: --pp-list-marker-color is re-mapped
+    // to the overlay role. The selector also carries the near-white color rule, so find the
+    // declaration that actually assigns the marker variable.
+});
 
 /**
  * Token contract: the global button surface must not drift (#441).
