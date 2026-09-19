@@ -83,10 +83,14 @@ be spelled; that widening admits attribute PRESENCE terms only, never value matc
 
 `item` → `background.fill` is `@color-bg`: the accordion panels stay light even on a dark
 band, which is what v1 did and what grid still does with its cards. So `question` and
-`answer` pin their ink rather than following the band. **If you darken the item, set their
-`typography.color` in the same write** — otherwise dark text stays on a dark panel. A dark
-BAND on its own is one write (`_band` → `typography.color`), because the heading follows it
-through `currentColor`.
+`answer` pin their ink rather than following the band. **If you darken the item, set
+`question`, `question-open` AND `answer` in the same write** — otherwise dark text stays on
+a dark panel. A dark BAND on its own is one write (`_band` → `typography.color`), because
+the heading follows it through `currentColor`.
+
+`question-open` is the one people leave out, and it fails in the state nobody screenshots:
+the band reads correctly closed, and the first click drops the row back to the default
+accent — measured at **3.21:1** against a `#111827` panel.
 
 ## Usage
 

@@ -136,19 +136,25 @@ So a dark BAND is one write:
 "udc": { "_band": { "background": { "fill": "#0f172a" }, "typography": { "color": "#fcfdff" } } }
 ```
 
-but dark PANELS are three:
+but dark PANELS are four — and the fourth is the one that is easy to miss:
 
 ```json
 "udc": {
-  "item":     { "background": { "fill": "#111827" }, "border": { "color": "#374151" } },
-  "question": { "typography": { "color": "#f9fafb" } },
-  "answer":   { "typography": { "color": "#d1d5db" } }
+  "item":          { "background": { "fill": "#111827" }, "border": { "color": "#374151" } },
+  "question":      { "typography": { "color": "#f9fafb" } },
+  "question-open": { "typography": { "color": "#a5b4fc" } },
+  "answer":        { "typography": { "color": "#d1d5db" } }
 }
 ```
 
-Miss the last two and you get dark text on a dark panel. The band will validate, write and
-report `ok` — the engine does not interpret colours, so this is the one contrast check that
-is yours rather than the system's.
+Miss the ink and you get dark text on a dark panel. Miss `question-open` specifically and
+the band looks right until a reader OPENS an item, at which point the row reverts to the
+default accent — **measured at 3.21:1 against a `#111827` panel**, which is a real contrast
+failure that only exists in the open state. That number is not hypothetical: it is what the
+three-role version of this example rendered when it was checked at 375 and 1280.
+
+The band will validate, write and report `ok` in every one of these cases. The engine does
+not interpret colours, so this is the one check that is yours rather than the system's.
 
 ## Step 6: Verify
 
