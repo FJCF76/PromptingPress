@@ -116,8 +116,9 @@ pp_get_component('faq', [
   under, not a floor the component enforces. The comparison is not clean either way, measured: only hero's
   `cta-secondary` and nav's `logo` carry a 44px `sizing.min-height` ROLE DEFAULT, while
   hero's PRIMARY `cta` role declares no defaults and takes its target from the shared
-  `.btn` rule in `pp-v1`, and nav's `.nav__toggle` keeps a structural 44x44 — the same
-  placement as faq's. Which pattern the theme wants is filed as an open question.
+  `.btn` rule in `pp-v1`, and nav's `.nav__toggle` keeps its 44x44 in the stylesheet — the
+  same placement as faq's, and reachable the same way, since the `toggle` role declares
+  `sizing` too. Which pattern the theme wants is filed as an open question.
 - The obligation binds BOTH twins: `question-open` declares `sizing` too and outranks
   `question`, so 44px on `question` alone still permits a 12px open row.
 - Over a background image with a scrim, the focus ring routes to the on-overlay accent —

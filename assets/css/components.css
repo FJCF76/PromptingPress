@@ -1210,7 +1210,8 @@
      `question-open` as well — that role declares `sizing` too and outranks this one.
      Measured, the theme is not consistent here: only hero's `cta-secondary` and nav's
      `logo` carry a 44px role default; hero's primary `cta` and nav's `.nav__toggle` keep
-     theirs structural, as faq does.
+     theirs in the stylesheet, as faq does — and all three are author-reachable, because
+     each of those roles declares `sizing`. Placement, not immunity.
    - `transition: color var(--transition)` stays because the motion group carries exactly
      two params by ruling A3 and a property LIST is not one of them. An authored
      `motion.transition-duration` overrides the timing and leaves the list intact — which

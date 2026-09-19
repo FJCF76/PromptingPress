@@ -7590,28 +7590,45 @@ class SchemaValidationTest extends TestCase
      * taxonomy must declare the parameter. A note that sends an author somewhere the
      * engine will refuse is worse than no note, because it reads as authoritative.
      *
-     * THREE PHRASINGS CARRY A ROUTE, and the parser has to know all three — #1046's
-     * second review cycle found it knew only the first. The plain move reads "by the
-     * `role` role's `group.param`"; a STATE move reads either "by the `role` role's
-     * `group` `:hover` `param`" or "by the `role` role's `:hover` state, nested inside
-     * `group`". Thirteen notes use the two state forms. Matching only the plain one
-     * skipped them while the docblock called every skip a removal — and a state route
-     * (role + group + state) is the MOST likely of the three to break, not the least.
+     * THE ROLE CHECK IS PHRASING-INDEPENDENT, AND THAT IS THE POINT. Two review cycles
+     * were spent widening a route regex and each time another phrasing turned up behind
+     * it: the plain "by the `role` role's `group.param`", then two state forms, then
+     * "the `cta` role's `:hover` state." with no group at all, and "the `cta` and
+     * `title-accent` roles" with neither. Each round the docblock claimed the skip set
+     * was all removals and each round it was not.
      *
-     * Notes that record a genuine REMOVAL (no default on the v2 side, a value that became
-     * structural, a capability that retired outright) legitimately name no route and are
-     * skipped. The count floor below is what keeps that from silently becoming
-     * "skip everything".
+     * So the primary assertion no longer depends on phrasing: ANY role named as
+     * "`<name>` role" in a note must EXIST on that component. That cannot be dodged by
+     * rewording. The richer group/param checks are layered on top wherever a route is
+     * parseable, because those are worth having where they apply.
+     *
+     * Measured today: 184 notes, 174 with a parseable group route, 187 role mentions, and
+     * only FOUR notes naming no role at all. Those four are counted, not characterised —
+     * characterising the skip set is precisely what kept going wrong (three rounds running
+     * it was called "all removals" while it contained moves).
      */
     public function testEveryMigrationNoteRoutesSomewhereTheEngineActuallyHas(): void
     {
-        $checked = 0;
-        $groups  = pp_udc_groups();
+        $checked    = 0;
+        $rolesNamed = 0;
+        $groups     = pp_udc_groups();
 
         foreach (self::SLOT_RENAME_MIGRATION_NOTES as $component => $entries) {
             $roles = pp_udc_component_roles($component);
 
             foreach ($entries as $slot => $note) {
+                // PHRASING-INDEPENDENT: every role a note names must exist. Matches
+                // "`x` role", "`x` and `y` roles", "`x` role's ..." alike.
+                preg_match_all('/`([A-Za-z_][A-Za-z0-9_-]*)`(?=(?: and `[A-Za-z_][A-Za-z0-9_-]*`)* roles?\b)/', $note, $named);
+                foreach ($named[1] as $namedRole) {
+                    $this->assertArrayHasKey(
+                        $namedRole,
+                        $roles,
+                        "{$component}'s note for {$slot} names a `{$namedRole}` role that does not exist"
+                    );
+                    $rolesNamed++;
+                }
+
                 $param = null;
                 if (preg_match('/`([A-Za-z_][A-Za-z0-9_-]*)` role\'s `([a-z-]+)\.([a-z-]+)`/', $note, $m)) {
                     [, $role, $group, $param] = $m;              // plain move
@@ -7620,14 +7637,8 @@ class SchemaValidationTest extends TestCase
                 } elseif (preg_match('/`([A-Za-z_][A-Za-z0-9_-]*)` role\'s `:[a-z-]+` state, nested inside `([a-z-]+)`/', $note, $m)) {
                     [, $role, $group] = $m;                      // state move, group only
                 } else {
-                    continue; // records a removal, not a move
+                    continue; // names no parseable group route; the role check above still ran
                 }
-
-                $this->assertArrayHasKey(
-                    $role,
-                    $roles,
-                    "{$component}'s note for {$slot} routes to a `{$role}` role that does not exist"
-                );
                 $this->assertContains(
                     $group,
                     $roles[$role]['groups'] ?? [],
@@ -7652,16 +7663,22 @@ class SchemaValidationTest extends TestCase
         // Fail-closed floor: if the note wording drifts so the parser stops matching, this
         // guard would pass having verified nothing. The number only ever grows as more
         // components are rebuilt, so a DROP is the signal.
-        // 174 routes parse today (166 naming a param, 8 naming role+group for a state
-        // move); 10 notes record genuine removals and name no route. The first floor here
-        // was 100 against a then-measured 161, which would have hidden a 61-route drop —
-        // more than hero's entire matched set — the same "guard went quiet" failure this
-        // floor exists to prevent. Pinned just under the measured value instead.
+        // Both floors pinned just under the measured values, so a single component's
+        // notes drifting out of either parser is the signal. The first floor here was 100
+        // against a then-measured 161, which would have hidden a 61-route drop — more than
+        // hero's entire matched set — the same "guard went quiet" failure a floor exists to
+        // prevent.
         $this->assertGreaterThanOrEqual(
             170,
             $checked,
-            'the route parser matched fewer notes than expected (174 today) — the note '
-            . 'wording drifted and this guard went quiet rather than failing'
+            'the group-route parser matched fewer notes than expected — the note wording '
+            . 'drifted and this guard went quiet rather than failing'
+        );
+        $this->assertGreaterThanOrEqual(
+            180,
+            $rolesNamed,
+            'the role parser matched fewer role mentions than expected (187 today) — this '
+            . 'is the phrasing-independent half and it going quiet is the worse failure'
         );
     }
 
