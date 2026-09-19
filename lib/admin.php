@@ -203,10 +203,11 @@ function pp_prop_definition_keys(): array {
  * a `-bg` / `-hover-bg` name convention: a naming convention is not machine-readable
  * without a second source of truth, which is the defect this whole contract fixes
  * one layer down. #575 landed the field one gate ahead of its consumer; #579 wired
- * that consumer, the `transparent_fill` composition smell, and cta's four button fills
- * are the slots that declare it today. The roster shrinks one rebuild sprint at a time:
- * hero's left in #986 and section's `--section-panel-cta-bg` in #1023, because a v2
- * button fill is a role's `background.fill` and the advisory recognises slots by their
+ * that consumer, the `transparent_fill` composition smell. NO SLOT DECLARES THE FIELD ANY
+ * MORE: hero's left in #986, section's `--section-panel-cta-bg` in #1023, and cta's four
+ * button fills in #1026, so the roster is EMPTY and the advisory is dormant rather than
+ * wrong — it can fire on nothing until some component declares a fill slot again (#1036).
+ * A v2 button fill is a role's `background.fill`, and the advisory recognises slots by their
  * declared `role: "fill"` marker, which a role parameter does not carry or need.
  *
  * `measure` marks a slot as a TEXT MEASURE — the max-width of a heading, a prose
@@ -2571,7 +2572,7 @@ function pp_validate_composition_errors(array $items, ?int $limit = null, ?int $
         //
         // Source of truth is the component's schema.json `props` (the full prop
         // contract), NOT pp_get_component_fields() (the curated CLI-patch editability
-        // subset), which omits real props like cta.theme / cta.background_image and
+        // subset), which omits real props like grid.items / section.panel_items and
         // would false-reject them.
         //
         // Runs after the required-props loop so a missing required prop still wins

@@ -4,7 +4,7 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
-## [Unreleased — v2.0.0-alpha.2] — v2 Sprint 2: the chrome CSS retirement, and `section` rebuilt on the design contract (#994, #992, #995, #1023, #988)
+## [Unreleased — v2.0.0-alpha.2] — v2 Sprint 2: the chrome CSS retirement, and `section` + `cta` rebuilt on the design contract (#994, #992, #995, #1023, #988, #1026)
 
 **The last two components still painted by the old stylesheet are on the engine.** The site header and footer declared roles you could author, while `assets/css/components.css` quietly owned how they actually looked. That split is what made styling a nav link silently erase its own hover. 88 declarations moved into role defaults, the CSS rules are gone, and the three bugs the split was causing are fixed.
 
@@ -91,6 +91,143 @@ Nothing to do unless you have a stored `pp_site_udc` map with a `"_preset"` on a
 - Chrome joins the structural-CSS boundary lint; the carve-out is removed and its lapse pinned.
 - The #992 characterization test is inverted rather than deleted: same fixture, same authored input, opposite expectations.
 - New pins: role defaults frozen value-for-value, breakpoint maps refused when they name only `d`, every role's defaults proved to reach the page, every shipped selector proved well-formed, and the chevron's negative margin pinned to the token it mirrors.
+
+---
+
+## `cta` is on the design contract (#1026)
+
+**Every closing band on the site is rebuilt.** `cta` declared 40 style slots and four
+styling props; it declares **11 roles and zero slots**. Every designable value — colour,
+type, spacing, border, shadow, size, motion — is a role parameter in the band's `udc` map,
+per breakpoint and per state. Its stylesheet block went from 798 lines to 158 of pure
+layout scaffolding.
+
+### What changes for you
+
+**Eleven roles.** `_band`, `inner`, `text`, `eyebrow`, `heading`, `heading-accent`, `body`,
+`body-link`, `buttons`, `button`, `button-secondary`. The two buttons are separate roles
+with separate blocks, which is what finally makes them independent: on v1 they shared a
+slot family by inheritance and needed a dedicated re-pointing rule to stop the primary's
+colours landing on the second one.
+
+**The buttons are prime preset consumers, and they land whole.**
+
+```json
+"udc": {
+  "button":           { "_preset": "button" },
+  "button-secondary": { "_preset": "button-secondary", "border": { "radius": "0" } }
+}
+```
+
+**Hover states you could not reach before.** v1's button hovers were a fallback chain in
+the stylesheet; they are `":hover"` maps inside a role's own group now, per breakpoint, and
+an authored value outranks the stylesheet outright instead of competing for position in a
+chain.
+
+**A background image is an attachment id, and the scrim rides the same layer.** No
+`.cta__overlay` element is rendered any more — `background.overlay` composes into the
+background layer list, exactly as it does for hero and section.
+
+### ⚠️ Breaking: four props are retired
+
+| Retired | Write this instead |
+|---|---|
+| `theme` | `_band` → `background.fill`, plus `typography.color` on `heading`, `heading-accent`, `body` and `body-link` |
+| `background_image` | `_band` → `background.image` (an attachment id, **not a URL**) with `background.overlay` |
+| `button_variant` | the `button` role's map, or the `button` / `button-secondary` preset |
+| `button2_variant` | the `button-secondary` role's map, same presets |
+
+A write naming one is refused with the route above, not with a list of live prop names. To
+clear a stored one, send it as `null` through `update_component`; `update_component`
+validates only the band it targets, so you can repair a page one band at a time.
+
+**`muted` and `dark` cost you nothing.** Measured at 375/768/1280 before the prop was
+retired: on a full-width band both rendered **byte-identically to `default`**. Only
+`inverted` needs rewriting.
+
+### ⚠️ Breaking: `outline` and `ghost` buttons have no preset
+
+`button_variant` offered four treatments; two ship as presets. Write the other two on the
+role — `outline` is a transparent fill with accent ink and a 2px accent border; `ghost` is
+the same without the border. Both maps are written out in
+`docs/howto-migrate-a-cta-band-to-v2.md` §4.
+
+**The DEFAULT pair is unchanged.** `button-secondary` carries v1's `outline` treatment as
+its own defaults, so an unauthored cta still renders one filled action beside one outlined
+action rather than two identical filled buttons.
+
+### ⚠️ Narrowed: an `inline` band now paints the full-width surface and rules
+
+v1's `full-width` painted a surface fill and two 1px rules; `inline` painted neither. v2 has
+no layout-scoped role defaults, so one value serves both, and the defaults are what
+`full-width` — this prop's own default — rendered. For the v1 inline look:
+
+```json
+"_band": {"background": {"fill": "transparent"},
+          "border": {"width-top": "0", "width-bottom": "0"}}
+```
+
+### ⚠️ Narrowed: a dark or image band owns its own contrast
+
+The `.cta--inverted` and `.cta--has-bg-image` classes carried seven AA corrections —
+on-inverted and on-overlay ink for **the heading**, the accented heading substring, the body
+and its links (rest and hover), the `outline`/`ghost` buttons, and a separation ring keeping a
+filled button visible against a scrim. Both classes derive
+from the retired props, so all seven are gone. This is the same ruling #986 made for
+`.hero--cover`: v2 has no variant-scoped role defaults and does not guess.
+
+**One affordance stayed automatic**, because #986 gave it an engine-emitted trigger rather
+than a class: the FOCUS RING over a scrim. The engine sets `data-pp-band-overlay` when a
+band paints both an image and an overlay, and the outline routes to the on-overlay role
+from there. You cannot forget to switch it on.
+
+**What that leaves you to do on a dark band:** set `typography.color` on every text role
+over it, and check each against your background for WCAG AA. An inverted band's focus ring
+in particular drops from a measured 8.33:1 to the 3.23:1 bare accent until the `button`
+role says otherwise — still above the 3:1 non-text bar, but a smaller margin than v1 gave.
+
+### ⚠️ Narrowed: two background behaviours are now explicit
+
+A `background_image` band used to get `background-size: cover` and
+`background-repeat: no-repeat` for free. Write `background.size` and `background.repeat`.
+
+### ⚠️ Narrowed: the second button's transitions
+
+With `button2_variant` retired both buttons render as a bare `.btn` and pick up the #540
+snap list, so the second button's transition narrows from five properties to three
+(`box-shadow, color, transform`). `motion` carries only duration and timing-function by
+ruling A3, so the property list is not authorable. hero's second CTA already shipped this
+at #986, its own rebuild, for the same reason.
+
+### Upgrading
+
+Run `wp pp check page --post_id=<id>` on every page with a closing CTA. Retired props report
+as `retired_prop` with their route; stored `--cta-*` slots report as `invalid_style_slot`.
+Nothing blocks reading the page, and `restore_composition` is never blocked.
+
+**Purge any full-page or CDN cache after upgrading.** A v2 band's design is emitted per page
+in `wp_head`, not in the stylesheet, so a cached PAGE now caches the design too. The
+combination that matters is a cached pre-upgrade page served against the new stylesheet: the
+old markup still carries the band-class and scrim element this release deleted every rule
+for, which renders an unscrimmed image band with the on-overlay ink gone. A cache purge
+clears it; nothing needs repairing in the database.
+
+### Docs
+
+Three AI-facing surfaces stated a roster or a count this rebuild moved, so a search for
+cta's own vocabulary could not find them:
+
+- `ai-instructions/add-component.md` said the retired-prop roster was "the ten v2-rebuild
+  keys"; cta retired four more, making fourteen. The stale sentence told an agent that
+  cta's `theme` is an `unknown_prop` when the schema answers `retired_prop` and names the
+  `udc` surface that replaced it. The count and the roster are now derived from the
+  registry and guarded in `DocsCoverageTest`, beside the two existing census guards.
+- The same file's band-rhythm comment listed cta, section and testimonials among the
+  components routing padding through their own slot. All three left that pattern to the v2
+  rebuilds; it now names the six that remain, records that section, cta and testimonials
+  reach the same definition through a `@pp-band-padding` default on `_band`, and that hero
+  is deliberately outside it on its own scale.
+- `AI_RULES.md` said the structural-CSS lint covers five components. cta is the sixth.
 
 ---
 

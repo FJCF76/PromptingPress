@@ -212,6 +212,52 @@ class AiContextTest extends TestCase
 
         $this->assertStringContainsString('`retired_prop`', $prompt, 'the code, so the model can branch on it');
         $this->assertStringContainsString('SEND IT AS null', $prompt, 'the cure');
+
+        // THE INVENTORY IS DERIVED FROM THE REGISTRY, NOT READ FROM THE PROSE, because the
+        // prose went stale exactly once per rebuild sprint until this guard existed: #1026
+        // retired cta's four props and left the sentence reading "Ten keys across three
+        // components" while the registry held fourteen across four. The model is told this
+        // count to size the repair job on a pre-rebuild page, so an undercount understates
+        // the work. Assert the WORDS against the COUNT so the next rebuild cannot land
+        // without updating them together.
+        $counts = [];
+        foreach (array_keys(pp_get_registered_components()) as $component) {
+            $retired = pp_component_retired_props($component);
+            if ($retired !== []) {
+                $counts[$component] = count($retired);
+            }
+        }
+        $keys       = array_sum($counts);
+        $components = count($counts);
+        $numbers    = [
+            2 => 'Two', 3 => 'Three', 4 => 'Four', 5 => 'Five', 6 => 'Six', 7 => 'Seven',
+            8 => 'Eight', 9 => 'Nine', 10 => 'Ten', 11 => 'Eleven', 12 => 'Twelve',
+            13 => 'Thirteen', 14 => 'Fourteen', 15 => 'Fifteen', 16 => 'Sixteen',
+            17 => 'Seventeen', 18 => 'Eighteen', 19 => 'Nineteen', 20 => 'Twenty',
+        ];
+        $this->assertArrayHasKey($keys, $numbers, 'extend the number words if the roster grew past twenty');
+        $this->assertArrayHasKey($components, $numbers, 'extend the number words if the component roster grew');
+        $this->assertStringContainsString(
+            // The keys number opens the sentence so it is capitalised; the components
+            // number sits mid-sentence and is not.
+            "{$numbers[$keys]} keys across " . lcfirst($numbers[$components]) . ' components today',
+            $prompt,
+            "the prompt must state the REAL inventory: {$keys} retired keys across {$components} components ("
+            . implode(', ', array_map(
+                static fn ($c, $n) => "{$c}={$n}",
+                array_keys($counts),
+                array_values($counts)
+            )) . ')'
+        );
+        // And every component that has retired props must be NAMED, or the model is told a
+        // count it cannot act on.
+        foreach (array_keys($counts) as $component) {
+            $this->assertStringContainsString(
+                $component === 'testimonials' ? "testimonials' " : "{$component}'s ",
+                $prompt,
+                "the retired-prop inventory must name {$component}, which declares retired props"
+            );
+        }
         $this->assertStringContainsString('validates the band it targets', $prompt, 'the narrowed blast radius');
         $this->assertStringContainsString('duplicate `props.id`', $prompt, 'and the exception that still blocks');
 
@@ -263,7 +309,7 @@ class AiContextTest extends TestCase
         $this->assertStringContainsString('A `length-or-none`-typed slot', $prompt);
         $this->assertStringContainsString('PLUS the keyword `none`', $prompt);
         $this->assertStringContainsString(
-            'A plain `length` slot (padding, font-size, radius, and every measure with a real length default, e.g. `--cta-heading-measure`) still rejects it.',
+            'A plain `length` slot (padding, font-size, radius, and every measure with a real length default, e.g. `--grid-heading-measure`) still rejects it.',
             $prompt,
             'the widening must be stated as bounded, or the AI will try `none` everywhere'
         );
@@ -271,11 +317,13 @@ class AiContextTest extends TestCase
         // name the uncapped measures that are still SLOTS, or an agent reading it will
         // believe `none` is never valid on a measure and cannot restore their declared
         // default. The set shrinks one rebuild sprint at a time — --hero-heading-measure
-        // left in #986, --section-heading-measure in #1023 — so the prompt must also say
-        // what the v2 route is, or an agent on a rebuilt component reads a list it is not
-        // on and concludes the capability is gone.
+        // left in #986, --section-heading-measure in #1023, --cta-body-measure in #1026 —
+        // so the prompt must also say what the v2 route is, or an agent on a rebuilt
+        // component reads a list it is not on and concludes the capability is gone. ONE
+        // slot is left, and the singular phrasing is deliberate: a list of one that still
+        // reads as a list is how a roster survives past its last member.
         $this->assertStringContainsString(
-            'the two text measures that ship uncapped (`--cta-body-measure`, `--faq-body-measure`)',
+            'the one text measure that ships uncapped (`--faq-body-measure`)',
             $prompt,
             'the length-or-none carrier set must be stated, not just --stats-max-width'
         );
@@ -988,12 +1036,17 @@ class AiContextTest extends TestCase
         ];
         $GLOBALS['_pp_test_store']['post_meta'][60]['_pp_composition'] = wp_json_encode([
             [
-                // `cta`, not hero: this pins that the page context carries style slots, a
-                // recipe and typed editable props, and hero has none of the first two
-                // since #986. cta still declares all three, including `button_url`.
-                'component' => 'cta',
-                'props' => ['id' => 'pp-test123', 'title' => 'Welcome', 'body' => 'B', 'button_text' => 'Go', 'button_url' => '/go'],
-                'style' => ['--cta-bg' => '#0d1117', '--cta-heading-color' => '#f0f0f0', '__recipe' => 'dark-bold'],
+                // `grid` since #1026 (`cta` before it), and GRID IS FORCED HERE — it is the one
+                // re-homed fixture in this sprint that could not follow the #1023 rule of
+                // landing on `stats`. The subject is a page context carrying style slots AND A
+                // RECIPE and typed editable props, and grid is the ONLY component in the theme
+                // that declares recipes at all (3 of them; cta's `dark-bold` / `accent-framed`
+                // retired with its slot map, and stats has never had any). A stats fixture
+                // could not exercise the recipe half, so moving it would silently narrow the
+                // test. Revisit when grid rebuilds (#1024); #1025 is the durable fix.
+                'component' => 'grid',
+                'props' => ['id' => 'pp-test123', 'title' => 'Welcome', 'items' => [['title' => 'Card', 'text' => 'B']]],
+                'style' => ['--grid-bg' => '#0d1117', '--grid-heading-color' => '#f0f0f0', '__recipe' => 'dark-bold'],
             ],
         ]);
 
@@ -1002,12 +1055,14 @@ class AiContextTest extends TestCase
 
         $this->assertStringContainsString('pp-test123', $system);
         $this->assertStringContainsString('recipe: dark-bold', $system);
-        $this->assertStringContainsString('--cta-bg: #0d1117', $system);
+        $this->assertStringContainsString('--grid-bg: #0d1117', $system);
         $this->assertStringContainsString('Editable:', $system);
         $this->assertStringContainsString('title (string)', $system);
-        // A prop with a schema format shows its family so the AI patches valid
-        // values (#509): button_url is a link_url-format string.
-        $this->assertStringContainsString('button_url (string, link_url)', $system);
+        // A prop with a schema format shows its family so the AI patches valid values
+        // (#509). The example moved from cta's `button_url` to grid's `image_url` at #1026
+        // with the fixture: both are format-carrying string props, which is the only
+        // property this line is about.
+        $this->assertStringContainsString('image_url (string, image_url)', $system);
     }
 
     public function testFormatMessagesPageContextHandlesNoStyleOverrides(): void

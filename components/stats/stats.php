@@ -29,20 +29,72 @@ $raw_title_accent = $props['title_accent']     ?? '';
 $title_accent     = is_scalar($raw_title_accent) ? (string) $raw_title_accent : '';
 $theme            = $props['theme']            ?? 'default';
 $items            = $props['items']            ?? [];
-// #705: guard the raw-value argument of pp_esc_image_src() (`string $url`) before it
-// reaches the call below. A non-empty array is truthy, so the `if ($background_image)`
-// gate passes on one and the typed call raises a TypeError that no caller catches —
-// the whole PUBLIC PAGE 500s. Guarded at the READ because this prop drives three gates
-// (the --has-bg-image modifier, the inline background-image, and the overlay div) and
-// the read is upstream of all of them, so a guarded-away value renders the band exactly
-// as an empty background_image already does. is_scalar + (string), NOT is_string: only
-// non-scalars ever fataled (coercive mode), and the write path stores a scalar
-// background_image raw (#707), so is_string() would silently drop an accepted value.
-// Full reasoning in components/cta/cta.php. Reachable from STORED data even though the
-// write path rejects the shape, because the validator gates WRITES, not storage: #233
-// restore reports without blocking, a pre-rule composition still carries the value, and
-// a raw _pp_composition meta write is not gated at all. (Stated directly rather than by
-// comparison — stats has no image_url prop, so there is no local guard to point at.)
+// ── #705: THE CANONICAL RAW-VALUE GUARD FOR background_image INTO pp_esc_image_src() ──
+//
+// THE CANONICAL EXPLANATION FOR background_image LIVES HERE, as of #1026. It lived in
+// components/cta/cta.php from #705 until cta's v2 rebuild retired the prop; stats is the
+// last component that declares it, so it is the last place the reasoning can live. If
+// stats is itself rebuilt, this prop leaves the theme entirely and this block goes with
+// it rather than moving again. It is the same idiom components/logos/logos.php documents
+// for image_url (#641) and components/hero/hero.php for title (#706), ratified as the
+// family standard at gate D-B.
+//
+// The helper's first argument is typed:
+//   pp_esc_image_src(string $url, int $depth = 0)
+// A non-empty array is TRUTHY, so the `if ($background_image)` gate below PASSES on one
+// and the typed call raises a TypeError. templates/composition.php calls
+// pp_get_component() with no try/catch, so ONE malformed stored value returns a
+// whole-page 500 instead of a band missing its background.
+//
+// GUARDED AT THE READ, NOT AT THE CALL, and that placement is the behaviour. This prop
+// drives THREE gates — the --has-bg-image modifier, the inline background-image
+// declaration, and the overlay <div> — and the read is upstream of all three. A
+// call-site-only guard would leave the modifier and the overlay ON with nothing painting
+// underneath: a dark scrim over the band's own background, wearing the light on-overlay
+// ink the modifier selects. That is a visual state nobody designed. Guarding here reuses
+// one that shipped long ago — the band renders exactly as it does with an empty
+// background_image.
+//
+// HONEST LIMIT of that argument, so the next reader is not misled: this guard closes the
+// NON-SCALAR route into that undesigned state, not every route. All three gates key on
+// the PRE-escaper string, and pp_esc_image_src() returns '' for anything it rejects, so a
+// stored STRING the sanitizer refuses (a data:text/html URI, a scripted SVG) still renders
+// `background-image:url()` with the modifier and the overlay ON — the scrim-over-nothing
+// state, reached by a different door. That is PRE-EXISTING behaviour, unchanged here and
+// pinned as-is in StoredBackgroundImageRenderGuardTest.
+//
+// is_scalar, NOT is_string. PHP runs COERCIVE here (no declare(strict_types)), so only
+// NON-SCALARS ever fataled: a stored `42` coerced at the boundary and PAINTED a
+// background. #707 has since narrowed the WRITE path so `background_image: 42` is refused,
+// but that gates writes and not storage — a pre-#707 composition, a restore (#233) and a
+// raw meta write all still hold it, and it still has to paint — so is_string() would
+// silently drop a value that renders correctly today. One half of the #641 rationale does
+// NOT carry over: background_image has no image_id companion (it is CSS background-image,
+// not an <img>), so there is no resolvable attachment to discard here. Stated directly
+// rather than by comparison — stats has no image_url prop, so there is no local guard to
+// point at.
+//
+// NOTE ON THE EXACT BYTES, because it is easy to get wrong from the test suite: what a
+// schemeless scalar paints is decided by core's esc_url(), NOT by this guard. Real
+// WordPress prepends a scheme to a value with no ':' and no leading /#?, so production
+// emits `url(http://42)`. The PHPUnit stub in tests/bootstrap.php does not reproduce that
+// character work (it is type-faithful, not byte-faithful — pinned in
+// tests/EscapingStubContractTest.php), so under test the same value reads `url(42)`.
+//
+// The (string) cast leaves the three gates alone for every scalar but one: FLOAT NEGATIVE
+// ZERO. `-0.0` is falsy, but `(string) -0.0` is `'-0'`, which is truthy, so it opens the
+// three gates it used to leave shut. What decides it is the stored JSON TEXT, not the PHP
+// value written: json_encode(-0.0) emits `-0`, which decodes to INT 0 and stays falsy, so
+// only stored bytes that already contain the literal text `-0.0` reach the flip. Both
+// halves are pinned in StoredBackgroundImageRenderGuardTest, so the claim stays measured.
+// Left as-is deliberately: `-0` is inert in both the CSS url() token and the attribute, so
+// the consequence is one absurd stored value painting a scrim, not a safety hole.
+//
+// STORED data is the point. The write path rejects non-scalars, but it gates WRITES, not
+// storage: restore_composition reports without blocking (#233), a composition authored
+// before the rule still carries the value, and a raw _pp_composition meta write is not
+// gated at all. Nothing here rewrites the store — the value is read, not migrated, and
+// _pp_composition_findings() still reports it to the operator.
 $raw_background_image = $props['background_image'] ?? '';
 $background_image     = is_scalar($raw_background_image) ? (string) $raw_background_image : '';
 

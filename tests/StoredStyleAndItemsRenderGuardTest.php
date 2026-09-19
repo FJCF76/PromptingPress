@@ -161,7 +161,8 @@ class StoredStyleAndItemsRenderGuardTest extends TestCase
         // a v2 component has no `__pp_style` read to guard, because it paints no stored
         // style map at all. Section's v2 equivalent — a hostile `udc` map reaching the
         // emitter — is guarded in UdcEngineTest alongside testimonials' and hero's.
-        'grid', 'cta', 'stats', 'faq', 'logos', 'table', 'embed',
+        // cta left at #1026 with its slot map; it no longer calls pp_render_style_vars().
+        'grid', 'stats', 'faq', 'logos', 'table', 'embed',
     ];
 
     /**
@@ -680,7 +681,7 @@ class StoredStyleAndItemsRenderGuardTest extends TestCase
     public function testACombinedCorruptBandSurvivesEveryLandedAxisAtOnce(): void
     {
         $corrupt = ['en' => 'Our services', 'es' => 'Nuestros servicios'];
-        $takes_background = ['cta', 'stats'];
+        $takes_background = ['stats'];
         // The #706 set: the components that pass `title` into pp_render_heading_with_accent().
         $guarded_title = ['hero', 'grid', 'section', 'cta', 'stats', 'faq', 'testimonials'];
 
@@ -823,10 +824,10 @@ class StoredStyleAndItemsRenderGuardTest extends TestCase
         // style attribute. There is therefore no merged `style=""` for a malformed map
         // to leave residue in, which is exactly what this test measures.
         $background_props = [
-            // section left this control set at #1023, the way hero left at #986: it
-            // retired `background_image`, so it paints no background to merge a malformed
-            // style map against.
-            'cta'     => ['background_image' => '/bg.png'],
+            // section left this control set at #1023 and cta at #1026, the way hero left at
+            // #986: each retired `background_image`, so none paints a background to merge a
+            // malformed style map against. stats is the last component that does, which
+            // makes it the last band this control can be run on at all.
             'stats'   => ['background_image' => '/bg.png'],
         ];
 

@@ -1,6 +1,6 @@
 {
   "component": "cta",
-  "description": "Call-to-action block with an optional title, optional supporting text, and a button. Two layouts: full-width (centered, bg surface) and inline (flex row). Omit title (and body) to render a standalone button row with no heading — the sanctioned heading-less button pattern.",
+  "description": "Call-to-action band: an optional eyebrow, heading and supporting line above one or two buttons. Two layouts: full-width (a centred block) and inline (a flex row, text left and buttons right). Omit title and body to render a standalone button row with no heading — the sanctioned heading-less button pattern. REBUILT ON THE UNIVERSAL DESIGN CONTRACT (v2): it declares no style slots. Every designable value — colour, type, spacing, border, shadow, size, motion — is set through the `udc` map on the band, per role. `layout` survives as a prop because the UDC taxonomy has no layout group, so removing it would delete a capability rather than move it. See docs/v2/BUILD-SPEC-sprint0.md §3.",
   "props": {
     "id": {
       "type": "string",
@@ -12,7 +12,7 @@
       "type": "string",
       "required": false,
       "default": "",
-      "description": "Optional CTA headline. Omit (along with body) to render a standalone button row with no heading element — the sanctioned heading-less button pattern (issue 294). id/anchor and all style slots still apply. Plain text — HTML is escaped."
+      "description": "Optional CTA headline. Omit (along with body) to render a standalone button row with no heading element — the sanctioned heading-less button pattern (issue 294). The `id` anchor and the whole `udc` map still apply. Plain text — HTML is escaped."
     },
     "title_accent": {
       "type": "string",
@@ -47,118 +47,313 @@
       "type": "string",
       "required": false,
       "default": "",
-      "description": "Optional SECOND button label, rendered beside the primary button as a secondary action (the hero's button2_text pattern). Leave empty (the default) and no second button is rendered — the CTA is byte-identical to a single-button one. Plain text — HTML is escaped."
+      "description": "Optional SECOND button label, rendered beside the primary button as a secondary action. Leave empty (the default) and no second button is rendered — the CTA is byte-identical to a single-button one. Its look is the `button-secondary` role. Plain text — HTML is escaped."
     },
     "button2_url": {
       "type": "string",
       "required": false,
       "default": "#",
       "format": "link_url",
-      "description": "Second button destination URL. Accepts an absolute URL (https://...), a site-relative path (/path), an anchor (#id), mailto:, or tel:; a disallowed protocol (javascript:, data:) is rejected at write time because it would render as a dead link."
-    },
-    "button2_variant": {
-      "type": "enum", "strict": true,
-      "values": ["primary", "secondary", "outline", "ghost"],
-      "required": false,
-      "default": "outline",
-      "description": "Second button style — defaults to 'outline' so a primary + secondary pair reads as one filled action and one outlined action. 'primary' = filled accent. 'secondary' = muted surface fill. 'outline' = accent border, transparent fill. 'ghost' = borderless text button. Set via update_component (a prop, not a style slot). Only rendered when button2_text is set."
+      "description": "Second button destination URL. Accepts an absolute URL (https://...), a site-relative path (/path), an anchor (#id), mailto:, or tel:; a disallowed protocol (javascript:, data:) is rejected at write time because it would render as a dead link. Renders only when button2_text is set."
     },
     "layout": {
-      "type": "enum", "strict": true,
-      "values": ["full-width", "inline"],
+      "type": "enum",
+      "strict": true,
+      "values": [
+        "full-width",
+        "inline"
+      ],
       "required": false,
       "default": "full-width",
-      "description": "Structural layout. 'full-width' — centered block with surface background. 'inline' — flex row, text left, button right."
-    },
-    "theme": {
-      "type": "enum", "strict": true,
-      "values": ["default", "muted", "inverted"],
-      "required": false,
-      "default": "default",
-      "description": "Background color/tone for this band. 'default' = the band's own default background (no tone override). 'muted' = light tinted surface band (renders the --color-surface background with framing top and bottom borders). 'inverted' = inverted dark background for strong contrast; use 'inverted' for a genuinely dark band."
-    },
-    "background_image": {
-      "type": "string",
-      "required": false,
-      "default": "",
-      "format": "image_url",
-      "description": "Optional background image URL. When set, renders as a CSS background-image with a dark overlay. Text automatically uses light colors for contrast."
-    },
-    "button_variant": {
-      "type": "enum", "strict": true,
-      "values": ["primary", "secondary", "outline", "ghost"],
-      "required": false,
-      "default": "primary",
-      "description": "Primary button style. 'primary' = filled accent (bare .btn). 'secondary' = muted surface fill. 'outline' = accent border, transparent fill. 'ghost' = borderless text button. Set via update_component (a prop, not a style slot)."
+      "description": "Structural layout — scaffolding, not styling, which is why it is still a prop. 'full-width' is a centred block; 'inline' is a flex row from 768px with the text left and the buttons right. It selects GEOMETRY ONLY: unlike v1, it carries no background or border of its own. The `_band` role's defaults are the values v1's full-width band rendered (this prop's own default), so an inline band now paints them too — set `_band` -> `background.fill` to \"transparent\" and `border.width-top` / `border.width-bottom` to \"0\" for the v1 inline look."
     }
   },
-  "styling": {
-    "root_class": "cta",
-    "variant_classes": ["cta--full-width", "cta--inline", "cta--dark", "cta--inverted", "cta--has-bg-image"],
-    "tokens": ["--color-surface", "--color-bg-inverted", "--color-accent", "--overlay-bg"],
-    "style_slots": {
-      "--cta-padding-top": { "type": "length", "default": "var(--pp-band-padding)", "description": "Top padding of the band. Defaults to the shared symmetric band rhythm (fluid ~68-80px desktop, ~54px mobile); set an explicit length to override." },
-      "--cta-padding-bottom": { "type": "length", "default": "var(--pp-band-padding)", "description": "Bottom padding of the band. Defaults to the shared symmetric band rhythm; set an explicit length to override." },
-      "--cta-bg": { "type": "gradient", "default": "var(--color-surface)", "description": "Background color or gradient. var(--color-surface) is the effective default on the default full-width layout; the inverted theme defaults to var(--color-bg-inverted), and the inline layout and any background_image band default to transparent." },
-      "--cta-heading-color": { "type": "color", "default": "var(--color-text)", "description": "Title text color. Defaults to the theme text colour (the inverted and background-image variants supply their own light default). LEAVE IT UNSET unless THIS band must differ: recolouring every heading on the site is ONE update_design_token write on --color-text, not one slot write per band.", "applies_when": [{"prop": "title", "present": true}] },
-      "--cta-heading-accent-color": { "type": "color", "default": "var(--color-accent)", "description": "Color of the title_accent substring within the title. Ignored unless title_accent is set AND occurs as a substring of title — no accent span is rendered otherwise, so this slot has nothing to colour.", "applies_when": [{"prop": "title", "present": true}] },
-      "--cta-eyebrow-color": { "type": "color", "default": "var(--color-text)", "description": "Eyebrow pill text color", "applies_when": [{"prop": "eyebrow", "present": true}] },
-      "--cta-eyebrow-bg": { "type": "color", "default": "var(--color-surface-accent)", "description": "Eyebrow pill background color", "applies_when": [{"prop": "eyebrow", "present": true}] },
-      "--cta-eyebrow-radius": { "type": "length", "default": "3px", "description": "Eyebrow pill corner radius. Set a large value (e.g. 999px) for a fully rounded pill.", "applies_when": [{"prop": "eyebrow", "present": true}] },
-      "--cta-eyebrow-border-width": { "type": "length", "default": "0", "description": "Eyebrow pill border width. Set a non-zero width (with --cta-eyebrow-border-color) for an outlined pill; 0 (default) renders no border.", "applies_when": [{"prop": "eyebrow", "present": true}] },
-      "--cta-eyebrow-border-color": { "type": "color", "default": "transparent", "description": "Eyebrow pill border color. Takes effect when --cta-eyebrow-border-width is non-zero.", "applies_when": [{"prop": "eyebrow", "present": true}] },
-      "--cta-eyebrow-text-transform": { "type": "text-transform", "default": "uppercase", "description": "Eyebrow pill letter-casing. Default uppercase renders the kicker in caps; set none to keep it as authored (e.g. sentence case), or lowercase / capitalize.", "applies_when": [{"prop": "eyebrow", "present": true}] },
-      "--cta-heading-size": { "type": "length", "default": "var(--pp-band-heading-size)", "description": "Title font size. Defaults to the shared responsive band-heading scale (fluid ~28px mobile to ~42px desktop), which every band heading in the theme routes. LEAVE IT UNSET unless THIS band must differ from the rest of the site: the shared scale is not a design token and no action in the write path can retune it, so setting this slot changes THIS band only and never the others.", "applies_when": [{"prop": "title", "present": true}] },
-      "--cta-body-color": { "type": "color", "default": "var(--color-text-secondary)", "description": "Body text color. var(--color-text-secondary) is the effective default at desktop (>=768px); below 768px it is var(--color-muted). DUAL JOB: on a DARK band (theme inverted, or any background_image band) this same slot is also the LINK ink inside the body, at rest and on hover — so on a dark band the paragraph colour and the link colour cannot differ, and setting it recolours both." },
-      "--cta-body-size": { "type": "length", "default": "1.04rem", "description": "Body text font size. 1.04rem is the effective default at desktop (>=768px); below 768px it is 1rem" },
-      "--cta-inner-gap": { "type": "length", "default": "var(--space-lg)", "description": "Gap on .cta__inner, whose flex children are the text block and the button row — so it sets the vertical space BETWEEN the copy and the buttons. The eyebrow, title and body sit inside the text wrapper and are spaced by their own margins, not by this gap. It does NOT govern the space BETWEEN the two buttons: that is .cta__buttons { gap: var(--space-sm) }, which has no slot because it already resolves to a design token and retunes site-wide with one update_design_token write on --space-sm. Setting this slot expecting the button pair to move apart does nothing." },
-      "--cta-accent": { "type": "color", "default": "var(--color-accent)", "description": "Button RESTING background and border color, shared by both buttons. In the border chain it outranks BOTH the per-button resting fill (--cta-button-bg / --cta-button2-bg) and the site-wide --btn-border-color, so setting it keeps the resting ring on the accent even when the fill is recolored or a global ring token is in play (#564). Only the per-button border slots (--cta-button-border / --cta-button2-border) beat it. This mirrors --cta-accent-hover on hover, so a button's ring cannot change color when the pointer lands." },
-      "--cta-accent-hover": { "type": "color", "default": "var(--color-accent-hover)", "description": "Button hover BORDER color, mirroring --cta-accent at rest. Does NOT recolor a filled button's visible hover fill on its own — set --cta-button-hover-bg (or --cta-button2-hover-bg) for that. On BOTH buttons this knob outranks the per-button hover fill (--cta-button-hover-bg / --cta-button2-hover-bg), so setting it keeps the hover ring on the accent even when the hover fill is recolored. Because this knob is shared by the pair, setting it is what makes both buttons ring the SAME color; the per-button fill slots are separate, so a fill-only recolor still rings each button with its own fill (#538, #548)." },
-      "--cta-button-bg": { "type": "color", "role": "fill", "default": "(varies by button_variant)", "description": "Button background color, independent of --cta-accent. Applies whatever button_variant is set to." },
-      "--cta-button-border": { "type": "color", "default": "(varies by button_variant)", "description": "Button border color, independent of --cta-accent." },
-      "--cta-button-color": { "type": "color", "default": "(varies by button_variant)", "description": "Button text color, independent of --cta-accent." },
-      "--cta-button-hover-bg": { "type": "color", "role": "fill", "default": "(varies by button_variant)", "description": "Button hover background color. On a filled (primary) button it replaces the premium hover gradient with a flat fill, the way --cta-button-bg does for the resting state; pair the two for a button that stays on-brand through the hover. On a PRIMARY button the fill and its ring change instantly rather than animating, so no unchosen in-between color renders; the outline/ghost/secondary variants keep the shared button cross-fade. Applies to the PRIMARY button only — it never reaches the second button, which has --cta-button2-hover-bg." },
-      "--cta-button-hover-border": { "type": "color", "default": "(varies by button_variant)", "description": "Button hover border color. Unset, it falls to --cta-accent-hover, then the global --btn-hover-border-color, then --cta-button-hover-bg, then the global --btn-hover-bg, then the theme default — the same PRECEDENCE ORDER --cta-button2-hover-border uses on the second button (#548, #564). Same order, not necessarily the same color: each button reads its own hover-border and hover-fill slots, so the pair matches wherever the winning link is a SHARED knob (--cta-accent-hover, --btn-hover-border-color, the theme default) and differs wherever it is a per-button one. On a FILLED button a recolored hover fill therefore already carries a matching ring with no border slot set, as --cta-button-border does at rest. Since #564 the REST chain uses this same order, so the ring does not change color when the pointer lands. On background_image bands NEITHER global hover knob is in the chain at all — --btn-hover-border-color left in #564 and --btn-hover-bg in #565 — so that band's ring follows --cta-accent-hover or this button's own --cta-button-hover-bg, and otherwise bottoms out at the measured on-overlay role. Set this (or --cta-accent-hover) only when the hover ring should DIFFER from the hover fill." },
-      "--cta-button-hover-color": { "type": "color", "default": "(varies by button_variant)", "description": "Button hover text color." },
-      "--cta-button-shadow": { "type": "shadow", "default": "(premium bevel)", "description": "Button box shadow on the PRIMARY button only — its per-button counterpart is --cta-button2-shadow, which owns the second button. Set to `none` for a FLAT button (removes the gradient bevel/drop shadow on rest AND hover); pair with --cta-button-bg (a flat color) and --cta-button-color (ink) for a flat primary. Its reach is wider than the name suggests: the elevation chain is keyed on the shared .cta__button class, which the SECOND button carries too, so the only thing that stops this slot repainting button2 is the button2 isolation rule in the cta CSS block — that isolation is load-bearing, not cosmetic. Flattening the primary therefore does NOT flatten button2; use its per-button counterpart --cta-button2-shadow for that." },
-      "--cta-button2-bg": { "type": "color", "role": "fill", "default": "(varies by button2_variant)", "description": "SECOND button RESTING background color, independent of the primary button (the primary's --cta-button-bg / -color / -shadow / -hover-bg never reach this button, in rest or hover). Applies whatever button2_variant is set to: on a filled (primary) button2 it replaces the premium gradient with a flat fill, exactly as --cta-button-bg does for the primary button. This slot governs the RESTING state only — set --cta-button2-hover-bg for the hover fill, otherwise hover keeps the premium gradient.", "applies_when": [{"prop": "button2_text", "present": true}] },
-      "--cta-button2-border": { "type": "color", "default": "(varies by button2_variant)", "description": "Second button border color, independent of the primary button. The chain mirrors the primary button's exactly: this slot wins, then --cta-accent, then the site-wide --btn-border-color token, then the fill chain (--cta-button2-bg, then --btn-bg) — so with neither the accent nor a global border token set, a fill-only recolor keeps a matching ring (#564). Set this slot when the ring should differ from the fill, or when --cta-accent or a site-wide --btn-border-color is in play and this button needs its own ring. On background_image bands NEITHER global knob is in the chain at all — --btn-border-color left in #564 and --btn-bg in #565 — so only this slot, --cta-accent and this button's own --cta-button2-bg sit above the measured on-overlay role there.", "applies_when": [{"prop": "button2_text", "present": true}] },
-      "--cta-button2-color": { "type": "color", "default": "(varies by button2_variant)", "description": "Second button text color, independent of the primary button. This is the safe surface for fixing the second button's contrast on a dark band.", "applies_when": [{"prop": "button2_text", "present": true}] },
-      "--cta-button2-hover-bg": { "type": "color", "role": "fill", "default": "(varies by button2_variant)", "description": "Second button hover background color, independent of the primary button's --cta-button-hover-bg. Applies whatever button2_variant is set to: on a filled (primary) button2 it replaces the premium hover gradient with a flat fill, exactly as --cta-button-hover-bg does for the primary button. Pair with --cta-button2-bg for a second button that stays on-brand through the hover. On a PRIMARY button the fill and its ring change instantly rather than animating, so no unchosen in-between color renders; the outline/ghost/secondary variants keep the shared button cross-fade.", "applies_when": [{"prop": "button2_text", "present": true}] },
-      "--cta-button2-hover-border": { "type": "color", "default": "(varies by button2_variant)", "description": "Second button hover border color. Unset, it falls to --cta-accent-hover, then the global --btn-hover-border-color, then --cta-button2-hover-bg, then the global --btn-hover-bg, then the theme default — so on a FILLED button2 a recolored hover fill already carries a matching ring with no border slot set, as --cta-button2-border does at rest. Since #564 the REST chain uses this same order, so the ring does not change color when the pointer lands. On background_image bands NEITHER global hover knob is in the chain at all — --btn-hover-border-color left in #564 and --btn-hover-bg in #565 — so that band's ring follows --cta-accent-hover or this button's own --cta-button2-hover-bg, and otherwise bottoms out at the measured on-overlay role. Set this (or --cta-accent-hover) only when the hover ring should DIFFER from the hover fill. The outline/ghost/secondary variants do not follow the hover fill: on those, set this slot explicitly for a ring that tracks a recolored hover fill.", "applies_when": [{"prop": "button2_text", "present": true}] },
-      "--cta-button2-hover-color": { "type": "color", "default": "(varies by button2_variant)", "description": "Second button hover text color.", "applies_when": [{"prop": "button2_text", "present": true}] },
-      "--cta-button2-shadow": { "type": "shadow", "default": "(varies by button2_variant)", "description": "Second button box shadow — the per-button counterpart of --cta-button-shadow, which owns the PRIMARY button only. button2_variant defaults to `outline`, and every premium bevel rule excludes the outline/ghost/secondary variants, so a DEFAULT button2 already renders no shadow and this slot has nothing to remove; it earns its keep on button2_variant: 'primary', which does carry the bevel. It exists because the button2 isolation rule deliberately blocks the primary elevation from inheriting down, so --cta-button-shadow: none flattens the primary ALONE. Set this to `none` (or a shadow) to control the second button independently; pair with --cta-button2-bg and --cta-button2-color for a fully flat filled pair.", "applies_when": [{"prop": "button2_text", "present": true}] },
-      "--cta-border-color": { "type": "color", "default": "var(--color-border)", "description": "Top and bottom border color. var(--color-border) is the effective default on the default full-width layout and on the muted theme; the inline layout and any background_image band default to transparent." },
-      "--cta-border-width": { "type": "length", "default": "1px", "description": "Top and bottom border width. 1px is the effective default on the default full-width layout and on the muted theme; the inline layout and any background_image band default to 0." },
-      "--cta-radius": { "type": "length", "default": "0", "description": "Border radius" },
-      "--cta-shadow": { "type": "shadow", "default": "none", "description": "Box shadow of the CTA section (preset var(--shadow-sm|md|lg) or a bounded box-shadow)" },
-      "--cta-heading-measure": { "type": "length", "role": "measure", "default": "var(--measure-heading)", "description": "Maximum width of the CTA title. On the full-width layout this same value also caps the centered text wrapper, so it governs the title AND body block there. Routes the shared --measure-heading design token (40rem) by default, so retuning that ONE token changes every routed band heading at once; set a length here only when THIS band must differ from the rest of the site." },
-      "--cta-heading-margin-bottom": { "type": "length", "default": "var(--space-xs)", "description": "Space below the CTA title, before the body line (header rhythm). Lower it to tighten the header, raise it for more separation. Not a band-fusing lever: the button row always renders after the title, so the seam with the band below is closed with --cta-padding-bottom.", "applies_when": [{"prop": "title", "present": true}] },
-      "--cta-body-measure": { "type": "length-or-none", "role": "measure", "default": "none", "description": "Maximum width of the CTA body copy. Default \"none\": the body inherits whatever its wrapper allows, which on the full-width layout is already --cta-heading-measure. Set a length to give the body a SHORTER measure than the title; \"none\" restores the default." },
-      "--cta-overlay-bg": { "type": "gradient", "default": "var(--overlay-bg)", "description": "Background image overlay color or gradient (e.g. a transparent-to-dark scrim for text legibility over an image)", "applies_when": [{"prop": "background_image", "present": true}] },
-      "--cta-bg-position": { "type": "position", "default": "center", "description": "background_image focal point", "applies_when": [{"prop": "background_image", "present": true}] }
-    },
-    "recipes": {
-      "dark-bold": {
-        "description": "Bold dark background with light text for high-conversion CTAs",
-        "slots": {
-          "--cta-bg": "#1a1a2e",
-          "--cta-heading-color": "#ffffff",
-          "--cta-body-color": "#c8d6e5",
-          "--cta-padding-top": "5rem",
-          "--cta-padding-bottom": "5rem"
+  "retired_props": {
+    "_note": "Props this component declared on 1.x that the v2 rebuild retired (#1026). Each value names the v2 surface that replaced it, so a refusal can offer a route instead of a list of live prop names. Guarded by SchemaValidationTest, which fails in BOTH directions: a key here that still exists in props, or a route naming a role this component does not declare, is a test failure rather than a message that lies.",
+    "theme": "the `_band` role's `background` group for the surface, plus `typography.color` on the text roles (`heading`, `heading-accent`, `body`) and on `body-link` — v2 has no single dark/light switch, because every value is authorable. MEASURED BEFORE IT WENT: `muted` and `dark` rendered byte-identically to `default` on a full-width band, so `inverted` is the only state that actually needs rewriting.",
+    "background_image": "the `_band` role's `background.image` — a Media Library attachment id (`import_media` returns it), paired with `background.overlay` for the scrim and `background.position` / `size` / `repeat` for placement. NARROWER THAN THE PROP IT REPLACES, deliberately: v1 took any URL string, and ruling A2 accepts an attachment id only, with external URLs, video backgrounds and per-breakpoint art direction each out of scope pending their own ruling. A band background hosted outside this install cannot be expressed in v2. Two further v1 behaviours were automatic and are now explicit: the scrim (write `background.overlay`) and `background-size: cover` with `background-repeat: no-repeat` (write `background.size` / `repeat`).",
+    "button_variant": "the `button` role's `udc` map — set `border`, `background` and `typography` there, or apply the `button` or `button-secondary` preset with `\"_preset\"`",
+    "button2_variant": "the `button-secondary` role's `udc` map — same groups and the same presets as `button`. That role already carries v1's outline treatment as its defaults, so an unauthored pair still reads as one filled action beside one outlined action."
+  },
+  "roles": {
+    "_band": {
+      "selector": "",
+      "description": "The band itself — the <section>. Set the band's own background here to make a dark or tinted band; the v1 `theme` prop is gone because a preset bundle of colours is exactly what the UDC expresses directly. A band background image is `background.image` (an attachment id) with `background.overlay` for the scrim. THE DEFAULTS ARE WHAT v1's FULL-WIDTH BAND RENDERED, measured in Chromium at 375/768/1280 rather than read off the stylesheet: a surface fill and a 1px rule top and bottom. v2 has no layout-scoped role defaults, so one value serves both layouts, and `full-width` is this component's own default `layout` — which makes the band an agent gets when it specifies nothing byte-identical to v1. An `inline` band, which v1 left transparent and unruled, now paints them; set `background.fill` to \"transparent\" and `border.width-top` / `width-bottom` to \"0\" on that band for the old look.",
+      "groups": [
+        "typography",
+        "spacing",
+        "border",
+        "background",
+        "sizing",
+        "shadow",
+        "motion"
+      ],
+      "defaults": {
+        "spacing": {
+          "padding-top": "@pp-band-padding",
+          "padding-bottom": "@pp-band-padding"
+        },
+        "background": {
+          "fill": "@color-surface",
+          "position": "center"
+        },
+        "border": {
+          "width-top": "1px",
+          "width-bottom": "1px",
+          "style-top": "solid",
+          "style-bottom": "solid",
+          "color": "@color-border",
+          "radius": "0"
+        },
+        "shadow": {
+          "box": "none"
         }
-      },
-      "accent-framed": {
-        "description": "Accent border framing with rounded corners",
-        "slots": {
-          "--cta-border-color": "#6366f1",
-          "--cta-border-width": "3px",
-          "--cta-radius": "1rem"
+      }
+    },
+    "inner": {
+      "selector": ".cta__inner",
+      "description": "The band's content column (or, on `inline` from 768px, its row). Owns the gap between the text block and the buttons. IT DOES NOT GOVERN THE SPACE BETWEEN THE TWO BUTTONS — that is the `buttons` role's `spacing.gap`, and the distinction is worth stating because the two gaps look like one on a single-button band and diverge the moment a second button appears. v1 made the same disclosure about `--cta-inner-gap`; it survives the rebuild because the geometry did. Its flex direction, alignment and text alignment are the two layout modifiers' geometry and stay in the stylesheet.",
+      "groups": [
+        "spacing",
+        "sizing",
+        "motion"
+      ],
+      "defaults": {
+        "spacing": {
+          "gap": "@space-lg"
+        }
+      }
+    },
+    "text": {
+      "selector": ".cta__text",
+      "description": "The eyebrow/heading/body block, rendered only when at least one of them is set. Its `sizing.max-width` is the measure v1 gave it on the full-width layout; the centring that goes with it (`margin-inline: auto`) is that layout's geometry and stays in the stylesheet. On `inline` v1 left this uncapped, and the engine has no layout-scoped role defaults, so one value now serves both layouts. STATED PRECISELY, because the earlier wording misattributed the cause: on the measured fixture the cap does not bind at any of the three tiers, but that is a property of the FIXTURE'S COPY LENGTH, not of the tier. At 1280 an `inline` row leaves about 52.75rem for this block (72rem container, less 2x2rem container padding, less the button's 13.25rem min-width and the `inner` gap), which is 12.75rem MORE than the 40rem cap — so copy longer than 40rem wraps here where v1 let it run, at 1280 and not only on some wider viewport. Set `sizing.max-width` to `none` on this role for the v1 inline behaviour.",
+      "groups": [
+        "typography",
+        "spacing",
+        "border",
+        "background",
+        "sizing",
+        "motion"
+      ],
+      "defaults": {
+        "sizing": {
+          "max-width": "@measure-heading"
+        }
+      }
+    },
+    "eyebrow": {
+      "selector": ".cta__eyebrow",
+      "description": "The kicker pill above the heading.",
+      "groups": [
+        "typography",
+        "spacing",
+        "border",
+        "background",
+        "sizing",
+        "motion"
+      ],
+      "defaults": {
+        "typography": {
+          "size": "0.8125rem",
+          "weight": "600",
+          "letter-spacing": "0.04em",
+          "transform": "uppercase",
+          "color": "@color-text"
+        },
+        "spacing": {
+          "padding": "0.35rem 0.85rem",
+          "margin-bottom": "@space-sm"
+        },
+        "border": {
+          "width": "0",
+          "style": "solid",
+          "color": "transparent",
+          "radius": "3px"
+        },
+        "background": {
+          "fill": "@color-surface-accent"
+        }
+      }
+    },
+    "heading": {
+      "selector": ".cta__title",
+      "description": "The band heading (an <h2>). ITS `typography.color` IS `currentColor`, WHICH IS THE FAITHFUL PORT OF v1's `inherit` — AND THE DIFFERENCE BETWEEN THE TWO IS NOT COSMETIC. v1's rule was `color: var(--cta-heading-color, inherit)`. The fallback was the inherited value, so it is tempting to conclude that declaring NOTHING reproduces it. It does not: `inherit` was an EXPLICIT DECLARATION doing real work, because base.css gives every h1-h6 an explicit `color: var(--color-text)`, and A RULE THAT MATCHES AN ELEMENT BEATS AN INHERITED VALUE REGARDLESS OF LAYER. With no declaration here the <h2> takes base.css's #101828 and stops following the band, so a dark band authored through `_band` -> `background.fill` would render its heading at 1.01:1 — invisible. `currentColor` in the `color` property is defined to mean `inherit`, so the heading follows the band's text colour again and an authored value still wins. This is the same correction footer's `heading` role took at #994, where the reasoning is recorded in the stylesheet. Its weight, leading and tracking come from the shared heading rules and are not restated here.",
+      "groups": [
+        "typography",
+        "spacing",
+        "border",
+        "background",
+        "sizing",
+        "motion"
+      ],
+      "defaults": {
+        "typography": {
+          "color": "currentColor",
+          "size": "@pp-band-heading-size"
+        },
+        "spacing": {
+          "margin-bottom": "@space-xs"
+        },
+        "sizing": {
+          "max-width": "@measure-heading"
+        }
+      }
+    },
+    "heading-accent": {
+      "selector": ".cta__title-accent",
+      "description": "The accented substring inside the heading, rendered only when title_accent matches.",
+      "groups": [
+        "typography",
+        "spacing",
+        "border",
+        "background",
+        "sizing",
+        "motion"
+      ],
+      "defaults": {
+        "typography": {
+          "color": "@color-accent"
+        }
+      }
+    },
+    "body": {
+      "selector": ".cta__body",
+      "description": "The supporting line below the heading. FOUR of its five values are breakpoint maps or measured literals that v1 declared ONLY inside media queries, and reading them without their wrappers is the #1023 media-scope trap exactly. v1 had no unconditional rule for this element's weight or leading at all: `main > .cta .cta__body` inside `@media (min-width: 768px)` gave 430/1.66 and its twin inside `@media (max-width: 767px)` gave 430/1.65, while the colour and size split the same way — the unscoped base rule supplied the phone colour and the desktop rule overrode it. Measured at 375/768/1280: `rgb(94,102,119)`/16px/26.4px on phone against `rgb(45,54,72)`/16.64px/27.62px above it. Carrying the desktop literals unconditionally would have restyled the phone tier; dropping the weight and leading with the rules that carried them would have restyled every tier. It carries NO measure: v1 declared `max-width: none` and rendered `none`.",
+      "groups": [
+        "typography",
+        "spacing",
+        "border",
+        "background",
+        "sizing",
+        "motion"
+      ],
+      "defaults": {
+        "typography": {
+          "color": {
+            "d": "@color-text-secondary",
+            "t": "@color-text-secondary",
+            "p": "@color-muted"
+          },
+          "size": {
+            "d": "1.04rem",
+            "t": "1.04rem",
+            "p": "1rem"
+          },
+          "weight": "430",
+          "line-height": {
+            "d": "1.66",
+            "t": "1.66",
+            "p": "1.65"
+          }
+        }
+      }
+    },
+    "body-link": {
+      "selector": ".cta__body a",
+      "description": "Links inside the inline-HTML body. THIS ROLE DECLARES NO DEFAULTS, and that is the faithful port rather than an omission. Measured, a body link renders `@color-accent` underlined with an `@color-accent-hover` hover — byte-identical to what `base.css` already gives every anchor. Identical in VALUE, different in CASCADE POSITION: a role block is emitted unlayered, so restating those values here would outrank the shared premium `main .btn:not(...)` rule, and an author-written `<a class=\"btn\">` inside the body is an anchor too — which is the #545 nested-author-button defect, reintroduced through a role selector. It cannot be fixed by narrowing the selector: the engine's gate admits `[A-Za-z0-9_ .>-]` only, so `:not(.btn)` is not expressible. An author who sets a colour here still outranks base.css, which is what a dark band needs.",
+      "groups": [
+        "typography",
+        "spacing",
+        "border",
+        "background",
+        "sizing",
+        "motion"
+      ],
+      "defaults": {}
+    },
+    "buttons": {
+      "selector": ".cta__buttons",
+      "description": "The row that holds the pair, emitted only when a second button exists. Owns the gap between them; its wrapping and packing are layout geometry and stay in the stylesheet.",
+      "groups": [
+        "spacing",
+        "sizing",
+        "motion"
+      ],
+      "defaults": {
+        "spacing": {
+          "gap": "@space-sm"
+        }
+      }
+    },
+    "button": {
+      "selector": ".cta__button--primary",
+      "description": "The primary button, and ONLY the primary: it selects `.cta__button--primary`, a modifier the template puts on the first anchor. `.cta__button` alone would match BOTH anchors, and a role selector's charset admits no `:` so `:not(.cta__button--secondary)` is not expressible — the same reason hero's primary carries a modifier (#986). IT DECLARES NO DESIGN DEFAULTS AT ALL, for two reasons that point the same way. First, measured: every resting and hover value it renders — the gradient fill, the inverted ink, the 1px accent ring, the bevel, the padding, the 44px-plus target, the #540 three-property transition — comes from the shared `.btn` and premium `main .btn:not(...)` rules in `@layer pp-v1`. Restating a global value as a role default changes its CASCADE POSITION even at an identical value: the role block is unlayered, so it would beat the premium `:hover` for the same property and strand the button in its resting paint. Second, role defaults outrank presets, so a default here would suppress exactly the part of a `button` preset that makes it a button. Apply `\"_preset\": \"button\"` and it lands whole; anything set beside a preset wins over it.",
+      "groups": [
+        "typography",
+        "spacing",
+        "border",
+        "background",
+        "sizing",
+        "shadow",
+        "motion"
+      ],
+      "defaults": {}
+    },
+    "button-secondary": {
+      "selector": ".cta__button--secondary",
+      "description": "The second button — the only role here with colour-bearing defaults, and deliberately so. With `button2_variant` retired both buttons render as a bare `.btn`, which MATCHES the shared premium filled family, so with nothing declared an unauthored cta would show two identical filled buttons side by side. v1 defaulted the second to `outline`; losing that is a default-experience regression, not a narrowing worth documenting. The values are v1's outline treatment as MEASURED (transparent fill, accent ink, a 2px accent edge at the button radius), every one an `@token` reference so a retune moves it and no colour is baked into schema data. THE HOVER SHIPS WITH THE REST, by rule: an unlayered resting value outranks the `pp-v1` hover rules in every state, so a resting colour without its state map is a button that never responds to a pointer. `shadow.box` is load-bearing and easy to miss — `background.fill` emits the `background` SHORTHAND and therefore clears the premium gradient, but nothing clears the premium BEVEL, so without it the outline button would ship with a filled button's elevation. It carries no `:hover` twin because rest and hover measured the same value. IT ALSO COSTS THE FOCUS HALO, AND THAT ONE IS A REAL LOSS RATHER THAN A WASH: `main .btn:focus, main .btn:focus-visible` carries a three-layer halo and, unlike the filled-primary rules, has NO `:not(.btn--outline)` exclusion, so v1's outline second button DID get it (the rest rule was `.cta__button` at (0,1,0) and lost to (0,2,1) in the same layer). An unlayered rest value outranks `pp-v1` in EVERY state, so this `none` erases it. It is NOT restated as a `\":focus-visible\"` map because the engine's `shadow` grammar cannot express that value — it refuses inset and multi-layer outright (\"No inset, multi-layer, or url()\"), and the halo is both. The 2px `outline` is a separate property and still paints, so focus stays visible and WCAG 1.4.11 holds; what is lost is the halo, which the PRIMARY still has because `button` declares nothing. The pair's focus treatment is therefore inconsistent until the grammar widens (#1041). TWO COSTS, STATED: these are the `button-secondary` preset's own values duplicated, so applying a DIFFERENT preset here is partly suppressed (a role naming its own preset as its DEFAULT is not reachable yet — the engine leaves that path inert deliberately and files it as #1018; #974, which an earlier draft cited here, is CLOSED and was about a preset test seam, not this); and the button's transition narrows from five properties to three, because a bare `.btn` picks up the #540 snap list and `motion` carries only duration and timing-function by ruling A3.",
+      "groups": [
+        "typography",
+        "spacing",
+        "border",
+        "background",
+        "sizing",
+        "shadow",
+        "motion"
+      ],
+      "defaults": {
+        "typography": {
+          "color": "@color-accent",
+          ":hover": {
+            "color": "@color-bg"
+          }
+        },
+        "background": {
+          "fill": "transparent",
+          ":hover": {
+            "fill": "@color-accent"
+          }
+        },
+        "border": {
+          "width": "2px",
+          "style": "solid",
+          "color": "@color-accent",
+          "radius": "@btn-radius",
+          ":hover": {
+            "color": "@color-accent"
+          }
+        },
+        "shadow": {
+          "box": "none"
         }
       }
     }
   },
-  "safe_to_edit": ["cta.php", "../../assets/css/components.css (COMPONENT: cta section)"],
-  "do_not_touch": ["schema.json without updating this component's README.md and the repo-root AI_CONTEXT.md"]
+  "styling": {
+    "root_class": "cta",
+    "variant_classes": [
+      "cta--full-width",
+      "cta--inline"
+    ],
+    "tokens": [
+      "--color-surface",
+      "--color-border",
+      "--color-text",
+      "--color-surface-accent",
+      "--color-accent",
+      "--color-bg",
+      "--measure-heading",
+      "--btn-radius",
+      "--space-xs",
+      "--space-sm",
+      "--space-lg"
+    ]
+  },
+  "safe_to_edit": [
+    "cta.php",
+    "../../assets/css/components.css (COMPONENT: cta section — STRUCTURAL CSS ONLY: layout scaffolding and accessibility affordances. No colour, type, size, spacing, border or shadow value may be added there; every one of those belongs to a role above.)"
+  ],
+  "do_not_touch": [
+    "schema.json without updating this component's README.md and the repo-root AI_CONTEXT.md"
+  ]
 }

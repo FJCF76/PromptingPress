@@ -224,13 +224,19 @@ class SchemaValidationTest extends TestCase
      */
     public function testStructuralAndToneComponentsUseCanonicalKeys(): void
     {
-        // testimonials and section both keep `layout` (structural scaffolding) and have
-        // both LOST `theme`: their v2 rebuilds removed it because its entire effect was
+        // testimonials, section and cta all keep `layout` (structural scaffolding) and have
+        // all LOST `theme`: their v2 rebuilds removed it because its entire effect was
         // value-styling the structural-CSS boundary forbids. Recorded in
         // SCHEMA_RENAME_MIGRATION_NOTES, whose entries this test's sets must agree with —
         // a component in $expectTheme AND in the notes register would be a contradiction.
+        //
+        // THE SPLIT THIS TEST PINS IS ITSELF SHRINKING, and the shape is worth naming: `theme`
+        // is a v1 surface, so every rebuild moves one component out of $expectTheme and into
+        // the notes register. `layout` is not — it survives a rebuild wherever the geometry it
+        // selects has no home in the UDC taxonomy, which is why cta stays in $expectLayout
+        // while leaving $expectTheme.
         $expectLayout = ['hero', 'section', 'grid', 'cta', 'testimonials'];
-        $expectTheme  = ['stats', 'logos', 'embed', 'grid', 'cta', 'faq'];
+        $expectTheme  = ['stats', 'logos', 'embed', 'grid', 'faq'];
 
         foreach ($expectTheme as $component) {
             $this->assertArrayNotHasKey(
@@ -239,7 +245,7 @@ class SchemaValidationTest extends TestCase
                 sprintf('"%s" is expected to declare `theme` AND recorded as having retired it', $component)
             );
         }
-        foreach (['testimonials', 'section'] as $component) {
+        foreach (['testimonials', 'section', 'cta'] as $component) {
             $this->assertArrayHasKey(
                 'theme',
                 self::SCHEMA_RENAME_MIGRATION_NOTES[$component] ?? [],
@@ -271,15 +277,14 @@ class SchemaValidationTest extends TestCase
     public function testStyleSlotsExistForV1Components(): void
     {
         $expected = [
-            // Issue 581 (A-18) added one state twin to each: --grid-item-link-hover-color
-            // and --cta-button2-shadow.
+            // Issue 581 (A-18) added --grid-item-link-hover-color. Its twin on the cta side,
+            // --cta-button2-shadow, left with cta's rebuild at #1026.
             'grid'    => 38,
-            'cta'     => 40,
         ];
 
         // The departed components are accounted for rather than dropped: every slot each
         // one used to declare carries a migration note.
-        foreach (['hero' => 49, 'section' => 47] as $component => $retiredCount) {
+        foreach (['hero' => 49, 'section' => 47, 'cta' => 40] as $component => $retiredCount) {
             $schema = json_decode(file_get_contents($this->themeRoot . "/components/{$component}/schema.json"), true);
             $this->assertArrayNotHasKey(
                 'style_slots',
@@ -473,13 +478,12 @@ class SchemaValidationTest extends TestCase
     public function testCommonVisualSlotConformance(): void
     {
         $expected = [
-            // hero's row is gone (#986) and section's with it (#1023): on a v2 component
+            // hero's row is gone (#986), section's with it (#1023) and cta's at #1026: on a v2 component
             // the four common visual slots are the `_band` role's `border.color` /
             // `border.width` / `border.radius` / `shadow.box`. The map lists only the
             // components still on the slot system, and the assertion below proves a
             // departed one really declares the four roles' parameters instead.
             'grid'    => ['--grid-item-border-color', '--grid-item-border-width', '--grid-item-radius', '--grid-item-shadow'],
-            'cta'     => ['--cta-border-color', '--cta-border-width', '--cta-radius', '--cta-shadow'],
         ];
         // concept index → required type: [border-color, border-width, radius, shadow].
         $types = ['color', 'length', 'length', 'shadow'];
@@ -2481,8 +2485,7 @@ class SchemaValidationTest extends TestCase
         $this->assertSame('unknown_prop', $result->get_error_code());
         $this->assertSame(
             'Component 0 ("cta") has no prop "text". Available props: id, title, title_accent, eyebrow, body, '
-            . 'button_text, button_url, button2_text, button2_url, button2_variant, layout, theme, '
-            . 'background_image, button_variant',
+            . 'button_text, button_url, button2_text, button2_url, layout',
             $result->get_error_message()
         );
     }
@@ -4285,6 +4288,40 @@ class SchemaValidationTest extends TestCase
         // is the engine's existing `background.image` contract (ids, so the theme can
         // resolve srcset and alt), not a new restriction invented here — but a caller
         // passing a bare URL has to import the media first, so the note says so.
+        'cta' => [
+            'theme' => 'REMOVED in v2 (#1026). A tone preset is a bundle of designable '
+                . 'values, which the UDC expresses directly: set the `_band` role\'s '
+                . '`background.fill` and the text roles\' `typography.color`. MEASURED '
+                . 'BEFORE IT WENT, which shrinks the migration: on a full-width band '
+                . '`muted` and `dark` rendered BYTE-IDENTICALLY to `default` at 375/768/'
+                . '1280 (both classes set the same fill and the same 1px rules the '
+                . 'full-width layout already had), so `inverted` is the only value that '
+                . 'ever needs rewriting. Same reasoning as section\'s `theme` in #1023.',
+            'background_image' => 'REMOVED in v2 (#1026) in favour of the `_band` role\'s '
+                . '`background.image`, with its scrim on `background.overlay`. NARROWER '
+                . 'THAN THE PROP: v1 took any URL string, ruling A2 takes a Media Library '
+                . 'ATTACHMENT ID, so a caller with a bare URL imports the media first '
+                . '(`import_media` returns the id) and a background hosted outside this '
+                . 'install cannot be expressed at all. TWO v1 BEHAVIOURS WERE AUTOMATIC '
+                . 'AND ARE NOW EXPLICIT: the scrim itself, and `background-size: cover` '
+                . 'with `background-repeat: no-repeat`, which the v1 variant class '
+                . 'hardcoded — write `background.size` / `repeat` for them. The variant '
+                . 'class also carried four AA corrections (#461/#463/#535/#577) and a '
+                . 'focus-ring routing; the corrections go with it (a v2 band owns its own '
+                . 'contrast, per #986) and the focus ring survives on the engine-emitted '
+                . '`[data-pp-band-overlay]` attribute, which cta now emits.',
+            'button_variant' => 'REMOVED in v2 (#1026). The four variants were four bundles '
+                . 'of button colours, which is what a role plus a preset expresses: set '
+                . '`border`, `background` and `typography` on the `button` role, or apply '
+                . '`"_preset": "button"` / `"button-secondary"`. `outline` and `ghost` have '
+                . 'no shipped preset and are written out on the role.',
+            'button2_variant' => 'REMOVED in v2 (#1026), same route as `button_variant` but '
+                . 'on the `button-secondary` role. Its v1 DEFAULT (`outline`) is preserved '
+                . 'as that role\'s own defaults, measured off v1 rather than copied from '
+                . 'hero: transparent fill, accent ink, a 2px accent edge at `@btn-radius`, '
+                . 'and `shadow.box: none` — so an unauthored pair still reads as one filled '
+                . 'action beside one outlined action instead of two identical filled ones.',
+        ],
         'section' => [
             'theme' => 'REMOVED in v2 (#1023). A tone preset is a bundle of designable '
                 . 'values, which the UDC expresses directly: set the `_band` role\'s '
@@ -5007,6 +5044,48 @@ class SchemaValidationTest extends TestCase
         //   SEPARATOR renders `currentColor` and follows its row's ink. See the SHARED
         //   GLYPH AND PROSE MECHANISMS block in assets/css/components.css, which states
         //   the same thing at the source.
+        'cta' => [
+            '--cta-padding-top' => 'REPLACED in v2 (#1026) by the `_band` role\'s `spacing.padding-top`.',
+            '--cta-padding-bottom' => 'REPLACED in v2 (#1026) by the `_band` role\'s `spacing.padding-bottom`.',
+            '--cta-bg' => 'REPLACED in v2 (#1026) by the `_band` role\'s `background.fill`.',
+            '--cta-bg-position' => 'REPLACED in v2 (#1026) by the `_band` role\'s `background.position`.',
+            '--cta-overlay-bg' => 'REPLACED in v2 (#1026) by the `_band` role\'s `background.overlay`. Note: the overlay is no longer tied to a `background_image` PROP — the band background is `background.image` on the same role, so the two are authored together in one map, and the engine composes the scrim into the same background layer list instead of rendering a `.cta__overlay` element for it.',
+            '--cta-border-color' => 'REPLACED in v2 (#1026) by the `_band` role\'s `border.color`.',
+            '--cta-border-width' => 'REPLACED in v2 (#1026) by the `_band` role\'s `border.width`. THE DEFAULT IS PER-EDGE NOW, because v1\'s was: the full-width layout drew 1px on the top and bottom only, so the role defaults `width-top`/`width-bottom` to `1px` and leaves the sides at the initial 0. Setting `width` still sets all four.',
+            '--cta-radius' => 'REPLACED in v2 (#1026) by the `_band` role\'s `border.radius`.',
+            '--cta-shadow' => 'REPLACED in v2 (#1026) by the `_band` role\'s `shadow.box`.',
+            '--cta-inner-gap' => 'REPLACED in v2 (#1026) by the `inner` role\'s `spacing.gap`.',
+            '--cta-heading-size' => 'REPLACED in v2 (#1026) by the `heading` role\'s `typography.size`.',
+            '--cta-heading-color' => 'REPLACED in v2 (#1026) by the `heading` role\'s `typography.color`, whose default is `currentColor`. v1\'s rule was `color: var(--cta-heading-color, inherit)`, and an earlier draft of this note read that as "the fallback is the inherited value, not a value, so the faithful port is no default at all" — which was WRONG and shipped a defect. `inherit` was an EXPLICIT DECLARATION doing work: base.css gives every h1-h6 an explicit `color: var(--color-text)`, and a rule that MATCHES an element beats an inherited value regardless of layer, so declaring nothing pinned the heading at #101828 and a dark band rendered it at 1.016:1. `currentColor` in the `color` property means `inherit`, which is what actually restores the v1 behaviour. Same correction footer\'s `heading` role took at #994.',
+            '--cta-heading-measure' => 'REPLACED in v2 (#1026) by the `heading` role\'s `sizing.max-width` — AND the `text` role\'s, which is the part that is easy to get wrong. This one slot fed TWO rules: `.cta__title`\'s own cap on every layout, and `.cta--full-width .cta__text`\'s cap on the text block. Reproducing it means setting both, exactly as `--section-body-measure` needs four roles at #1023. The centring that went with the wrapper cap (`margin-inline: auto`) is layout geometry and stays in the stylesheet.',
+            '--cta-heading-margin-bottom' => 'REPLACED in v2 (#1026) by the `heading` role\'s `spacing.margin-bottom`.',
+            '--cta-heading-accent-color' => 'REPLACED in v2 (#1026) by the `heading-accent` role\'s `typography.color`.',
+            '--cta-eyebrow-color' => 'REPLACED in v2 (#1026) by the `eyebrow` role\'s `typography.color`.',
+            '--cta-eyebrow-bg' => 'REPLACED in v2 (#1026) by the `eyebrow` role\'s `background.fill`.',
+            '--cta-eyebrow-radius' => 'REPLACED in v2 (#1026) by the `eyebrow` role\'s `border.radius`.',
+            '--cta-eyebrow-border-width' => 'REPLACED in v2 (#1026) by the `eyebrow` role\'s `border.width`.',
+            '--cta-eyebrow-border-color' => 'REPLACED in v2 (#1026) by the `eyebrow` role\'s `border.color`.',
+            '--cta-eyebrow-text-transform' => 'REPLACED in v2 (#1026) by the `eyebrow` role\'s `typography.transform`.',
+            '--cta-body-color' => 'REPLACED in v2 (#1026) by the `body` role\'s `typography.color`, as a BREAKPOINT MAP rather than one value: v1 split this across an unscoped base rule and a `main > .cta` rule inside `@media (min-width: 768px)`, so the phone tier rendered `--color-muted` and the two wider tiers `--color-text-secondary`. Measured at 375/768/1280 before porting.',
+            '--cta-body-size' => 'REPLACED in v2 (#1026) by the `body` role\'s `typography.size`, also a breakpoint map (1rem on phone, 1.04rem above). v1\'s base rule declared `font-size: var(--cta-body-size, inherit)`, so the literals lived only inside the two media blocks.',
+            '--cta-body-measure' => 'REPLACED in v2 (#1026) by the `body` role\'s `sizing.max-width`. Note: the role declares no default, because v1 declared `none` and rendered `none` — on the full-width layout the cap an author sees comes from the `text` role above it.',
+            '--cta-accent' => 'NARROWED in v2 (#1026): no single parameter replaces it. It was a BAND-LEVEL knob that coloured both buttons\' fill and ring at once, sitting between each button\'s own slots and the global `--btn-*` tier. v2 addresses buttons by role, so the same design is two role values (`background.fill` and `border.color` on `button` and on `button-secondary`) — more verbose, and no longer able to repaint a button the author did not name. A site-wide accent is still one `update_design_token` write on `--color-accent`, which is what most uses of this slot actually wanted.',
+            '--cta-accent-hover' => 'NARROWED in v2 (#1026), the hover twin of `--cta-accent` and narrowed the same way: the two buttons\' `:hover` state maps, nested INSIDE their `background` and `border` groups. The precedence rulings that tuned where this slot sat in each chain (#538, #548, #564, #565) are not reversed — their subject is gone, because a role value is emitted unlayered and outranks the whole stylesheet instead of competing inside a fallback chain.',
+            '--cta-button-bg' => 'REPLACED in v2 (#1026) by the `button` role\'s `background.fill`.',
+            '--cta-button-border' => 'REPLACED in v2 (#1026) by the `button` role\'s `border.color`.',
+            '--cta-button-color' => 'REPLACED in v2 (#1026) by the `button` role\'s `typography.color`.',
+            '--cta-button-hover-bg' => 'REPLACED in v2 (#1026) by the `button` role\'s `:hover` state, nested inside `background`.',
+            '--cta-button-hover-border' => 'REPLACED in v2 (#1026) by the `button` role\'s `:hover` state, nested inside `border`.',
+            '--cta-button-hover-color' => 'REPLACED in v2 (#1026) by the `button` role\'s `:hover` state, nested inside `typography`.',
+            '--cta-button-shadow' => 'REPLACED in v2 (#1026) by the `button` role\'s `shadow.box`. Note: v1\'s slot flattened REST AND HOVER together by design; a role\'s resting `shadow.box` does the same thing for a stronger reason — it emits unlayered, so it already outranks the stylesheet\'s `:hover` rule for the same property.',
+            '--cta-button2-bg' => 'REPLACED in v2 (#1026) by the `button-secondary` role\'s `background.fill`.',
+            '--cta-button2-border' => 'REPLACED in v2 (#1026) by the `button-secondary` role\'s `border.color`.',
+            '--cta-button2-color' => 'REPLACED in v2 (#1026) by the `button-secondary` role\'s `typography.color`.',
+            '--cta-button2-hover-bg' => 'REPLACED in v2 (#1026) by the `button-secondary` role\'s `:hover` state, nested inside `background`.',
+            '--cta-button2-hover-border' => 'REPLACED in v2 (#1026) by the `button-secondary` role\'s `:hover` state, nested inside `border`.',
+            '--cta-button2-hover-color' => 'REPLACED in v2 (#1026) by the `button-secondary` role\'s `:hover` state, nested inside `typography`.',
+            '--cta-button2-shadow' => 'REPLACED in v2 (#1026) by the `button-secondary` role\'s `shadow.box`. The role DEFAULTS it to `none`, which v1 never had to: with `button2_variant` retired the second button is a bare `.btn` and therefore matches the shared premium filled family, whose bevel nothing else clears — `background.fill` emits the `background` shorthand and so clears the gradient, but not the shadow.',
+        ],
         'section' => [
             '--section-padding-top' => 'REPLACED in v2 (#1023) by the `_band` role\'s `spacing.padding-top` (which now also carries the narrow-viewport tier).',
             '--section-padding-bottom' => 'REPLACED in v2 (#1023) by the `_band` role\'s `spacing.padding-bottom`.',
@@ -6271,11 +6350,12 @@ class SchemaValidationTest extends TestCase
             }
         }
         // Shrinks one rebuild sprint at a time: testimonials' `theme` and `title_align`
-        // went in #958, and section's `theme`, `title_align` and
-        // `--section-inline-items-align` in #1023 — offset by the new
-        // `body_items_align` prop, so 25 -> 22. Every retirement is recorded in
-        // SCHEMA_RENAME_MIGRATION_NOTES / SLOT_RENAME_MIGRATION_NOTES.
-        $this->assertSame(22, $checked, 'the shipped `values` inventory changed — re-confirm the sweep reaches it');
+        // went in #958, section's `theme`, `title_align` and `--section-inline-items-align`
+        // in #1023 — offset by the new `body_items_align` prop, so 25 -> 22 — and cta's
+        // `theme`, `button_variant` and `button2_variant` in #1026, 22 -> 19. Every
+        // retirement is recorded in SCHEMA_RENAME_MIGRATION_NOTES /
+        // SLOT_RENAME_MIGRATION_NOTES.
+        $this->assertSame(19, $checked, 'the shipped `values` inventory changed — re-confirm the sweep reaches it');
     }
 
     /**
@@ -6370,7 +6450,6 @@ class SchemaValidationTest extends TestCase
     public function testFillMarkerIsDeclaredOnExactlyTheButtonFillFamily(): void
     {
         $expected = [
-            'cta'     => ['--cta-button-bg', '--cta-button-hover-bg', '--cta-button2-bg', '--cta-button2-hover-bg'],
             // hero's fill family is gone (#986) and section's with it (#1023): on a v2
             // component the button fill is the `cta` / `cta-secondary` / `panel-cta`
             // role's `background.fill` at rest and in the `:hover` state — no marker
@@ -6441,7 +6520,7 @@ class SchemaValidationTest extends TestCase
             $seen,
             'every component except the recorded retirements and the four that never had `theme`'
         );
-        $this->assertSame(6, $seen, 'all six remaining theme-bearing components must be checked');
+        $this->assertSame(5, $seen, 'all five remaining theme-bearing components must be checked');
     }
 
     /**
@@ -6530,25 +6609,6 @@ class SchemaValidationTest extends TestCase
         // STYLE-SLOT concept — "this slot has no effect unless that prop is set" — and
         // a v2 component has no slots. Its roles are unconditional by construction,
         // which testTheV2ComponentHasNoLayoutGatedConditionalityLeft() pins.
-        'cta slot --cta-heading-color' => 'title present',
-        'cta slot --cta-heading-accent-color' => 'title present',
-        'cta slot --cta-eyebrow-color' => 'eyebrow present',
-        'cta slot --cta-eyebrow-bg' => 'eyebrow present',
-        'cta slot --cta-eyebrow-radius' => 'eyebrow present',
-        'cta slot --cta-eyebrow-border-width' => 'eyebrow present',
-        'cta slot --cta-eyebrow-border-color' => 'eyebrow present',
-        'cta slot --cta-eyebrow-text-transform' => 'eyebrow present',
-        'cta slot --cta-heading-size' => 'title present',
-        'cta slot --cta-heading-margin-bottom' => 'title present',
-        'cta slot --cta-button2-bg' => 'button2_text present',
-        'cta slot --cta-button2-border' => 'button2_text present',
-        'cta slot --cta-button2-color' => 'button2_text present',
-        'cta slot --cta-button2-hover-bg' => 'button2_text present',
-        'cta slot --cta-button2-hover-border' => 'button2_text present',
-        'cta slot --cta-button2-hover-color' => 'button2_text present',
-        'cta slot --cta-button2-shadow' => 'button2_text present',
-        'cta slot --cta-overlay-bg' => 'background_image present',
-        'cta slot --cta-bg-position' => 'background_image present',
         'embed slot --embed-heading-size' => 'title present',
         'embed slot --embed-heading-color' => 'title present',
         'embed slot --embed-heading-measure' => 'title present',
@@ -7122,11 +7182,60 @@ class SchemaValidationTest extends TestCase
                         $route
                     )
                 );
+
+                // DIRECTION 2b — every `group.param` the route names must EXIST in the
+                // grammar, and the naming role must permit that group.
+                //
+                // cta's `_note` claims this guard "fails in BOTH directions ... a route
+                // naming a role this component does not declare is a test failure rather
+                // than a message that lies". Until #1026's review the check only matched
+                // ROLE names, so the parameter half of every route was unverified: a
+                // taxonomy rename would quietly turn a route into a lie while this test
+                // stayed green. The routes are the message an authoring model is handed
+                // when it hits a retired key, so a route naming a parameter the engine does
+                // not accept sends it somewhere it cannot write.
+                $groups = pp_udc_groups();
+                foreach ($named as $role) {
+                    $permitted = pp_udc_component_roles($name)[$role]['groups'] ?? [];
+                    preg_match_all('/`([a-z][a-z-]*)\.([a-z][a-z-]*)`/', $route, $tokens, PREG_SET_ORDER);
+                    foreach ($tokens as $token) {
+                        [$whole, $group, $param] = $token;
+                        if (!isset($groups[$group])) {
+                            continue; // not a group.param token (e.g. a file or token name)
+                        }
+                        $this->assertArrayHasKey(
+                            $param,
+                            $groups[$group]['params'] ?? [],
+                            sprintf(
+                                '"%s.%s" routes to %s, but the `%s` group declares no `%s` parameter',
+                                $name,
+                                $prop,
+                                $whole,
+                                $group,
+                                $param
+                            )
+                        );
+                        $this->assertContains(
+                            $group,
+                            $permitted,
+                            sprintf(
+                                '"%s.%s" routes to %s, but role `%s` does not permit the `%s` group',
+                                $name,
+                                $prop,
+                                $whole,
+                                $role,
+                                $group
+                            )
+                        );
+                    }
+                }
             }
         }
 
-        // A registry that silently emptied would pass every assertion above.
-        $this->assertGreaterThanOrEqual(6, $checked, 'the shipped registry must still be covered');
+        // A registry that silently emptied would pass every assertion above. Raised from 6
+        // to the real floor at #1026: the roster is 14 keys across four components, and a
+        // floor of 6 would have survived losing cta's entire block.
+        $this->assertGreaterThanOrEqual(14, $checked, 'the shipped registry must still be covered');
     }
 
     /**
@@ -7342,6 +7451,7 @@ class SchemaValidationTest extends TestCase
             'hero'         => ['title' => 'T'],
             'testimonials' => ['items' => [['quote' => 'q', 'author' => 'a']]],
             'section'      => ['body' => '<p>B</p>'],
+            'cta'          => ['button_text' => 'Go', 'button_url' => '/go'],
         ];
 
         foreach ($v2 as $component) {
@@ -7365,14 +7475,17 @@ class SchemaValidationTest extends TestCase
             $this->assertStringContainsString('_band', $message, 'and it lists the roles to use');
         }
 
-        // A v1 component keeps the old spelling, because its slots are real.
+        // A v1 component keeps the old spelling, because its slots are real. The example
+        // moved from cta to grid at #1026, when cta's rebuild left it with no slots to
+        // list — the same re-homing #1025 records for the slot-engine fixtures, and for
+        // the same reason: a v1 example has to live on a component that is still v1.
         $v1 = pp_validate_composition_item([
-            'component' => 'cta',
-            'props'     => ['title' => 'T', 'button_text' => 'Go', 'button_url' => '/'],
+            'component' => 'grid',
+            'props'     => ['title' => 'T', 'items' => [['title' => 'Card', 'text' => 'B']]],
             'style'     => ['--nope' => 'red'],
         ]);
         $this->assertInstanceOf(\WP_Error::class, $v1);
-        $this->assertStringContainsString('Available slots: --cta-', $v1->get_error_message());
+        $this->assertStringContainsString('Available slots: --grid-', $v1->get_error_message());
     }
 
 }

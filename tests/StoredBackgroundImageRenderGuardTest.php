@@ -15,7 +15,8 @@
  * THE DEFECT. Three call sites pass a raw stored value into a TYPED parameter:
  *
  *   lib/wp.php  pp_esc_image_src(string $url, int $depth = 0)
- *     cta.php, stats.php — the `background_image` prop on each. section.php left this
+ *     stats.php — the `background_image` prop, and since #1026 the only component that declares it
+ *   (cta.php was the other; section's left at #1023). section.php left this
  *     set at #1023 when it retired the prop; a band background is the `_band` role's
  *     `background.image` there, an attachment id the engine resolves rather than a URL
  *     string this file's guard has to survive.
@@ -214,14 +215,15 @@ class StoredBackgroundImageRenderGuardTest extends TestCase
         // it. Going through create_page here would be the wrong test: it REJECTS this
         // shape, which is precisely why the render path needs its own guard.
         pp_update_composition($id, [
-            ['component' => 'cta',     'props' => ['title' => 'Cta band', 'button_text' => 'Go', 'button_url' => '/go', 'background_image' => $bad]],
             ['component' => 'stats',   'props' => ['title' => 'Stats band', 'items' => [['number' => '40+', 'label' => 'Years']], 'background_image' => $bad]],
-            // section's row left this guard at #1023: it retired `background_image`, so
-            // there is no pp_esc_image_src() call site on section to guard and no stored
-            // scalar to paint. A band background is `_band` -> `background.image`, an
-            // ATTACHMENT ID the engine resolves — a non-numeric id is refused at write
-            // rather than cast at render, so the guarded-scalar class cannot arise.
-            // Renders last, and only if every band above survived.
+            // section's row left this guard at #1023 and cta's at #1026: each retired
+            // `background_image`, so there is no pp_esc_image_src() call site left on either
+            // to guard and no stored scalar to paint. A band background is `_band` ->
+            // `background.image`, an ATTACHMENT ID the engine resolves — a non-numeric id is
+            // refused at write rather than cast at render, so the guarded-scalar class
+            // cannot arise. stats is the last band that can carry these pins; cta stays here
+            // ONLY as the survivor band, which renders last and only if every band above it
+            // survived — the whole-page-did-not-fatal half of the claim.
             ['component' => 'cta',     'props' => ['title' => 'Page survived', 'button_text' => 'Go', 'button_url' => '/go']],
         ]);
 
@@ -229,14 +231,12 @@ class StoredBackgroundImageRenderGuardTest extends TestCase
 
         // The page is whole.
         $this->assertStringContainsString('Page survived', $html, 'the last band renders, so nothing above threw');
-        $this->assertStringContainsString('Cta band', $html);
         $this->assertStringContainsString('Stats band', $html);
         $this->assertStringContainsString('40+', $html, 'the stats numbers still render');
 
         // And not one background gate opened anywhere on it.
         $this->assertStringNotContainsString('background-image', $html, 'a malformed background_image paints NO background');
         $this->assertStringNotContainsString('--has-bg-image', $html, 'and sets no background-image modifier');
-        $this->assertStringNotContainsString('cta__overlay', $html, 'and renders no cta overlay');
         $this->assertStringNotContainsString('stats__overlay', $html, 'and renders no stats overlay');
         // failOnWarning is false and esc_* render an array as the literal `Array` without
         // fataling, so this is the assertion that separates DEGRADED from COERCED.
@@ -268,15 +268,15 @@ class StoredBackgroundImageRenderGuardTest extends TestCase
     {
         $id = pp_create_page('Stored scalar background_image', 'draft');
         pp_update_composition($id, [
-            ['component' => 'cta',     'props' => ['title' => 'C', 'button_text' => 'Go', 'button_url' => '/go', 'background_image' => 42]],
             ['component' => 'stats',   'props' => ['title' => 'S', 'items' => [['number' => '1', 'label' => 'L']], 'background_image' => 42]],
         ]);
 
         $html = $this->renderStored($id);
 
-        // TWO bands since #1023, not three: section retired `background_image`.
-        $this->assertSame(2, substr_count($html, 'background-image:url(42)'), 'both remaining bands still paint the scalar');
-        $this->assertStringContainsString('cta--has-bg-image', $html);
+        // ONE band since #1026, two since #1023, three before that: section retired
+        // `background_image` and then cta did. stats is the last one that paints a stored
+        // scalar at all, so the count is the roster rather than a coincidence.
+        $this->assertSame(1, substr_count($html, 'background-image:url(42)'), 'the last remaining band still paints the scalar');
         $this->assertStringContainsString('stats--has-bg-image', $html);
     }
 
@@ -304,19 +304,17 @@ class StoredBackgroundImageRenderGuardTest extends TestCase
         $breakout = 'https://example.com/a.jpg);background:url(https://evil.test/x.png';
         $id = pp_create_page('Stored url() breakout', 'draft');
         pp_update_composition($id, [
-            ['component' => 'cta',     'props' => ['title' => 'C', 'button_text' => 'Go', 'button_url' => '/go', 'background_image' => $breakout]],
             ['component' => 'stats',   'props' => ['title' => 'S', 'items' => [['number' => '1', 'label' => 'L']], 'background_image' => $breakout]],
         ]);
         $html = $this->renderStored($id);
 
-        // TWO call sites since #1023, not three — section's went with the prop.
-        $this->assertSame(2, substr_count($html, 'a.jpg%29'), 'every call site percent-encodes the closing paren');
+        // ONE call site since #1026 — section's went with the prop at #1023 and cta's here.
+        $this->assertSame(1, substr_count($html, 'a.jpg%29'), 'every call site percent-encodes the closing paren');
         $this->assertStringNotContainsString(');background:url(', $html, 'no call site lets the url() token be closed early');
 
         // 2. Stored-XSS vector: a data: URI of a non-image type must be rejected outright.
         $id2 = pp_create_page('Stored data: URI', 'draft');
         pp_update_composition($id2, [
-            ['component' => 'cta',     'props' => ['title' => 'C', 'button_text' => 'Go', 'button_url' => '/go', 'background_image' => 'data:text/html,<script>alert(1)</script>']],
             ['component' => 'stats',   'props' => ['title' => 'S', 'items' => [['number' => '1', 'label' => 'L']], 'background_image' => 'data:image/svg+xml,<svg onload=alert(1)></svg>']],
         ]);
         $html2 = $this->renderStored($id2);
@@ -327,13 +325,14 @@ class StoredBackgroundImageRenderGuardTest extends TestCase
         // PINNED AS PRE-EXISTING, NOT ENDORSED. A sanitizer-rejected value empties the
         // url() token but leaves the modifier and the overlay ON, because all three gates
         // key on the PRE-escaper string. That is the same scrim-over-nothing state the
-        // guard's placement rationale in components/cta/cta.php calls undesigned — this
-        // guard closes the NON-SCALAR route into it, not the sanitizer-rejection route.
+        // guard's placement rationale calls undesigned — this guard closes the NON-SCALAR
+        // route into it, not the sanitizer-rejection route. That rationale's canonical home
+        // moved from components/cta/cta.php to components/stats/stats.php at #1026, when
+        // cta's `background_image` prop retired and stats became the last reader.
         // Unchanged by this issue (a stored string always reached the escaper); asserted
         // here so the behaviour is recorded rather than discovered later. Closing it means
         // gating on the escaper's OUTPUT, a behaviour change filed separately.
-        $this->assertSame(2, substr_count($html2, 'background-image:url()'), 'both rejected values render an empty url()');
-        $this->assertStringContainsString('cta--has-bg-image', $html2, 'pre-existing: the modifier stays on for a rejected value');
+        $this->assertSame(1, substr_count($html2, 'background-image:url()'), 'the rejected value renders an empty url()');
         $this->assertStringContainsString('stats--has-bg-image', $html2, 'pre-existing: same on stats');
     }
 
@@ -361,19 +360,19 @@ class StoredBackgroundImageRenderGuardTest extends TestCase
         // decodes as int 0, so the band renders exactly as it always did.
         $encoded = pp_create_page('Negative zero, encoded', 'draft');
         pp_update_composition($encoded, [
-            ['component' => 'cta', 'props' => ['title' => 'Encoded band', 'button_text' => 'Go', 'button_url' => '/go', 'background_image' => -0.0]],
+            ['component' => 'stats', 'props' => ['title' => 'Encoded band', 'items' => [['number' => '1', 'label' => 'L']], 'background_image' => -0.0]],
         ]);
 
         $this->assertSame(0, pp_get_composition($encoded)[0]['props']['background_image'], 'json_encode round-trips -0.0 to int 0');
         $html = $this->renderStored($encoded);
         $this->assertStringContainsString('Encoded band', $html, 'the band renders');
-        $this->assertStringNotContainsString('cta--has-bg-image', $html, 'and paints no background, exactly as before the guard');
+        $this->assertStringNotContainsString('stats--has-bg-image', $html, 'and paints no background, exactly as before the guard');
         $this->assertStringNotContainsString('background-image', $html);
 
         // Channel 2 — stored bytes that already carry the literal `-0.0` text, which is
         // the raw-meta reachability this whole file exists for. Here the flip is real.
         $raw = pp_create_page('Negative zero, raw', 'draft');
-        update_post_meta($raw, '_pp_composition', '[{"component":"cta","props":{"title":"Raw band","button_text":"Go","button_url":"/go","background_image":-0.0}}]');
+        update_post_meta($raw, '_pp_composition', '[{"component":"stats","props":{"title":"Raw band","items":[{"number":"1","label":"One"}],"background_image":-0.0}}]');
 
         $stored = pp_get_composition($raw)[0]['props']['background_image'];
         $this->assertIsFloat($stored, 'the literal text decodes as a float, not an int');
@@ -381,8 +380,8 @@ class StoredBackgroundImageRenderGuardTest extends TestCase
 
         $html = $this->renderStored($raw);
         $this->assertStringContainsString('Raw band', $html, 'the band renders');
-        $this->assertStringContainsString('cta--has-bg-image', $html, 'and here the cast DOES open the gate');
-        $this->assertStringContainsString('cta__overlay', $html);
+        $this->assertStringContainsString('stats--has-bg-image', $html, 'and here the cast DOES open the gate');
+        $this->assertStringContainsString('stats__overlay', $html);
     }
 
     /**
@@ -400,7 +399,6 @@ class StoredBackgroundImageRenderGuardTest extends TestCase
     public function testTheStoredValueIsStillReportedAsAFinding(): void
     {
         foreach ([
-            'cta'     => ['title' => 'T', 'button_text' => 'Go', 'button_url' => '/go', 'background_image' => ['attachment_id' => 42]],
             'stats'   => ['title' => 'T', 'items' => [['number' => '1', 'label' => 'L']], 'background_image' => ['attachment_id' => 42]],
         ] as $component => $props) {
             $findings = _pp_composition_findings([
@@ -425,7 +423,6 @@ class StoredBackgroundImageRenderGuardTest extends TestCase
         $bad = ['attachment_id' => 42, 'url' => '/bg.png'];
         $id  = pp_create_page('Stored value preserved', 'draft');
         pp_update_composition($id, [
-            ['component' => 'cta',     'props' => ['title' => 'T', 'button_text' => 'Go', 'button_url' => '/go', 'background_image' => $bad]],
             ['component' => 'stats',   'props' => ['title' => 'T', 'items' => [['number' => '1', 'label' => 'L']], 'background_image' => $bad]],
         ]);
 
@@ -451,7 +448,6 @@ class StoredBackgroundImageRenderGuardTest extends TestCase
     {
         $bad = ['attachment_id' => 42];
         $cases = [
-            'cta'     => ['title' => 'T', 'button_text' => 'Go', 'button_url' => '/go', 'background_image' => $bad],
             'stats'   => ['title' => 'T', 'items' => [['number' => '1', 'label' => 'L']], 'background_image' => $bad],
         ];
 
@@ -483,15 +479,12 @@ class StoredBackgroundImageRenderGuardTest extends TestCase
     {
         $id = pp_create_page('Good backgrounds', 'draft');
         pp_update_composition($id, [
-            ['component' => 'cta',     'props' => ['title' => 'C', 'button_text' => 'Go', 'button_url' => '/go', 'background_image' => 'https://example.com/cta.jpg']],
             ['component' => 'stats',   'props' => ['title' => 'S', 'items' => [['number' => '1', 'label' => 'L']], 'background_image' => 'https://example.com/stats.jpg']],
         ]);
 
         $html = $this->renderStored($id);
 
-        $this->assertStringContainsString('style="background-image:url(https://example.com/cta.jpg);"', $html);
         $this->assertStringContainsString('style="background-image:url(https://example.com/stats.jpg);"', $html);
-        $this->assertStringContainsString('<div class="cta__overlay" aria-hidden="true"></div>', $html);
         $this->assertStringContainsString('<div class="stats__overlay" aria-hidden="true"></div>', $html);
     }
 }

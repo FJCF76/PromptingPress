@@ -676,11 +676,12 @@ class CliSchemaCommandTest extends TestCase
             }
         }
 
-        // 150 -> 130 at #1023: section's 47 slots left the registry, so the shipped total
+        // 150 -> 130 at #1023 (section's 47 slots) and 130 -> 90 at #1026 (cta's 40): each
+        // rebuild takes its component's whole slot surface out of the registry, so the shipped total
         // dropped below the old floor. The floor stays a FLOOR rather than an exact count
         // so a component adding a slot does not fail this, while a walk that stops
         // discovering them still does.
-        $this->assertGreaterThan(130, $seen, 'discovery is not vacuous');
+        $this->assertGreaterThan(90, $seen, 'discovery is not vacuous');
     }
 
     public function testEveryRecipeEntryIsTheDeclaredDefinitionVerbatim(): void
@@ -702,9 +703,11 @@ class CliSchemaCommandTest extends TestCase
             }
         }
 
-        // 5 -> 4 at #1023: section's two recipes went with its slot map, leaving grid's
-        // three and cta's two.
-        $this->assertGreaterThan(4, $seen, 'discovery is not vacuous');
+        // 5 -> 4 at #1023 (section's two recipes went with its slot map) -> 3 at #1026
+        // (cta's two went with its slot map), leaving grid's three. A recipe IS a bundle of
+        // style slots, so a component that declares no slots can declare no recipe — the
+        // floor tracks the last slot-bearing components rather than a fixed number.
+        $this->assertGreaterThan(2, $seen, 'discovery is not vacuous');
     }
 
     public function testAnUnregisteredDeclarationKeyStillReachesTheReport(): void

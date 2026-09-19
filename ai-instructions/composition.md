@@ -49,7 +49,7 @@ See `AI_CONTEXT.md` → Component index for the current list. As of last update:
 | faq     | items[] {question, answer}              | title, title_accent, eyebrow, theme, id                 |
 | grid    | items[] (fields: number, title, text, text_role, bullets[], image_url, image_alt, image_id, link_url, link_text, style — none individually required) | title, title_accent, eyebrow, subheading, title_align, layout, card_emphasis, theme, columns, image_treatment |
 | table   | headers[], rows[][]                     | title, caption, id                                      |
-| cta     | button_text, button_url                 | title, title_accent, eyebrow, body, button2_text, button2_url, button2_variant, layout, theme, background_image, button_variant |
+| cta     | button_text, button_url                 | title, title_accent, eyebrow, body, button2_text, button2_url, layout, id — and NOT `theme`, `background_image`, `button_variant` or `button2_variant`, which the v2 rebuild retired (see cta.styling below) |
 | stats   | items[] {number, label}                 | title, title_accent, theme, background_image            |
 | logos   | items[] {image_url, image_alt, image_id?, label?} | title, theme                                  |
 | embed   | content                                 | title, theme                                            |
@@ -75,7 +75,7 @@ plain-text prop (it will show as literal `<a href=...>` text on the page).
 
 ### cta: standalone button (heading-less)
 
-`cta.title` is optional. Omit `title` (and `body`) to render just the button row with no heading element — the sanctioned way to place a standalone button, e.g. a centered "closing" button after a steps or feature section. `button_text` and `button_url` are still required, and `id`, `layout`, `theme`, and all style slots keep working.
+`cta.title` is optional. Omit `title` (and `body`) to render just the button row with no heading element — the sanctioned way to place a standalone button, e.g. a centered "closing" button after a steps or feature section. `button_text` and `button_url` are still required, and `id` and `layout` keep working. Styling is the band's `udc` map — cta has no `theme` and no style slots since the v2 rebuild (#1026).
 
 ```json
 { "component": "cta", "props": { "button_text": "Get started free →", "button_url": "/signup" } }
@@ -98,12 +98,15 @@ so a closing band does not have to become a `hero` just to offer a secondary act
 ```
 
 Omit `button2_text` and the CTA renders exactly as it always has — one button, no
-wrapper element. The two buttons take independent per-instance RESTING colors
-(`--cta-button-bg` / `-color` / `-shadow` for the primary, `--cta-button2-*` for the
-second); neither reaches the other. Hover is isolated the same way (`--cta-button-hover-bg`
-for the primary, `--cta-button2-hover-bg` for the second), and a filled button keeps the
-premium hover gradient until its own hover-fill slot is set. At mobile
-widths the pair stacks one button per row.
+wrapper element. At mobile widths the pair stacks one button per row.
+
+**cta is a v2 component (#1026), so the two buttons are ROLES, not slot families.** The
+primary is `button` and the second is `button-secondary`, each with its own block and its
+own `":hover"` maps nested inside its groups. They are independent by construction rather
+than by a re-pointing rule: nothing is emitted on the band root, so nothing inherits from
+one button to the other. `button` declares NO defaults, so `"_preset": "button"` lands
+whole; `button-secondary` carries v1's outline treatment, so an unauthored pair still reads
+as one filled action beside one outlined one.
 
 ### section.styling — there is no `theme` prop
 
@@ -553,9 +556,9 @@ All seven heading-bearing components accept `title_accent`: an exact, case-sensi
 
 ### eyebrow / subheading / title_align (hero, section, faq, grid, cta, testimonials)
 
-> `section` and `testimonials` are v2 components: both keep `eyebrow` and `subheading` as CONTENT props but have no `title_align` and no `theme`. Their styling is the `udc` map.
+> `section`, `testimonials` and `cta` are v2 components: all three keep `eyebrow` as a CONTENT prop (and `section` / `testimonials` keep `subheading`) but have no `theme`, and no `title_align` — `cta` never declared one. Their styling is the `udc` map.
 
-`eyebrow` renders a short kicker label as a pill above the title (e.g. `"NEW"`) on all six; on the v1 components the pill defaults to uppercase, overridable via the `text-transform`-typed `--<component>-eyebrow-text-transform` style slot (`none` for sentence case, or `lowercase`/`capitalize`). `subheading` renders a supporting line below the title on section, grid, and testimonials only — hero uses `subheading` and cta uses `body` for the same concept, so neither has a `subheading` prop. `title_align` (`start` default, or `center`; **grid only**) centers the eyebrow/title/subheading header block — independent of the component's overall layout. **hero, section and testimonials no longer have it**: all three are v2 components, so header alignment is the header roles' `typography.align` in the band's `udc` map (hero's `centered` and `cover` layouts already centre their text structurally, and an authored `align` overrides that), with `spacing.margin-left`/`margin-right` set to `auto` to centre the block. The eyebrow pill's casing is likewise the `eyebrow` role's `typography.transform` there, not a style slot.
+`eyebrow` renders a short kicker label as a pill above the title (e.g. `"NEW"`) on all six; on the v1 components that still have the slots (faq and grid) the pill defaults to uppercase, overridable via the `text-transform`-typed `--<component>-eyebrow-text-transform` style slot (`none` for sentence case, or `lowercase`/`capitalize`). `subheading` renders a supporting line below the title on section, grid, and testimonials only — hero uses `subheading` and cta uses `body` for the same concept, so neither has a `subheading` prop. `title_align` (`start` default, or `center`; **grid only**) centers the eyebrow/title/subheading header block — independent of the component's overall layout. **hero, section and testimonials no longer have it** (and cta never did): all three are v2 components, so header alignment is the header roles' `typography.align` in the band's `udc` map (hero's `centered` and `cover` layouts already centre their text structurally, and an authored `align` overrides that), with `spacing.margin-left`/`margin-right` set to `auto` to centre the block. The eyebrow pill's casing is likewise the `eyebrow` role's `typography.transform` there, not a style slot.
 
 ### image_id (hero, section, logos / grid / testimonials items) — responsive images (#107, #584)
 

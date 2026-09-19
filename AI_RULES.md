@@ -79,7 +79,7 @@ Rules for editing `assets/css/`:
   border and shadow is a `default` on a role in its `schema.json`. The structural-CSS
   lint enforces this per component and is fail-closed on a property it does not
   recognise, so a property in neither classification has no legal home until it is
-  classified. As of #1023 that covers testimonials, hero, section, nav and footer.
+  classified. As of #1026 that covers testimonials, hero, section, cta, nav and footer.
 - **Put new rules INSIDE the existing `@layer` block** of the file you are editing. Every
   rule in `base.css`, `components.css` and `utilities.css` is inside one. A rule added
   after the closing brace is unlayered and will outrank the entire theme, including the

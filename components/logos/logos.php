@@ -59,7 +59,9 @@ $style_attr = $slot_style ? ' style="' . $slot_style . ';"' : '';
                     // here). Of those, #705 (background_image into pp_esc_image_src) and
                     // #706 (title/title_accent into pp_render_heading_with_accent) have
                     // since LANDED and carry their own canonical blocks in
-                    // components/cta/cta.php and components/hero/hero.php respectively;
+                    // components/stats/stats.php and components/hero/hero.php respectively
+                    // (#705's block lived in components/cta/cta.php until #1026 retired that
+                    // component's background_image prop and moved it to the last declarer);
                     // #708 (the `__pp_style` map into pp_render_style_vars, and grid's
                     // count($items)) has since LANDED too, and this file carries its
                     // guard at the top; its canonical block is in

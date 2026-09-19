@@ -83,16 +83,19 @@ class StyleSlotContractTest extends TestCase
     public function testDiscoveryFindsTheKnownStyledComponents(): void
     {
         $found = $this->styledComponents();
-        // FOUR, not seven: testimonials left the style-slot system in #958, hero in #986
-        // and section in #1023, all rebuilt on the Universal Design Contract. Their
-        // authoring surface is roles, and the contract that replaced this one is the UDC
-        // engine's own.
-        foreach (['cta', 'faq', 'grid', 'stats'] as $known) {
+        // SIX. This is the fail-closed floor for every discovery-driven check in the file, so
+        // it is written out rather than counted: a component silently dropping out of
+        // discovery would quietly disable its whole slot contract. The comment used to say
+        // "FOUR, not seven" while listing THREE, which is how far it had drifted.
+        foreach (['embed', 'faq', 'grid', 'logos', 'stats', 'table'] as $known) {
             $this->assertContains($known, $found, "Schema discovery lost the {$known} component.");
         }
-        // …and the three v2 components must NOT be discovered here, or this suite would
-        // start asserting a slot contract against a component that has none.
-        foreach (['hero', 'section', 'testimonials'] as $v2) {
+        // …and the v2 components must NOT be discovered here, or this suite would start
+        // asserting a slot contract against a component that has none. testimonials left the
+        // style-slot system in #958, hero in #986, section in #1023 and cta in #1026; their
+        // authoring surface is roles, and the contract that replaced this one is the UDC
+        // engine's own. nav and footer are chrome and were never in this set.
+        foreach (['hero', 'section', 'testimonials', 'cta'] as $v2) {
             $this->assertNotContains($v2, $found, "{$v2} is a v2 component: it declares no style slots.");
         }
     }
@@ -377,10 +380,12 @@ class StyleSlotContractTest extends TestCase
 
         // Fail-closed floor: derivation over the real stylesheet must find a healthy
         // triple population, or a parser regression could silently gut the guard.
-        // 147 triples today; the floor sits close enough to catch a third of them
-        // vanishing while leaving room for ordinary CSS evolution.
+        // 97 triples today, down from 147 when cta's forty slots and the nine rules that
+        // consumed them left at #1026 — a population that shrinks one component per rebuild
+        // sprint, so the floor moves with it. It sits close enough to catch a third of the
+        // remainder vanishing while leaving room for ordinary CSS evolution.
         $this->assertGreaterThan(
-            130,
+            85,
             $analysis['tripleCount'],
             'Slot-consumption derivation collapsed — the bypass guard would pass vacuously.'
         );
@@ -641,7 +646,6 @@ class StyleSlotContractTest extends TestCase
     {
         // component => [selector, expected fallback literal]
         $expected = [
-            'cta'    => ['.cta__title',             'var(--space-xs)'],
             'stats'  => ['.stats__heading',         'var(--space-lg)'],
             'table'  => ['.table-section__heading', 'var(--space-lg)'],
             'embed'  => ['.embed__heading',         'var(--space-lg)'],
@@ -764,720 +768,79 @@ class StyleSlotContractTest extends TestCase
         $this->assertStringContainsString('--logos-image-size overrides both', $note);
     }
 
-    /**
-     * Hero cta2 slot isolation + premium fill routing (issue 526).
-     *
-     * Style slots land as inline custom properties on the .hero ROOT, so #514's
-     * --hero-button-* slots inherit onto the SECOND CTA too; a cta2 authored as the
-     * filled `primary` variant also matches the shared premium `main .btn:not(...)`
-     * winner, so the primary's fill/elevation repainted it. The fix re-declares the
-     * three slots ON the cta2 element:
-     *   - --hero-button-bg: var(--hero-button2-bg)  — a var() that cannot substitute makes
-     *     the property guaranteed-invalid, so UNSET falls through the premium chain to
-     *     the gradient (byte-identical, leak killed) and SET resolves the premium
-     *     `background:` SHORTHAND to a flat color, clearing the masking gradient;
-     *   - --hero-button-color / --hero-button-shadow: `initial` (the guaranteed-invalid
-     *     value) so cta2 keeps its own ink rule and the premium bevel.
-     * Pin the whole block: dropping any one line silently restores half the bug, and
-     * swapping the var() form for `initial` on --hero-button-bg would kill the leak but
-     * leave --hero-button2-bg masked again (the pre-existing half).
-     */
-    /**
-     * Issue 474 — the cta's own second button carries the #526 isolation mechanism, and
-     * three SLOT_DECLARATION_EXEMPTIONS entries were added to permit it. Those exemptions
-     * switch OFF the slot-deadening guard for this rule, so this is the compensating
-     * STATIC pin (the hero equivalent below is the precedent): dropping any one of the
-     * three declarations, or qualifying the selector with a variant, silently restores
-     * half the #514-class leak while every other check here stays green. The rendered
-     * proof lives in tests/e2e/style-render.spec.ts, but that needs a live WP env — this
-     * one runs in the unit suite on every push.
-     */
-    public function testIssue474CtaButton2SlotIsolationAndFillRouting(): void
-    {
-        $block = $this->stripComments($this->componentBlock('cta'));
+    // RETIRED (#1026): SEVEN TESTS AND THEIR PROVIDER, together, because they pinned ONE
+    // thing — the ORDER of links inside cta's filled-button `var()` chains. cta was their
+    // only remaining subject; hero's rows left at #986 and section's panel-CTA rows at #1023.
+    //
+    //   testIssue474CtaButton2SlotIsolationAndFillRouting
+    //   testIssue548CtaPrimaryHoverBorderRanksTheAccentAboveTheFill
+    //   testIssue548EveryFilledHoverRingRanksItsAccentAboveItsOwnFill (+ filledHoverBorderChains)
+    //   testIssue564AccentOutranksTheGlobalRingKnob
+    //   testIssue564FillChainsRankTheAccentAboveTheGlobalFillKnobToo
+    //   testIssue565NoGlobalKnobSurvivesInAnOverlayRingChain
+    //   testIssue565TheBaseChainsKeepTheGlobalFillKnob
+    //
+    // THE RULINGS ARE NOT REVERSED; THEIR SUBJECT IS GONE. #538, #548, #564 and #565 each
+    // arbitrated which of two links won when both were set — the band accent against the
+    // per-instance fill, the band accent against the global knob, the global knob against a
+    // measured on-overlay role. Every per-instance link in those chains was a style slot, and
+    // cta's rebuild removed the last of them, so each chain is now one global `--btn-*` knob
+    // and one literal. Two links that cannot both exist cannot be mis-ordered: a replacement
+    // pin would have nothing to hold and would pass vacuously, which is the failure mode
+    // #1023's round-15 audit named and the reason these are deleted rather than narrowed.
+    //
+    // #474's isolation pin is in this list for a DIFFERENT reason, worth separating. It did
+    // not pin an ORDER; it pinned a re-pointing rule that stopped the PRIMARY button's slots
+    // inheriting down onto the second button, which they did because slots were emitted as
+    // inline custom properties on the BAND ROOT and custom properties inherit. Nothing is
+    // emitted on the root now, so nothing inherits: the two buttons are separate ROLES with
+    // separate blocks, and the isolation is a property of the emitter rather than a rule that
+    // could be deleted by mistake.
+    //
+    // WHERE THE CAPABILITY WENT, so this reads as a move rather than a deletion. A v2 band
+    // sets its button design on the `button` / `button-secondary` roles, whose blocks are
+    // emitted UNLAYERED and therefore outrank this whole stylesheet at any specificity,
+    // instead of competing for position inside a fallback chain. The rest/hover parity those
+    // rulings fought for is structural there: a `:hover` map nests INSIDE its group and is
+    // emitted from the same role map as the resting value, so the two cannot drift apart the
+    // way a hand-written rule and its `:hover` twin could.
+    //
+    // WHAT STILL GUARDS #554's CONTRACT (a site-wide button retheme reaches every filled
+    // surface): `--btn-*` is now the only per-property link in those chains, and the guard is
+    // RENDERED rather than textual — tests/e2e/style-render.spec.ts's '#458 the global button
+    // surface is a real one-knob' for the resting half and its '#539 ... survives a hover' for
+    // the hover half. Both read the four knobs against real buttons. (An earlier draft of this
+    // note credited css-lint.test.js's premium-fill pins; those were retired in the same
+    // change, so the e2e pair is the whole of it.)
 
-        $selector = '/(?:^|\})\s*\.cta\s+\.cta__buttons\s+\.cta__button--secondary\s*\{([^}]*)\}/';
-        $this->assertMatchesRegularExpression(
-            $selector,
-            $block,
-            'The issue 474 button2 isolation rule is missing, or its selector gained a '
-            . 'variant qualifier — it must stay an unqualified .cta__button--secondary rule '
-            . 'so the primary button slots are unreachable on every button2 variant.'
-        );
-        preg_match($selector, $block, $m);
-        $isolation = $m[1] ?? '';
+    // THE CHAIN-READING HELPERS WENT WITH THOSE SEVEN TESTS, and one of them had to:
+    // filledChainOrder() called $this->filledRuleBody(), which is declared NOWHERE in this
+    // file. That call was unreachable — the only path to it ran through hoverChainOrder() and
+    // hoverBorderOrder(), whose last caller was a test in the list above — so PHP never
+    // resolved it and the suite stayed green over a method that does not exist. Leaving the
+    // subtree would leave a latent fatal for the next author who reached for a
+    // "read this button's chain order" helper. The three that are gone:
+    // filledChainOrder(), hoverChainOrder(), hoverBorderOrder().
+    //
+    // Nothing replaces them here. A v2 button's values are asserted on the EMITTED CSS
+    // (tests/CtaRoleDefaultsEmitTest.php) rather than by reading the order of links inside a
+    // stylesheet fallback chain, because an unlayered role block does not participate in one.
 
-        $this->assertMatchesRegularExpression(
-            '/--cta-button-bg:\s*var\(--cta-button2-bg\)\s*;/',
-            $isolation,
-            'The isolation rule must re-point --cta-button-bg at --cta-button2-bg (issue 474): '
-            . 'that single declaration both kills the slot leak (unset -> guaranteed-invalid -> '
-            . 'premium fallback) AND routes the button2 fill into the gradient-clearing chain. '
-            . 'Plain `initial` here would fix the leak but leave --cta-button2-bg masked again.'
-        );
-        $this->assertMatchesRegularExpression(
-            '/--cta-button-color:\s*initial\s*;/',
-            $isolation,
-            'The isolation rule must reset --cta-button-color on button2 (issue 474).'
-        );
-        $this->assertMatchesRegularExpression(
-            '/--cta-button-shadow:\s*var\(--cta-button2-shadow\)\s*;/',
-            $isolation,
-            'The isolation rule must re-point --cta-button-shadow at --cta-button2-shadow '
-            . '(issue 581, completing the follow-up issue 474 recorded in this rule\'s own '
-            . 'comment). Plain `initial` still kills the primary leak, but it leaves button2 '
-            . 'with no elevation slot of its own, so --cta-button2-shadow would be a declared '
-            . 'slot that renders nothing. Both forms are guaranteed-invalid when unset, so '
-            . 'unset output is identical either way — only the SET path differs.'
-        );
-        // Issue 530: the SAME re-pointing on the hover surface. Without it the premium hover
-        // `background:` shorthand masks --cta-button2-hover-bg (a filled button2 flashes back
-        // to the theme gradient) AND the primary's --cta-button-hover-bg inherits down onto
-        // button2, so setting the primary's hover fill clears button2's hover gradient too.
-        // `initial` here would kill the leak but leave the mask — it must re-point.
-        $this->assertMatchesRegularExpression(
-            '/--cta-button-hover-bg:\s*var\(--cta-button2-hover-bg\)\s*;/',
-            $isolation,
-            'The isolation rule must re-point --cta-button-hover-bg at --cta-button2-hover-bg '
-            . '(issue 530), so hover is isolated the same way rest is and the button2 hover '
-            . 'fill reaches the gradient-clearing premium chain.'
-        );
+    // RETIRED (#1026): testIssue538FillFollowIsScopedToTheFilledSecondButton and its
+    // provider nonFilledSecondButtonHoverRules. #538 ruled that the border FOLLOWS the fill
+    // on a FILLED second button and must NOT on the transparent-fill variants, and the test
+    // pinned the negative half on cta's three `.btn--outline` / `--secondary` / `--ghost`
+    // button2 rules. Those rules went with `button2_variant`: both buttons render as a bare
+    // `.btn` now, so there are no variant rules left for the scoping to be scoped AGAINST.
+    // The provider's `$hero` rows had already gone at #1007 for the same reason, leaving
+    // cta as its only subject — a dead local variable that outlived its rows, which is the
+    // shape a vacuous provider takes just before it stops covering anything.
+    //
+    // The POSITIVE half of #538 is not lost. A v2 role states its ring and its fill
+    // independently, per state, in one map — `border.color` beside `background.fill`, each
+    // with its own `':hover'` — so "does the border follow the fill" is no longer a chain
+    // ORDER an author can get wrong; it is two values they write or omit.
 
-        // The button2 rest rule still consumes --cta-button2-bg directly (background-color),
-        // so the slot stays author-reachable on the element the isolation rule targets.
-        $this->assertMatchesRegularExpression(
-            '/background-color:\s*var\(--cta-button2-bg,/',
-            $block,
-            'The button2 rest rule must still consume --cta-button2-bg as a background-color.'
-        );
-        // Same for hover (issue 530).
-        $this->assertMatchesRegularExpression(
-            '/background-color:\s*var\(--cta-button2-hover-bg,/',
-            $block,
-            'The button2 hover rule must still consume --cta-button2-hover-bg as a background-color.'
-        );
-        // The hover BORDER follows the hover fill from the LAST fallback position (issue 538,
-        // Option 3). #530 pinned the NEGATIVE of this — the fill was left out entirely because
-        // the hover border, unlike the hover fill, was never masked by the premium gradient, so
-        // inserting it AHEAD of --cta-accent-hover would have repainted an authored accent ring
-        // on an already-shipping slot combination. That pin is deliberately flipped here, not
-        // deleted: the fill now sits BEHIND --cta-accent-hover, so every authored value keeps
-        // winning in its existing order and only the fill-only case changes.
-        $this->assertHoverBorderChain(
-            $block,
-            '.cta .cta__buttons .cta__button--secondary',
-            // The global hover tier (issue 539) takes the position --btn-border-color holds in
-            // this button's REST chain — and since issue 564 that position is BELOW the band
-            // accent on both states, so a site-wide ring knob no longer defeats an authored
-            // --cta-accent-hover. It still outranks the per-instance hover FILL link, keeping
-            // #539's authored-beats-inferred rule and #554's coverage contract intact.
-            // --btn-hover-bg closes the border-follows-fill link so a site-wide hover fill
-            // still rings itself, exactly as --btn-bg does at rest.
-            ['--cta-button2-hover-border', '--cta-accent-hover', '--btn-hover-border-color', '--cta-button2-hover-bg', '--btn-hover-bg', '--color-accent-hover'],
-            'button2'
-        );
-    }
-
-    /**
-     * The cta PRIMARY's filled hover border, on BOTH of its rules (issue 548).
-     *
-     * #538 put --cta-accent-hover ahead of the hover fill on the two SECOND buttons and left
-     * the primary alone, because reordering it repaints a shipped render. That left the cta
-     * component with two precedence rules for one button pair: the primary's ring followed
-     * its fill, button2's stayed on the accent, side by side on one band. #548 is the
-     * maintainer's explicit call to align the primary, accepting the repaint for the one
-     * configuration that authors --cta-accent-hover AND --cta-button-hover-bg together.
-     *
-     * This pin is the deliberate POSITIVE flip of the three CSS-text pins that asserted the
-     * old asymmetry — all in tests/js/css-lint.test.js, in the #420 primary-button block,
-     * the #535 dark-band RINGS table and the #539 global-hover-tier CHAINS table — the same
-     * way #538 flipped #530's negative pin rather than deleting it. Deleting them would have
-     * left the order unpinned on the primary, which is precisely the drift #530 taught this
-     * repo not to leave behind.
-     *
-     * BOTH rules are pinned, not just the plain one: the .cta--has-bg-image separation-ring
-     * twin (#535/#543) is a second, independently-editable declaration of the same chain
-     * whose only legitimate difference is the terminal role token. Pinning one and not the
-     * other is how the two would drift apart.
-     *
-     * What the chains must NOT lose, and what each position proves:
-     *   --cta-button-hover-border  the author's dedicated ring knob still wins outright
-     *   --btn-hover-border-color   #539's global tier, still directly under the per-instance
-     *                              ring slot and still ABOVE the fill link (an explicitly
-     *                              authored global ring beats one inferred from a fill)
-     *   --cta-accent-hover         THE MOVE: now above the fill, matching button2
-     *   --cta-button-hover-bg      the border-follows-fill link SURVIVES, one slot later, so
-     *                              a fill-only recolor still rings itself identically
-     *   --btn-hover-bg             #539's global fill, still ringing itself at the tail on the
-     *                              PLAIN chain (it left the overlay twin in #565)
-     *   terminal                   unchanged per rule, which is what "computed-value-identical
-     *                              when unset" rests on
-     */
-    public function testIssue548CtaPrimaryHoverBorderRanksTheAccentAboveTheFill(): void
-    {
-        $block = $this->stripComments($this->componentBlock('cta'));
-
-        $this->assertHoverBorderChain(
-            $block,
-            '.cta .btn',
-            ['--cta-button-hover-border', '--cta-accent-hover', '--btn-hover-border-color', '--cta-button-hover-bg', '--btn-hover-bg', '--color-accent-hover'],
-            'cta primary'
-        );
-
-        // The overlay separation-ring twin: the same chain MINUS the whole GLOBAL tier, with the
-        // on-overlay terminal (#535, #543, narrowed by #564 then #565). --btn-hover-border-color
-        // left in #564; --btn-hover-bg left in #565, which is a DELIBERATE FLIP of the literal
-        // this line pinned before (it used to sit between --cta-button-hover-bg and the
-        // terminal). Both are absent rather than demoted because --color-accent-on-overlay is a
-        // :root token (base.css:30) and always set, so any link below it would be dead code.
-        // The per-instance fill link is what remains, and it is the point: #535's matching-ring
-        // promise survives for a fill an author aimed at THIS band, not for a site-wide one.
-        // Flipped citing the #565 decision comment (2026-07-29), the #538/#530 pattern.
-        $this->assertHoverBorderChain(
-            $block,
-            '.cta--has-bg-image .cta__button',
-            ['--cta-button-hover-border', '--cta-accent-hover', '--cta-button-hover-bg', '--color-accent-on-overlay'],
-            'cta primary (overlay band)'
-        );
-    }
-
-    /**
-     * The whole point of #548, stated as one property instead of four separate chains: on
-     * every filled button this theme ships, an authored --*-accent-hover outranks that
-     * button's own per-instance hover FILL in the border chain.
-     *
-     * Stated narrowly on purpose. It is NOT "the accent knob leads the chain" — a dedicated
-     * hover-border slot still sits above the accent wherever one exists. (Until #564 the
-     * global --btn-hover-border-color did too, on three of these eight; it now ranks BELOW
-     * the accent on the four base chains and is absent from the four overlay twins — see
-     * testIssue564AccentOutranksTheGlobalRingKnob.) The invariant #548 establishes, and the
-     * one a future tidy-up could silently invert, is accent-above-per-instance-fill.
-     *
-     * Reading the order out of the live CSS (rather than pinning eight literal strings) is
-     * what makes this a real cross-chain proof: the eight chains have different lengths, two
-     * different terminals and two different global-tier shapes, so a literal pin per chain
-     * proves each one in isolation and their AGREEMENT not at all.
-     *
-     * @dataProvider filledHoverBorderChains
-     */
-    public function testIssue548EveryFilledHoverRingRanksItsAccentAboveItsOwnFill(
-        string $component,
-        string $selector,
-        string $accent,
-        string $fill,
-        bool $isOverlayRing // Unread here: the #548 property holds identically on the overlay
-                            // twins. The column exists for the #564 tests on the shared provider.
-    ): void {
-        // Shares hoverBorderOrder() with the #564 pins below, which carries the same
-        // exactly-one-border-color guard assertHoverBorderChain does, for the same reason: a
-        // SECOND border-color in the rule wins the cascade, so reading the first one would
-        // assert the order of a declaration that never paints.
-        $order = $this->hoverBorderOrder($component, $selector);
-
-        $iAccent = array_search($accent, $order, true);
-        $iFill   = array_search($fill, $order, true);
-
-        $this->assertNotFalse($iAccent, "{$selector}:hover must route {$accent} into its border chain.");
-        $this->assertNotFalse($iFill, "{$selector}:hover must keep {$fill} in its border chain — the "
-            . 'border-follows-fill link is what lets a fill-only recolor ring itself (issues 526, 538).');
-        $this->assertLessThan(
-            $iFill,
-            $iAccent,
-            "{$selector}:hover ranks {$fill} ahead of {$accent}. Issue 548 made "
-            . 'accent-above-own-fill the single rule for every filled button on this theme, so a '
-            . 'button PAIR cannot ring two different colours on one band. Reordering this is a '
-            . 'maintainer decision (it repaints the both-authored case), not a cleanup — that is '
-            . 'exactly why #538 declined to do it silently and #548 was filed instead.'
-        );
-    }
-
-    /**
-     * @return array<string, array{0:string,1:string,2:string,3:string,4:bool}>
-     *
-     * The fifth column marks the OVERLAY RING twins. Since issues 564 and 565 they differ from
-     * their base rules by more than the terminal: the whole GLOBAL tier is removed from them
-     * (ring knobs in #564, fill knobs in #565), because their terminal is a measured 4.59:1
-     * separation role rather than an ordinary default and a site-wide retheme sitting above it
-     * defeated the guarantee. See testIssue564AccentOutranksTheGlobalRingKnob for the ring
-     * half and testIssue565NoGlobalKnobSurvivesInAnOverlayRingChain for the whole property,
-     * stated across all eight declarations rather than the four hover halves.
-     */
-    public static function filledHoverBorderChains(): array
-    {
-        return [
-            // The plain bands.
-            'cta primary'           => ['cta', '.cta .btn', '--cta-accent-hover', '--cta-button-hover-bg', false],
-            'cta button2'           => ['cta', '.cta .cta__buttons .cta__button--secondary', '--cta-accent-hover', '--cta-button2-hover-bg', false],
-            // And the overlay/cover TWINS. Each is a physically separate declaration that
-            // re-states its base rule's chain (with the terminal swapped for the on-overlay
-            // role, #535/#543, and the global tier dropped — ring knobs #564, fill knobs #565),
-            // so each can drift from its base independently. "Every filled button this theme
-            // ships" is only true with these four included.
-            'cta primary (overlay)' => ['cta', '.cta--has-bg-image .cta__button', '--cta-accent-hover', '--cta-button-hover-bg', true],
-            'cta button2 (overlay)' => ['cta', '.cta--has-bg-image .cta__buttons .cta__button--secondary', '--cta-accent-hover', '--cta-button2-hover-bg', true],
-        ];
-    }
-
-    /**
-     * Issue 564, stated as one property across the same eight chains #548 established.
-     *
-     * #548 pinned accent-above-own-FILL. It left the OTHER pair unpinned: where the band accent
-     * sits relative to the GLOBAL ring knob (--btn-hover-border-color, #539). That gap was the
-     * defect. The hero family ranked its accent first; the cta family ranked the global knob
-     * first; nothing compared them. So on cta bands a site setting the global knob defeated an
-     * authored --cta-accent-hover, and on the overlay twins it defeated --color-accent-on-overlay
-     * — the 4.59:1 separation ring whose entire purpose is surviving the scrim (#543).
-     *
-     * The property now has two halves, because the answer differs by what the chain's terminal
-     * MEANS:
-     *
-     *   BASE bands      accent > global knob > own fill. The knob still participates (a site-wide
-     *                   retheme still reaches these buttons, #554) but no longer outranks a
-     *                   narrower authored role. It stays ABOVE the fill link, so #539's
-     *                   "authored ring beats one inferred from a fill" is untouched.
-     *   OVERLAY rings   the knob is ABSENT. Its terminal is a measured contrast role, and
-     *                   --color-accent-on-overlay is declared at :root (base.css:30) so it is
-     *                   always set — a knob below it would be dead code, and a knob above it
-     *                   would defeat the measurement. Removal is the only honest position. The
-     *                   per-instance ring slot remains above everything as the escape hatch.
-     *
-     * Read out of the live CSS rather than pinned as eight literal strings, for the same reason
-     * #548 gave: the chains have different lengths, two terminals and now two global-tier
-     * shapes, so per-chain literals prove each in isolation and their AGREEMENT not at all.
-     *
-     * @dataProvider filledHoverBorderChains
-     */
-    public function testIssue564AccentOutranksTheGlobalRingKnob(
-        string $component,
-        string $selector,
-        string $accent,
-        string $fill,
-        bool $isOverlayRing
-    ): void {
-        $order = $this->hoverBorderOrder($component, $selector);
-
-        $iAccent = array_search($accent, $order, true);
-        $iGlobal = array_search('--btn-hover-border-color', $order, true);
-
-        $this->assertNotFalse($iAccent, "{$selector}:hover must route {$accent} into its border chain.");
-
-        if ($isOverlayRing) {
-            $this->assertFalse(
-                $iGlobal,
-                "{$selector}:hover must NOT route --btn-hover-border-color: this chain bottoms out "
-                . 'at --color-accent-on-overlay, a measured 4.59:1 separation role, and that role '
-                . 'is declared at :root so it is always set. A global knob ABOVE it defeats the '
-                . 'contrast guarantee (the issue 564 defect); BELOW it the knob is dead code. '
-                . 'Authors who want their own ring on this band use the per-instance slot, which '
-                . 'still leads the chain.'
-            );
-            $this->assertSame(
-                '--color-accent-on-overlay',
-                $order[array_key_last($order)],
-                "{$selector}:hover must still bottom out at the on-overlay role."
-            );
-            return;
-        }
-
-        $this->assertNotFalse(
-            $iGlobal,
-            "{$selector}:hover must keep --btn-hover-border-color in its border chain — issue 554's "
-            . 'contract is that a site-wide button retheme reaches every filled surface. Issue 564 '
-            . 'reordered that knob; it did not remove it from the base bands.'
-        );
-        $this->assertLessThan(
-            $iGlobal,
-            $iAccent,
-            "{$selector}:hover ranks --btn-hover-border-color ahead of {$accent}. Issue 564 made "
-            . 'accent-above-the-global-knob uniform across every filled button this theme ships, so '
-            . 'a broad site-wide default cannot silently defeat a narrower authored band role. '
-            . 'Reordering this repaints the both-authored case and is a maintainer decision, not a '
-            . 'cleanup — see issue 564 (issuecomment-5106604500).'
-        );
-        $iFill = array_search($fill, $order, true);
-        $this->assertNotFalse($iFill, "{$selector}:hover must keep {$fill} in its border chain.");
-        $this->assertLessThan(
-            $iFill,
-            $iGlobal,
-            "{$selector}:hover ranks the per-instance hover FILL ahead of --btn-hover-border-color. "
-            . 'An explicitly authored global ring must still beat one merely INFERRED from someone '
-            . "'s fill (issue 539). Issue 564 moved the accent above the knob, not the fill."
-        );
-    }
-
-    /**
-     * Issue 565, the successor property to #564's, stated across all EIGHT overlay ring
-     * declarations rather than the four hover halves #564 could see.
-     *
-     * #564 removed the global RING knobs (--btn-border-color / --btn-hover-border-color) from
-     * the overlay chains and recorded, inline and in its issue, that the global FILL knobs
-     * (--btn-bg / --btn-hover-bg) still sat in the same position and could defeat the same
-     * role by the same mechanism — the border-follows-fill link (#535). A site setting only
-     * --btn-bg at :root, a plausible site-wide button retheme aimed at no band in particular,
-     * repainted every UNAUTHORED filled ring on every `background_image` cta band and `cover`
-     * hero to that colour, which is unmeasured against the scrim. #565 closes it.
-     *
-     * The property: NO global knob of either kind survives in an overlay ring chain, and the
-     * chain still bottoms out at the measured role. The reasoning is #564's, unchanged —
-     * --color-accent-on-overlay is declared at :root (base.css:30) and therefore always set,
-     * so a global knob can only sit ABOVE the role (defeating a measured 4.59:1 guarantee) or
-     * BELOW it (dead code). Removal is the only honest position.
-     *
-     * What deliberately SURVIVES, and why this is a narrowing rather than a reversal: the
-     * PER-INSTANCE fill link. #535's matching-ring promise was written for an author who
-     * flattens a specific band to a brand colour; that author still gets a matching ring. A
-     * site-wide fill knob is not that author, and no longer speaks for this band. The
-     * per-instance ring slot remains above everything as the documented escape hatch.
-     *
-     * Both halves of each twin are asserted, in one property, because rest and hover moved
-     * together on purpose: dropping a knob from one state only would introduce exactly the
-     * rest->hover ring flip the #543 twins exist to prevent. A test that could only read the
-     * hover halves could not state that, which is why filledRuleBody() was generalised here.
-     *
-     * @dataProvider filledOverlayRingChains
-     */
-    public function testIssue565NoGlobalKnobSurvivesInAnOverlayRingChain(
-        string $component,
-        string $selector,
-        string $state,
-        string $perInstanceFill
-    ): void {
-        $order = $this->filledChainOrder($component, $selector, $state, 'border-color');
-        $label = $state === '' ? 'rest' : 'hover';
-
-        // The four global knobs, both properties x both states. Named exhaustively rather than
-        // by prefix: a `--btn-`-prefix scan would also catch a future per-instance slot that
-        // happened to start that way, and would not say WHICH contract failed.
-        foreach (['--btn-bg', '--btn-hover-bg', '--btn-border-color', '--btn-hover-border-color'] as $global) {
-            $this->assertNotContains(
-                $global,
-                $order,
-                "{$selector} ({$label}) routes the GLOBAL knob {$global}. This chain bottoms out "
-                . 'at --color-accent-on-overlay, a measured 4.59:1 separation role that is '
-                . 'declared at :root and therefore always set. ABOVE the role a global knob '
-                . 'defeats the contrast guarantee this rule exists to make (the issue 564 '
-                . 'defect for the ring knobs, the issue 565 defect for the fill knobs, which '
-                . 'reach it through the border-follows-fill link). BELOW it the knob is dead '
-                . 'code. Re-adding one is a maintainer decision, not a cleanup — see the #565 '
-                . 'decision comment (2026-07-29).'
-            );
-        }
-
-        // The narrowing is not a deletion: the band's OWN fill must still ring itself, or
-        // #535's matching-ring promise would be gone rather than scoped to authored fills.
-        $this->assertContains(
-            $perInstanceFill,
-            $order,
-            "{$selector} ({$label}) dropped {$perInstanceFill} from its border chain. Issue 565 "
-            . 'removed the GLOBAL fill knobs from these chains and deliberately KEPT the '
-            . 'per-instance one: an author who flattens this band to a brand colour still gets '
-            . 'a matching ring (#535). Removing this link too would be the stronger option the '
-            . 'decision explicitly did not take.'
-        );
-
-        $this->assertSame(
-            '--color-accent-on-overlay',
-            $order[array_key_last($order)],
-            "{$selector} ({$label}) must still bottom out at the measured on-overlay role."
-        );
-    }
-
-    /**
-     * All EIGHT overlay/cover separation-ring declarations: four buttons x two states.
-     *
-     * Each is a physically separate declaration that can drift from its base rule and from
-     * its own twin independently, which is why the property is asserted per row rather than
-     * once per button.
-     *
-     * @return array<string, array{0:string,1:string,2:string,3:string}>
-     */
-    public static function filledOverlayRingChains(): array
-    {
-        $ctaPrimary = '.cta--has-bg-image .cta__button';
-        $ctaSecond  = '.cta--has-bg-image .cta__buttons .cta__button--secondary';
-        $heroFirst  = '.hero--cover .hero__cta';
-        $heroSecond = '.hero--cover .hero__cta-group .hero__cta--secondary';
-
-        return [
-            'cta primary (overlay, rest)'   => ['cta', $ctaPrimary, '', '--cta-button-bg'],
-            'cta primary (overlay, hover)'  => ['cta', $ctaPrimary, ':hover', '--cta-button-hover-bg'],
-            'cta button2 (overlay, rest)'   => ['cta', $ctaSecond, '', '--cta-button2-bg'],
-            'cta button2 (overlay, hover)'  => ['cta', $ctaSecond, ':hover', '--cta-button2-hover-bg'],
-        ];
-    }
-
-    /**
-     * The counterweight to the property above, pinned so the narrowing cannot creep: the four
-     * BASE (non-overlay) chains keep the global FILL knob. #539 put it there and #554 made
-     * "a site-wide button retheme reaches every filled surface" the contract; #565 narrowed
-     * that contract on the overlay bands ONLY, where a measured role is at stake. Without
-     * this pin, a future tidy-up could "finish the job" by stripping the global tier
-     * everywhere and every test above would stay green.
-     *
-     * Asserted in BOTH states, like the overlay property it counterweights. A hover-only
-     * counterweight would let a future tidy-up strip --btn-bg from the four base REST chains
-     * and stay green, which is the same half-a-contract mistake the overlay side avoids by
-     * moving its twins together.
-     *
-     * @dataProvider filledBaseBorderChains
-     */
-    public function testIssue565TheBaseChainsKeepTheGlobalFillKnob(
-        string $component,
-        string $selector,
-        string $state,
-        string $globalFill,
-        string $fill
-    ): void {
-        $order = $this->filledChainOrder($component, $selector, $state, 'border-color');
-        $label = $state === '' ? 'rest' : 'hover';
-
-        $iGlobal = array_search($globalFill, $order, true);
-        $iFill   = array_search($fill, $order, true);
-
-        $this->assertNotFalse(
-            $iGlobal,
-            "{$selector} ({$label}) must KEEP {$globalFill} in its border chain. Issue 565 removed "
-            . 'the global fill knobs from the OVERLAY ring twins only, because those bottom out '
-            . 'at a measured contrast role. On a light band the terminal is an ordinary default, '
-            . "#554's site-wide-retheme contract applies, and the knob stays."
-        );
-        $this->assertNotFalse($iFill, "{$selector} ({$label}) must keep {$fill} in its border chain.");
-        $this->assertLessThan(
-            $iGlobal,
-            $iFill,
-            "{$selector} ({$label}) ranks the GLOBAL fill ahead of this button's own {$fill}. The "
-            . 'per-instance link has always led the global one (#539); #565 removed the global '
-            . 'link on the overlay twins and changed nothing about this order here.'
-        );
-    }
-
-    /**
-     * The four BASE (non-overlay) filled buttons in BOTH states — eight rows, mirroring the
-     * eight overlay rows. Split out of filledHoverBorderChains so the counterweight above has
-     * no dead branch: every row it receives is a row it asserts against.
-     *
-     * @return array<string, array{0:string,1:string,2:string,3:string,4:string}>
-     */
-    public static function filledBaseBorderChains(): array
-    {
-        $restFill = [
-            '--cta-button-hover-bg'  => '--cta-button-bg',
-            '--cta-button2-hover-bg' => '--cta-button2-bg',
-        ];
-
-        $rows = [];
-        foreach (self::filledHoverBorderChains() as $name => $row) {
-            if ($row[4]) {
-                continue; // the overlay twins — covered by the #565 property above
-            }
-            [$component, $selector, , $hoverFill] = $row;
-            $rows["{$name} (rest)"]  = [$component, $selector, '', '--btn-bg', $restFill[$hoverFill]];
-            $rows["{$name} (hover)"] = [$component, $selector, ':hover', '--btn-hover-bg', $hoverFill];
-        }
-
-        return $rows;
-    }
-
-    /**
-     * The fill-side symmetry the border chains now share (issue 564).
-     *
-     * The fill chains have ranked the band accent above the global fill knob (--btn-hover-bg)
-     * since #539 shipped — that is precisely why the fill side never had this defect, and it is
-     * the evidence the recorded decision leaned on. Pinning it here turns "the border side now
-     * matches the fill side" from a claim in a comment into a test that fails if EITHER side
-     * moves. Without it, a future edit could fix the asymmetry by breaking the fill side instead.
-     *
-     * Scoped to the four BASE rules: the overlay ring rules declare border-color only.
-     *
-     * @dataProvider filledHoverBorderChains
-     */
-    public function testIssue564FillChainsRankTheAccentAboveTheGlobalFillKnobToo(
-        string $component,
-        string $selector,
-        string $accent,
-        string $fill,
-        bool $isOverlayRing
-    ): void {
-        if ($isOverlayRing) {
-            // Not a skip: PIN the reason these rows are out of scope. An overlay ring rule
-            // that grew a background-color would otherwise sail past this test forever.
-            $this->assertSame(
-                0,
-                preg_match_all('/background-color\s*:/', $this->hoverRuleBody($component, $selector)),
-                "{$selector}:hover is a separation-RING rule and must declare border-color only. "
-                . 'It overrides one property of the base rule; a fill here would silently take '
-                . 'over the band and escape the fill-side pins below.'
-            );
-            return;
-        }
-
-        $order = $this->hoverChainOrder($component, $selector, 'background-color');
-
-        $iAccent = array_search($accent, $order, true);
-        $iGlobal = array_search('--btn-hover-bg', $order, true);
-        $iFill   = array_search($fill, $order, true);
-
-        $this->assertNotFalse($iAccent, "{$selector}:hover fill chain must route {$accent}.");
-        $this->assertNotFalse($iGlobal, "{$selector}:hover fill chain must route --btn-hover-bg (issue 539).");
-        $this->assertNotFalse($iFill, "{$selector}:hover fill chain must route {$fill}.");
-
-        $this->assertLessThan(
-            $iGlobal,
-            $iAccent,
-            "{$selector}:hover ranks --btn-hover-bg ahead of {$accent} in the FILL chain. The fill "
-            . 'side has ranked the band accent above the global knob since issue 539, and issue 564 '
-            . 'brought the BORDER side onto that same order. Inverting the fill side would restore '
-            . 'the very asymmetry 564 removed, from the other direction.'
-        );
-        $this->assertLessThan(
-            $iAccent,
-            $iFill,
-            "{$selector}:hover must keep its per-instance hover fill slot ahead of {$accent}."
-        );
-    }
-
-    /** The hover rule body for a filled button selector, comments stripped. */
-    private function hoverRuleBody(string $component, string $selector): string
-    {
-        return $this->filledRuleBody($component, $selector, ':hover');
-    }
-
-    /**
-     * The rule body for a filled button selector in one STATE, comments stripped.
-     *
-     * `$state` is ':hover' or '' (rest). Generalised for #565, which had to read the REST
-     * halves of the overlay ring twins as well as the hover ones: the decision moves both
-     * halves together, so a test that can only see one of them could not state that property.
-     * The rest pattern anchors on `{` immediately after the three :not() guards, so it cannot
-     * match the :hover twin (which has `:hover` in between) — the two states stay distinct.
-     */
-    private function filledRuleBody(string $component, string $selector, string $state): string
-    {
-        $block = $this->stripComments($this->componentBlock($component));
-
-        $rulePattern = '/' . preg_quote($selector, '/')
-            . '(?::not\(\.btn--(?:outline|ghost|secondary)\)){3}'
-            . preg_quote($state, '/') . '\s*\{(.*?)\}/s';
-        $label = $state === '' ? 'rest' : trim($state, ':');
-        $this->assertSame(
-            1,
-            preg_match_all($rulePattern, $block, $m),
-            "Expected exactly ONE filled {$label} rule for {$selector}."
-        );
-
-        return $m[1][0] ?? '';
-    }
-
-    /**
-     * The ORDER of custom properties in one declaration of a filled button's rule, in a
-     * given STATE. The exactly-once guard lives in the shared reader below, for the reason
-     * hoverChainOrder() documents: a second declaration of the same property later in the
-     * block wins the cascade, so reading the first would assert a chain that never paints.
-     */
-    private function filledChainOrder(
-        string $component,
-        string $selector,
-        string $state,
-        string $property
-    ): array {
-        $body  = $this->filledRuleBody($component, $selector, $state);
-        $label = $state === '' ? 'rest' : trim($state, ':');
-
-        $this->assertSame(
-            1,
-            preg_match_all('/' . preg_quote($property, '/') . '\s*:/', $body),
-            "{$selector} ({$label}) must declare {$property} exactly once, or the chain read "
-            . 'below is not the one that paints.'
-        );
-
-        preg_match('/' . preg_quote($property, '/') . '\s*:([^;]+);/', $body, $decl);
-        preg_match_all('/--[a-z0-9-]+/', $decl[1] ?? '', $tokens);
-
-        return $tokens[0];
-    }
-
-    /** The ORDER of custom properties in a filled button's hover border chain. */
-    private function hoverBorderOrder(string $component, string $selector): array
-    {
-        return $this->hoverChainOrder($component, $selector, 'border-color');
-    }
-
-    /**
-     * The ORDER of custom properties in one declaration of a filled button's hover rule.
-     *
-     * The exactly-once guard is the load-bearing part: a SECOND declaration of the same
-     * property later in the block wins the cascade, so reading the first one would assert the
-     * order of a chain that never paints.
-     */
-    private function hoverChainOrder(string $component, string $selector, string $property): array
-    {
-        // Delegates to the state-generalised reader (#565) rather than repeating the
-        // exactly-once guard: two copies of a load-bearing cascade guard is two places for it
-        // to rot. The hover callers keep their own name because it reads better at the call site.
-        return $this->filledChainOrder($component, $selector, ':hover', $property);
-    }
-
-    /**
-     * The fill-follow is scoped to the FILLED variant on purpose (issue 538), and that
-     * exclusion is now a documented contract — both component schemas and
-     * ai-instructions/style-component.md tell authors that outline/ghost/secondary need an
-     * explicit hover-border slot. An unpinned negative is exactly what #530 learned not to
-     * leave behind: folding the fill into the GHOST chain would newly ring a ghost button
-     * (its border bottoms out at `transparent`) on every site that sets only a hover fill,
-     * and without this test the whole suite stays green while the docs go stale.
-     *
-     * @dataProvider nonFilledSecondButtonHoverRules
-     */
-    public function testIssue538FillFollowIsScopedToTheFilledSecondButton(
-        string $component,
-        string $selector,
-        string $borderSlot,
-        string $fillSlot
-    ): void {
-        $block = $this->stripComments($this->componentBlock($component));
-
-        $rulePattern = '/' . preg_quote($selector, '/') . ':hover\s*\{(.*?)\}/s';
-        $this->assertMatchesRegularExpression(
-            $rulePattern,
-            $block,
-            "Missing the {$selector}:hover rule — issue 538 pins its border chain."
-        );
-        preg_match($rulePattern, $block, $m);
-        $body = $m[1] ?? '';
-
-        // The dedicated hover-border slot still leads the chain, so an author retains a knob.
-        $this->assertMatchesRegularExpression(
-            '/border-color\s*:\s*var\(\s*' . preg_quote($borderSlot, '/') . '\s*,/',
-            $body,
-            "{$selector}:hover must keep {$borderSlot} at the head of its border chain."
-        );
-        // ...but the hover FILL must not appear in the border chain on these variants.
-        $borderDecl = [];
-        preg_match('/border-color\s*:[^;]*;/', $body, $borderDecl);
-        $this->assertStringNotContainsString(
-            $fillSlot,
-            $borderDecl[0] ?? '',
-            "{$selector}:hover must NOT route {$fillSlot} into its border. Issue 538 scoped "
-            . 'the fill-follow to the FILLED variant; on ghost the border bottoms out at '
-            . '`transparent`, so following the fill would ADD a ring rather than match one, '
-            . 'and outline/secondary deliberately do not follow the fill in either state. '
-            . 'Widening this is a decision, not a cleanup — the schemas document the current '
-            . 'contract to authors.'
-        );
-    }
-
-    /** @return array<string, array{0:string,1:string,2:string,3:string}> */
-    public static function nonFilledSecondButtonHoverRules(): array
-    {
-        $hero = '.hero .hero__cta-group .hero__cta--secondary';
-        $cta  = '.cta .cta__buttons .cta__button--secondary';
-
-        return [
-            'cta button2 outline'   => ['cta', $cta . '.btn--outline',   '--cta-button2-hover-border', '--cta-button2-hover-bg'],
-            'cta button2 secondary' => ['cta', $cta . '.btn--secondary', '--cta-button2-hover-border', '--cta-button2-hover-bg'],
-            'cta button2 ghost'     => ['cta', $cta . '.btn--ghost',     '--cta-button2-hover-border', '--cta-button2-hover-bg'],
-        ];
-    }
 
     // RETIRED (#986): the two CTAs are separate roles with separate selectors, so the
     // isolation this pinned holds by construction; ActionsTest proves it on the
@@ -1505,7 +868,12 @@ class StyleSlotContractTest extends TestCase
         // dev smoke test against a dark-band benchmark. Same cross-block class.
         '.grid__item-title'  => ['--grid-item-title-color', 'color'],
         '.grid__item-text'   => ['--grid-item-text-color', 'color'],
-        '.cta__body'         => ['--cta-body-color', 'color'],
+        // cta's row retired in #1026 for the reason section's did in #1023, with one detail
+        // worth keeping: the two `main > .cta .cta__body` premium-typography rules that made
+        // this slot cross-block reachable were DELETED in the same change, and their
+        // font-weight and line-height had to be PORTED rather than dropped — cta had no
+        // unconditional rule for either, so they lived only inside those two media blocks.
+        // The cross-block hazard this map exists for has no mechanism on cta any more.
         // faq (#100): this is the exact bug the "premium typography" comment above
         // already documented ("faq has no heading-color slot, so it keeps the token")
         // before #100 added one — .faq__heading/.faq__answer are re-declared in the
@@ -1608,7 +976,13 @@ class StyleSlotContractTest extends TestCase
      * root (all 12 carry data-pp-component) and the per-card .grid__item of issue 306.
      * These are what the immunity baseline must cover.
      */
-    private const BORDER_IMMUNITY_SELECTORS = ['[data-pp-component]', '.grid__item', '.section__panel-row'];
+    // `.section__panel-row` LEFT THIS LIST AT #1026, one rebuild after the surface itself
+    // stopped qualifying. Section has been v2 since #1023, so its rows carry no style
+    // attribute and WP core's `:where([style*=border-width])` can never match one — the term
+    // was immunising an element that no longer had the problem. Removing it is the narrowing
+    // #1023 recorded as owed; the measured before/after that justified narrowing the baseline
+    // at all is in the baseline's own comment in components.css.
+    private const BORDER_IMMUNITY_SELECTORS = ['[data-pp-component]', '.grid__item'];
 
     /**
      * The baseline must DECLARE these longhands with these VALUES. Asserting the value —
@@ -1705,17 +1079,18 @@ class StyleSlotContractTest extends TestCase
     {
         $triggerSlots = $this->borderTriggerSlots();
 
-        // Fail-closed floor: 11 such slots exist today. 13 at issue 332, minus section's
-        // two (`--section-border-width` and `--section-panel-border-width`), which went
-        // with its slot map in #1023 — a v2 band's border width is the `_band` / `panel`
-        // role's `border.width`, emitted by the engine into a band-scoped rule rather
-        // than an inline style attribute, so it never meets WP core's 3px trigger this
+        // Fail-closed floor: 7 such slots exist today. 13 at issue 332, minus section's two
+        // (`--section-border-width`, `--section-panel-border-width`) in #1023 and cta's four
+        // (`--cta-border-width`, `--cta-border-color`, `--cta-eyebrow-border-width`,
+        // `--cta-eyebrow-border-color`) in #1026 — a v2 band's border is the `_band` or
+        // `eyebrow` role's `border` group, emitted by the engine into a band-scoped rule
+        // rather than an inline style attribute, so it never meets WP core's 3px trigger this
         // immunity baseline exists to defeat. If discovery breaks, every assertion below
         // would pass over an empty list.
         $this->assertGreaterThanOrEqual(
-            11,
+            7,
             count($triggerSlots),
-            'Discovery found fewer border-trigger slots than the 11 known today — '
+            'Discovery found fewer border-trigger slots than the 7 known today — '
             . 'the schema scan is broken and this guard would pass vacuously.'
         );
 
@@ -1878,21 +1253,57 @@ class StyleSlotContractTest extends TestCase
 
         // Baseline present but BELOW a component block: the component rules (equal
         // specificity, (0,1,0)) no longer win on source order — it would clobber them.
+        //
+        // THIS ROW USED TO PASS FOR THE WRONG REASON, found at #1026 and worth recording
+        // because it is the vacuous-control class this file's other guards are built to
+        // avoid. Its fixture's component rule was `.nav`, which is NOT in
+        // styledComponentRoots() — chrome's root entries became `.nav__container` /
+        // `.site-footer__inner` at #994 — so firstComponentRuleOffset() returned null, the
+        // source-order branch never ran, and the row was carried by the OTHER half of the
+        // check: `.section__panel-row` was in BORDER_IMMUNITY_SELECTORS and the fixture did
+        // not cover it, so a gap was reported for a missing surface rather than for bad
+        // order. Removing that surface at #1026 took the accidental support away and the
+        // row failed, which is the guard doing its job one layer up. The fixture now uses
+        // `.grid`, a root the scan really recognises, so the branch under test actually runs.
         $this->assertNotSame(
             [],
             $this->immunityGaps(
-                "/* COMPONENT: nav */\n.nav { color: red; }\n"
+                ".grid { color: red; }\n"
                 . '[data-pp-component], .grid__item { border-style: none; border-width: 0; }'
             )
         );
 
-        // The real shape passes (all three inline-slot surfaces covered: roots,
-        // grid card, and the issue-334 panel row).
+        // The real shape passes (both remaining inline-slot surfaces covered: roots and the
+        // grid card). The issue-334 panel row left this fixture at #1026 with the constant —
+        // section is v2 and its rows carry no style attribute, so there is nothing to immunise.
         $this->assertSame(
             [],
             $this->immunityGaps(
-                "[data-pp-component],\n.grid__item,\n.section__panel-row { border-style: none; border-width: 0; }\n"
+                "[data-pp-component],\n.grid__item { border-style: none; border-width: 0; }\n"
                 . "/* COMPONENT: nav */\n.nav { color: red; }"
+            )
+        );
+
+        // ...and so does the SHIPPED spelling, with both qualifiers (#1026). Asserted here
+        // rather than only against the real stylesheet so the matcher's acceptance of
+        // `:where([style])` is proven on a fixture the test controls — otherwise a matcher
+        // that accepted anything would pass the real-sheet check just as happily.
+        $this->assertSame(
+            [],
+            $this->immunityGaps(
+                "[data-pp-component]:where([style]):not(:where([data-pp-chrome])),\n"
+                . ".grid__item:where([style]) { border-style: none; border-width: 0; }\n"
+                . "/* COMPONENT: nav */\n.nav { color: red; }"
+            )
+        );
+
+        // And the qualifier is not a blanket "anything goes": a DIFFERENT attribute
+        // qualifier must still fail, or the acceptance above would be vacuous.
+        $this->assertNotSame(
+            [],
+            $this->immunityGaps(
+                "[data-pp-component]:where([data-x]),\n"
+                . ".grid__item:where([data-x]) { border-style: none; border-width: 0; }"
             )
         );
 
@@ -1904,7 +1315,6 @@ class StyleSlotContractTest extends TestCase
             $this->immunityGaps(
                 "[data-pp-component] { border-style: none; border-width: 0; }\n"
                 . ".grid__item { border-style: none; border-width: 0; }\n"
-                . ".section__panel-row { border-style: none; border-width: 0; }\n"
                 . "/* COMPONENT: nav */\n.nav { color: red; }"
             )
         );
@@ -2139,11 +1549,27 @@ class StyleSlotContractTest extends TestCase
         // raise the baseline from (0,1,0) to (0,2,0) and start beating the thirteen
         // component rules that legitimately draw a border. `:where()` contributes zero, so
         // the weight the source-order check below depends on is unchanged.
+        // THE PREMISE AS A QUALIFIER (#1026). The baseline's scope was stated in prose —
+        // "every element that can carry inline slot custom properties" — and approximated by
+        // a roster, which drifted twice: `.section__panel-row` stopped qualifying at #1023
+        // and the cta root at #1026, because a v2 component emits no style attribute at all.
+        // `:where([style])` is that premise written as the selector, so it cannot drift
+        // again. Accepted here in the same shape as the chrome exclusion and for the same
+        // specificity reason: `:where()` contributes zero, so the (0,1,0) weight the
+        // source-order check below depends on is unchanged — and core's
+        // `:where([style*="border-width"])` matches a strict SUBSET of `[style]`, so the
+        // immunity is exactly as strong as it was.
         $chromeExclusion = ':not(:where([data-pp-chrome]))';
+        $styleQualifier  = ':where([style])';
+        $accepted        = [
+            $surface,
+            $surface . $chromeExclusion,
+            $surface . $styleQualifier,
+            $surface . $styleQualifier . $chromeExclusion,
+        ];
         $selects = false;
         foreach (self::splitTopLevel($rule['selector'], ',') as $part) {
-            $part = trim($part);
-            if ($part === $surface || $part === $surface . $chromeExclusion) {
+            if (in_array(trim($part), $accepted, true)) {
                 $selects = true;
                 break;
             }
@@ -2283,94 +1709,41 @@ class StyleSlotContractTest extends TestCase
      * guaranteed-invalid `initial`. Any OTHER rule/slot pair still fails, and this list is
      * exact — adding or dropping an entry fails until it is updated deliberately.
      */
-    private const SLOT_DECLARATION_EXEMPTIONS = [
-        // issue 530 — the hover half of the same mechanism. --hero-button-hover-bg is
-        // re-pointed at --hero-button2-hover-bg for exactly the reasons above, applied to the
-        // hover surface: it routes cta2's hover fill into the premium gradient-clearing
-        // chain AND stops the primary's hover fill inheriting down. Nothing author-facing
-        // is deadened — cta2's own hover slot is --hero-button2-hover-bg, which is not declared.
-        // issue 474 — the SAME isolation mechanism for the cta component's own second
-        // button, and exempt for the same reason. .cta__button--secondary is a
-        // descendant of the .cta root, so it inherits the PRIMARY button's
-        // --cta-button-* slots; a filled (`primary`) button2 sits in the shared premium
-        // button cascade and would be repainted by them. Nothing an author can set on
-        // the second button is deadened: its own author-facing slots are --cta-button2-*,
-        // none of which is declared here. --cta-button-bg is re-pointed at
-        // --cta-button2-bg (routing the button2 fill into the premium gradient-clearing
-        // chain), and issue 581 re-pointed --cta-button-shadow at --cta-button2-shadow the
-        // same way, so button2 finally has an elevation slot of its own. Only
-        // --cta-button-color is still a bare guaranteed-invalid `initial`.
-        '.cta .cta__buttons .cta__button--secondary declares --cta-button-bg',
-        '.cta .cta__buttons .cta__button--secondary declares --cta-button-color',
-        '.cta .cta__buttons .cta__button--secondary declares --cta-button-shadow',
-        // issue 530 — the hover half, mirroring the hero entry above. Re-pointing
-        // --cta-button-hover-bg at --cta-button2-hover-bg both unmasks button2's hover fill
-        // and kills the cross-button hover coupling found in #474's review.
-        '.cta .cta__buttons .cta__button--secondary declares --cta-button-hover-bg',
-        // issue 545 — the same isolation mechanism widened from "the second button" to
-        // "every composed button this theme does not own". The five per-instance button slot
-        // families are emitted on the COMPONENT ROOT, and three of their consumers select by
-        // descent (`main .btn:not(...)`, `.hero .btn:not(...)`, `.cta .btn:not(...)`), so they
-        // also inherited onto a `.btn` an AUTHOR hand-writes into a wp_kses_post rich-text prop
-        // (section.body, hero.proof) and repainted it with the band's button styling.
-        // Neutralising the families to the guaranteed-invalid `initial` on
-        // `main .btn:not(.hero__cta):not(.cta__button):not(.section__panel-cta)` is the fix.
-        // It deadens nothing author-facing, for a stronger reason than the entries above: the
-        // rule matches ONLY buttons no renderer owns, and a style slot can be authored only on
-        // a component — there is no authoring surface that targets a nested button, so no
-        // author-set value is being overridden. The three owned button elements are excluded by
-        // selector, which is why every shipped chain is untouched and byte-identical.
-        // Its 26 entries are appended from NESTED_BTN_ISOLATION_* below rather than spelled out
-        // here, so widening the exclusion list is one edit instead of 26. The ledger stays
-        // exact either way; tests/js/css-lint.test.js derives the same completeness requirement
-        // structurally (schema style_slots read by a leak-capable selector), so a missing slot
-        // cannot merely be forgotten.
-    ];
+    // EMPTY SINCE #1026, and empty is the correct state rather than a gap. Every entry this
+    // ledger ever held was one line of the #474/#526/#530/#581 isolation rule, which declared
+    // a PRIMARY button's slot on the SECOND button to re-point or invalidate it. That rule
+    // existed because slots were emitted as inline custom properties on the band root and
+    // custom properties inherit to every descendant. cta declared the last of them; with no
+    // slots emitted anywhere, no stylesheet rule declares a schema slot, which is what this
+    // test asserts in the first place. The exemption list existing at all was the measure of
+    // how much the slot system had to work around its own inheritance.
+    private const SLOT_DECLARATION_EXEMPTIONS = [];
+
+    // THE ISSUE-545 NEUTRALISATION RULE IS RETIRED (#1026) and so is the data that described
+    // it. It reset every per-instance button slot family to `initial` on any composed `.btn`
+    // the renderer does not own, so a band's button styling could not reach a `.btn` an
+    // author hand-wrote into a rich-text prop. Each family retired with its component —
+    // `--hero-button-*` at #986, `--section-panel-cta-*` at #1023, `--cta-button*-*` at
+    // #1026 — and no schema declares a button slot any more, so the rule was neutralising
+    // properties no write path could produce.
+    //
+    // THE GUARANTEE HOLDS WITHOUT IT, by construction rather than by a rule. On a v2 band an
+    // author-written `.btn` sits inside whatever ROLE its container declares and takes that
+    // role's value; the band's design reaches it because the author aimed the band's design
+    // at it, which is the opposite of the leak. The leak was per-instance styling arriving
+    // somewhere nobody asked for it, and a role is an address the author chose.
+    //
+    // `:not(.section__panel-cta)` had already been dropped from the selector at #1023, for
+    // the same reason one step earlier. That was the last narrowing this rule could take.
 
     /**
-     * The issue 545 neutralisation rule. Kept as data, not as 26 literal ledger strings: the
-     * exclusion list changes whenever a fourth component gains its own button (a change
-     * NestedButtonSlotIsolationTest::testEveryRendererThatEmitsAButtonIsExcluded forces), and a
-     * one-character selector edit should not read as 26 unexpected plus 26 missing entries.
+     * The full exemption ledger. It has no entries since #1026 and the accessor is kept
+     * rather than inlined: it is the seam the next component to need an exemption writes to,
+     * and collapsing it would make the empty state look like an absence of the concept.
      */
-    // `:not(.section__panel-cta)` DROPPED in #1023, and it is the selector that had to
-    // change rather than just the ledger: the carve-out existed so the neutraliser would
-    // leave section's panel-CTA slots alone, and there are no such slots any more. The
-    // panel CTA is the `panel-cta` role, whose block is emitted unlayered and band-scoped
-    // and therefore outranks this rule outright — so excluding the class would only stop
-    // the neutraliser from deadening the CTA slots on a panel button, which is exactly
-    // what issue 545 wants it to do.
-    private const NESTED_BTN_ISOLATION_SELECTOR =
-        'main .btn:not(.hero__cta):not(.cta__button)';
-
-    private const NESTED_BTN_ISOLATION_SLOTS = [
-        '--cta-button-bg',
-        '--cta-button-border',
-        '--cta-button-color',
-        '--cta-button-hover-bg',
-        '--cta-button-hover-border',
-        '--cta-button-hover-color',
-        '--cta-button-shadow',
-        '--cta-button2-bg',
-        '--cta-button2-border',
-        '--cta-button2-color',
-        '--cta-button2-hover-bg',
-        '--cta-button2-hover-border',
-        '--cta-button2-hover-color',
-        // section's five panel-CTA entries retired with its slot map (#1023).
-    ];
-
-    /** The full exemption ledger: the hand-listed entries plus the issue 545 rule's. */
     private static function slotDeclarationExemptions(): array
     {
-        return array_merge(
-            self::SLOT_DECLARATION_EXEMPTIONS,
-            array_map(
-                static fn(string $slot): string =>
-                    self::NESTED_BTN_ISOLATION_SELECTOR . ' declares ' . $slot,
-                self::NESTED_BTN_ISOLATION_SLOTS
-            )
-        );
+        return self::SLOT_DECLARATION_EXEMPTIONS;
     }
 
     public function testNoStylesheetRuleDeclaresASchemaSlot(): void
@@ -3387,100 +2760,6 @@ class StyleSlotContractTest extends TestCase
             return [];
         }
         return array_map('strtolower', $m[1]);
-    }
-
-
-
-    /**
-     * Pin the ORDER of a filled second button's hover border chain (issue 538).
-     *
-     * Order is the entire contract here. Option 3 (accepted) puts the hover FILL behind the
-     * accent knob so an authored ring survives; Option 2 (rejected) puts it in front and
-     * repaints that ring. Those two differ only by the position of one token, so the pin has
-     * to be positional — and it has to prove the declaration it matched is the one that
-     * actually WINS, not merely that the desired string appears somewhere in the block.
-     *
-     * Four properties, each closing a way an earlier draft of this pin could pass while the
-     * rendered ring was wrong:
-     *   1. It isolates the filled variant's :hover rule by selector, and requires that
-     *      selector to appear EXACTLY ONCE. Matching only the first occurrence would let a
-     *      second, identical-specificity rule added later in the block win on source order
-     *      while this pin happily inspected the earlier, still-correct one.
-     *   2. It requires EXACTLY ONE border-color declaration in that rule. A later duplicate
-     *      declaration in the same block silently wins in the cascade; without this count a
-     *      correct-but-overridden chain would still pass.
-     *   3. It matches the token sequence with \s* between parts rather than a fixed-whitespace
-     *      substring, so reformatting these 110-character declarations is not a false failure
-     *      while a reordering still is.
-     *   4. It anchors the TERMINAL — the chain must close on the theme literal and end there.
-     *      A prefix-only match would accept extra fallbacks appended after --color-accent-hover,
-     *      and that terminal is exactly what "byte-identical when the slots are unset" rests on.
-     *
-     * What it deliberately does NOT prove: that no HIGHER-specificity rule elsewhere overrides
-     * this one. That is a cascade fact, not a text fact, and it is pinned at render level by
-     * the `#538` block in tests/e2e/style-render.spec.ts, which reads borderTopColor under a
-     * real :hover in a real browser.
-     *
-     * @param string   $block    Comment-stripped CSS for the component.
-     * @param string   $selector The filled second button's base selector (without :not()/:hover).
-     * @param string[] $chain    Custom property names in their required order, outermost first.
-     * @param string   $label    Human name for the button, used in failure messages.
-     */
-    private function assertHoverBorderChain(
-        string $block,
-        string $selector,
-        array $chain,
-        string $label
-    ): void {
-        // The filled variant's hover rule: the base selector, the three :not() exclusions in
-        // any order, then :hover. Non-greedy body match stops at the first closing brace.
-        $rulePattern = '/' . preg_quote($selector, '/')
-            . '(?::not\(\.btn--(?:outline|ghost|secondary)\)){3}:hover\s*\{(.*?)\}/s';
-        $ruleCount = preg_match_all($rulePattern, $block, $matches);
-        $this->assertSame(
-            1,
-            $ruleCount,
-            "Expected exactly ONE filled {$label} :hover rule, found {$ruleCount}. Issue 538's "
-            . 'border contract is pinned against that rule; a duplicate rule later in the block '
-            . 'carries equal specificity and wins on source order, so the chain checked here '
-            . 'would no longer be the one that paints.'
-        );
-        $body = $matches[1][0] ?? '';
-
-        $this->assertSame(
-            1,
-            preg_match_all('/border-color\s*:/', $body),
-            "The filled {$label} :hover rule must declare border-color exactly once. A second "
-            . 'declaration later in the same block wins the cascade, which would leave the '
-            . 'chain below correct in the source and wrong on screen (issue 538).'
-        );
-
-        // Order + terminal pattern: `border-color: var(--a, var(--b, var(--c, var(--d))));`
-        // Every entry but the last opens a var() with a fallback; the last opens a var() that
-        // CLOSES the chain, and the declaration must end right after the matching parens.
-        $last  = array_key_last($chain);
-        $parts = '';
-        foreach ($chain as $i => $prop) {
-            $parts .= $i === $last
-                ? 'var\(\s*' . preg_quote($prop, '/') . '\s*\)'
-                : 'var\(\s*' . preg_quote($prop, '/') . '\s*,\s*';
-        }
-        $orderPattern = '/border-color\s*:\s*' . $parts . '\s*' . str_repeat('\)\s*', $last) . ';/';
-
-        $this->assertMatchesRegularExpression(
-            $orderPattern,
-            $body,
-            "The filled {$label} hover border must resolve in exactly this order and stop there: "
-            . implode(' -> ', $chain) . '. The hover FILL sits BEHIND the accent knob on '
-            . 'purpose (issue 538, Option 3; extended to the cta primary by issue 548), and '
-            . 'since issue 564 the global --btn-hover-border-color knob sits behind it too, so '
-            . 'a site-wide ring retheme cannot defeat an authored band accent or the measured '
-            . 'on-overlay separation role. Both orderings repaint rings on compositions that '
-            . 'already ship, so both are maintainer decisions rather than cleanups — see '
-            . 'issue 564 (issuecomment-5106604500). '
-            . 'The terminal is pinned too: anything appended after the theme literal would '
-            . 'break the byte-identical-when-unset guarantee.'
-        );
     }
 
     // ── unwrapCascadeLayers(): the three shapes the descent version got wrong (#986) ──

@@ -46,7 +46,12 @@ class MeasureSurfaceTest extends TestCase
     // style slot. This is the v1 STYLE-SLOT roster; testimonials left it when it was rebuilt on the Universal Design Contract (v2) and now declares roles instead of slots: its heading cap is the `heading` role's
     // `sizing.max-width` default, which still resolves @measure-heading, so the
     // shared token still governs it — through the engine rather than through a slot.
-    private const ROUTED = ['cta', 'grid', 'faq', 'stats', 'table', 'embed', 'logos'];
+    // cta left this roster at #1026 and, unlike testimonials, it still ROUTES the token:
+    // its `heading` role and its `text` role both default `sizing.max-width` to
+    // `@measure-heading`, so one `update_design_token` write still reaches the band. What
+    // changed is the address, not the routing — which is why the roster below is named for
+    // the slot mechanism rather than for the capability.
+    private const ROUTED = ['grid', 'faq', 'stats', 'table', 'embed', 'logos'];
 
     /**
      * EMPTY SINCE #1023, and kept rather than deleted because the emptiness is the fact.
@@ -227,9 +232,9 @@ class MeasureSurfaceTest extends TestCase
     /** The four prose components declare a body measure; testimonials deliberately does not. */
     public function testTheFourProseComponentsDeclareABodyMeasure(): void
     {
-        // section left this roster at #1023: its body measure is the `body` role's
-        // `sizing.max-width`. Three prose components still declare the slot.
-        foreach (['cta', 'faq', 'embed'] as $component) {
+        // section left this roster at #1023 and cta at #1026: on both, the body measure is
+        // the `body` role's `sizing.max-width`. Two prose components still declare the slot.
+        foreach (['faq', 'embed'] as $component) {
             $this->assertArrayHasKey(
                 "--{$component}-body-measure",
                 $this->slots($component),
@@ -329,11 +334,14 @@ class MeasureSurfaceTest extends TestCase
                 . 'plain `length` grammar rather than silently widening to accept `none`.'
             );
         }
-        // --section-heading-measure left this set at #1023: section's heading cap is the
-        // `heading` role's `sizing.max-width`, declared `none` — the same uncapped value,
-        // now a role default rather than a slot default.
+        // --section-heading-measure left this set at #1023 and --cta-body-measure at #1026.
+        // Both are role defaults now, and both stay uncapped: section's `heading` declares
+        // `none` explicitly, while cta's `body` declares NO max-width at all — which is the
+        // faithful port, because v1 declared `none` and rendered `none`, and `none` IS the
+        // initial value. An absent default and an explicit `none` render identically here;
+        // the difference is that cta's says nothing rather than saying the initial value.
         $this->assertSame(
-            ['--cta-body-measure', '--faq-body-measure'],
+            ['--faq-body-measure'],
             $this->sortedKeys($noneDefaulted),
             'The set of uncapped-by-default measure slots changed. That is a render decision, '
             . 'not a refactor — update this pin deliberately.'
@@ -356,7 +364,7 @@ class MeasureSurfaceTest extends TestCase
         }
         // section's body measure went with its slot map at #1023 (the `body` role's
         // `sizing.max-width`), the way hero's content measure went at #986.
-        foreach (['cta', 'faq', 'embed'] as $component) {
+        foreach (['faq', 'embed'] as $component) {
             $expected[] = "--{$component}-body-measure";
         }
         // hero's measure used to be spelled --hero-content-width — the reason the engine
@@ -405,7 +413,6 @@ class MeasureSurfaceTest extends TestCase
             'faq'   => '.faq__heading',
             'logos' => '.logos__heading',
             'embed' => '.embed__heading',
-            'cta'   => '.cta__title',
             'stats' => '.stats__heading',
         ];
 
@@ -637,7 +644,7 @@ class MeasureSurfaceTest extends TestCase
         foreach (self::EXEMPT as $component) {
             $cases["{$component} heading"] = [$component, "--{$component}-heading-measure", '30rem'];
         }
-        foreach (['cta', 'faq', 'embed'] as $component) {
+        foreach (['faq', 'embed'] as $component) {
             $cases["{$component} body"] = [$component, "--{$component}-body-measure", '34rem'];
         }
         return $cases;
@@ -672,7 +679,6 @@ class MeasureSurfaceTest extends TestCase
         // `length-or-none` is the declared param type, so `none` is writable through the
         // udc map exactly as it was through the slot.
         return [
-            'cta body' => ['cta', '--cta-body-measure'],
             'faq body' => ['faq', '--faq-body-measure'],
         ];
     }

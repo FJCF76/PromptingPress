@@ -12,24 +12,34 @@
 /* ==========================================================================
    SHARED: Button
    .btn is the shared base; variants .btn--secondary / .btn--outline / .btn--ghost
-   (primary = bare .btn) are selected per-instance via the `button_variant` prop.
+   (primary = bare .btn). NO COMPONENT SELECTS THEM ANY MORE: the `button_variant` /
+   `button2_variant` / `panel_cta_variant` props that did retired with their components
+   (#986 hero, #1023 section, #1026 cta), and a v2 button's look is its ROLE — the
+   `button` / `button-secondary` PRESETS emit the same property values a variant class
+   carries. The variant rules below are kept because authored inline HTML in a body or
+   embed field can still carry the class; nothing in a composition routes to them.
    The --btn-* color tokens (--btn-bg / --btn-text / --btn-border-color / --btn-shadow,
    plus the HOVER pair --btn-hover-bg / --btn-hover-border-color added by #539)
    are registered design tokens in base.css and are the site-wide GLOBAL button surface.
-   The premium `main .btn:not(...)` primary cascade and the `.cta .btn` / `.hero .btn`
-   primary rules route their fill/border/ink/shadow fallbacks through --btn-* (#458), so
+   The premium `main .btn:not(...)` primary cascade routes its fill/border/ink/shadow
+   fallbacks through --btn-* (#458) — it is the ONLY such cascade left, the `.cta .btn`
+   and `.hero .btn` primary rules having gone with those components' rebuilds — so
    setting --btn-bg / --btn-text / --btn-border-color / --btn-shadow at :root restyles
    EVERY composed primary button. --btn-bg / --btn-border-color / --btn-shadow register as
    `initial` (unset), so each consuming rule resolves its own literal until the token is
    set and an unset button is byte-identical; the two hover knobs register `initial` for the
    same reason; --btn-text keeps a concrete --color-bg
-   default (its value equals the universal ink literal). Per-component slots
-   (--cta-button-* / --cta-accent / --hero-button-* / --hero-accent) still win over the
-   global tokens when set — --btn-* sits between those slots and the literal fallback. These tokens are NOT
+   default (its value equals the universal ink literal). THERE IS NO PER-COMPONENT TIER LEFT
+   ABOVE THEM: --cta-button-* / --cta-accent left at #1026, --hero-button-* / --hero-accent at
+   #986 and --section-panel-cta-* at #1023, so --btn-* now sits directly against the literal
+   fallback and no component slot can outrank it. A band that wants its own button values
+   sets them on its button ROLE, which is emitted unlayered and outranks this whole
+   stylesheet rather than competing inside a var() chain. These tokens are NOT
    exposed as component style_slots: they are the site-wide tier, and a nested .btn an author
-   hand-writes into a rich-text prop is MEANT to follow them. What a section's __pp_style cannot
-   leak into a nested button is the PER-INSTANCE slot families, which issue 545 neutralises on
-   every composed .btn that is not a renderer-owned button element (see that block below).
+   hand-writes into a rich-text prop is MEANT to follow them. The #545 neutralisation block
+   that used to keep per-instance slot families out of such a button is retired (#1026) — with
+   no per-instance button slots left anywhere, there is nothing to neutralise (see the note at
+   its old site below).
    ========================================================================== */
 
 .btn {
@@ -175,9 +185,46 @@
    order to the component rules that really want a border. A bare
    `:not([data-pp-chrome])` would weigh (0,2,0) and start beating `.hero`, `.cta`,
    `.grid--dark` and the rest. `:where()` contributes zero, so the weight is unchanged. */
-[data-pp-component]:not(:where([data-pp-chrome])),
-.grid__item,
-.section__panel-row {
+
+/* THE PREMISE IS NOW THE SELECTOR (#1026), instead of a roster that approximates it.
+   The paragraphs above state the rule's scope in words — "every element that can carry
+   inline slot custom properties" — and then enumerate the elements that could, in 2026.
+   Two of that roster have since stopped being able to: `.section__panel-row` at #1023 and
+   the cta root at #1026, because a v2 component emits NO style attribute at all (ratified
+   contract #223). The chrome carve-out above was the FIRST correction of that drift, made
+   one component at a time; `:where([style])` is the same correction made once. Core's
+   `html :where([style*="border-width"])` matches a strict SUBSET of `[style]`, so the
+   immunity is exactly as strong, and an element with no style attribute was never
+   reachable by core's selector in the first place — the baseline was only ever acting ON
+   it, never FOR it.
+
+   MEASURED, BECAUSE §1c OF docs/explanation-cascade-layers.md SAYS IT MUST BE. The moment
+   cta declared a `_band` role with a REAL border default — 1px top and bottom, the value
+   v1's full-width band rendered — this rule erased it: a `_band` default rides
+   `@layer pp-zero`, this rule rides `pp-v1`, and layer rank beats specificity outright.
+   In Chromium at 375/768/1280, same scene, before and after this narrowing:
+
+     .cta  border-top-width / -style      0px / none   ->   1px / solid      (all 3 tiers)
+     .cta  border-top-color               rgb(217,224,235) both ways
+
+   That surviving COLOUR is the signature worth remembering: the role default was emitting
+   correctly the whole time, and only the two longhands this rule claims were gone. A
+   schema check, an emitter check and a specificity argument all pass in that state.
+
+   Nothing else moved. `.grid` still carries inline slot custom properties and still
+   matches. `.grid__item` matches whenever a per-card style map gives it a style attribute,
+   which is the case #306 added it for; with no map it carries no attribute, so core cannot
+   match it either. `.section__panel-row` is DROPPED outright rather than left to be
+   filtered: section has been v2 since #1023, its rows never carry a style attribute, and a
+   selector that can no longer match anything is worse than absent — it is the roster
+   pretending to still be true.
+
+   The `:where([data-pp-chrome])` carve-out is kept rather than folded in. It is not
+   redundant: it is narrower and it is load-bearing documentation of WHY chrome is exempt
+   (#994's restored borders), and a future chrome template that did emit a style attribute
+   should still be exempt on the ratified-contract grounds, not readmitted by accident. */
+[data-pp-component]:where([style]):not(:where([data-pp-chrome])),
+.grid__item:where([style]) {
   border-style: none;
   border-width: 0;
 }
@@ -813,7 +860,10 @@
    shadow are the `_band` role's defaults, so there is nothing structural left to say
    about it. The shared adjacent-band rhythm still reaches it — `_band` defaults emit into
    `@layer pp-zero`, deliberately BELOW this stylesheet, which is what lets #430/#431's
-   `main > [data-pp-component] + .section` rule keep winning.
+   adjacent-band rule keep winning. That rule is
+   the GENERIC `:where(main > [data-pp-component] + [data-pp-component]:not(.hero))` catch-all,
+   not a per-component selector: section's own adjacent rule was deleted at #1023, so naming one here
+   sends a reader looking for something the file does not contain.
 
    FIVE THINGS THE v1 BLOCK DID THAT THIS ONE DELIBERATELY DOES NOT:
 
@@ -1899,637 +1949,153 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
 }
 
 /* ==========================================================================
-   COMPONENT: cta
-   Call-to-action block. Variants: full-width (centered), inline (flex row).
+   COMPONENT: cta  —  A v2 COMPONENT
+   Call-to-action band. Layouts: full-width (centered block), inline (flex row).
    ========================================================================== */
 
-.cta {
-  padding-top: var(--cta-padding-top, var(--pp-band-padding));
-  padding-bottom: var(--cta-padding-bottom, var(--pp-band-padding));
-  background: var(--cta-bg, transparent);
-  border-top: var(--cta-border-width, 0) solid var(--cta-border-color, transparent);
-  border-bottom: var(--cta-border-width, 0) solid var(--cta-border-color, transparent);
-  border-radius: var(--cta-radius, 0);
-  box-shadow: var(--cta-shadow, none);
-}
+/* STRUCTURAL CSS ONLY — this block is the v2 boundary (docs/v2/BUILD-SPEC-sprint0.md §2).
+   Layout scaffolding, wrapper geometry and accessibility affordances live here. NO colour,
+   type, size, spacing, border or shadow value may be added: every one of those belongs to
+   a role in components/cta/schema.json and is emitted by the UDC engine into a band-scoped
+   block in the document head. tests/js/css-lint.test.js enforces this on exactly this
+   block; adding a designable declaration fails CI.
+
+   The band root carries no rule of its own: its padding, background, border, radius and
+   shadow are the `_band` role's defaults, so there is nothing structural left to say about
+   it. The shared adjacent-band rhythm still reaches it — `_band` defaults emit into
+   `@layer pp-zero`, deliberately BELOW this stylesheet, which is what lets #430/#431's
+   adjacent-band rule keep winning. That rule is
+   the GENERIC `:where(main > [data-pp-component] + [data-pp-component]:not(.hero))` catch-all,
+   not a per-component selector: cta's own adjacent rule was deleted at #1026, so naming one here
+   sends a reader looking for something the file does not contain.
+
+   THE ONE THING THIS REBUILD HAD TO DO THAT SECTION'S DID NOT — narrow the issue-332
+   border baseline (#1026). cta's `_band` border default is a REAL 1px rule top and bottom,
+   measured off v1's full-width band, where section's was zero-width and transparent. A
+   `_band` default rides `pp-zero`, the baseline sits in `pp-v1`, and layer rank beats
+   specificity — so the two rules the band is supposed to draw were erased. Section could
+   leave the baseline alone because its default was byte-identical to what the baseline
+   forces; cta cannot. See the narrowing and its before/after Chromium read at the
+   `SHARED: border-trigger cascade immunity` block above.
+
+   SIX THINGS THE v1 BLOCK DID THAT THIS ONE DELIBERATELY DOES NOT:
+
+   1. THE THEME VARIANTS ARE GONE. `.cta--dark` and `.cta--inverted` painted a background,
+      re-coloured the title, the accent, the body and its links, and re-mapped a body-ink
+      carrier property. The `theme` prop is retired: a band's surface is the `_band` role's
+      `background` group and its text colours are `typography.color` on the text roles.
+      Measured before they went, and worth recording because it shrinks the migration: on a
+      full-width band `dark` and `muted` rendered BYTE-IDENTICALLY to `default` at all three
+      tiers, so `inverted` is the only state that ever needs rewriting.
+
+   2. THE BACKGROUND-IMAGE VARIANT AND ITS SCRIM ELEMENT ARE GONE. `.cta--has-bg-image`
+      positioned the band, sized and placed an inline `background-image`, restated the two
+      border longhands, re-coloured four descendants on the assumption the image was dark,
+      and `.cta__overlay` was a real DIV rendered only to hold the scrim. A band background
+      is now `_band` -> `background.image` (an attachment id, ruling A2) and
+      `background.overlay`, which the engine composes into the SAME background layer list —
+      so the extra element and the `z-index` stacking context it needed have nothing left to
+      do. A band with an image owns its own contrast; the stylesheet no longer guesses.
+
+   3. THE FOUR BUTTON-VARIANT FAMILIES ARE GONE with `button_variant` and `button2_variant`.
+      Both buttons render as a bare `.btn`, and their look is the `button` and
+      `button-secondary` roles — or the `button` / `button-secondary` presets, which is the
+      idiom the AI-facing docs teach. `button` declares nothing at all, so a preset lands
+      whole; `button-secondary` carries v1's outline treatment so an unauthored pair still
+      reads as one filled action beside one outlined one.
+
+   4. THE PER-INSTANCE BUTTON SLOT RULES AND THEIR ISOLATION BLOCK ARE GONE. Seven
+      `--cta-button-*` slots, seven `--cta-button2-*`, `--cta-accent` and `--cta-accent-hover`
+      were emitted as inline custom properties on the band root and read by nine rules here.
+      Nothing emits them now, so every one of those rules was a chain with no source. The
+      `.cta .cta__buttons .cta__button--secondary` re-pointing block that stopped the primary's
+      slots leaking onto the second button went with them: with no slots there is no leak.
+
+   5. THE DARK-BAND AA ROUTING AND THE OVERLAY SEPARATION RINGS ARE GONE (#437/#461/#463/
+      #535/#543/#577). Each keyed on `.cta--inverted` or `.cta--has-bg-image`, and neither
+      class can exist on a v2 cta. This follows #986's ruling for `.hero--cover` verbatim —
+      "v2 has no variant-scoped role defaults and does not guess" — and the same change
+      there deleted the identical `.hero--cover` separation ring. The ONE affordance that
+      survived is the focus ring, because #986 gave it an engine-emitted trigger instead of
+      a class: see `[data-pp-band-overlay]` further down this file, which cta now emits.
+
+   6. IT RE-COLOURED AND RE-SIZED THE BODY FROM `main > .cta` RULES FURTHER DOWN THE FILE,
+      inside two media queries. Those are deleted, not moved. A non-`_band` role default
+      emits UNLAYERED while this stylesheet sits in `pp-v1`, so they were outranked the
+      moment cta declared roles. Their VALUES survive as the `body` role's breakpoint maps,
+      which is the only reason the phone tier still reads `--color-muted` at 1rem while the
+      two wider tiers read `--color-text-secondary` at 1.04rem — a media scope that is
+      invisible to anyone reading the declarations without their wrappers.
+
+   The list rhythm and marker glyphs inside authored `body` rich text live in the SHARED
+   GLYPH AND PROSE MECHANISMS block above. They are not cta's design, and ruling A3 defers
+   pseudo-elements, so no role can express them at any value. */
 
 .cta__inner {
   display: flex;
   flex-direction: column;
-  gap: var(--cta-inner-gap, var(--space-lg));
 }
 
+/* align-self is not needed here (the pill is not a direct flex item of a column that
+   stretches it), but `inline-block` still is: the eyebrow must size to its text rather
+   than fill the text block's width. Everything else about the pill — its ink, fill,
+   padding, radius, casing and the space below it — is the `eyebrow` role. */
 .cta__eyebrow {
   display: inline-block;
-  padding: 0.35rem 0.85rem;
-  margin-bottom: var(--space-sm);
-  border: var(--cta-eyebrow-border-width, 0) solid var(--cta-eyebrow-border-color, transparent);
-  border-radius: var(--cta-eyebrow-radius, 3px);
-  font-size: 0.8125rem;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: var(--cta-eyebrow-text-transform, uppercase);
-  color: var(--cta-eyebrow-color, var(--color-text));
-  background: var(--cta-eyebrow-bg, var(--color-surface-accent));
 }
 
-.cta__title {
-  font-size: var(--cta-heading-size, var(--pp-band-heading-size));
-  color: var(--cta-heading-color, inherit);
-  /* cta keeps the slot it always owned; only the fallback moves to the shared
-     --measure-heading token (issue 578). Same 40rem, now retunable in one write. */
-  max-width: var(--cta-heading-measure, var(--measure-heading));
-  /* Heading rhythm (issue 584): the band-fusing step documented in
-     ai-instructions/style-component.md needs this gap authorable per instance. The
-     fallback is this rule's own prior literal, so an unset cta is byte-identical.
-     cta's is --space-xs, not --space-lg: the CTA title sits directly above its body
-     line, not above a content block. */
-  margin-bottom: var(--cta-heading-margin-bottom, var(--space-xs));
-}
-
-.cta__title-accent {
-  color: var(--cta-heading-accent-color, var(--color-accent));
-}
-
-.cta__body {
-  color: var(--cta-body-color, var(--pp-cta-body-theme-color, var(--color-muted)));
-  font-size: var(--cta-body-size, inherit);
-  margin-bottom: 0;
-  /* cta's prose measure (issue 578). Default `none`: the body carries no cap of its own
-     today — on the full-width layout the .cta__text wrapper caps title AND body together
-     at --cta-heading-measure — so `none` is byte-identical, and the slot lets an operator
-     give the body a shorter measure than the title without touching the wrapper. */
-  max-width: var(--cta-body-measure, none);
-}
-
-/* CTA accent: scoped button colors via style slots. Excludes outline/ghost/
-   secondary — .cta .btn (2 classes) has HIGHER specificity than .btn--outline/
-   --ghost/--secondary (1 class each), so without this exclusion the accent
-   fill unconditionally wins over those variants' own transparent/surface
-   fill regardless of source order, producing invisible or wrong-colored
-   buttons (issue 111 — confirmed empirically: outline and ghost render with
-   button text the same color as the button background). Same root cause and
-   fix pattern already applied to hero's equivalent rule above.
-
-   Route fill through --cta-button-bg / --cta-button-hover-bg, border through
-   --cta-button-border / --cta-button-hover-border (issue 420). This rule is the
-   composed primary button's actual cascade winner for the background-color/
-   border-color LONGHANDS ([0,5,0] beats the slot block `.cta__button:not(...)`
-   [0,4,0] AND the premium `main .btn:not(...)` [0,4,1]), so a bare accent here
-   silently defeated the flat-button slots the premium layer (issue 412) already
-   routed — the fill survived accent even with gradient/bevel/ink flattened.
-   The accent chain is the FALLBACK, so an unset button is byte-identical. The
-   border honors its own --cta-button-border slot when set (matching the sibling
-   `.cta__button` block and the premium winner); when that slot is unset it FOLLOWS
-   the fill (var(--cta-button-bg, ...)) so a flat button keeps no accent ring. */
-.cta .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary) {
-  /* Global button surface routed under the cta slots (#458): component slots (--cta-button-*
-     / --cta-accent) still win; unset, fill falls to --btn-bg then --color-accent
-     (byte-identical). Border honors --cta-button-border, then the BAND ACCENT, then the
-     global --btn-border-color knob, else FOLLOWS the fill chain (so a flat --cta-button-bg
-     OR a global --btn-bg keeps no accent ring, issue 420 preserved).
-     ORDER (issue 564): --cta-accent outranks --btn-border-color, and this chain is now the
-     POSITIONAL TWIN of its :hover rule below — every link sits at the same rank as its hover
-     equivalent. That is the whole point: with rest and hover positionally identical, no
-     authoring configuration can make the ring change ROLE on pointer-enter — whichever kind of
-     link wins at rest, its hover twin wins on hover. (The ring can still change COLOUR, of
-     course, whenever the author gives a knob and its hover twin different values. That is the
-     hover state doing its job; what is gone is the ring jumping to a different KIND of link.)
-     It also puts
-     this family on the hero's shipped order (`.hero .btn` and `.hero__cta--secondary`, whose
-     border-color declarations sit above this one in this file), so a narrower authored band
-     accent is not defeated by a broader site-wide knob.
-     Two of #564's three repainted configurations touch THIS chain — the letters below are
-     #564's own enumeration, and (b) is missing here on purpose: (b) is the overlay-band case,
-     which belongs to the ring twins further down, not to this plain-band rule. (a) --cta-accent
-     WITH --btn-border-color (the accent now wins, matching the fill side and the hero), and
-     (c) --cta-accent WITH --cta-button-bg (the accent now wins at rest, which is what
-     RETIRES the old rest->hover flip — the hover chain already resolved to the accent
-     there, so rest and hover disagreed on one band). (c) is #538's Option 2, reopened
-     DELIBERATELY by the maintainer on #564 (issuecomment-5106604500) after #538 reserved
-     it. Unset and every single-knob configuration are byte-identical, verified by rendered
-     resolution across all ten configurations. --btn-border-color still outranks the fill
-     link, so #554's "a global knob reaches this button" contract is untouched. */
-  background-color: var(--cta-button-bg, var(--cta-accent, var(--btn-bg, var(--color-accent))));
-  border-color: var(--cta-button-border, var(--cta-accent, var(--btn-border-color, var(--cta-button-bg, var(--btn-bg, var(--color-accent))))));
-}
-.cta .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover {
-  /* Global hover tier (issue 539) mirrors the rest chain above: --btn-hover-bg last before
-     the literal in the fill, --btn-hover-border-color straight after this rule's own hover
-     border slot. As on the hero, routing the fill here is load-bearing rather than
-     decorative — this rule is [0,6,0] and decides background-COLOR, while the premium
-     [0,5,1] hover rule decides background-IMAGE; once the global knob clears the gradient
-     there, this declaration is what actually paints.
-     ORDER (issue 548, extended by issue 564): --cta-accent-hover outranks the hover FILL in
-     the BORDER chain (#538's Option-3 order) AND, since #564, the global
-     --btn-hover-border-color knob as well. Accent-above-own-FILL is uniform across every
-     filled hover chain this theme ships — hero primary, hero cta2, cta button2, this one and
-     their overlay/cover twins. Since #564 accent-above-the-GLOBAL-knob is uniform across them
-     too: the cta family used to rank --btn-hover-border-color first while the hero ranked
-     --hero-accent-hover first, and that split is what let a site-wide ring knob defeat an
-     authored band accent on cta bands only. Both components now rank the band accent first.
-     The invariant is still narrower than "accent leads": --cta-button-hover-border, the
-     per-instance ring slot, remains above everything. It is the escape hatch for a site that
-     genuinely wants a different ring here.
-     --btn-hover-border-color keeps its position ABOVE the per-instance hover FILL link, so
-     #539's "an explicitly authored global ring beats one merely inferred from a fill" still
-     holds and #554's coverage contract is untouched. Only the accent/global pair moved.
-     The REST chain above is now this chain's POSITIONAL TWIN (issue 564): every link holds
-     the same rank as its resting equivalent, so the rest/hover ring FLIP this comment used to
-     document is gone rather than merely tolerated. With --cta-accent, --cta-accent-hover and
-     both fill slots authored, the ring is the ACCENT in both states instead of matching the
-     fill at rest and flipping on pointer-enter. Retiring that flip is #538's Option 2, which
-     #538 reserved to the maintainer and #564 reopened deliberately
-     (issuecomment-5106604500). Verified under a real pointer, not only at the settled hover
-     value: the #540 snap transition-property contract is untouched, so both states are
-     settled states. */
-  background-color: var(--cta-button-hover-bg, var(--cta-accent-hover, var(--btn-hover-bg, var(--color-accent-hover))));
-  border-color: var(--cta-button-hover-border, var(--cta-accent-hover, var(--btn-hover-border-color, var(--cta-button-hover-bg, var(--btn-hover-bg, var(--color-accent-hover))))));
-}
-
-/* CTA button (single button): per-instance bg/border/color override,
-   independent of --cta-accent (issue 111). One rule per variant, each falling
-   back to that variant's own existing default, so an unset override renders
-   byte-identically to today. */
-.cta__button:not(.btn--outline):not(.btn--ghost):not(.btn--secondary) {
-  background-color: var(--cta-button-bg, var(--cta-accent, var(--color-accent)));
-  border-color: var(--cta-button-border, var(--cta-accent, var(--color-accent)));
-  color: var(--cta-button-color, var(--btn-text, var(--color-bg)));
-  /* Consume --cta-button-shadow in the cta block so the slot-contract keystone sees it
-     wired (issue 412), scoped to the PRIMARY variant only (matching the slot's doc and
-     the premium `main .btn:not(...)` winner). Default `none`: the premium winner ([0,4,1])
-     supplies the bevel via its own var(--cta-button-shadow, <bevel>) fallback, so an unset
-     primary button is byte-identical; setting --cta-button-shadow: none flattens rest +
-     hover. Outline/ghost/secondary keep no shadow (they never match the premium winner). */
-  box-shadow: var(--cta-button-shadow, none);
-}
-.cta__button:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover {
-  background-color: var(--cta-button-hover-bg, var(--cta-accent-hover, var(--color-accent-hover)));
-  border-color: var(--cta-button-hover-border, var(--cta-accent-hover, var(--color-accent-hover)));
-  color: var(--cta-button-hover-color, var(--btn-text, var(--color-bg)));
-}
-
-.cta__button.btn--outline {
-  background-color: var(--cta-button-bg, transparent);
-  color: var(--cta-button-color, var(--color-accent));
-  border-color: var(--cta-button-border, var(--color-accent));
-}
-.cta__button.btn--outline:hover {
-  background-color: var(--cta-button-hover-bg, var(--color-accent));
-  border-color: var(--cta-button-hover-border, var(--color-accent));
-  color: var(--cta-button-hover-color, var(--color-bg));
-}
-
-.cta__button.btn--secondary {
-  background-color: var(--cta-button-bg, var(--color-surface));
-  color: var(--cta-button-color, var(--color-text));
-  border-color: var(--cta-button-border, var(--color-border));
-}
-.cta__button.btn--secondary:hover {
-  background-color: var(--cta-button-hover-bg, var(--color-border));
-  border-color: var(--cta-button-hover-border, var(--color-border));
-  color: var(--cta-button-hover-color, var(--color-text));
-}
-
-.cta__button.btn--ghost {
-  background-color: var(--cta-button-bg, transparent);
-  color: var(--cta-button-color, var(--color-accent));
-  border-color: var(--cta-button-border, transparent);
-}
-.cta__button.btn--ghost:hover {
-  background-color: var(--cta-button-hover-bg, var(--color-surface));
-  border-color: var(--cta-button-hover-border, transparent);
-  color: var(--cta-button-hover-color, var(--color-accent));
-}
-
-/* Second CTA button (issue 474): the pair row + its own per-instance slots.
-   The wrapper is rendered ONLY when button2_text is set (cta.php), so a
-   single-button cta keeps today's markup and computed styles byte-for-byte.
-   flex-wrap + the shared `main .btn { width: 100% }` mobile rule is what makes
-   the pair stack one-per-row under 768px with no mobile-specific rule here —
-   the same mechanism .hero__cta-group relies on (confirmed by rendering at
-   375px). justify-content is STATED rather than inherited from the flexbox
-   initial value, per the issue 338 lesson: the packing only becomes visible
-   once the buttons wrap, so leaving it implicit ships a silently left-packed
-   row on a centered band. */
+/* The pair row (issue 474). flex-wrap plus the shared `main .btn { width: 100% }` mobile
+   rule is what makes the pair stack one-per-row under 768px with no mobile-specific rule
+   here — the same mechanism .hero__cta-group relies on. justify-content is STATED rather
+   than inherited from the flexbox initial value, per the issue 338 lesson: the packing
+   only becomes visible once the buttons wrap, so leaving it implicit ships a silently
+   left-packed row on a centered band.
+   Deliberately NO flex-shrink: 0 on the WRAPPER (matching .hero__cta-group). The
+   individual buttons keep their own flex-shrink from .cta__button, so they never squash;
+   making the wrapper rigid instead would pin it at both buttons' min-width in the inline
+   layout's `space-between` row, which both prevents the wrap above from ever firing there
+   AND crushes the text block. Measured at 768px: rigid wrapper forces the title to 3
+   lines, shrinkable wrapper wraps the pair to two rows and keeps the title at 2. */
 .cta__buttons {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--space-sm);
   justify-content: flex-start;
-  /* Deliberately NO flex-shrink: 0 here (matching .hero__cta-group). The individual
-     buttons keep their own flex-shrink from .cta__button, so they never squash; making
-     the WRAPPER rigid instead would pin it at both buttons' min-width (~432px) in the
-     inline layout's `space-between` row, which both prevents the flex-wrap above from
-     ever firing there AND crushes the text block. Measured at 768px: rigid wrapper
-     forces the title to 3 lines, shrinkable wrapper wraps the pair to two rows and
-     keeps the title at the 2 lines a single-button inline cta renders. */
+}
+
+.cta__button {
+  flex-shrink: 0;
+}
+
+/* Full-width: a centred block.
+   THE LAYOUT CENTRES ITS TEXT, NOT JUST ITS BOXES — the same carve-out `.hero--centered`
+   and `.section--centered` use, and for the same reason: `full-width` is this component's
+   DEFAULT layout, no role ships a `typography.align` default, and a layout that does not
+   do what its own name says is a default-experience regression rather than a narrowing
+   worth documenting. An authored `typography.align` still wins, and structurally rather
+   than by specificity luck: authored band blocks are unlayered and this stylesheet sits in
+   `pp-v1`. */
+.cta--full-width .cta__inner {
+  align-items: center;
+  text-align: center;
 }
 
 .cta--full-width .cta__buttons {
   justify-content: center;
 }
 
-/* Per-instance bg/border/color override for the SECOND button, independent of
-   the primary (the issue 111 idiom the primary already has, mirrored from the
-   hero's cta2 rules). Targeted via the dedicated .cta__button--secondary class
-   rather than a positional :nth-child selector — this codebase's CSS lint guard
-   forbids nth-child/nth-of-type entirely, and button_text/button2_text are
-   fixed named props (not a reorderable array), so a dedicated class is both
-   safe and simpler. Three classes + the :not() chain puts these at [0,6,0],
-   above `.cta .btn:not(...)` at [0,5,0] (the primary's fill winner), so the
-   primary's accent chain cannot repaint the second button. One rule per
-   variant, each falling back to THAT variant's own existing default, so an
-   unset override renders byte-identically to the matching single button. */
-.cta .cta__buttons .cta__button--secondary:not(.btn--outline):not(.btn--ghost):not(.btn--secondary) {
-  /* Fill chain mirrors the PRIMARY's winner (`.cta .btn:not(...)` above) exactly,
-     including the site-wide --btn-bg token from #458. Dropping --btn-bg here would
-     make a `primary` + `primary` pair render two DIFFERENT fills on any site that
-     rethemes the global button surface: the primary would paint --btn-bg while the
-     second fell through to --color-accent. Unset, both bottom out identically. */
-  background-color: var(--cta-button2-bg, var(--cta-accent, var(--btn-bg, var(--color-accent))));
-  /* Border FOLLOWS the fill when its own knobs are unset (the #514/#526 idiom, in the
-     PRIMARY's exact order AT REST — and since #564 the hover twin below no longer diverges
-     from THIS rest order either, so this button's two states are positional twins):
-     --cta-button2-border wins, then the BAND ACCENT (#564), then the global
-     --btn-border-color knob, then the fill chain — so a filled second button recolored
-     with the fill slot alone still keeps a MATCHING ring, while one recolored with
-     --cta-accent gets the accent ring in BOTH states rather than the fill at rest and the
-     accent on hover. Unset, the chain still bottoms out at --color-accent, byte-identical;
-     so is every single-knob configuration. See the primary's rest chain above for the two
-     repainted configurations, both recorded on #564. */
-  border-color: var(--cta-button2-border, var(--cta-accent, var(--btn-border-color, var(--cta-button2-bg, var(--btn-bg, var(--color-accent))))));
-  color: var(--cta-button2-color, var(--btn-text, var(--color-bg)));
-}
-.cta .cta__buttons .cta__button--secondary:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover {
-  background-color: var(--cta-button2-hover-bg, var(--cta-accent-hover, var(--btn-hover-bg, var(--color-accent-hover))));
-  /* Border follows the hover fill from the LAST fallback position (issue 538, Option 3 —
-     the recorded decision), the exact twin of the hero's cta2 hover ring above. #530 left
-     the fill out entirely because the hover BORDER, unlike the hover FILL, was never masked
-     by the premium gradient: inserting --cta-button2-hover-bg AHEAD of --cta-accent-hover
-     would have repainted the authored accent ring on any site running both slots, and
-     --cta-button2-hover-bg shipped in v1.10.0 and is live in production.
-     Behind --cta-accent-hover it changes exactly one case: the fill slot SET with both
-     --cta-button2-hover-border and --cta-accent-hover unset, i.e. the fill-only author who
-     used to get a --color-accent-hover ring around a brand-colored pill. Authored values
-     still win in their existing order, and unset the chain still bottoms out at
-     --color-accent-hover (byte-identical).
-     REST-vs-HOVER PARITY (issue 564): this hover chain and the REST chain above are now
-     POSITIONAL TWINS — each link holds the same rank as its resting equivalent. The
-     asymmetry this comment used to document (fill-coloured ring at rest, accent-coloured
-     ring on hover, for a site setting --cta-accent, --cta-accent-hover AND both fill slots)
-     is gone. Closing it required moving the REST chain onto the accent-above-fill order,
-     i.e. #538's Option 2 — reserved to the maintainer by #538 and reopened deliberately on
-     #564 (issuecomment-5106604500). The StyleSlotContractTest pin that used to STOP this
-     reorder is now a positive pin OF it; do not re-invert it without a new decision.
-     What is NOT asymmetric any more is the pair: issue 548 moved the cta PRIMARY's filled
-     hover rule onto this same accent-above-fill order, so both buttons of a cta band now resolve
-     their rings in the same ORDER. Same order is not the same colour: each button still reads
-     its OWN hover-border and hover-fill slots, so the pair matches wherever the winning link
-     is a shared knob and differs wherever it is a per-button one. What is gone is the pair
-     disagreeing about WHICH KIND of link wins. The hero pair never diverged either: its rest and
-     hover chains both put the fill last.
-     Same overlay-band consequence as the hero's cta2 (see that comment): this [0,7,0] rule
-     outranks #535's [0,6,0] `.cta--has-bg-image .cta__button:not(...):hover` separation ring,
-     which never reached button2 anyway. A fill-only button2 on a photo band now hovers to a
-     ring matching its fill instead of --color-accent-hover; neither clears 1.4.11 over the
-     scrim and rest already followed the fill, which is why #543 shipped button2's own
-     separation ring as a rest AND a hover twin (below; each matches its own base twin's
-     specificity — [0,6,0] rest, [0,7,0] hover — and follows it in source order). On every
-     band WITHOUT the bg-image class this chain is still the winner.
-     Not mirrored onto the outline/ghost/secondary button2 hover rules — see the hero cta2
-     comment above for the two separate reasons (ghost bottoms out at `transparent`;
-     outline/secondary don't follow the fill in either state). */
-  /* Global hover tier (issue 539) takes the position --btn-border-color holds in this
-     button's rest chain: after its own hover border slot and after the BAND ACCENT (#564
-     moved the accent above the global knob in both states), ahead of the per-instance hover
-     fill link. --btn-hover-bg joins the tail of that link so a site-wide hover fill still
-     rings itself, and the global ring knob still outranks the fill link so #539's
-     authored-beats-inferred rule and #554's coverage contract both hold. */
-  border-color: var(--cta-button2-hover-border, var(--cta-accent-hover, var(--btn-hover-border-color, var(--cta-button2-hover-bg, var(--btn-hover-bg, var(--color-accent-hover))))));
-  color: var(--cta-button2-hover-color, var(--btn-text, var(--color-bg)));
-}
-
-.cta .cta__buttons .cta__button--secondary.btn--outline {
-  background-color: var(--cta-button2-bg, transparent);
-  color: var(--cta-button2-color, var(--color-accent));
-  border-color: var(--cta-button2-border, var(--color-accent));
-}
-.cta .cta__buttons .cta__button--secondary.btn--outline:hover {
-  background-color: var(--cta-button2-hover-bg, var(--color-accent));
-  border-color: var(--cta-button2-hover-border, var(--color-accent));
-  color: var(--cta-button2-hover-color, var(--color-bg));
-}
-
-.cta .cta__buttons .cta__button--secondary.btn--secondary {
-  background-color: var(--cta-button2-bg, var(--color-surface));
-  color: var(--cta-button2-color, var(--color-text));
-  border-color: var(--cta-button2-border, var(--color-border));
-}
-.cta .cta__buttons .cta__button--secondary.btn--secondary:hover {
-  background-color: var(--cta-button2-hover-bg, var(--color-border));
-  border-color: var(--cta-button2-hover-border, var(--color-border));
-  color: var(--cta-button2-hover-color, var(--color-text));
-}
-
-.cta .cta__buttons .cta__button--secondary.btn--ghost {
-  background-color: var(--cta-button2-bg, transparent);
-  color: var(--cta-button2-color, var(--color-accent));
-  border-color: var(--cta-button2-border, transparent);
-}
-.cta .cta__buttons .cta__button--secondary.btn--ghost:hover {
-  background-color: var(--cta-button2-hover-bg, var(--color-surface));
-  border-color: var(--cta-button2-hover-border, transparent);
-  color: var(--cta-button2-hover-color, var(--color-accent));
-}
-
-/* Dark-band routing for the SECOND button's transparent-fill variants (issue 474,
-   7A decision). outline/ghost paint their ink and ring DIRECTLY on the band, and
-   the light-surface --color-accent measures 3.23:1 on --color-bg-inverted and
-   1.17:1 over the worst-case bg-image scrim — both below AA. `outline` is the
-   DEFAULT for the second button, so simply setting button2_text on an inverted
-   closing CTA would otherwise ship a sub-AA control without the author ever
-   choosing a variant. Route the FALLBACK through the same named role tokens this
-   component already uses on its sibling dark-band elements — .cta--inverted
-   .cta__body a (#437), .cta--has-bg-image .cta__body a (#461), and
-   .cta--has-bg-image .cta__title-accent (#463) — so no new color is invented and
-   the #61/#86 dark-surface-slot contract holds: --cta-button2-color /
-   --cta-button2-border still win when set, and unset falls to the AA tint.
-   Same [0,4,0] specificity as the base variant rules above, so these must stay
-   AFTER them in source order. Scoped to the second button: the primary's
-   explicitly-authored outline/ghost on a dark band is the pre-existing, wider
-   class and is deliberately untouched here. Hover is unchanged — it fills with
-   the accent (outline) or the light surface (ghost), so the hover ink already
-   sits on its own contrasting fill rather than on the band. */
-.cta--inverted .cta__buttons .cta__button--secondary.btn--outline {
-  color: var(--cta-button2-color, var(--color-accent-on-inverted));
-  border-color: var(--cta-button2-border, var(--color-accent-on-inverted));
-}
-.cta--inverted .cta__buttons .cta__button--secondary.btn--ghost {
-  color: var(--cta-button2-color, var(--color-accent-on-inverted));
-}
-
-.cta--has-bg-image .cta__buttons .cta__button--secondary.btn--outline {
-  color: var(--cta-button2-color, var(--color-accent-on-overlay));
-  border-color: var(--cta-button2-border, var(--color-accent-on-overlay));
-}
-.cta--has-bg-image .cta__buttons .cta__button--secondary.btn--ghost {
-  color: var(--cta-button2-color, var(--color-accent-on-overlay));
-}
-
-/* Dark-band routing for the PRIMARY button's transparent-fill variants (issue 535).
-   #474 fixed this for the SECOND button and deliberately left the primary — an
-   explicitly authored `button_variant: outline|ghost` on a dark band — as the wider
-   pre-existing class. This is that class. The mechanism, the role tokens and the slot
-   precedence are identical to the button2 rules above; only the selector differs:
-   --color-accent paints 3.23:1 on --color-bg-inverted and 1.17:1 over the worst-case
-   bg-image scrim, both below AA, and both now fall back to the role token this component
-   already uses for its dark-band body links (#437/#461) and title accent (#463).
-   Both figures are base.css's, not re-derived here: 8.33:1 on inverted, 4.59:1 over the overlay.
-   These sit at [0,3,0] — deliberately BELOW the button2 rules above at [0,4,0] — so the
-   second button keeps its own routing and the #474/#526/#530 pins stay green even though
-   button2 also carries the .cta__button class. --cta-button-color / --cta-button-border
-   still win when set. REST state only — the hover restoration block below explains why
-   these four rules must not be allowed to reach `:hover`. */
-.cta--inverted .cta__button.btn--outline {
-  color: var(--cta-button-color, var(--color-accent-on-inverted));
-  border-color: var(--cta-button-border, var(--color-accent-on-inverted));
-}
-.cta--inverted .cta__button.btn--ghost {
-  color: var(--cta-button-color, var(--color-accent-on-inverted));
-}
-
-.cta--has-bg-image .cta__button.btn--outline {
-  color: var(--cta-button-color, var(--color-accent-on-overlay));
-  border-color: var(--cta-button-border, var(--color-accent-on-overlay));
-}
-.cta--has-bg-image .cta__button.btn--ghost {
-  color: var(--cta-button-color, var(--color-accent-on-overlay));
-}
-
-/* HOVER restoration (issue 535). The four rest rules above are [0,3,0] — the SAME
-   specificity as the `.cta__button.btn--outline:hover` / `.btn--ghost:hover` rules they
-   follow (a pseudo-class counts as a class), so source order alone made them win on
-   hover too and the dark-band ink leaked into a state it was never meant to reach.
-   Rendered, that was worse than the bug being fixed: outline hover fills with
-   --color-accent, so on-inverted ink over it measured 2.58:1, and ghost hover fills with
-   the near-white --color-surface, where the on-overlay ink is effectively invisible.
-   These rules re-assert each variant's OWN documented hover values at [0,4,0].
-   The dark-band routing is a REST-state fix by design: on hover both variants paint a
-   contrasting fill of their own, so the ink no longer sits on the band and needs no
-   role token. The button2 rules above never needed this — their selectors carry one more
-   ancestor class, so their `:hover` siblings already outrank them. Values here are copied
-   verbatim from those hover rules; changing one without the other reopens this leak. */
-.cta--inverted .cta__button.btn--outline:hover,
-.cta--has-bg-image .cta__button.btn--outline:hover {
-  color: var(--cta-button-hover-color, var(--color-bg));
-  border-color: var(--cta-button-hover-border, var(--color-accent));
-}
-.cta--inverted .cta__button.btn--ghost:hover,
-.cta--has-bg-image .cta__button.btn--ghost:hover {
-  color: var(--cta-button-hover-color, var(--color-accent));
-}
-
-/* Separation ring for the FILLED button on the bg-image band (issue 535, defect 2's
-   class-triggerable half; the .hero--cover twin of this rule lives in the hero block).
-   The premium gradient fill measures well under 2:1 against the worst-case overlay-over-
-   white composite — the button's SHAPE vanishes and only its label carries it — and the
-   border FOLLOWED the fill, so it added nothing. Here the border stops following the fill
-   and bottoms out at the on-overlay role (4.59:1, base.css) instead, giving the pill a
-   visible edge.
-   Every PER-INSTANCE link ahead of the role is preserved in the `.cta .btn:not(...)` order —
-   --cta-button-border, then --cta-accent, then the per-instance fill --cta-button-bg — so a
-   button whose ring an author already colours keeps exactly the colour it had.
-   Dropping those links and jumping straight to the role would silently repaint every
-   authored --cta-accent ring on a photo band near-white.
-   The GLOBAL tier is deliberately ABSENT here in full: the ring knob --btn-border-color
-   (issue 564) and the fill knob --btn-bg (issue 565). On this band the terminal is a measured
-   4.59:1 separation role, not an ordinary default, and a site-wide retheme sitting above it
-   defeated the guarantee this rule exists to make — the ring knob directly (the #564 defect),
-   the fill knob through the border-follows-fill link (the #565 defect: a site setting only
-   --btn-bg repainted every unauthored photo-band ring to a colour never measured against the
-   scrim). --color-accent-on-overlay is declared at :root (base.css) and therefore always set,
-   so parking either knob below it would be dead code rather than a demotion — hence removal.
-   Per-instance slots remain above everything as the escape hatch. Stated as resolved values
-   rather than CSS bytes: the unset render is computed-value-identical, and so is every
-   per-instance-authored render — only the two GLOBAL knobs stopped being honoured here.
-   One more configuration moved on this chain, and it is not a global-knob case: --cta-accent
-   also rose above --cta-button-bg (mirroring the base rest chain), so a band authoring the
-   accent AND the per-instance fill now rings on the accent at rest instead of the fill. That
-   is #564's class (c), the same repaint the plain band takes, and it is what keeps this rule a
-   positional twin of its :hover below.
-   SCOPE OF THE HARDENING, stated so it is not over-read: what left this chain is the GLOBAL
-   tier, both halves of it, and nothing else. #564 removed the ring knob and recorded that the
-   fill knob --btn-bg was still routed here — the gap it deliberately declined to widen into,
-   filed as #565. #565 closed it: the border-follows-fill link that let a flattened button keep
-   a matching ring (#535) is kept, but only from the PER-INSTANCE slot --cta-button-bg upward.
-   That is the scope #535's promise was written for — an author who flattens THIS band. A
-   site-wide fill retheme is not that, and can no longer pull this ring off the measured role.
-   So read the 4.59:1 figure as the UNAUTHORED default, not an invariant: every PER-INSTANCE
-   link above the role (the ring slot, the band accent, the band's own fill) can still put a
-   colour of the author's choosing on this ring, by design. What #564 and #565 changed is only
-   that a knob nobody aimed at THIS band can no longer do it.
-   [0,5,0] matches `.cta .btn:not(...)` above, so this wins only by staying AFTER it in
-   source order (pinned in css-lint). The :hover twin is [0,6,0] to beat
-   `.cta .btn:not(...):hover`, whose border also follows the fill — without it the ring
-   reappeared at rest and dissolved again the moment the pointer landed, which is the
-   state a user is most likely looking at (WCAG 1.4.11 applies to hover too).
-   The INVERTED band is deliberately NOT ringed (issue 535 Q2): its filled button measures
-   3.23:1 fill-vs-band, which already clears the 3:1 non-text bar, so a ring there would be
-   a visual change with no measured defect behind it. A band an author darkened with
-   --cta-bg carries no class at all and is tracked in #541 as a trigger-mechanism design
-   problem, not a colour problem. A filled SECOND button keeps its own [0,6,0]/[0,7,0] rules
-   and is therefore NOT ringed by this rule; it gets the same treatment from its own twin
-   pair below (issue 543), which is where a change to the second button's ring belongs.
-   "Same treatment" now means the same MECHANISM, the same terminal AND the same chain ORDER:
-   issue 548 moved this rule onto #538's Option-3 order (--cta-accent-hover AHEAD of the hover
-   fill), which button2's twin below already used. Before that, a site authoring
-   --cta-accent-hover TOGETHER with both per-button hover fills hovered to two different ring
-   colours on this one band, side by side; that residue is gone. Issue 564 completed the
-   alignment: the rest twin now carries the accent-above-fill order too, so the two states are
-   positional twins and the ring cannot change role on pointer-enter. With the accent knob
-   unset the fill still rings itself from its later position, and with both unset the chain
-   reaches the same on-overlay role, so the fill-only and unset renders this rule shipped with
-   are unchanged. StyleSlotContractTest pins both orders. */
-.cta--has-bg-image .cta__button:not(.btn--outline):not(.btn--ghost):not(.btn--secondary) {
-  border-color: var(--cta-button-border, var(--cta-accent, var(--cta-button-bg, var(--color-accent-on-overlay))));
-}
-.cta--has-bg-image .cta__button:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover {
-  border-color: var(--cta-button-hover-border, var(--cta-accent-hover, var(--cta-button-hover-bg, var(--color-accent-on-overlay))));
-}
-
-/* The SAME separation ring for the filled SECOND button (issue 543). #535 scoped its ring
-   to the filled PRIMARY, so a `primary` + `primary` pair on a photo band rendered one
-   button with a visible edge next to one that dissolved into the scrim — same fill, same
-   band, different treatment. This is not a defect #535 introduced: button2 was equally
-   invisible before it, and fixing the neighbour is what made the asymmetry visible.
-   Mechanism, rationale and measured ratios are the PRIMARY's above, unchanged: the fill
-   is under 2:1 against the worst-case overlay-over-white composite, so the border stops
-   following it and bottoms out at the on-overlay role (4.59:1, base.css).
-   Both chains are their base rules' chains (`.cta .cta__buttons .cta__button--secondary:not(...)`
-   and its :hover, above) with --color-accent / --color-accent-hover swapped for the role
-   token AND the global tier removed — the ring knob by issue 564, the fill knob by issue 565 —
-   so every PER-INSTANCE link keeps winning in its existing position: --cta-button2-border,
-   --cta-accent and the band's own rest fill at rest; --cta-button2-hover-border,
-   --cta-accent-hover then its own hover fill on hover. Since #564 those two orders are
-   positional twins rather than the deliberate asymmetry this comment used to record — see the
-   base rule's comment.
-   Both global knobs are absent for the reason the primary's ring above spells out: on this band
-   the terminal is a measured 4.59:1 role, --color-accent-on-overlay is always set at :root,
-   so a global knob could only sit above the role (defeating it) or below it (dead). Removing
-   each from BOTH halves keeps the twins from disagreeing across the pointer transition.
-   Consequence, accepted with the fix and identical to the primary's: an author who recolours
-   only THIS BAND's fill (--cta-button2-bg) still gets a ring matching that fill rather than a
-   near-white one. The ring follows a colour an author aimed at this band; it bottoms out at
-   the role token when nothing band-level is authored — a site-wide --btn-bg included.
-   [0,6,0] rest / [0,7,0] hover — the SAME specificity as the base button2 rules, so
-   these win only by following them in source order (pinned in css-lint, the #535 idiom).
-   They must also stay ABOVE the `.cta--dark` theme block below, which warns against
-   exactly this kind of rule being added down there; that boundary is pinned too, so the
-   warning is enforced rather than merely written.
-   The SOLID inverted band is deliberately NOT ringed (issue 535 Q2): its filled button
-   measures 3.23:1 fill-vs-band, already clearing the 3:1 non-text bar. A band carrying
-   BOTH classes is a different case and DOES ring: cta.php emits the theme class and the
-   bg-image class independently, so `theme: "inverted"` + `background_image` renders
-   `.cta--inverted.cta--has-bg-image` with the scrim over the inverted background, and the
-   overlay role must win there — on-inverted is only ~2.2:1 over an arbitrary image. Same
-   precedence #535 and #542 already pin for the primary and the focus ring.
-   Blind spot, shared with the whole class-triggered role family (#461/#535/#541/#542): a
-   scrim an author LIGHTENS with --cta-overlay-bg still carries this class and still gets
-   the near-white ring, whose 4.59:1 is measured against the default scrim. */
-.cta--has-bg-image .cta__buttons .cta__button--secondary:not(.btn--outline):not(.btn--ghost):not(.btn--secondary) {
-  border-color: var(--cta-button2-border, var(--cta-accent, var(--cta-button2-bg, var(--color-accent-on-overlay))));
-}
-.cta--has-bg-image .cta__buttons .cta__button--secondary:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover {
-  border-color: var(--cta-button2-hover-border, var(--cta-accent-hover, var(--cta-button2-hover-bg, var(--color-accent-on-overlay))));
-}
-
-/* button2 slot isolation + premium fill routing (the issue 526 mechanism applied
-   to cta). Style slots are emitted as inline custom properties on the .cta ROOT,
-   so the PRIMARY button's --cta-button-* slots INHERIT down to the second button;
-   when button2 is authored as a filled `primary` variant it also matches the
-   shared premium `main .btn:not(...)` winner, and the primary's fill, ink and
-   elevation repaint it. A declaration ON the button2 element beats the inherited
-   value regardless of source order, so this one rule fixes it:
-     - `--cta-button-bg: var(--cta-button2-bg)` — a var() that fails to substitute
-       makes the custom property GUARANTEED-INVALID, so with --cta-button2-bg unset
-       every downstream var(--cta-button-bg, <fallback>) takes its fallback (the
-       premium chain's own --btn-bg -> gradient literal): unset stays byte-identical
-       and the leak is killed. With --cta-button2-bg SET, the flat color resolves the
-       premium `background:` SHORTHAND to `background: <color>`, which resets
-       background-image to none and CLEARS the gradient that would otherwise MASK the
-       slot — the same mechanism #514/#526 used for the hero.
-     - `--cta-button-color: initial` — `initial` IS the guaranteed-invalid value for a
-       custom property, so button2 falls back to its own ink rule above instead of the
-       primary's ink. This half is DEFENSIVE today rather than load-bearing: button2's own
-       rules sit at [0,6,0]/[0,7,0] and already outrank every current --cta-button-color
-       consumer (.cta__button:not(...) at [0,4,0], the variant rules at [0,2,0], and the
-       premium `main .btn:not(...)` at [0,4,1]). It is kept so the isolation holds even if
-       a future rule wires the slot more widely.
-       The ELEVATION half is load-bearing (button2 has no elevation rule of its own) and
-       is handled by the re-point below — see the --cta-button-shadow comment. Flattening
-       the PRIMARY with --cta-button-shadow: none still does not flatten button2; that is
-       what --cta-button2-shadow is for (issue 581 completed this follow-up).
-   Applied to EVERY button2 variant on purpose. The transparent-fill variants DO reach
-   --cta-button-* consumers (`.cta__button.btn--outline` and its --secondary/--ghost
-   siblings read --cta-button-bg/-color/-border at [0,2,0], and button2 carries the
-   .cta__button class too), so they are not immune by construction — they are covered
-   because button2's own variant rules at [0,4,0] outrank those. Resetting the slots on
-   every variant keeps the isolation true on its own terms rather than resting on that
-   specificity margin, which a future edit could shift.
-     - `--cta-button-hover-bg: var(--cta-button2-hover-bg)` (issue 530) — the same
-       guaranteed-invalid re-pointing applied to the HOVER surface. It closes both halves of
-       the hover defect at once: button2's own hover fill now resolves the premium
-       `background:` SHORTHAND to a flat color (clearing the gradient background-image that
-       used to MASK it), and the PRIMARY's --cta-button-hover-bg no longer leaks onto
-       button2 (the cross-button coupling found in #474's review — setting the primary's
-       hover fill also cleared button2's hover gradient). Unset, the var() is
-       guaranteed-invalid, so the chain takes the premium hover literal: byte-identical.
-       Rest and hover are now isolated symmetrically. */
-.cta .cta__buttons .cta__button--secondary {
-  --cta-button-bg: var(--cta-button2-bg);
-  --cta-button-hover-bg: var(--cta-button2-hover-bg);
-  --cta-button-color: initial;
-  /* Issue 581 (A-18) — the elevation half, re-pointed rather than hard-invalidated.
-     `initial` killed the primary's leak but left button2 with NO elevation slot of its
-     own, which the comment above recorded as the follow-up. Re-pointing at
-     --cta-button2-shadow uses the identical guaranteed-invalid idiom as
-     --cta-button-bg (#526) and --cta-button-hover-bg (#530) two lines up: UNSET, the
-     var() cannot substitute, so the property is guaranteed-invalid exactly as `initial`
-     was and every downstream var(--cta-button-shadow, <bevel>) still takes its own
-     fallback — byte-identical. SET, button2's elevation enters the premium chain at the
-     position button2's elevation belongs. The isolation stays load-bearing either way:
-     the PRIMARY's inherited --cta-button-shadow still cannot reach button2, so
-     --cta-button-shadow: none flattens the primary only. */
-  --cta-button-shadow: var(--cta-button2-shadow);
-}
-
-/* Full-width: centered block with surface background */
-.cta--full-width {
-  background: var(--cta-bg, var(--color-surface));
-  border-top: var(--cta-border-width, 1px) solid var(--cta-border-color, var(--color-border));
-  border-bottom: var(--cta-border-width, 1px) solid var(--cta-border-color, var(--color-border));
-}
-
-.cta--full-width .cta__inner {
-  align-items: center;
-  text-align: center;
-}
-
-/* Full-width centering, in the BASE rules (issue 412, Symptom 2). `.cta__inner` centers
-   its children and caps `.cta__title`/`.cta__body` at --cta-heading-measure, but the
-   `.cta__text` wrapper had no width constraint: a long body stretched it to the full
-   inner width, so the capped title left-pinned inside it (text-align only centers the
-   glyphs WITHIN that left-pinned box). Cap `.cta__text` at the same content width and
-   center it, so an authored full-width CTA with ANY id centers title/body at the
-   default --cta-heading-measure — no id-scoped rule and no widened max-width needed. */
+/* Centring the text block is this layout's geometry; its MEASURE is the `text` role's
+   `sizing.max-width`. The two have to travel together to mean anything — a capped block
+   that is not centred left-pins inside the band (issue 412, Symptom 2), and a centred
+   block with no cap is the full inner width and centres nothing visible. Splitting them
+   across the stylesheet and the schema is not an accident of the rebuild: `margin-inline`
+   is layout, `max-width` is a designable value, and §2 puts them on opposite sides of the
+   boundary. */
 .cta--full-width .cta__text {
-  max-width: var(--cta-heading-measure, var(--measure-heading));
   margin-inline: auto;
 }
 
-/* Inline: flex row, text left, button right */
+/* Inline: text left, buttons right from 768px. */
 .cta--inline .cta__inner {
   align-items: flex-start;
   text-align: left;
@@ -2542,159 +2108,6 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
     justify-content: space-between;
   }
 }
-
-.cta__button {
-  flex-shrink: 0;
-  /* Consume --cta-button-shadow in the cta block so the slot-contract keystone sees
-     it wired (issue 412). Default `none`: the premium `main .btn` winner ([0,4,1]) supplies
-     the bevel via its own var(--cta-button-shadow, <bevel>) fallback, so an unset
-     button is byte-identical; setting --cta-button-shadow: none flattens rest + hover. */
-  box-shadow: var(--cta-button-shadow, none);
-}
-
-/* CTA theme variants */
-.cta--dark {
-  background: var(--cta-bg, var(--color-surface));
-  border-top: var(--cta-border-width, 1px) solid var(--cta-border-color, var(--color-border));
-  border-bottom: var(--cta-border-width, 1px) solid var(--cta-border-color, var(--color-border));
-}
-
-/* NOTE (issues 474, 535, 543): the dark-band routing for BOTH buttons' outline/ghost
-   variants, and the bg-image separation ring for BOTH the filled primary (#535) and the
-   filled second button (#543), live ABOVE with the other button rules, not in this theme
-   block. They span [0,3,0]–[0,7,0] and every one of them depends on source order against
-   the base button rules they follow. Do not add a competing `.cta--inverted` /
-   `.cta--has-bg-image` button rule down here: it would win by source order and silently
-   defeat the AA routing. */
-.cta--inverted {
-  background: var(--cta-bg, var(--color-bg-inverted));
-  --pp-cta-body-theme-color: var(--color-bg);
-}
-
-.cta--inverted .cta__title {
-  color: var(--cta-heading-color, var(--color-bg));
-}
-
-/* Inverted twin of the #463 --has-bg-image title-accent rule, which was never written
-   (issue 577). Same reason: the accent substring paints its own color and does not
-   inherit the light title above it, so it rendered bare --color-accent at 3.23:1 on the
-   dark band. Routes the ratified on-inverted role (8.33:1); the per-instance
-   --cta-heading-accent-color slot still wins. */
-.cta--inverted .cta__title-accent {
-  color: var(--cta-heading-accent-color, var(--color-accent-on-inverted));
-}
-
-/* The `:not(.cta--has-bg-image)` is load-bearing (issue 577). cta.php emits the theme
-   class and the bg-image class INDEPENDENTLY, so `theme:"inverted"` + `background_image`
-   renders BOTH. The 12.76:1 below is measured against the SOLID inverted band; on the
-   overlay band the same alpha measures 3.87:1, which is the failure rows 6+7 exist to
-   correct. Without this carve-out the opacity would survive on the combined band (only
-   `color` is re-declared by the --has-bg-image rule) and silently defeat the
-   correction there. */
-.cta--inverted:not(.cta--has-bg-image) .cta__body {
-  color: var(--cta-body-color, var(--color-bg));
-  /* Deliberate de-emphasis; measured at 12.76:1 against a 4.5:1 bar. Reopen if the
-     inverted band token moves such that the measured ratio falls below 7:1. */
-  opacity: 0.85;
-}
-/* cta__body became an inline-HTML surface in #439 (a/strong/em/br), so an inverted
-   CTA can now carry a real body link sitting DIRECTLY on the dark band. The light-
-   surface accent (--color-accent) is only 3.23:1 there and fails WCAG AA, so the
-   link's default routes through the on-inverted accent role (#437). It reads through
-   the existing --cta-body-color slot first so the #61/#86 dark-surface-slot contract
-   holds (an author fixes this instance's link colour via the safe --cta-body-color
-   surface, no late-cascade patch); unset, it falls back to the AA on-inverted tint.
-   Scoped to .cta__body so the premium CTA button (.cta__button, owned by the
-   `main .btn` cascade) is untouched. */
-.cta--inverted .cta__body a {
-  color: var(--cta-body-color, var(--color-accent-on-inverted));
-}
-
-.cta--inverted .cta__body a:hover {
-  color: var(--cta-body-color, var(--color-accent-on-inverted-hover));
-}
-
-/* CTA with background image */
-/* Same dark-overlay surface as .stats--has-bg-image — same theme text default
-   (issue 248). The original sibling was `.section--has-bg-image`, deleted with
-   section's slot map at #1023; stats is the remaining one. */
-.cta--has-bg-image {
-  position: relative;
-  background-size: cover;
-  background-position: var(--cta-bg-position, center);
-  background-repeat: no-repeat;
-  /* Was `border: none` — a SHORTHAND whose border-style:none suppressed the
-     slot-routed longhands .cta declares above, so --cta-border-width /
-     --cta-border-color were dead on every background-image band. Restate the two
-     longhands .cta actually declares (it sets no left/right border anywhere) with the
-     unset result preserved: 0-width transparent, which paints nothing exactly as
-     `border: none` did (issue 577). */
-  border-top: var(--cta-border-width, 0) solid var(--cta-border-color, transparent);
-  border-bottom: var(--cta-border-width, 0) solid var(--cta-border-color, transparent);
-  /* THE CHAIN POSITION for this band's body ink (issue 577). Both .cta__body rules —
-     the base one and the premium `main > .cta .cta__body` that outranks it at desktop —
-     read --cta-body-color first and this theme property second, so the overlay-band
-     contrast correction has to land HERE to reach the rendered ink at every breakpoint.
-     Setting it on the band rather than restating a terminal in each rule is what the
-     ruling means by "a role token or a chain position, never a literal". The inverted
-     band keeps --color-bg: it measures 12.76:1 and was ratified as-is. */
-  --pp-cta-body-theme-color: var(--color-muted-on-overlay);
-}
-
-.cta__overlay {
-  position: absolute;
-  inset: 0;
-  background: var(--cta-overlay-bg, var(--overlay-bg));
-}
-
-.cta--has-bg-image .container {
-  position: relative;
-  z-index: 1;
-}
-
-.cta--has-bg-image .cta__title {
-  color: var(--cta-heading-color, var(--color-bg));
-}
-
-/* MEASURED CONTRAST CORRECTION (issue 577). This band's worst case is the
-   --overlay-bg scrim over a pure-WHITE image, an effective background of
-   rgb(115,115,115) — the same worst case --color-accent-on-overlay is calibrated
-   against (base.css). `color: --color-bg` at `opacity: 0.85` composites to
-   rgb(231,232,234) and measures 3.87:1 there, below the 4.5:1 normal-text bar. With
-   the opacity gone, --color-bg itself reaches only 4.658:1, so break-even alpha on
-   this band is ~0.968: the literal was spending a margin that does not exist. The
-   de-emphasis intent survives as a ROLE TOKEN rather than a second literal — see
-   --color-muted-on-overlay in base.css for the measurement and the (tiny) budget.
-   The terminal is NOT restated here: the band sets --pp-cta-body-theme-color, and this
-   rule reads it, so the role is named in exactly one place. */
-.cta--has-bg-image .cta__body {
-  color: var(--cta-body-color, var(--pp-cta-body-theme-color));
-}
-
-/* A cta__body link sits DIRECTLY on the dark overlay-over-image band. The light-
-   surface accent fails WCAG AA there, so its default routes through the overlay
-   accent role (#461), mirroring the .cta--inverted .cta__body a rule above but with
-   the overlay role (not on-inverted, which is tuned to the solid inverted bg). Reads
-   through the existing --cta-body-color slot first so the #61/#86 dark-surface-slot
-   contract holds; unset, it falls back to the AA on-overlay tint. Scoped to .cta__body
-   so the premium CTA button (owned by the main .btn cascade) is untouched. */
-.cta--has-bg-image .cta__body a {
-  color: var(--cta-body-color, var(--color-accent-on-overlay));
-}
-
-.cta--has-bg-image .cta__body a:hover {
-  color: var(--cta-body-color, var(--color-accent-on-overlay-hover));
-}
-
-/* The accented title substring paints its OWN color (0,1,0) and does NOT inherit
-   the near-white .cta--has-bg-image .cta__title above, so on the dark overlay-over-
-   image band it renders bare --color-accent at 1.16:1. Route the default through the
-   overlay accent role (#463, mirroring the cta body-link fix from #461); the
-   per-instance --cta-heading-accent-color slot still wins. */
-.cta--has-bg-image .cta__title-accent {
-  color: var(--cta-heading-accent-color, var(--color-accent-on-overlay));
-}
-
 
 /* ==========================================================================
    COMPONENT: footer  —  A v2 COMPONENT
@@ -3010,8 +2423,11 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
   color: var(--stats-number-color, var(--color-accent-on-inverted));
 }
 
-/* `:not(.stats--has-bg-image)` for the same reason as the cta twin above (issue 577):
-   stats.php emits the theme class and the bg-image class independently, and this rule
+/* `:not(.stats--has-bg-image)` for the reason issue 577 recorded. cta carried the twin
+   of this carve-out until #1026 retired its `theme` and `background_image` props, so
+   this is now the only one left and the reasoning is restated here rather than
+   cross-referenced: stats.php emits the theme class and the bg-image class
+   independently, and this rule
    is the EARLIER of the two, so before the carve-out a combined band inherited this
    0.75 while the --has-bg-image rule supplied only `color` — dimmer than the 0.85 it
    replaced, i.e. a contrast REGRESSION on the exact band row 7 is correcting. */
@@ -3056,10 +2472,14 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
   color: var(--stats-number-color, var(--color-accent-on-overlay));
 }
 
-/* MEASURED CONTRAST CORRECTION (issue 577) — the twin of the .cta--has-bg-image
-   .cta__body correction above, same band, same worst case rgb(115,115,115), same
-   measurement: rgb(231,232,234) at 3.87:1 against a 4.5:1 bar. Same remedy: the
-   de-emphasis moves to the --color-muted-on-overlay role token, never a literal. */
+/* MEASURED CONTRAST CORRECTION (issue 577). It was the twin of a `.cta--has-bg-image
+   .cta__body` correction that retired with cta's classes at #1026, so this is the last
+   member of that family rather than one of a pair. The measurement is unchanged and is
+   restated here because the sibling that used to carry it is gone: same band shape, same
+   worst case rgb(115,115,115), rgb(231,232,234) at 3.87:1 against a 4.5:1 bar. Same remedy:
+   the de-emphasis moves to the --color-muted-on-overlay role token, never a literal.
+   A v2 band expresses this as `typography.color` on the role over the scrim; stats keeps the
+   class-triggered form because stats still has the `background_image` prop that derives it. */
 .stats--has-bg-image .stats__label {
   color: var(--stats-label-color, var(--color-muted-on-overlay));
 }
@@ -3684,12 +3104,17 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
     line-height: 1.68;
   }
 
-  main > .cta .cta__body {
-    color: var(--cta-body-color, var(--pp-cta-body-theme-color, var(--color-text-secondary)));
-    font-size: var(--cta-body-size, 1.04rem);
-    font-weight: 430;
-    line-height: 1.66;
-  }
+  /* cta's desktop body rule was DELETED at #1026, with its phone twin below. Its four
+     values are the `body` role's defaults now, responsive, so 1.04rem / 430 / 1.66 /
+     --color-text-secondary survive here alongside the phone tier's 1rem / 430 / 1.65 /
+     --color-muted — v1 needed two rules in two media blocks plus an unscoped base rule to
+     say that; the role says it once.
+     THE WEIGHT AND THE LEADING ARE THE PART THAT WAS EASY TO LOSE. cta had no
+     unconditional rule for either: both existed ONLY inside these two media blocks, so
+     deleting the blocks without porting them would have restyled the body at every width
+     while every value that WAS declared unconditionally ported cleanly. Read off the
+     stylesheet they look like local overrides of a shared default; measured in Chromium
+     they were the only source. */
 }
 
 @media (max-width: 767px) {
@@ -3727,7 +3152,10 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
      foreign slot) nor have it resolve (inline slot properties land on the owning root),
      so its unset result was always the 1rem literal — severing it is byte-identical. The
      literal stays here; neither component declares a body-size slot to route instead.
-     Split from cta, which keeps reading the slot it actually owns, below. */
+     The split was FROM cta, which kept reading the slot it owned; at #1026 cta stopped
+     having slots at all, so what this rule is split from is now a role default rather than
+     a sibling rule. The literal here is unaffected either way — that is the whole point of
+     #578's severance, and it is why this rule needed no repricing when cta was rebuilt. */
   main > .grid .grid__item-text,
   main > .faq .faq__answer {
     font-size: 1rem;
@@ -3735,11 +3163,9 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
     line-height: 1.65;
   }
 
-  main > .cta .cta__body {
-    font-size: var(--cta-body-size, 1rem);
-    font-weight: 430;
-    line-height: 1.65;
-  }
+  /* cta's phone body rule was DELETED at #1026 — see its desktop twin above for why the
+     weight and the leading had to be ported rather than dropped with the rule. The `p`
+     tier of the `body` role's maps carries 1rem / 430 / 1.65 / --color-muted. */
 
   main > .grid .grid__item-title {
     font-size: var(--grid-item-title-size, 1.06rem);
@@ -3935,130 +3361,41 @@ main > .grid .grid__item-link::after {
   }
 }
 
-/* Per-instance button slots reach the component's OWN buttons and nothing else (issue 545).
+/* THE #545 NEUTRALISATION BLOCK IS RETIRED (#1026), and the guarantee it made is now made
+   by construction instead of by a rule.
 
-   WHAT IS STILL LIVE HERE (#1023). This rule was written when three components emitted button
-   slot families. Two have since left: hero at #986 and section at #1023, and neither emits an
-   inline custom property of any kind now — a v2 component's design is a band-scoped block, not
-   a `style` attribute on the root. So `--hero-button-*` and `--section-panel-cta-*` survive
-   below only as inert chain heads that always fall through (see the note on the neutralisation
-   block above; #1026 collapses them with cta's rebuild). CTA IS THE ONLY LIVE CASE, and the
-   defect below is described in its original three-component terms because that is the history
-   the rule encodes — read every mention of hero and section as past tense.
+   WHAT IT DID. Every per-instance filled-button slot family — `--hero-button-*`,
+   `--hero-button2-*`, `--cta-button-*`, `--cta-button2-*`, `--section-panel-cta-*` — was
+   emitted by a renderer as an inline custom property on the COMPONENT ROOT, and the selector
+   shapes that consumed them read those slots by INHERITANCE rather than through the
+   component's own button class. Custom properties inherit to every descendant, so a band's
+   per-instance button styling also reached a `.btn` an AUTHOR hand-wrote into a rich-text
+   prop. This rule reset the whole family to `initial` on any composed `.btn` that was not
+   one of the button elements a renderer owns, which made every downstream
+   `var(--slot, <fallback>)` take its fallback.
 
-   THE DEFECT. Every per-instance filled-button slot family (--hero-button-* / --hero-button2-* /
-   --cta-button-* / --cta-button2-* / --section-panel-cta-*) was emitted by the renderer as an
-   inline custom property on the COMPONENT ROOT, and the three selector shapes that consume
-   them — `main .btn:not(...)` (the premium winner below), `.hero .btn:not(...)` and
-   `.cta .btn:not(...)` — read them by INHERITANCE rather than through the component's own
-   button class. Custom properties inherit to every descendant, so those slots also reached a
-   `.btn` an AUTHOR hand-writes into a rich-text prop, and the component's per-instance button
-   styling repainted it. The surfaces that could hold such a button were the wp_kses_post props
-   of a band that emitted button slots (wp_kses_post permits `class` on `<a>`): `section.body`
-   and `hero.proof`. NEITHER IS ONE TODAY — both components are v2 and emit no slots — so the
-   inheritance path has no live source left; cta's own body cannot carry a class at all (see
-   below). Classes are named rather than cited by template line number on purpose: the line
-   numbers drifted every time either template was touched, and the class is the durable fact.
-   Three other components have a
-   wp_kses_post surface — faq.answer (faq.php:52), table cells (table.php:47), embed.content
-   (embed.php:37) — and they are inert rather than excluded: none emits a button slot family, and
-   components never nest (no component template calls pp_get_component), so a `.btn` written there
-   has nothing to inherit in the first place. The cta component has no such surface at all —
-   `cta.body` goes through pp_kses_inline (helpers.php:141), whose `a` allowlist is href/title
-   only, so a class cannot survive there. Of the properties below, only cta's are load-bearing
-   at all now; historically the count was 14 of 26 (--hero-button-* / --cta-button-* /
-   --section-panel-cta-*); the 12 cta2 entries
-   (--hero-button2-* / --cta-button2-*) are inert by SCOPING — every chain that reads them is already
-   selector-scoped to an owned button — and the --cta-button-* seven are inert by SANITIZER. All
-   are kept for the same reason #526 resets slots on every cta2 variant: the isolation should hold
-   on its own terms, not on a sanitizer's current allowlist or on another rule's current selector.
+   WHY IT IS GONE RATHER THAN NARROWED. It was a defence against a SOURCE, and the source no
+   longer exists. hero left at #986, section at #1023, and cta — the last emitter, and the
+   owner of the `--cta-button-*` spine every one of those chains fell through to — at #1026.
+   No schema in the theme declares a button slot family any more, so nothing can set any of
+   the eighteen properties this rule reset; the six components that still have style slots
+   (embed, faq, grid, logos, stats, table) declare none. A rule that neutralises properties
+   no write path can produce is not a weaker guard than it used to be, it is a guard with
+   nothing on the other side of it.
 
-   THE FIX, and why it is shaped this way. A declaration ON the element beats an inherited
-   value regardless of source order, and `initial` IS the guaranteed-invalid value for a custom
-   property — so every downstream `var(--slot, <fallback>)` takes its fallback and the button
-   resolves exactly what an unset button resolves. That is the #526/#530 isolation idiom
-   (which re-points a slot on a SECOND button) generalised one step: here it neutralises the
-   whole family on any composed `.btn` that is not one of the three button elements a renderer
-   owns. Nothing above is touched — no chain, no fallback order, no literal — so every OWNED
-   button is byte-identical BY CONSTRUCTION rather than by argument: this selector cannot match
-   one. That is what keeps #530/#535/#536/#538/#539/#542/#543/#548/#551/#554 intact.
+   WHAT HOLDS THE GUARANTEE NOW. On a v2 band an author-written `.btn` sits inside whatever
+   ROLE its container declares and takes that role's value — and an authored role value is
+   emitted unlayered, so it outranks this whole stylesheet at any specificity. The band's
+   design reaches it because the author aimed the band's design at it, which is the opposite
+   of the leak: the leak was per-instance styling arriving somewhere nobody asked for it, and
+   a role is an address the author chose. cta cannot host such a button at all — `cta.body`
+   goes through `pp_kses_inline()` (helpers.php), whose `a` allowlist is href/title only, so a
+   class cannot survive there.
 
-   The alternative shape (a private --pp-* twin per slot, re-pointed on each owned button, so
-   the public slot is never read by an inheriting selector) was prototyped side by side and
-   renders pixel-identically. It was rejected on two counts: it rewrites all ten tuned chains
-   plus their pins for no rendering difference, and it moves each slot's only consumption onto
-   a custom-property target, which the StyleSlotContractTest keystone (slots must be consumed
-   on a type-COMPATIBLE property inside the component block) would have had to be weakened to
-   accept. Its one advantage — a forgotten new slot fails DEAD instead of leaking — is bought
-   back by the css-lint pin that derives this list from components.css itself, so a new family
-   slot that is missing here fails the build.
-
-   The global --btn-* tier is deliberately NOT neutralised. A site-wide button token is
-   site-wide by definition: an author-written .btn SHOULD follow a --btn-bg retheme exactly as
-   the bare .btn primitive and every composed button do. What must not reach it is the
-   PER-INSTANCE styling of the band that happens to contain it. Nor is the band-level accent
-   slot (--cta-accent) neutralised: it colours every accented
-   element in the band by design, and a nested button is one of those elements.
-
-   HERO USED TO BE THIS PARAGRAPH'S WORKED EXAMPLE, and it no longer can be (#986).
-   `.hero .btn:not(...)` at [0,5,0] outranking the premium winner was the illustration;
-   hero is a v2 component now, declares no slots, and that rule is gone. The mechanism
-   it illustrated is unchanged for the components that still have slots, and the reach
-   question has a different answer on a v2 band anyway: an author-written .btn inside
-   hero's `proof` sits inside the band's `proof` ROLE, so it takes whatever that role
-   declares, and an authored role value beats this whole stylesheet outright — the sheet
-   is in `@layer pp-v1` and authored band blocks are unlayered. The cta family has the same
-   shape one tier down (the border chains fall past the neutralised --cta-button-border to
-   --cta-accent), though it is unreachable today: a .cta has no prop that can carry a nested
-   .btn.
-
-   `.section__panel-cta` LEFT this exclusion list at #1023. Section is a v2 component now, so
-   its panel button is the `panel-cta` ROLE: whatever that role is given emits unlayered and
-   outranks this `pp-v1` neutraliser at any specificity, so keeping the exclusion would have
-   been a rule that can no longer do anything for that class. Zeroing cta's slots on it is also
-   the honest default — a section panel button reads none of cta's custom properties.
-
-   Escape hatch, accepted: an author who hand-writes one of the excluded classes onto their own
-   button opts back into whichever band's slots that button sits inside (`class="btn cta__button"`
-   in a cta's body). The component classes are internal, and treating a deliberate copy of one
-   as intent is better than out-guessing it. The same holds for a hand-written
-   `style="--cta-button-bg: …"` — wp_kses_post permits `style`, and an inline declaration beats
-   this rule, so the author's own value paints their own button. Neither is the leak: the leak
-   was the BAND's styling arriving somewhere nobody asked for it. */
-main .btn:not(.hero__cta):not(.cta__button) {
-  --cta-button-bg: initial;
-  --cta-button-border: initial;
-  --cta-button-color: initial;
-  --cta-button-hover-bg: initial;
-  --cta-button-hover-border: initial;
-  --cta-button-hover-color: initial;
-  --cta-button-shadow: initial;
-  --cta-button2-bg: initial;
-  --cta-button2-border: initial;
-  --cta-button2-color: initial;
-  --cta-button2-hover-bg: initial;
-  --cta-button2-hover-border: initial;
-  --cta-button2-hover-color: initial;
-  /* THE FIVE BELOW ARE INERT AS OF #1023 AND ARE KEPT DELIBERATELY, NOT OVERLOOKED.
-     Section is a v2 component: it declares no style slots, so no write path can set any
-     `--section-panel-cta-*` property and every `var()` chain that leads with one now falls
-     straight through to its `--cta-button-*` link. The same is true of the `--hero-button-*`
-     links elsewhere in this cascade since #986.
-
-     They are NOT removed here because removing them is #1026's recorded job: cta owns the
-     spine these chains fall through to (`--cta-button-*`), so the whole family collapses
-     honestly in that rebuild rather than losing one component's link per sprint — and
-     editing cta's cascade from section's rebuild would put this PR's blast radius inside
-     the component the next one rewrites. See #1026's landmine list.
-
-     Behaviourally this is a no-op either way: a custom property nothing can set resolves to
-     its fallback whether or not it is named. */
-  --section-panel-cta-bg: initial;
-  --section-panel-cta-border: initial;
-  --section-panel-cta-color: initial;
-  --section-panel-cta-hover-border: initial;
-  --section-panel-cta-shadow: initial;
-}
+   The `--section-panel-cta-*` and `--hero-button-*` links in the premium chains below were
+   left in place by #1023 and #986 for exactly this moment: collapsing them one component per
+   sprint would have meant editing cta's cascade from another component's rebuild. They come
+   out with this rule, in the same change, so the family collapses once and honestly. */
 
 /* True final cascade: premium CTA treatment.
    Layout/typography apply to every button. The FILLED treatment (gradient
@@ -4068,17 +3405,19 @@ main .btn:not(.hero__cta):not(.cta__button) {
    (a different layer that `background-color: transparent` cannot clear),
    flattening them into low-contrast filled buttons.
 
-   This block is the later-cascade WINNER for a composed primary button ([0,4,1]
-   beats the cta block's `.cta__button:not(...)` at [0,4,0]), so the filled
-   treatment's literals are routed through the documented cta-button slots (issue 412,
-   the issue-302 idiom): the gradient/bevel/ink defaults are the FALLBACKS, so an unset
-   button renders byte-identically, while an author setting --cta-button-bg (a flat
-   color), --cta-button-color (ink), or --cta-button-shadow: none gets a FLAT primary
-   button on the DEFAULT variant. The --cta-button-* custom properties are emitted
-   inline only on the .cta root, and custom-property inheritance is DOM-scoped, so a
-   hero/standalone `.btn` (never inside a .cta) never inherits them. That covers the
-   CROSS-component case only: a `.btn` INSIDE the .cta does inherit them, and the issue 545
-   neutralisation rule above is what keeps them off any button the renderer does not own. */
+   THE PER-INSTANCE SLOT LINKS ARE GONE (#1026). This block used to route its filled
+   treatment through `--section-panel-cta-*`, `--hero-button-*` and `--cta-button-*` so an
+   author could flatten one band's primary button from a style slot. All three families
+   retired with their components (#986, #1023, #1026) and nothing can set any of them, so
+   every one of those `var()` heads resolved to its next link on every render. They are
+   removed rather than left falling through: a chain link no write path can reach is a
+   promise the file is no longer keeping.
+   WHAT REPLACED THE CAPABILITY, so this is a move and not a deletion: a v2 band flattens
+   its own button through the `button` role's `udc` map — `background.fill`,
+   `typography.color`, `shadow.box` — which emits UNLAYERED and therefore outranks this
+   whole stylesheet at any specificity, where the slot only ever won by being a fallback
+   inside this declaration. The GLOBAL `--btn-*` tier below is untouched and is still the
+   site-wide knob it always was. */
 main .btn {
   display: inline-flex;
   align-items: center;
@@ -4102,48 +3441,36 @@ main .btn {
 main .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary) {
   border-width: 1px;
   border-style: solid;
-  border-color: var(--cta-button-border, var(--color-accent-strong));
-  /* Superseded for background by the later "True final cascade" block; --section-panel-cta-bg
-     and --hero-button-bg lead the chain here too (issues 514/536) so both rest primary-fill
-     rules stay uniform. */
-  background: var(--section-panel-cta-bg, var(--cta-button-bg,
-    linear-gradient(180deg, var(--color-accent) 0%, var(--color-accent-strong) 100%)));
-  box-shadow: var(--section-panel-cta-shadow, var(--cta-button-shadow,
+  border-color: var(--color-accent-strong);
+  /* Superseded for background by the later "True final cascade" block; kept identical to it
+     so both rest primary-fill rules stay uniform. */
+  background: linear-gradient(180deg, var(--color-accent) 0%, var(--color-accent-strong) 100%);
+  box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.18),
-    0 10px 24px color-mix(in srgb, var(--color-accent-strong) 16%, transparent)));
+    0 10px 24px color-mix(in srgb, var(--color-accent-strong) 16%, transparent);
   /* NOTE (#458): border-color/background/box-shadow above are SUPERSEDED by the
      identical-specificity "True final cascade" block below (source order wins). Only `color`
-     is the live winner for a composed primary, routed through the global --btn-text knob
-     (--cta-button-color still wins when set; unset falls to --color-bg, byte-identical). The
-     live fill/border/shadow are routed through --btn-bg/--btn-border-color/--btn-shadow in
-     that later block. The hero exposes its own per-instance ink slot here (issue 514,
-     analogous to --cta-button-color): --hero-button-color wins when set, unset falls to
-     the cta slot then --btn-text then --color-bg (byte-identical). Defined only on a .hero
-     root by the renderer (so a cta/section/standalone primary never inherits it) and reset
-     on .hero__cta--secondary by the issue 526 isolation rule (so the hero's own second CTA
-     does not inherit it either). The section's panel CTA exposes the same ink slot at the
-     head of the chain (issue 536): --section-panel-cta-color is emitted only on a .section
-     root, and the section RENDERER emits exactly ONE button surface (.section__panel-cta),
-     so no #526-style isolation rule is needed. Like every root-emitted button slot,
-     --hero-button-* included, it used to inherit onto a `.btn` an author hand-writes into the
-     wp_kses_post `body` HTML — the pre-existing trait of the whole family. Issue 545 closed
-     that for all five families at once by neutralising them on non-owned composed buttons
-     (see the block above this one), so the slot now reaches exactly .section__panel-cta. */
-  color: var(--section-panel-cta-color, var(--cta-button-color, var(--btn-text, var(--color-bg))));
+     is the live winner for a composed primary, and it is routed through the global --btn-text
+     knob. The per-instance ink slots that used to lead this chain — --section-panel-cta-color
+     (issue 536) and --cta-button-color (issue 412), with --hero-button-color (issue 514) in
+     the sibling chain — all retired with their components and are removed at #1026; unset,
+     every one of them fell through to exactly this pair, so the resolved value is unchanged.
+     A v2 band sets its button ink on the role instead, which outranks this rule outright. */
+  color: var(--btn-text, var(--color-bg));
 }
 
 main .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover {
-  border-color: var(--cta-button-hover-border, var(--color-accent));
-  /* Superseded for background by the later "True final cascade" block; --hero-button-hover-bg
-     leads the chain here too (issue 530) and the global --btn-hover-bg closes it (issue 539)
-     so both hover primary-fill rules stay uniform, the way #514 kept both REST rules
-     uniform. */
-  background: var(--cta-button-hover-bg, var(--btn-hover-bg,
-    linear-gradient(180deg, var(--color-accent) 0%, var(--color-accent-hover) 100%)));
-  box-shadow: var(--cta-button-shadow,
+  border-color: var(--color-accent);
+  /* Superseded for background by the later "True final cascade" block; the global
+     --btn-hover-bg still closes the chain (issue 539) so both hover primary-fill rules stay
+     uniform, the way #514 kept both REST rules uniform. The per-instance hover links
+     (--hero-button-hover-bg at #530, --cta-button-hover-*) retired with their components. */
+  background: var(--btn-hover-bg,
+    linear-gradient(180deg, var(--color-accent) 0%, var(--color-accent-hover) 100%));
+  box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.2),
-    0 14px 30px color-mix(in srgb, var(--color-accent-strong) 22%, transparent));
-  color: var(--cta-button-hover-color, var(--color-bg));
+    0 14px 30px color-mix(in srgb, var(--color-accent-strong) 22%, transparent);
+  color: var(--color-bg);
   transform: translateY(-1px);
   text-decoration: none;
 }
@@ -4213,6 +3540,20 @@ main .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary) {
      `secondary` second button still cross-fades while a `primary` one snaps. The split is by
      variant, not by whether the button looks filled.
 
+     THE VARIANT PROXY BROKE AT #1026, AND THIS EXCLUSION NO LONGER MEANS WHAT IT SAYS. The
+     three `:not()` arms above test for CLASSES, which were the v1 proxy for "this button's
+     fill is visible at rest". No component emits those classes any more — `button_variant`
+     and its siblings retired with hero (#986), section (#1023) and cta (#1026) — so a v2
+     button that LOOKS outlined is a bare `.btn` and MATCHES this snap selector. cta's
+     `button-secondary` role is exactly that case: transparent fill and a 2px accent ring,
+     both visible at rest, and it now snaps rather than ramping. So the sentence above
+     describes a set that is currently EMPTY for composed bands, and the "honest animation"
+     it promises is not what a v2 outline-look button gets. The cost is disclosed on that
+     role in components/cta/schema.json. Narrowing this selector to exempt v2 roles is not
+     cheaply expressible (a role selector admits no `:not()`), so the real lever is either a
+     structural class the roles can carry or widening the `motion` group beyond duration and
+     timing-function, which ruling A3 bounded. Tracked with the shadow-grammar gap at #1041.
+
      Two consequences, both accepted with the issue-540 decision rather than overlooked:
        1. the ring's cross-fade goes on EVERY filled premium button, unset ones included, where
           both endpoints (--color-accent -> --color-accent-hover) were already unmasked;
@@ -4238,59 +3579,48 @@ main .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary) {
      tests/e2e/style-render.spec.ts. */
   transition-property: box-shadow, color, transform;
   /* Live fill/border/shadow winner for EVERY composed primary (incl. the generic
-     .section__panel-cta, which has no cta/hero ancestor). Global button surface routed here
-     (#458): component slots (--cta-button-* / --cta-accent) still win; unset, each falls
-     through --btn-* to today's literal (gradient / --color-accent-strong / bevel), so an
-     unset premium button is byte-identical. Border is INDEPENDENT of the fill here (matches
-     the existing accent-strong-vs-gradient treatment), so it routes --btn-border-color but
-     does NOT follow --btn-bg. The one exception is the section panel CTA's own fill slot
-     (issue 536, the #526 border-follows-fill convention): --section-panel-cta-bg sits just
-     ahead of the literal, so a fill-only panel recolor keeps a matching ring instead of a
-     stray accent-strong outline, while every knob above it still wins exactly as before
-     and an unset button still resolves --color-accent-strong (byte-identical).
-     --section-panel-cta-border now LEADS the chain (issue 584). This rule is the panel
-     CTA's only border winner ([0,4,1] over the section block's [0,4,0] keystone), so the
-     head is where its per-instance ring slot has to sit to do anything at all — the same
-     reason --section-panel-cta-bg leads the fill chains below. It is emitted only on a
-     .section root, so a hero/cta/standalone primary never inherits it and every knob
-     below keeps winning for them exactly as before; unset, the chain is unchanged. */
-  border-color: var(--section-panel-cta-border, var(--cta-button-border, var(--cta-accent, var(--btn-border-color, var(--section-panel-cta-bg, var(--color-accent-strong))))));
-  /* Hero per-instance fill slot (issue 514): --hero-button-bg is the visible fill
-     winner for a hero primary. A FLAT color value here resolves the shorthand to
-     `background: <color>`, which resets background-image to `none` and CLEARS the
-     premium gradient (the whole bug: the hero rule only set background-COLOR, which the
-     gradient background-IMAGE covered). Unset, it falls through --cta-button-bg /
-     --btn-bg to the gradient literal, so an unset button is byte-identical. Defined only on
-     a .hero root by the renderer (cta/section/standalone primaries never inherit it), and
-     re-pointed at --hero-button2-bg on .hero__cta--secondary by the issue 526 isolation rule —
-     which is how a filled second CTA gets its OWN gradient-clearing fill here.
-     The section's panel CTA is the last member of that masked-fill class (issue 536):
-     .section__panel-cta has no .hero/.cta ancestor, so THIS rule is its only fill winner
-     and --section-panel-cta-bg leads the chain the same way. It is emitted only on a
-     .section root and the section RENDERER emits exactly one button surface, so no
-     isolation re-pointing is needed (see the ink chain above for the one inheritance
-     caveat the whole slot family shares); unset, it falls straight through to the
-     hero/cta/--btn-bg chain and the gradient literal (byte-identical). */
-  background: var(--section-panel-cta-bg, var(--cta-button-bg, var(--btn-bg,
-    linear-gradient(180deg, var(--color-accent-strong) 0%, var(--color-accent-hover) 100%))));
-  box-shadow: var(--section-panel-cta-shadow, var(--cta-button-shadow, var(--btn-shadow,
+     .section__panel-cta, which has no cta/hero ancestor). The GLOBAL button surface is what
+     is routed here now (#458): --btn-border-color / --btn-bg / --btn-shadow, each falling
+     through to today's literal (--color-accent-strong / gradient / bevel), so an unset
+     premium button is byte-identical. Border is INDEPENDENT of the fill here (matches the
+     existing accent-strong-vs-gradient treatment), so it routes --btn-border-color but does
+     NOT follow --btn-bg.
+     FIVE PER-INSTANCE LINKS LEFT THESE THREE CHAINS AT #1026 — --section-panel-cta-border
+     (#584), --section-panel-cta-bg (#536), --section-panel-cta-shadow (#536),
+     --cta-button-border/-bg/-shadow (#412) and --cta-accent (#111). Every one belonged to a
+     component that is now on the UDC, so no write path can set any of them and each head
+     resolved to its next link on every render. The band-level knobs they provided are role
+     values now: `border.color`, `background.fill` and `shadow.box` on the component's button
+     role, which emit unlayered and outrank this rule outright rather than winning by sitting
+     at the head of its fallback chain. Unset renders are unchanged, which is the whole
+     reason the collapse is safe to make in one move. */
+  border-color: var(--btn-border-color, var(--color-accent-strong));
+  /* THE GRADIENT-MASKING MECHANISM, which the collapse above preserves and is the reason
+     these two stay SHORTHANDS. `background` resolves a flat colour to `background: <color>`,
+     which resets background-image to `none` and clears the premium gradient. Every
+     per-instance fill slot that used to lead this chain existed to reach that reset — a rule
+     that set only background-COLOR was covered by the gradient background-IMAGE, which was
+     the whole of #514/#526/#530/#536. A v2 role's `background.fill` emits the same shorthand
+     (see pp_udc_groups(): "fill MUST stay first: it emits the `background` shorthand, which
+     resets every longhand below it"), so the mechanism survives the slots by construction.
+     --btn-bg keeps the site-wide half of it. */
+  background: var(--btn-bg,
+    linear-gradient(180deg, var(--color-accent-strong) 0%, var(--color-accent-hover) 100%));
+  box-shadow: var(--btn-shadow,
     inset 0 1px 0 rgba(255, 255, 255, 0.16),
-    0 10px 22px color-mix(in srgb, var(--color-accent-strong) 14%, transparent))));
+    0 10px 22px color-mix(in srgb, var(--color-accent-strong) 14%, transparent));
 }
 
 main .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover {
-  /* Global hover BORDER (issue 539) mirrors the rest twin's ordering above: after
-     --cta-button-hover-border and --cta-accent-hover, ahead of the literal. Border stays
-     INDEPENDENT of the fill in this rule exactly as at rest, so --btn-hover-bg is
-     deliberately absent here. The rest chain's --section-panel-cta-bg link has no hover
-     counterpart because the panel CTA has no per-instance hover fill slot (#536 shipped it
-     resting-state-only), so that one link is simply absent — the same way
-     --btn-hover-border-color used to be.
-     --section-panel-cta-hover-border leads this chain (issue 584) as the positional twin
-     of --section-panel-cta-border on the rest rule above. The RING gets its hover twin;
-     the resting-only posture for the FILL is unchanged, which is why this chain still has
-     no --section-panel-cta-*-bg link. Head of chain, so byte-identical unset. */
-  border-color: var(--section-panel-cta-hover-border, var(--cta-button-hover-border, var(--cta-accent-hover, var(--btn-hover-border-color, var(--color-accent)))));
+  /* Global hover BORDER (issue 539) mirrors the rest twin's ordering above: the global knob,
+     then the literal. Border stays INDEPENDENT of the fill in this rule exactly as at rest,
+     so --btn-hover-bg is deliberately absent here.
+     The per-instance hover links that used to lead this chain — --section-panel-cta-hover-border
+     (#584), --cta-button-hover-border (#412) and --cta-accent-hover (#548/#564) — left at
+     #1026 with their components. Their successor is a `:hover` state map nested INSIDE the
+     role's `border` group, which is both more precise and more capable: it is per role, per
+     breakpoint, and it cannot arrive by inheritance on a button nobody aimed it at. */
+  border-color: var(--btn-hover-border-color, var(--color-accent));
   /* Hero per-instance HOVER fill slot (issue 530): --hero-button-hover-bg is the visible
      hover fill winner for a hero primary, exactly as --hero-button-bg is at rest. A FLAT
      color here resolves the shorthand to `background: <color>`, which resets background-image
@@ -4310,20 +3640,23 @@ main .btn:not(.btn--outline):not(.btn--ghost):not(.btn--secondary):hover {
      .hero/.cta ancestor and no hover rule of its own — so the global tier reaches it here even
      though #536 gave it no per-instance hover slot. That asymmetry is intended: the global
      tier is site-wide by definition, and a knob that skipped one filled surface would be the
-     surprising behaviour. */
-  background: var(--cta-button-hover-bg, var(--btn-hover-bg,
-    linear-gradient(180deg, var(--color-accent) 0%, var(--color-accent-strong) 100%)));
-  /* --hero-button-shadow flattens hover too (issue 514, matching --cta-button-shadow's
-     rest+hover contract): set `none` and both rest and hover lose the bevel. Unset falls
-     to --cta-button-shadow then the hover bevel literal (byte-identical).
-     --section-panel-cta-shadow joins at the head for the same reason (issue 536): an
-     elevation slot that flattened rest but not hover would re-grow a bevel mid-interaction.
-     This is the elevation contract only — the hover FILL is deliberately untouched here
-     (#536 excludes hover; the panel CTA has no hover fill slot, so a flat rest fill still
-     reverts to the premium hover gradient, the pre-#530 trait hero/cta both had). */
-  box-shadow: var(--section-panel-cta-shadow, var(--cta-button-shadow,
+     surprising behaviour.
+     THE PER-INSTANCE HEAD (--cta-button-hover-bg) LEFT AT #1026 with cta's slots; the global
+     knob now leads, in the position --btn-bg holds in the rest twin. Unset, both chains
+     resolve to the same gradient literals they always did. */
+  background: var(--btn-hover-bg,
+    linear-gradient(180deg, var(--color-accent) 0%, var(--color-accent-strong) 100%));
+  /* THE REST+HOVER ELEVATION CONTRACT, restated now that the slots enforcing it are gone.
+     --section-panel-cta-shadow (#536), --cta-button-shadow and --hero-button-shadow (#412/
+     #514) all led BOTH this chain and its rest twin, deliberately: an elevation slot that
+     flattened rest but not hover would re-grow a bevel mid-interaction. A role's `shadow.box`
+     inherits that property for free and more strongly — a resting role value is unlayered,
+     so it already outranks this `pp-v1` hover rule in every state, which is exactly the
+     §1b "states move with rest" consequence the cta rebuild had to reason about for its own
+     `button-secondary` role. Unset, this resolves to the hover bevel literal as before. */
+  box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.18),
-    0 14px 30px color-mix(in srgb, var(--color-accent-strong) 20%, transparent)));
+    0 14px 30px color-mix(in srgb, var(--color-accent-strong) 20%, transparent);
 }
 
 main .btn:focus,
@@ -4386,7 +3719,8 @@ main .btn:focus-visible {
    it was deleted with section's slot map at #1023 — and a v2 dark band carries no
    class at all, so there is nothing left to hang the twin rule on either).
 
-   Scoped to `.btn` on the roots whose RENDERERS put a button ON the band: cover hero and cta.
+   Scoped to `.btn` on the bands whose RENDERERS put a button ON the band — which is now said
+   by the engine's overlay attribute rather than by a roster of variant classes.
    A dark band that renders no on-band button (grid/stats/faq/logos/embed/testimonials, and
    section per the paragraph above) can only receive a `.btn` through author-written rich-text
    HTML — the author-written nested button of #545, deliberately not covered here. That issue
@@ -4398,22 +3732,34 @@ main .btn:focus-visible {
 
    No new slot family: the focus ring has no per-instance slot today and does not gain one
    here, so there is nothing authored to preserve ahead of the role token. An author who
-   recolours a button's BORDER (--cta-button-border and friends) keeps that border exactly —
-   the focus outline is an independent surface and is deliberately not chained to it. The
-   routing is class-triggered, so it shares the whole role family's blind spot: a band you
-   darken yourself with `--cta-bg`, or a scrim you lighten with `--cta-overlay-bg`, carries
-   the same classes and gets the same ring regardless (identical exposure to #461's link ink).
+   recolours a button's BORDER on a v2 role keeps that border exactly — the focus outline is
+   an independent surface and is deliberately not chained to it.
+   THE BLIND SPOT NARROWED WHEN THE TRIGGER STOPPED BEING A CLASS (#986, #1026). It used to
+   be symmetrical: a band you darkened yourself carried no class and got no routing, and a
+   scrim you LIGHTENED carried the class and got the routing anyway. The engine's attribute
+   fixes neither half by itself — it is emitted whenever an image and an overlay are both
+   present, whatever the overlay's alpha — so a deliberately pale scrim still receives a ring
+   measured against a dark one. What did change is that the attribute now follows the thing
+   it describes across every layout, where the class followed one variant of one component.
 
-   NOTE on the inverted band: 3.23:1 technically clears the 3:1 non-text bar, and #535 Q2
-   used exactly that figure to refuse a separation ring on the inverted filled primary. This
-   rule routes it anyway, which is a deliberate, recorded divergence rather than an oversight:
-   a 2px hairline reads far weaker than an area fill at the same ratio, and today the resting
-   border of an `outline` button on that band (#9dafee, 8.33:1) is MORE prominent than the
-   focus ring meant to mark the active element. Do not "restore consistency" by dropping the
-   inverted half — the css-lint pins will stop you, on purpose. */
-.cta--inverted .btn:focus {
-  outline-color: var(--color-accent-on-inverted);
-}
+   THE INVERTED HALF IS GONE (#1026), and it is the one correction in this family that got no
+   successor. Its rule was `.cta--inverted .btn:focus { outline-color: --color-accent-on-inverted }`,
+   and `theme` retired with cta's rebuild, so no v2 cta can carry that class. It is not
+   re-keyed the way the overlay half below was, because there is nothing to re-key it ON: an
+   overlay is a fact the ENGINE knows (it composes the scrim, which is why
+   `[data-pp-band-overlay]` can exist), while "this band is dark" is a colour an author chose
+   in `_band.background.fill` and the engine does not interpret colours. Detecting darkness
+   would mean parsing an authored value — including `@token` references, gradients and
+   `color-mix()` — and guessing, which is the variant-scoped guessing #986 removed from the
+   hero for the same reason.
+   SO A DARK v2 BAND OWNS ITS FOCUS RING the way it owns the rest of its contrast. The route
+   is the one the AI-facing docs already teach for every dark band, and it is no longer a
+   theme-wide compromise: the `button` role's `border`/`background` on that band, chosen
+   against the background the author actually picked. The cost is stated rather than
+   discovered: v1 gave an inverted cta an 8.33:1 ring automatically and v2 gives it 3.23:1
+   until the author says otherwise. 3.23:1 still clears the 3:1 non-text bar — #535 Q2 used
+   exactly that figure to refuse a separation ring — so this is a loss of margin, not a new
+   failure. Recorded in the migration how-to beside the other things a dark band now owns. */
 
 /* THE RING FOLLOWS THE OVERLAY, NOT A LAYOUT CLASS (#986).
    `.hero--cover` was a sound key while `cover` was the only hero layout that could
@@ -4426,11 +3772,18 @@ main .btn:focus-visible {
    knows a scrim is being painted, and only when an image and an overlay are both
    present. Same posture as the reduced-motion guard under ruling A3: an
    accessibility affordance is structural, emitted rather than authored, and not
-   something an author can forget to switch on. The legacy classes stay for the v1
-   components, which still express the case that way. */
+   something an author can forget to switch on.
+   `.cta--has-bg-image` LEFT THIS LIST AT #1026, when the `background_image` prop that
+   derived it retired: a v2 cta emits the attribute instead, so the class term could
+   only ever have matched a band that no longer exists. `.hero--cover` is kept BYTE-IDENTICAL
+   as #986 left it rather than adjusted from this change, because it is a hero question and
+   not cta's to answer — but it is a real defect and #1039 records it: `.hero--cover` is a
+   LAYOUT class that paints no background, so a `cover` hero with no scrim takes this
+   near-white ring on the page ground at 1.02:1, which is worse than the ordinary accent
+   ring's 5.43:1. The engine-emitted term above is the correct key; the layout term is the
+   one to drop, and #1039 carries the zero-impact argument for dropping it. */
 [data-pp-band-overlay] .btn:focus,
-.hero--cover .btn:focus,
-.cta--has-bg-image .btn:focus {
+.hero--cover .btn:focus {
   outline-color: var(--color-accent-on-overlay);
 }
 
@@ -4454,18 +3807,16 @@ main .btn:focus-visible {
    restatement, and falls back to hero's own opener rhythm rather than the shared band
    tier — see the long comment there for both reasons (issue 577). */
 @media (min-width: 768px) {
-  /* section's per-component adjacent rule was DELETED at #1023. It existed only to keep
-     `--section-padding-top` live at this specificity; with no slot left it resolved to
-     exactly what the zero-specificity baseline above already gives, so the baseline now
-     serves section directly. Unlike hero, section needs NO `:not()` exclusion: its
-     `_band` padding default is the shared `@pp-band-padding` on both edges, the same
-     value this tier carries, so the adjacent rhythm winning over the pp-zero default is
-     the intended arrangement rather than a collision. */
+  /* section's per-component adjacent rule was DELETED at #1023 and cta's at #1026, for the
+     same reason and with the same result. Each existed only to keep a `--*-padding-top` slot
+     live at this specificity; with no slot left it resolved to exactly what the
+     zero-specificity baseline above already gives, so the baseline serves both directly.
+     Unlike hero, neither needs a `:not()` exclusion: each one's `_band` padding default is
+     the shared `@pp-band-padding` on both edges, the same value this tier carries, so the
+     adjacent rhythm winning over the pp-zero default is the intended arrangement rather than
+     a collision. */
   main > [data-pp-component] + .grid {
     padding-top: var(--grid-padding-top, var(--pp-band-padding-adjacent-top));
-  }
-  main > [data-pp-component] + .cta {
-    padding-top: var(--cta-padding-top, var(--pp-band-padding-adjacent-top));
   }
   main > [data-pp-component] + .stats {
     padding-top: var(--stats-padding-top, var(--pp-band-padding-adjacent-top));
@@ -4503,11 +3854,6 @@ main .btn:focus-visible {
 .grid {
   padding-top: var(--grid-padding-top, var(--pp-band-padding));
   padding-bottom: var(--grid-padding-bottom, var(--pp-band-padding));
-}
-
-.cta {
-  padding-top: var(--cta-padding-top, var(--pp-band-padding));
-  padding-bottom: var(--cta-padding-bottom, var(--pp-band-padding));
 }
 
 .faq {
@@ -4574,18 +3920,16 @@ main .btn {
   :where(main > [data-pp-component] + [data-pp-component]:not(.hero)) {
     padding-top: var(--pp-band-padding-adjacent-top);
   }
-  /* section's per-component adjacent rule was DELETED at #1023. It existed only to keep
-     `--section-padding-top` live at this specificity; with no slot left it resolved to
-     exactly what the zero-specificity baseline above already gives, so the baseline now
-     serves section directly. Unlike hero, section needs NO `:not()` exclusion: its
-     `_band` padding default is the shared `@pp-band-padding` on both edges, the same
-     value this tier carries, so the adjacent rhythm winning over the pp-zero default is
-     the intended arrangement rather than a collision. */
+  /* section's per-component adjacent rule was DELETED at #1023 and cta's at #1026, for the
+     same reason and with the same result. Each existed only to keep a `--*-padding-top` slot
+     live at this specificity; with no slot left it resolved to exactly what the
+     zero-specificity baseline above already gives, so the baseline serves both directly.
+     Unlike hero, neither needs a `:not()` exclusion: each one's `_band` padding default is
+     the shared `@pp-band-padding` on both edges, the same value this tier carries, so the
+     adjacent rhythm winning over the pp-zero default is the intended arrangement rather than
+     a collision. */
   main > [data-pp-component] + .grid {
     padding-top: var(--grid-padding-top, var(--pp-band-padding-adjacent-top));
-  }
-  main > [data-pp-component] + .cta {
-    padding-top: var(--cta-padding-top, var(--pp-band-padding-adjacent-top));
   }
   main > [data-pp-component] + .stats {
     padding-top: var(--stats-padding-top, var(--pp-band-padding-adjacent-top));

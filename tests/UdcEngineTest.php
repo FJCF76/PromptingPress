@@ -1505,6 +1505,19 @@ final class UdcEngineTest extends TestCase
                     'panel_cta_url'      => '/contact',
                 ],
             ],
+            // cta needs ONE fixture, and it needs both buttons: `buttons` and
+            // `button-secondary` only render when `button2_text` is set, and `text` only
+            // when at least one of eyebrow/title/body is.
+            'cta' => [
+                'eyebrow'      => 'KICKER',
+                'title'        => 'Protect the margin',
+                'title_accent' => 'margin',
+                'body'         => 'Supporting line with a <a href="/x">link</a>.',
+                'button_text'  => 'See the model',
+                'button_url'   => '/model',
+                'button2_text' => 'Read the docs',
+                'button2_url'  => '/docs',
+            ],
             'testimonials' => [
                 'title'        => 'What they say',
                 'title_accent' => 'they',
@@ -1822,12 +1835,12 @@ final class UdcEngineTest extends TestCase
                 $legacy[] = $name;
             }
         }
-        // SEVEN now: testimonials was rebuilt in Sprint 0, nav and footer joined as the
-        // CHROME container in Sprint 1 (ruling A1), hero in Sprint 1 (#986) and section
-        // in Sprint 2 (#1023). The number is asserted rather than loosened so that a
-        // component quietly falling OFF the engine still trips this — and so that each
-        // rebuild has to come here and say which one moved.
-        $this->assertCount(7, $legacy, 'seven components stay on the legacy system');
+        // SIX now: testimonials was rebuilt in Sprint 0, nav and footer joined as the
+        // CHROME container in Sprint 1 (ruling A1), hero in Sprint 1 (#986), section in
+        // Sprint 2 (#1023) and cta in Sprint 2 (#1026). The number is asserted rather than
+        // loosened so that a component quietly falling OFF the engine still trips this —
+        // and so that each rebuild has to come here and say which one moved.
+        $this->assertCount(6, $legacy, 'six components stay on the legacy system');
         $this->assertNotContains('testimonials', $legacy);
         $this->assertNotContains('nav', $legacy);
         $this->assertNotContains('footer', $legacy);

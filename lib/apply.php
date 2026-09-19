@@ -515,7 +515,7 @@ function pp_css_grammar_summary(): string {
  *                           `length-or-none` slot type — the width caps whose DECLARED
  *                           DEFAULT is `none`: the band-geometry cap --stats-max-width
  *                           (#579) plus the measures that ship uncapped (#578) and are
- *                           still on the slot system, --cta-body-measure and
+ *                           still on the slot system, --faq-body-measure and
  *                           --faq-body-measure (--hero-heading-measure left in #986 and
  *                           --section-heading-measure in #1023; on a v2 component an
  *                           uncapped measure is the role's `sizing.max-width` set to
@@ -1618,15 +1618,15 @@ function _pp_validate_token_value(string $value, ?string $type, ?array $allowed 
             // keyword `none` — the third state the plain `length` grammar could not
             // express (issue #579, A-30). --stats-max-width was the first; #578 added
             // the four measure slots that are uncapped by default and must therefore be
-            // restorable to that default. Two of those four are left on the slot system,
-            // --cta-body-measure and --faq-body-measure: --hero-heading-measure retired
+            // restorable to that default. One of those four is left on the slot system,
+            // --faq-body-measure (--cta-body-measure left at #1026): --hero-heading-measure retired
             // in #986 and --section-heading-measure in #1023, where the same "the
             // declared default must be authorable" rule is satisfied by the v2 grammar
             // accepting `none` on `sizing.max-width` directly.
             //
             // The RULE is "the declared default must be authorable", not "measure slots
             // get `none`". Every measure slot with a real length default
-            // (--cta-heading-measure, --grid-heading-measure, --embed-body-measure and
+            // (--grid-heading-measure, --embed-body-measure and
             // the other routed heading measures) deliberately
             // stays plain `length`: they have no third state, and the shipped
             // friendly-error path steers "remove this cap" to `100%` for them. Do not

@@ -104,7 +104,8 @@ class SchemaThemeConsistencyTest extends TestCase
         // their own rebuild sprints, which is what this list still guards.
         // section left this roster at #1023 with the `theme` prop: a dark band is the
         // `_band` role's `background` group now, so there is no enum to advertise.
-        $bandComponents = ['cta', 'faq', 'grid', 'embed', 'logos', 'stats'];
+        // cta left at #1026 with its `theme` prop; section at #1023, testimonials at #958.
+        $bandComponents = ['faq', 'grid', 'embed', 'logos', 'stats'];
         $schemas        = $this->loadSchemas();
 
         foreach ($bandComponents as $component) {
@@ -158,7 +159,9 @@ class SchemaThemeConsistencyTest extends TestCase
         // section left this roster at #1023: its band padding is the `_band` role's
         // `spacing` default, falling back to the same shared `@pp-band-padding` this
         // guard pins for every component still declaring the slots.
-        $bandComponents = ['grid', 'cta', 'stats', 'faq', 'table', 'logos', 'embed'];
+        // cta left at #1026: its band padding is the `_band` role's `spacing.padding-top` /
+        // `padding-bottom`, both defaulting to the shared `@pp-band-padding` this test pins.
+        $bandComponents = ['grid', 'stats', 'faq', 'table', 'logos', 'embed'];
         $schemas        = $this->loadSchemas();
 
         $expected = 'var(--pp-band-padding)';

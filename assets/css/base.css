@@ -142,7 +142,7 @@ figure {
   --color-accent-on-inverted-hover: #c1cdfc;  /* color: Hover state for on-inverted links — brighter tint, 11.4:1 on --color-bg-inverted */
   --color-accent-on-overlay:        #fafbff;  /* color: Link/accent on a bg-image band (dark rgba(0,0,0,.55) overlay over an ARBITRARY image). The name is the ROLE, not the hue: the worst case is the overlay over a pure-WHITE image (effective bg rgb(115,115,115)), whose contrast CEILING for any foreground is 4.74:1, so a near-white value is the only one that clears AA (4.5:1). #fafbff = 4.59:1 there. on-inverted (#9dafee) is tuned to the solid inverted bg, only ~2.2:1 here (#437 flagged a fixed tint can't be trusted over an arbitrary image). */
   --color-accent-on-overlay-hover:  #ffffff;  /* color: Hover state for on-overlay links — pure white, 4.74:1 (the ceiling) over the worst-case overlay-over-white composite */
-  --color-muted-on-overlay:         #fafbff;  /* color: DE-EMPHASISED body ink on a bg-image band (cta body, stats label). A separate ROLE from --color-accent-on-overlay, which happens to share its value because the band leaves no other choice: over the worst-case composite rgb(115,115,115) the contrast CEILING is 4.74:1, full --color-bg reaches 4.658:1, and 4.5:1 needs luminance >= 0.9467 (about #f9f9f9 achromatic). The de-emphasis budget on this band is therefore about 0.07:1 — the previous `opacity: 0.85` spent a margin that does not exist and measured 3.87:1 (issue 577). #fafbff = 4.585:1. Reopen if the overlay lightens enough to buy real headroom; do NOT re-introduce an opacity literal. */
+  --color-muted-on-overlay:         #fafbff;  /* color: DE-EMPHASISED body ink on a bg-image band (stats label; the cta body was the other consumer until #1026 retired the prop that built that band — a v2 band reaches this token by name from a role's typography.color instead). A separate ROLE from --color-accent-on-overlay, which happens to share its value because the band leaves no other choice: over the worst-case composite rgb(115,115,115) the contrast CEILING is 4.74:1, full --color-bg reaches 4.658:1, and 4.5:1 needs luminance >= 0.9467 (about #f9f9f9 achromatic). The de-emphasis budget on this band is therefore about 0.07:1 — the previous `opacity: 0.85` spent a margin that does not exist and measured 3.87:1 (issue 577). #fafbff = 4.585:1. Reopen if the overlay lightens enough to buy real headroom; do NOT re-introduce an opacity literal. */
 
   /* Spacing — the layout scale */
   --space-xs:  0.25rem;   /* length: 4px */
@@ -166,95 +166,60 @@ figure {
   --btn-padding-x: var(--space-lg);  /* length: Button horizontal padding */
   --btn-radius: 4px;                 /* length: Button corner radius — the authorable button shape; override to pill a CTA (e.g. 100px) without rounding cards, which follow --radius */
 
-  /* Button color — the GLOBAL button surface (the color analog of --btn-radius). Three of
-     the four are left `initial` (unset) so every consuming rule falls through to its own
+  /* Button color — the GLOBAL button surface (the color analog of --btn-radius). Five of
+     the six are left `initial` (unset) so every consuming rule falls through to its own
      literal and an unset button is byte-identical; SET any of these at :root (via
-     update_design_token) to restyle EVERY composed primary button site-wide — including the
-     premium `main .btn` primary, which reaches them through these tokens (#458). Per-component
-     slots (--cta-button-* / --cta-accent / --hero-accent) still win when set, ON THE BUTTON THE
-     COMPONENT OWNS; --btn-* sits between those slots and the literal fallback. On any other
-     composed button — a `.btn` an author hand-writes into a rich-text prop — the per-instance
-     button slots are neutralised (#545) and --btn-* is the tier that reaches it. --btn-text keeps a concrete default because
-     its value already equals the universal ink literal (--color-bg) every button rule falls
-     back to, so it stays discoverable AND overridable. Effective unset defaults differ by
-     rule: --btn-bg = --color-accent on the bare .btn / accent gradient on the composed
-     primary; --btn-border-color = --color-accent (bare/.cta/.hero) / --color-accent-strong
-     (premium); --btn-shadow = none (bare) / premium bevel (composed primary). See the .btn and
-     `main .btn` rules in components.css and ai-instructions/retheme.md.
+     update_design_token) to restyle EVERY composed button site-wide — including the premium
+     `main .btn` primary, which reaches them through these tokens (#458). --btn-text keeps a
+     concrete default because its value already equals the universal ink literal (--color-bg)
+     every button rule falls back to, so it stays discoverable AND overridable. Effective
+     unset defaults differ by rule: --btn-bg = --color-accent on the bare .btn / the accent
+     gradient on the composed primary; --btn-border-color = --color-accent (bare) /
+     --color-accent-strong (premium); --btn-shadow = none (bare) / the premium bevel
+     (composed primary). See the .btn and `main .btn` rules in components.css and
+     ai-instructions/retheme.md.
 
      HOVER (issue 539). --btn-hover-bg / --btn-hover-border-color are the hover twins of
-     --btn-bg / --btn-border-color, and complete #530's rest/hover parity at the GLOBAL tier:
+     --btn-bg / --btn-border-color, and complete #530's rest/hover parity at this tier:
      before them, a site-wide fill or border retheme reverted to the theme's premium accent
      gradient the moment a pointer touched any button. They sit in the hover chains at exactly
-     the position their resting counterparts occupy in the rest chains, and above the literal
-     (with one exception: the overlay/cover ring chains carry neither knob — --btn-hover-border-color
-     left in issue 564 and --btn-hover-bg in issue 565, so since #565 the "neither" is literal
-     rather than approximate — see PHOTO-BAND CARVE-OUT below. The FILL chains are untouched:
-     --btn-hover-bg still paints those buttons' hover fill.). Both are `initial`, so an unset
-     button is byte-identical.
+     the position their resting counterparts occupy in the rest chains, above the literal.
+     Both are `initial`, so an unset button is byte-identical.
 
-     Precedence, stated exactly, because "below the per-instance slots" is only half true.
-     Each knob sits below the per-instance slots FOR ITS OWN PROPERTY and above everything
-     else, mirroring rest:
-       fill    --hero-button-hover-bg / --cta-button-hover-bg / --cta-button2-hover-bg
-               -> --btn-hover-bg -> literal
-       border  --*-hover-border (the per-instance BORDER slots) -> the BAND ACCENT
-               (--hero-accent-hover / --cta-accent-hover, issue 564) -> --btn-hover-border-color
-               -> the border-follows-fill link -> literal
-     So --btn-hover-border-color DOES outrank the per-instance hover FILL slots in a border
-     chain. That is deliberate and matches --btn-border-color at rest: an explicitly authored
-     global ring should beat a ring merely INFERRED from someone's fill. The visible
-     consequence is worth knowing — a component that sets only --cta-button-hover-bg loses its
-     matching hover ring once a global --btn-hover-border-color is set, and takes the global
-     ring instead. Set the per-instance --*-hover-border to opt back out.
+     THIS TIER IS NOW THE WHOLE CHAIN, AND THAT IS #1026's DOING. This block used to spend
+     sixty lines on precedence — which per-component slot outranked which global knob, in
+     which state, on which band — because three components emitted per-instance button slot
+     families (--hero-button-*, --cta-button-*, --cta-button2-*, --section-panel-cta-*,
+     --hero-accent, --cta-accent) that led every one of these chains. All of them retired with
+     their components (#986, #1023, #1026) and nothing in the theme declares a button slot any
+     more, so each chain is a global knob and a literal. The rulings that tuned those orders
+     (#514, #526, #530, #536, #538, #539, #548, #554, #564, #565, #584) are not reversed; their
+     SUBJECT is gone, and the cases they arbitrated cannot arise between two links that no
+     longer both exist.
+
+     PER-COMPONENT BUTTON STYLING DID NOT GO WITH THEM — it moved somewhere stronger. A v2
+     component declares button ROLES, and a role's `background.fill`, `border.color`,
+     `typography.color`, `shadow.box` and their `:hover` state maps emit UNLAYERED, so they
+     outrank this entire stylesheet at any specificity instead of competing inside a fallback
+     chain. Two consequences worth stating, because they are the practical difference:
+     an authored role value beats these knobs outright (authored beats global, as before), and
+     a per-instance value can no longer arrive anywhere by INHERITANCE — which is what the
+     #545 neutralisation block existed to prevent and why that block retired at #1026 too.
+
+     WHAT A SITE LOSES, stated rather than discovered. The per-instance escape hatches these
+     chains carried for the photo-band separation ring (#535/#543) and the dark-band AA ink
+     (#437/#461/#463/#577) were class-triggered on `.cta--has-bg-image` / `.cta--inverted` /
+     `.hero--cover`, and those classes retired with the props that derived them. A v2 band over
+     a scrim or a dark fill owns its own contrast and sets it on the role. The ONE affordance
+     that is still automatic is the focus ring, which #986 re-keyed onto the engine-emitted
+     `[data-pp-band-overlay]` attribute precisely so it could not depend on a variant class.
 
      Deliberately NOT mirrored: hover INK and hover ELEVATION. --btn-shadow reaches no hover
      rule at all, so setting it to `none` flattens rest and the premium bevel grows back under
-     the pointer. --btn-text is reachable on hover only on the two SECOND buttons (their
-     [0,7,0] hover ink rules fall back through it); the bare .btn and premium primary hover ink
-     are literals. Both are the same class of gap as this one, but routing --btn-shadow into
-     hover would change rendered output for sites that already set it, so they are tracked as
-     their own issues rather than riding along here.
-
-     The hero's SECOND cta was once the exception here: its own chains routed neither --btn-bg
-     nor this hover twin, so a site-wide retheme left it behind — and visibly, because the
-     global knob still reached it through the SHARED premium rule, where it resolves the
-     `background` shorthand to a flat colour and so CLEARS the gradient, while the cta2's own
-     [0,7,0] background-color rule kept painting --color-accent. A rethemed hero rendered a
-     FLAT ACCENT second button beside a brand-coloured primary. Issue 554 closed that: hero
-     cta2 now routes --btn-bg / --btn-border-color / --btn-hover-bg / --btn-hover-border-color
-     through its OWN chains in BOTH states, so no filled surface is carved out of this tier any
-     more. (Issues 564 and 565 reintroduced ONE deliberate carve-out — the ring knobs AND the
-     fill knobs, on the overlay/cover BORDER chains only — see PHOTO-BAND CARVE-OUT below.)
-     "Not carved out" is not "always wins": these knobs sit BELOW the per-instance slots
-     everywhere, so a hero that authors --hero-accent still takes the accent on BOTH its
-     buttons and neither reads --btn-bg / --btn-border-color at all. That is the tier working
-     as designed — authored beats global — and it is why the pair stays consistent either way.
-
-     ORDER: within a border chain BOTH components rank the band accent (--hero-accent /
-     --cta-accent) ABOVE --btn-border-color, and the same on hover. This block used to record
-     the opposite for the cta family and warn against "unifying" the two components; issue 564
-     reversed that. The old split was not harmless drift: because the cta ranked the global knob
-     first, a site-wide ring retheme silently defeated an authored --cta-accent, and on photo
-     bands it defeated --color-accent-on-overlay, the measured 4.59:1 separation role. The
-     narrower authored role now wins on both components, each pair is still internally
-     consistent, and the two families agree with each other. Pinned in css-lint and
-     StyleSlotContractTest.
-
-     PHOTO-BAND CARVE-OUT (issues 564 and 565): on `background_image` cta bands and `cover`
-     heroes NO global knob is in the filled buttons' BORDER chains — not the two ring knobs
-     (--btn-border-color / --btn-hover-border-color, removed in #564) and not the two fill
-     knobs (--btn-bg / --btn-hover-bg, removed in #565, which reached the ring through the
-     border-follows-fill link). Those chains bottom out at --color-accent-on-overlay, which
-     is declared at :root below and therefore ALWAYS set, so a knob above it defeats a measured
-     contrast guarantee and a knob below it is dead code. Removal was the only honest position.
-     The per-instance ring slots remain above everything there as the escape hatch, and so do
-     the per-instance FILL slots — that is what keeps #535's matching-ring promise alive for a
-     fill an author aimed at THAT band, which is the scope the promise was written for.
-     Note this is a real exception to the "no filled surface is carved out of this tier"
-     sentence above, and note precisely how far it goes: the fill knobs still paint those
-     buttons' FILL exactly as everywhere else. It is only the separation RING that they no
-     longer reach, because only the ring carries a measured contrast guarantee. */
+     the pointer; --btn-text is not reachable on hover on the composed primary, whose hover ink
+     is a literal. Both are tracked as their own issues rather than changed here, and both are
+     unaffected by the collapse above — they were gaps in the GLOBAL tier, not in the
+     per-instance one. */
   --btn-bg:           initial;         /* color: Global button fill. Unset = each rule's own default (bare .btn: --color-accent; composed primary: the accent gradient). Set to recolor every button fill. */
   --btn-text:         var(--color-bg); /* color: Button label ink. Defaults to the PAGE BACKGROUND token, not a text token — buttons invert: a light page yields light text on the accent fill. Change --color-bg and button text follows unless pinned here. */
   --btn-border-color: initial;         /* color: Global button border. Unset = each rule's own default (--color-accent, or --color-accent-strong on the premium primary). Set to recolor every button border. */

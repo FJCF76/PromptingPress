@@ -154,7 +154,7 @@ class SchemaTruthfulnessTest extends TestCase
         // section is absent since #1023 for the mirror-image reason: its `heading` role
         // DOES route the shared scale, as `@pp-band-heading-size`, so the token still
         // governs it — through the engine rather than through a slot.
-        $bands = ['grid', 'cta', 'faq', 'stats', 'table', 'logos', 'embed'];
+        $bands = ['grid', 'faq', 'stats', 'table', 'logos', 'embed'];
         foreach ($bands as $component) {
             $slot = "--{$component}-heading-size";
             $slots = $this->slots($component);
@@ -284,16 +284,10 @@ class SchemaTruthfulnessTest extends TestCase
             // value is the one a port carries. The same wrapper capped the heading, the
             // subheading and the trust strip, which is why all four roles default to
             // 40rem. Role-side pins: MeasureSurfaceTest and SectionRoleDefaultsEmitTest.
-            ['cta', '--cta-heading-size', 'var(--pp-band-heading-size)'],
             ['grid', '--grid-heading-size', 'var(--pp-band-heading-size)'],
             ['faq', '--faq-heading-size', 'var(--pp-band-heading-size)'],
             ['stats', '--stats-heading-size', 'var(--pp-band-heading-size)'],
 
-            ['cta', '--cta-bg', 'var(--color-surface)'],
-            ['cta', '--cta-border-width', '1px'],
-            ['cta', '--cta-border-color', 'var(--color-border)'],
-            ['cta', '--cta-body-color', 'var(--color-text-secondary)'],
-            ['cta', '--cta-body-size', '1.04rem'],
             ['grid', '--grid-heading-margin-bottom', '1.65rem'],
             ['grid', '--grid-gap', '1rem'],
             ['grid', '--grid-item-bg', 'linear-gradient(180deg, var(--color-bg) 0%, var(--color-surface) 100%)'],
@@ -973,38 +967,53 @@ class SchemaTruthfulnessTest extends TestCase
                 '--grid-item-link-hover-color',
                 '#123456',
             ],
-            'cta second button elevation' => [
-                'cta',
-                [
-                    'title'        => 'Ready?',
-                    'button_text'  => 'Start',
-                    'button_url'   => 'https://example.com',
-                    'button2_text' => 'Docs',
-                    'button2_url'  => 'https://example.com/docs',
-                ],
-                '--cta-button2-shadow',
-                'none',
-            ],
+            // cta's row left at #1026 with its slot map — see the retirement note below for
+            // why the elevation pairing it exercised has no v2 counterpart to move to.
         ];
     }
+
+    // NARROWED (#1026), not retired, and the distinction matters because the first draft of
+    // this change deleted all three. #581 completed a PER-BUTTON pairing — an elevation slot
+    // on the PRIMARY needed a counterpart on the SECOND button, or flattening one silently
+    // flattened both through inheritance — and cta's `--cta-button-shadow` /
+    // `--cta-button2-shadow` was the last surviving pair OF THAT KIND.
+    //
+    // What is gone is the cta half of each:
+    //   testEveryCompletedTwinPairIsDeclaredAndCrossReferenced — its $perButtonCounterparts
+    //   testTheNewTwinsAreRoutedWithTheOriginalLiteralsAsFallbacks — its isolation assertion
+    //   testEveryNewStateTwinIsAuthorableThroughTheActionLayer (the cta elevation row)
+    //
+    // WHAT STAYS, AND WHY DELETING IT WOULD HAVE BEEN A REGRESSION: the first test also
+    // pinned POSITIONAL twins — `grid`'s link rest/hover pair and `faq`'s question
+    // rest/open pair — which the original deliberately kept in a SEPARATE array from the
+    // cta pair, with a comment warning that conflating the two kinds is how a real hover
+    // slot ends up undeclared. Both components are still on the slot system, so the
+    // flip-bug class #564 records is still reachable on them. The second test's two grid
+    // routing assertions are live for the same reason. Both are restored below, cta-free.
+    //
+    // THE COUPLING THE PAIRING EXISTED TO BREAK IS GONE, which is why nothing replaces them.
+    // The two buttons shared a slot family only because slots were emitted as inline custom
+    // properties on the band root and inherited to both. They are separate ROLES now, each
+    // with its own `shadow.box`, so flattening one cannot reach the other and there is no
+    // twin to keep cross-referenced. The `button-secondary` role's `shadow.box: none`
+    // default — which #581's twin existed to make reachable — is asserted directly on the
+    // emitted CSS in tests/CtaRoleDefaultsEmitTest.php, where it is load-bearing for a
+    // different reason: it clears the premium bevel the bare `.btn` would otherwise inherit.
 
     /**
      * A rest slot without its twin is a future flip bug (#564 is the recorded precedent):
      * an author sets the resting value and the state reverts to the product default under
-     * the pointer. Pin the four pairs this issue completed, and pin that each half NAMES
-     * the other — a twin nothing points at is a twin nobody finds.
+     * the pointer. Pin each surviving pair, and pin that each half NAMES the other — a twin
+     * nothing points at is a twin nobody finds.
      */
     public function testEveryCompletedTwinPairIsDeclaredAndCrossReferenced(): void
     {
-        // Two DIFFERENT kinds of pair, kept apart so the terminology stays legible. The
-        // repo's pre-existing term (see --section-panel-cta-hover-border, which predates
-        // this issue) is POSITIONAL TWIN: the counterpart position in a STATE chain on one
-        // element (rest<->hover, rest<->open) — the flip-bug class #564 records. The cta
-        // pair is a different animal: same job, sibling ELEMENT (first button vs second),
-        // both at rest. Both need the same cross-reference discipline (set one, find the
-        // other), but calling the cta pair a positional twin would teach the next
-        // contributor that a sibling element counts as a hover twin, which is exactly the
-        // miss that leaves a real hover slot undeclared.
+        // POSITIONAL TWINS only now: the counterpart position in a STATE chain on ONE
+        // element (rest<->hover, rest<->open), which is the flip-bug class #564 records.
+        // The cta entry that used to sit beside these in a separate $perButtonCounterparts
+        // array was a different animal — same job, sibling ELEMENT, both at rest — and it
+        // left at #1026 with cta's slot map. Keeping the two kinds in separate arrays was
+        // the original's point, and it is why removing one did not remove the other.
         $positionalTwins = [
             'grid' => ['--grid-item-link-color', '--grid-item-link-hover-color'],
             // section's pair left at #1023, and it is the clearest case for why the
@@ -1014,11 +1023,7 @@ class SchemaTruthfulnessTest extends TestCase
             // §1b is the reason they had to move together.
             'faq' => ['--faq-question-color', '--faq-question-open-color'],
         ];
-        $perButtonCounterparts = [
-            'cta'     => ['--cta-button-shadow', '--cta-button2-shadow'],
-        ];
-        $pairs = $positionalTwins + $perButtonCounterparts;
-        foreach ($pairs as $component => [$rest, $twin]) {
+        foreach ($positionalTwins as $component => [$rest, $twin]) {
             $slots = $this->slots($component);
             $this->assertArrayHasKey($rest, $slots, "{$component} must declare {$rest}");
             $this->assertArrayHasKey($twin, $slots, "{$component} must declare its twin {$twin}");
@@ -1036,30 +1041,13 @@ class SchemaTruthfulnessTest extends TestCase
     }
 
     /**
-     * Byte-identical UNSET is the whole gate posture, so prove it at the render boundary
-     * rather than asserting it: a component authored with no style map emits no style
-     * attribute at all, which is what makes "the fallback still applies" true.
-     */
-    public function testTheNewTwinsEmitNothingWhenUnset(): void
-    {
-        $grid = $this->render('grid', ['items' => [['title' => 'One', 'text' => 'a']]]);
-        $this->assertStringNotContainsString('--grid-item-link-hover-color', $grid);
-
-        $cta = $this->render('cta', [
-            'title'        => 'Ready?',
-            'button_text'  => 'Start',
-            'button_url'   => 'https://example.com',
-            'button2_text' => 'Docs',
-            'button2_url'  => 'https://example.com/docs',
-        ]);
-        $this->assertStringNotContainsString('--cta-button2-shadow', $cta);
-    }
-
-    /**
-     * The CSS side of both twins, pinned at the declaration rather than by regexing the
-     * whole sheet: the grid hover must route the slot with the ORIGINAL literal as its
+     * The CSS side of the surviving twin, pinned at the declaration rather than by regexing
+     * the whole sheet: the grid hover must route the slot with the ORIGINAL literal as its
      * fallback (that literal is what keeps unset output identical and what retired the
-     * issue 309 waiver), and the cta isolation must re-point rather than hard-invalidate.
+     * issue 309 waiver). The cta half of this test asserted that button2's elevation entered
+     * the premium chain through an isolation rule; that rule and its slots left at #1026,
+     * and the role each button now carries makes the coupling unreachable rather than
+     * re-pointed, so there is nothing left to assert there.
      */
     public function testTheNewTwinsAreRoutedWithTheOriginalLiteralsAsFallbacks(): void
     {
@@ -1078,12 +1066,26 @@ class SchemaTruthfulnessTest extends TestCase
             . 'existed to prevent: hover would render identical to rest whenever an author '
             . 'set the resting colour.'
         );
-        $this->assertStringContainsString(
-            '--cta-button-shadow: var(--cta-button2-shadow);',
-            $css,
-            'button2 elevation must enter the premium chain through the isolation rule.'
-        );
     }
+
+    /**
+     * Byte-identical UNSET is the whole gate posture, so prove it at the render boundary
+     * rather than asserting it: a component authored with no style map emits no style
+     * attribute at all, which is what makes "the fallback still applies" true.
+     */
+    public function testTheNewTwinsEmitNothingWhenUnset(): void
+    {
+        $grid = $this->render('grid', ['items' => [['title' => 'One', 'text' => 'a']]]);
+        $this->assertStringNotContainsString('--grid-item-link-hover-color', $grid);
+
+        // THE cta HALF IS GONE (#1026 review), and it was vacuous before it was removed:
+        // it asserted that rendered cta markup contains no `--cta-button2-shadow`, but cta
+        // declares ZERO style slots, so pp_render_style_vars() has nothing to emit and NO
+        // `--cta-*` custom property can appear there whatever the render path does. It read
+        // as coverage and could not fail. grid's half above is the live one: grid still
+        // declares the slot family this test is about.
+    }
+
 
     // ── #601: the steps connector is clipped, so nothing may claim it is reachable ──
 
