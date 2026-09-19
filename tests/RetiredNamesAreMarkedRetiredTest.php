@@ -55,9 +55,21 @@ class RetiredNamesAreMarkedRetiredTest extends TestCase
      * nobody trusts. Every entry here appears in prose already shipped.
      */
     private const RETIREMENT_MARKERS =
-        '/(retir|no longer|does not exist|never existed|was the last|left (at|this|with|the)|'
-        . 'went (with|at)|is gone|are gone|\bgone\b|v1 spelled|old page|HISTORY|deleted with|'
-        . 'refused|rejected|used to|the old|pre-#|NOT a prop|moot|not declared|had \*\*two\*\*)/i';
+        '/(retir|no longer (exists|declared|a slot|carries)|does not exist|never existed|'
+        . 'was the last|left (at|with) #|went (with|at) #|is gone|are gone|\bGONE\b|'
+        . 'v1 spelled|HISTORY|deleted with|not declared|no_style_slots|is moot)/i';
+
+    /**
+     * How far from the name a marker may sit and still be read as attached to it.
+     *
+     * A WINDOW, NOT A CONTAINER, and that is the second-pass review's correction. The
+     * first version asked only whether a marker appeared anywhere in the same paragraph
+     * (or prompt sentence) — and the longest "sentence" the prompt splitter produced was
+     * 4001 characters, which is precisely the "a `retired` thousands of characters away"
+     * problem the splitting was chosen to avoid. 400 characters is about a long paragraph
+     * either side: close enough that a reader meeting the name also meets the marker.
+     */
+    private const MARKER_WINDOW = 400;
 
     /** Components that declare ZERO style slots — every `--<name>-*` is therefore retired. */
     private function zeroSlotComponents(): array
@@ -83,47 +95,90 @@ class RetiredNamesAreMarkedRetiredTest extends TestCase
         );
     }
 
+    /**
+     * Every retired slot name in `$haystack`, with a marker within MARKER_WINDOW of it.
+     *
+     * @return array<int,array{0:string,1:string}>  [name, the window around it] for offenders
+     */
+    private function unmarkedMentions(string $haystack, array $components, string $unitDelimiter): array
+    {
+        $offenders = [];
+        foreach ($components as $component) {
+            if (!preg_match_all('/--' . $component . '-[a-z0-9-]+/', $haystack, $m, PREG_OFFSET_CAPTURE)) {
+                continue;
+            }
+            foreach ($m[0] as [$name, $offset]) {
+                // TWO CONSTRAINTS, INTERSECTED, and the second one is the second-pass
+                // review's other correction. A 400-character window ALONE was defeated in
+                // the runtime prompt: retirement language is dense enough there that an
+                // injected offer always had some unrelated "retired" within reach. So the
+                // window is CLIPPED TO THE ENCLOSING UNIT — the markdown paragraph in a
+                // doc, the single `$parts[]` line in the prompt — and a marker in the
+                // neighbouring bullet no longer vouches for this one.
+                //
+                // The unit alone is not enough either, which is why both apply: one
+                // `$parts[]` entry runs to 4001 characters, so "somewhere in this line" is
+                // as loose as "somewhere in this paragraph" was.
+                $unitStart = strrpos(substr($haystack, 0, $offset), $unitDelimiter);
+                $unitStart = $unitStart === false ? 0 : $unitStart + strlen($unitDelimiter);
+                $unitEnd   = strpos($haystack, $unitDelimiter, $offset);
+                $unitEnd   = $unitEnd === false ? strlen($haystack) : $unitEnd;
+
+                $start = max($unitStart, $offset - self::MARKER_WINDOW);
+                $end   = min($unitEnd, $offset + strlen($name) + self::MARKER_WINDOW);
+                $window = substr($haystack, $start, $end - $start);
+
+                if (!preg_match(self::RETIREMENT_MARKERS, $window)) {
+                    $offenders[] = [$name, $window];
+                }
+            }
+        }
+        return $offenders;
+    }
+
+    /** Count every retired slot name mentioned, marked or not — the fail-closed denominator. */
+    private function countMentions(string $haystack, array $components): int
+    {
+        $n = 0;
+        foreach ($components as $component) {
+            $n += preg_match_all('/--' . $component . '-[a-z0-9-]+/', $haystack, $ignored);
+        }
+        return $n;
+    }
+
     public function testNoAiFacingDocOffersARetiredStyleSlotAsLive(): void
     {
         $components = $this->zeroSlotComponents();
         $this->assertNotEmpty($components, 'no zero-slot components found — the scan is inert');
 
-        $scanned = 0;
+        $mentions = 0;
         foreach ($this->docFiles() as $file) {
-            $paragraphs = preg_split('/\n\s*\n/', (string) file_get_contents($file)) ?: [];
-            foreach ($paragraphs as $index => $paragraph) {
-                foreach ($components as $component) {
-                    if (!preg_match_all('/--' . $component . '-[a-z0-9-]+/', $paragraph, $m)) {
-                        continue;
-                    }
-                    $scanned++;
-                    $names = implode(', ', array_unique($m[0]));
-                    $this->assertMatchesRegularExpression(
-                        self::RETIREMENT_MARKERS,
-                        $paragraph,
-                        sprintf(
-                            "%s paragraph %d names %s and nothing in that paragraph says the "
-                            . "name is retired. `%s` declares zero style slots, so writing any "
-                            . "of these is refused with `no_style_slots` — a doc that names one "
-                            . "neutrally reads as an offer.\n\n%s",
-                            basename($file),
-                            $index,
-                            $names,
-                            $component,
-                            substr(preg_replace('/\s+/', ' ', $paragraph) ?? '', 0, 300)
-                        )
-                    );
-                }
+            $text      = (string) file_get_contents($file);
+            $mentions += $this->countMentions($text, $components);
+
+            foreach ($this->unmarkedMentions($text, $components, "\n\n") as [$name, $window]) {
+                $this->fail(sprintf(
+                    "%s names %s with nothing within %d characters saying the name is "
+                    . "retired. That component declares zero style slots, so writing the name "
+                    . "is refused with `no_style_slots` — named neutrally, it reads as an "
+                    . "offer.\n\n…%s…",
+                    basename($file),
+                    $name,
+                    self::MARKER_WINDOW,
+                    preg_replace('/\s+/', ' ', $window) ?? ''
+                ));
             }
         }
 
-        // Fail-closed: these names SHOULD still appear in the docs (a migration doc that
-        // deleted them would be useless), so a scan finding none has broken.
+        // FAIL-CLOSED, AT THE REAL COUNT. These names SHOULD still appear (a migration doc
+        // that deleted them would be useless), so a scan finding few has broken rather than
+        // succeeded. The floor was 10 against an actual count in the dozens, which the
+        // second-pass review defeated by deleting every doc but one and still passing.
         $this->assertGreaterThan(
-            10,
-            $scanned,
-            'the scan found almost no retired slot names in the docs — the glob or the '
-            . 'naming convention changed, and either way this guard is inert'
+            55,
+            $mentions,
+            'the scan found far fewer retired slot names than the docs carry — the glob or '
+            . 'the naming convention changed, and either way this guard has lost its reach'
         );
     }
 
@@ -133,39 +188,27 @@ class RetiredNamesAreMarkedRetiredTest extends TestCase
         $prompt     = pp_ai_system_prompt();
         $this->assertNotSame('', $prompt);
 
-        // SENTENCE-SCOPED, and only on a full stop. The prompt is a handful of very long
-        // strings with no paragraph structure, so a paragraph rule would be satisfied by a
-        // "retired" thousands of characters away. Splitting on `;` as well was tried and
-        // shreds the legitimate enumeration of retired keys into clauses whose marker sits
-        // in the clause before — a false positive caused by the splitter, not the prose.
-        $sentences = preg_split('/(?<=\.)\s+|\n/', $prompt) ?: [];
-        $scanned   = 0;
-
-        foreach ($sentences as $sentence) {
-            foreach ($components as $component) {
-                if (!preg_match_all('/--' . $component . '-[a-z0-9-]+/', $sentence, $m)) {
-                    continue;
-                }
-                $scanned++;
-                $this->assertMatchesRegularExpression(
-                    self::RETIREMENT_MARKERS,
-                    $sentence,
-                    sprintf(
-                        "pp_ai_system_prompt() names %s in a sentence that never says it is "
-                        . "retired. This is the prompt the authoring model reads: a slot named "
-                        . "neutrally there is an instruction to write it, and the write is "
-                        . "refused with `no_style_slots`.\n\n%s",
-                        implode(', ', array_unique($m[0])),
-                        substr(preg_replace('/\s+/', ' ', $sentence) ?? '', 0, 300)
-                    )
-                );
-            }
+        // THE SAME WINDOWED RULE, NOT A SENTENCE SPLITTER. The prompt is a handful of very
+        // long strings, and splitting it produced a 4001-character "sentence" — a container
+        // so large that a marker anywhere in it satisfied the rule, which is exactly what
+        // the splitting was supposed to prevent. A character window does not care about
+        // punctuation and behaves identically on both surfaces.
+        foreach ($this->unmarkedMentions($prompt, $components, "\n") as [$name, $window]) {
+            $this->fail(sprintf(
+                "pp_ai_system_prompt() names %s with nothing within %d characters saying it "
+                . "is retired. This is the text the authoring model reads: a slot named "
+                . "neutrally there is an instruction to write it, and the write is refused "
+                . "with `no_style_slots`.\n\n…%s…",
+                $name,
+                self::MARKER_WINDOW,
+                preg_replace('/\s+/', ' ', $window) ?? ''
+            ));
         }
 
         $this->assertGreaterThan(
-            0,
-            $scanned,
-            'the prompt names no retired slot at all — which would be a change of policy '
+            3,
+            $this->countMentions($prompt, $components),
+            'the prompt names almost no retired slot — which would be a change of policy '
             . '(it deliberately names them so an author meeting one on an aged page is not '
             . 'left guessing), so check that rather than lowering this'
         );

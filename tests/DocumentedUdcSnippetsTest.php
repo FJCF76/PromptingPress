@@ -135,18 +135,38 @@ class DocumentedUdcSnippetsTest extends TestCase
         // retired slot off an aged page) and token maps, which are not role writes and
         // must not be judged as if they were.
         //
-        // THE TEST IS "DOES IT NAME AT LEAST ONE REAL ROLE", not "does it name only real
-        // roles", and the difference is the whole point: a block naming `heading` and a
-        // misspelt `headding` is a udc map with a typo and MUST fail, while a block naming
-        // no role at all is a different kind of JSON and is skipped. Requiring every key
-        // to be a role would silently skip exactly the defect this file exists to catch.
-        $roles = pp_udc_component_roles($fallback);
+        // "NAMES AT LEAST ONE REAL ROLE" WAS NOT ENOUGH, and the second-pass review proved
+        // it. A SINGLE-ROLE example — the commonest doc shape there is — whose one role
+        // name is misspelt names no real role at all, so the block was skipped entirely
+        // and the typo went unseen. That hole is the exact converse of the one the rule
+        // was chosen to avoid: requiring EVERY key to be a role would skip a map naming
+        // `heading` beside a misspelt `headding`, and requiring ONE would skip a map whose
+        // only key is `headding`.
+        //
+        // So a block is skipped only when it is RECOGNISABLY NOT a role map — every key is
+        // a known non-role shape. Component docs carry two: CLI envelopes
+        // (`{"action": "update_component", "style": {…}}`, the documented route for
+        // clearing a retired slot off an aged page) and design-token maps (`--token`
+        // keys). Everything else is judged, so `{"nunber": {…}}` now fails by name rather
+        // than vanishing.
+        $roles        = pp_udc_component_roles($fallback);
+        $envelopeKeys = [
+            'action', 'post_id', 'component_index', 'style', 'recipe', 'params',
+            'run_id', 'key', 'value', 'expected_version',
+        ];
+
+        $recognisedNonRole = true;
         foreach (array_keys($json) as $key) {
-            if (isset($roles[(string) $key])) {
+            $key = (string) $key;
+            if (isset($roles[$key])) {
                 return [[$fallback, $json]];
             }
+            if (!in_array($key, $envelopeKeys, true) && !str_starts_with($key, '--')) {
+                $recognisedNonRole = false;
+            }
         }
-        return [];
+
+        return $recognisedNonRole ? [] : [[$fallback, $json]];
     }
 
     /**
@@ -191,7 +211,8 @@ class DocumentedUdcSnippetsTest extends TestCase
                 }
             }
         }
-        $this->assertGreaterThan(20, $checked, 'the doc walk stopped finding JSON blocks');
+        // 47 today; see the sibling floor below for why these track the real count.
+        $this->assertGreaterThan(40, $checked, 'the doc walk stopped finding JSON blocks');
     }
 
     public function testEveryDocumentedUdcMapIsAcceptedByTheWritePath(): void
@@ -251,10 +272,13 @@ class DocumentedUdcSnippetsTest extends TestCase
 
         // Fail-closed. A walk that stops finding documented maps — a fence style changing,
         // a docs directory moving — must not read as compliance.
+        // FAIL-CLOSED AT THE REAL COUNT (42 today), not at a token floor. 15 was low
+        // enough that two thirds of the corpus could stop being scanned unnoticed — the
+        // understated-floor defect this PR fixed in the emit tests and then repeated here.
         $this->assertGreaterThan(
-            15,
+            35,
             $checked,
-            'the doc walk stopped finding `udc` maps; it is passing on an empty set'
+            'the doc walk stopped finding `udc` maps; it is passing on a fraction of the corpus'
         );
     }
 }

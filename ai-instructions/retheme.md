@@ -388,10 +388,12 @@ pair moves together under a site-wide retheme. On a `cover` hero none of those f
 either button's BORDER chain any more (ring knobs removed in #564, fill knobs in #565), so a
 site-wide retheme does not move that pair's RINGS there — but it does not split them either,
 since both buttons lost each knob together. Their FILLS still follow the global tokens as
-everywhere else; it is only the separation ring that holds the measured role. You no
-longer need to set `--hero-button2-bg` /
-`--hero-button2-hover-bg` merely to keep the pair consistent — set them when you want that button
-to DIFFER.
+everywhere else; it is only the separation ring that holds the measured role. The v1
+advice here was that you no longer need to set `--hero-button2-bg` /
+`--hero-button2-hover-bg` merely to keep the pair consistent — and BOTH NAMES ARE HISTORY
+since #986 (hero declares no style slots; writing either is refused with `no_style_slots`).
+The surviving instruction is the same one in role vocabulary: set `background.fill` on the
+`cta-secondary` role, with its `':hover'`, only when you want that button to DIFFER.
 
 **Watch hover contrast: there is no global hover INK token.** `--btn-text` sets label ink at
 rest, but the bare `.btn` and the premium primary hard-code hover ink to `--color-bg`. So if

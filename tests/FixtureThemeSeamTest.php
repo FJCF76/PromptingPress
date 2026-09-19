@@ -264,24 +264,55 @@ class FixtureThemeSeamTest extends TestCase
                     continue;
                 }
 
-                // `finally`, NOT `try {`. The original assertion accepted
-                // `activate(); try { … } catch (\Throwable $e) { … } deactivate();`, which
-                // is WORSE than the bug it guards: a bare catch also swallows PHPUnit's own
-                // ExpectationFailedException, so the test reports green while the assertion
-                // it contains never held. Only `finally` guarantees the call runs on both
-                // paths without changing what a failure means.
+                // TWO CONDITIONS, AND THE FIRST ONE IS THE ONE THE SECOND-PASS REVIEW
+                // ADDED. Asking only "is there a finally somewhere below" passed on the
+                // exact leak this guard exists for:
                 //
-                // Scoped to the rest of the METHOD rather than two lines, because the block
-                // between activate() and its finally is as long as the test needs to be.
-                $rest = implode("\n", array_slice($lines, $i + 1, 60));
-                $body = explode("\n    public function ", $rest)[0];
+                //     FixtureTheme::activate();
+                //     $this->assertTrue(…);          // <- UNPROTECTED. If it fails, the
+                //     try { … } finally { … }        //    finally below never runs.
+                //
+                // So the `try {` must OPEN IMMEDIATELY, on the next statement. Anything
+                // between activate() and the try is outside the protected region, which is
+                // the whole defect.
+                $next = '';
+                for ($k = $i + 1; $k < count($lines); $k++) {
+                    $candidate = trim(preg_replace('#//.*$#', '', $lines[$k]) ?? '');
+                    if ($candidate === '') {
+                        continue;
+                    }
+                    $next = $candidate;
+                    break;
+                }
+                $this->assertSame(
+                    'try {',
+                    $next,
+                    "{$entry}::{$fn}() runs `{$next}` between FixtureTheme::activate() and its "
+                    . '`try {`. Anything there is outside the protected region: if it throws '
+                    . 'or fails, the `finally` never runs and the fixture root leaks into '
+                    . 'every later class. Open the try immediately after activate().'
+                );
+
+                // AND THE CLOSER MUST BE `finally`, NOT `catch`. The first version of this
+                // accepted `try { … } catch (\Throwable $e) { … } deactivate();`, which is
+                // WORSE than the bug it guards: a bare catch also swallows PHPUnit's own
+                // ExpectationFailedException, so the test reports green while the assertion
+                // inside it never held. Only `finally` runs on both paths without changing
+                // what a failure means.
+                //
+                // THE METHOD BOUNDARY IS `function `, NOT `public function ` — the review
+                // defeated the narrower form with a `private function` helper further down
+                // the file carrying a decoy `finally { deactivate(); }`, which the search
+                // then found on behalf of an unprotected test method above it.
+                $rest = implode("\n", array_slice($lines, $i + 1, 120));
+                $body = preg_split('/\n\s*(?:public |private |protected |static )*function /', $rest)[0];
                 $this->assertMatchesRegularExpression(
                     '/\bfinally\s*\{[^}]*FixtureTheme::deactivate\(\);/s',
                     $body,
                     "{$entry}::{$fn}() activates the fixture inside a test method without a " .
-                    '`finally { FixtureTheme::deactivate(); }`. A failing assertion would ' .
-                    'skip a trailing deactivate() and leak the fixture root into every later ' .
-                    'class. A `catch` is not a substitute — it would also swallow the ' .
+                    '`finally { FixtureTheme::deactivate(); }` of its own. A failing assertion ' .
+                    'would skip a trailing deactivate() and leak the fixture root into every ' .
+                    'later class. A `catch` is not a substitute — it would also swallow the ' .
                     'assertion failure. Wrap the body: activate(); try { … } finally { ' .
                     'deactivate(); }'
                 );
@@ -290,8 +321,13 @@ class FixtureThemeSeamTest extends TestCase
 
         // Fail-closed: if the scan stops finding activators, the loop above passes on
         // nothing and this guard silently retires.
+        // THE FLOOR TRACKS THE REAL COUNT, at roughly the one-fifth headroom this PR's
+        // emit tests use. It was 5 against an actual 16 — so eleven suites could have
+        // stopped opting in, or the scan could have lost two thirds of its reach, with
+        // this guard still green. That is the same understated-floor defect the review
+        // found in the emit tests, in the file that fixed them.
         $this->assertGreaterThanOrEqual(
-            5,
+            13,
             count($activators),
             'the scan found almost no suites opting into the fixture — either the opt-in was ' .
             'renamed or this directory scan broke, and either way the pairing is unguarded'

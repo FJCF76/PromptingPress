@@ -227,23 +227,29 @@ and `--stats-max-width` built a **contained, rounded metrics card** (#383); the 
 comes free: `_band` defaults both side margins to `auto`, so a capped stats band centres
 itself exactly as the slot pair did. To remove the cap, write `none` on
 `sizing.max-width` — the v2 grammar accepts the keyword on that parameter directly, which
-is why no `length-or-none` SLOT is needed for it. The paragraph below describes the
-`length-or-none` type as it still applies to the one v1 component left. To remove the
-max-width on such a slot, set `none` — the `length-or-none` type accepts the
-same keyword the slot declares as its default, so the built-in full-bleed is
-authorable (#579). `none` is accepted **only** on a `length-or-none` slot; a plain
-`length` slot (padding, font-size, radius, and any measure with a real length default
-such as `--grid-heading-measure`) still rejects it, and there `100%` remains the way to
-widen a cap. The measures that ship uncapped carry `length-or-none` too — see the
-type table above and "Text measures" below. Stats does not expose `*-border-*` or `*-shadow` slots.
+is why no `length-or-none` SLOT is needed for it.
+
+**AND NO SLOT NEEDS IT ANY MORE AT ALL.** `--stats-max-width` was the last carrier of the
+`length-or-none` type in the theme; grid, the one v1 component left, carries none. So the
+rule below is about the TYPE rather than about any shipped slot, and it still matters
+because the type is live on every v2 component's `sizing.max-width` and `sizing.max-height`:
+`none` removes a cap, and it is accepted **only** where the grammar declares it. A plain
+`length` slot (padding, font-size, radius, and any measure with a real length default such
+as `--grid-heading-measure`) still rejects `none`, and there `100%` remains the way to
+widen a cap (#579).
 
 ## Text measures — prefer the token over a per-band literal (#578)
 
-One band component still declares `--<component>-heading-measure` — grid
-and table — and of those only `embed` also declares `--<component>-body-measure`. (The
-rosters were wider: section's and cta's measures left with their rebuilds at #1023 and #1026,
-where a measure is the role's `sizing.max-width`.) They **default to the shared
-`--measure-heading` design token** (`40rem`), so the
+**ONE band component still declares `--<component>-heading-measure`, and it is `grid`.**
+Nothing declares `--<component>-body-measure` at all. The rosters were five and two: this
+sentence read "grid and table … only embed also declares a body measure" until #1066, which
+is wrong twice over — it said "one" and listed two, and BOTH names it listed belong to
+components that now declare zero slots, so `--table-heading-measure` and
+`--embed-body-measure` are refused with `no_style_slots`. On every v2 component a measure
+is the role's own `sizing.max-width` (section's and cta's left at #1023 and #1026, faq's at
+#1046, table's and embed's at #1066's first half, stats' and logos' at its second). grid's
+remaining measure slots **default to the shared `--measure-heading` design token**
+(`40rem`), so the
 normal way to change band heading measure across a site is ONE `update_design_token`
 write, not ten `style_component` writes.
 
@@ -590,11 +596,12 @@ then, a `--grid-*` name is the only slot name any write will accept.
 Style it through the `udc` map on the band, on one of its eight roles. Two things the slot
 surface taught are still true, and one of them CHANGED SHAPE in the move:
 
-- **The two image caps are two roles now, and they are independent.** `--logos-image-size`
-  had **two** effective defaults — `3rem` on a logo-only strip, `2.5rem` on a labelled tile
-  — and setting it replaced both branches with your single value, deliberately. A role
-  carries one default, so the caps are the `image` and `image-labeled` roles, and the
-  label-driven switch survives by specificity rather than by fallback. Rendered default is
+- **The two image caps are two roles now, and they are independent.** The RETIRED
+  `--logos-image-size` had **two** effective defaults — `3rem` on a logo-only strip,
+  `2.5rem` on a labelled tile — and setting it replaced both branches with your single
+  value, deliberately. A role carries one default, so the caps are the `image` and
+  `image-labeled` roles, and the label-driven switch survives by specificity rather than by
+  fallback. Rendered default is
   byte-identical (measured 48px / 40px); what changed is that "make the logos bigger" is
   now two writes rather than one.
 - **It is still a fit model** (`object-fit: contain`, structural), so it exposes no

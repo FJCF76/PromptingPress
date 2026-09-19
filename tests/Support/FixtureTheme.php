@@ -49,9 +49,6 @@ final class FixtureTheme
      * components/ directory is what the registry reads in production, and a nested
      * fixture root inside it would be discovered by any tool that globs components/*.
      */
-    /** register_shutdown_function() is idempotent by flag, not by call site. */
-    private static bool $shutdownRegistered = false;
-
     /**
      * Remove the fixture root at process end. Symlinks are UNLINKED, never followed —
      * the tree is mostly symlinks into the real repo, and a recursive delete that
@@ -102,12 +99,14 @@ final class FixtureTheme
         $root       = sys_get_temp_dir() . '/pp-fixture-theme-' . getmypid() . '-' . uniqid();
         $components = $root . '/components';
 
-        if (!self::$shutdownRegistered) {
-            self::$shutdownRegistered = true;
-            register_shutdown_function(static function () use ($root): void {
-                self::removeDir($root);
-            });
-        }
+        // REGISTERED PER ROOT, NOT ONCE. A single guarded registration leaks on re-entry:
+        // if `self::$root` is set but its directory has gone (a stray cleanup, a test that
+        // removes it), root() builds a SECOND tree with a fresh uniqid while the flag is
+        // already true, so nothing ever removes the second one. Found by the second-pass
+        // review. register_shutdown_function() takes as many callbacks as it is given.
+        register_shutdown_function(static function () use ($root): void {
+            self::removeDir($root);
+        });
 
         if (!is_dir($components) && !mkdir($components, 0777, true) && !is_dir($components)) {
             throw new \RuntimeException("FixtureTheme: could not create {$components}");
