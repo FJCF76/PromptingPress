@@ -212,6 +212,52 @@ class AiContextTest extends TestCase
 
         $this->assertStringContainsString('`retired_prop`', $prompt, 'the code, so the model can branch on it');
         $this->assertStringContainsString('SEND IT AS null', $prompt, 'the cure');
+
+        // THE INVENTORY IS DERIVED FROM THE REGISTRY, NOT READ FROM THE PROSE, because the
+        // prose went stale exactly once per rebuild sprint until this guard existed: #1026
+        // retired cta's four props and left the sentence reading "Ten keys across three
+        // components" while the registry held fourteen across four. The model is told this
+        // count to size the repair job on a pre-rebuild page, so an undercount understates
+        // the work. Assert the WORDS against the COUNT so the next rebuild cannot land
+        // without updating them together.
+        $counts = [];
+        foreach (array_keys(pp_get_registered_components()) as $component) {
+            $retired = pp_component_retired_props($component);
+            if ($retired !== []) {
+                $counts[$component] = count($retired);
+            }
+        }
+        $keys       = array_sum($counts);
+        $components = count($counts);
+        $numbers    = [
+            2 => 'Two', 3 => 'Three', 4 => 'Four', 5 => 'Five', 6 => 'Six', 7 => 'Seven',
+            8 => 'Eight', 9 => 'Nine', 10 => 'Ten', 11 => 'Eleven', 12 => 'Twelve',
+            13 => 'Thirteen', 14 => 'Fourteen', 15 => 'Fifteen', 16 => 'Sixteen',
+            17 => 'Seventeen', 18 => 'Eighteen', 19 => 'Nineteen', 20 => 'Twenty',
+        ];
+        $this->assertArrayHasKey($keys, $numbers, 'extend the number words if the roster grew past twenty');
+        $this->assertArrayHasKey($components, $numbers, 'extend the number words if the component roster grew');
+        $this->assertStringContainsString(
+            // The keys number opens the sentence so it is capitalised; the components
+            // number sits mid-sentence and is not.
+            "{$numbers[$keys]} keys across " . lcfirst($numbers[$components]) . ' components today',
+            $prompt,
+            "the prompt must state the REAL inventory: {$keys} retired keys across {$components} components ("
+            . implode(', ', array_map(
+                static fn ($c, $n) => "{$c}={$n}",
+                array_keys($counts),
+                array_values($counts)
+            )) . ')'
+        );
+        // And every component that has retired props must be NAMED, or the model is told a
+        // count it cannot act on.
+        foreach (array_keys($counts) as $component) {
+            $this->assertStringContainsString(
+                $component === 'testimonials' ? "testimonials' " : "{$component}'s ",
+                $prompt,
+                "the retired-prop inventory must name {$component}, which declares retired props"
+            );
+        }
         $this->assertStringContainsString('validates the band it targets', $prompt, 'the narrowed blast radius');
         $this->assertStringContainsString('duplicate `props.id`', $prompt, 'and the exception that still blocks');
 
