@@ -16,30 +16,40 @@
  *     └── .stats__label    <span>  ← SIBLING, not a child: it keeps the body font
  *                                    no matter what the number's family is set to.
  *
- * Three layers are pinned here:
- *   1. Schema — the two new slots are declared with the types the shared
- *      validation engine already owns (`font-family` -> _pp_validate_font_family,
- *      `number` -> _pp_validate_number). No new value grammar was invented.
- *   2. Authoring path — real writes through pp_validate_composition() with the
- *      top-level `style` key are accepted for good values and rejected for bad
- *      ones (Section 14.1: raw _pp_composition meta seeding would bypass this).
- *   3. CSS contract — the base rule routes both properties through the slots with
- *      fallbacks that reproduce the pre-472 render EXACTLY (`inherit` and `700`),
- *      and nothing in the stats block re-declares either property literally.
+ * REPRICED AT #1066 PR2, CLAIM BY CLAIM, AND THE FILE KEEPS ITS NAME. #472's
+ * capability is the same one it always was — the display figure's typography is
+ * controllable per instance, and the LABEL beside it is not dragged along — but
+ * every address in it moved when stats joined the Universal Design Contract.
+ * The two slots this file was built around (`--stats-number-font`,
+ * `--stats-number-weight`) retired with stats' entire slot map; the capability
+ * is the `number` role's `typography` group, which carries family, weight, size
+ * and colour together rather than as four independently-editable handles.
  *
- * Why the fallbacks are literals and not the heading tokens: see the
- * `.stats__number` rule in assets/css/components.css, which carries the full
- * rationale next to the code. testUnsetStatsRenderIsByteIdentical pins the
- * consequence here.
+ * Three layers are still pinned here, and the middle one is unchanged:
+ *   1. Schema — the `number` role declares the `typography` group, and the
+ *      engine knows every parameter the capability needs. No new value grammar
+ *      was invented at #472 and none was invented at the rebuild either.
+ *   2. Authoring path — real writes through the validating surface are accepted
+ *      for good values and rejected for bad ones (Section 14.1: raw
+ *      _pp_composition meta seeding would bypass this).
+ *   3. Rendered contract — nothing re-declares either property literally where
+ *      an authored value would lose to it.
  *
- * The generic "every declared slot is consumed on a type-compatible property and
- * is not defeated by a literal re-declaration" proof is owned by
- * StyleSlotContractTest (#305), which auto-discovers these two slots from
- * schema.json; the exact fallback literals are pinned there too
- * (testIssue472StatsNumberTypographySlotFallbacks), alongside the sibling
- * byte-identical-unset pins for issues 293/296/514. The rendered paint
- * (computed weight, family swap at 375/1280) is pinned in
- * tests/e2e/style-render.spec.ts.
+ * THE FAMILY'S ABSENCE IS THE ONE DELIBERATE CHANGE, and it is asserted rather
+ * than incidental. v1 declared `font-family: var(--stats-number-font, inherit)`
+ * and this file pinned `inherit` as the documented default. An explicit
+ * `inherit` IS a declaration — but nothing in this theme declares font-family on
+ * a <span>, so the inherited body face already lands and SILENCE IS
+ * BYTE-IDENTICAL (measured `system-ui, sans-serif` either way, at all three
+ * tiers). The role therefore declares the GROUP but no `family` default: the
+ * same rendered answer #472 shipped, and one fewer unlayered declaration
+ * competing with an author's.
+ *
+ * Where the neighbouring proofs live now: the emitted defaults are asserted as
+ * CSS in StatsRoleDefaultsEmitTest (which pins this absence from the other
+ * side), the generic "every declared role default emits and is not defeated"
+ * sweep is UdcEngineTest's, and the rendered paint (computed weight, family swap
+ * at 375/1280) is pinned in tests/e2e/style-render.spec.ts.
  */
 
 declare(strict_types=1);

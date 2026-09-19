@@ -210,7 +210,7 @@ No blocks. No shortcodes. No visual-builder serialization. AI can read, write, d
 | grid | Responsive card grid; `layout` (cards, steps) + `theme` (default, muted, inverted) + `card_emphasis` (featured, uniform) + `columns` (1-4, force desktop column count) + `image_treatment` (banner, icon) | `items[]` |
 | faq | Native `details/summary` accordion, zero JavaScript | `items[]` |
 | cta | Call-to-action block with layout, color axis, and background image; `title` optional (omit for a standalone button row); optional second button for a primary + secondary pair | `button_text`, `button_url` |
-| stats | Large-number metrics with labels and optional background image | `items[]` |
+| stats | Large-number metrics with labels; band tone and background image through its `_band` role | `items[]` |
 | logos | Flex-wrap image strip for partner/client logos | `items[]` |
 | table | Data/comparison table, horizontal scroll at any viewport | `headers[]`, `rows[][]` |
 | embed | WordPress shortcode / plugin content wrapper | `content` |

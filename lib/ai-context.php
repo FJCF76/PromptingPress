@@ -829,10 +829,11 @@ function _pp_bg_annotation_value(string $value): string {
  * background, or null when it inherits the page/body background (so a pair is never
  * annotated on a default match). Resolution order (first match wins):
  *
- *   1. Image-backed band (stats `background_image`) -> null. The visible band
- *      is the image, not a flat
- *      color; "shares background <color>" would be a false fusing hint. Checked
- *      first so an image beats a co-set `--*-bg` slot unambiguously.
+ *   1. RETIRED (#1066). Step 1 was "image-backed band (stats `background_image`)
+ *      -> null", because the visible band was the image rather than a flat colour.
+ *      No component declares `background_image` any more (section #1023, cta #1026,
+ *      stats #1066), so a stored one renders NOTHING — and the resolver follows the
+ *      renderer, exactly as it does for a `theme` value stored before #605.
  *   2. Per-instance `--{component}-bg` override -> its literal value (what actually
  *      paints among flat backgrounds). A `transparent` or empty override reveals the
  *      inherited background, so it resolves to null like the default.
@@ -850,34 +851,34 @@ function _pp_resolve_component_bg(array $item): ?array {
     $props = is_array($item['props'] ?? null) ? $item['props'] : [];
     $style = is_array($item['style'] ?? null) ? $item['style'] : [];
 
-    // 1. Image-backed bands are not flat-color bands.
-    $bg_image = $props['background_image'] ?? '';
-    // THE HERO-COVER CARVE-OUT IS GONE (#986). It existed because a `cover` hero
-    // painted `image_url` as its band background through an inline style, so the band
-    // had a photographic background this flat-colour annotation must not describe.
-    // That inline style is gone, so the carve-out has nothing left to guard.
+    // 1. RETIRED (#1066), BY ITS OWN INSTRUCTION — this comment previously read "when
+    // stats rebuilds, this branch stops matching anything and should go with it".
+    //
+    // The branch returned null for any band carrying a `background_image` prop, on the
+    // grounds that a photographic band must not be described as a flat colour. No
+    // component declares that prop now (section #1023, cta #1026, stats #1066), and
+    // nothing migrates stored props — so the branch was not unreachable, it was
+    // reachable and WRONG. An aged page still storing `background_image` renders no
+    // image at all (a retired prop is unread at render), so the band paints whatever
+    // its `--{name}-bg` slot or `theme` says, and calling it image-backed would have
+    // silenced a hint that is now correct.
+    //
+    // THE PRECEDENT IS #605, three steps down: a `theme` value stored before the
+    // vocabulary freeze falls through to the default bucket because pp_theme_class()
+    // coerces it to the default band, and the comment there says the two must move in
+    // lockstep. Same rule, same reason. The hero-cover carve-out left the same way at
+    // #986, when the inline style it guarded went.
     //
     // WHAT THIS FUNCTION STILL CANNOT SEE, stated rather than implied: a v2 band
     // background lives at `$item['udc']['_band']['background']`, and nothing here
-    // reads `udc`. The `$bg_image` test below is the v1 `background_image` PROP and
-    // does NOT cover it. The consequence is bounded and it is the SAFE direction: a
-    // v2 component carries no `theme` prop and no `--{name}-bg` style slot, so every
-    // v2 band falls through all four steps to null — the annotation stays silent
-    // about it rather than describing it wrongly. A v2 band with a flat
-    // `background.fill` is therefore under-described, never mis-described.
-    //
-    // This blindness predates hero: testimonials has had it since Sprint 0, section
-    // joined at #1023 when its `background_image` prop retired, and cta joined at
-    // #1026 — so the `$bg_image` test below now reaches STATS ALONE, the last
-    // component whose band background is still a v1 prop. When stats rebuilds, this
-    // branch stops matching anything and should go with it. It is tracked as its own
-    // issue rather than widened here, because teaching this function to read `udc` is
-    // a v2-wide change to what the chat AI is told, not part of any one component's
-    // rebuild. The under-described set grows by one band type per rebuild sprint,
-    // which is the argument for doing it once rather than per component.
-    if (is_string($bg_image) && trim($bg_image) !== '') {
-        return null;
-    }
+    // reads `udc`. The consequence is bounded and it is the SAFE direction: a v2
+    // component carries no `theme` prop and no `--{name}-bg` style slot, so every v2
+    // band falls through every step to null — the annotation stays silent about it
+    // rather than describing it wrongly. A v2 band with a flat `background.fill` is
+    // therefore under-described, never mis-described. That is now true of TEN of the
+    // eleven composable components; teaching this function to read `udc` is a v2-wide
+    // change to what the chat AI is told, tracked as its own issue rather than
+    // widened here.
 
     // 2. Per-instance background override wins among flat backgrounds.
     $override = $style["--{$name}-bg"] ?? null;

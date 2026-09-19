@@ -12,11 +12,15 @@
  *   ──────                                      ─────
  *   .table-section__heading ┐                   .table-section__heading -> --table-heading-measure
  *   .faq__heading           │                   .faq__heading           -> --faq-heading-measure
- *   .logos__heading         ├─ ONE rule, in     .logos__heading         -> --logos-heading-measure
+ *   .logos__heading         ├─ ONE rule, in     .logos__heading         -> its `heading` role
  *   .embed__heading         │  the SECTION      .embed__heading         -> --embed-heading-measure
  *   .cta__title             │  block, reading   .cta__title             -> --cta-heading-measure
- *   .stats__heading         ┘  --cta-heading-   .stats__heading         -> --stats-heading-measure
- *                              measure               (all six default var(--measure-heading))
+ *   .stats__heading         ┘  --cta-heading-   .stats__heading         -> its `heading` role
+ *                              measure               (all six reach var(--measure-heading);
+ *                                                    the AFTER column is the #578 severance
+ *                                                    as it stands TODAY — eight of the nine
+ *                                                    band components are on roles, and only
+ *                                                    grid still owns a measure SLOT)
  *
  *   main > .grid .grid__item-text ┐  ONE rule    grid + faq -> the 1rem literal
  *   main > .faq  .faq__answer     ├─ reading     cta        -> --cta-body-size (the slot cta owns)
@@ -61,20 +65,15 @@ class MeasureSurfaceTest extends TestCase
     // write still reaches it, and TableRoleDefaultsEmitTest asserts that emitted
     // `max-width:var(--measure-heading)` directly.
     //
-    // A NOTE FOR WHOEVER TOUCHES THIS NEXT, because the trend is now the fact. This
-    // roster is named for the SLOT MECHANISM, and the slot mechanism is ending: stats and
-    // logos leave in #1066's second half, which leaves ROUTED = ['grid'] and, once grid's
-    // own rebuild lands, empty. A one-element roster is not a surface audit, it is a
-    // single component's test wearing one. Decide this FILE's fate in the PR that removes
-    // stats and logos — retire it in favour of the per-component emit tests, or re-found
-    // it on the ROLE address so it keeps auditing the capability rather than the
-    // mechanism — rather than discovering it one rebuild later. The capability it exists
-    // to protect (one design-token write reaches every band heading) is worth keeping;
-    // the slot-shaped assertions are not.
-    // RE-FOUNDED AT #1066 PR2, which is the decision this constant's own note asked the
-    // stats/logos PR to make rather than defer. stats and logos left the slot surface with
-    // their rebuilds, leaving grid alone — and a one-element roster is not a surface audit,
-    // it is one component's test wearing one.
+    // RE-FOUNDED AT #1066 PR2, WHICH IS THE DECISION THIS CONSTANT'S OWN NOTE DEMANDED.
+    // That note read: "this roster is named for the SLOT MECHANISM, and the slot mechanism
+    // is ending: stats and logos leave in #1066's second half, which leaves
+    // ROUTED = ['grid'] and, once grid's own rebuild lands, empty. A one-element roster is
+    // not a surface audit, it is a single component's test wearing one. Decide this FILE's
+    // fate in the PR that removes stats and logos — retire it in favour of the
+    // per-component emit tests, or re-found it on the ROLE address so it keeps auditing
+    // the capability rather than the mechanism — rather than discovering it one rebuild
+    // later." Both left; this is the re-founding it asked for.
     //
     // THE CAPABILITY IS WORTH KEEPING AND THE SLOT SHAPE IS NOT: what this file exists to
     // protect is that ONE `update_design_token` write to `--measure-heading` reaches every
@@ -930,20 +929,16 @@ class MeasureSurfaceTest extends TestCase
      */
     public function testAForeignComponentCannotAuthorTheCtaMeasureSlot(): void
     {
-        // HOST MOVED TO grid AT #1066 PR2. The claim is that a component cannot author
-        // ANOTHER component's slot (#578's severance), and it needs a component that still
-        // HAS slots to make it — logos stopped being one, so the refusal it produced was
-        // `no_style_slots` (a v2 component refusing every slot) rather than the
-        // cross-component refusal under test. grid is the last v1 component in the theme.
+        // THE HOST MOVED TWICE, table -> logos -> grid, and the claim never moved at all:
+        // ONE component cannot author ANOTHER's slot, which is why #578 had to sever the
+        // shared six-selector rule. Each move happened for the same reason — the host
+        // became a v2 component, and a v2 component's refusal names its ROLES
+        // (`no_style_slots`) rather than the foreign slot, which is a different and better
+        // message but not the one under test. table left at #1066's first half, logos at
+        // its second, and grid is the last v1 component in the theme: when it rebuilds,
+        // this test has no host left and the claim retires with the mechanism.
         $id = pp_create_page('Foreign slot', 'draft');
-        // THE SUBJECT MOVED FROM table TO logos AT #1066, and the claim is unchanged:
-        // this is about ONE component being unable to author ANOTHER's slot, which is why
-        // #578 had to sever the shared six-selector rule. table can no longer make the
-        // point because it is a v2 component — its refusal now names its ROLES rather
-        // than the foreign slot, which is a different (and better) message, but not this
-        // one. logos is still on slots and still renders a heading, so it carries the
-        // original claim intact.
-        pp_update_composition($id, [['component' => 'grid', 'props' => $this->propsFor('logos')]]);
+        pp_update_composition($id, [['component' => 'grid', 'props' => $this->propsFor('grid')]]);
 
         $result = pp_execute_action('style_component', [
             'post_id'         => $id,
@@ -953,7 +948,7 @@ class MeasureSurfaceTest extends TestCase
 
         $this->assertFalse(
             $result['ok'],
-            'A logos band could never set --cta-heading-measure, which is exactly why capping its '
+            'A grid band could never set --cta-heading-measure, which is exactly why capping its '
             . 'heading through that slot made the cap unauthorable.'
         );
         // Assert the REASON, not just the failure: without this the test passes on a broken

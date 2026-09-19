@@ -1340,16 +1340,55 @@ class AiContextTest extends TestCase
         $this->assertStringNotContainsString('share background', $system);
     }
 
-    public function testAdjacencyNotAnnotatedWhenImageBackedEvenWithMatchingBg(): void
+    /**
+     * REPRICED AT #1066, AND THE ANSWER FLIPPED — deliberately, with a precedent.
+     *
+     * This asserted that a `background_image` SUPPRESSED the flat-colour fusing hint:
+     * the visible band was the image, so "these two share #092082" would have been a
+     * lie. Every component has now retired that prop (section #1023, cta #1026, stats
+     * #1066) and nothing migrates stored props, so this fixture is exactly the aged
+     * page it always described — and on that page the prop is UNREAD AT RENDER. The
+     * band paints its `--*-bg` slot and nothing else. Suppressing the hint would now
+     * hide a statement that is true.
+     *
+     * THE RULE IS THE ONE #605 ALREADY SET, three steps down in the same resolver: a
+     * `theme` value stored before the vocabulary freeze falls through to the default
+     * bucket because pp_theme_class() coerces it to the default band, and the resolver
+     * and the renderer move in lockstep. A stored `background_image` is the same
+     * situation and takes the same answer.
+     *
+     * The test is KEPT rather than deleted because the subject — what an aged page's
+     * dead styling prop does to the adjacency hint — is exactly what needs pinning
+     * while such pages exist. Deleting it would have left the flip unrecorded.
+     */
+    public function testAdjacencyAnnotatedDespiteAStoredRetiredBackgroundImage(): void
     {
-        // A background_image makes the visible band the image, not the flat color,
-        // so a co-set --*-bg slot must NOT produce a fusing hint.
         $system = $this->pageContextFor(706, [
             ['component' => 'section', 'props' => ['title' => 'A', 'background_image' => 'https://ex.test/a.jpg'], 'style' => ['--section-bg' => '#092082']],
             ['component' => 'stats', 'props' => ['title' => 'B', 'body' => 'Body text'], 'style' => ['--stats-bg' => '#092082']],
         ]);
 
-        $this->assertStringNotContainsString('share background', $system);
+        $this->assertStringContainsString('share background #092082', $system);
+
+        // DISCRIMINATING, not merely positive: pin the resolver directly, so a pass
+        // cannot come from some other pair or some other wording. A stored
+        // `background_image` must resolve exactly as an absent one does.
+        $withImage = _pp_resolve_component_bg([
+            'component' => 'section',
+            'props'     => ['background_image' => 'https://ex.test/a.jpg'],
+            'style'     => ['--section-bg' => '#092082'],
+        ]);
+        $withoutImage = _pp_resolve_component_bg([
+            'component' => 'section',
+            'props'     => [],
+            'style'     => ['--section-bg' => '#092082'],
+        ]);
+        $this->assertSame(
+            $withoutImage,
+            $withImage,
+            'a retired prop that paints nothing must not change what the resolver sees'
+        );
+        $this->assertSame('bg:#092082', $withImage['id']);
     }
 
     public function testAdjacencyTransparentOverrideTreatedAsDefault(): void

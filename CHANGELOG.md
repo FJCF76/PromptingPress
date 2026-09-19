@@ -141,7 +141,10 @@ said so in CSS: `.stats--inverted .stats__number` re-routed to `@color-accent-on
 
 That last value is not arbitrary. v1's inverted label was `@color-bg` at `opacity: 0.75`, and
 **`opacity` has no group in the design vocabulary** — so the de-emphasis ports as the
-pixel-measured composite, ~10.2:1. That is the standing rule rather than a workaround: this
+pixel-measured composite, which measures **10.11:1** on the inverted band. (Pixel-measured,
+not calculated: the arithmetic composite is 192.75 / 195.5 / 201.75 and Chromium floors each
+channel, so the rendered colour is one step darker than a round-half-up guess and the ratio
+is 10.11 rather than 10.2.) That is the standing rule rather than a workaround: this
 same family's earlier `opacity: 0.85` was retired at #577 for measuring 3.87:1, and `base.css`
 records "do NOT re-introduce an opacity literal" beside the token that replaced it.
 
@@ -152,7 +155,12 @@ automatically recoloured the number (#461), the accented heading substring (#463
 label (#577). **All three retire with the class**, exactly as hero's, section's and cta's did:
 the engine cannot know an arbitrary image is dark. Setting a background recolours nothing —
 write `typography.color` on `heading`, `heading-accent`, `number` and `label` in the same map.
-The overlay `<div>` is gone too; the scrim composes into the band's own background layers.
+
+**And the scrim is no longer automatic either.** The overlay `<div>` is gone — the scrim
+composes into the band's own background layers — and it has no default: a band with an image
+and no `background.overlay` paints **no scrim at all**, where v1 painted one unconditionally.
+Write `"overlay": "@overlay-bg"` beside the image for v1's scrim, and `"size": "cover"` /
+`"repeat": "no-repeat"`, which v1 also supplied for free.
 
 ### ⚠️ Changed: logos' one image-size knob is two roles
 

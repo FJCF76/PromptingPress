@@ -57,12 +57,14 @@ design token** (a property in the first `:root` block of `base.css`, which is th
 (a rule that component can match actually reads it). Completeness is NOT guaranteed. The array
 is hand-curated and deliberately partial: a band's own rules read several times more registered
 tokens than its array names, and a token can be missing for no reason beyond nobody having added
-it. `--overlay-bg` is listed by the one v1 component that still reads it (`stats`), and it is
-reached only as a slot fallback (`var(--stats-overlay-bg, var(--overlay-bg))`);
-`--measure-heading` is reached in exactly the same way and is not listed by anyone. (`hero`,
-`section` and `cta` listed it too until their rebuilds retired the slot chain that reached
-it — on a v2 component the token is reached by a ROLE default instead, e.g. cta's `heading`
-and `text` roles both default `sizing.max-width` to `@measure-heading`.)
+it. `--overlay-bg` is listed by NOBODY since #1066 — `stats` was the last v1 component that
+reached it, through `var(--stats-overlay-bg, var(--overlay-bg))`, and both that slot and
+that chain retired with its rebuild. On a v2 band the token is written BY NAME instead:
+`_band` -> `background.overlay: "@overlay-bg"`. `--measure-heading` is in the same
+position and likewise listed by no one (`hero`, `section` and `cta` listed it until their
+rebuilds retired the slot chain that reached it) — on a v2 component it is reached by a
+ROLE default, e.g. cta's `heading` and `text` roles both default `sizing.max-width` to
+`@measure-heading`.
 **So never read absence from this array as "this component does not consume that token."** For
 what you can actually set on one band, read its `style_slots` — each slot's `default` names the
 token it routes — or, on a v2 component, its `roles` and the band's `udc` map, which declare no
@@ -218,12 +220,15 @@ or a single-layer `box-shadow` (2-4 px/rem lengths plus an rgb/rgba/hsl/hsla col
 exposed them until their rebuilds (#986, #1023, #958, #1026); on a v2 component that framing
 is the role's own `border` and `shadow` groups.
 
-The `stats` band exposes two of these framing slots — `--stats-radius` (length,
-default `0`) and `--stats-max-width` (**length-or-none**, default `none`) — for a
-**contained, rounded metrics card** (#383). Set both together: `--stats-max-width`
-caps the band and centers it with auto side margins, and `--stats-radius` rounds the
-band's background. Unset, the band spans full width with square corners exactly as
-before. To remove the max-width, set `none` — the `length-or-none` type accepts the
+**THE `stats` FRAMING SLOTS LEFT AT #1066 AND THE CAPABILITY DID NOT.** `--stats-radius`
+and `--stats-max-width` built a **contained, rounded metrics card** (#383); the v2 write is
+`_band` -> `border.radius` beside `_band` -> `sizing.max-width`, in one map. The centring
+comes free: `_band` defaults both side margins to `auto`, so a capped stats band centres
+itself exactly as the slot pair did. To remove the cap, write `none` on
+`sizing.max-width` — the v2 grammar accepts the keyword on that parameter directly, which
+is why no `length-or-none` SLOT is needed for it. The paragraph below describes the
+`length-or-none` type as it still applies to the one v1 component left. To remove the
+max-width on such a slot, set `none` — the `length-or-none` type accepts the
 same keyword the slot declares as its default, so the built-in full-bleed is
 authorable (#579). `none` is accepted **only** on a `length-or-none` slot; a plain
 `length` slot (padding, font-size, radius, and any measure with a real length default
@@ -350,10 +355,11 @@ card, so they are rejected here — set those on the grid-level style. Set it th
 
 The `position` and `ratio` types (#108) control image focal point and aspect ratio,
 per-instance. `position` accepts 1-2 keyword/length tokens (no functions, no `var()`);
-`ratio` accepts `auto` (natural proportions) or a number/fraction. `--stats-bg-position`
-controls the `background_image` CSS background. No v1 component has a content-image
-focal-point or crop-ratio slot left. Not exposed on logos (fixed `object-fit: contain`
-layout, not a crop model).
+`ratio` accepts `auto` (natural proportions) or a number/fraction. NO COMPONENT EXPOSES
+EITHER TYPE ANY MORE: `--stats-bg-position` was the last, and it left with stats' rebuild
+(#1066). A band background's focal point is `_band` -> `background.position` on every
+component now. Not exposed on logos at any point (fixed `object-fit: contain` layout, not
+a crop model).
 
 **HERO AND SECTION ARE NOT ON THIS LIST (#986, #1006, #1023).** Their `--*-image-*` and
 `--*-bg-position` slots were retired with their v2 rebuilds, and both values are role
@@ -366,12 +372,13 @@ point is `_band`'s `background.position`. A hero band
 background is `_band` `background.image` plus `background.position` — never `image_url`,
 which on `layout: "cover"` is now REFUSED at write with `inert_prop`.
 
-**The scrim over a `background_image` has its own per-instance slot on the one v1 band
-that still carries one: `--stats-overlay-bg`** (stats was the last to get one, #577, and cta's left at #1026).
-On a v2 component the scrim is the `_band` role's `background.overlay`, authored beside
-`background.image` in the same map — hero left this slot family in #986 and section in
-#1023, and writing either retired slot is refused with `no_style_slots`.
-It is `gradient`-typed and defaults to the shared `--overlay-bg`. Reach for it when one
+**NO BAND HAS A SCRIM SLOT ANY MORE.** `--stats-overlay-bg` was the last (stats got one
+at #577 and lost it at #1066; cta's left at #1026, hero's at #986, section's at #1023), and
+writing any of them is refused with `no_style_slots`. The scrim is the `_band` role's
+`background.overlay`, authored beside `background.image` in the same map. It is
+`gradient`-typed — and unlike the slot it replaces it has **no default**: a band with an
+image and no `background.overlay` paints no scrim at all, where v1 painted one
+unconditionally. Write `"@overlay-bg"` for v1's scrim. Reach for a different value when one
 particular photo needs a darker or lighter scrim than the site default, instead of
 retuning `--overlay-bg` and moving every image band at once. Two things to know before
 you lighten one: the band's text defaults are calibrated against the SHIPPED scrim over a
