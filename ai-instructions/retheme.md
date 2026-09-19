@@ -164,8 +164,8 @@ and still gets the near-white routing, because the attribute records that a scri
 not how dark it is.
 
 **ON A v2 COMPONENT THIS WHOLE TRAP IS GONE, and the reason is worth knowing because it
-is the shape of every future sprint.** `hero`, `section`, `testimonials`, `cta` and `faq` have no
-`theme` prop, no band class, and no dark-band ROUTING: a band you make dark with `_band`
+is the shape of every future sprint.** `hero`, `section`, `testimonials`, `cta`, `faq`, `table`
+and `embed` have no `theme` prop, no band class, and no dark-band ROUTING: a band you make dark with `_band`
 `background.fill` (or `background.image` + `overlay`) does not silently recolour its text
 for you, so there is no class-versus-literal conflict to fall into. The trade is that YOU
 own the contrast — set a `typography.color` on every text role over the background. There
