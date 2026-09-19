@@ -136,8 +136,18 @@ on `@color-bg-inverted`, under the 4.5:1 floor at this 13px size.
 
 **Why that colour.** v1's `.logos--inverted .logos__label` set `@color-bg` at `opacity: 0.75`.
 `opacity` is in none of the seven UDC groups, so the de-emphasis ports as the
-**pixel-measured composite `rgb(192, 195, 201)`** (~10.2:1). See the token note in `base.css`:
+**pixel-measured composite `rgb(192, 195, 201)`** (10.11:1). See the token note in `base.css`:
 re-introducing an opacity literal is explicitly ruled out.
+
+> **Why exactly `rgb(192, 195, 201)`, and the one case where a colour is not an opacity.**
+> The composite of `#fcfdff` at 0.75 over `#0f172a` is (192.75, 195.5, 201.75), and Chromium
+> **floors** each channel — which is why the measured pixel is 192/195/201 rather than the
+> 193/196/202 that round-half-up predicts. It measures **10.11:1** on the inverted band.
+>
+> The substitution is exact for this label because it renders plain text and nothing else.
+> It would not be exact in general: `opacity` dimmed the whole **box**, including any
+> descendant element and any text decoration, while a colour reaches only the text it is set
+> on. A caption that later carries a link or an icon needs that child re-inked too.
 
 > **The fill and the ink are two writes.** A dark fill with no `typography.color` leaves the
 > heading on the inherited `@color-text`, at about **1.04:1**.

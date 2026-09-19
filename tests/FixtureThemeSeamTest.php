@@ -60,8 +60,11 @@ class FixtureThemeSeamTest extends TestCase
     {
         $before = pp_get_registered_components();
         FixtureTheme::activate();
-        $after = pp_get_registered_components();
-        FixtureTheme::deactivate();
+        try {
+            $after = pp_get_registered_components();
+        } finally {
+            FixtureTheme::deactivate();
+        }
 
         $this->assertArrayHasKey(FixtureTheme::COMPONENT, $after);
         $this->assertSame(
@@ -80,9 +83,11 @@ class FixtureThemeSeamTest extends TestCase
     public function testDeactivateRestoresTheRealRegistry(): void
     {
         FixtureTheme::activate();
-        $this->assertArrayHasKey(FixtureTheme::COMPONENT, pp_get_registered_components());
-
-        FixtureTheme::deactivate();
+        try {
+            $this->assertArrayHasKey(FixtureTheme::COMPONENT, pp_get_registered_components());
+        } finally {
+            FixtureTheme::deactivate();
+        }
         $this->assertArrayNotHasKey(
             FixtureTheme::COMPONENT,
             pp_get_registered_components(),
@@ -96,7 +101,12 @@ class FixtureThemeSeamTest extends TestCase
     {
         $GLOBALS['_pp_test_template_dir'] = '/some/other/root';
         FixtureTheme::activate();
-        FixtureTheme::deactivate();
+        try {
+            // nothing to assert mid-flight: the claim is about what deactivate() restores.
+            $this->assertSame(FixtureTheme::root(), $GLOBALS['_pp_test_template_dir']);
+        } finally {
+            FixtureTheme::deactivate();
+        }
         $this->assertSame(
             '/some/other/root',
             $GLOBALS['_pp_test_template_dir'],
@@ -190,6 +200,51 @@ class FixtureThemeSeamTest extends TestCase
                 'class — which surfaces as the UDC suites failing, not as a leak. Add a ' .
                 'tearDown() that calls FixtureTheme::deactivate().'
             );
+        }
+
+        // AND THE PAIRING MUST BE EXCEPTION-SAFE, not merely present. A suite that calls
+        // activate() inside a TEST METHOD and deactivate() at the end of it leaks the
+        // fixture root whenever an assertion in between fails — PHPUnit aborts the method,
+        // the trailing call never runs, and every later class inherits the root. That is
+        // the same leak as a missing tearDown, reached by a different door, and it is
+        // invisible on a green run: it only bites once something else is already failing,
+        // which is exactly when a confusing second failure is most expensive.
+        //
+        // Surfaced by the outside review pass on #1066 PR2, which predicted it from the
+        // helper's shape before it had caused anything. One real instance existed
+        // (StoredStyleAndItemsRenderGuardTest's merged-attribute control, in a file with no
+        // tearDown at all) and is now wrapped.
+        //
+        // setUp() is exempt: tearDown() runs even when a test fails, so the ordinary
+        // setUp/tearDown pairing is already safe.
+        foreach ($activators as $entry) {
+            $src   = file_get_contents($dir . '/' . $entry);
+            $lines = explode("\n", $src);
+            $fn    = null;
+            foreach ($lines as $i => $line) {
+                if (preg_match('/function (\w+)\s*\(/', $line, $m)) {
+                    $fn = $m[1];
+                }
+                // ANCHORED ON A LINE THAT STARTS WITH THE CALL, which is real code. A
+                // substring match also hits this guard's OWN search expression one screen
+                // up — the scanner reporting itself, which is the self-match trap and cost
+                // one debugging round to see.
+                if (trim($line) !== 'FixtureTheme::activate();') {
+                    continue;
+                }
+                if ($fn === 'setUp') {
+                    continue;
+                }
+                $following = ($lines[$i + 1] ?? '') . ($lines[$i + 2] ?? '');
+                $this->assertStringContainsString(
+                    'try {',
+                    $following,
+                    "{$entry}::{$fn}() activates the fixture inside a test method without a " .
+                    'try/finally. A failing assertion would skip deactivate() and leak the ' .
+                    'fixture root into every later class. Wrap the body: activate(); try { … } ' .
+                    'finally { deactivate(); }'
+                );
+            }
         }
 
         // Fail-closed: if the scan stops finding activators, the loop above passes on

@@ -856,7 +856,13 @@ class StoredStyleAndItemsRenderGuardTest extends TestCase
         // pp_render_style_vars() call and merges it with a `background-image` declaration in
         // one attribute, exactly as stats did. The claim is about the MERGE, not about
         // stats, and the fixture is the only remaining place the merge exists.
+        // try/finally, NOT a bare pair. A failing assertion inside the loop below would
+        // otherwise skip deactivate() and leave the fixture root in force for every LATER
+        // CLASS in the process — the leak surfaces as the UDC suites failing, which reads
+        // as an engine regression rather than as a fixture that escaped. This file has no
+        // tearDown to fall back on. Caught by the outside review pass on this change.
         FixtureTheme::activate();
+        try {
         $background_props = [
             FixtureTheme::COMPONENT => ['background_image' => 'https://example.com/bg.jpg'],
         ];
@@ -885,7 +891,9 @@ class StoredStyleAndItemsRenderGuardTest extends TestCase
             $this->assertStringNotContainsString('style="; ', $bad, $component . ': no empty leading segment');
             $this->assertStringNotContainsString(';;', $bad, $component . ': no doubled separator');
         }
-        FixtureTheme::deactivate();
+        } finally {
+            FixtureTheme::deactivate();
+        }
 
         // Non-vacuity, pinned out loud: the loop above must actually have run. It reported
         // green on zero iterations for exactly one commit, which is how this guard got here.

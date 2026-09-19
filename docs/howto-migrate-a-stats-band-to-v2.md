@@ -115,10 +115,20 @@ bar and failing every smaller one. And `.stats--inverted .stats__label` set `@co
 `opacity: 0.75`.
 
 **`opacity` is in none of the seven UDC groups**, so that de-emphasis ports as the
-**pixel-measured composite `rgb(192, 195, 201)`** (~10.2:1). That is the standing rule rather
+**pixel-measured composite `rgb(192, 195, 201)`** (10.11:1). That is the standing rule rather
 than a workaround: this family's earlier `opacity: 0.85` was retired at #577 for measuring
 3.87:1, replaced with `--color-muted-on-overlay`, and `base.css` records *"do NOT
 re-introduce an opacity literal"* beside the token.
+
+> **Why exactly `rgb(192, 195, 201)`, and the one case where a colour is not an opacity.**
+> The composite of `#fcfdff` at 0.75 over `#0f172a` is (192.75, 195.5, 201.75), and Chromium
+> **floors** each channel — which is why the measured pixel is 192/195/201 rather than the
+> 193/196/202 that round-half-up predicts. It measures **10.11:1** on the inverted band.
+>
+> The substitution is exact for this label because it renders plain text and nothing else.
+> It would not be exact in general: `opacity` dimmed the whole **box**, including any
+> descendant element and any text decoration, while a colour reaches only the text it is set
+> on. A caption that later carries a link or an icon needs that child re-inked too.
 
 > **The fill and the ink are two writes, and setting only the fill is the common mistake.**
 > `currentColor` follows the band's `typography.color`, not its `background.fill`. A dark fill
