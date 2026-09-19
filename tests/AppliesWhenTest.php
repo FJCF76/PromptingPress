@@ -335,19 +335,36 @@ final class AppliesWhenTest extends TestCase
 
     /**
      * A `conditionality_note`-only definition stays silent, and that is the KNOWN BOUND,
-     * not an oversight: the three prose classes (disjunction, `main >` scope, interaction
-     * state) are unevaluable by construction. They reach the author through the AI
-     * catalog before the write, never through this channel after it.
+     * not an oversight: the prose classes (disjunction, `main >` scope) are unevaluable by
+     * construction. They reach the author through the AI catalog before the write, never
+     * through this channel after it.
+     *
+     * RE-HOMED TWICE, AND THE SECOND TIME BECAUSE THIS TEST HAD GONE VACUOUS. #1023 pointed
+     * it at faq's `--faq-question-open-color` to represent the interaction-state class;
+     * #1046 retired every faq slot, and an UNDECLARED slot name raises no inert advisory
+     * whatever its condition — so the assertion passed for the same reason an invented name
+     * would. Measured at #1046's red-team pass: `['--faq-total-nonsense-zzz' => '#09f']`
+     * returns `[]` identically. That is the vacuous-pin shape the note below this test says
+     * this suite exists to refuse, and #1046 had already re-pointed the CATALOG half of the
+     * same claim while leaving this half on the retired slot.
+     *
+     * The interaction-state example went with faq's slots; the subject now is
+     * `--grid-item-icon-size`, the slot the catalog half pins. BOTH of its evaluable clauses
+     * must be MET here (`layout: cards` AND `image_treatment: icon`) or the advisory fires
+     * for the ordinary evaluable reason and proves nothing about prose. Its unevaluable half
+     * is `at least one item declares an image_url`. Non-vacuity measured: breaking either
+     * evaluable clause produces `inert_slot`, so this assertion can still fail.
      */
     public function testAProseOnlyConditionIsSilent(): void
     {
         $this->assertSame([], $this->inertSmells([
-            // Re-homed to faq (#1023): `--faq-question-open-color` is the interaction-state
-            // class section's `--section-body-link-color` used to represent. Its clause
-            // (`items is set`) is MET here, and the prose half — the question being OPEN —
-            // is the unevaluable part that must not produce an advisory.
-            ['component' => 'faq', 'props' => ['items' => [['question' => 'Q?', 'answer' => 'A']]],
-             'style' => ['--faq-question-open-color' => '#09f']],
+            ['component' => 'grid',
+             'props'     => [
+                 'layout'          => 'cards',
+                 'image_treatment' => 'icon',
+                 'items'           => [['title' => 'One', 'image_url' => 'https://example.com/a.png']],
+             ],
+             'style'     => ['--grid-item-icon-size' => '3rem']],
         ]));
     }
 

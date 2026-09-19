@@ -174,11 +174,51 @@ line resolves to `#5e6677` on `#0f172a`: **3.10:1**, under the 4.5:1 AA floor fo
 text.
 
 It is easy to miss because an authored band usually has items, so the failing line is
-invisible until the day someone empties it — a band awaiting content, or one whose items
-were all skipped as damaged. Set `empty` whenever you set a dark `_band` fill.
+invisible until the day someone empties it — a band awaiting content. Set `empty` whenever
+you set a dark `_band` fill.
+
+Note the narrower bound, measured: a band whose items are all SKIPPED as damaged does not
+reach this role at all. `faq.php` gates the empty state on `!empty($items)` and skips per
+item on `if (!$question) continue;`, so a non-empty array of damaged items renders an empty
+`.faq__list` with no message — the `empty` role cannot paint there, and neither can a
+colour you set on it. Pre-existing render behaviour, recorded on #1051.
 
 The band will validate, write and report `ok` in every one of these cases. The engine does
 not interpret colours, so this is the one check that is yours rather than the system's.
+
+## Clearing the stored slot map — send every key in ONE call
+
+A pre-#1046 band stores two retired things, and the repair has to clear BOTH. Nulling the
+prop alone is refused:
+
+```json
+{"props": {"theme": null}}
+```
+
+is rejected with `invalid_style_slot`, because the band still stores `--faq-*` keys — and
+**the refusal names one slot at a time**. Measured on a band carrying six of them, following
+each refusal literally takes seven round trips; a fully styled band carrying all 21 takes
+twenty-two. Nothing persists until the last one.
+
+Send the whole repair at once instead:
+
+```json
+{"props": {"theme": null},
+ "style": {"--faq-bg": null, "--faq-item-bg": null, "--faq-question-color": null,
+           "--faq-answer-color": null, "--faq-heading-size": null, "--faq-padding-top": null}}
+```
+
+List every `--faq-*` key the band actually stores — which is the set you need, not the
+full 21. **Read the band back first with `wp pp operate inspect`** and null exactly the keys
+it reports; guessing from a list is both slower and wrong, because a band typically stores a
+handful. (The 21 retired names are not published in one operator-facing place; the mapping
+table in step 2 above covers the ones you are likely to meet, and the stored map is
+authoritative for your band.)
+
+The one-at-a-time refusal is shared engine behaviour, not faq's — a legacy `cta` band
+refuses identically — and the `retired_prop` message's "this band can be repaired on its
+own" is true of the prop but not of a band that also stores a slot. Both are recorded on
+#1064.
 
 ## Step 6: Verify
 
