@@ -294,6 +294,72 @@ class DocsCoverageTest extends TestCase
     }
 
     /**
+     * add-component.md tells the model WHICH prop keys answer `retired_prop` rather than
+     * `unknown_prop`, by stating a count and enumerating the roster. That is a third copy
+     * of a registry fact, and it went stale exactly the way the two above were built to
+     * stop: #1023 wrote "the ten v2-rebuild keys" and #1026's cta rebuild added four more,
+     * leaving the doc telling an agent that cta's `theme` is an unknown prop when the
+     * schema answers `retired_prop` with a migration message. The floor test in
+     * SchemaValidationTest guards the REGISTRY; nothing guarded the sentence about it.
+     *
+     * Derived from the registry, never listed here, for the reason slotStyledComponents()
+     * records: a hand-written roster is the defect.
+     */
+    public function testTheRetiredPropRosterInAddComponentMatchesTheSchemas(): void
+    {
+        $keys = [];
+        foreach (self::composableComponents() as $component) {
+            foreach (array_keys(pp_component_retired_props($component)) as $prop) {
+                $keys[] = [$component, $prop];
+            }
+        }
+        $this->assertNotEmpty($keys, 'no component declares a retired prop any more.');
+
+        $words = [
+            2 => 'two', 4 => 'four', 6 => 'six', 8 => 'eight', 10 => 'ten',
+            12 => 'twelve', 14 => 'fourteen', 16 => 'sixteen', 18 => 'eighteen',
+            20 => 'twenty',
+        ];
+        $total = count($keys);
+        $this->assertArrayHasKey(
+            $total,
+            $words,
+            "the retired-prop roster is now {$total} keys and this test has no English word "
+            . 'for it — extend $words, then fix the doc sentence.'
+        );
+
+        $doc = $this->doc('ai-instructions/add-component.md');
+        $this->assertStringContainsString(
+            "the {$words[$total]} v2-rebuild keys",
+            $doc,
+            "ai-instructions/add-component.md states a stale retired-prop count. The "
+            . "registry declares {$total} keys across " . count(array_unique(array_column($keys, 0)))
+            . ' components. An agent reading the stale number is told a retired prop is an '
+            . 'unknown one, so it never learns where the value went.'
+        );
+
+        // And the roster itself: every declaring component and every key it retired has to
+        // be NAMED, or the sentence's count is right while its list still omits a component.
+        // Scoped to the parenthetical, not the whole doc: matching document-wide would let
+        // a component named in some unrelated checklist satisfy a roster it has left.
+        $this->assertSame(
+            1,
+            preg_match('/the ' . $words[$total] . ' v2-rebuild keys \((.+?)\) return/', $doc, $roster),
+            "ai-instructions/add-component.md no longer carries a parenthesised "
+            . 'retired-prop roster after its count, so nothing states WHICH keys they are.'
+        );
+        foreach ($keys as [$component, $prop]) {
+            $this->assertMatchesRegularExpression(
+                // Possessive either way: "hero's" and the plural "testimonials'".
+                '/' . preg_quote($component, '/') . "(?:'s|') [^;]*?`" . preg_quote($prop, '/') . '`/',
+                $roster[1],
+                "ai-instructions/add-component.md's retired-prop roster never names "
+                . "{$component}'s `{$prop}`. The roster reads: {$roster[1]}"
+            );
+        }
+    }
+
+    /**
      * The recipes table claims five components ship NO named recipe. That is a
      * schema-derivable claim, so adding a recipe later would leave the authoring
      * surface asserting it does not exist — and an agent would never try it.
