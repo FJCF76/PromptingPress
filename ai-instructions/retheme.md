@@ -45,17 +45,19 @@ Check at https://webaim.org/resources/contrastchecker/
 surfaces; on the dark `--color-bg-inverted` it drops to ~3.2:1 and fails AA for body
 text. Links (and dim accent text like inverted stats numbers) on inverted bands
 therefore route through `--color-accent-on-inverted` (default `#9dafee`, 8.33:1 on the
-default inverted bg) with `--color-accent-on-inverted-hover` for hover. The same applies
-to any BUTTON whose variant paints ink straight onto the band: an `outline` or `ghost`
-button on an inverted cta takes its default ink and ring from `--color-accent-on-inverted`
-too (the bare accent measured 3.23:1 there). A section's `panel_cta` is NOT included: it
+default inverted bg) with `--color-accent-on-inverted-hover` for hover. What still routes
+this way automatically is narrow, so it is worth naming exactly: the inverted **stats**
+number and the inverted **embed** body link. A section's `panel_cta` is NOT included: it
 sits inside the light panel, not on the band (see the panel exclusion below).
-Only the RESTING state routes this way —
-on hover both variants paint their own contrasting fill, so the ink reverts to the
-variant's normal hover colour. The FOCUS RING is routed through the same role on an
-inverted cta, for EVERY button variant including the filled one: the ring is drawn
-outside the button, so it lands on the band rather than on the button's own fill.
-**Pairing
+
+**NO BUTTON ROUTES THIS AUTOMATICALLY ANY MORE.** An `outline` or `ghost` button on an
+inverted cta used to take its default ink and ring from this role, and the inverted cta
+focus ring routed here for every variant including the filled one (the bare accent measured
+3.23:1 there). Both were keyed on `.cta--inverted`, a class derived from the `theme` prop
+that #1026 retired, so both are gone — as is the ink routing's resting-only caveat, which
+only ever described those buttons. On a dark v2 band you set the button's ink, its
+`border.color` and its `":hover"` yourself, and this token is the value to reach for by
+name (`@color-accent-on-inverted`). **Pairing
 contract:** if you change `--color-accent` OR `--color-bg-inverted`, keep
 `--color-accent-on-inverted` at ≥ 4.5:1 against `--color-bg-inverted`. The programmatic
 path auto-derives it (a lightened accent tint) when you change `--color-accent` and
@@ -63,21 +65,23 @@ leave it unpinned; a pinned on-inverted override that diverges from that derivat
 surfaced by the same `stale_warnings` / `masked_derived_override` machinery as every
 other derived token (see below), so you are told when a base change may not reach it.
 
-**Surface-paired accent (the bg-image band).** A **cta/stats** band WITH a
-`background_image` — and a v2 **hero or section** whose `_band` `udc` map sets
+**Surface-paired accent (the bg-image band).** A **stats** band WITH a
+`background_image` — and a v2 **hero, section or cta** whose `_band` `udc` map sets
 `background.image` plus `background.overlay` (on v2 a `cover` hero carrying `image_url`
 or `image_id` is REFUSED at write with `inert_prop`; do not author that pair) — lays a
 dark `rgba(0,0,0,.55)` overlay over an ARBITRARY image.
-**THE ROUTING BELOW IS v1 ONLY.** It works by band CLASS, and a v2 band has no class:
-on hero and section YOU own the contrast, setting a `typography.color` on each text role
-over the image (see this file's v2 note further down). So on a cta or stats band, EVERY
-accent surface
-(cta links, stats numbers, the `title_accent` substring, the
-`outline`/`ghost` buttons on a cta or cover hero — including
-the hero's second CTA, whose variant DEFAULTS to `outline` — and the FOCUS RING of
-EVERY button variant on a bg-image cta or cover hero — drawn outside the button, so it
-lands on the scrim, and applying to any `cover` hero whether or not it has an
-`image_url`, because the scrim is painted either way) routes through a SEPARATE role,
+**THE INK ROUTING BELOW IS v1 ONLY.** It works by band CLASS, and a v2 band has no class:
+on hero, section and cta YOU own the contrast, setting a `typography.color` on each text
+role over the image (see this file's v2 note further down). So the accent surfaces that
+still route automatically are the **stats** ones — its numbers and its `title_accent`
+substring — plus, from #986, the `.hero--cover` FOCUS RING. The focus ring is the one
+exception that is not class-bound in spirit: since #986 it also routes from
+`[data-pp-band-overlay]`, which the ENGINE emits on any v2 band painting both an image and
+an overlay, so it reaches a v2 hero, section or cta without the author switching it on. It
+is drawn outside the button, so it lands on the scrim rather than the button's own fill.
+(`.hero--cover` is still a term in that selector, so a `cover` hero gets it whether or not
+it has an image, because the scrim is painted either way.) All of these route through a
+SEPARATE role,
 `--color-accent-on-overlay` (default `#fafbff`), with `--color-accent-on-overlay-hover`
 (default `#ffffff`) for hover. A section's `panel_cta` is NOT included here either — it
 sits inside the light panel, not on the scrim (see the panel exclusion below). This is NOT the same as `--color-accent-on-inverted`:
@@ -94,8 +98,10 @@ that diverges is surfaced by the same `stale_warnings` / `masked_derived_overrid
 machinery as every other derived token.
 
 **De-emphasised ink on the same band uses its own role, `--color-muted-on-overlay`
-(default `#fafbff`).** A cta `body` and a stats `label` on a `background_image` band are
-deliberately quieter than the heading beside them. That used to be spelled
+(default `#fafbff`).** A stats `label` on a `background_image` band is deliberately quieter
+than the heading beside it. (A cta `body` was the other one until #1026 retired cta's
+`background_image` prop; on a v2 band you reach this token BY NAME — `@color-muted-on-overlay`
+in the role's `typography.color` — instead of getting it from a class.) That used to be spelled
 `opacity: 0.85`, which composited the ink to `rgb(231,232,234)` and measured **3.87:1**
 against the worst-case composite — a WCAG AA failure on normal-size text. The de-emphasis
 now lands as this role token instead of a literal, so it is tunable, measurable, and in
@@ -104,25 +110,28 @@ one place. Be aware of how little room there is: with no opacity at all, full
 `#f9f9f9`. **The entire de-emphasis budget on an overlay band is roughly 0.07:1**, which
 is why the shipped value is near-white and why re-introducing an opacity literal on that
 band will fail the rendered contrast pins. On the SOLID inverted band there is real
-headroom, so the `opacity` literals there (cta body 12.76:1, stats label 10.22:1, logos
-label 10.22:1) are deliberate and stay — but they are scoped `:not(--has-bg-image)`,
-because a band can carry `theme: "inverted"` AND a `background_image` at once, and on
-that combined band the inverted measurement does not hold. This role is NOT auto-derived from
+headroom, so the `opacity` literals there (stats label 10.22:1, logos label 10.22:1) are
+deliberate and stay — and the stats one is scoped `:not(.stats--has-bg-image)`, because a
+band can carry `theme: "inverted"` AND a `background_image` at once, and on that combined
+band the inverted measurement does not hold. (A cta body at 12.76:1 was the third until
+#1026: both classes it was keyed on came from retired props, so the literal and its
+carve-out went together. A dark v2 band expresses de-emphasis as a role
+`typography.color`, never as an opacity — see the note above.) This role is NOT auto-derived from
 `--color-accent`: it is a contrast floor tied to the overlay, not an accent tint, so a
 retheme cannot move it below the bar.
 
-On an overlay band the accent role does one more job: it is also the DEFAULT border of every
-FILLED button on a `cover` hero, so an unstyled filled pair keeps a visible edge. It sits
-last in each border chain, so it paints only where you have not coloured that edge
-yourself. The premium gradient fill measures only ~1.1:1 against the worst-case composite,
-so without that ring the button's shape disappears into the band and only its label
-carries it.
+On an overlay band the accent role used to do one more job: it was the DEFAULT border of
+every FILLED button on the band — a SEPARATION RING, sitting last in the border chain so it
+painted only where you had not coloured that edge yourself. It matters because the premium
+gradient fill measures only ~1.1:1 against the worst-case composite, so without a ring the
+button's shape disappears into the band and only its label carries it.
 
-**THE cta HALF OF THIS IS GONE (#1026), and that is the part to plan around.** The
-separation ring was keyed to `.cta--has-bg-image`, a class derived from the retired
-`background_image` prop, so a v2 cta gets no automatic ring at all — on a scrim or on a
-dark fill. This is the same ruling #986 made for the hero's re-coloured title: v2 has no
-variant-scoped role defaults and does not guess. **On a cta you own the ring**: set
+**THAT RING IS NOW GONE EVERYWHERE, and it is the part to plan around.** Every rule that
+drew it was keyed on `.cta--has-bg-image` — hero's half had already gone at #986 — and that
+class derived from the `background_image` prop #1026 retired, so no band gets an automatic
+filled-button ring any more. This is the same ruling #986 made for the hero's re-coloured
+title: v2 has no variant-scoped role defaults and does not guess. **On any v2 band you own
+the ring**: set
 `border.color` on the `button` / `button-secondary` role, at rest and in `":hover"`, and
 check it against the band you actually authored. `--color-accent-on-overlay` (4.59:1 over
 the worst-case scrim) and `--color-accent-on-inverted` (8.33:1 on the inverted token) are
@@ -133,8 +142,8 @@ recolouring a button's border does not recolour its focus ring, and vice versa. 
 dark-band focus routings change the ring's COLOUR only — its width, style and offset are
 unchanged, and a light band's focus ring is exactly what it always was.
 
-Focus-ring routing covers the cta and the cover hero, the two components that put a
-button ON the band. A `text-panel` SECTION is deliberately excluded even on those bands:
+Focus-ring routing covers any v2 band the engine marks with `data-pp-band-overlay` plus the
+`cover` hero — the bands that put a button ON a scrim. A `text-panel` SECTION is deliberately excluded even on those bands:
 its `panel_cta` sits inside the panel, which is a self-contained LIGHT surface, so its
 ring already contrasts there and the dark-band roles would make it worse. Same reasoning
 as the panel's list markers. That exclusion covers the button's INK as well as its ring:
@@ -155,7 +164,7 @@ and still gets the near-white routing, because the attribute records that a scri
 not how dark it is.
 
 **ON A v2 COMPONENT THIS WHOLE TRAP IS GONE, and the reason is worth knowing because it
-is the shape of every future sprint.** `hero`, `section` and `testimonials` have no
+is the shape of every future sprint.** `hero`, `section`, `testimonials` and `cta` have no
 `theme` prop, no band class, and no dark-band ROUTING: a band you make dark with `_band`
 `background.fill` (or `background.image` + `overlay`) does not silently recolour its text
 for you, so there is no class-versus-literal conflict to fall into. The trade is that YOU
@@ -168,8 +177,8 @@ made `--section-bg` win over the `muted` / `inverted` theme paint (before, the t
 literal silently defeated it), which meant an `inverted` section painted light by
 `--section-bg` kept its `pp-section--inverted` class and therefore its near-white heading,
 body and link routing — light-on-light. Both the slot and the class retired with #1023.
-The same trap is still live on `cta`, `grid`, `faq`, `stats`, `logos` and `embed` until
-their own rebuilds.
+The same trap is still live on `grid`, `faq`, `stats`, `logos` and `embed` until their own
+rebuilds. `cta` left that list at #1026, the same way and for the same reason.
 
 Example retheme — warm neutral:
 ```css
@@ -254,12 +263,13 @@ it rounds every card and panel too, and no longer reaches the button at all.
 
 ### The global button color tokens (the site-wide button surface)
 
-> **HERO AND SECTION ARE NOT ON THIS SURFACE ANY MORE (#986, #1023).** Everything in this
-> section describes the v1 per-instance STYLE SLOT cascade, which still governs cta, grid,
-> faq, stats, logos, embed and table. `hero`, `section` and `testimonials` are v2
-> components with no style slots: their buttons and text are ROLES, styled through the
-> band's `udc` map. Any `--hero-button-*`, `--hero-button2-*`, `--hero-accent*` or
-> `--section-*` name below is HISTORY — writing one is refused with `no_style_slots`. Read
+> **HERO, SECTION AND CTA ARE NOT ON THIS SURFACE ANY MORE (#986, #1023, #1026).**
+> Everything in this section describes the v1 per-instance STYLE SLOT cascade, which still
+> governs grid, faq, stats, logos, embed and table. `hero`, `section`, `testimonials` and
+> `cta` are v2 components with no style slots: their buttons and text are ROLES, styled
+> through the band's `udc` map. Any `--hero-button-*`, `--hero-button2-*`, `--hero-accent*`,
+> `--section-*` or `--cta-*` name below is HISTORY — writing one is refused with
+> `no_style_slots`. Read
 > them as "the cta equivalent"; to restyle a hero button set `background.fill`,
 > `typography.color` and `border.color` (plus a `':hover'` map) on its `cta` /
 > `cta-secondary` role, and a section's panel button the same way on its `panel-cta` role,
@@ -270,17 +280,18 @@ it rounds every card and panel too, and no longer reaches the button at all.
 
 The shared button system carries four registered color tokens, the button analog of
 `--btn-radius`, set via `update_design_token`. They are a REAL site-wide restyle knob: the
-premium `main .btn` primary cascade (and the `.cta` primary rules) route their
-fill, border, ink, and shadow fallbacks through these tokens (#458), so setting one at
-`:root` restyles EVERY composed primary button — the section-panel CTA and the CTA-block button alike. Three of the four register as `initial` (unset), so each
+premium `main .btn` primary cascade routes its fill, border, ink, and shadow fallbacks
+through these tokens (#458), so setting one at `:root` restyles EVERY composed primary
+button — the section-panel CTA and the CTA-block button alike, both of which are reached by
+`main .btn` now that their own component rules are gone. Three of the four register as `initial` (unset), so each
 consuming rule resolves its own literal until you set the token; an unset button therefore
 renders byte-identically to today.
 
 | Token | Set it to… | Reaches | Effective default when unset |
 |-------|-----------|---------|------------------------------|
-| `--btn-bg` | recolor every button fill | bare `.btn`, `.cta`/`.hero` primary, BOTH filled second buttons (cta and hero), the section-panel CTA, premium `main .btn` primary | `--color-accent` (bare) / accent gradient (composed primary) |
+| `--btn-bg` | recolor every button fill | bare `.btn`, premium `main .btn` primary — which since #1026 is every composed primary there is, including both CTA-block buttons, both hero buttons and the section-panel CTA | `--color-accent` (bare) / accent gradient (composed primary) |
 | `--btn-text` | recolor every button label ink | every button ink rule | `var(--color-bg)` (registered, the inversion coupling below) |
-| `--btn-border-color` | recolor every button border | bare `.btn` (incl. the `outline` variant), `.cta`/`.hero` (both buttons of each pair) **except filled buttons on `background_image` cta bands and `cover` heroes (#564)**, the section-panel CTA, premium primary | `--color-accent` (bare/`.cta`/`.hero`) / `--color-accent-strong` (premium) |
+| `--btn-border-color` | recolor every button border | bare `.btn` (incl. the `outline` variant), premium `main .btn` primary. **The #564 carve-out is gone**: it excluded filled buttons on `background_image` cta bands, and that separation ring retired with the class at #1026, so there is no exception left | `--color-accent` (bare) / `--color-accent-strong` (premium) |
 | `--btn-shadow` | change every button's elevation (a `--shadow-*` preset, or `none` to flatten) | bare `.btn`, premium primary | `none` (bare) / premium bevel (composed primary) |
 
 **THE PER-COMPONENT TIER IS EMPTY FOR BUTTONS AS OF #1026.** `--btn-*` used to sit BETWEEN
@@ -321,26 +332,25 @@ reverts to the theme's premium accent gradient the moment a pointer lands.
 | Token | Set it to… | Reaches | Effective default when unset |
 |-------|-----------|---------|------------------------------|
 | `--btn-hover-bg` | recolor every button's hover fill | bare `.btn`, every composed primary, premium `main .btn` primary | `--color-accent-hover` (bare) / the premium hover gradient (composed primary) |
-| `--btn-hover-border-color` | recolor every button's hover border | same surfaces, with the `cover`-hero carve-out below | `--color-accent-hover` (bare) / `--color-accent` (premium) |
+| `--btn-hover-border-color` | recolor every button's hover border | the same surfaces, with no carve-out left — see below | `--color-accent-hover` (bare) / `--color-accent` (premium) |
 
 A band that authors the same property on a button role beats both, at rest and on hover.
 
-**On `cover` heroes NO global button token reaches the RING** (#564 for the ring knobs, #565
-for the fill knobs). Those bands ring their filled buttons with `--color-accent-on-overlay`,
-a near-white role measured at 4.59:1 against the worst-case scrim so the button's shape
-survives the photo behind it. A site-wide `--btn-border-color` / `--btn-hover-border-color`
-used to sit above that role and quietly cancel the guarantee; `--btn-bg` / `--btn-hover-bg`
-cancelled it indirectly through the border-follows-fill link. Both pairs were removed from
-those chains. Note the scope: those two still paint the FILL on these bands exactly as
-everywhere else — it is only the ring they no longer reach.
-
-**THE cta HALF OF THAT CARVE-OUT IS GONE (#1026), and it is a real narrowing rather than a
-simplification.** The separation ring was keyed to `.cta--has-bg-image`, a class derived from
-the retired `background_image` prop, so a v2 cta over a scrim gets no automatic ring at all.
-Set `border.color` on its `button` / `button-secondary` role, at rest and in `':hover'`,
+**THE SCRIM-BAND RING CARVE-OUT IS GONE ENTIRELY, and it is a real narrowing rather than a
+simplification.** It worked like this: a band over a scrim rang its filled buttons with
+`--color-accent-on-overlay`, a near-white role measured at 4.59:1 against the worst-case
+composite so the button's shape survived the photo behind it, and the global knobs were
+deliberately kept OUT of that chain so a site-wide retune could not cancel the guarantee
+(#564 for the ring knobs, #565 for the fill knobs). Every rule implementing it was keyed on
+`.cta--has-bg-image`; hero never had one, its half having gone at #986. That class derived
+from the `background_image` prop #1026 retired, so the ring and its carve-out went together
+and NO band now gets an automatic filled-button ring. The consequence to plan around: on a
+scrim band `--btn-border-color` now reaches the button border through the ordinary premium
+chain like anywhere else, and nothing holds a contrast floor for you. Set `border.color` on
+the band's button role (on a cta, `button` / `button-secondary`), at rest and in `':hover'`,
 reaching for `--color-accent-on-overlay` (4.59:1) or `--color-accent-on-inverted` (8.33:1).
-One consequence worth planning for: a ring correction that used to be a single global edit is
-now per band. The FOCUS ring is the exception and is still automatic — see above.
+So a ring correction that used to be a single global edit is now per band. The FOCUS ring is
+the exception and is still automatic — see above.
 
 The **section-panel CTA** used to be the sharpest case of this: it had no per-instance hover
 FILL slot at all, so the global knob was the ONLY way to move its hover fill, and only the

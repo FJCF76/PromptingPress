@@ -12,12 +12,18 @@
 /* ==========================================================================
    SHARED: Button
    .btn is the shared base; variants .btn--secondary / .btn--outline / .btn--ghost
-   (primary = bare .btn) are selected per-instance via the `button_variant` prop.
+   (primary = bare .btn). NO COMPONENT SELECTS THEM ANY MORE: the `button_variant` /
+   `button2_variant` / `panel_cta_variant` props that did retired with their components
+   (#986 hero, #1023 section, #1026 cta), and a v2 button's look is its ROLE — the
+   `button` / `button-secondary` PRESETS emit the same property values a variant class
+   carries. The variant rules below are kept because authored inline HTML in a body or
+   embed field can still carry the class; nothing in a composition routes to them.
    The --btn-* color tokens (--btn-bg / --btn-text / --btn-border-color / --btn-shadow,
    plus the HOVER pair --btn-hover-bg / --btn-hover-border-color added by #539)
    are registered design tokens in base.css and are the site-wide GLOBAL button surface.
-   The premium `main .btn:not(...)` primary cascade and the `.cta .btn` / `.hero .btn`
-   primary rules route their fill/border/ink/shadow fallbacks through --btn-* (#458), so
+   The premium `main .btn:not(...)` primary cascade routes its fill/border/ink/shadow
+   fallbacks through --btn-* (#458) — it is the ONLY such cascade left, the `.cta .btn`
+   and `.hero .btn` primary rules having gone with those components' rebuilds — so
    setting --btn-bg / --btn-text / --btn-border-color / --btn-shadow at :root restyles
    EVERY composed primary button. --btn-bg / --btn-border-color / --btn-shadow register as
    `initial` (unset), so each consuming rule resolves its own literal until the token is
@@ -2407,8 +2413,11 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
   color: var(--stats-number-color, var(--color-accent-on-inverted));
 }
 
-/* `:not(.stats--has-bg-image)` for the same reason as the cta twin above (issue 577):
-   stats.php emits the theme class and the bg-image class independently, and this rule
+/* `:not(.stats--has-bg-image)` for the reason issue 577 recorded. cta carried the twin
+   of this carve-out until #1026 retired its `theme` and `background_image` props, so
+   this is now the only one left and the reasoning is restated here rather than
+   cross-referenced: stats.php emits the theme class and the bg-image class
+   independently, and this rule
    is the EARLIER of the two, so before the carve-out a combined band inherited this
    0.75 while the --has-bg-image rule supplied only `color` — dimmer than the 0.85 it
    replaced, i.e. a contrast REGRESSION on the exact band row 7 is correcting. */

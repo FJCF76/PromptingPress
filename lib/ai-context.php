@@ -306,9 +306,9 @@ function pp_ai_system_prompt(): string {
     $parts[] = '- Background images (no `image_alt` needed):';
     $parts[] = '  - hero (layout: "cover"): NOT a prop, and the two names are easy to confuse. `cover` is still a tall centred band, but its background image is the BAND\'s `udc` map — `_band` `background.image`, whose value is a Media Library attachment id — while `image_url`/`image_id` are this component\'s inline <img> props. On a cover hero they paint nothing and are REFUSED with `inert_prop`; on `layout: "split"` they are live and render the media column.';
     $parts[] = '  - section: NOT a prop since the v2 rebuild. `background_image` was RETIRED and is REFUSED with `retired_prop`; the band background is the `_band` role\'s `background.image` in the `udc` map, whose value is a Media Library attachment id (not a URL — `import_media` returns one), with its scrim on `background.overlay` and its focal point on `background.position`. Setting a background does NOT recolour the text: put a `typography.color` on every text role over it (`heading`, `subheading`, `body`, `inline-items`, and `body-link` including its `:hover`).';
-    $parts[] = '  - cta: `background_image`';
+    $parts[] = '  - cta: NOT a prop since the v2 rebuild (#1026). `background_image` was RETIRED and is REFUSED with `retired_prop`; the band background is the `_band` role\'s `background.image` in the `udc` map, whose value is a Media Library attachment id (not a URL — `import_media` returns one), with its scrim on `background.overlay` and its focal point on `background.position`. Two v1 behaviours that came free are now explicit: write `background.size: "cover"` and `background.repeat: "no-repeat"`. Setting a background does NOT recolour the text: put a `typography.color` on every text role over it (`heading`, `heading-accent`, `body`, and `body-link` including its `:hover`).';
     $parts[] = '  - stats: `background_image`';
-    $parts[] = '- Image focal point / aspect ratio: when an image crops badly (off-center subject) or needs a specific box shape, the route depends on which system the component is on. ON A v2 COMPONENT (hero, section, testimonials) both values are role parameters in the `udc` map: the content image\'s box shape is the `media` role\'s `sizing.aspect-ratio` and its focal point is the same role\'s `sizing.object-position`, while the BAND background\'s focal point is `_band`\'s `background.position`. ON A v1 COMPONENT use `style_component` on the four `--{component}-bg-position` slots, which reach background images only — no v1 component has a content-image focal-point or ratio slot left. Not available for logos or the plain `image_url`/`background_image` fallback path.';
+    $parts[] = '- Image focal point / aspect ratio: when an image crops badly (off-center subject) or needs a specific box shape, the route depends on which system the component is on. ON A v2 COMPONENT (hero, section, testimonials, cta) both values are role parameters in the `udc` map: the content image\'s box shape is the `media` role\'s `sizing.aspect-ratio` and its focal point is the same role\'s `sizing.object-position`, while the BAND background\'s focal point is `_band`\'s `background.position`. `cta` has only the band half — it declares no media role, because it renders no content image. ON A v1 COMPONENT use `style_component` on the one remaining `--stats-bg-position` slot, which reaches background images only — no v1 component has a content-image focal-point or ratio slot left. Not available for logos or the plain `image_url`/`background_image` fallback path.';
     $parts[] = '- Grid component: images only render in the cards layout, not the steps layout.';
     $parts[] = '- When editing a single item in a grid or logos component, pass the complete `items` array with the modification applied at the correct index. `update_component` uses shallow merge, not positional patching.';
 
@@ -815,7 +815,7 @@ function _pp_bg_annotation_value(string $value): string {
  * background, or null when it inherits the page/body background (so a pair is never
  * annotated on a default match). Resolution order (first match wins):
  *
- *   1. Image-backed band (cta/stats `background_image`) -> null. The visible band
+ *   1. Image-backed band (stats `background_image`) -> null. The visible band
  *      is the image, not a flat
  *      color; "shares background <color>" would be a false fusing hint. Checked
  *      first so an image beats a co-set `--*-bg` slot unambiguously.
@@ -852,9 +852,11 @@ function _pp_resolve_component_bg(array $item): ?array {
     // about it rather than describing it wrongly. A v2 band with a flat
     // `background.fill` is therefore under-described, never mis-described.
     //
-    // This blindness predates hero: testimonials has had it since Sprint 0, and
-    // section joined at #1023 when its `background_image` prop retired — so the
-    // `$bg_image` test below now reaches cta and stats only. It is tracked as its own
+    // This blindness predates hero: testimonials has had it since Sprint 0, section
+    // joined at #1023 when its `background_image` prop retired, and cta joined at
+    // #1026 — so the `$bg_image` test below now reaches STATS ALONE, the last
+    // component whose band background is still a v1 prop. When stats rebuilds, this
+    // branch stops matching anything and should go with it. It is tracked as its own
     // issue rather than widened here, because teaching this function to read `udc` is
     // a v2-wide change to what the chat AI is told, not part of any one component's
     // rebuild. The under-described set grows by one band type per rebuild sprint,

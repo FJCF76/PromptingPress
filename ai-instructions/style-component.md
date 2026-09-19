@@ -462,7 +462,8 @@ so that condition is structural and needs no note.
 
 ## The four narrow bands: `table`, `embed`, `logos`, `faq`
 
-These four declare far fewer slots than `hero` / `section` / `cta` / `grid`, and the
+These four declare far fewer slots than `grid` — the widest surface left now that `hero`,
+`section` and `cta` have none at all — and the
 gap is a contract, not an omission. Read this before assuming a slot is missing.
 
 **`table` (6 slots) — band padding and heading only.** `--table-padding-top` /
