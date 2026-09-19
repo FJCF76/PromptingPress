@@ -531,6 +531,57 @@ final class UdcEngineTest extends TestCase
     }
 
     /**
+     * THE BRACKETED SELECTOR IN THE GROUPED REDUCED-MOTION RULE (#1046).
+     *
+     * The shape test below bounds combinator placement and nothing else, which was
+     * sufficient while every role selector was classes and combinators. faq's
+     * `question-open` puts an ATTRIBUTE TERM inside the one rule where a single bad
+     * selector is catastrophic: _pp_udc_reduced_motion_guard() groups every
+     * motion-carrying role into ONE comma-separated rule, and CSS discards the WHOLE
+     * grouped rule when any selector in the list is invalid. The failure would be a lost
+     * accessibility guarantee with no error anywhere — the band would animate for a
+     * reader who asked the OS not to.
+     *
+     * So the claim is asserted at the level it matters: the selector is IN the grouped
+     * rule, and the grouped rule still carries every member. Verified in Chromium as well
+     * as here — `document.styleSheets` parsed the emitted rule with all three selectors
+     * kept (`selectorText.split(',').length === 3`) and `transition-duration: 0.01ms`
+     * intact. A syntax argument on paper is what this test exists to replace.
+     */
+    public function testABracketedRoleSelectorSurvivesInsideTheGroupedReducedMotionRule(): void
+    {
+        $css = pp_udc_band_css([
+            'component' => 'faq',
+            'id'        => 'pp-1a2b3c4d',
+            'props'     => [],
+            'udc'       => [
+                'question'      => ['motion' => ['transition-duration' => '300ms']],
+                'question-open' => ['motion' => ['transition-duration' => '400ms']],
+                'item'          => ['motion' => ['transition-duration' => '250ms']],
+            ],
+        ]);
+
+        $this->assertMatchesRegularExpression(
+            '/@media \(prefers-reduced-motion: reduce\)\{([^}]*)\{transition-duration:0\.01ms;\}\}/',
+            $css,
+            'the reduced-motion guard must be emitted for a motion-carrying faq band'
+        );
+        preg_match('/@media \(prefers-reduced-motion: reduce\)\{([^{]*)\{/', $css, $m);
+        $group = $m[1];
+
+        // Every motion-carrying role must be IN the group — including the bracketed one.
+        $this->assertStringContainsString('.faq__item[open] > .faq__question', $group);
+        $this->assertStringContainsString('.faq__question', $group);
+        $this->assertStringContainsString('.faq__item', $group);
+        $this->assertSame(
+            3,
+            count(explode(',', $group)),
+            'the group must carry all three motion-carrying selectors — a dropped member '
+            . 'is how this guard fails silently'
+        );
+    }
+
+    /**
      * EVERY SHIPPED ROLE SELECTOR IS A WELL-FORMED SELECTOR, not merely a permitted
      * string.
      *
