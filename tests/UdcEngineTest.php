@@ -2550,6 +2550,99 @@ final class UdcEngineTest extends TestCase
      * The bad selector is charset-CLEAN and only unbalanced, so the charset gate cannot
      * take credit for the refusal: it isolates this gate.
      */
+    /**
+     * BALANCED BUT MALFORMED BRACKETS, refused behaviourally (#1046 adversarial).
+     *
+     * The charset cannot see this class and neither can the balance gate: `.a[]`, `.a[[b]]`
+     * and `.a[b c]` are all BALANCED and all pass `/^[A-Za-z0-9_ .>\[\]\-]{1,120}\z/`, so
+     * before the well-formedness check they reached the emitter as invalid CSS — a shape no
+     * bracket could reach at all until #1046 widened the class by `[` and `]`.
+     *
+     * WHY IT IS WORSE THAN ONE BAD RULE. `_pp_udc_reduced_motion_guard()` emits ONE rule
+     * whose selector is a comma-joined list of every motion-carrying selector, and CSS
+     * discards an entire rule when any member of a plain list is invalid. So a single
+     * bracket typo in a single role selector deletes the `prefers-reduced-motion`
+     * neutralisation for EVERY role of that band — an accessibility guarantee lost with no
+     * other symptom. That grouping is engine-wide and filed separately; this gate is the
+     * containment.
+     *
+     * Asserted through the real compiler rather than against a copy of the regex, because
+     * the regex is not what refuses these — the strip-and-check is — and a test that
+     * re-implements the check proves a string rather than a behaviour. The sibling role
+     * declared after the bad one must still emit, for the same reason it does in the
+     * balance-gate test above.
+     */
+    public function testARoleSelectorWithMalformedBracketsIsRefusedEvenThoughItIsBalanced(): void
+    {
+        foreach (['.gf__a[]', '.gf__a[[b]]', '.gf__a[b c]'] as $badSelector) {
+            // Precondition: this shape really does get past the other two gates, or the
+            // test is proving something the older gates already caught.
+            $this->assertTrue(
+                _pp_udc_delimiters_balanced($badSelector),
+                "{$badSelector} must be BALANCED, or the balance gate takes the credit"
+            );
+            $this->assertSame(
+                1,
+                preg_match('/^[A-Za-z0-9_ .>\[\]\-]{1,120}\z/', $badSelector),
+                "{$badSelector} must pass the CHARSET, or the charset takes the credit"
+            );
+
+            $root = sys_get_temp_dir() . '/pp-wf-' . getmypid() . '-' . bin2hex(random_bytes(4));
+            $dir  = $root . '/components/wffix';
+            mkdir($dir, 0755, true);
+            file_put_contents($dir . '/wffix.php', "<?php // fixture component\n");
+            file_put_contents($dir . '/schema.json', json_encode([
+                'component' => 'wffix',
+                'props'     => [],
+                'roles'     => [
+                    'bad'  => [
+                        'selector' => $badSelector,
+                        'groups'   => ['typography'],
+                        'defaults' => ['typography' => ['color' => '#111111']],
+                    ],
+                    'good' => [
+                        'selector' => '.gf__c',
+                        'groups'   => ['typography'],
+                        'defaults' => ['typography' => ['color' => '#222222']],
+                    ],
+                ],
+            ], JSON_UNESCAPED_SLASHES));
+
+            $prevRoot = $GLOBALS['_pp_test_template_dir'] ?? null;
+            $GLOBALS['_pp_test_template_dir']                = $root;
+            $GLOBALS['_pp_registered_components_invalidate'] = true;
+
+            try {
+                $roles = pp_udc_component_roles('wffix');
+                $this->assertArrayHasKey('bad', $roles, 'the fixture component did not load');
+
+                $css = pp_udc_component_defaults_css('wffix');
+                $this->assertStringNotContainsString(
+                    '#111111',
+                    $css,
+                    "a malformed bracket term must be refused: {$badSelector}"
+                );
+                $this->assertStringContainsString(
+                    '.gf__c{color:#222222;}',
+                    $css,
+                    'the role declared after the refused one must still emit intact'
+                );
+            } finally {
+                if ($prevRoot === null) {
+                    unset($GLOBALS['_pp_test_template_dir']);
+                } else {
+                    $GLOBALS['_pp_test_template_dir'] = $prevRoot;
+                }
+                $GLOBALS['_pp_registered_components_invalidate'] = true;
+                @unlink($dir . '/schema.json');
+                @unlink($dir . '/wffix.php');
+                @rmdir($dir);
+                @rmdir($root . '/components');
+                @rmdir($root);
+            }
+        }
+    }
+
     public function testARoleWhoseSelectorTheBalanceGateRefusesEmitsNothingAndSwallowsNoSibling(): void
     {
         $root = sys_get_temp_dir() . '/pp-gate-' . getmypid() . '-' . bin2hex(random_bytes(4));

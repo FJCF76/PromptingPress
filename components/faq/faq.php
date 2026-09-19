@@ -37,6 +37,11 @@ $title_accent     = is_scalar($raw_title_accent) ? (string) $raw_title_accent : 
 // data-integrity ruling #706 and #736 both declined to widen one prop at a time
 // without a census, so #1046 measured it, filed it and left it. See the note below
 // `$raw_items` for the same class still open on `$question`, its sibling in this file.
+// A THIRD MEMBER IN THIS FILE, added to #1051 after #1046's adversarial pass measured it:
+// `$id` reaches esc_attr() unguarded on the <section>. It does NOT fatal the way an object
+// eyebrow does — core's wp_check_invalid_utf8() casts, so an array paints `id="Array"` —
+// which makes it the quietest of the three: a broken anchor repeated on every band carrying
+// the shape, with nothing reported.
 $eyebrow      = $props['eyebrow']      ?? '';
 // ── #739: the `items` container guard, the third typed boundary on this prop ──
 //

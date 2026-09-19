@@ -3000,6 +3000,25 @@ function pp_udc_compile_band(array $item, string $layer, ?array &$drops = null):
         if ($selector !== '' && !_pp_udc_delimiters_balanced($selector)) {
             continue;
         }
+
+        // BALANCED IS NOT WELL FORMED, and the charset cannot tell the difference.
+        // #1046's adversarial pass measured the gap it left: `.a[]`, `.a[[b]]` and `.a[b c]`
+        // are all BALANCED and all pass the charset, so they reached the emitter as invalid
+        // CSS — a shape no bracket could reach at all before #1046 widened the class. The
+        // cost is not confined to the rule it sits in: _pp_udc_reduced_motion_guard() emits
+        // ONE rule with a comma-joined selector list, and CSS discards an entire rule when
+        // any selector in a plain list is invalid, so one bracket typo in one role selector
+        // deletes the reduced-motion neutralisation for EVERY role of that band. Input is
+        // schema-owned, so this is a maintainer trap rather than author-reachable, and
+        // UdcEngineTest already sweeps the shipped schemas for this exact shape — but a gate
+        // should refuse what the sweep forbids instead of relying on the sweep to notice.
+        // Strip the well-formed presence terms; nothing bracket-like may survive.
+        if ($selector !== '' && strpbrk($selector, '[]') !== false) {
+            $bracket_stripped = preg_replace('/\[[A-Za-z][A-Za-z0-9_-]*\]/', '', $selector);
+            if (strpbrk((string) $bracket_stripped, '[]') !== false) {
+                continue;
+            }
+        }
         if ($selector !== '' && !preg_match('/^[A-Za-z0-9_ .>\[\]\-]{1,120}\z/', $selector)) {
             // DELIBERATELY NOT LEDGERED. A role selector comes only from a
             // repo-owned, integrity-checked component schema, never from an author
