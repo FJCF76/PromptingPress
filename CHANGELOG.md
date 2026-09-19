@@ -4,7 +4,7 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
-## [Unreleased — v2.0.0-alpha.2] — v2 Sprint 2: the chrome CSS retirement, and `section` + `cta` rebuilt on the design contract (#994, #992, #995, #1023, #988, #1026)
+## [Unreleased — v2.0.0-alpha.2] — v2 Sprint 2: the chrome CSS retirement, and `section`, `cta` + `faq` rebuilt on the design contract (#994, #992, #995, #1023, #988, #1026, #1046)
 
 **The last two components still painted by the old stylesheet are on the engine.** The site header and footer declared roles you could author, while `assets/css/components.css` quietly owned how they actually looked. That split is what made styling a nav link silently erase its own hover. 88 declarations moved into role defaults, the CSS rules are gone, and the three bugs the split was causing are fixed.
 
@@ -504,6 +504,90 @@ that named the reason — the slot it replaced declared `applies_when`. The prop
 carry that, and `refuse_props_when` has no way to say "this other prop is absent", so the
 value is now stored, paints nothing, and nothing tells you. It is #1029, with the two
 candidate fixes written up. Until then: set `body_items_align` only alongside `body_items`.
+
+**The accordion is on the contract, and its open state is a role of its own for the first time.**
+`faq` declared 21 style slots; it declares ten roles now and no slots at all. The change
+worth knowing is `question-open`. v1 could colour an open question — it had a slot for it —
+but the pairing was a convention nobody enforced: set the resting colour and not the open
+one, and your colour reverted the moment a reader opened the item. It is structural now.
+`question-open` is its own role selecting `.faq__item[open] > .faq__question`, one compound
+heavier than the resting row, so the two states are separate things you set separately.
+
+### What changes for you
+
+**A dark FAQ band is a `udc` map, not a `theme` prop.** `theme: "inverted"` is retired. Set
+`_band` → `background.fill` and the heading follows it automatically — it takes
+`currentColor`, so one write re-inks the band and its title together.
+
+**The question and answer type scale is reachable per breakpoint.** Size, weight and leading
+on both roles, and the heading's leading and bottom margin, are breakpoint maps: desktop,
+tablet and phone values on one key. v1 had these as fixed rules inside media queries that no
+slot could reach.
+
+**Every value is what your browser actually rendered before.** The ten roles' defaults were
+read out of Chromium at 375, 768 and 1280 on the commit before the rebuild, in nine
+configurations and both accordion states, rather than transcribed from the stylesheet. Three
+v1 declarations that never rendered at all are deliberately not carried forward.
+
+**The keyboard focus ring on a question is visible again.** It never was: `.faq__item` clips
+its contents to the item's rounded corner, and the ring painted outward from the summary's
+edge — straight into the clipped region. Measured in Chromium, zero pixels of it reached the
+screen on any band, at any width, open or closed, while the browser reported the outline as
+present. It is inset now and paints.
+
+**A band with no items keeps its measured grey.** The empty line used to take its colour from
+a utility class, which no author could reach. It is the `empty` role's own value now.
+
+### ⚠️ Breaking: `theme` is retired on `faq`
+
+Sending `theme` to a faq band is refused with `retired_prop`, and the refusal names the
+route. A stored value renders as an unthemed light band until you repair it — the pixels
+change, so this is worth doing deliberately rather than discovering.
+
+```json
+"udc": {"_band":  {"background": {"fill": "#0f172a"}, "typography": {"color": "#fcfdff"}},
+        "item":   {"background": {"fill": "#111827"}, "border": {"color": "#374151"}},
+        "question":      {"typography": {"color": "#f9fafb"}},
+        "question-open": {"typography": {"color": "#f2622a"}},
+        "answer":        {"typography": {"color": "#d1d5db"}}}
+```
+
+**Clear the stored slots in the SAME call as the prop.** Nulling `theme` alone is refused
+while the band still stores `--faq-*` keys, and the refusal names one key at a time — six
+stored slots take seven round trips before anything persists. Send `{"props": {"theme": null},
+"style": {"--faq-bg": null, ...}}` together, nulling the keys `wp pp operate inspect` reports
+for your band. `docs/howto-migrate-a-faq-band-to-v2.md` has the full mapping and the working
+call; #1064 tracks making the refusal name every key at once.
+
+### Known issues
+
+- **Darkening the item panel costs THREE writes, not two, and nothing tells you.** `question`
+  and `answer` pin their ink because v1's panel stayed light on an inverted band — but
+  `question-open`'s default selects the open row specifically and outranks an authored
+  `question` colour. Set all three in the same map. Miss `question-open` and the band looks
+  right until a reader opens an item, at which point the row reverts to the accent at
+  **3.21:1** on a `#111827` panel, under the 4.5:1 floor. The write validates and reports
+  `ok` with no findings; #1059 tracks the missing disclosure.
+- **A dark band with no items needs a second write.** `empty` pins the measured grey
+  `@color-muted`, a direct declaration that a `_band` colour reaches only by inheritance and
+  therefore cannot beat: **3.10:1** on `@color-bg-inverted`. Set `empty` → `typography.color`
+  whenever you set a dark band fill. The engine does disclose this one on the write envelope.
+- **The 44px touch target is yours to keep.** It lives in the stylesheet while `question` and
+  `question-open` both declare `sizing`, so an authored `min-height` outranks it — `12px`
+  validates, emits and renders. The default keeps 44px; a value below it on an interactive
+  control fails WCAG 2.5.5. Honour it on both roles. #1058 tracks where the theme should put
+  this floor, since two roles carry one as a default and four take it from the stylesheet.
+- **A deleted background image leaves a band claiming a scrim it is not painting**, which
+  turns the on-overlay focus ring near-invisible on faq specifically, because the question row
+  is its only focusable control. No author error is involved — a deleted attachment or a site
+  clone without its uploads rows is enough. #1060.
+- faq pages carry **2,221 bytes** of inline role defaults, emitted once per page and nothing
+  at all on pages with no faq band. `components.css` loses 3,490 bytes of code but grows
+  overall because the change is heavily commented; it ships unminified, so the reduction is
+  not yet visible on the wire. #1055 and #1021.
+- Six of faq's responsive defaults declare a tablet value identical to the desktop one, so
+  **296 of those 2,221 bytes restate the base tier**. `cta` and `section` do the same; #1054
+  proposes suppressing an equal tier in the engine rather than per component.
 
 ### Itemized changes
 
