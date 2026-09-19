@@ -212,6 +212,23 @@ old markup still carries the band-class and scrim element this release deleted e
 for, which renders an unscrimmed image band with the on-overlay ink gone. A cache purge
 clears it; nothing needs repairing in the database.
 
+### Docs
+
+Three AI-facing surfaces stated a roster or a count this rebuild moved, so a search for
+cta's own vocabulary could not find them:
+
+- `ai-instructions/add-component.md` said the retired-prop roster was "the ten v2-rebuild
+  keys"; cta retired four more, making fourteen. The stale sentence told an agent that
+  cta's `theme` is an `unknown_prop` when the schema answers `retired_prop` and names the
+  `udc` surface that replaced it. The count and the roster are now derived from the
+  registry and guarded in `DocsCoverageTest`, beside the two existing census guards.
+- The same file's band-rhythm comment listed cta, section and testimonials among the
+  components routing padding through their own slot. All three left that pattern to the v2
+  rebuilds; it now names the six that remain, records that section, cta and testimonials
+  reach the same definition through a `@pp-band-padding` default on `_band`, and that hero
+  is deliberately outside it on its own scale.
+- `AI_RULES.md` said the structural-CSS lint covers five components. cta is the sixth.
+
 ---
 
 ## `section` is on the design contract (#1023)
