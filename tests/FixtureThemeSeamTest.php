@@ -1,0 +1,166 @@
+<?php
+/**
+ * THE #1025 FIXTURE SEAM, AND THE INVISIBILITY THAT MAKES IT SAFE.
+ *
+ * `ppfixture` exists so the SLOT-ENGINE suites stop being re-homed to a different real
+ * component at every v2 rebuild (hero -> section at #986, section -> stats at #1023,
+ * and stats -> ? was due here at #1066 PR2). The full reasoning, and the date this
+ * fixture is deleted, are in tests/fixtures/components/ppfixture/README.md.
+ *
+ * WHAT THIS FILE GUARDS is the one thing that could make the seam worse than the
+ * treadmill it replaces: a fixture component leaking into a registry read that is meant
+ * to see only shipped components. The theme has many registry-ITERATING tests - "every
+ * component declares a required prop", "every component's slots are documented in its
+ * README", the AI-facing catalog, the CLI schema command - and every one of them would
+ * silently start making assertions about a component that does not ship. The failure
+ * would not look like a leak; it would look like those suites getting stricter.
+ *
+ * So the invisibility is pinned from BOTH sides, and neither side is sufficient alone:
+ *  - a read with no opt-in must not contain it (the production shape), and
+ *  - a read after deactivate() must not contain it either (the leak-between-suites shape,
+ *    which is the one that actually bites, because PHPUnit runs every class in one
+ *    process and a suite that forgot its tearDown would poison every later class).
+ */
+
+namespace PromptingPress\Tests;
+
+use PHPUnit\Framework\TestCase;
+use PromptingPress\Tests\Support\FixtureTheme;
+
+class FixtureThemeSeamTest extends TestCase
+{
+    protected function tearDown(): void
+    {
+        // Belt and braces: if an assertion below fails mid-test, the root must still be
+        // restored or every later CLASS in the process inherits the fixture root.
+        unset($GLOBALS['_pp_test_template_dir']);
+        FixtureTheme::invalidate();
+        parent::tearDown();
+    }
+
+    /** The production shape: nobody opted in, so the fixture does not exist. */
+    public function testTheFixtureIsInvisibleWithoutTheOptIn(): void
+    {
+        $components = pp_get_registered_components();
+
+        $this->assertArrayNotHasKey(
+            FixtureTheme::COMPONENT,
+            $components,
+            'ppfixture must not appear in a registry read that did not opt in — every ' .
+            'registry-iterating test in the theme would start asserting about a component ' .
+            'that does not ship'
+        );
+        // Not a vacuous pass on an empty registry: the real components must be there.
+        $this->assertArrayHasKey('grid', $components, 'the un-opted-in registry must still be the real one');
+        $this->assertGreaterThanOrEqual(10, count($components));
+    }
+
+    /** The opt-in shape: the fixture appears, and does not displace anything real. */
+    public function testOptingInAddsTheFixtureAndKeepsEveryRealComponent(): void
+    {
+        $before = pp_get_registered_components();
+        FixtureTheme::activate();
+        $after = pp_get_registered_components();
+        FixtureTheme::deactivate();
+
+        $this->assertArrayHasKey(FixtureTheme::COMPONENT, $after);
+        $this->assertSame(
+            count($before) + 1,
+            count($after),
+            'the fixture root must be the real components PLUS one — a root holding only ' .
+            'the fixture would make the cross-component error-context assertions pass for ' .
+            'the wrong reason'
+        );
+        foreach (array_keys($before) as $real) {
+            $this->assertArrayHasKey($real, $after, "opting in dropped the real component {$real}");
+        }
+    }
+
+    /** The leak shape, which is the one that actually bites in a single-process run. */
+    public function testDeactivateRestoresTheRealRegistry(): void
+    {
+        FixtureTheme::activate();
+        $this->assertArrayHasKey(FixtureTheme::COMPONENT, pp_get_registered_components());
+
+        FixtureTheme::deactivate();
+        $this->assertArrayNotHasKey(
+            FixtureTheme::COMPONENT,
+            pp_get_registered_components(),
+            'deactivate() must restore the real root — PHPUnit runs every class in one ' .
+            'process, so a fixture left active poisons every later class'
+        );
+    }
+
+    /** Nesting must restore the PREVIOUS root, not merely unset the global. */
+    public function testActivateNestsRatherThanClobbering(): void
+    {
+        $GLOBALS['_pp_test_template_dir'] = '/some/other/root';
+        FixtureTheme::activate();
+        FixtureTheme::deactivate();
+        $this->assertSame(
+            '/some/other/root',
+            $GLOBALS['_pp_test_template_dir'],
+            'deactivate() must restore the root that was in force, not unset it — a suite ' .
+            'that already swapped the root (PreflightTest does) would lose its own fixture'
+        );
+        unset($GLOBALS['_pp_test_template_dir']);
+    }
+
+    /** The fixture has to carry the SHAPES the slot-engine suites exercise. */
+    public function testTheFixtureCarriesARepresentativeSlotSet(): void
+    {
+        FixtureTheme::activate();
+        try {
+            $slots = pp_get_style_slots(FixtureTheme::COMPONENT);
+
+            $this->assertGreaterThanOrEqual(
+                8,
+                count($slots),
+                'the fixture stands in for a slot-bearing v1 component; too few slots and the ' .
+                'suites it hosts stop exercising the shapes they used to'
+            );
+
+            // A CONDITIONAL slot, which is the shape the inert-slot advisory needs.
+            $conditional = array_filter($slots, static fn($s) => !empty($s['applies_when']));
+            $this->assertGreaterThanOrEqual(
+                3,
+                count($conditional),
+                'at least three slots must carry applies_when, or the conditional-slot and ' .
+                'inert_slot suites have no real condition to exercise'
+            );
+
+            // The two types with special rejection paths.
+            $types = array_column($slots, 'type');
+            $this->assertContains('gradient', $types, 'the gradient type has rejection messages the suites assert on');
+            $this->assertContains('length-or-none', $types, 'the only type with a keyword alternative');
+
+            // And it must be a REAL registry citizen: composable, with a required prop.
+            $schema = pp_get_registered_components()[FixtureTheme::COMPONENT];
+            $required = array_filter($schema['props'] ?? [], static fn($p) => !empty($p['required']));
+            $this->assertNotEmpty(
+                $required,
+                'every composable component declares a required prop (SchemaValidationTest ' .
+                'pins that invariant) — a fixture that broke it would fail the very suites ' .
+                'it is meant to host'
+            );
+        } finally {
+            FixtureTheme::deactivate();
+        }
+    }
+
+    /** It stands in for a v1 component, so it must NOT look like a v2 one. */
+    public function testTheFixtureIsAv1ComponentAndDeclaresNoRoles(): void
+    {
+        FixtureTheme::activate();
+        try {
+            $this->assertFalse(
+                pp_udc_is_v2_component(FixtureTheme::COMPONENT),
+                'ppfixture hosts the SLOT engine, so it must stay on slots — a fixture with ' .
+                'roles would be testing the system that replaced the one under test'
+            );
+            $this->assertSame([], pp_udc_component_roles(FixtureTheme::COMPONENT));
+        } finally {
+            FixtureTheme::deactivate();
+        }
+    }
+}
