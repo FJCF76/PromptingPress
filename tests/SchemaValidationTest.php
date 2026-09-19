@@ -7182,11 +7182,60 @@ class SchemaValidationTest extends TestCase
                         $route
                     )
                 );
+
+                // DIRECTION 2b — every `group.param` the route names must EXIST in the
+                // grammar, and the naming role must permit that group.
+                //
+                // cta's `_note` claims this guard "fails in BOTH directions ... a route
+                // naming a role this component does not declare is a test failure rather
+                // than a message that lies". Until #1026's review the check only matched
+                // ROLE names, so the parameter half of every route was unverified: a
+                // taxonomy rename would quietly turn a route into a lie while this test
+                // stayed green. The routes are the message an authoring model is handed
+                // when it hits a retired key, so a route naming a parameter the engine does
+                // not accept sends it somewhere it cannot write.
+                $groups = pp_udc_groups();
+                foreach ($named as $role) {
+                    $permitted = pp_udc_component_roles($name)[$role]['groups'] ?? [];
+                    preg_match_all('/`([a-z][a-z-]*)\.([a-z][a-z-]*)`/', $route, $tokens, PREG_SET_ORDER);
+                    foreach ($tokens as $token) {
+                        [$whole, $group, $param] = $token;
+                        if (!isset($groups[$group])) {
+                            continue; // not a group.param token (e.g. a file or token name)
+                        }
+                        $this->assertArrayHasKey(
+                            $param,
+                            $groups[$group]['params'] ?? [],
+                            sprintf(
+                                '"%s.%s" routes to %s, but the `%s` group declares no `%s` parameter',
+                                $name,
+                                $prop,
+                                $whole,
+                                $group,
+                                $param
+                            )
+                        );
+                        $this->assertContains(
+                            $group,
+                            $permitted,
+                            sprintf(
+                                '"%s.%s" routes to %s, but role `%s` does not permit the `%s` group',
+                                $name,
+                                $prop,
+                                $whole,
+                                $role,
+                                $group
+                            )
+                        );
+                    }
+                }
             }
         }
 
-        // A registry that silently emptied would pass every assertion above.
-        $this->assertGreaterThanOrEqual(6, $checked, 'the shipped registry must still be covered');
+        // A registry that silently emptied would pass every assertion above. Raised from 6
+        // to the real floor at #1026: the roster is 14 keys across four components, and a
+        // floor of 6 would have survived losing cta's entire block.
+        $this->assertGreaterThanOrEqual(14, $checked, 'the shipped registry must still be covered');
     }
 
     /**
