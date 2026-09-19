@@ -15,7 +15,8 @@
  * THE DEFECT. Three call sites pass a raw stored value into a TYPED parameter:
  *
  *   lib/wp.php  pp_esc_image_src(string $url, int $depth = 0)
- *     cta.php, stats.php — the `background_image` prop on each. section.php left this
+ *     stats.php — the `background_image` prop, and since #1026 the only component that declares it
+ *   (cta.php was the other; section's left at #1023). section.php left this
  *     set at #1023 when it retired the prop; a band background is the `_band` role's
  *     `background.image` there, an attachment id the engine resolves rather than a URL
  *     string this file's guard has to survive.

@@ -613,8 +613,11 @@ describe('CSS lint: global button hover tier (#539), narrowed to its surviving s
  *      only the first declaration stays green. So every declaration on every matching rule is
  *      checked, and the fix site may carry exactly one.
  *   b. a HIGHER-specificity sibling. The filled treatment is not owned by `main .btn:not(...)`
- *      [0,4,1] alone: `.hero .btn:not(...)` and `.cta .btn:not(...)` sit at [0,5,0] and already
- *      own the background-COLOR half (see the two-rule split documented at components.css:820).
+ *      [0,4,1] alone: `.hero .btn:not(...)` and `.cta .btn:not(...)` SAT at [0,5,0] and owned
+ *      the background-COLOR half until they were deleted (hero's at #986, cta's at #1026);
+ *      the premium `main .btn:not(...)` rules and the global `--btn-*` tier own it now. The
+ *      "two-rule split" this used to cite at components.css:820 is not documented there any
+ *      more — that line is a `.hero--cover[data-pp-vertical-align]` alignment rule.
  *      A `transition-property` restored on either of THOSE re-animates the fill and outranks the
  *      fix. So the surface is matched by its `.btn` compound and the three variant `:not()`s, in
  *      any ancestor context, not by a literal `main .btn` prefix.
@@ -2783,6 +2786,16 @@ describe('CSS lint: v2 components keep NO designable value in their stylesheet',
         expect(v2Components).toContain('section');
     });
 
+    /**
+     * cta joined at #1026. Added in that change's own review, which found it MISSING: every
+     * prior rebuild had left a one-line pin here and cta's had not been written, so the
+     * component with the largest slot retirement to date (40 slots, 798 stylesheet lines down
+     * to 158) was the one component whose structural-CSS boundary nothing enforced.
+     */
+    test('cta joins the boundary rule', () => {
+        expect(v2Components).toContain('cta');
+    });
+
     // STRUCTURE, not design. Layout scaffolding (how boxes relate), wrapper
     // geometry (how wide the column is), and the resets a component needs so a
     // role's value lands predictably.
@@ -3980,17 +3993,6 @@ describe('CSS lint: dark-band focus ring routes through the AA accent roles (#54
         });
     });
 
-    /*
-     * SEMANTIC PRECEDENCE, not formatting. ONE root can carry an inverted class AND a
-     * bg-image class: the section root in components/cta/cta.php concatenates
-     * `pp_theme_class($theme,'cta')` and `$bg_image_class` independently (the section root
-     * in section.php does the same, which is why section bands would have had the
-     * identical dependency had they been routed). Named by construct, not by line: both
-     * files carry long guard blocks that shift these roots on every fix. The two
-     * blocks then match at [0,3,0] and only source order decides. The OVERLAY role must
-     * win: on-inverted is only 2.21:1 over the worst-case scrim, so the combined band would
-     * otherwise get a ring that fails 1.4.11 harder than the bug this fixes.
-     */
     // RETIRED (#1026): the source-order pin between the inverted and overlay blocks. It
     // existed because ONE cta root could carry both classes — cta.php concatenated the theme
     // class and the bg-image class independently — so the two blocks tied at [0,3,0] and only

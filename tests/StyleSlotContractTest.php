@@ -83,16 +83,19 @@ class StyleSlotContractTest extends TestCase
     public function testDiscoveryFindsTheKnownStyledComponents(): void
     {
         $found = $this->styledComponents();
-        // FOUR, not seven: testimonials left the style-slot system in #958, hero in #986
-        // and section in #1023, all rebuilt on the Universal Design Contract. Their
-        // authoring surface is roles, and the contract that replaced this one is the UDC
-        // engine's own.
-        foreach (['faq', 'grid', 'stats'] as $known) {
+        // SIX. This is the fail-closed floor for every discovery-driven check in the file, so
+        // it is written out rather than counted: a component silently dropping out of
+        // discovery would quietly disable its whole slot contract. The comment used to say
+        // "FOUR, not seven" while listing THREE, which is how far it had drifted.
+        foreach (['embed', 'faq', 'grid', 'logos', 'stats', 'table'] as $known) {
             $this->assertContains($known, $found, "Schema discovery lost the {$known} component.");
         }
-        // …and the three v2 components must NOT be discovered here, or this suite would
-        // start asserting a slot contract against a component that has none.
-        foreach (['hero', 'section', 'testimonials'] as $v2) {
+        // …and the v2 components must NOT be discovered here, or this suite would start
+        // asserting a slot contract against a component that has none. testimonials left the
+        // style-slot system in #958, hero in #986, section in #1023 and cta in #1026; their
+        // authoring surface is roles, and the contract that replaced this one is the UDC
+        // engine's own. nav and footer are chrome and were never in this set.
+        foreach (['hero', 'section', 'testimonials', 'cta'] as $v2) {
             $this->assertNotContains($v2, $found, "{$v2} is a v2 component: it declares no style slots.");
         }
     }

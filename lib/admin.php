@@ -2572,7 +2572,7 @@ function pp_validate_composition_errors(array $items, ?int $limit = null, ?int $
         //
         // Source of truth is the component's schema.json `props` (the full prop
         // contract), NOT pp_get_component_fields() (the curated CLI-patch editability
-        // subset), which omits real props like cta.theme / cta.background_image and
+        // subset), which omits real props like grid.items / section.panel_items and
         // would false-reject them.
         //
         // Runs after the required-props loop so a missing required prop still wins

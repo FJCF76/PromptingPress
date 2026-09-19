@@ -87,8 +87,12 @@ $button_text      = $props['button_text']      ?? 'Get Started';
 // cast result meets a GATE. Neither anchor below is gated on the url — the second
 // button's gate keys on button2_TEXT — so nothing here can flip. Measured across
 // '', '0', 'x', '/go', 0, 42, 3.14, 0.0, -0.0, true, false: raw and cast produce
-// byte-identical renders at both call sites. The site where a cast DOES meet a gate is
-// section.php (panel_cta_url, `!== ''`); it documents its own handling there.
+// byte-identical renders at both call sites. The sites where a cast DOES meet a gate are
+// section.php (panel_cta_url, `!== ''`) and the truthiness pair grid.php (link_url) and
+// embed.php — each documents its own handling there. The enumeration is worth keeping
+// complete: an earlier draft narrowed it to section.php alone while widening the claim from
+// "in this change" to "in this FAMILY", which made it false for two components that still
+// self-document as cast-meets-gate sites.
 //
 // STORED data is the point. The write path rejects a non-scalar, but it gates WRITES,
 // not storage: restore_composition reports without blocking (#233), a composition

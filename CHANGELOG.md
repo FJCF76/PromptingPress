@@ -149,7 +149,8 @@ retired: on a full-width band both rendered **byte-identically to `default`**. O
 
 `button_variant` offered four treatments; two ship as presets. Write the other two on the
 role — `outline` is a transparent fill with accent ink and a 2px accent border; `ghost` is
-the same without the border. Both maps are in `components/cta/README.md`.
+the same without the border. Both maps are written out in
+`docs/howto-migrate-a-cta-band-to-v2.md` §4.
 
 **The DEFAULT pair is unchanged.** `button-secondary` carries v1's `outline` treatment as
 its own defaults, so an unauthored cta still renders one filled action beside one outlined
@@ -203,6 +204,13 @@ at #986, its own rebuild, for the same reason.
 Run `wp pp check page --post_id=<id>` on every page with a closing CTA. Retired props report
 as `retired_prop` with their route; stored `--cta-*` slots report as `invalid_style_slot`.
 Nothing blocks reading the page, and `restore_composition` is never blocked.
+
+**Purge any full-page or CDN cache after upgrading.** A v2 band's design is emitted per page
+in `wp_head`, not in the stylesheet, so a cached PAGE now caches the design too. The
+combination that matters is a cached pre-upgrade page served against the new stylesheet: the
+old markup still carries the band-class and scrim element this release deleted every rule
+for, which renders an unscrimmed image band with the on-overlay ink gone. A cache purge
+clears it; nothing needs repairing in the database.
 
 ---
 

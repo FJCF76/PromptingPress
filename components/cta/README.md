@@ -157,10 +157,13 @@ narrows from five properties to three, because a bare `.btn` picks up the #540 s
 }
 ```
 
-**`border: {"width": "0"}` on `_band` is not redundant.** The role DEFAULTS to the 1px rule
-v1's full-width layout drew in `@color-border`, a light grey. On a near-black band that
-would draw two visible light lines the v1 seed never had — invisible against a light page,
-obvious against this one. Zeroing it is the migration step every dark band takes.
+**`border: {"width": "0"}` on `_band` is not redundant, and it is an IMPROVEMENT on the v1
+seed rather than a way of matching it.** The role DEFAULTS to the 1px rule v1's full-width
+layout drew in `@color-border`, a light grey. The v1 seed set `--cta-bg` to the same
+near-black and set no border slot, so that fallback resolved and v1 DID draw two light-grey
+hairlines across the dark band — an artefact nobody chose. (An earlier version of this note
+claimed v1 "never had" them; #1026's review measured it and the opposite is true.) Zeroing
+the border drops the artefact, and it is the migration step every dark band takes.
 
 **`heading` and `text` both carry the measure.** v1's single `--cta-heading-measure` slot fed
 two elements: the heading on every layout, and the full-width text block. Setting only

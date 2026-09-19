@@ -701,24 +701,33 @@ class ComponentPropsTest extends TestCase
     }
 
 
-    public function testCtaButton2VariantPrimaryIsBareBtn(): void
+    /**
+     * REPRICED (#1026 review). This was `testCtaButton2VariantPrimaryIsBareBtn` and it passed a
+     * RETIRED `button2_variant: 'primary'` through the fixture. cta.php has no handling for that
+     * key any more, so every value — `primary`, `outline`, an invented one — produced the same
+     * class list and the test's name described nothing the renderer does.
+     *
+     * What is still worth pinning is the shape the retirement PRODUCED: both anchors render as a
+     * bare `.btn`, and the only thing distinguishing them is the modifier each carries, which is
+     * the selector its role is keyed on.
+     */
+    public function testBothCtaButtonsAreBareBtnsDistinguishedOnlyByTheirRoleModifier(): void
     {
-        $html = $this->render('cta', $this->ctaProps([
-            'button2_text'    => 'Secondary',
-            'button2_variant' => 'primary',
-        ]));
+        $html = $this->render('cta', $this->ctaProps(['button2_text' => 'Secondary']));
+        $this->assertStringContainsString('class="cta__button cta__button--primary btn"', $html);
         $this->assertStringContainsString('class="cta__button cta__button--secondary btn"', $html);
+        // Neither carries a v1 variant modifier: no renderer emits them any more.
+        foreach (['btn--primary', 'btn--secondary', 'btn--outline', 'btn--ghost'] as $variant) {
+            $this->assertStringNotContainsString($variant, $html, "no renderer emits {$variant}");
+        }
     }
 
 
-    public static function button2VariantProvider(): array
-    {
-        return [
-            'secondary' => ['secondary', 'btn--secondary'],
-            'outline'   => ['outline', 'btn--outline'],
-            'ghost'     => ['ghost', 'btn--ghost'],
-        ];
-    }
+    // button2VariantProvider() IS GONE (#1026 review): its consumer
+    // (testCtaButton2VariantMapsToModifier) retired with the `button2_variant` prop, and the
+    // `btn--secondary` / `btn--outline` / `btn--ghost` modifiers it returned are no longer
+    // emitted by any renderer.
+
 
 
     public function testCtaButton2TextAndUrlAreEscaped(): void
@@ -3601,7 +3610,7 @@ class ComponentPropsTest extends TestCase
     // the other typed helper:
     //
     //   lib/wp.php  pp_esc_image_src(string $url, int $depth = 0)
-    //     cta.php, stats.php, section.php — all three read `background_image` raw.
+    //     stats.php — the only component that still reads `background_image` raw (section's prop retired at #1023 and cta's at #1026).
     //
     // Each is gated on truthiness, and a non-empty array is TRUTHY, so the gate passes
     // and the typed call raises a TypeError that no caller catches.

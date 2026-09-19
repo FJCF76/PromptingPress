@@ -1110,43 +1110,37 @@ class WriteRenderGrammarTest extends TestCase
     // adding an advisory to the UDC engine is a change to the shared engine's finding
     // vocabulary, which is not cta's rebuild to make.
 
-    public static function fillSlotFamily(): array
+    // fillSlotFamily() IS GONE (#1026 review). It was the dataProvider for the
+    // transparent_fill advisory tests, every row naming a retired `--cta-button*` slot, and it
+    // had no `@dataProvider` consumer left. It also carried a latent bug worth recording: four
+    // of its keys were DUPLICATED, so PHP silently collapsed the eight written rows to four and
+    // the provider had been half the size it read as.
+
+
+
+
+    /**
+     * Does ANY shipped schema still declare a `role: "fill"` slot?
+     *
+     * The transparent_fill advisory recognises a fill by that DECLARED marker, so with an
+     * empty roster it can fire on nothing and every negative control for it passes vacuously.
+     * #1026's review proved exactly that: deleting the advisory's whole value check left all
+     * 5086 tests green. Rather than delete the controls (they encode real behaviour) or leave
+     * them reading as coverage they no longer provide, they SKIP while the roster is empty and
+     * wake up by themselves the moment a component declares a fill slot again. Tracked as
+     * #1036, which asks whether the advisory should be retired or kept as a forward guard.
+     */
+    private function fillSlotRosterIsEmpty(): bool
     {
-        // Each row must actually RENDER the button its fill slot paints. Since #580 an
-        // inert declaration reports `inert_slot` and suppresses the value-level advisory,
-        // because "this transparent fill makes the button invisible" is not true of a
-        // button that is not on the page — so a button2 row needs `button2_text` and the
-        // panel-CTA row needs the `text-panel` layout, or the fixture would be asserting
-        // the fill contract against markup that never renders.
-        $cta      = ['title' => 'Go', 'button_text' => 'Go', 'button_url' => '/'];
-        $cta2     = $cta + ['button2_text' => 'More', 'button2_url' => '/more'];
-        $hero     = ['title' => 'Go', 'button_text' => 'Go', 'button_url' => '/'];
-        $hero2    = $hero + ['button2_text' => 'More', 'button2_url' => '/more'];
-        $section  = [
-            'title'          => 'Go',
-            'body'           => 'B',
-            'layout'         => 'text-panel',
-            'panel_cta_text' => 'Go',
-            'panel_cta_url'  => '/',
-        ];
-        return [
-            '--cta-button-bg'          => ['cta', '--cta-button-bg', $cta],
-            '--cta-button-hover-bg'    => ['cta', '--cta-button-hover-bg', $cta],
-            '--cta-button2-bg'         => ['cta', '--cta-button2-bg', $cta2],
-            '--cta-button2-hover-bg'   => ['cta', '--cta-button2-hover-bg', $cta2],
-            '--cta-button-bg'         => ['cta', '--cta-button-bg', $hero],
-            '--cta-button-hover-bg'   => ['cta', '--cta-button-hover-bg', $hero],
-            '--cta-button2-bg'        => ['cta', '--cta-button2-bg', $hero2],
-            '--cta-button2-hover-bg'  => ['cta', '--cta-button2-hover-bg', $hero2],
-            // section's row left this provider at #1023 with the slot. The
-            // transparent-fill advisory still fires for every component that declares a
-            // fill slot; section's panel button is the `panel-cta` ROLE now, and the
-            // equivalent advisory over a `udc` map is the engine's own, pinned in
-            // UdcEngineTest rather than here.
-        ];
+        foreach (array_keys(pp_get_registered_components()) as $component) {
+            foreach (pp_get_style_slots($component) as $slot) {
+                if (is_array($slot) && ($slot['role'] ?? null) === 'fill') {
+                    return false;
+                }
+            }
+        }
+        return true;
     }
-
-
 
     /**
      * Smells run over arbitrary history-ring snapshots and raw-meta writes, so a
@@ -1156,6 +1150,12 @@ class WriteRenderGrammarTest extends TestCase
      */
     public function testTheFillAdvisoryIgnoresMalformedStyleEntries(): void
     {
+        if ($this->fillSlotRosterIsEmpty()) {
+            $this->markTestSkipped(
+                'no shipped schema declares role: "fill" since #1026, so the advisory has no '
+                . 'reachable subject and this control cannot fail (#1036)'
+            );
+        }
         $warnings = pp_validate_composition_smells([[
             'component' => 'cta',
             'props'     => ['title' => 'Go', 'button_text' => 'Go', 'button_url' => '/'],
@@ -1168,8 +1168,14 @@ class WriteRenderGrammarTest extends TestCase
     /**
      * The advisory reads the DECLARED `role: "fill"` marker, never a `-bg` name
      * convention — a convention is a second source of truth, which is the defect the
-     * definition-surface contract fixes one layer down. `--cta-bg` is a `-bg` slot
-     * with no fill role: transparent is its shipped DEFAULT and must stay silent.
+     * definition-surface contract fixes one layer down.
+     *
+     * THIS ONE IS STILL NON-VACUOUS, unlike its two siblings above, but for a DIFFERENT
+     * reason than its old docblock claimed. It used to say "`--cta-bg` is a `-bg` slot with
+     * no fill role". `--cta-bg` does not exist at all since #1026 — cta declares no slots —
+     * so what the fixture now exercises is an UNDECLARED name, which the advisory must also
+     * pass over in silence. The name is left in place deliberately: an undeclared `-bg` slot
+     * is the sharpest possible test that the advisory keys on the marker and not on the name.
      */
     public function testATransparentNonFillBackgroundDoesNotWarn(): void
     {
@@ -1185,6 +1191,12 @@ class WriteRenderGrammarTest extends TestCase
     /** A real colour on a fill slot is silent — the advisory is not a fill-slot alarm. */
     public function testAnOpaqueFillDoesNotWarn(): void
     {
+        if ($this->fillSlotRosterIsEmpty()) {
+            $this->markTestSkipped(
+                'no shipped schema declares role: "fill" since #1026, so the advisory has no '
+                . 'reachable subject and this control cannot fail (#1036)'
+            );
+        }
         $warnings = pp_validate_composition_smells([[
             'component' => 'cta',
             'props'     => ['title' => 'Go', 'button_text' => 'Go', 'button_url' => '/'],
@@ -1201,7 +1213,7 @@ class WriteRenderGrammarTest extends TestCase
      * stays quiet; the ERROR channel reports the dead slot instead.
      *
      * The canonical name's own coverage is unaffected — `--hero-button2-bg` is a row in
-     * fillSlotFamily above, exercised through the full authoring path.
+     * the retired fillSlotFamily provider, exercised through the full authoring path.
      */
     public function testARetiredLegacyFillSlotNameNoLongerWarns(): void
     {

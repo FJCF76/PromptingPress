@@ -10535,8 +10535,8 @@ test.describe('#577 dead and defeated style slots render', () => {
   const BORDER = 'rgb(217, 224, 235)'; //       --color-border             #d9e0eb
   const INVERTED_BG = 'rgb(15, 23, 42)'; //     --color-bg-inverted        #0f172a
   const ACCENT = 'rgb(49, 87, 244)'; //         --color-accent             #3157f4
-  const ACCENT_ON_INVERTED = 'rgb(157, 175, 238)'; // --color-accent-on-inverted #9dafee
-  const MUTED_ON_OVERLAY = 'rgb(250, 251, 255)'; //   --color-muted-on-overlay   #fafbff
+  // ACCENT_ON_INVERTED and MUTED_ON_OVERLAY were removed at #1026: each had exactly one
+  // reader, and both readers were cta rows deleted with the component's variant classes.
   const MUTED_INK = 'rgb(94, 102, 119)'; //     --color-muted              #5e6677
   const OVERLAY_BG = 'rgba(0, 0, 0, 0.55)'; //  --overlay-bg
 
@@ -10990,6 +10990,59 @@ test.describe('#577 dead and defeated style slots render', () => {
           `${s.name} @${width}: ratio=${res.ratio?.toFixed(2)} (need >= 4.5)`,
         ).toBeGreaterThanOrEqual(4.5);
       }
+    }
+  });
+
+  test('#577 the stats inverted+bg-image carve-out still clears AA at 1280 and 375 @smoke', async ({
+    page,
+  }) => {
+    // RESTORED, NARROWED (#1026 review). The deleted `rows 6+7: an inverted +
+    // background_image band` test covered TWO components and only cta's half retired. This
+    // is the stats half, and it was the ONLY rendered proof of the `:not(.stats--has-bg-image)`
+    // carve-out on `.stats--inverted:not(.stats--has-bg-image) .stats__label` — a rule that
+    // still ships, on a component that still has BOTH props, and which the stylesheet's own
+    // comment now calls "the only one left". Nothing else pins it: no css-lint or PHPUnit test
+    // asserts the `:not()`, and no other e2e fixture builds a stats band with both.
+    //
+    // What it prevents is a measured REGRESSION, not a hypothetical: stats.php emits the theme
+    // class and the bg-image class independently, and the inverted rule is the EARLIER of the
+    // two. Without the carve-out a combined band keeps the inverted `opacity: 0.75` while the
+    // --has-bg-image rule supplies only `color` — DIMMER than the 0.85 that already measured
+    // 3.87:1 and failed AA.
+    pageId = createPage('E2E 577 stats inverted + bg-image');
+    setComposition(pageId, [
+      {
+        component: 'stats',
+        props: {
+          id: 'pp-ov-stats',
+          theme: 'inverted',
+          background_image: WHITE_PNG,
+          title: 'Combined band',
+          items: [{ number: '42', label: 'Deployments every single week' }],
+        },
+      },
+    ]);
+
+    for (const width of [1280, 375]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`/?page_id=${pageId}`);
+      await expect(page.locator('#pp-ov-stats .stats__overlay')).toBeVisible({ timeout: 10000 });
+
+      // The fixture must actually be the combined band, or the carve-out is untested.
+      const classes = (await page.locator('#pp-ov-stats').getAttribute('class')) || '';
+      expect(classes, `@${width}: fixture must carry BOTH classes`).toContain('stats--inverted');
+      expect(classes).toContain('stats--has-bg-image');
+
+      const res = await overlayContrast(page, '#pp-ov-stats .stats__label', '#pp-ov-stats .stats__overlay');
+      expect(res.found, `stats label not found @${width}`).toBe(true);
+      expect(
+        res.textOpacity,
+        `@${width}: the inverted opacity literal leaked onto the overlay band — the carve-out is gone`,
+      ).toBe(1);
+      expect(
+        res.ratio,
+        `@${width}: ratio=${res.ratio?.toFixed(2)} (need >= 4.5)`,
+      ).toBeGreaterThanOrEqual(4.5);
     }
   });
 

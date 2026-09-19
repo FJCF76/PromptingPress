@@ -8860,15 +8860,21 @@ function pp_default_homepage_composition(): array {
             // The v2 shape of the branded dark closing band (#1026). Where the v1 seed
             // set 18 style slots plus `button_variant`, this sets values on named roles.
             //
-            // THE `_band` BORDER IS SET EXPLICITLY, and it is the one line here that a
-            // reader might think is redundant. It is not: the role now DEFAULTS to the
-            // 1px rule v1's full-width layout drew in `--color-border`, which is a light
-            // grey. On this near-black band that default would draw two visible light
-            // lines the v1 seed never had, because v1's `--cta-bg` slot left the border
-            // slots alone and the band's own borders were the same light grey — invisible
-            // against a light page, obvious against this one. Zeroing it here is what
-            // keeps the seed byte-identical, and it is exactly the migration step the
-            // `theme` retirement note tells every dark band to take.
+            // THE `_band` BORDER IS SET EXPLICITLY, and this is a DELIBERATE IMPROVEMENT ON
+            // THE v1 SEED rather than a byte-identity step. An earlier draft of this comment
+            // claimed the opposite — that v1 "never had" the two light lines — and #1026's
+            // review measured it the other way. What v1 actually did: the seed set `--cta-bg`
+            // to this same near-black and set NO border slot, so `.cta--full-width`'s
+            // `border-top/bottom: var(--cta-border-width, 1px) solid var(--cta-border-color,
+            // var(--color-border))` fell through to 1px of `--color-border` (#d9e0eb, a light
+            // grey) and drew it — at (0,1,0) and LATER in source than the issue-332 baseline,
+            // so the baseline did not suppress it. Two light-grey hairlines across a #0A0A12
+            // band, which nobody chose and which reads as an artefact.
+            //
+            // The role default reproduces that v1 behaviour faithfully, which is why zeroing
+            // it here is a real edit and not redundancy: it drops the artefact. It is also
+            // exactly the migration step the `theme` retirement note tells every dark band to
+            // take, so the seed demonstrates the documented route.
             '_band' => [
                 'background' => ['fill' => '#0A0A12'],
                 'spacing'    => ['padding-top' => '5.5rem', 'padding-bottom' => '5.5rem'],

@@ -56,36 +56,13 @@ class NestedButtonSlotIsolationTest extends TestCase
         return ob_get_clean();
     }
 
-    /** The neutralisation rule's selector, comments stripped. */
-    private function neutralisationSelector(): string
-    {
-        $stripped = preg_replace('/\/\*.*?\*\//s', '', $this->css) ?? $this->css;
-        $found    = null;
-        if (preg_match_all('/(main\s+\.btn(?::not\(\.[a-z0-9_-]+\))+)\s*\{([^}]*)\}/i', $stripped, $m, PREG_SET_ORDER)) {
-            foreach ($m as $rule) {
-                $decls = array_filter(array_map('trim', explode(';', $rule[2])));
-                if ($decls === []) {
-                    continue;
-                }
-                $allInitial = true;
-                foreach ($decls as $d) {
-                    if (!preg_match('/^--[a-z0-9-]+:\s*initial$/', $d)) {
-                        $allInitial = false;
-                        break;
-                    }
-                }
-                if ($allInitial) {
-                    $found = trim($rule[1]);
-                    break;
-                }
-            }
-        }
-        $this->assertNotNull(
-            $found,
-            'components.css must carry a `main .btn:not(...) { --slot: initial; }` rule (issue 545).'
-        );
-        return $found;
-    }
+    // THE NEUTRALISATION-SELECTOR HELPER IS GONE (#1026 review). It read components.css for a
+    // `main .btn:not(...) { --slot: initial; }` rule and FAILED if it found none — and this
+    // change deleted that rule, so the helper could only ever fail. Its last caller was one of
+    // the three #545 tests retired below, so nothing noticed. A dead helper that fails on call
+    // is worse than no helper: the next author reaching for "read the neutralisation rule" gets
+    // a red test rather than an answer.
+
 
     // ── 1. The surfaces that can actually hold an author-written .btn ────────────────
 
@@ -164,7 +141,7 @@ class NestedButtonSlotIsolationTest extends TestCase
         $this->assertStringContainsString('&lt;a class=&quot;btn&quot;', $html);
     }
 
-    // ── 2. The renderer-owned button classes the CSS rule must exclude ───────────────
+    // ── 2. Which renderers emit a `.btn`, and with which classes ───────────────
 
     /**
      * Every `.btn` a RENDERER emits, with the class list it carries. If a template renames
@@ -207,7 +184,7 @@ class NestedButtonSlotIsolationTest extends TestCase
                 $this->assertNotEmpty(
                     $owned,
                     "{$component} renders a .btn with classes '{$classList}' that carries none of "
-                    . 'its owned button classes — the #545 rule would neutralise its own slots.'
+                    . 'its owned button classes — this is the class list a renderer owns (the #545 rule that consumed it retired at #1026).'
                 );
             }
         }

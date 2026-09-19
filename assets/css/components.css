@@ -860,7 +860,10 @@
    shadow are the `_band` role's defaults, so there is nothing structural left to say
    about it. The shared adjacent-band rhythm still reaches it — `_band` defaults emit into
    `@layer pp-zero`, deliberately BELOW this stylesheet, which is what lets #430/#431's
-   `main > [data-pp-component] + .section` rule keep winning.
+   adjacent-band rule keep winning. That rule is
+   the GENERIC `:where(main > [data-pp-component] + [data-pp-component]:not(.hero))` catch-all,
+   not a per-component selector: section's own adjacent rule was deleted at #1023, so naming one here
+   sends a reader looking for something the file does not contain.
 
    FIVE THINGS THE v1 BLOCK DID THAT THIS ONE DELIBERATELY DOES NOT:
 
@@ -1961,7 +1964,10 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
    shadow are the `_band` role's defaults, so there is nothing structural left to say about
    it. The shared adjacent-band rhythm still reaches it — `_band` defaults emit into
    `@layer pp-zero`, deliberately BELOW this stylesheet, which is what lets #430/#431's
-   `main > [data-pp-component] + .cta` rule keep winning.
+   adjacent-band rule keep winning. That rule is
+   the GENERIC `:where(main > [data-pp-component] + [data-pp-component]:not(.hero))` catch-all,
+   not a per-component selector: cta's own adjacent rule was deleted at #1026, so naming one here
+   sends a reader looking for something the file does not contain.
 
    THE ONE THING THIS REBUILD HAD TO DO THAT SECTION'S DID NOT — narrow the issue-332
    border baseline (#1026). cta's `_band` border default is a REAL 1px rule top and bottom,

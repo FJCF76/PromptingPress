@@ -1078,14 +1078,12 @@ class SchemaTruthfulnessTest extends TestCase
         $grid = $this->render('grid', ['items' => [['title' => 'One', 'text' => 'a']]]);
         $this->assertStringNotContainsString('--grid-item-link-hover-color', $grid);
 
-        $cta = $this->render('cta', [
-            'title'        => 'Ready?',
-            'button_text'  => 'Start',
-            'button_url'   => 'https://example.com',
-            'button2_text' => 'Docs',
-            'button2_url'  => 'https://example.com/docs',
-        ]);
-        $this->assertStringNotContainsString('--cta-button2-shadow', $cta);
+        // THE cta HALF IS GONE (#1026 review), and it was vacuous before it was removed:
+        // it asserted that rendered cta markup contains no `--cta-button2-shadow`, but cta
+        // declares ZERO style slots, so pp_render_style_vars() has nothing to emit and NO
+        // `--cta-*` custom property can appear there whatever the render path does. It read
+        // as coverage and could not fail. grid's half above is the live one: grid still
+        // declares the slot family this test is about.
     }
 
 
