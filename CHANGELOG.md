@@ -4,7 +4,7 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
-## [Unreleased — v2.0.0-alpha.2] — v2 Sprint 2: the chrome CSS retirement, and `section`, `cta` + `faq` rebuilt on the design contract (#994, #992, #995, #1023, #988, #1026, #1046)
+## [Unreleased — v2.0.0-alpha.2] — v2 Sprint 2: the chrome CSS retirement, and `section`, `cta`, `faq`, `table` + `embed` rebuilt on the design contract (#994, #992, #995, #1023, #988, #1026, #1046, #1066)
 
 **The last two components still painted by the old stylesheet are on the engine.** The site header and footer declared roles you could author, while `assets/css/components.css` quietly owned how they actually looked. That split is what made styling a nav link silently erase its own hover. 88 declarations moved into role defaults, the CSS rules are gone, and the three bugs the split was causing are fixed.
 
@@ -91,6 +91,126 @@ Nothing to do unless you have a stored `pp_site_udc` map with a `"_preset"` on a
 - Chrome joins the structural-CSS boundary lint; the carve-out is removed and its lapse pinned.
 - The #992 characterization test is inverted rather than deleted: same fixture, same authored input, opposite expectations.
 - New pins: role defaults frozen value-for-value, breakpoint maps refused when they name only `d`, every role's defaults proved to reach the page, every shipped selector proved well-formed, and the chevron's negative margin pinned to the token it mirrors.
+
+---
+
+## `table` and `embed` are on the design contract (#1066)
+
+**The two components nobody had styled yet are rebuilt, and one of them ends up with no
+stylesheet at all.** `table` declared 6 style slots for eleven designable elements; it
+declares **11 roles and zero slots**. `embed` declared 8 slots and a `theme` prop; it
+declares **4 roles and zero slots**, and its own block in `assets/css/components.css` is now
+**empty** — the first v2 component whose appearance is entirely role defaults with no
+structural CSS left to write. (It keeps only its share of the one global rule every band
+joins, the anchor-jump offset.)
+
+### What changes for you
+
+**`table` gains an authoring surface it never had.** Six slots reached the band padding and
+the heading. The eleven roles are `_band`, `heading`, `wrap`, `table`, `caption`, `head`,
+`header`, `row`, `cell`, `cell-link` and `empty` — so the cells, the header row, the caption,
+the scroll frame and the empty-state message are all addressable for the first time, per
+breakpoint and per state. Row hover is a `":hover"` map on `row` rather than a stylesheet
+rule you could not reach.
+
+**`embed`'s four roles cover what its eight slots did, plus links.** `_band`, `heading`,
+`content` and `content-link`. `content` is the only place the theme can reach into
+plugin-rendered markup, and it reaches exactly as far as inheritance does — which is the
+point of the component, not a limitation of the rebuild.
+
+**`table` retires nothing at all.** It never declared a styling prop, so there is no tone
+bundle to translate and no stored prop that can now be refused. A `table` band written
+before this release keeps rendering; only a stored `--table-*` slot stops being read.
+
+### ⚠️ Breaking: `embed`'s `theme` prop is retired
+
+| Retired | Write this instead |
+|---|---|
+| `theme: "default"` | nothing — the `_band` defaults already paint nothing |
+| `theme: "muted"` | `_band` → `background.fill: "@color-surface"` plus the per-edge `border.width-top` / `width-bottom`, `style-top` / `style-bottom` and `color` |
+| `theme: "inverted"` | `_band` → `background.fill` + `typography.color`, **plus** `content-link` → `typography.color` **and its `":hover"`** |
+
+A write naming it is refused with `retired_prop` and the route above. To clear a stored one,
+send it as `null` through `update_component`; send every stale key on that band in the same
+call, because the validator reports only the first problem per band.
+
+Use the per-edge `border.width-top` / `width-bottom`, never the `width` shorthand: the
+shorthand emits all four edges, which on a full-bleed band draws hairlines down both
+viewport edges.
+
+### ⚠️ Breaking: `--embed-body-color` has no replacement
+
+v1 declared `color: var(--embed-body-color, inherit)`. An explicit `inherit` **is** a
+declaration, but nothing in this theme declares `color` on a bare `<div>`, so an inherited
+`_band` value already lands there and silence renders byte-identically. The `content` role
+still declares `typography`, so port an explicit body colour to `content` →
+`typography.color`. The other seven `--embed-*` slots are plain renames.
+
+### The heading default changed on both, deliberately
+
+`--table-heading-color` and `--embed-heading-color` each fell back to a pinned
+`var(--color-text)`. Both `heading` roles default to `currentColor` instead. On every band v1
+could render these are the same colour — neither component could make a dark band, so
+`@color-text` was the only thing either heading ever showed. They diverge only on a band you
+darken yourself, which the pinned literal would have stranded at **1.006:1**.
+
+> **The fill and the ink are two writes, and setting only the fill is the common mistake.**
+> `currentColor` follows the band's `typography.color`, not its `background.fill`. A dark
+> fill with no ink renders the heading at about **1.04:1**. Write both together.
+
+### `table`'s row separator moved to the top edge, and that is what keeps the last row clean
+
+v1 suppressed the final row's bottom rule with `:last-child`. A structural pseudo-class is
+not a role selector and not one of the three states, so the separator now sits on each row's
+**top** edge. Under `border-collapse: collapse` adjacent edges merge and the wider wins, so
+the render is identical — proven byte-identical across 1, 2 and 3 rows at 375/768/1280.
+
+Three things are newly possible, and all three are in the how-to: a width and colour with no
+`style` paint nothing (`border-style`'s initial value is `none`, the lowest priority in the
+collapse model); `row`'s top rule and `header`'s bottom rule share one edge, where a tie is
+broken by element rank and the `<th>` wins; and `row` → `border.style-top: "hidden"` erases
+the header's rule entirely.
+
+### A dark `table` band is three writes, not one
+
+The table paints its own light surface two layers inside the band, exactly as faq keeps its
+accordion items light. So `header` and `cell` **pin** `@color-text` and must not be
+re-inked — lightening them puts light text on a light table. But `caption` and `empty` sit on
+the **band** fill and both pin `@color-muted`, which measures about **3.1:1** on
+`@color-bg-inverted`.
+
+`caption` is the one nobody expects, and the reason is structural: a `<caption>` box renders
+**outside** the table's background box (CSS 2.1 §17.4), so `table` → `background.fill` never
+paints behind it. Verified by pixel, because a computed-style read cannot see it — the
+caption's DOM parent is `<table>` while its paint area is the band.
+
+### `cell-link` and `content-link` ship with no defaults
+
+Both exist because `typography.color` on `cell` or `content` cannot reach an `<a>`: it lands
+on the container, and the anchor takes its colour from `base.css`'s own `a` rule, which is a
+direct declaration on the element. An inherited value never beats one.
+
+Neither role carries a default, deliberately. A default restating `base.css`'s anchor values
+would emit unlayered and outrank the premium button rules for a composed
+`<a class="btn">`. With no default they cost nothing until used.
+
+**An authored value on either reaches a composed button too.** The write emits unlayered at
+`.table__cell a` / `.embed__content a`, which matches `<a class="btn">` as well as a prose
+link, in both states. The selector cannot be narrowed to `a:not(.btn)` — the role-selector
+charset admits neither `:` nor `(`. Keep composed buttons out of surfaces whose links you
+recolour, or accept the shared ink (#1071).
+
+**Write a link role's `":hover"` in the same call as its resting colour.** Not for the reason
+you would guess: the authored resting value is emitted unlayered, so it wins on hover too and
+the link simply **stops responding to hover**. The cost is a lost affordance, not a contrast
+failure.
+
+### Migration
+
+- `docs/howto-migrate-a-table-band-to-v2.md` — six renames, and everything that was never a slot
+- `docs/howto-migrate-an-embed-band-to-v2.md` — eight slots, the `theme` bundle, and how far a dark band reaches into `content`
+
+An unstyled band of either kind renders identically. The values moved; the pixels did not.
 
 ---
 

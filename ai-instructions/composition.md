@@ -48,11 +48,11 @@ See `AI_CONTEXT.md` → Component index for the current list. As of last update:
 | section | one of: body / body_items / panel content | body, title, title_accent, eyebrow, subheading, layout, image_url, image_id, image_alt, body_marker, body_items, body_items_align, panel_heading, panel_body, panel_items, panel_items_marker, panel_cta_text, panel_cta_url — and NOT `theme`, `title_align`, `background_image` or `panel_cta_variant`, which the v2 rebuild retired (see section.styling below) |
 | faq     | items[] {question, answer}              | title, title_accent, eyebrow, id                        |
 | grid    | items[] (fields: number, title, text, text_role, bullets[], image_url, image_alt, image_id, link_url, link_text, style — none individually required) | title, title_accent, eyebrow, subheading, title_align, layout, card_emphasis, theme, columns, image_treatment |
-| table   | headers[], rows[][]                     | title, caption, id                                      |
+| table   | headers[], rows[][]                     | title, caption, id — v2 since #1066, and it retired NOTHING (it never declared `theme`) |
 | cta     | button_text, button_url                 | title, title_accent, eyebrow, body, button2_text, button2_url, layout, id — and NOT `theme`, `background_image`, `button_variant` or `button2_variant`, which the v2 rebuild retired (see cta.styling below) |
 | stats   | items[] {number, label}                 | title, title_accent, theme, background_image            |
 | logos   | items[] {image_url, image_alt, image_id?, label?} | title, theme                                  |
-| embed   | content                                 | title, theme                                            |
+| embed   | content                                 | title, id — **no `theme`** (retired in #1066; say it in the `udc` map instead) |
 | testimonials | items[] {quote (req); optional author, role, company, image_url, image_alt, image_id} | title, title_accent, eyebrow, subheading, layout — **and NO `theme` / `title_align`**: testimonials is on the v2 Universal Design Contract, so a tone or an alignment is set through the band's `udc` map (`_band` background, role `typography.align`), not through a prop. See `ai-instructions/style-component.md`. |
 
 ## Text content model: which props accept HTML

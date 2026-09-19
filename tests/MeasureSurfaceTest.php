@@ -56,7 +56,22 @@ class MeasureSurfaceTest extends TestCase
     // roster is about — one design-token write reaching every band heading — is
     // unchanged; only the address moved. The v2 half is pinned in
     // FaqRoleDefaultsEmitTest, against the EMITTED declaration rather than schema text.
-    private const ROUTED = ['grid', 'stats', 'table', 'embed', 'logos'];
+    // table left at #1066, on the identical footing: its `heading` role's
+    // `sizing.max-width` still defaults to `@measure-heading`, so ONE update_design_token
+    // write still reaches it, and TableRoleDefaultsEmitTest asserts that emitted
+    // `max-width:var(--measure-heading)` directly.
+    //
+    // A NOTE FOR WHOEVER TOUCHES THIS NEXT, because the trend is now the fact. This
+    // roster is named for the SLOT MECHANISM, and the slot mechanism is ending: stats and
+    // logos leave in #1066's second half, which leaves ROUTED = ['grid'] and, once grid's
+    // own rebuild lands, empty. A one-element roster is not a surface audit, it is a
+    // single component's test wearing one. Decide this FILE's fate in the PR that removes
+    // stats and logos — retire it in favour of the per-component emit tests, or re-found
+    // it on the ROLE address so it keeps auditing the capability rather than the
+    // mechanism — rather than discovering it one rebuild later. The capability it exists
+    // to protect (one design-token write reaches every band heading) is worth keeping;
+    // the slot-shaped assertions are not.
+    private const ROUTED = ['grid', 'stats', 'logos'];
 
     /**
      * EMPTY SINCE #1023, and kept rather than deleted because the emptiness is the fact.
@@ -234,28 +249,84 @@ class MeasureSurfaceTest extends TestCase
         }
     }
 
-    /** The prose components that still declare a body measure; testimonials never did. */
-    public function testTheFourProseComponentsDeclareABodyMeasure(): void
+    /**
+     * THE BODY MEASURE, NOW ASSERTED ON THE v2 SIDE — because the slot side is EMPTY.
+     *
+     * section left the slot roster at #1023, cta at #1026, faq at #1046 and embed at
+     * #1066. embed was the LAST declarer, and an empty `foreach` is a test that cannot
+     * fail: the #1038 shape exactly, and the reason this method was rewritten rather than
+     * narrowed to nothing or deleted.
+     *
+     * THE CLAIM SURVIVES INTACT AND IS WHAT IS ASSERTED HERE: a component that renders a
+     * prose body can cap that body's measure, INDEPENDENTLY of the band heading measure.
+     * #578 separated those two surfaces deliberately — they resolve to the same 640px
+     * today and that is a coincidence, so folding one into the other would silently
+     * re-flow embedded content on the next heading-scale retune.
+     *
+     * The map below is WRITTEN OUT, not derived, and the distinction is worth stating
+     * because an earlier draft of this sentence claimed the opposite: "which role renders
+     * a component's prose body" is a judgement about markup that no registry field
+     * records, so it cannot be derived. What that costs is real — a later rebuild has to
+     * come here and add its row — and the `assertGreaterThanOrEqual(4, $checked)` below is
+     * what stops the map silently shrinking instead. faq is the deliberate exception and
+     * is asserted as one: v1
+     * declared `max-width: var(--faq-body-measure, none)` and RENDERED `none` at every
+     * tier, so its `answer` role declares no measure and that is the faithful port.
+     */
+    public function testEveryProseBodyRoleCanStillCapItsOwnMeasure(): void
     {
-        // section left this roster at #1023, cta at #1026 and faq at #1046. On the first
-        // two the body measure is the `body` role's `sizing.max-width`; on faq there is
-        // no measure at all, and that is the faithful port rather than an omission — v1
-        // declared `max-width: var(--faq-body-measure, none)` and RENDERED `none` at
-        // every tier, so the `answer` role declares nothing. ONE prose component still
-        // declares the slot, and the method name is left alone deliberately: renaming it
-        // to match today's count would erase the roster's history without adding a fact.
-        foreach (['embed'] as $component) {
-            $this->assertArrayHasKey(
-                "--{$component}-body-measure",
-                $this->slots($component),
-                "{$component} must declare a body measure."
+        // component => the role that renders its prose body.
+        $bodyRoles = ['section' => 'body', 'cta' => 'body', 'embed' => 'content', 'faq' => 'answer'];
+        $checked   = 0;
+
+        foreach ($bodyRoles as $component => $role) {
+            $roles = pp_udc_component_roles($component);
+            $this->assertArrayHasKey($role, $roles, "{$component} must still declare a `{$role}` role");
+            $this->assertContains(
+                'sizing',
+                $roles[$role]['groups'],
+                "{$component}.{$role} must permit `sizing`, or its body measure is unauthorable"
             );
+            $checked++;
         }
+        $this->assertGreaterThanOrEqual(4, $checked, 'the roster went empty — this test would prove nothing');
+
+        // embed keeps a real DEFAULT, and it is its own literal rather than the shared
+        // heading token. That is the #578 separation, pinned where it can be seen.
+        $this->assertSame(
+            '40rem',
+            pp_udc_component_roles('embed')['content']['defaults']['sizing']['max-width'] ?? null,
+            'embed\'s body measure must keep its own literal, not route @measure-heading'
+        );
+
+        // faq's absence is the deliberate one.
         $this->assertArrayNotHasKey(
-            '--testimonials-body-measure',
-            $this->slots('testimonials'),
-            'testimonials is NOT among the four body-measure components in this pass — its '
-            . 'stack layout keeps a 42rem literal by ruling. Do not add it without a decision.'
+            'sizing',
+            pp_udc_component_roles('faq')['answer']['defaults'] ?? [],
+            'faq\'s answer renders `none` on v1 and must declare no measure — silence is the port'
+        );
+        // THE NEGATIVE CONTROL, RE-POINTED AT THE v2 ADDRESS (#1066 review).
+        //
+        // It used to read `assertArrayNotHasKey('--testimonials-body-measure',
+        // $this->slots('testimonials'))`. testimonials has been v2 since #958, so
+        // `slots()` returned `[]` and the assertion could not fail — vacuous, inside a
+        // method whose whole docblock is about not shipping assertions that cannot fail.
+        // Caught by substituting an invented name, which also passed.
+        //
+        // The CLAIM it was making is still worth holding: testimonials renders quotes,
+        // not prose, and deliberately carries no body measure on either system. Asserted
+        // where that is now decidable — on the role's defaults.
+        // THE ROLE'S EXISTENCE FIRST. Without this the `?? []` below makes the assertion
+        // pass on an empty array if `quote` is ever renamed or dropped — which would
+        // reproduce, in the replacement, the exact vacuity the replacement was written to
+        // fix. Caught on the #1066 adversarial pass.
+        $testimonials = pp_udc_component_roles('testimonials');
+        $this->assertArrayHasKey('quote', $testimonials, 'testimonials must still declare a `quote` role');
+        $this->assertArrayNotHasKey(
+            'sizing',
+            $testimonials['quote']['defaults'] ?? [],
+            'testimonials never declared a body measure on either system, and the quote '
+            . 'role must not acquire one by drift'
         );
     }
 
@@ -382,10 +453,10 @@ class MeasureSurfaceTest extends TestCase
             $expected[] = "--{$component}-heading-measure";
         }
         // section's body measure went with its slot map at #1023 (the `body` role's
-        // `sizing.max-width`), the way hero's content measure went at #986.
-        foreach (['embed'] as $component) {
-            $expected[] = "--{$component}-body-measure";
-        }
+        // `sizing.max-width`), the way hero's content measure went at #986, and embed's
+        // — the LAST body-measure slot in the theme — at #1066. The v2 half of that
+        // claim is testEveryProseBodyRoleCanStillCapItsOwnMeasure above, which is
+        // registry-derived and asserts the capability rather than the slot name.
         // hero's measure used to be spelled --hero-content-width — the reason the engine
         // reads a declared role rather than a `-measure` name suffix. It left this surface
         // in #986: hero is a v2 component and its measure is the `content` role's
@@ -428,13 +499,14 @@ class MeasureSurfaceTest extends TestCase
     public function testEachSeveredHeadingReadsItsOwnSlotInItsOwnBlock(): void
     {
         $subjects = [
-            'table' => '.table-section__heading',
-            // faq's row left at #1046: its block declares no heading rule at all now, so
-            // there is no severed slot read left to check. The severance #578 made —
-            // faq's heading no longer reading a CTA slot — survives as a stronger fact:
-            // the heading's measure is its own role's `sizing.max-width`.
+            // faq's row left at #1046 and table's at #1066: each block declares no heading
+            // rule at all now, so there is no severed slot read left to check. The
+            // severance #578 made — those headings no longer reading a CTA slot —
+            // survives as a stronger fact: the measure is the component's own `heading`
+            // role's `sizing.max-width`, which no other component can address at all.
+            // embed's row left at #1066 with table's, and for the same reason: its block
+            // declares no heading rule at all now.
             'logos' => '.logos__heading',
-            'embed' => '.embed__heading',
             'stats' => '.stats__heading',
         ];
 
@@ -666,9 +738,10 @@ class MeasureSurfaceTest extends TestCase
         foreach (self::EXEMPT as $component) {
             $cases["{$component} heading"] = [$component, "--{$component}-heading-measure", '30rem'];
         }
-        foreach (['embed'] as $component) {
-            $cases["{$component} body"] = [$component, "--{$component}-body-measure", '34rem'];
-        }
+        // The body-measure row left this provider at #1066 with embed's slot map — it was
+        // the last one. Its claim (a body measure is authorable independently of the
+        // heading measure) is asserted on the v2 side in
+        // testEveryProseBodyRoleCanStillCapItsOwnMeasure, which is registry-derived.
         return $cases;
     }
 
@@ -752,7 +825,14 @@ class MeasureSurfaceTest extends TestCase
     public function testAForeignComponentCannotAuthorTheCtaMeasureSlot(): void
     {
         $id = pp_create_page('Foreign slot', 'draft');
-        pp_update_composition($id, [['component' => 'table', 'props' => $this->propsFor('table')]]);
+        // THE SUBJECT MOVED FROM table TO logos AT #1066, and the claim is unchanged:
+        // this is about ONE component being unable to author ANOTHER's slot, which is why
+        // #578 had to sever the shared six-selector rule. table can no longer make the
+        // point because it is a v2 component — its refusal now names its ROLES rather
+        // than the foreign slot, which is a different (and better) message, but not this
+        // one. logos is still on slots and still renders a heading, so it carries the
+        // original claim intact.
+        pp_update_composition($id, [['component' => 'logos', 'props' => $this->propsFor('logos')]]);
 
         $result = pp_execute_action('style_component', [
             'post_id'         => $id,
@@ -762,7 +842,7 @@ class MeasureSurfaceTest extends TestCase
 
         $this->assertFalse(
             $result['ok'],
-            'A table could never set --cta-heading-measure, which is exactly why capping its '
+            'A logos band could never set --cta-heading-measure, which is exactly why capping its '
             . 'heading through that slot made the cap unauthorable.'
         );
         // Assert the REASON, not just the failure: without this the test passes on a broken

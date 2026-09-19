@@ -76,10 +76,15 @@ Setting the slot replaces **both** branches with the single value you write.
 
 ### The deferred band-background gate
 
-`--logos-bg` **does not exist**, and neither do `--embed-bg` or `--table-bg`. This
-component's own `muted` variant paints `--color-surface` directly. (`table` is the odd one
-out: it declares no `theme` prop and no variant classes at all, so it has no band tone to
-paint in the first place.)
+`--logos-bg` **does not exist**. This component's own `muted` variant paints
+`--color-surface` directly.
+
+`--embed-bg` and `--table-bg` never existed either, but since #1066 that is no longer the
+interesting fact about them: both are v2 components with no style slots at all, and a band
+tone on either is the `_band` role's `background.fill` — a real capability rather than a
+deferred one. So the gate below is about **logos alone** now. (table is the odd one out
+twice over: it never declared a `theme` prop or any variant class, so its rebuild retired
+nothing.)
 
 Its **entry criterion**, for the day the deferred gate opens: if `--logos-bg` is ever
 shipped, these framing borders must route a slot **in the same change**. An author who paints the band a new colour and gets a

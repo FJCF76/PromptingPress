@@ -302,9 +302,14 @@ class CliSchemaCommandTest extends TestCase
 
     public function testComponentWithoutRecipesReportsAnEmptyList(): void
     {
-        $report = pp_component_schema_report('embed');
+        // THE SUBJECT MOVED FROM embed TO logos AT #1066. The claim is "a component with
+        // no recipes reports an empty recipe list while still reporting its styling
+        // surface" — so it needs a component that HAS a styling surface of the kind this
+        // report carries. embed is a v2 component now and reports roles instead, which is
+        // asserted one test up for nav. logos still declares slots and no recipes.
+        $report = pp_component_schema_report('logos');
         $this->assertSame([], $report['recipes']);
-        $this->assertNotEmpty($report['style_slots'], 'embed does declare style slots');
+        $this->assertNotEmpty($report['style_slots'], 'logos does declare style slots');
     }
 
     // ── applies_when: one vocabulary, all-or-nothing ─────────────────────────
@@ -681,11 +686,15 @@ class CliSchemaCommandTest extends TestCase
         // dropped below the old floor. The floor stays a FLOOR rather than an exact count
         // so a component adding a slot does not fail this, while a walk that stops
         // discovering them still does.
-        // 77 shipped slots today, down from 98 when faq's twenty-one left at #1046. The
-        // floor moves with the registry rather than being loosened: a walk that stops
-        // discovering slots must still fail, and each rebuild has to come here and lower
-        // it deliberately with the measured number in hand.
-        $this->assertGreaterThan(70, $seen, 'discovery is not vacuous');
+        // 63 shipped slots today, down from 77 when table's six and embed's eight left at
+        // #1066 (and from 98 when faq's twenty-one left at #1046). The floor moves with the
+        // registry rather than being loosened: a walk that stops discovering slots must
+        // still fail, and each rebuild has to come here and lower it deliberately with the
+        // measured number in hand. NOTE the endgame: grid (38), stats (17) and logos (8)
+        // are all that is left, and stats and logos both go in #1066's second half — at
+        // which point this floor guards a single component and the file is worth
+        // re-founding on the role surface rather than lowered again.
+        $this->assertGreaterThan(55, $seen, 'discovery is not vacuous');
     }
 
     public function testEveryRecipeEntryIsTheDeclaredDefinitionVerbatim(): void

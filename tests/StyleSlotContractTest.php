@@ -77,17 +77,35 @@ class StyleSlotContractTest extends TestCase
     /**
      * Fail-closed floor for the discovery itself: if the glob breaks (moved directory,
      * renamed schema files), every discovery-driven check below would pass vacuously
-     * over an empty list. Pin the seven components known to declare slots today; new
-     * slot-bearing components extend discovery automatically without touching this.
+     * over an empty list. Pin the THREE components that declare slots today — grid,
+     * logos and stats; new slot-bearing components extend discovery automatically
+     * without touching this.
+     *
+     * This sentence said SEVEN until #1066, which is how it ended up contradicting the
+     * assertion four lines below it: the number shrank at every v2 rebuild and the
+     * docblock was never one of the halves anyone repriced. table and embed were the
+     * last two to leave. Corrected here rather than filed, because a floor whose prose
+     * disagrees with its own count is exactly the thing a reader trusts instead of
+     * checking (#1038).
      */
     public function testDiscoveryFindsTheKnownStyledComponents(): void
     {
         $found = $this->styledComponents();
-        // SIX. This is the fail-closed floor for every discovery-driven check in the file, so
-        // it is written out rather than counted: a component silently dropping out of
-        // discovery would quietly disable its whole slot contract. The comment used to say
-        // "FOUR, not seven" while listing THREE, which is how far it had drifted.
-        foreach (['embed', 'grid', 'logos', 'stats', 'table'] as $known) {
+        // THREE: grid, logos, stats. The number is written out rather than counted
+        // because this is the fail-closed floor for every discovery-driven check in the
+        // file — a component silently dropping out of discovery would quietly disable its
+        // whole slot contract.
+        //
+        // THIS COMMENT HAS DRIFTED AT ALMOST EVERY REBUILD and the drift is the reason it
+        // is stated as a count AND a list a reader can compare in one glance: it said
+        // "FOUR, not seven" while listing THREE, then "SIX" while listing five, then
+        // "FOUR" while listing four with a tail sentence naming embed — which #1066 had
+        // just made v2. Count the list below before editing this line.
+        //
+        // table and embed left at #1066; stats and logos leave in the same issue's second
+        // half, at which point GRID ALONE remains and this file's own retirement becomes
+        // the question rather than another narrowing.
+        foreach (['grid', 'logos', 'stats'] as $known) {
             $this->assertContains($known, $found, "Schema discovery lost the {$known} component.");
         }
         // …and the v2 components must NOT be discovered here, or this suite would start
@@ -95,7 +113,7 @@ class StyleSlotContractTest extends TestCase
         // style-slot system in #958, hero in #986, section in #1023 and cta in #1026; their
         // authoring surface is roles, and the contract that replaced this one is the UDC
         // engine's own. nav and footer are chrome and were never in this set.
-        foreach (['hero', 'section', 'testimonials', 'cta', 'faq'] as $v2) {
+        foreach (['hero', 'section', 'testimonials', 'cta', 'faq', 'table', 'embed'] as $v2) {
             $this->assertNotContains($v2, $found, "{$v2} is a v2 component: it declares no style slots.");
         }
     }
@@ -648,11 +666,21 @@ class StyleSlotContractTest extends TestCase
     public function testIssue584HeadingRhythmRoutesEachComponentsOwnLiteral(): void
     {
         // component => [selector, expected fallback literal]
+        // table's row left at #1066. The CLAIM survives intact for the three that
+        // remain — it is about a slot routing its own literal so an unset band is
+        // byte-identical — and table's replacement asserts the same value one layer
+        // lower: TableRoleDefaultsEmitTest pins the EMITTED
+        // `margin-bottom:var(--space-lg)` on the `heading` role, which is what an unset
+        // band now renders from.
+        // table's row left at #1066 and embed's with it. TWO remain here (stats, logos)
+        // of the three components still on slots — grid's heading rhythm is pinned in its
+        // own premium-rule block rather than this one. The claim is unchanged for both:
+        // a slot routes its own literal so an unset band is byte-identical. Each departed
+        // component's replacement asserts the same value one layer lower, against the
+        // EMITTED `margin-bottom:var(--space-lg)` on its `heading` role.
         $expected = [
-            'stats'  => ['.stats__heading',         'var(--space-lg)'],
-            'table'  => ['.table-section__heading', 'var(--space-lg)'],
-            'embed'  => ['.embed__heading',         'var(--space-lg)'],
-            'logos'  => ['.logos__heading',         'var(--space-lg)'],
+            'stats'  => ['.stats__heading', 'var(--space-lg)'],
+            'logos'  => ['.logos__heading', 'var(--space-lg)'],
         ];
 
         foreach ($expected as $component => [$selector, $literal]) {
@@ -745,12 +773,20 @@ class StyleSlotContractTest extends TestCase
             . 'per-instance item gaps are intentionally absent.'
         );
 
-        // The band-background family stays out, entirely.
+        // The band-background family stays out of the stylesheet, entirely — but since
+        // #1066 the three names are absent for two different reasons. `--logos-bg` is
+        // still DEFERRED to the band-background gate. `--table-bg` and `--embed-bg` are
+        // not deferred any more: both components are on the Universal Design Contract,
+        // where a band tone is the `_band` role's `background.fill`, and a v2 component
+        // declares no style slots at all — so their names are barred by the stronger
+        // v2 boundary rule rather than by a withheld gate.
         foreach (['--logos-bg', '--embed-bg', '--table-bg'] as $absent) {
             $this->assertStringNotContainsString(
                 $absent,
                 $this->stripComments($this->css),
-                "{$absent} is deferred to the band-background gate and must not appear."
+                "{$absent} must not appear: --logos-bg is deferred to the band-background "
+                . 'gate, and --table-bg/--embed-bg would be style slots on components that '
+                . 'declare none.'
             );
         }
     }
@@ -1191,16 +1227,17 @@ class StyleSlotContractTest extends TestCase
             }
         }
 
-        // Fail-closed: 5 styled components render a root style attr and grid renders a
-        // per-card one, so 6. Two left in #1023 with section's rebuild (its root attribute
-        // and the per-row one issue 334 added — the panel rows are roles now), and faq's
-        // root attribute left at #1046. A v2 template emits `data-pp-band` and no `style`
-        // attribute at all, which is why each rebuild takes exactly one surface off this
-        // count. If the scan finds nothing, the loop above proved nothing.
+        // Fail-closed: 3 styled components render a root style attr and grid renders a
+        // per-card one, so 4. Two left in #1023 with section's rebuild (its root attribute
+        // and the per-row one issue 334 added — the panel rows are roles now), faq's
+        // root attribute left at #1046, and table's and embed's at #1066. A v2 template
+        // emits `data-pp-band` and no `style` attribute at all, which is why each rebuild
+        // takes exactly one surface off this count. If the scan finds nothing, the loop
+        // above proved nothing.
         $this->assertGreaterThanOrEqual(
-            6,
+            4,
             $emitted,
-            'Found fewer inline slot surfaces than the 6 known today — the template scan is broken.'
+            'Found fewer inline slot surfaces than the 4 known today — the template scan is broken.'
         );
 
         // Every pp_render_style_vars() call must reach an emit site the loop above actually

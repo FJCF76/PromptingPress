@@ -2167,9 +2167,18 @@ describe('CSS lint: section-level bands share one rhythm definition (#431)', () 
 // testimonials is absent from this table: it is a v2 component whose CSS block is
         // structural only, so it routes nothing through a slot. The value this row used to
         // guard is now a role default in components/testimonials/schema.json.
-                { comp: 'table', cls: '.table-section', slot: '--table' },
+        // table left this table at #1066 — its band rhythm is the `_band` role's spacing
+        // default, resolving to the same shared `@pp-band-padding`, and both of its
+        // per-component adjacent rules went with the slot they existed to keep alive.
+        // The behavioural pin that replaces it is the e2e #431 nine-band equality test,
+        // where table is STILL a member: the shared value is now asserted on the rendered
+        // page rather than on the stylesheet text.
         { comp: 'logos', cls: '.logos', slot: '--logos' },
-        { comp: 'embed', cls: '.embed', slot: '--embed' },
+        // embed left this table at #1066 with table — its band rhythm is the `_band`
+        // role's spacing default, resolving to the same shared `@pp-band-padding`, and
+        // both of its per-component adjacent rules went with the slot they kept alive.
+        // The behavioural pin that replaces it is the e2e #431 nine-band equality test,
+        // where embed is STILL a member.
         // hero is absent from this table (#986): it is a v2 component whose CSS block
         // is structural only, so it routes nothing through a slot and declares no
         // per-component adjacent rule. Its opt-out from the shared band rhythm survives
@@ -2436,9 +2445,13 @@ describe('CSS lint: band-level headings share one responsive scale (#436)', () =
         // faq's row left at #1046: the heading size is the `heading` role's
         // `typography.size`, referencing the same shared `@pp-band-heading-size`.
         { selectors: ['.stats__heading'], slot: '--stats-heading-size' },
-        { selectors: ['.table-section__heading'], slot: '--table-heading-size' },
+        // table's row left at #1066 with its slot; the size is the `heading` role's
+        // typography.size default now, pinned against the EMITTED declaration in
+        // TableRoleDefaultsEmitTest rather than against this stylesheet's text.
         { selectors: ['.logos__heading'], slot: '--logos-heading-size' },
-        { selectors: ['.embed__heading'], slot: '--embed-heading-size' },
+        // embed's row left at #1066 with its slot; the size is the `heading` role's
+        // typography.size default now, pinned against the EMITTED declaration in
+        // EmbedRoleDefaultsEmitTest.
 // testimonials is absent from this table: it is a v2 component whose CSS block is
         // structural only, so it routes nothing through a slot. The value this row used to
         // guard is now a role default in components/testimonials/schema.json.
@@ -2709,11 +2722,8 @@ describe('CSS lint: band heading-color slots route through the slot (#438)', () 
 
     // selector, its heading-color slot, and the fallback that preserves unset output.
     const HEADING_COLOR_RULES = [
-        { selector: '.table-section__heading', slot: '--table-heading-color', fallback: '--color-text' },
         { selector: '.logos__heading', slot: '--logos-heading-color', fallback: '--color-text' },
-        { selector: '.embed__heading', slot: '--embed-heading-color', fallback: '--color-text' },
         { selector: '.logos--inverted .logos__heading', slot: '--logos-heading-color', fallback: '--color-bg' },
-        { selector: '.embed--inverted .embed__heading', slot: '--embed-heading-color', fallback: '--color-bg' },
         // Widened in issue 581 (A-29). The original list named only the three components
         // issue 438 had just given a heading-color slot; every OTHER band heading whose
         // inverted rule is not already covered by the #222 theme-variant guard above was
@@ -2724,9 +2734,22 @@ describe('CSS lint: band heading-color slots route through the slot (#438)', () 
         { selector: '.stats--inverted .stats__heading', slot: '--stats-heading-color', fallback: '--color-bg' },
         // testimonials is absent: it is a v2 component whose CSS block is structural
         // only. Its heading colour is the `heading` role's typography.color default.
-        // faq's row left at #1046 with the `theme` prop. NOTE FOR THE NEXT REBUILD: faq
-        // was the LAST row in this table, so the presence floor below is what keeps the
-        // block honest rather than vacuous — read it before removing another row.
+        // embed's TWO rows (base and inverted) left at #1066 with its `theme` prop.
+        // faq's row left at #1046 with the `theme` prop, and table's at #1066 — table's
+        // heading colour is `currentColor` on the `heading` role now, which is the one
+        // shape this guard structurally cannot express (it asserts a slot-and-fallback
+        // chain, and a role default is neither).
+        //
+        // NOTE FOR THE NEXT REBUILD: four rows remain — logos and stats, base and
+        // inverted each. Both leave together in #1066's second half, at which point the
+        // roster is EMPTY and this whole block retires rather than being narrowed to
+        // nothing. (An earlier draft of this note said embed would be the last declarer;
+        // the same change that wrote it had already removed embed's two rows.)
+        //
+        // WHAT KEEPS IT HONEST MEANWHILE is not a floor assertion — there isn't one. It
+        // is vitest itself: a `test.each` over an empty array fails the run with "No test
+        // found in suite", so the block cannot go silently empty. Verified by emptying
+        // the roster. Read that before removing another row.
     ];
 
     test.each(HEADING_COLOR_RULES)('$selector routes color through $slot to var($fallback)', ({ selector, slot, fallback }) => {
@@ -2879,6 +2902,40 @@ describe('CSS lint: v2 components keep NO designable value in their stylesheet',
         // unclassified would have made faq's reveal un-keepable AND un-authorable,
         // because the unlisted-property arm below is fail-closed.
         'animation',
+        // ── THE FIVE TABLE-MARKUP PROPERTIES (#1066) ────────────────────────────
+        //
+        // Same discipline as `cursor`/`transition`/`transform` (#994), `overflow-wrap`
+        // (#1023) and `animation` (#1046), and found the same way: `table` is the first
+        // v2 component with TABLE markup, so it is the first to reach any of these. All
+        // five were in NO set, and the unlisted-property arm below is fail-closed — so
+        // until they are classified, table's structural CSS can be neither kept here nor
+        // authored through a role. That is a capability deletion, which is the #901 class.
+        //
+        // `border-collapse` — selects the table's border BOX MODEL (separate or collapsed
+        // edges). It sets no border VALUE and no group emits it; the analogy is
+        // `box-sizing`, already structural here. Note it is not inert: the collapsed model
+        // is what makes `row`'s separator and `header`'s bottom rule share one edge, which
+        // is why the schema documents the CSS 2.1 17.6.2 conflict order rather than the
+        // cascade for those two roles.
+        //
+        // `caption-side` — WHERE the caption box sits, top or bottom. Placement, the
+        // `position`/`order` tier, not a value an author retunes for design.
+        //
+        // `overscroll-behavior-x` and `-webkit-overflow-scrolling` — scroll affordances,
+        // siblings of `overflow-x` which is already structural three lines up. They are
+        // what make `.table-wrap` a contained scroller instead of a rubber-banding one
+        // that steals the page's horizontal gesture.
+        //
+        // `vertical-align` — THE ONE JUDGMENT CALL HERE, said plainly rather than filed
+        // under the other four. It could be read as design, because `text-align` is in
+        // ALWAYS_DESIGN below. The distinction taken: `text-align` is design precisely
+        // BECAUSE `typography.align` exists to carry it, and no group emits this one; and
+        // what it does — align a cell's content against its SIBLING cells in the same row
+        // — is the `align-items` tier rather than the type tier. If a later ruling gives
+        // the sizing group a `vertical-align` param, this moves to ALWAYS_DESIGN in the
+        // SAME commit, per the one-home rule stated on `object-position` below.
+        'border-collapse', 'caption-side', 'vertical-align',
+        'overscroll-behavior-x', '-webkit-overflow-scrolling',
     ]);
 
     // Properties that are NEVER structural, whatever value they carry. A
@@ -2984,11 +3041,31 @@ const NEGATIVE_PULL = /^(-[\d.]|calc\(\s*-\s*[\d.]+\s*\*)/;
         return stripComments(css.slice(bodyStart + 2, next === -1 ? undefined : next));
     };
 
+    // A v2 component may legitimately reach ZERO structural rules, and embed is the first
+    // one that has (#1066): every rule it had was a value a role owns now, and it has no
+    // layout to scaffold and no affordance of its own. That is the end state this whole
+    // boundary is aiming at, so the rule has to be able to express it — but it must not
+    // become an escape hatch, and it must not let a BROKEN SLICER look like compliance
+    // (which is the entire reason the floor below exists). So: the rule-free components
+    // are named here, and a named one is asserted to have EXACTLY zero rules while every
+    // other v2 component keeps the original floor. A rule creeping back into embed's block
+    // fails; a slicer that stops finding any block fails for every other component.
+    const INTENTIONALLY_RULE_FREE = ['embed'];
+
     v2Components.forEach(component => {
         test(`${component}'s CSS block declares only structure`, () => {
             const block = componentBlock(component);
             expect(block, `no CSS banner block found for ${component}`).not.toBe('');
             const rules = parseRules(block);
+            if (INTENTIONALLY_RULE_FREE.includes(component)) {
+                expect(
+                    rules,
+                    `${component}'s block is recorded as rule-free: every value it had belongs ` +
+                    'to a role. A rule here means either a designable value came back or a ' +
+                    'structural need appeared that the schema does not record.'
+                ).toEqual([]);
+                return;
+            }
             // Floor: the slice must actually contain the sub-element rules, or every
             // check below reads an empty list and passes for the wrong reason.
             expect(rules.length).toBeGreaterThan(5);
@@ -3096,6 +3173,72 @@ const NEGATIVE_PULL = /^(-[\d.]|calc\(\s*-\s*[\d.]+\s*\*)/;
         // so this is a classification rather than a rule-level bypass.
         const beside = parseRules('.faq__item[open] > .faq__answer { animation: faq-open 150ms ease; font-size: 2rem; }');
         expect(designOffencesIn(beside)).not.toEqual([]);
+    });
+
+    /**
+     * THE #1066 CARVE-OUTS, PROVEN IN BOTH DIRECTIONS.
+     *
+     * table is the first v2 component with TABLE markup, so it is the first to reach any
+     * of five properties that were in NO set. The unlisted-property arm is fail-closed,
+     * which is what makes an unclassified property a capability DELETION rather than a
+     * missing convenience — it can be neither kept here nor authored through a role.
+     *
+     * An admission nobody can see the edge of is indistinguishable from a removed rule
+     * (the #1046 lesson), so this pins the admission AND its edge.
+     */
+    test('table joins the boundary rule', () => {
+        expect(v2Components).toContain('table');
+    });
+
+    test('embed joins the boundary rule, with an empty block', () => {
+        expect(v2Components).toContain('embed');
+        // BOTH HALVES. Membership alone would pass if the banner were deleted outright,
+        // and emptiness alone would pass if the component fell out of discovery.
+        expect(componentBlock('embed')).not.toBe('');
+        expect(parseRules(componentBlock('embed'))).toEqual([]);
+    });
+
+    test('the five table-markup properties are structural, and buy nothing adjacent', () => {
+        // The real shapes, as they ship in the `COMPONENT: table` block.
+        const real = parseRules(
+            '.table { border-collapse: collapse; }' +
+            '.table__caption { caption-side: bottom; }' +
+            '.table__cell { vertical-align: top; }' +
+            '.table-wrap { overscroll-behavior-x: contain; -webkit-overflow-scrolling: touch; }'
+        );
+        expect(
+            designOffencesIn(real),
+            'table\'s five structural table-markup properties must be admitted'
+        ).toEqual([]);
+
+        // THE EDGE, one per property: the classification buys that property and nothing
+        // beside it. A rule-level bypass would pass all five of these.
+        const beside = {
+            'border-collapse': '.table { border-collapse: collapse; background: #fff; }',
+            'caption-side':    '.table__caption { caption-side: bottom; color: #333; }',
+            'vertical-align':  '.table__cell { vertical-align: top; font-size: 0.9rem; }',
+            'overscroll':      '.table-wrap { overscroll-behavior-x: contain; border-radius: 8px; }',
+            'webkit-scroll':   '.table-wrap { -webkit-overflow-scrolling: touch; box-shadow: 0 2px 4px #0001; }',
+        };
+        Object.entries(beside).forEach(([name, css]) => {
+            expect(
+                designOffencesIn(parseRules(css)),
+                `${name} must be a classification, not a rule-level bypass`
+            ).not.toEqual([]);
+        });
+    });
+
+    test('the fail-closed arm still catches a property in no set', () => {
+        // THE POINT OF THE WHOLE EXERCISE. Classifying five properties must not be
+        // mistaken for relaxing the arm that FOUND them — the next v2 component with
+        // unfamiliar markup has to hit the same wall table did.
+        const unknown = parseRules('.table__cell { text-orientation: upright; }');
+        const offences = designOffencesIn(unknown);
+        expect(offences, 'an unclassified property must still be reported').not.toEqual([]);
+        expect(
+            offences.join('\n'),
+            'and it must say what to do about it'
+        ).toContain('classify it');
     });
 
     /** …and the structural declarations it must NOT flag. */
@@ -3506,11 +3649,23 @@ describe('CSS lint: inverted dark-band links route through the on-inverted accen
         // prop in its v2 rebuild, exactly as testimonials' did. Body links are the
         // `body-link` role now, and that role carries its own `:hover` — which is the
         // §1b requirement that a role's states move with its resting values.
-        // EMBED IS THE LAST ROW STANDING, and that is why this block survives rather than
-        // going with cta's. embed is still a v1 component: it still emits
-        // `.embed--inverted` and still remaps its body links automatically, so the
-        // regression this pins is still reachable there.
-        '.embed--inverted a',
+        // EMBED'S ROW WENT AT #1066, AND IT WAS THE LAST ONE. This roster is now empty,
+        // and that is the honest end of the AUTOMATIC remap rather than a gap: no
+        // component emits an `--inverted` class any more, so there is no rule left for
+        // any row to name. The `forEach` below therefore runs zero times, which would be
+        // vacuous on its own — so the capability's survival is asserted directly,
+        // immediately after it, rather than left to an empty loop to imply.
+        //
+        // WHAT WAS LOST AND WHAT REPLACED IT, stated because this is a real capability
+        // change and not a rename: v1 remapped a dark band's body links AUTOMATICALLY,
+        // keyed on the theme class. v2 has no automatic remap — the author writes it —
+        // and the address is a `*-link` role with EMPTY defaults: `body-link` on section
+        // and cta, `content-link` on embed, `cell-link` on table. Empty defaults are what
+        // keep a role from outranking the premium button rules for an author-written
+        // `<a class=\"btn\">` (#545 through a role selector) while still giving the author
+        // somewhere to aim. A container role's ink cannot substitute: it reaches a link
+        // only by inheritance, and base.css's `a` rule is a direct declaration on the
+        // element (measured, #1069).
         // cta's row went at #1026, exactly as section's went at #1023 and testimonials'
         // in Sprint 0. `.cta--inverted` died with the `theme` prop, so the selector this
         // row named no longer exists. A cta body link is the `body-link` role now, which
@@ -3530,6 +3685,18 @@ describe('CSS lint: inverted dark-band links route through the on-inverted accen
         return m ? m[1] : null;
     }
 
+    // THE ROSTER'S EMPTINESS IS ASSERTED, NOT ASSUMED (#1045's roster-count shape).
+    // `HEADING_COLOR_RULES` gets this for free because `test.each` refuses an empty
+    // array; a `forEach` does not — it just contributes no tests, silently. The
+    // docblock above says the roster is empty and says why, but a comment is not a
+    // gate: without this line the block's deadness is an accident that reads exactly
+    // like coverage. If a future rebuild re-introduces an `--inverted` link rule, this
+    // fails and sends the author to the two replacement tests below rather than
+    // letting a half-live loop run beside them.
+    test('the automatic dark-band link remap has no rows left, and that is asserted', () => {
+        expect(DARK_BAND_LINK_VARIANTS).toHaveLength(0);
+    });
+
     DARK_BAND_LINK_VARIANTS.forEach(selector => {
         test(`${selector} remaps link color to --color-accent-on-inverted`, () => {
             const body = ruleBody(selector);
@@ -3544,6 +3711,84 @@ describe('CSS lint: inverted dark-band links route through the on-inverted accen
             expect(hoverBody).not.toBeNull();
             expect(hoverBody).toMatch(/--color-accent-on-inverted-hover\b/);
         });
+    });
+
+    // THE EMPTIED ROSTER'S REPLACEMENT CLAIM. Read the long note on
+    // DARK_BAND_LINK_VARIANTS first: the automatic remap is gone, and what has to stay
+    // true is that every rich-text surface still has a LINK ADDRESS with EMPTY defaults.
+    // Without this the empty roster above would simply be an absence nothing notices,
+    // which is the #1038 shape.
+    test('every rich-text surface still declares a link role, and none of them defaults', () => {
+        const componentsDir = path.resolve(__dirname, '../../components');
+        // component => the role that addresses a link inside its rich text.
+        const LINK_ROLES = {
+            section: 'body-link',
+            cta: 'body-link',
+            embed: 'content-link',
+            table: 'cell-link',
+        };
+        Object.entries(LINK_ROLES).forEach(([component, role]) => {
+            const schema = JSON.parse(
+                fs.readFileSync(path.join(componentsDir, component, 'schema.json'), 'utf-8'),
+            );
+            const declared = schema.roles && schema.roles[role];
+            expect(declared, `${component} must declare a \`${role}\` role`).toBeTruthy();
+            expect(
+                declared.defaults,
+                `${component}.${role} must declare NO defaults: a default outranks the premium ` +
+                'button rules for an author-written .btn (#545 through a role selector)',
+            ).toEqual({});
+            expect(
+                declared.groups,
+                `${component}.${role} must permit typography, or the author has no ink to set`,
+            ).toContain('typography');
+        });
+    });
+
+    /**
+     * THE STATE HALF, WHICH THE ROSTER ABOVE DOES NOT COVER (#1066).
+     *
+     * The retired `.embed--inverted a` rule was a PAIR: a resting colour and a `:hover`
+     * routed through `--color-accent-on-inverted-hover`. Emptying DARK_BAND_LINK_VARIANTS
+     * deleted TWO generated tests per row, and repricing only the resting one is the
+     * #1046 both-halves defect — the one this block is most exposed to, because the
+     * resting half is the half the rendered contrast runner exercises.
+     *
+     * A link role that could not carry a state would silently cap every dark band's hover
+     * at base.css's `@color-accent-hover` (about 2.6:1 on `@color-bg-inverted`, against
+     * 11.4:1 for the on-inverted-hover token). So the capability is asserted here, and the
+     * rendered proof that an authored `:hover` actually EMITS lives in style-render.spec.ts.
+     */
+    test('a link role can carry its states, so a dark band\'s hover is authorable', () => {
+        const componentsDir = path.resolve(__dirname, '../../components');
+        const LINK_ROLES = {
+            section: 'body-link',
+            cta: 'body-link',
+            embed: 'content-link',
+            table: 'cell-link',
+        };
+        // The engine's state dimension is a sub-map INSIDE a group, so "can carry a state"
+        // is exactly "declares the group the state would live in". Asserting the group is
+        // therefore the whole claim, not a proxy for it.
+        Object.entries(LINK_ROLES).forEach(([component, role]) => {
+            const schema = JSON.parse(
+                fs.readFileSync(path.join(componentsDir, component, 'schema.json'), 'utf-8'),
+            );
+            const declared = schema.roles[role];
+            expect(
+                declared.groups,
+                `${component}.${role} must permit typography so an author can write a :hover ` +
+                'colour — v1 remapped the dark-band hover automatically and that rule retired',
+            ).toContain('typography');
+        });
+
+        // AND THE TOKEN THE HOVER ROUTES TO MUST STILL EXIST. It lost its last
+        // component-level reader when `.embed--inverted a:hover` was deleted at #1066, so
+        // without this nothing would notice it being dropped from base.css.
+        expect(
+            BASE_CSS,
+            '--color-accent-on-inverted-hover is what a dark band\'s link hover routes to',
+        ).toMatch(/--color-accent-on-inverted-hover:\s*#[0-9a-fA-F]{6}/);
     });
 
     test('inverted stats numbers route the fallback through --color-accent-on-inverted', () => {

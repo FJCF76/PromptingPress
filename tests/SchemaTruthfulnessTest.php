@@ -154,10 +154,14 @@ class SchemaTruthfulnessTest extends TestCase
         // section is absent since #1023 for the mirror-image reason: its `heading` role
         // DOES route the shared scale, as `@pp-band-heading-size`, so the token still
         // governs it — through the engine rather than through a slot.
-        // faq left at #1046: its heading size is the `heading` role's `typography.size`,
-        // referencing the same shared `@pp-band-heading-size` token this test exists to
-        // keep every band on. The v2 half of that claim is FaqRoleDefaultsEmitTest.
-        $bands = ['grid', 'stats', 'table', 'logos', 'embed'];
+        // faq left at #1046 and table at #1066: each heading size is the `heading` role's
+        // `typography.size`, referencing the same shared `@pp-band-heading-size` token
+        // this test exists to keep every band on. The v2 half of each claim is that
+        // component's RoleDefaultsEmitTest — for table,
+        // TableRoleDefaultsEmitTest::testTheHeadingFollowsTheBandAndRestatesNoGlobalType,
+        // which asserts the emitted `font-size:var(--pp-band-heading-size)` rather than
+        // the schema text.
+        $bands = ['grid', 'stats', 'logos'];
         foreach ($bands as $component) {
             $slot = "--{$component}-heading-size";
             $slots = $this->slots($component);

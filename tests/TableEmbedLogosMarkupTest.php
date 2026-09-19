@@ -91,10 +91,20 @@ class TableEmbedLogosMarkupTest extends TestCase
     {
         $html = $this->render('table', $props + ['title' => 'Comparison']);
 
+        // THE `text-muted` UTILITY IS GONE (#1066) and the class list is asserted
+        // EXACTLY, not by substring, because that is the half worth pinning: the grey is
+        // the `empty` role's `typography.color` default now, and a utility class silently
+        // returning would put a layered `--color-muted` back in front of an author's
+        // `_band` write — the exact stranding #994 and #1046 removed it for.
         $this->assertStringContainsString(
-            '<p class="table-section__empty text-muted">No data.</p>',
+            '<p class="table-section__empty">No data.</p>',
             $html,
             'the empty branch renders the literal current copy'
+        );
+        $this->assertStringNotContainsString(
+            'text-muted',
+            $html,
+            'the utility class must not return: the `empty` role owns this line\'s colour'
         );
         $this->assertStringNotContainsString('<table', $html);
         $this->assertStringNotContainsString('table-wrap', $html);
@@ -169,10 +179,112 @@ class TableEmbedLogosMarkupTest extends TestCase
         $this->assertStringNotContainsString('embed__content', $noContent);
     }
 
-    public function testEmbedInvertedThemeEmitsTheInvertedModifier(): void
+    /**
+     * THE INVERTED MODIFIER IS GONE (#1066), and this test asserts its ABSENCE rather
+     * than being deleted with the prop.
+     *
+     * Deleting it would have been the #1038 mistake in its purest form: the claim it
+     * made ("a theme value reaches the rendered class list") is exactly the claim that
+     * must now be FALSE, and nothing else in this file would notice a variant class
+     * quietly returning. A stored `theme` on an existing band is the ordinary state of
+     * every page written before the rebuild, so the shape is reachable, not theoretical.
+     */
+    public function testEmbedEmitsNoThemeModifierNowThatTheThemePropIsRetired(): void
     {
+        // A STORED theme, which is what a pre-rebuild band actually holds. The write path
+        // refuses it; storage still carries it, and the renderer must ignore it.
         $html = $this->render('embed', ['theme' => 'inverted', 'content' => 'x']);
-        $this->assertStringContainsString('class="embed embed--inverted"', $html);
+
+        $this->assertStringContainsString('class="embed"', $html, 'the root class stands alone');
+        $this->assertStringNotContainsString('embed--inverted', $html);
+        $this->assertStringNotContainsString('embed--dark', $html);
+        $this->assertStringNotContainsString('embed--', $html, 'no variant class survives the rebuild');
+    }
+
+    // ── the two v2 band attributes, on both new templates (#1066) ─────────────
+
+    /**
+     * THE BAND-ID GUARD AND THE OVERLAY ATTRIBUTE, PINNED PER TEMPLATE.
+     *
+     * WHY A THIRD AND FOURTH COPY RATHER THAN A REFERENCE TO cta's and faq's
+     * (ComponentPropsTest::testAMalformedBandIdEmitsNoAttributeAtAll and its faq twin).
+     * UdcEngineTest sweeps every v2 template for the STRINGS this guard is made of —
+     * `__pp_udc_band`, `pp_udc_valid_band_id`, `data-pp-band` — which proves the code is
+     * PRESENT and nothing about what it does: a template can read the id, call the
+     * validator, ignore the verdict and still pass that sweep. #1026's coverage audit
+     * measured the cost of assuming otherwise, where weakening cta's identical guard to
+     * `(pp_udc_valid_band_id(...) || true)` left the whole suite green. table.php and
+     * embed.php each carry a fresh copy of that guard, so each needs its own behavioural
+     * pin; this one is parametrised because the two copies are byte-identical.
+     *
+     * THE EMPTY-ATTRIBUTE CASE IS THE ONE THAT MATTERS: `[data-pp-band=""]` matches every
+     * other id-less band on the page, so a malformed stored id does not merely fail to
+     * paint its own design — it paints one band's design onto all the others. Reachable
+     * from stored data even though the engine mints on WRITE: a raw `_pp_composition` meta
+     * write is not gated, and restore_composition reports without blocking (#233).
+     *
+     * THE OVERLAY ATTRIBUTE RIDES ALONG because it is the other attribute these templates
+     * newly emit and it has the same shape of failure — an attribute that silently stops
+     * being emitted. It is what switches the focus ring to the on-overlay accent over a
+     * scrim (#986's mechanism), where `--color-accent` measures 1.17:1: consuming it is
+     * exactly what keeps these two components out of #1035's reach.
+     */
+    public function testBothNewV2TemplatesGuardTheBandIdAndCarryTheOverlayAttribute(): void
+    {
+        $fixtures = [
+            'table' => ['headers' => ['A'], 'rows' => [['1']]],
+            'embed' => ['content' => '[shortcode]'],
+        ];
+
+        foreach ($fixtures as $component => $props) {
+            foreach ([
+                'not an id',         // spaces
+                'pp-ZZZZ!!',         // outside the charset
+                'quote"]',           // attribute-breaking
+                str_repeat('a', 65), // over the 64-char cap
+                '',                  // empty
+                ['pp-1a2b3c4d'],     // non-scalar
+            ] as $bad) {
+                $html  = $this->render($component, $props + ['__pp_udc_band' => $bad]);
+                $shown = is_scalar($bad) ? var_export($bad, true) : gettype($bad);
+                $this->assertStringNotContainsString(
+                    'data-pp-band=""',
+                    $html,
+                    "{$component}: an empty band id would match every other id-less band ({$shown})"
+                );
+                $this->assertStringNotContainsString(
+                    'data-pp-band',
+                    $html,
+                    "{$component}: a malformed band id must emit NO attribute, not a broken one ({$shown})"
+                );
+                // A bad id is not a reason to lose content — the band still renders.
+                $this->assertStringContainsString("data-pp-component=\"{$component}\"", $html);
+            }
+
+            // Positive control, or every assertion above passes on a template that emits
+            // nothing at all.
+            $good = $this->render($component, $props + ['__pp_udc_band' => 'pp-1a2b3c4d']);
+            $this->assertStringContainsString('data-pp-band="pp-1a2b3c4d"', $good, $component);
+
+            // THE OVERLAY ATTRIBUTE, BOTH WAYS. Present only when the engine says a scrim
+            // is being painted — it is the ENGINE that knows, which is why the template
+            // consumes a flag rather than deciding.
+            $this->assertStringNotContainsString(
+                'data-pp-band-overlay',
+                $good,
+                "{$component}: no overlay flag, no overlay attribute"
+            );
+            $scrim = $this->render($component, $props + [
+                '__pp_udc_band'    => 'pp-1a2b3c4d',
+                '__pp_udc_overlay' => true,
+            ]);
+            $this->assertStringContainsString(
+                'data-pp-band-overlay',
+                $scrim,
+                "{$component}: the focus ring over a scrim follows this attribute (#986); "
+                . 'without it the band keeps a 1.17:1 ring, which is #1035'
+            );
+        }
     }
 
     // ── logos ────────────────────────────────────────────────────────────────

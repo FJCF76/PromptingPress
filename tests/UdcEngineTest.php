@@ -1689,6 +1689,40 @@ final class UdcEngineTest extends TestCase
                 ],
                 ['title' => 'Common objections', 'items' => []],
             ],
+            // TWO SETS, because table's roles cannot all coexist in one render: `empty`
+            // is the branch that fires when the table has NO headers or NO rows, so it is
+            // mutually exclusive with every role inside the table. Same shape faq uses
+            // for its own empty state.
+            //
+            // The first set carries a LINK IN A CELL on purpose. `cell-link` declares no
+            // defaults, so nothing it emits could fail an emission test — but its
+            // SELECTOR still has to match something the template renders, and a role
+            // whose selector matches nothing is the silent-skip this lint exists to
+            // catch. A cell's rich text goes through wp_kses_post(), which admits `a`.
+            //
+            // THAT CLAIM WAS FALSE WHEN FIRST WRITTEN and is true now: the sweep checked
+            // class tokens only, so the `a` went unchecked and removing these links left
+            // the suite green. The element half was added at #1066 (see the sweep below);
+            // these fixtures are what it reads.
+            // embed's THREE roles all render from one band, so a single set is enough —
+            // but the set carries a LINK, because `content-link`'s selector still has to
+            // match something the template renders even though the role defaults nothing.
+            'embed' => [
+                'title'   => 'Book a call',
+                'content' => '<p>Pick a slot. <a href="/contact">Contact us</a> if none fit.</p>',
+            ],
+            'table' => [
+                [
+                    'title'   => 'Compare the plans',
+                    'caption' => 'Plan comparison',
+                    'headers' => ['Plan', 'Support'],
+                    'rows'    => [
+                        ['Starter', 'Email'],
+                        ['Growth', '<a href="/contact">Priority</a>'],
+                    ],
+                ],
+                ['title' => 'Compare the plans', 'headers' => [], 'rows' => []],
+            ],
             'testimonials' => [
                 'title'        => 'What they say',
                 'title_accent' => 'they',
@@ -1822,6 +1856,32 @@ final class UdcEngineTest extends TestCase
                 if ($selector === '') {
                     continue; // `_band` is the band element itself.
                 }
+                // ── THE ELEMENT HALF, ADDED AT #1066 ────────────────────────────
+                //
+                // This sweep checked CLASS tokens only, which left a real gap the moment
+                // a role's selector ended in a bare element: `.table__cell a` and
+                // `.embed__content a` were checked for `table__cell` / `embed__content`
+                // and never for the `a`. Measured at the time it was found: removing the
+                // links from those fixtures entirely left the whole suite green, so the
+                // fixtures' own comment ("its SELECTOR still has to match something the
+                // template renders") was describing a check that did not exist.
+                //
+                // A trailing bare element term is exactly the shape a `*-link` role takes,
+                // and it is the shape most likely to match nothing — an author-written
+                // anchor lives in rich text, so whether one renders at all depends on the
+                // fixture. Checked as a TAG now, against the same rendered html.
+                if (preg_match('/(?:^|[\s>])([a-z][a-z0-9]*)\s*$/', $selector, $tagM)) {
+                    $tag = $tagM[1];
+                    $this->assertMatchesRegularExpression(
+                        '/<' . preg_quote($tag, '/') . '\b/i',
+                        $html,
+                        "{$component}.{$role} ends in the element `{$tag}`, which the component's "
+                        . 'fixture never renders — the role would emit a block matching nothing, '
+                        . 'and this sweep exists to catch exactly that silent skip'
+                    );
+                    $checked++;
+                }
+
                 // Every class the selector names must exist in the rendered markup.
                 preg_match_all('/\.([A-Za-z0-9_-]+)/', $selector, $m);
                 $this->assertNotEmpty($m[1], "{$component}.{$role} has a selector with no class to match");
@@ -2006,13 +2066,16 @@ final class UdcEngineTest extends TestCase
                 $legacy[] = $name;
             }
         }
-        // FIVE now: testimonials was rebuilt in Sprint 0, nav and footer joined as the
+        // THREE now: testimonials was rebuilt in Sprint 0, nav and footer joined as the
         // CHROME container in Sprint 1 (ruling A1), hero in Sprint 1 (#986), section in
-        // Sprint 2 (#1023), cta in Sprint 2 (#1026) and faq in Sprint 2 (#1046). The
+        // Sprint 2 (#1023), cta in Sprint 2 (#1026), faq in Sprint 2 (#1046), and table
+        // and embed in Sprint 2 (#1066). Only grid, stats and logos remain. The
         // number is asserted rather than loosened so that a component quietly falling OFF
         // the engine still trips this — and so that each rebuild has to come here and say
         // which one moved.
-        $this->assertCount(5, $legacy, 'five components stay on the legacy system');
+        $this->assertCount(3, $legacy, 'three components stay on the legacy system');
+        $this->assertNotContains('embed', $legacy);
+        $this->assertNotContains('table', $legacy);
         $this->assertNotContains('faq', $legacy);
         $this->assertNotContains('testimonials', $legacy);
         $this->assertNotContains('nav', $legacy);
