@@ -77,8 +77,16 @@ class StyleSlotContractTest extends TestCase
     /**
      * Fail-closed floor for the discovery itself: if the glob breaks (moved directory,
      * renamed schema files), every discovery-driven check below would pass vacuously
-     * over an empty list. Pin the seven components known to declare slots today; new
-     * slot-bearing components extend discovery automatically without touching this.
+     * over an empty list. Pin the THREE components that declare slots today — grid,
+     * logos and stats; new slot-bearing components extend discovery automatically
+     * without touching this.
+     *
+     * This sentence said SEVEN until #1066, which is how it ended up contradicting the
+     * assertion four lines below it: the number shrank at every v2 rebuild and the
+     * docblock was never one of the halves anyone repriced. table and embed were the
+     * last two to leave. Corrected here rather than filed, because a floor whose prose
+     * disagrees with its own count is exactly the thing a reader trusts instead of
+     * checking (#1038).
      */
     public function testDiscoveryFindsTheKnownStyledComponents(): void
     {
